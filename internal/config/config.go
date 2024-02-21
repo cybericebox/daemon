@@ -34,6 +34,7 @@ type (
 	// HTTPConfig is the configuration for the HTTP server
 	HTTPConfig struct {
 		Server ServerConfig `yaml:"server"`
+		Proxy  ProxyConfig  `yaml:"proxy"`
 	}
 
 	// ServerConfig is the configuration for the HTTP server
@@ -43,6 +44,10 @@ type (
 		ReadTimeout        time.Duration `yaml:"readTimeout" env:"http-readTimeout" env-default:"10s" env-description:"HTTP readTimeout"`
 		WriteTimeout       time.Duration `yaml:"writeTimeout" env:"http-writeTimeout" env-default:"10s" env-description:"HTTP writeTimeout"`
 		MaxHeaderMegabytes int           `yaml:"maxHeaderBytes" env:"http-maxHeaderBytes" env-default:"1" env-description:"HTTP maxHeaderBytes"`
+	}
+
+	// ProxyConfig is the configuration for the HTTP proxy
+	ProxyConfig struct {
 	}
 
 	// Valid is a type that represents the validation status of a configuration
@@ -85,5 +90,8 @@ func GetConfig() (*Config, Valid) {
 
 func isValidConfig(cfg *Config) Valid {
 	// TODO: Implement validation logic
+	if nil == cfg {
+		return true
+	}
 	return true
 }
