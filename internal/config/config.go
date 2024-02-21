@@ -35,6 +35,7 @@ type (
 	HTTPConfig struct {
 		Server ServerConfig `yaml:"server"`
 		Proxy  ProxyConfig  `yaml:"proxy"`
+		Auth   AuthConfig   `yaml:"auth"`
 	}
 
 	// ServerConfig is the configuration for the HTTP server
@@ -48,6 +49,37 @@ type (
 
 	// ProxyConfig is the configuration for the HTTP proxy
 	ProxyConfig struct {
+	}
+
+	AuthConfig struct {
+		Domain            string `yaml:"domain" env:"auth-domain" env-description:"Root domain"`
+		Secure            bool
+		JWT               JWTConfig         `yaml:"jwt"`
+		RecaptchaV3       RecaptchaV3Config `yaml:"recaptchaV3"`
+		OAUTH             OAuthConfig       `yaml:"oauth"`
+		TemporalCodeTTL   time.Duration     `yaml:"temporalCodeTTL" env:"auth-temporalCodeTTL" env-default:"24h" env-description:"Temporal code TTL"`
+		TemporalCookieTTL time.Duration     `yaml:"temporalCookieTTL" env:"auth-temporalCookieTTL" env-default:"10m" env-description:"Temporal cookie TTL"`
+	}
+
+	JWTConfig struct {
+		AccessTokenTTL  time.Duration `yaml:"accessTokenTTL" env:"jwt-accessTokenTTL" env-default:"15m" env-description:"JWT accessToken TTL"`
+		RefreshTokenTTL time.Duration `yaml:"refreshTokenTTL" env:"jwt-refreshTokenTTL" env-default:"1h" env-description:"JWT refreshToken TTL"`
+		TokenSignature  string        `yaml:"tokenSignature" env:"jwt-tokenSignature" env-description:"JWT token Signature"`
+	}
+
+	RecaptchaV3Config struct {
+		SecretKey string  `yaml:"secretKey" env:"recaptcha-secret" env-description:"Recaptcha secret"`
+		SiteKey   string  `yaml:"siteKey" env:"recaptcha-site" env-description:"Recaptcha site"`
+		Score     float64 `yaml:"score" env:"recaptcha-score" env-default:"0.5" env-description:"Recaptcha score"`
+	}
+
+	OAuthConfig struct {
+		Google GoogleOAuthConfig `yaml:"google"`
+	}
+
+	GoogleOAuthConfig struct {
+		ClientID     string `yaml:"clientID" env:"google-clientID" env-description:"Google clientID"`
+		ClientSecret string `yaml:"clientSecret" env:"google-clientSecret" env-description:"Google clientSecret"`
 	}
 
 	// Valid is a type that represents the validation status of a configuration
@@ -85,7 +117,21 @@ func GetConfig() (*Config, Valid) {
 		return nil, false
 	}
 
+	if nil != processConfig(instance) {
+		log.Error().Err(err).Msg("See the help bellow")
+		fmt.Println(help)
+		return nil, false
+	}
+
 	return instance, true
+}
+
+func processConfig(cfg *Config) error {
+	cfg.Controller.HTTP.Auth.Secure = true
+	if cfg.Environment == EnvDevelopment {
+		cfg.Controller.HTTP.Auth.Secure = false
+	}
+	return nil
 }
 
 func isValidConfig(cfg *Config) Valid {

@@ -1,25 +1,27 @@
 package handler
 
 import (
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 	"github.com/gin-gonic/gin"
 )
 
 type (
-	APIHandler struct {
+	Handler struct {
 		service Service
 	}
 
 	Service interface {
+		auth.Service
 	}
 )
 
-func NewAPIHandler(service Service) *APIHandler {
-	return &APIHandler{service: service}
+func NewAPIHandler(service Service) *Handler {
+	return &Handler{service: service}
 }
 
-func (h *APIHandler) Init(router *gin.Engine) {
-	_ = router.Group("/api", corsMiddleware)
+func (h *Handler) Init(router *gin.Engine) {
+	api := router.Group("/api", corsMiddleware)
 	{
-
+		auth.NewAuthAPIHandler(h.service).Init(api)
 	}
 }

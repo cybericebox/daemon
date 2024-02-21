@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/proxy"
 	"github.com/gin-gonic/gin"
 )
@@ -22,6 +23,8 @@ type (
 		handler.Service
 		// Service is dependencies for the http proxy
 		proxy.Service
+		// Service is dependencies for the routes protection
+		protection.Service
 	}
 
 	// Dependencies for the controller
@@ -37,6 +40,12 @@ func NewController(deps Dependencies) *Controller {
 		config:  deps.Config,
 		service: deps.Service,
 	}
+
+	// initialize routes protection
+	protection.InitRoutesProtection(&protection.Dependencies{
+		Config:  &deps.Config.Auth,
+		Service: deps.Service,
+	})
 
 	// create the router
 	router := gin.Default()

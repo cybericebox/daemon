@@ -4,6 +4,7 @@ go 1.22.0
 
 require (
 	github.com/gin-gonic/gin v1.9.1
+	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/rs/zerolog v1.32.0
 )
