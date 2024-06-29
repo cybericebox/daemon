@@ -48,7 +48,7 @@ func (p *protection) checkPermissions(ctx *gin.Context) {
 	if ctx.GetString(tools.SubdomainCtxKey) == config.AdminSubdomain {
 		if role != model.AdministratorRole {
 			// if user is not an admin redirect to main domain page
-			RedirectToMainDomainPage(ctx, http.StatusForbidden)
+			RedirectToMainDomainPage(ctx, http.StatusTemporaryRedirect)
 			return
 		}
 	}
@@ -93,7 +93,7 @@ func (p *protection) unauthorizedResponse(ctx *gin.Context) {
 	// save "from" url to cookie
 	p.setFromURL(ctx)
 	// redirect to sign in page
-	RedirectToMainDomainPage(ctx, http.StatusUnauthorized, config.SignInPage)
+	RedirectToMainDomainPage(ctx, http.StatusTemporaryRedirect, config.SignInPage)
 }
 
 // setFromURL save "from" url
@@ -148,7 +148,7 @@ func SetAuthenticated(ctx *gin.Context, tokens *model.Tokens) {
 	// get from url if user was redirected to sign in page
 	from := GetFromURL(ctx)
 	// redirect to "from" url
-	response.Redirect(ctx, http.StatusTemporaryRedirect, from)
+	response.Redirect(ctx, http.StatusFound, from)
 
 }
 
