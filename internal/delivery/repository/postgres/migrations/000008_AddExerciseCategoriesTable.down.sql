@@ -1,0 +1,1 @@
+drop table if exists exercise_categories;
