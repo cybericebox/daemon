@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tool"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 )
@@ -40,7 +40,7 @@ func (h *Handler) initSingleEventAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getEvent(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	event, err := h.useCase.GetEvent(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -50,7 +50,7 @@ func (h *Handler) getEvent(ctx *gin.Context) {
 }
 
 func (h *Handler) getEventInfo(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	event, err := h.useCase.GetEventInfo(ctx, eventID)
 	if err != nil {
@@ -61,7 +61,7 @@ func (h *Handler) getEventInfo(ctx *gin.Context) {
 }
 
 func (h *Handler) updateEvent(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	var inp model.Event
 
@@ -81,7 +81,7 @@ func (h *Handler) updateEvent(ctx *gin.Context) {
 }
 
 func (h *Handler) deleteEvent(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	if err := h.useCase.DeleteEvent(ctx, eventID); err != nil {
 		response.AbortWithError(ctx, err)
@@ -92,7 +92,7 @@ func (h *Handler) deleteEvent(ctx *gin.Context) {
 }
 
 func (h *Handler) getJoinEventStatus(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	status, err := h.useCase.GetJoinEventStatus(ctx, eventID)
 	if err != nil {
@@ -103,7 +103,7 @@ func (h *Handler) getJoinEventStatus(ctx *gin.Context) {
 }
 
 func (h *Handler) joinEvent(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	if err := h.useCase.JoinEvent(ctx, eventID); err != nil {
 		response.AbortWithError(ctx, err)

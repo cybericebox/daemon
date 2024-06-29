@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tool"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 )
@@ -31,7 +31,7 @@ func (h *Handler) initChallengeCategoryAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getCategories(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	categories, err := h.useCase.GetEventCategories(ctx, eventID)
 	if err != nil {
@@ -48,7 +48,7 @@ func (h *Handler) createCategory(ctx *gin.Context) {
 		return
 	}
 
-	inp.EventID = uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	inp.EventID = uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	if err := h.useCase.CreateEventCategory(ctx, &inp); err != nil {
 		response.AbortWithError(ctx, err)
@@ -65,7 +65,7 @@ func (h *Handler) updateCategory(ctx *gin.Context) {
 	}
 
 	inp.ID = uuid.FromStringOrNil(ctx.Param("categoryID"))
-	inp.EventID = uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	inp.EventID = uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	if err := h.useCase.UpdateEventCategory(ctx, &inp); err != nil {
 		response.AbortWithError(ctx, err)
@@ -75,7 +75,7 @@ func (h *Handler) updateCategory(ctx *gin.Context) {
 }
 
 func (h *Handler) deleteCategory(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	categoryID := uuid.FromStringOrNil(ctx.Param("categoryID"))
 
 	if err := h.useCase.DeleteEventCategory(ctx, eventID, categoryID); err != nil {
@@ -92,7 +92,7 @@ func (h *Handler) updateCategoriesOrder(ctx *gin.Context) {
 		return
 	}
 
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	if err := h.useCase.UpdateEventCategoriesOrder(ctx, eventID, inp); err != nil {
 		response.AbortWithError(ctx, err)

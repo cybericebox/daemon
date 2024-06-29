@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tool"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 )
@@ -39,7 +39,7 @@ func (h *Handler) initTeamAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getTeams(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	teams, err := h.useCase.GetEventTeams(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -49,7 +49,7 @@ func (h *Handler) getTeams(ctx *gin.Context) {
 }
 
 func (h *Handler) getTeamsInfo(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	teams, err := h.useCase.GetEventTeamsInfo(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -63,7 +63,7 @@ type createTeamInput struct {
 }
 
 func (h *Handler) createTeam(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	var inp createTeamInput
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -82,7 +82,7 @@ type joinTeamInput struct {
 }
 
 func (h *Handler) joinTeam(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	var inp joinTeamInput
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -96,7 +96,7 @@ func (h *Handler) joinTeam(ctx *gin.Context) {
 }
 
 func (h *Handler) getSelfTeam(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	team, err := h.useCase.GetSelfTeam(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -106,7 +106,7 @@ func (h *Handler) getSelfTeam(ctx *gin.Context) {
 }
 
 func (h *Handler) getVPNConfig(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	cfg, err := h.useCase.GetVPNConfig(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)

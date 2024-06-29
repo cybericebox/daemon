@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tool"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 )
@@ -43,7 +43,7 @@ func (h *Handler) initChallengeAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getChallenges(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	challenges, err := h.useCase.GetEventChallenges(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -54,7 +54,7 @@ func (h *Handler) getChallenges(ctx *gin.Context) {
 }
 
 func (h *Handler) getChallengesInfo(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	challenges, err := h.useCase.GetEventChallengesInfo(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -76,7 +76,7 @@ func (h *Handler) addExerciseToEvent(ctx *gin.Context) {
 		return
 	}
 
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	if err := h.useCase.AddExercisesToEvent(ctx, eventID, inp.CategoryID, inp.ExerciseIDs); err != nil {
 		response.AbortWithError(ctx, err)
@@ -93,7 +93,7 @@ func (h *Handler) updateChallengesOrder(ctx *gin.Context) {
 		return
 	}
 
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	if err := h.useCase.UpdateEventChallengesOrder(ctx, eventID, inp); err != nil {
 		response.AbortWithError(ctx, err)
@@ -104,7 +104,7 @@ func (h *Handler) updateChallengesOrder(ctx *gin.Context) {
 }
 
 func (h *Handler) deleteChallenge(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	challengeID := uuid.FromStringOrNil(ctx.Param("challengeID"))
 
 	if err := h.useCase.DeleteEventChallenge(ctx, eventID, challengeID); err != nil {
@@ -126,7 +126,7 @@ func (h *Handler) solveChallenge(ctx *gin.Context) {
 	}
 
 	challengeID := uuid.FromStringOrNil(ctx.Param("challengeID"))
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	solved, err := h.useCase.SolveChallenge(ctx, eventID, challengeID, req.Solution)
 	if err != nil {
@@ -143,7 +143,7 @@ func (h *Handler) solveChallenge(ctx *gin.Context) {
 
 func (h *Handler) getChallengeSolvedBy(ctx *gin.Context) {
 	challengeID := uuid.FromStringOrNil(ctx.Param("challengeID"))
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 
 	teams, err := h.useCase.GetTeamsSolvedChallenge(ctx, eventID, challengeID)
 	if err != nil {

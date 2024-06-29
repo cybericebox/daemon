@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tool"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 )
@@ -23,7 +23,7 @@ func (h *Handler) initScoreAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getScore(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	score, err := h.useCase.GetScore(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -33,7 +33,7 @@ func (h *Handler) getScore(ctx *gin.Context) {
 }
 
 func (h *Handler) scoreNeedProtection(ctx *gin.Context) bool {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tool.EventIDCtxKey))
+	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
 	needProtection, err := h.useCase.ProtectScore(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)

@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tool"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 )
@@ -85,7 +85,7 @@ func (h *Handler) setEventIDToContext(ctx *gin.Context) {
 	eventID, err := uuid.FromString(eventIDOrTag)
 	if err != nil {
 		if eventIDOrTag == "self" {
-			eventIDOrTag = ctx.GetString(tool.SubdomainCtxKey)
+			eventIDOrTag = ctx.GetString(tools.SubdomainCtxKey)
 		}
 		eventID, err = h.useCase.GetEventIDByTag(ctx, eventIDOrTag)
 		if err != nil {
@@ -93,5 +93,5 @@ func (h *Handler) setEventIDToContext(ctx *gin.Context) {
 			return
 		}
 	}
-	ctx.Set(tool.EventIDCtxKey, eventID.String())
+	ctx.Set(tools.EventIDCtxKey, eventID.String())
 }
