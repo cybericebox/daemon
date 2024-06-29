@@ -214,8 +214,21 @@ func MustGetConfig() *Config {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	instance.populateForAllConfig()
+
 	// Set the domain
 	PlatformDomain = instance.Domain
 
 	return instance
+}
+
+func (c *Config) populateForAllConfig() {
+	c.Controller.HTTP.Protection.JWT = c.Service.JWT
+	c.Controller.HTTP.Protection.TemporalCodeTTL = c.Service.TemporalCode.TTL
+	//
+	if c.Controller.HTTP.Server.TLS.Enabled {
+		c.Controller.HTTP.Server.Port = c.Controller.HTTP.Server.SecurePort
+	}
+
+	c.Service.OAuth.RedirectURLTemplate = fmt.Sprintf("%s://%s/api/auth/%%s/callback", SchemeHTTPS, c.Domain)
 }
