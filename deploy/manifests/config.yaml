@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config
+  namespace: cybericebox
+data:
+  WG_GRPC_AUTH_KEY: "randomkey"
+  WG_GRPC_SIGN_KEY: "randomkey"
+  VPN_ENDPOINT: "vpn.cybericebox.com:51820"
+  VPN_CIDR: "10.128.0.0/16"
+  POSTGRES_HOSTNAME: "hostname"
+  POSTGRES_USER: "username"
+  POSTGRES_PASSWORD: "password"
+  POSTGRES_DB: "database"
+  POSTGRES_SSL_MODE: "disable"

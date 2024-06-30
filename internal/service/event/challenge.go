@@ -29,7 +29,7 @@ type (
 
 		CreateEventTeamChallenge(ctx context.Context, arg postgres.CreateEventTeamChallengeParams) error
 
-		AddLabsChallenges(ctx context.Context, labIDs []uuid.UUID, configs []model.LabChallenge) error
+		AddLabsChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error
 	}
 
 	IExerciseService interface {
@@ -139,23 +139,49 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 
 	// create team challenges
 	for _, team := range teams {
+
+		flags := make(map[uuid.UUID]string)
+		// map[exerciseID][]instance
+		exeInstances := make(map[uuid.UUID][]model.Instance)
+	chF:
 		for _, challenge := range challenges {
 
 			// get exercise task
 			exercise, err := s.exerciseService.GetExercise(ctx, challenge.ExerciseID)
 			if err != nil {
 				errs = multierror.Append(errs, err)
-				continue
+				continue chF
 			}
 
-			var flags map[uuid.UUID]string
+			//if exercise has instances save them
+			if _, ok := exeInstances[challenge.ExerciseID]; !ok {
+				exeInstances[challenge.ExerciseID] = make([]model.Instance, 0)
+			}
 
+			if len(exercise.Data.Instances) > 0 {
+				for _, instance := range exercise.Data.Instances {
+					exeInstances[challenge.ExerciseID] = append(exeInstances[challenge.ExerciseID], model.Instance{
+						ID:    instance.ID,
+						Name:  instance.Name,
+						Image: instance.Image,
+						LinkedTaskID: uuid.NullUUID{
+							UUID:  instance.LinkedTaskID.UUID,
+							Valid: instance.LinkedTaskID.Valid,
+						},
+						InstanceFlagVar: instance.InstanceFlagVar,
+						EnvVars:         instance.EnvVars,
+						DNSRecords:      instance.DNSRecords,
+					})
+				}
+			}
+
+			// find task for challenge
 			for _, task := range exercise.Data.Tasks {
 				if task.ID == challenge.ExerciseTaskID {
 					flag, err := tools.GetSolutionForTask(task.Flags...)
 					if err != nil {
 						errs = multierror.Append(errs, err)
-						continue
+						continue chF
 					}
 
 					if err = s.repository.CreateEventTeamChallenge(ctx, postgres.CreateEventTeamChallengeParams{
@@ -166,52 +192,44 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 						Flag:        flag,
 					}); err != nil {
 						errs = multierror.Append(errs, err)
-						continue
+						continue chF
 					}
-
 					// save flag
 					flags[task.ID] = flag
-				}
-			}
-			// create dynamic instances if needed
-			if len(exercise.Data.Instances) > 0 {
-
-				insts := make([]model.Instance, 0, len(exercise.Data.Instances))
-
-				for _, instance := range exercise.Data.Instances {
-					envs := instance.EnvVars
-
-					// add flag to env vars
-					envs = append(envs, model.EnvVar{
-						Name:  instance.InstanceFlagVar,
-						Value: flags[instance.LinkedTaskID.UUID],
-					})
-
-					insts = append(insts, model.Instance{
-						ID:    instance.ID,
-						Name:  instance.Name,
-						Image: instance.Image,
-						LinkedTaskID: uuid.NullUUID{
-							UUID:  instance.LinkedTaskID.UUID,
-							Valid: instance.LinkedTaskID.Valid,
-						},
-						InstanceFlagVar: instance.InstanceFlagVar,
-						EnvVars:         envs,
-						DNSRecords:      instance.DNSRecords,
-					})
-				}
-
-				if err = s.repository.AddLabsChallenges(ctx, []uuid.UUID{team.LaboratoryID.UUID}, []model.LabChallenge{
-					{
-						ID:        challenge.ID,
-						Instances: insts,
-					},
-				}); err != nil {
-					errs = multierror.Append(errs, err)
-					continue
+					break
 				}
 			}
 		}
+
+		labChallenges := make([]model.LabChallenge, 0)
+
+		for exID, insts := range exeInstances {
+			for index, inst := range insts {
+				// if instance has flag var add it to envs
+				if inst.LinkedTaskID.Valid {
+					// get instance envs
+					envs := inst.EnvVars
+					// add flag to envs
+					envs = append(envs, model.EnvVar{
+						Name:  inst.InstanceFlagVar,
+						Value: flags[inst.LinkedTaskID.UUID],
+					})
+					// set updated envs to instance
+					exeInstances[exID][index].EnvVars = envs
+				}
+			}
+
+			labChallenges = append(labChallenges, model.LabChallenge{
+				ID:        exID,
+				Instances: insts,
+			})
+		}
+
+		// create instances for team
+		if err = s.repository.AddLabsChallenges(ctx, team.LaboratoryID.UUID, labChallenges); err != nil {
+			errs = multierror.Append(errs, err)
+		}
+
 	}
 
 	if errs != nil {

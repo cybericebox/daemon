@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"errors"
-	"fmt"
 	"github.com/gofrs/uuid"
 )
 
@@ -77,7 +76,6 @@ func GetErrorFromContext(ctx context.Context) *CError {
 	if errFromContext == nil {
 		return nil
 	}
-	fmt.Println("errFromContext", errFromContext)
 
 	errParsed, ok := errFromContext.(*CError)
 	if !ok {

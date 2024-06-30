@@ -47,9 +47,9 @@ type (
 
 	// ProxyConfig is the configuration for the HTTP proxy for another services
 	ProxyConfig struct {
-		MainFrontend  string `yaml:"mainFrontend" env:"PROXY_MAIN_FRONTEND" env-default:"http://main-frontend-service:3000" env-description:"Main frontend proxy"`
-		AdminFrontend string `yaml:"adminFrontend" env:"PROXY_ADMIN_FRONTEND" env-default:"http://admin-frontend-service:3000" env-description:"Admin frontend proxy"`
-		EventFrontend string `yaml:"eventFrontend" env:"PROXY_EVENT_FRONTEND" env-default:"http://event-frontend-service:3000" env-description:"Event frontend proxy"`
+		MainFrontend  string `yaml:"mainFrontend" env:"PROXY_MAIN_FRONTEND" env-default:"http://main-frontend:3000" env-description:"Main frontend proxy"`
+		AdminFrontend string `yaml:"adminFrontend" env:"PROXY_ADMIN_FRONTEND" env-default:"http://admin-frontend:3000" env-description:"Admin frontend proxy"`
+		EventFrontend string `yaml:"eventFrontend" env:"PROXY_EVENT_FRONTEND" env-default:"http://event-frontend:3000" env-description:"Event frontend proxy"`
 	}
 
 	// ProtectionConfig is the configuration for the protection layer
@@ -157,7 +157,7 @@ type (
 	}
 
 	VPNGRPCConfig struct {
-		Endpoint string           `yaml:"endpoint" env:"WG_GRPC_ENDPOINT" env-description:"Endpoint for the VPN gRPC server" env-default:"wireguard-service:5454"`
+		Endpoint string           `yaml:"endpoint" env:"WG_GRPC_ENDPOINT" env-description:"Endpoint for the VPN gRPC server" env-default:"wireguard:5454"`
 		AuthKey  string           `yaml:"authKey" env:"WG_GRPC_AUTH_KEY" env-description:"Auth key for the VPN gRPC server"`
 		SignKey  string           `yaml:"signKey" env:"WG_GRPC_SIGN_KEY" env-description:"Sign key for the VPN gRPC server"`
 		TLS      VPNGRPCTLSConfig `yaml:"tls"`
@@ -170,7 +170,7 @@ type (
 	}
 
 	AgentGRPCConfig struct {
-		Endpoint string             `yaml:"endpoint" env:"AGENT_GRPC_ENDPOINT" env-description:"Endpoint for the Agent gRPC server" env-default:"agent-service:5454"`
+		Endpoint string             `yaml:"endpoint" env:"AGENT_GRPC_ENDPOINT" env-description:"Endpoint for the Agent gRPC server" env-default:"agent:5454"`
 		AuthKey  string             `yaml:"authKey" env:"AGENT_GRPC_AUTH_KEY" env-description:"Auth key for the Agent gRPC server"`
 		SignKey  string             `yaml:"signKey" env:"AGENT_GRPC_SIGN_KEY" env-description:"Sign key for the Agent gRPC server"`
 		TLS      AgentGRPCTLSConfig `yaml:"tls"`
@@ -187,6 +187,7 @@ var PlatformDomain string
 
 func MustGetConfig() *Config {
 	path := flag.String("config", "", "Path to config file")
+	flag.Parse()
 
 	log.Info().Msg("Reading daemon configuration")
 

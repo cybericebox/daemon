@@ -49,7 +49,7 @@ func newAgent(cfg *config.AgentGRPCConfig) (protobuf.AgentClient, error) {
 }
 
 func (r *AgentRepository) GetLabs(ctx context.Context, labIDs ...uuid.UUID) ([]*model.LabInfo, error) {
-	srtLabIDs := make([]string, 0, len(labIDs))
+	srtLabIDs := make([]string, 0)
 
 	for _, l := range labIDs {
 		srtLabIDs = append(srtLabIDs, l.String())
@@ -106,12 +106,7 @@ func (r *AgentRepository) DeleteLabs(ctx context.Context, labIDs ...uuid.UUID) e
 	return err
 }
 
-func (r *AgentRepository) AddLabsChallenges(ctx context.Context, labIDs []uuid.UUID, configs []model.LabChallenge) error {
-	srtLabIDs := make([]string, 0, len(labIDs))
-
-	for _, l := range labIDs {
-		srtLabIDs = append(srtLabIDs, l.String())
-	}
+func (r *AgentRepository) AddLabsChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error {
 
 	challenges := make([]*protobuf.Challenge, 0, len(configs))
 	for _, c := range configs {
@@ -153,8 +148,8 @@ func (r *AgentRepository) AddLabsChallenges(ctx context.Context, labIDs []uuid.U
 	}
 
 	_, err := r.AgentClient.AddLabsChallenges(ctx, &protobuf.AddLabsChallengesRequest{
-		LabIDs:     srtLabIDs,
-		Challenges: nil,
+		LabIDs:     []string{labID.String()},
+		Challenges: challenges,
 	})
 	return err
 }
