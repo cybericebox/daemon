@@ -139,6 +139,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 
 	// create team challenges
 	for _, team := range teams {
+	chF:
 		for _, challenge := range challenges {
 
 			// get exercise task
@@ -155,7 +156,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 					flag, err := tools.GetSolutionForTask(task.Flags...)
 					if err != nil {
 						errs = multierror.Append(errs, err)
-						continue
+						continue chF
 					}
 
 					if err = s.repository.CreateEventTeamChallenge(ctx, postgres.CreateEventTeamChallengeParams{
@@ -166,11 +167,12 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 						Flag:        flag,
 					}); err != nil {
 						errs = multierror.Append(errs, err)
-						continue
+						continue chF
 					}
 
 					// save flag
 					flags[task.ID] = flag
+					break
 				}
 			}
 			// create dynamic instances if needed
@@ -208,7 +210,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 					},
 				}); err != nil {
 					errs = multierror.Append(errs, err)
-					continue
+					continue chF
 				}
 			}
 		}
