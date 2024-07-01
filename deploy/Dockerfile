@@ -8,7 +8,7 @@ COPY ./internal/delivery/repository/postgres/migrations /build/migrations
 COPY ./deploy/nginx.conf /build/nginx.conf
 RUN CGO_ENABLED=0 GOOS=linux go build -o app -a -ldflags '-w -extldflags "-static"' /build/cmd/main.go
 
-FROM nginx:1.24.3-alpine
+FROM nginx:stable-alpine
 WORKDIR /app
 
 # copy the built binary into the image
