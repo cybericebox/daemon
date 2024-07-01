@@ -35,7 +35,6 @@ spec:
               protocol: TCP
             - containerPort: 51820
               protocol: UDP
-
           resources:
             requests:
               memory: "64Mi"

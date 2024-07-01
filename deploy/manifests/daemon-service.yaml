@@ -15,3 +15,6 @@ spec:
     - port: 51820
       name: vpn
       targetPort: 51820
+      protocol: UDP
+  selector:
+    app: daemon
