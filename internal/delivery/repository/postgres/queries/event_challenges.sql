@@ -9,6 +9,12 @@ from event_challenges
 where event_id = $1
 order by order_index;
 
+-- name: GetEventChallengeByID :one
+select *
+from event_challenges
+where id = $1
+  and event_id = $2;
+
 -- name: CreateEventChallenge :exec
 insert into event_challenges
 (id, event_id, category_id, name, description, points, order_index, exercise_id, exercise_task_id)
@@ -21,8 +27,8 @@ set category_id = $3,
 where id = $1
   and event_id = $2;
 
--- name: DeleteEventChallenge :exec
+-- name: DeleteEventChallenges :exec
 delete
 from event_challenges
-where id = $1
+where exercise_id = $1
   and event_id = $2;

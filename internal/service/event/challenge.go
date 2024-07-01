@@ -16,8 +16,8 @@ type (
 		CreateEventChallenge(ctx context.Context, arg postgres.CreateEventChallengeParams) error
 
 		GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]postgres.EventChallenge, error)
-
-		DeleteEventChallenge(ctx context.Context, arg postgres.DeleteEventChallengeParams) error
+		GetEventChallengeByID(ctx context.Context, params postgres.GetEventChallengeByIDParams) (postgres.EventChallenge, error)
+		DeleteEventChallenges(ctx context.Context, arg postgres.DeleteEventChallengesParams) error
 		UpdateEventChallengeOrder(ctx context.Context, arg postgres.UpdateEventChallengeOrderParams) error
 
 		WithTransaction(ctx context.Context) (withTx interface{}, commit func(), rollback func(), err error)
@@ -30,6 +30,7 @@ type (
 		CreateEventTeamChallenge(ctx context.Context, arg postgres.CreateEventTeamChallengeParams) error
 
 		AddLabChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error
+		DeleteLabsChallenges(ctx context.Context, labIDs []uuid.UUID, exerciseIDs []uuid.UUID) error
 	}
 
 	IExerciseService interface {
@@ -60,6 +61,29 @@ func (s *EventService) GetEventChallenges(ctx context.Context, eventID uuid.UUID
 	}
 
 	return result, nil
+}
+
+func (s *EventService) GetEventChallengeByID(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) (*model.Challenge, error) {
+	challenge, err := s.repository.GetEventChallengeByID(ctx, postgres.GetEventChallengeByIDParams{
+		EventID: eventID,
+		ID:      challengeID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.Challenge{
+		ID:             challenge.ID,
+		EventID:        challenge.EventID,
+		CategoryID:     challenge.CategoryID,
+		ExerciseID:     challenge.ExerciseID,
+		ExerciseTaskID: challenge.ExerciseTaskID,
+		Name:           challenge.Name,
+		Description:    challenge.Description,
+		Points:         challenge.Points,
+		Order:          challenge.OrderIndex,
+		CreatedAt:      challenge.CreatedAt,
+	}, nil
 }
 
 func (s *EventService) GetEventChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) (*model.ChallengeSoledBy, error) {
@@ -239,10 +263,31 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 	return nil
 }
 
-func (s *EventService) DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error {
-	if err := s.repository.DeleteEventChallenge(ctx, postgres.DeleteEventChallengeParams{
-		EventID: eventID,
-		ID:      challengeID,
+func (s *EventService) DeleteEventTeamsChallenges(ctx context.Context, eventID, exerciseID uuid.UUID) error {
+	// get all teams in event
+	teams, err := s.repository.GetEventTeams(ctx, eventID)
+	if err != nil {
+		return err
+	}
+
+	// get all labs in event
+	labIDs := make([]uuid.UUID, 0)
+
+	for _, team := range teams {
+		labIDs = append(labIDs, team.LaboratoryID.UUID)
+	}
+
+	if err = s.repository.DeleteLabsChallenges(ctx, labIDs, []uuid.UUID{exerciseID}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *EventService) DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseID uuid.UUID) error {
+	if err := s.repository.DeleteEventChallenges(ctx, postgres.DeleteEventChallengesParams{
+		EventID:    eventID,
+		ExerciseID: exerciseID,
 	}); err != nil {
 		return err
 	}

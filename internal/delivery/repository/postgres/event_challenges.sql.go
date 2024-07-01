@@ -78,21 +78,52 @@ func (q *Queries) CreateEventChallenge(ctx context.Context, arg CreateEventChall
 	return err
 }
 
-const deleteEventChallenge = `-- name: DeleteEventChallenge :exec
+const deleteEventChallenges = `-- name: DeleteEventChallenges :exec
 delete
 from event_challenges
-where id = $1
+where exercise_id = $1
   and event_id = $2
 `
 
-type DeleteEventChallengeParams struct {
+type DeleteEventChallengesParams struct {
+	ExerciseID uuid.UUID `json:"exercise_id"`
+	EventID    uuid.UUID `json:"event_id"`
+}
+
+func (q *Queries) DeleteEventChallenges(ctx context.Context, arg DeleteEventChallengesParams) error {
+	_, err := q.exec(ctx, q.deleteEventChallengesStmt, deleteEventChallenges, arg.ExerciseID, arg.EventID)
+	return err
+}
+
+const getEventChallengeByID = `-- name: GetEventChallengeByID :one
+select id, event_id, category_id, name, description, points, order_index, exercise_id, exercise_task_id, updated_at, updated_by, created_at
+from event_challenges
+where id = $1 and event_id = $2
+`
+
+type GetEventChallengeByIDParams struct {
 	ID      uuid.UUID `json:"id"`
 	EventID uuid.UUID `json:"event_id"`
 }
 
-func (q *Queries) DeleteEventChallenge(ctx context.Context, arg DeleteEventChallengeParams) error {
-	_, err := q.exec(ctx, q.deleteEventChallengeStmt, deleteEventChallenge, arg.ID, arg.EventID)
-	return err
+func (q *Queries) GetEventChallengeByID(ctx context.Context, arg GetEventChallengeByIDParams) (EventChallenge, error) {
+	row := q.queryRow(ctx, q.getEventChallengeByIDStmt, getEventChallengeByID, arg.ID, arg.EventID)
+	var i EventChallenge
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.CategoryID,
+		&i.Name,
+		&i.Description,
+		&i.Points,
+		&i.OrderIndex,
+		&i.ExerciseID,
+		&i.ExerciseTaskID,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getEventChallenges = `-- name: GetEventChallenges :many

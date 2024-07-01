@@ -27,7 +27,8 @@ func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) error {
 }
 
 const deleteFile = `-- name: DeleteFile :exec
-delete from files
+delete
+from files
 where id = $1
 `
 
