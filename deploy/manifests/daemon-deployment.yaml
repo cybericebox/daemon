@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: daemon
-          image: cybericebox/daemon:v1.0
+          image: cybericebox/daemon:latest
           envFrom:
             - configMapRef:
                 name: config

@@ -29,7 +29,7 @@ type (
 
 		CreateEventTeamChallenge(ctx context.Context, arg postgres.CreateEventTeamChallengeParams) error
 
-		AddLabsChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error
+		AddLabChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error
 	}
 
 	IExerciseService interface {
@@ -226,7 +226,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 		}
 
 		// create instances for team
-		if err = s.repository.AddLabsChallenges(ctx, team.LaboratoryID.UUID, labChallenges); err != nil {
+		if err = s.repository.AddLabChallenges(ctx, team.LaboratoryID.UUID, labChallenges); err != nil {
 			errs = multierror.Append(errs, err)
 		}
 

@@ -5,9 +5,9 @@ go 1.22.0
 toolchain go1.22.4
 
 require (
-	cloud.google.com/go/recaptchaenterprise/v2 v2.13.0
-	github.com/cybericebox/agent v0.0.0-20240622170703-85150850aad2
-	github.com/cybericebox/wireguard v0.0.0-20240622211751-dafd85944c40
+	cloud.google.com/go/recaptchaenterprise/v2 v2.13.1
+	github.com/cybericebox/agent v0.0.0-20240701080904-f0248a2239cb
+	github.com/cybericebox/wireguard v0.0.0-20240701073757-fde7868aaee8
 	github.com/gin-gonic/gin v1.10.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang-jwt/jwt v3.2.2+incompatible
@@ -20,12 +20,12 @@ require (
 	github.com/rs/zerolog v1.33.0
 	golang.org/x/crypto v0.24.0
 	golang.org/x/oauth2 v0.21.0
-	google.golang.org/api v0.185.0
+	google.golang.org/api v0.186.0
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )
 
 require (
-	cloud.google.com/go/auth v0.5.1 // indirect
+	cloud.google.com/go/auth v0.6.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.2 // indirect
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
@@ -47,7 +47,7 @@ require (
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
-	github.com/googleapis/gax-go/v2 v2.12.4 // indirect
+	github.com/googleapis/gax-go/v2 v2.12.5 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

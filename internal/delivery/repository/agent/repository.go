@@ -106,7 +106,7 @@ func (r *AgentRepository) DeleteLabs(ctx context.Context, labIDs ...uuid.UUID) e
 	return err
 }
 
-func (r *AgentRepository) AddLabsChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error {
+func (r *AgentRepository) AddLabChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error {
 
 	challenges := make([]*protobuf.Challenge, 0, len(configs))
 	for _, c := range configs {
@@ -147,8 +147,8 @@ func (r *AgentRepository) AddLabsChallenges(ctx context.Context, labID uuid.UUID
 		})
 	}
 
-	_, err := r.AgentClient.AddLabsChallenges(ctx, &protobuf.AddLabsChallengesRequest{
-		LabIDs:     []string{labID.String()},
+	_, err := r.AgentClient.AddLabChallenges(ctx, &protobuf.AddLabChallengesRequest{
+		LabID:      labID.String(),
 		Challenges: challenges,
 	})
 	return err
