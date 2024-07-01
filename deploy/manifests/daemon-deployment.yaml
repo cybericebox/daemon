@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: daemon
+  namespace: cybericebox
+  labels:
+    app: daemon
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 3
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: daemon
+  template:
+    metadata:
+      name: daemon
+      namespace: cybericebox
+      labels:
+        app: daemon
+    spec:
+      containers:
+        - name: daemon
+          image: cybericebox/daemon:latest
+          envFrom:
+            - configMapRef:
+                name: config
+          ports:
+            - containerPort: 80
+              protocol: TCP
+            - containerPort: 443
+              protocol: TCP
+            - containerPort: 51820
+              protocol: UDP
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"

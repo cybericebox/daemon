@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
+	"github.com/gofrs/uuid"
 	"time"
 )
 
@@ -28,7 +29,7 @@ func NewUseCase(deps Dependencies) *StorageUseCase {
 	}
 
 }
-func (u *StorageUseCase) GetUploadFileLink(ctx context.Context, storageType, fileID string) (string, error) {
+func (u *StorageUseCase) GetUploadFileLink(ctx context.Context, storageType string, fileID uuid.UUID) (string, error) {
 	// check user permission
 	useRole, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err != nil {
@@ -39,9 +40,9 @@ func (u *StorageUseCase) GetUploadFileLink(ctx context.Context, storageType, fil
 		return "", tools.NewError("permission denied", 403)
 	}
 
-	return u.service.GetUploadFileLink(ctx, storageType, fileID)
+	return u.service.GetUploadFileLink(ctx, storageType, fileID.String())
 }
 
-func (u *StorageUseCase) GetDownloadFileLink(ctx context.Context, storageType, fileID string) (string, error) {
-	return u.service.GetDownloadFileLink(ctx, storageType, fileID)
+func (u *StorageUseCase) GetDownloadFileLink(ctx context.Context, storageType string, fileID uuid.UUID) (string, error) {
+	return u.service.GetDownloadFileLink(ctx, storageType, fileID.String())
 }

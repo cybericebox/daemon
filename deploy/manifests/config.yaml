@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: config
+  namespace: cybericebox
+data:
+  DOMAIN: "cybericebox.com" # domain of the platform
+  RECAPTCHA_KEY: "sitekey"
+  RECAPTCHA_SECRET: "secretkey"
+  JWT_TOKEN_SIGNATURE: "random" # for signing JWT tokens
+  GOOGLE_CLIENT_ID: "clientId"
+  GOOGLE_SECRET: "secretkey"
+  EMAIL_HOST: "smtp.gmail.com"
+  EMAIL_USERNAME: "noreply.cybericebox@gmail.com"
+  EMAIL_PASSWORD: "password"
+  EMAIL_SENDER_NAME: "Cyber ICE Box Platform"
+  EMAIL_SENDER_EMAIL: "noreply@cybericebox.com"
+  EMAIL_REPLY_TO_NAME: "Support Cyber ICE Box Platform"
+  EMAIL_REPLY_TO_EMAIL: "support@cybericebox.com"
+  POSTGRES_HOSTNAME: "hostname"
+  POSTGRES_USER: "username"
+  POSTGRES_PASSWORD: "password"
+  POSTGRES_DB: "database"
+  POSTGRES_SSL_MODE: "disable"
+  WG_GRPC_AUTH_KEY: "randomkey"
+  WG_GRPC_SIGN_KEY: "randomkey"
+  AGENT_GRPC_AUTH_KEY: "randomkey"
+  AGENT_GRPC_SIGN_KEY: "randomkey"

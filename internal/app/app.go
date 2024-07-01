@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/worker"
 	"github.com/rs/zerolog/log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -50,6 +51,11 @@ func Run() {
 	// Initialize the application
 	if err := InitWorkers(useCases); err != nil {
 		log.Fatal().Err(err).Msg("Application workers initialization failed")
+	}
+
+	// Start nginx UDP reverse proxy
+	if err := exec.Command("/bin/sh", "-c", "service nginx start").Run(); err != nil {
+		log.Fatal().Err(err).Msg("Starting nginx UDP reverse proxy failed")
 	}
 
 	// Start the server

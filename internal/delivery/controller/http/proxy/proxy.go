@@ -68,7 +68,7 @@ func HandleProxy(deps Dependencies) gin.HandlerFunc {
 
 		if target == "" {
 			// if target is empty, event is not found, so redirect to event not found page
-			protection.RedirectToMainDomainPage(ctx, http.StatusNotFound, config.EventNotFoundPage)
+			protection.RedirectToMainDomainPage(ctx, http.StatusSeeOther, config.EventNotFoundPage)
 			return
 		}
 

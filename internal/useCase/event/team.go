@@ -171,16 +171,18 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 	// if event participation is individual, return name only
 	if event.Participation == model.IndividualParticipationType {
 		return &model.Team{
-			ID:   team.ID,
-			Name: team.Name,
+			ID:           team.ID,
+			Name:         team.Name,
+			LaboratoryID: team.LaboratoryID,
 		}, nil
 	}
 
 	// return only team name and join code
 	return &model.Team{
-		ID:       team.ID,
-		Name:     team.Name,
-		JoinCode: team.JoinCode,
+		ID:           team.ID,
+		Name:         team.Name,
+		JoinCode:     team.JoinCode,
+		LaboratoryID: team.LaboratoryID,
 	}, nil
 
 }

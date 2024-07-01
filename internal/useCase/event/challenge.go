@@ -14,11 +14,14 @@ import (
 type (
 	IChallengeService interface {
 		GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error)
+		GetEventChallengeByID(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) (*model.Challenge, error)
 		GetEventChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) (*model.ChallengeSoledBy, error)
 
 		AddExercisesToEvent(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error
-		DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error
+		DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseID uuid.UUID) error
 		UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
+
+		DeleteEventTeamsChallenges(ctx context.Context, eventID, exerciseID uuid.UUID) error
 
 		SolveChallenge(ctx context.Context, eventID, teamID, challengeID uuid.UUID, solutionAttempt string) (bool, error)
 	}
@@ -129,10 +132,19 @@ func (u *EventUseCase) AddExercisesToEvent(ctx context.Context, eventID, categor
 }
 
 func (u *EventUseCase) DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error {
-	if err := u.service.DeleteEventChallenge(ctx, eventID, challengeID); err != nil {
+	challenge, err := u.service.GetEventChallengeByID(ctx, eventID, challengeID)
+	if err != nil {
 		return err
 	}
-	//TODO: send to agent to synchronize challenges
+
+	if err = u.service.DeleteEventTeamsChallenges(ctx, eventID, challenge.ExerciseID); err != nil {
+		return err
+	}
+
+	if err = u.service.DeleteEventChallenges(ctx, eventID, challengeID); err != nil {
+		return err
+	}
+
 	return nil
 }
 

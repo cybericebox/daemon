@@ -16,8 +16,8 @@ type (
 		CreateEventChallenge(ctx context.Context, arg postgres.CreateEventChallengeParams) error
 
 		GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]postgres.EventChallenge, error)
-
-		DeleteEventChallenge(ctx context.Context, arg postgres.DeleteEventChallengeParams) error
+		GetEventChallengeByID(ctx context.Context, params postgres.GetEventChallengeByIDParams) (postgres.EventChallenge, error)
+		DeleteEventChallenges(ctx context.Context, arg postgres.DeleteEventChallengesParams) error
 		UpdateEventChallengeOrder(ctx context.Context, arg postgres.UpdateEventChallengeOrderParams) error
 
 		WithTransaction(ctx context.Context) (withTx interface{}, commit func(), rollback func(), err error)
@@ -29,7 +29,8 @@ type (
 
 		CreateEventTeamChallenge(ctx context.Context, arg postgres.CreateEventTeamChallengeParams) error
 
-		AddLabsChallenges(ctx context.Context, labIDs []uuid.UUID, configs []model.LabChallenge) error
+		AddLabChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error
+		DeleteLabsChallenges(ctx context.Context, labIDs []uuid.UUID, exerciseIDs []uuid.UUID) error
 	}
 
 	IExerciseService interface {
@@ -60,6 +61,29 @@ func (s *EventService) GetEventChallenges(ctx context.Context, eventID uuid.UUID
 	}
 
 	return result, nil
+}
+
+func (s *EventService) GetEventChallengeByID(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) (*model.Challenge, error) {
+	challenge, err := s.repository.GetEventChallengeByID(ctx, postgres.GetEventChallengeByIDParams{
+		EventID: eventID,
+		ID:      challengeID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.Challenge{
+		ID:             challenge.ID,
+		EventID:        challenge.EventID,
+		CategoryID:     challenge.CategoryID,
+		ExerciseID:     challenge.ExerciseID,
+		ExerciseTaskID: challenge.ExerciseTaskID,
+		Name:           challenge.Name,
+		Description:    challenge.Description,
+		Points:         challenge.Points,
+		Order:          challenge.OrderIndex,
+		CreatedAt:      challenge.CreatedAt,
+	}, nil
 }
 
 func (s *EventService) GetEventChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) (*model.ChallengeSoledBy, error) {
@@ -139,23 +163,49 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 
 	// create team challenges
 	for _, team := range teams {
+
+		flags := make(map[uuid.UUID]string)
+		// map[exerciseID][]instance
+		exeInstances := make(map[uuid.UUID][]model.Instance)
+	chF:
 		for _, challenge := range challenges {
 
 			// get exercise task
 			exercise, err := s.exerciseService.GetExercise(ctx, challenge.ExerciseID)
 			if err != nil {
 				errs = multierror.Append(errs, err)
-				continue
+				continue chF
 			}
 
-			var flags map[uuid.UUID]string
+			//if exercise has instances save them
+			if _, ok := exeInstances[challenge.ExerciseID]; !ok {
+				exeInstances[challenge.ExerciseID] = make([]model.Instance, 0)
+			}
 
+			if len(exercise.Data.Instances) > 0 {
+				for _, instance := range exercise.Data.Instances {
+					exeInstances[challenge.ExerciseID] = append(exeInstances[challenge.ExerciseID], model.Instance{
+						ID:    instance.ID,
+						Name:  instance.Name,
+						Image: instance.Image,
+						LinkedTaskID: uuid.NullUUID{
+							UUID:  instance.LinkedTaskID.UUID,
+							Valid: instance.LinkedTaskID.Valid,
+						},
+						InstanceFlagVar: instance.InstanceFlagVar,
+						EnvVars:         instance.EnvVars,
+						DNSRecords:      instance.DNSRecords,
+					})
+				}
+			}
+
+			// find task for challenge
 			for _, task := range exercise.Data.Tasks {
 				if task.ID == challenge.ExerciseTaskID {
 					flag, err := tools.GetSolutionForTask(task.Flags...)
 					if err != nil {
 						errs = multierror.Append(errs, err)
-						continue
+						continue chF
 					}
 
 					if err = s.repository.CreateEventTeamChallenge(ctx, postgres.CreateEventTeamChallengeParams{
@@ -166,52 +216,44 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 						Flag:        flag,
 					}); err != nil {
 						errs = multierror.Append(errs, err)
-						continue
+						continue chF
 					}
-
 					// save flag
 					flags[task.ID] = flag
-				}
-			}
-			// create dynamic instances if needed
-			if len(exercise.Data.Instances) > 0 {
-
-				insts := make([]model.Instance, 0, len(exercise.Data.Instances))
-
-				for _, instance := range exercise.Data.Instances {
-					envs := instance.EnvVars
-
-					// add flag to env vars
-					envs = append(envs, model.EnvVar{
-						Name:  instance.InstanceFlagVar,
-						Value: flags[instance.LinkedTaskID.UUID],
-					})
-
-					insts = append(insts, model.Instance{
-						ID:    instance.ID,
-						Name:  instance.Name,
-						Image: instance.Image,
-						LinkedTaskID: uuid.NullUUID{
-							UUID:  instance.LinkedTaskID.UUID,
-							Valid: instance.LinkedTaskID.Valid,
-						},
-						InstanceFlagVar: instance.InstanceFlagVar,
-						EnvVars:         envs,
-						DNSRecords:      instance.DNSRecords,
-					})
-				}
-
-				if err = s.repository.AddLabsChallenges(ctx, []uuid.UUID{team.LaboratoryID.UUID}, []model.LabChallenge{
-					{
-						ID:        challenge.ID,
-						Instances: insts,
-					},
-				}); err != nil {
-					errs = multierror.Append(errs, err)
-					continue
+					break
 				}
 			}
 		}
+
+		labChallenges := make([]model.LabChallenge, 0)
+
+		for exID, insts := range exeInstances {
+			for index, inst := range insts {
+				// if instance has flag var add it to envs
+				if inst.LinkedTaskID.Valid {
+					// get instance envs
+					envs := inst.EnvVars
+					// add flag to envs
+					envs = append(envs, model.EnvVar{
+						Name:  inst.InstanceFlagVar,
+						Value: flags[inst.LinkedTaskID.UUID],
+					})
+					// set updated envs to instance
+					exeInstances[exID][index].EnvVars = envs
+				}
+			}
+
+			labChallenges = append(labChallenges, model.LabChallenge{
+				ID:        exID,
+				Instances: insts,
+			})
+		}
+
+		// create instances for team
+		if err = s.repository.AddLabChallenges(ctx, team.LaboratoryID.UUID, labChallenges); err != nil {
+			errs = multierror.Append(errs, err)
+		}
+
 	}
 
 	if errs != nil {
@@ -221,10 +263,31 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 	return nil
 }
 
-func (s *EventService) DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error {
-	if err := s.repository.DeleteEventChallenge(ctx, postgres.DeleteEventChallengeParams{
-		EventID: eventID,
-		ID:      challengeID,
+func (s *EventService) DeleteEventTeamsChallenges(ctx context.Context, eventID, exerciseID uuid.UUID) error {
+	// get all teams in event
+	teams, err := s.repository.GetEventTeams(ctx, eventID)
+	if err != nil {
+		return err
+	}
+
+	// get all labs in event
+	labIDs := make([]uuid.UUID, 0)
+
+	for _, team := range teams {
+		labIDs = append(labIDs, team.LaboratoryID.UUID)
+	}
+
+	if err = s.repository.DeleteLabsChallenges(ctx, labIDs, []uuid.UUID{exerciseID}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *EventService) DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseID uuid.UUID) error {
+	if err := s.repository.DeleteEventChallenges(ctx, postgres.DeleteEventChallengesParams{
+		EventID:    eventID,
+		ExerciseID: exerciseID,
 	}); err != nil {
 		return err
 	}

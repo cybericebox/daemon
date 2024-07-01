@@ -26,8 +26,8 @@ type Querier interface {
 	CreateTemporalCode(ctx context.Context, arg CreateTemporalCodeParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	DeleteEvent(ctx context.Context, id uuid.UUID) error
-	DeleteEventChallenge(ctx context.Context, arg DeleteEventChallengeParams) error
 	DeleteEventChallengeCategory(ctx context.Context, arg DeleteEventChallengeCategoryParams) error
+	DeleteEventChallenges(ctx context.Context, arg DeleteEventChallengesParams) error
 	DeleteExercise(ctx context.Context, id uuid.UUID) error
 	DeleteExerciseCategory(ctx context.Context, id uuid.UUID) error
 	DeleteFile(ctx context.Context, id uuid.UUID) error
@@ -48,6 +48,7 @@ type Querier interface {
 	GetEmailTemplateSubject(ctx context.Context, key string) (string, error)
 	GetEventByID(ctx context.Context, id uuid.UUID) (Event, error)
 	GetEventByTag(ctx context.Context, tag string) (Event, error)
+	GetEventChallengeByID(ctx context.Context, arg GetEventChallengeByIDParams) (EventChallenge, error)
 	GetEventChallengeCategories(ctx context.Context, eventID uuid.UUID) ([]EventChallengeCategory, error)
 	GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]EventChallenge, error)
 	GetEventIDIfNotWithdrawn(ctx context.Context, tag string) (uuid.UUID, error)

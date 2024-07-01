@@ -69,11 +69,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteEventStmt, err = db.PrepareContext(ctx, deleteEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteEvent: %w", err)
 	}
-	if q.deleteEventChallengeStmt, err = db.PrepareContext(ctx, deleteEventChallenge); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteEventChallenge: %w", err)
-	}
 	if q.deleteEventChallengeCategoryStmt, err = db.PrepareContext(ctx, deleteEventChallengeCategory); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteEventChallengeCategory: %w", err)
+	}
+	if q.deleteEventChallengesStmt, err = db.PrepareContext(ctx, deleteEventChallenges); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteEventChallenges: %w", err)
 	}
 	if q.deleteExerciseStmt, err = db.PrepareContext(ctx, deleteExercise); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExercise: %w", err)
@@ -116,6 +116,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getEventByTagStmt, err = db.PrepareContext(ctx, getEventByTag); err != nil {
 		return nil, fmt.Errorf("error preparing query GetEventByTag: %w", err)
+	}
+	if q.getEventChallengeByIDStmt, err = db.PrepareContext(ctx, getEventChallengeByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetEventChallengeByID: %w", err)
 	}
 	if q.getEventChallengeCategoriesStmt, err = db.PrepareContext(ctx, getEventChallengeCategories); err != nil {
 		return nil, fmt.Errorf("error preparing query GetEventChallengeCategories: %w", err)
@@ -302,14 +305,14 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteEventStmt: %w", cerr)
 		}
 	}
-	if q.deleteEventChallengeStmt != nil {
-		if cerr := q.deleteEventChallengeStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteEventChallengeStmt: %w", cerr)
-		}
-	}
 	if q.deleteEventChallengeCategoryStmt != nil {
 		if cerr := q.deleteEventChallengeCategoryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteEventChallengeCategoryStmt: %w", cerr)
+		}
+	}
+	if q.deleteEventChallengesStmt != nil {
+		if cerr := q.deleteEventChallengesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteEventChallengesStmt: %w", cerr)
 		}
 	}
 	if q.deleteExerciseStmt != nil {
@@ -380,6 +383,11 @@ func (q *Queries) Close() error {
 	if q.getEventByTagStmt != nil {
 		if cerr := q.getEventByTagStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getEventByTagStmt: %w", cerr)
+		}
+	}
+	if q.getEventChallengeByIDStmt != nil {
+		if cerr := q.getEventChallengeByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getEventChallengeByIDStmt: %w", cerr)
 		}
 	}
 	if q.getEventChallengeCategoriesStmt != nil {
@@ -611,8 +619,8 @@ type Queries struct {
 	createTemporalCodeStmt                  *sql.Stmt
 	createUserStmt                          *sql.Stmt
 	deleteEventStmt                         *sql.Stmt
-	deleteEventChallengeStmt                *sql.Stmt
 	deleteEventChallengeCategoryStmt        *sql.Stmt
+	deleteEventChallengesStmt               *sql.Stmt
 	deleteExerciseStmt                      *sql.Stmt
 	deleteExerciseCategoryStmt              *sql.Stmt
 	deleteFileStmt                          *sql.Stmt
@@ -627,6 +635,7 @@ type Queries struct {
 	getEmailTemplateSubjectStmt             *sql.Stmt
 	getEventByIDStmt                        *sql.Stmt
 	getEventByTagStmt                       *sql.Stmt
+	getEventChallengeByIDStmt               *sql.Stmt
 	getEventChallengeCategoriesStmt         *sql.Stmt
 	getEventChallengesStmt                  *sql.Stmt
 	getEventIDIfNotWithdrawnStmt            *sql.Stmt
@@ -683,8 +692,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createTemporalCodeStmt:                  q.createTemporalCodeStmt,
 		createUserStmt:                          q.createUserStmt,
 		deleteEventStmt:                         q.deleteEventStmt,
-		deleteEventChallengeStmt:                q.deleteEventChallengeStmt,
 		deleteEventChallengeCategoryStmt:        q.deleteEventChallengeCategoryStmt,
+		deleteEventChallengesStmt:               q.deleteEventChallengesStmt,
 		deleteExerciseStmt:                      q.deleteExerciseStmt,
 		deleteExerciseCategoryStmt:              q.deleteExerciseCategoryStmt,
 		deleteFileStmt:                          q.deleteFileStmt,
@@ -699,6 +708,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getEmailTemplateSubjectStmt:             q.getEmailTemplateSubjectStmt,
 		getEventByIDStmt:                        q.getEventByIDStmt,
 		getEventByTagStmt:                       q.getEventByTagStmt,
+		getEventChallengeByIDStmt:               q.getEventChallengeByIDStmt,
 		getEventChallengeCategoriesStmt:         q.getEventChallengeCategoriesStmt,
 		getEventChallengesStmt:                  q.getEventChallengesStmt,
 		getEventIDIfNotWithdrawnStmt:            q.getEventIDIfNotWithdrawnStmt,
