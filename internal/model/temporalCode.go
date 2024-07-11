@@ -1,13 +1,9 @@
 package model
 
-import "github.com/gofrs/uuid"
-
-const (
-	// temporal code types
-
-	EmailConfirmationCodeType = int32(iota)
-	PasswordResettingCodeType
-	ContinueRegistrationCodeType
+import (
+	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/gofrs/uuid"
+	"net/http"
 )
 
 type (
@@ -24,4 +20,18 @@ type (
 		Email string
 		Role  string
 	}
+)
+
+// temporal code types
+const (
+	EmailConfirmationCodeType = int32(iota)
+	PasswordResettingCodeType
+	ContinueRegistrationCodeType
+)
+
+// errors for temporal code
+var (
+	ErrInvalidTemporalCode = appError.NewError().WithCode(appError.CodeInvalidInput.
+		WithMessage("invalid temporal code").
+		WithHTTPCode(http.StatusUnauthorized))
 )

@@ -48,7 +48,7 @@ func NewUserService(deps Dependencies) *UserService {
 	}
 }
 
-func (s *UserService) CreateUser(ctx context.Context, newUser *model.User) (*model.User, error) {
+func (s *UserService) CreateUser(ctx context.Context, newUser model.User) (*model.User, error) {
 	// Check if no users so create admin
 	users, err := s.repository.GetAllUsers(ctx)
 	if err != nil {
@@ -75,7 +75,7 @@ func (s *UserService) CreateUser(ctx context.Context, newUser *model.User) (*mod
 	}); err != nil {
 		return nil, err
 	}
-	return newUser, nil
+	return &newUser, nil
 }
 
 func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.UserInfo, error) {
@@ -83,20 +83,21 @@ func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.Use
 	if search == "" {
 		users, err := s.repository.GetAllUsers(ctx)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return result, model.ErrNotFound
-			}
 			return nil, err
 		}
 
 		for _, u := range users {
 			result = append(result, &model.UserInfo{
-				ID:       u.ID,
-				Name:     u.Name,
-				Picture:  u.Picture,
-				Email:    u.Email,
-				Role:     u.Role,
-				LastSeen: u.LastSeen,
+				ID:            u.ID,
+				ConnectGoogle: u.GoogleID.Valid,
+				Name:          u.Name,
+				Picture:       u.Picture,
+				Email:         u.Email,
+				Role:          u.Role,
+				LastSeen:      u.LastSeen,
+				CreatedAt:     u.CreatedAt,
+				UpdatedAt:     u.UpdatedAt.Time,
+				UpdatedBy:     u.UpdatedBy.UUID,
 			})
 
 		}
@@ -104,20 +105,21 @@ func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.Use
 	} else {
 		users, err := s.repository.GetUsersWithSimilar(ctx, search)
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return result, model.ErrNotFound
-			}
 			return nil, err
 		}
 
 		for _, u := range users {
 			result = append(result, &model.UserInfo{
-				ID:       u.ID,
-				Name:     u.Name,
-				Picture:  u.Picture,
-				Email:    u.Email,
-				Role:     u.Role,
-				LastSeen: u.LastSeen,
+				ID:            u.ID,
+				ConnectGoogle: u.GoogleID.Valid,
+				Name:          u.Name,
+				Picture:       u.Picture,
+				Email:         u.Email,
+				Role:          u.Role,
+				LastSeen:      u.LastSeen,
+				UpdatedAt:     u.UpdatedAt.Time,
+				UpdatedBy:     u.UpdatedBy.UUID,
+				CreatedAt:     u.CreatedAt,
 			})
 
 		}
@@ -144,6 +146,9 @@ func (s *UserService) GetUserByID(ctx context.Context, userID uuid.UUID) (*model
 		Picture:        u.Picture,
 		Role:           u.Role,
 		LastSeen:       u.LastSeen,
+		UpdatedAt:      u.UpdatedAt.Time,
+		UpdatedBy:      u.UpdatedBy.UUID,
+		CreatedAt:      u.CreatedAt,
 	}, nil
 }
 
@@ -166,24 +171,27 @@ func (s *UserService) GetUserByEmail(ctx context.Context, email string) (*model.
 		Picture:        u.Picture,
 		Role:           u.Role,
 		LastSeen:       u.LastSeen,
+		UpdatedAt:      u.UpdatedAt.Time,
+		UpdatedBy:      u.UpdatedBy.UUID,
+		CreatedAt:      u.CreatedAt,
 	}, nil
 }
 
-func (s *UserService) UpdateUserEmail(ctx context.Context, user *model.User) error {
+func (s *UserService) UpdateUserEmail(ctx context.Context, user model.User) error {
 	return s.repository.UpdateUserEmail(ctx, postgres.UpdateUserEmailParams{
 		ID:    user.ID,
 		Email: user.Email,
 	})
 }
 
-func (s *UserService) UpdateUserPicture(ctx context.Context, user *model.User) error {
+func (s *UserService) UpdateUserPicture(ctx context.Context, user model.User) error {
 	return s.repository.UpdateUserPicture(ctx, postgres.UpdateUserPictureParams{
 		ID:      user.ID,
 		Picture: user.Picture,
 	})
 }
 
-func (s *UserService) UpdateUserGoogleID(ctx context.Context, user *model.User) error {
+func (s *UserService) UpdateUserGoogleID(ctx context.Context, user model.User) error {
 	return s.repository.UpdateUserGoogleID(ctx, postgres.UpdateUserGoogleIDParams{
 		ID: user.ID,
 		GoogleID: sql.NullString{
@@ -193,14 +201,14 @@ func (s *UserService) UpdateUserGoogleID(ctx context.Context, user *model.User) 
 	})
 }
 
-func (s *UserService) UpdateUserPassword(ctx context.Context, user *model.User) error {
+func (s *UserService) UpdateUserPassword(ctx context.Context, user model.User) error {
 	return s.repository.UpdateUserPassword(ctx, postgres.UpdateUserPasswordParams{
 		ID:             user.ID,
 		HashedPassword: user.HashedPassword,
 	})
 }
 
-func (s *UserService) UpdateUserRole(ctx context.Context, user *model.User) error {
+func (s *UserService) UpdateUserRole(ctx context.Context, user model.User) error {
 	return s.repository.UpdateUserRole(ctx, postgres.UpdateUserRoleParams{
 		ID:   user.ID,
 		Role: user.Role,

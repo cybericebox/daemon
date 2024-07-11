@@ -23,21 +23,33 @@ func (h *Handler) initScoreAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getScore(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
 	score, err := h.useCase.GetScore(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
+
 	response.AbortWithContent(ctx, score)
 }
 
 func (h *Handler) scoreNeedProtection(ctx *gin.Context) bool {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return true
+	}
+
 	needProtection, err := h.useCase.ProtectScore(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return true
 	}
+
 	return needProtection
 }

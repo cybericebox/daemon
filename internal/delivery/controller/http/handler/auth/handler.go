@@ -47,13 +47,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	}
 }
 
-type signInRequest struct {
-	Email    string `json:"email" binding:"required,email,max=255"`
-	Password string `json:"password" binding:"required,min=1,max=64"`
-}
-
 func (h *Handler) signIn(ctx *gin.Context) {
-	var inp signInRequest
+	var inp model.User
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
@@ -69,5 +65,5 @@ func (h *Handler) signIn(ctx *gin.Context) {
 }
 
 func (h *Handler) signOut(ctx *gin.Context) {
-	protection.DeAuthenticateAndAbortWithOk(ctx)
+	protection.DeAuthenticate(ctx)
 }

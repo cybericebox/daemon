@@ -61,7 +61,7 @@ func NewController(deps Dependencies) *Controller {
 
 	//proxy to frontends
 	router.NoRoute(
-		protection.DynamicallyRequireProtection(protectFrontends),
+		protection.DynamicallyRequireProtection(protectFrontends, true),
 		proxy.HandleProxy(proxy.Dependencies{
 			Config:  &deps.Config.Proxy,
 			UseCase: deps.UseCase,

@@ -25,15 +25,19 @@ type (
 )
 
 func NewWorker(maxWorkers int) *Worker {
-	return &Worker{
+	w := &Worker{
 		maxWorkers:  maxWorkers,
 		inputTasks:  make(chan Task, 10),
 		toDoTasks:   make(chan Task, 200),
 		queuedTasks: make([]Task, 0),
 	}
+
+	w.start()
+
+	return w
 }
 
-func (d *Worker) Start() {
+func (d *Worker) start() {
 	go d.manageTasks()
 	go d.manageToDoTasks()
 	go d.runWorkerPool()

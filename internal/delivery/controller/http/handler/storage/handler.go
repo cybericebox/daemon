@@ -6,7 +6,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
-	"net/http"
 )
 
 type (
@@ -25,7 +24,7 @@ func NewStorageAPIHandler(useCase IUseCase) *Handler {
 }
 
 func (h *Handler) Init(router *gin.RouterGroup) {
-	storageAPI := router.Group("storage/:storageType", protection.RequireProtection)
+	storageAPI := router.Group("storage/:storageType", protection.RequireProtection())
 	{
 		storageAPI.GET(":fileID", h.getFileLink)
 		storageAPI.GET("download/:fileID", h.redirectToDownloadFile)
@@ -34,7 +33,12 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getFileLink(ctx *gin.Context) {
-	fileID := uuid.FromStringOrNil(ctx.Param("fileID"))
+	fileID, err := uuid.FromString(ctx.Param("fileID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
 	storageType := ctx.Param("storageType")
 
 	url, err := h.useCase.GetDownloadFileLink(ctx, storageType, fileID)
@@ -42,12 +46,17 @@ func (h *Handler) getFileLink(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithContent(ctx, url)
 
+	response.AbortWithContent(ctx, url)
 }
 
 func (h *Handler) redirectToUploadURL(ctx *gin.Context) {
-	fileID := uuid.FromStringOrNil(ctx.Param("fileID"))
+	fileID, err := uuid.FromString(ctx.Param("fileID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
 	storageType := ctx.Param("storageType")
 
 	url, err := h.useCase.GetUploadFileLink(ctx, storageType, fileID)
@@ -55,11 +64,17 @@ func (h *Handler) redirectToUploadURL(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.Redirect(ctx, http.StatusTemporaryRedirect, url)
+
+	response.TemporaryRedirect(ctx, url)
 }
 
 func (h *Handler) redirectToDownloadFile(ctx *gin.Context) {
-	fileID := uuid.FromStringOrNil(ctx.Param("fileID"))
+	fileID, err := uuid.FromString(ctx.Param("fileID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
 	storageType := ctx.Param("storageType")
 
 	url, err := h.useCase.GetDownloadFileLink(ctx, storageType, fileID)
@@ -67,5 +82,6 @@ func (h *Handler) redirectToDownloadFile(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.Redirect(ctx, http.StatusTemporaryRedirect, url)
+
+	response.TemporaryRedirect(ctx, url)
 }

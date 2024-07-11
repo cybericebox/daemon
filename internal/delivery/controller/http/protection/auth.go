@@ -8,33 +8,39 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
-	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
-	"net/http"
 	"strings"
 )
 
 type (
 	IAuthProtectionUseCase interface {
 		GetCurrentUserRole(ctx context.Context) (string, error)
-		RefreshTokensIfNeedAndReturnUserID(ctx context.Context, oldTokens model.Tokens) (*model.Tokens, *uuid.UUID, bool, bool)
+		RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) *model.CheckTokensResult
 	}
 )
 
-func RequireProtection(ctx *gin.Context) {
-	protector.identifyUser(ctx)
-	protector.checkPermissions(ctx)
-}
-
-func DynamicallyRequireProtection(needAuthentication func(ctx *gin.Context) bool) gin.HandlerFunc {
+func RequireProtection(withRedirect ...bool) gin.HandlerFunc {
+	redirect := false
+	if len(withRedirect) > 0 {
+		redirect = withRedirect[0]
+	}
 	return func(ctx *gin.Context) {
-		if needAuthentication(ctx) {
-			RequireProtection(ctx)
+		if authenticated := protector.authenticateUser(ctx, redirect); authenticated {
+			protector.checkDomainPermissions(ctx, redirect)
 		}
 	}
 }
 
-func (p *protection) checkPermissions(ctx *gin.Context) {
+func DynamicallyRequireProtection(needProtection func(ctx *gin.Context) bool, withRedirect ...bool) gin.HandlerFunc {
+	return func(ctx *gin.Context) {
+		if needProtection(ctx) {
+			RequireProtection(withRedirect...)(ctx)
+		}
+	}
+}
+
+// checkDomainPermissions checks if user has permissions to get domain resources
+func (p *protection) checkDomainPermissions(ctx *gin.Context, redirectOnUnauthorized bool) {
 	role, err := protector.useCase.GetCurrentUserRole(ctx)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -48,7 +54,7 @@ func (p *protection) checkPermissions(ctx *gin.Context) {
 	if ctx.GetString(tools.SubdomainCtxKey) == config.AdminSubdomain {
 		if role != model.AdministratorRole {
 			// if user is not an admin redirect to main domain page
-			RedirectToMainDomainPage(ctx, http.StatusTemporaryRedirect)
+			p.unauthorizedResponse(ctx, redirectOnUnauthorized)
 			return
 		}
 	}
@@ -65,62 +71,78 @@ func ValidateRequestDomain(ctx *gin.Context) {
 	ctx.Set(tools.SubdomainCtxKey, subdomain)
 }
 
-// identifyUser identifies user by tokens
-func (p *protection) identifyUser(ctx *gin.Context) {
+// authenticateUser authenticate user by tokens
+func (p *protection) authenticateUser(ctx *gin.Context, redirectOnUnauthenticated bool) bool {
+	// get current tokens
 	currentTokens := p.getTokens(ctx)
 
-	tokens, userID, valid, refreshed := p.useCase.RefreshTokensIfNeedAndReturnUserID(ctx, model.Tokens{
-		AccessToken:  currentTokens.AccessToken,
-		RefreshToken: currentTokens.RefreshToken,
-	})
+	// if tokens are empty return unauthorized response
+	if currentTokens.AccessToken == "" && currentTokens.RefreshToken == "" {
+		p.unauthenticatedResponse(ctx, redirectOnUnauthenticated)
+		return false
+	}
+
+	result := p.useCase.RefreshTokensAndReturnUserID(ctx, currentTokens)
 
 	// if tokens are not valid return unauthorized response
-	if !valid {
-		p.unauthorizedResponse(ctx)
-		return
+	if !result.Valid {
+		p.unauthenticatedResponse(ctx, redirectOnUnauthenticated)
+		return false
 	}
 
 	// if valid set user id to context and set tokens to cookies
-	ctx.Set(tools.UserIDCtxKey, userID)
+	ctx.Set(tools.UserIDCtxKey, result.UserID)
+
 	// if tokens were refreshed set new tokens to cookies
-	if refreshed {
-		p.setTokens(ctx, tokens)
+	if result.Refreshed {
+		p.setTokens(ctx, result.Tokens)
 	}
+
+	return true
 }
 
-// unauthorizedResponse returns unauthorized response for api and redirects to sign in page for web
-func (p *protection) unauthorizedResponse(ctx *gin.Context) {
+// unauthenticatedResponse returns unauthorized response for api or redirects to sign in page
+func (p *protection) unauthenticatedResponse(ctx *gin.Context, redirectOnUnauthenticated bool) {
+	// if redirectOnUnauthenticated is false
+	if !redirectOnUnauthenticated {
+		response.AbortWithUnauthorized(ctx)
+		return
+	}
 	// save "from" url to cookie
-	p.setFromURL(ctx)
+	SetFromURL(ctx)
 	// redirect to sign in page
-	RedirectToMainDomainPage(ctx, http.StatusTemporaryRedirect, config.SignInPage)
+	RedirectToMainDomainPage(ctx, config.SignInPage)
+	ctx.Abort()
 }
 
-// setFromURL save "from" url
-func (p *protection) setFromURL(ctx *gin.Context, from ...string) {
-	fromURL := fmt.Sprintf("%s://%s%s", config.SchemeHTTPS, ctx.Request.Host, ctx.Request.URL.String())
-
-	if len(from) > 0 {
-		fromURL = from[0]
+func (p *protection) unauthorizedResponse(ctx *gin.Context, redirectOnUnauthorized bool) {
+	// if redirectOnUnauthorized is false
+	if !redirectOnUnauthorized {
+		response.AbortWithForbidden(ctx)
+		return
 	}
 
-	if fromURL != "" {
-		ctx.SetCookie(config.FromURLField, fromURL, int(p.config.TemporalCookieTTL.Seconds()), "/", config.PlatformDomain, true, false)
+	// if user not on root path redirect to root
+	if ctx.Request.URL.Path != "/" {
+		response.TemporaryRedirect(ctx, "/")
+	} else {
+		// if user already on root path then redirect to main domain
+		RedirectToMainDomainPage(ctx, config.SignInPage)
 	}
 }
 
 // RedirectToMainDomainPage redirects to main domain page with status
-func RedirectToMainDomainPage(ctx *gin.Context, status int, page ...string) {
+func RedirectToMainDomainPage(ctx *gin.Context, page ...string) {
 	// get page name
-	pageName := "/"
+	pagePath := "/"
 	if len(page) > 0 {
-		pageName = page[0]
+		pagePath = page[0]
 	}
 	// get main domain url
-	mainDomainURL := fmt.Sprintf("%s://%s%s", config.SchemeHTTPS, config.PlatformDomain, pageName)
+	mainDomainURL := fmt.Sprintf("%s://%s%s", config.SchemeHTTPS, config.PlatformDomain, pagePath)
 
 	// redirect to main domain page
-	response.Redirect(ctx, status, mainDomainURL)
+	response.TemporaryRedirect(ctx, mainDomainURL)
 }
 
 // GetFromURL get "from" url from cookie and delete it
@@ -136,9 +158,17 @@ func GetFromURL(ctx *gin.Context) (value string) {
 	return
 }
 
-// SetFromURL saves "from" url to cookie
+// SetFromURL save "from" url to cookie
 func SetFromURL(ctx *gin.Context, from ...string) {
-	protector.setFromURL(ctx, from...)
+	fromURL := fmt.Sprintf("%s://%s%s", config.SchemeHTTPS, ctx.Request.Host, ctx.Request.URL.String())
+
+	if len(from) > 0 {
+		fromURL = from[0]
+	}
+
+	if fromURL != "" {
+		ctx.SetCookie(config.FromURLField, fromURL, int(protector.config.TemporalCookieTTL.Seconds()), "/", config.PlatformDomain, true, false)
+	}
 }
 
 func SetAuthenticated(ctx *gin.Context, tokens *model.Tokens) {
@@ -148,24 +178,24 @@ func SetAuthenticated(ctx *gin.Context, tokens *model.Tokens) {
 	// get from url if user was redirected to sign in page
 	from := GetFromURL(ctx)
 	// redirect to "from" url
-	response.Redirect(ctx, http.StatusFound, from)
+	response.TemporaryRedirect(ctx, from)
 
 }
 
-func DeAuthenticateAndAbortWithOk(ctx *gin.Context) {
+func DeAuthenticate(ctx *gin.Context) {
 	protector.unsetTokens(ctx)
-	response.AbortWithOK(ctx, "Signed out")
+	response.AbortWithSuccess(ctx)
 }
 
 func (p *protection) getTokens(ctx *gin.Context) model.Tokens {
 	accessToken, err := ctx.Cookie(model.AccessToken)
 	if err != nil {
-		return model.Tokens{}
+		log.Debug().Err(err).Msg("Cannot get access token from cookie")
 	}
 
 	refreshToken, err := ctx.Cookie(model.RefreshToken)
 	if err != nil {
-		return model.Tokens{}
+		log.Debug().Err(err).Msg("Cannot get refresh token from cookie")
 	}
 
 	return model.Tokens{

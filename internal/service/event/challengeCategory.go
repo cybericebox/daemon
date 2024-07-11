@@ -38,7 +38,8 @@ func (s *EventService) GetEventCategories(ctx context.Context, eventID uuid.UUID
 	return result, nil
 }
 
-func (s *EventService) CreateEventCategory(ctx context.Context, category *model.ChallengeCategory) error {
+func (s *EventService) CreateEventCategory(ctx context.Context, category model.ChallengeCategory) error {
+	//TODO: check if category with the same name already exists
 	if err := s.repository.CreateEventChallengeCategory(ctx, postgres.CreateEventChallengeCategoryParams{
 		ID:         uuid.Must(uuid.NewV7()),
 		EventID:    category.EventID,
@@ -51,7 +52,7 @@ func (s *EventService) CreateEventCategory(ctx context.Context, category *model.
 	return nil
 }
 
-func (s *EventService) UpdateEventCategory(ctx context.Context, category *model.ChallengeCategory) error {
+func (s *EventService) UpdateEventCategory(ctx context.Context, category model.ChallengeCategory) error {
 	if err := s.repository.UpdateEventChallengeCategory(ctx, postgres.UpdateEventChallengeCategoryParams{
 		EventID: category.EventID,
 		ID:      category.ID,
@@ -79,7 +80,7 @@ func (s *EventService) UpdateEventCategoriesOrder(ctx context.Context, eventID u
 		if err := s.repository.UpdateEventChallengeCategoryOrder(ctx, postgres.UpdateEventChallengeCategoryOrderParams{
 			EventID:    eventID,
 			ID:         order.ID,
-			OrderIndex: order.Index,
+			OrderIndex: order.OrderIndex,
 		}); err != nil {
 
 			return err

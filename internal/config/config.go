@@ -7,16 +7,17 @@ import (
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"os"
 	"time"
 )
 
 type (
 	Config struct {
-		Debug      bool             `yaml:"debug" env:"DAEMON_DEBUG" env-default:"false" env-description:"Debug mode"`
-		Domain     string           `yaml:"domain" env:"DOMAIN" env-description:"Domain of the platform"`
-		Controller ControllerConfig `yaml:"controller"`
-		Service    ServiceConfig    `yaml:"service"`
-		Repository RepositoryConfig `yaml:"repository"`
+		Environment string           `yaml:"environment" env:"ENV" env-default:"production" env-description:"Environment"`
+		Domain      string           `yaml:"domain" env:"DOMAIN" env-description:"Domain of the platform"`
+		Controller  ControllerConfig `yaml:"controller"`
+		Service     ServiceConfig    `yaml:"service"`
+		Repository  RepositoryConfig `yaml:"repository"`
 	}
 
 	ControllerConfig struct {
@@ -183,7 +184,10 @@ type (
 	}
 )
 
-var PlatformDomain string
+var (
+	PlatformDomain string
+	MigrationPath  string
+)
 
 func MustGetConfig() *Config {
 	path := flag.String("config", "", "Path to config file")
@@ -192,8 +196,7 @@ func MustGetConfig() *Config {
 	log.Info().Msg("Reading daemon configuration")
 
 	instance := &Config{}
-	header := "Config variables:"
-	help, _ := cleanenv.GetDescription(instance, &header)
+	help, _ := cleanenv.GetDescription(instance, nil)
 
 	var err error
 
@@ -209,16 +212,24 @@ func MustGetConfig() *Config {
 		return nil
 	}
 
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	gin.SetMode(gin.ReleaseMode)
+
 	// set log mode
-	if !instance.Debug {
-		zerolog.SetGlobalLevel(zerolog.InfoLevel)
-		gin.SetMode(gin.ReleaseMode)
+	if instance.Environment != Production {
+		gin.SetMode(gin.DebugMode)
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	}
 
 	instance.populateForAllConfig()
 
 	// Set the domain
 	PlatformDomain = instance.Domain
+	MigrationPath = "migrations"
+	if instance.Environment == Local {
+		MigrationPath = "internal/delivery/repository/postgres/migrations"
+	}
 
 	return instance
 }

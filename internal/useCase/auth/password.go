@@ -12,7 +12,7 @@ import (
 
 type (
 	IPasswordService interface {
-		UpdateUserPassword(ctx context.Context, user *model.User) error
+		UpdateUserPassword(ctx context.Context, user model.User) error
 
 		CreateTemporalPasswordResettingCode(ctx context.Context, data model.TemporalPasswordResettingCodeData) (string, error)
 		GetTemporalPasswordResettingCodeData(ctx context.Context, code string) (*model.TemporalPasswordResettingCodeData, error)
@@ -76,7 +76,7 @@ func (u *AuthUseCase) ResetPassword(ctx context.Context, bsCode, newPassword str
 	}
 
 	// update the user password
-	user := &model.User{
+	user := model.User{
 		ID:             temporalCodeData.UserID,
 		HashedPassword: hashedPassword,
 	}
@@ -127,7 +127,7 @@ func (u *AuthUseCase) ChangePassword(ctx context.Context, oldPassword, newPasswo
 	user.HashedPassword = hashedPassword
 
 	// update user password
-	if err = u.service.UpdateUserPassword(ctx, user); err != nil {
+	if err = u.service.UpdateUserPassword(ctx, *user); err != nil {
 		return err
 	}
 	return nil

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/rs/zerolog/log"
@@ -18,6 +19,10 @@ import (
 const (
 	randomStateLen    = 10
 	oauthGoogleUrlAPI = "https://www.googleapis.com/oauth2/v2/userinfo?access_token="
+)
+
+var (
+	ErrInvalidState = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("invalid state"))
 )
 
 type (
@@ -35,7 +40,7 @@ func NewOAuthService(deps Dependencies) *OAuthService {
 	r := make([]byte, randomStateLen)
 	_, err := rand.Read(r)
 	if err != nil {
-		log.Err(err).Msg("Creating google service")
+		log.Fatal().Err(err).Msg("Creating google service")
 		return nil
 	}
 	return &OAuthService{
@@ -56,7 +61,7 @@ func (s *OAuthService) GetGoogleLoginURL() string {
 
 func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*model.User, error) {
 	if strings.Compare(state, s.randomState) != 0 {
-		return nil, fmt.Errorf("invalid state")
+		return nil, ErrInvalidState
 	}
 
 	tokens, err := s.googleConfig.Exchange(ctx, code)
@@ -73,7 +78,7 @@ func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*
 
 	defer func() {
 		if err = response.Body.Close(); err != nil {
-			log.Err(err).Msg("GetGoogleUser")
+			log.Error().Err(err).Msg("GetGoogleUser")
 		}
 	}()
 

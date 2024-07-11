@@ -2,7 +2,9 @@ package exercise
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -62,7 +64,7 @@ func (s *ExerciseService) GetExercises(ctx context.Context) ([]*model.Exercise, 
 			CategoryID:  exercise.CategoryID,
 			Name:        exercise.Name,
 			Description: exercise.Description,
-			Data:        *data,
+			Data:        data,
 			CreatedAt:   exercise.CreatedAt,
 		})
 	}
@@ -73,6 +75,9 @@ func (s *ExerciseService) GetExercises(ctx context.Context) ([]*model.Exercise, 
 func (s *ExerciseService) GetExercise(ctx context.Context, exerciseID uuid.UUID) (*model.Exercise, error) {
 	exercise, err := s.repository.GetExerciseByID(ctx, exerciseID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrNotFound
+		}
 		return nil, err
 	}
 
@@ -86,12 +91,14 @@ func (s *ExerciseService) GetExercise(ctx context.Context, exerciseID uuid.UUID)
 		CategoryID:  exercise.CategoryID,
 		Name:        exercise.Name,
 		Description: exercise.Description,
-		Data:        *data,
+		Data:        data,
 		CreatedAt:   exercise.CreatedAt,
 	}, nil
 }
 
-func (s *ExerciseService) CreateExercise(ctx context.Context, exercise *model.Exercise) error {
+func (s *ExerciseService) CreateExercise(ctx context.Context, exercise model.Exercise) error {
+	//TODO: check if exercise exists by name
+
 	for _, task := range exercise.Data.Tasks {
 		for i, instance := range exercise.Data.Instances {
 			if task.LinkedInstanceID.Valid && task.LinkedInstanceID.UUID == instance.ID {
@@ -124,7 +131,7 @@ func (s *ExerciseService) CreateExercise(ctx context.Context, exercise *model.Ex
 	return nil
 }
 
-func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise *model.Exercise) error {
+func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise model.Exercise) error {
 	for _, task := range exercise.Data.Tasks {
 		for i, instance := range exercise.Data.Instances {
 			if task.LinkedInstanceID.Valid && task.LinkedInstanceID.UUID == instance.ID {
@@ -165,13 +172,13 @@ func (s *ExerciseService) DeleteExercise(ctx context.Context, exerciseID uuid.UU
 	return nil
 }
 
-func (s *ExerciseService) convertToModelData(data json.RawMessage) (*model.ExerciseData, error) {
+func (s *ExerciseService) convertToModelData(data json.RawMessage) (model.ExerciseData, error) {
 	var modelData model.ExerciseData
 	if err := json.Unmarshal(data, &modelData); err != nil {
-		return nil, err
+		return model.ExerciseData{}, err
 	}
 
-	return &modelData, nil
+	return modelData, nil
 }
 
 func (s *ExerciseService) convertToJSON(data model.ExerciseData) (json.RawMessage, error) {

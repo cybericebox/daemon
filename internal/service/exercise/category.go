@@ -38,7 +38,7 @@ func (s *ExerciseService) GetExerciseCategories(ctx context.Context) ([]*model.E
 	return result, nil
 }
 
-func (s *ExerciseService) CreateExerciseCategory(ctx context.Context, category *model.ExerciseCategory) error {
+func (s *ExerciseService) CreateExerciseCategory(ctx context.Context, category model.ExerciseCategory) error {
 	if err := s.repository.CreateExerciseCategory(ctx, postgres.CreateExerciseCategoryParams{
 		ID:          uuid.Must(uuid.NewV7()),
 		Name:        category.Name,
@@ -50,7 +50,7 @@ func (s *ExerciseService) CreateExerciseCategory(ctx context.Context, category *
 	return nil
 }
 
-func (s *ExerciseService) UpdateExerciseCategory(ctx context.Context, category *model.ExerciseCategory) error {
+func (s *ExerciseService) UpdateExerciseCategory(ctx context.Context, category model.ExerciseCategory) error {
 	if err := s.repository.UpdateExerciseCategory(ctx, postgres.UpdateExerciseCategoryParams{
 		ID:          category.ID,
 		Name:        category.Name,

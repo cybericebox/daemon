@@ -2,6 +2,8 @@ package event
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -107,6 +109,9 @@ func (s *EventService) GetEvents(ctx context.Context) ([]*model.Event, error) {
 func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID) (*model.Event, error) {
 	event, err := s.repository.GetEventByID(ctx, eventID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrNotFound
+		}
 		return nil, err
 	}
 	return &model.Event{
@@ -137,6 +142,9 @@ func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID) (*mo
 func (s *EventService) GetEventByTag(ctx context.Context, eventTag string) (*model.Event, error) {
 	event, err := s.repository.GetEventByTag(ctx, eventTag)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrNotFound
+		}
 		return nil, err
 	}
 	return &model.Event{
@@ -164,7 +172,9 @@ func (s *EventService) GetEventByTag(ctx context.Context, eventTag string) (*mod
 	}, nil
 }
 
-func (s *EventService) CreateEvent(ctx context.Context, event *model.Event) (*model.Event, error) {
+func (s *EventService) CreateEvent(ctx context.Context, event model.Event) (*model.Event, error) {
+	//TODO: check if event tag is unique
+
 	event.ID = uuid.Must(uuid.NewV7())
 
 	if err := s.repository.CreateEvent(ctx, postgres.CreateEventParams{
@@ -191,10 +201,10 @@ func (s *EventService) CreateEvent(ctx context.Context, event *model.Event) (*mo
 	}); err != nil {
 		return nil, err
 	}
-	return event, nil
+	return &event, nil
 }
 
-func (s *EventService) UpdateEvent(ctx context.Context, event *model.Event) error {
+func (s *EventService) UpdateEvent(ctx context.Context, event model.Event) error {
 	if err := s.repository.UpdateEvent(ctx, postgres.UpdateEventParams{
 		ID:                     event.ID,
 		Name:                   event.Name,

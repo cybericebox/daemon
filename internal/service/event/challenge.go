@@ -2,6 +2,8 @@ package event
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -69,6 +71,9 @@ func (s *EventService) GetEventChallengeByID(ctx context.Context, eventID uuid.U
 		ID:      challengeID,
 	})
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrNotFound
+		}
 		return nil, err
 	}
 
@@ -146,6 +151,34 @@ func (s *EventService) AddExercisesToEvent(ctx context.Context, eventID, categor
 	return nil
 }
 
+func (s *EventService) DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseID uuid.UUID) error {
+	if err := s.repository.DeleteEventChallenges(ctx, postgres.DeleteEventChallengesParams{
+		EventID:    eventID,
+		ExerciseID: exerciseID,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *EventService) UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
+
+	for _, order := range orders {
+		if err := s.repository.UpdateEventChallengeOrder(ctx, postgres.UpdateEventChallengeOrderParams{
+			ID:         order.ID,
+			EventID:    eventID,
+			OrderIndex: order.OrderIndex,
+			CategoryID: order.CategoryID,
+		}); err != nil {
+
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID uuid.UUID) error {
 	var errs error
 
@@ -202,12 +235,31 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 			// find task for challenge
 			for _, task := range exercise.Data.Tasks {
 				if task.ID == challenge.ExerciseTaskID {
-					flag, err := tools.GetSolutionForTask(task.Flags...)
+					// try to get team challenge
+					flag, err := s.repository.GetChallengeFlag(ctx, postgres.GetChallengeFlagParams{
+						ChallengeID: challenge.ID,
+						TeamID:      team.ID,
+					})
+					if err != nil && !errors.Is(err, sql.ErrNoRows) {
+						errs = multierror.Append(errs, err)
+						continue chF
+					}
+
+					// if flag is already set skip
+					if err == nil && flag != "" {
+						flags[task.ID] = flag
+						break
+					}
+
+					// if challenge is not created yet
+					// get solution for challenge
+					flag, err = tools.GetSolutionForTask(task.Flags...)
 					if err != nil {
 						errs = multierror.Append(errs, err)
 						continue chF
 					}
 
+					// create team challenge
 					if err = s.repository.CreateEventTeamChallenge(ctx, postgres.CreateEventTeamChallengeParams{
 						ID:          uuid.Must(uuid.NewV7()),
 						EventID:     eventID,
@@ -279,34 +331,6 @@ func (s *EventService) DeleteEventTeamsChallenges(ctx context.Context, eventID, 
 
 	if err = s.repository.DeleteLabsChallenges(ctx, labIDs, []uuid.UUID{exerciseID}); err != nil {
 		return err
-	}
-
-	return nil
-}
-
-func (s *EventService) DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseID uuid.UUID) error {
-	if err := s.repository.DeleteEventChallenges(ctx, postgres.DeleteEventChallengesParams{
-		EventID:    eventID,
-		ExerciseID: exerciseID,
-	}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *EventService) UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
-
-	for _, order := range orders {
-		if err := s.repository.UpdateEventChallengeOrder(ctx, postgres.UpdateEventChallengeOrderParams{
-			ID:         order.ID,
-			EventID:    eventID,
-			OrderIndex: order.Index,
-			CategoryID: order.CategoryID,
-		}); err != nil {
-
-			return err
-		}
 	}
 
 	return nil

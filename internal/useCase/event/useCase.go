@@ -23,7 +23,7 @@ type (
 		IScoreService
 
 		GetEvents(ctx context.Context) ([]*model.Event, error)
-		CreateEvent(ctx context.Context, event *model.Event) (*model.Event, error)
+		CreateEvent(ctx context.Context, event model.Event) (*model.Event, error)
 
 		CreateEventTeamsChallenges(ctx context.Context, eventID uuid.UUID) error
 	}
@@ -78,23 +78,30 @@ func (u *EventUseCase) GetEventsInfo(ctx context.Context) ([]*model.EventInfo, e
 	return eventsInfo, nil
 }
 
-func (u *EventUseCase) CreateEvent(ctx context.Context, event *model.Event) error {
-	event, err := u.service.CreateEvent(ctx, event)
+func (u *EventUseCase) CreateEvent(ctx context.Context, newEvent model.Event) error {
+	event, err := u.service.CreateEvent(ctx, newEvent)
 	if err != nil {
 		return err
 	}
 
 	// task to create event team challenges on event start
+	u.CreateEventTeamsChallengesTask(ctx, *event)
+
+	return nil
+}
+
+func (u *EventUseCase) CreateEventTeamsChallengesTask(ctx context.Context, event model.Event) {
+	// task to create event team challenges on event start
 	u.worker.AddTask(worker.Task{
 		Do: func() {
-			if err = u.service.CreateEventTeamsChallenges(ctx, event.ID); err != nil {
-				log.Error().Err(err).Msg("failed to create event teams challenges")
+			if err := u.service.CreateEventTeamsChallenges(ctx, event.ID); err != nil {
+				log.Error().Err(err).Interface("eventID", event.ID).Msg("Failed to create event teams challenges")
 			}
 		},
 		CheckIfNeedToDo: func() (bool, *time.Time) {
 			e, err := u.service.GetEventByID(ctx, event.ID)
 			if err != nil {
-				log.Error().Err(err).Msg("failed to get event")
+				log.Error().Err(err).Interface("eventID", event.ID).Msg("Failed to get event")
 				return false, nil
 			}
 
@@ -105,7 +112,6 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, event *model.Event) erro
 		TimeToDo: event.StartTime.Add(-time.Minute),
 	})
 
-	return nil
 }
 
 func (u *EventUseCase) CreateEventTeamsChallengesTasks(ctx context.Context) error {
@@ -117,25 +123,7 @@ func (u *EventUseCase) CreateEventTeamsChallengesTasks(ctx context.Context) erro
 
 	for _, event := range events {
 		// task to create event team challenges on event start
-		u.worker.AddTask(worker.Task{
-			Do: func() {
-				if err = u.service.CreateEventTeamsChallenges(ctx, event.ID); err != nil {
-					log.Error().Err(err).Msg("failed to create event teams challenges")
-				}
-			},
-			CheckIfNeedToDo: func() (bool, *time.Time) {
-				e, err := u.service.GetEventByID(ctx, event.ID)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to get event")
-					return false, nil
-				}
-
-				next := e.StartTime.Add(-time.Minute)
-
-				return e.StartTime.Add(-time.Minute).Before(time.Now().UTC()), &next
-			},
-			TimeToDo: event.StartTime.Add(-time.Minute),
-		})
+		u.CreateEventTeamsChallengesTask(ctx, *event)
 	}
 
 	return nil

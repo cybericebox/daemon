@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -15,17 +16,14 @@ type IEmailUseCase interface {
 func (h *Handler) initEmailAPIHandler(router *gin.RouterGroup) {
 	email := router.Group("email")
 	{
-		email.PUT("", protection.RequireProtection, h.changeEmail)
+		email.PUT("", protection.RequireProtection(), h.changeEmail)
 		email.POST("confirm/:code", h.confirmEmail)
 	}
 }
 
-type changeEmailRequest struct {
-	Email string `json:"email" binding:"required,email,max=255"`
-}
-
 func (h *Handler) changeEmail(ctx *gin.Context) {
-	var inp changeEmailRequest
+	var inp model.User
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
@@ -35,7 +33,8 @@ func (h *Handler) changeEmail(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Email confirmation sent")
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) confirmEmail(ctx *gin.Context) {
@@ -45,5 +44,6 @@ func (h *Handler) confirmEmail(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Email confirmed")
+
+	response.AbortWithSuccess(ctx)
 }

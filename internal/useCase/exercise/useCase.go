@@ -16,8 +16,8 @@ type (
 
 		GetExercises(ctx context.Context) ([]*model.Exercise, error)
 		GetExercise(ctx context.Context, exerciseID uuid.UUID) (*model.Exercise, error)
-		CreateExercise(ctx context.Context, exercise *model.Exercise) error
-		UpdateExercise(ctx context.Context, exercise *model.Exercise) error
+		CreateExercise(ctx context.Context, exercise model.Exercise) error
+		UpdateExercise(ctx context.Context, exercise model.Exercise) error
 		DeleteExercise(ctx context.Context, exerciseID uuid.UUID) error
 	}
 
@@ -41,11 +41,11 @@ func (u *ExerciseUseCase) GetExercise(ctx context.Context, exerciseID uuid.UUID)
 	return u.service.GetExercise(ctx, exerciseID)
 }
 
-func (u *ExerciseUseCase) CreateExercise(ctx context.Context, exercise *model.Exercise) error {
+func (u *ExerciseUseCase) CreateExercise(ctx context.Context, exercise model.Exercise) error {
 	return u.service.CreateExercise(ctx, exercise)
 }
 
-func (u *ExerciseUseCase) UpdateExercise(ctx context.Context, exercise *model.Exercise) error {
+func (u *ExerciseUseCase) UpdateExercise(ctx context.Context, exercise model.Exercise) error {
 	return u.service.UpdateExercise(ctx, exercise)
 }
 

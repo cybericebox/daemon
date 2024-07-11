@@ -6,7 +6,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 type IGoogleUseCase interface {
@@ -24,7 +23,8 @@ func (h *Handler) initOAuthGoogleAPIHandler(router *gin.RouterGroup) {
 
 func (h *Handler) googleOAuthRedirect(ctx *gin.Context) {
 	url := h.useCase.GetGoogleLoginURL()
-	response.Redirect(ctx, http.StatusTemporaryRedirect, url)
+
+	response.TemporaryRedirect(ctx, url)
 }
 
 func (h *Handler) googleOAuthCallback(ctx *gin.Context) {
@@ -32,7 +32,6 @@ func (h *Handler) googleOAuthCallback(ctx *gin.Context) {
 	code := ctx.Query("code")
 
 	tokens, err := h.useCase.GoogleAuth(ctx, code, state)
-
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

@@ -10,8 +10,8 @@ import (
 
 type IExerciseCategoryUseCase interface {
 	GetExerciseCategories(ctx context.Context) ([]*model.ExerciseCategory, error)
-	CreateExerciseCategory(ctx context.Context, category *model.ExerciseCategory) error
-	UpdateExerciseCategory(ctx context.Context, category *model.ExerciseCategory) error
+	CreateExerciseCategory(ctx context.Context, category model.ExerciseCategory) error
+	UpdateExerciseCategory(ctx context.Context, category model.ExerciseCategory) error
 	DeleteExerciseCategory(ctx context.Context, categoryID uuid.UUID) error
 }
 
@@ -26,54 +26,66 @@ func (h *Handler) initCategoryExerciseAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getCategories(ctx *gin.Context) {
-
 	categories, err := h.useCase.GetExerciseCategories(ctx)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
+
 	response.AbortWithContent(ctx, categories)
 }
 
 func (h *Handler) createCategory(ctx *gin.Context) {
-
 	var inp model.ExerciseCategory
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	if err := h.useCase.CreateExerciseCategory(ctx, &inp); err != nil {
+	if err := h.useCase.CreateExerciseCategory(ctx, inp); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Category created successfully")
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) updateCategory(ctx *gin.Context) {
-	categoryID := uuid.FromStringOrNil(ctx.Param("categoryID"))
+	categoryID, err := uuid.FromString(ctx.Param("categoryID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
 
 	var inp model.ExerciseCategory
-	if err := ctx.BindJSON(&inp); err != nil {
+
+	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
 	inp.ID = categoryID
 
-	if err := h.useCase.UpdateExerciseCategory(ctx, &inp); err != nil {
+	if err = h.useCase.UpdateExerciseCategory(ctx, inp); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Category updated successfully")
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) deleteCategory(ctx *gin.Context) {
-	categoryID := uuid.FromStringOrNil(ctx.Param("categoryId"))
+	categoryID, err := uuid.FromString(ctx.Param("categoryID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
 
-	if err := h.useCase.DeleteExerciseCategory(ctx, categoryID); err != nil {
+	if err = h.useCase.DeleteExerciseCategory(ctx, categoryID); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Category deleted successfully")
+
+	response.AbortWithSuccess(ctx)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,19 +17,20 @@ type IPasswordUseCase interface {
 func (h *Handler) initPasswordAPIHandler(router *gin.RouterGroup) {
 	password := router.Group("password")
 	{
-		password.POST("", protection.RequireProtection, h.changePassword)
+		password.POST("", protection.RequireProtection(), h.changePassword)
 		password.POST("forgot", protection.RequireRecaptcha("forgotPassword"), h.forgotPassword)
 		password.POST("reset/:code", h.resetPassword)
 	}
 }
 
 type changePasswordRequest struct {
-	OldPassword string `json:"oldPassword" binding:"required,min=1,max=64"`
-	NewPassword string `json:"newPassword" binding:"required,min=1,max=64"`
+	OldPassword string `binding:"required,min=1,max=64"`
+	NewPassword string `binding:"required,min=1,max=64"`
 }
 
 func (h *Handler) changePassword(ctx *gin.Context) {
 	var inp changePasswordRequest
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
@@ -38,16 +40,13 @@ func (h *Handler) changePassword(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Password changed successfully")
 
-}
-
-type forgotPasswordRequest struct {
-	Email string `json:"email" binding:"required,email,max=255"`
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) forgotPassword(ctx *gin.Context) {
-	var inp forgotPasswordRequest
+	var inp model.User
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
@@ -57,17 +56,15 @@ func (h *Handler) forgotPassword(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Password reset link sent successfully")
-}
 
-type resetPasswordRequest struct {
-	Password string `json:"newPassword" binding:"required,min=1,max=64"`
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) resetPassword(ctx *gin.Context) {
 	code := ctx.Param("code")
 
-	var inp resetPasswordRequest
+	var inp model.User
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
@@ -76,5 +73,6 @@ func (h *Handler) resetPassword(ctx *gin.Context) {
 	if err := h.useCase.ResetPassword(ctx, code, inp.Password); err != nil {
 		response.AbortWithError(ctx, err)
 	}
-	response.AbortWithOK(ctx, "Password reset successfully")
+
+	response.AbortWithSuccess(ctx)
 }

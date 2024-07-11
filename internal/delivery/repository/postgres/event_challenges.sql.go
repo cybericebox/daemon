@@ -98,7 +98,8 @@ func (q *Queries) DeleteEventChallenges(ctx context.Context, arg DeleteEventChal
 const getEventChallengeByID = `-- name: GetEventChallengeByID :one
 select id, event_id, category_id, name, description, points, order_index, exercise_id, exercise_task_id, updated_at, updated_by, created_at
 from event_challenges
-where id = $1 and event_id = $2
+where id = $1
+  and event_id = $2
 `
 
 type GetEventChallengeByIDParams struct {

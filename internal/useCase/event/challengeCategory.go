@@ -9,8 +9,8 @@ import (
 type (
 	IChallengeCategoryService interface {
 		GetEventCategories(ctx context.Context, eventID uuid.UUID) ([]*model.ChallengeCategory, error)
-		CreateEventCategory(ctx context.Context, category *model.ChallengeCategory) error
-		UpdateEventCategory(ctx context.Context, category *model.ChallengeCategory) error
+		CreateEventCategory(ctx context.Context, category model.ChallengeCategory) error
+		UpdateEventCategory(ctx context.Context, category model.ChallengeCategory) error
 		DeleteEventCategory(ctx context.Context, eventID uuid.UUID, categoryID uuid.UUID) error
 		UpdateEventCategoriesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
 	}
@@ -20,11 +20,11 @@ func (u *EventUseCase) GetEventCategories(ctx context.Context, eventID uuid.UUID
 	return u.service.GetEventCategories(ctx, eventID)
 }
 
-func (u *EventUseCase) CreateEventCategory(ctx context.Context, category *model.ChallengeCategory) error {
+func (u *EventUseCase) CreateEventCategory(ctx context.Context, category model.ChallengeCategory) error {
 	return u.service.CreateEventCategory(ctx, category)
 }
 
-func (u *EventUseCase) UpdateEventCategory(ctx context.Context, category *model.ChallengeCategory) error {
+func (u *EventUseCase) UpdateEventCategory(ctx context.Context, category model.ChallengeCategory) error {
 	return u.service.UpdateEventCategory(ctx, category)
 }
 

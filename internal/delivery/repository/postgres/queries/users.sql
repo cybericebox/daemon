@@ -6,12 +6,12 @@ insert into users (id, google_id, email, name, hashed_password, picture, role)
 values ($1, $2, $3, $4, $5, $6, $7);
 
 -- name: GetAllUsers :many
-select id, email, name, role, last_seen, picture
+select id, google_id, email, name, picture, role, last_seen, updated_at, updated_by, created_at
 from users
 order by name;
 
 -- name: GetUsersWithSimilar :many
-select id, email, name, role, last_seen, picture
+select id, google_id, email, name, picture, role, last_seen, updated_at, updated_by, created_at
 from users
 where name ilike '%' || @search::text || '%'
    or email ilike '%' || @search || '%'

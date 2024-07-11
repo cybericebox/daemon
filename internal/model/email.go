@@ -20,6 +20,7 @@ type (
 	}
 )
 
+// email templates names
 const (
 	AccountExistsTemplate        = "account_exists_template"
 	ContinueRegistrationTemplate = "continue_registration_template"
@@ -27,10 +28,12 @@ const (
 	EmailConfirmationTemplate    = "email_confirmation_template"
 )
 
+// links for email confirmation, password resetting, etc.
 const (
-	// links for email confirmation, password resetting, etc.
-
 	ContinueRegistrationLink = "/sign-up/"
 	PasswordResettingLink    = "/reset-password/"
 	EmailConfirmationLink    = "/email/confirm/"
 )
+
+// errors for email
+var ()

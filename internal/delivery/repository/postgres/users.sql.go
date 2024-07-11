@@ -64,18 +64,22 @@ func (q *Queries) DoesUserExistByID(ctx context.Context, id uuid.UUID) (bool, er
 }
 
 const getAllUsers = `-- name: GetAllUsers :many
-select id, email, name, role, last_seen, picture
+select id, google_id, email, name, picture, role, last_seen, updated_at, updated_by, created_at
 from users
 order by name
 `
 
 type GetAllUsersRow struct {
-	ID       uuid.UUID `json:"id"`
-	Email    string    `json:"email"`
-	Name     string    `json:"name"`
-	Role     string    `json:"role"`
-	LastSeen time.Time `json:"last_seen"`
-	Picture  string    `json:"picture"`
+	ID        uuid.UUID      `json:"id"`
+	GoogleID  sql.NullString `json:"google_id"`
+	Email     string         `json:"email"`
+	Name      string         `json:"name"`
+	Picture   string         `json:"picture"`
+	Role      string         `json:"role"`
+	LastSeen  time.Time      `json:"last_seen"`
+	UpdatedAt sql.NullTime   `json:"updated_at"`
+	UpdatedBy uuid.NullUUID  `json:"updated_by"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 func (q *Queries) GetAllUsers(ctx context.Context) ([]GetAllUsersRow, error) {
@@ -89,11 +93,15 @@ func (q *Queries) GetAllUsers(ctx context.Context) ([]GetAllUsersRow, error) {
 		var i GetAllUsersRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.GoogleID,
 			&i.Email,
 			&i.Name,
+			&i.Picture,
 			&i.Role,
 			&i.LastSeen,
-			&i.Picture,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -159,7 +167,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 }
 
 const getUsersWithSimilar = `-- name: GetUsersWithSimilar :many
-select id, email, name, role, last_seen, picture
+select id, google_id, email, name, picture, role, last_seen, updated_at, updated_by, created_at
 from users
 where name ilike '%' || $1::text || '%'
    or email ilike '%' || $1 || '%'
@@ -167,12 +175,16 @@ order by name
 `
 
 type GetUsersWithSimilarRow struct {
-	ID       uuid.UUID `json:"id"`
-	Email    string    `json:"email"`
-	Name     string    `json:"name"`
-	Role     string    `json:"role"`
-	LastSeen time.Time `json:"last_seen"`
-	Picture  string    `json:"picture"`
+	ID        uuid.UUID      `json:"id"`
+	GoogleID  sql.NullString `json:"google_id"`
+	Email     string         `json:"email"`
+	Name      string         `json:"name"`
+	Picture   string         `json:"picture"`
+	Role      string         `json:"role"`
+	LastSeen  time.Time      `json:"last_seen"`
+	UpdatedAt sql.NullTime   `json:"updated_at"`
+	UpdatedBy uuid.NullUUID  `json:"updated_by"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
 func (q *Queries) GetUsersWithSimilar(ctx context.Context, search string) ([]GetUsersWithSimilarRow, error) {
@@ -186,11 +198,15 @@ func (q *Queries) GetUsersWithSimilar(ctx context.Context, search string) ([]Get
 		var i GetUsersWithSimilarRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.GoogleID,
 			&i.Email,
 			&i.Name,
+			&i.Picture,
 			&i.Role,
 			&i.LastSeen,
-			&i.Picture,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

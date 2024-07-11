@@ -38,7 +38,7 @@ type (
 func NewTokenService(deps Dependencies) *TokenService {
 	manager, err := token.NewTokenManager(deps.Config.TokenSignature, deps.Config.AccessTokenTTL, deps.Config.RefreshTokenTTL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create token manager")
+		log.Fatal().Err(err).Msg("Failed to create token manager")
 	}
 	return &TokenService{
 		config:       deps.Config,
@@ -50,20 +50,19 @@ func NewTokenService(deps Dependencies) *TokenService {
 func (s *TokenService) ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, bool) {
 	userID, err := s.tokenManager.ParseAccessToken(accessToken)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to parse access token")
+		log.Debug().Err(err).Msg("failed to parse access token")
 		return uuid.Nil, false
 	}
 
 	userIDParsed, err := uuid.FromString(userID.(string))
-
 	if err != nil {
-		log.Error().Err(err).Msg("failed to parse user id")
+		log.Debug().Err(err).Msg("failed to parse user id")
 		return uuid.Nil, false
 	}
 
 	exists, err := s.repository.DoesUserExistByID(ctx, userIDParsed)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to check if user exists")
+		log.Debug().Err(err).Msg("failed to check if user exists")
 		return uuid.Nil, false
 	}
 
@@ -73,29 +72,41 @@ func (s *TokenService) ValidateAccessToken(ctx context.Context, accessToken stri
 
 	// set last seen time
 	if err = s.repository.SetLastSeen(ctx, userIDParsed); err != nil {
-		log.Error().Err(err).Msg("failed to set last seen")
+		log.Debug().Err(err).Msg("failed to set last seen")
 		return uuid.Nil, false
 	}
 
 	return userIDParsed, true
 }
 
-func (s *TokenService) RefreshTokens(refreshToken string) (*model.Tokens, error) {
+func (s *TokenService) RefreshTokens(refreshToken string) (*model.Tokens, uuid.UUID, error) {
 	subject, err := s.tokenManager.ParseRefreshToken(refreshToken)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, err
 	}
-	return s.GenerateTokens(subject.(string))
+
+	userIDParsed, err := uuid.FromString(subject.(string))
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
+	tokens, err := s.GenerateTokens(subject.(string))
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
+	return tokens, userIDParsed, nil
 }
 
 func (s *TokenService) GenerateTokens(subject string) (*model.Tokens, error) {
-
-	tokens := &model.Tokens{}
+	tokens := model.Tokens{}
 	var err error
+
 	tokens.AccessToken, err = s.tokenManager.NewAccessToken(subject)
 	if err != nil {
 		return nil, err
 	}
+
 	tokens.RefreshToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
 		return nil, err
@@ -106,5 +117,5 @@ func (s *TokenService) GenerateTokens(subject string) (*model.Tokens, error) {
 		return nil, err
 	}
 
-	return tokens, nil
+	return &tokens, nil
 }

@@ -16,7 +16,7 @@ type (
 		GetUsers(ctx context.Context, search string) ([]*model.UserInfo, error)
 		GetUserByID(ctx context.Context, id uuid.UUID) (*model.User, error)
 
-		UpdateUserRole(ctx context.Context, user *model.User) error
+		UpdateUserRole(ctx context.Context, user model.User) error
 
 		DeleteUser(ctx context.Context, id uuid.UUID) error
 	}
@@ -50,12 +50,7 @@ func (u *UserUseCase) GetCurrentUserRole(ctx context.Context) (string, error) {
 	return user.Role, nil
 }
 
-func (u *UserUseCase) UpdateUserRole(ctx context.Context, userID uuid.UUID, role string) error {
-	user := &model.User{
-		ID:   userID,
-		Role: role,
-	}
-
+func (u *UserUseCase) UpdateUserRole(ctx context.Context, user model.User) error {
 	return u.service.UpdateUserRole(ctx, user)
 }
 

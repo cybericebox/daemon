@@ -16,8 +16,8 @@ type (
 
 	IUseCase interface {
 		GetUsers(ctx context.Context, search string) ([]*model.UserInfo, error)
-		UpdateUserRole(ctx context.Context, userId uuid.UUID, role string) error
-		DeleteUser(ctx context.Context, userId uuid.UUID) error
+		UpdateUserRole(ctx context.Context, user model.User) error
+		DeleteUser(ctx context.Context, userID uuid.UUID) error
 	}
 )
 
@@ -26,7 +26,7 @@ func NewUserAPIHandler(useCase IUseCase) *Handler {
 }
 
 func (h *Handler) Init(router *gin.RouterGroup) {
-	userAPI := router.Group("users", protection.RequireProtection)
+	userAPI := router.Group("users", protection.RequireProtection())
 	{
 		userAPI.GET("", h.GetUsers) // all routes are protected
 		userAPI.PATCH(":userID", h.UpdateUserRole)
@@ -47,30 +47,40 @@ func (h *Handler) GetUsers(ctx *gin.Context) {
 }
 
 func (h *Handler) UpdateUserRole(ctx *gin.Context) {
-	userID := uuid.FromStringOrNil(ctx.Param("userID"))
-
-	var req model.User
-	if err := ctx.BindJSON(&req); err != nil {
+	userID, err := uuid.FromString(ctx.Param("userID"))
+	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	if err := h.useCase.UpdateUserRole(ctx, userID, req.Role); err != nil {
+	var inp model.User
+
+	if err = ctx.BindJSON(&inp); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	inp.ID = userID
+
+	if err = h.useCase.UpdateUserRole(ctx, inp); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 
-	response.AbortWithOK(ctx, "User role updated successfully")
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) DeleteUser(ctx *gin.Context) {
-	userID := uuid.FromStringOrNil(ctx.Param("userID"))
-
-	err := h.useCase.DeleteUser(ctx, userID)
+	userID, err := uuid.FromString(ctx.Param("userID"))
 	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	if err = h.useCase.DeleteUser(ctx, userID); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 
-	response.AbortWithOK(ctx, "User deleted successfully")
+	response.AbortWithSuccess(ctx)
 }

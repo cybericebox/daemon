@@ -3,13 +3,13 @@ package protection
 import (
 	"bytes"
 	recaptcha "cloud.google.com/go/recaptchaenterprise/v2/apiv1"
-	recaptchapb "cloud.google.com/go/recaptchaenterprise/v2/apiv1/recaptchaenterprisepb"
+	"cloud.google.com/go/recaptchaenterprise/v2/apiv1/recaptchaenterprisepb"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/api/option"
@@ -23,10 +23,10 @@ const (
 )
 
 var (
-	ErrInvalidRecaptchaToken  = tools.NewError("recaptcha token is invalid", http.StatusBadRequest)
-	ErrNoRecaptchaToken       = tools.NewError("recaptcha token is required", http.StatusBadRequest)
-	ErrInvalidRecaptchaAction = tools.NewError("recaptcha action is invalid", http.StatusBadRequest)
-	ErrLowerScore             = tools.NewError("recaptcha score is lower than required", http.StatusBadRequest)
+	ErrInvalidRecaptchaToken  = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("invalid recaptcha token"))
+	ErrNoRecaptchaToken       = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("no recaptcha token"))
+	ErrInvalidRecaptchaAction = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("invalid recaptcha action"))
+	ErrLowerScore             = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("lower recaptcha score"))
 )
 
 func RequireRecaptcha(action string) gin.HandlerFunc {
@@ -51,7 +51,7 @@ func RequireRecaptcha(action string) gin.HandlerFunc {
 }
 
 type siteVerifyRequest struct {
-	RecaptchaToken string `json:"recaptchaToken" binding:"required"` //TODO: change to g-recaptcha-response
+	RecaptchaToken string `binding:"required"`
 }
 
 // getRecaptchaToken from request body 'g-recaptcha-response' field
@@ -81,14 +81,14 @@ func verifyRecaptchaEnterpriseToken(ctx context.Context, token, action string) e
 	}
 	defer func() {
 		if err = client.Close(); err != nil {
-			log.Error().Err(err).Msg("failed to close recaptcha client")
+			log.Error().Err(err).Msg("Failed to close recaptcha client")
 		}
 	}()
 
 	recaptchaResp, err := client.CreateAssessment(ctx,
-		&recaptchapb.CreateAssessmentRequest{
-			Assessment: &recaptchapb.Assessment{
-				Event: &recaptchapb.Event{
+		&recaptchaenterprisepb.CreateAssessmentRequest{
+			Assessment: &recaptchaenterprisepb.Assessment{
+				Event: &recaptchaenterprisepb.Event{
 					Token:   token,
 					SiteKey: protector.config.Recaptcha.SiteKey,
 				},
@@ -142,7 +142,7 @@ func verifyRecaptchaToken(ctx context.Context, token, action string) error {
 	}
 	defer func() {
 		if err = resp.Body.Close(); err != nil {
-			log.Error().Err(err).Msg("failed to close response body")
+			log.Error().Err(err).Msg("Failed to close response body")
 		}
 	}()
 

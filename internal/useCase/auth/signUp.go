@@ -12,7 +12,7 @@ import (
 
 type (
 	ISignUpService interface {
-		CreateUser(ctx context.Context, newUser *model.User) (*model.User, error)
+		CreateUser(ctx context.Context, newUser model.User) (*model.User, error)
 
 		CreateTemporalContinueRegistrationCode(ctx context.Context, data model.TemporalContinueRegistrationCodeData) (string, error)
 		GetTemporalContinueRegistrationCodeData(ctx context.Context, code string) (*model.TemporalContinueRegistrationCodeData, error)
@@ -33,7 +33,7 @@ func (u *AuthUseCase) SignUp(ctx context.Context, email string) error {
 	}
 
 	// If the user exists, send an email with the information that the account already exists
-	if user != nil {
+	if err == nil {
 		return u.service.SendAccountExistsEmail(ctx, email, model.AccountExistsTemplateData{
 			Username: user.Name,
 		})
@@ -64,7 +64,7 @@ func (u *AuthUseCase) SignUp(ctx context.Context, email string) error {
 	return nil
 }
 
-func (u *AuthUseCase) SignUpContinue(ctx context.Context, bsCode string, newUser *model.User) (*model.Tokens, error) {
+func (u *AuthUseCase) SignUpContinue(ctx context.Context, bsCode string, newUser model.User) (*model.Tokens, error) {
 	// Decode base64 temporal code
 	code, err := base64.StdEncoding.DecodeString(bsCode)
 	if err != nil {

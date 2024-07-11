@@ -13,7 +13,7 @@ type ISelfUseCase interface {
 }
 
 func (h *Handler) initSelfAPIHandler(router *gin.RouterGroup) {
-	self := router.Group("self", protection.RequireProtection)
+	self := router.Group("self", protection.RequireProtection())
 	{
 		self.GET("", h.getSelf)
 	}

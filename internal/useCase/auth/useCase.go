@@ -3,10 +3,13 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
+	"strings"
 )
 
 const fakeHashedPassword = "$2a$10$dyXylZqNUe.KbtN.TSN8kuX7LcHju9kxh0HlC9AdvO3sSM8qrevNW" // just for imitation of hashed password
@@ -28,8 +31,10 @@ type (
 		Matches(password, hashedPassword string) (bool, error)
 
 		ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, bool)
-		RefreshTokens(refreshToken string) (*model.Tokens, error)
+		RefreshTokens(refreshToken string) (*model.Tokens, uuid.UUID, error)
 		GenerateTokens(subject string) (*model.Tokens, error)
+
+		GetEventByTag(ctx context.Context, eventTag string) (*model.Event, error)
 	}
 
 	Dependencies struct {
@@ -73,19 +78,28 @@ func (u *AuthUseCase) SignIn(ctx context.Context, email, password string) (*mode
 	return u.service.GenerateTokens(user.ID.String())
 }
 
-func (u *AuthUseCase) RefreshTokensIfNeedAndReturnUserID(ctx context.Context, oldTokens model.Tokens) (*model.Tokens, *uuid.UUID, bool, bool) {
+func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) *model.CheckTokensResult {
 	userID, valid := u.service.ValidateAccessToken(ctx, oldTokens.AccessToken)
-
 	if valid {
-		return &oldTokens, &userID, true, false
+		return &model.CheckTokensResult{
+			Tokens: &oldTokens,
+			UserID: userID,
+			Valid:  valid,
+		}
 	}
 	// if access token is not valid, try to refresh tokens
-	tokens, err := u.service.RefreshTokens(oldTokens.RefreshToken)
+	tokens, userID, err := u.service.RefreshTokens(oldTokens.RefreshToken)
 	if err != nil {
-		return nil, nil, false, false
+		log.Debug().Err(err).Msg("failed to refresh tokens")
+		return &model.CheckTokensResult{}
 	}
 
-	return tokens, &userID, true, true
+	return &model.CheckTokensResult{
+		Tokens:    tokens,
+		UserID:    userID,
+		Valid:     true,
+		Refreshed: true,
+	}
 }
 
 func (u *AuthUseCase) GetSelfProfile(ctx context.Context) (*model.UserInfo, error) {
@@ -100,12 +114,13 @@ func (u *AuthUseCase) GetSelfProfile(ctx context.Context) (*model.UserInfo, erro
 	}
 
 	return &model.UserInfo{
-		ID:       user.ID,
-		Email:    user.Email,
-		Name:     user.Name,
-		Picture:  user.Picture,
-		Role:     user.Role,
-		LastSeen: user.LastSeen,
+		ID:            user.ID,
+		ConnectGoogle: user.GoogleID != "",
+		Email:         user.Email,
+		Name:          user.Name,
+		Picture:       user.Picture,
+		Role:          user.Role,
+		LastSeen:      user.LastSeen,
 	}, nil
 }
 
@@ -113,8 +128,57 @@ func (u *AuthUseCase) URLNeedsProtection(ctx context.Context, url string) bool {
 	// get subdomain from context
 	subdomain, err := tools.GetSubdomainFromContext(ctx)
 	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get subdomain from context")
 		return true
 	}
 
-	return url == "/profile" || url == "/challenges" || subdomain == config.AdminSubdomain
+	// if url is scoreboards check dynamically
+	if strings.HasPrefix(url, "/scoreboard") {
+		eventTag, err := tools.GetSubdomainFromContext(ctx)
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to get event id from context")
+			return true
+		}
+
+		event, err := u.service.GetEventByTag(ctx, eventTag)
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to get event by id")
+			return true
+		}
+
+		fmt.Println(event.ScoreboardAvailability)
+
+		// if event scoreboard is public, then return true
+		if event.ScoreboardAvailability == model.PublicScoreboardAvailabilityType {
+			return false
+		}
+
+		// protect by default
+		return true
+	}
+
+	// if url is teams check dynamically
+	if strings.HasPrefix(url, "/teams") {
+		eventTag, err := tools.GetSubdomainFromContext(ctx)
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to get event id from context")
+			return true
+		}
+
+		event, err := u.service.GetEventByTag(ctx, eventTag)
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to get event by id")
+			return true
+		}
+
+		// if event scoreboard is public, then return true
+		if event.ParticipantsVisibility == model.PublicParticipantsVisibilityType {
+			return false
+		}
+
+		// protect by default
+		return true
+	}
+
+	return strings.HasPrefix(url, "/profile") || strings.HasPrefix(url, "/challenges") || subdomain == config.AdminSubdomain
 }

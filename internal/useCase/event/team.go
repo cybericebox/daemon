@@ -51,7 +51,7 @@ func (u *EventUseCase) CreateTeam(ctx context.Context, eventID uuid.UUID, name s
 	if err == nil {
 		return model.ErrUserAlreadyInTeam
 	} else {
-		if !errors.Is(err, model.ErrTeamNotFound) {
+		if !errors.Is(err, model.ErrNotFound) {
 			return err
 		}
 	}
@@ -76,7 +76,7 @@ func (u *EventUseCase) JoinTeam(ctx context.Context, eventID uuid.UUID, name, jo
 	if err == nil {
 		return model.ErrUserAlreadyInTeam
 	} else {
-		if !errors.Is(err, model.ErrTeamNotFound) {
+		if !errors.Is(err, model.ErrNotFound) {
 			return err
 		}
 	}
@@ -185,4 +185,19 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 		LaboratoryID: team.LaboratoryID,
 	}, nil
 
+}
+
+func (u *EventUseCase) ProtectEventTeams(ctx context.Context, eventID uuid.UUID) (bool, error) {
+	event, err := u.service.GetEventByID(ctx, eventID)
+	if err != nil {
+		return true, err
+	}
+
+	// if event scoreboard is public, then return true
+	if event.ParticipantsVisibility == model.PublicParticipantsVisibilityType {
+		return false, nil
+	}
+
+	// protect by default
+	return true, nil
 }

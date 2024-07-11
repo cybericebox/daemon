@@ -4,9 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/cybericebox/daemon/pkg/worker"
 	"github.com/gofrs/uuid"
-	"github.com/rs/zerolog/log"
 	"slices"
 	"time"
 )
@@ -108,25 +106,7 @@ func (u *EventUseCase) AddExercisesToEvent(ctx context.Context, eventID, categor
 		return err
 	}
 
-	u.worker.AddTask(worker.Task{
-		Do: func() {
-			if err = u.service.CreateEventTeamsChallenges(ctx, event.ID); err != nil {
-				log.Error().Err(err).Msg("failed to create event teams challenges")
-			}
-		},
-		CheckIfNeedToDo: func() (bool, *time.Time) {
-			e, err := u.service.GetEventByID(ctx, event.ID)
-			if err != nil {
-				log.Error().Err(err).Msg("failed to get event")
-				return false, nil
-			}
-
-			next := e.StartTime.Add(-time.Minute)
-
-			return e.StartTime.Add(-time.Minute).Before(time.Now().UTC()), &next
-		},
-		TimeToDo: event.StartTime.Add(-time.Minute),
-	})
+	u.CreateEventTeamsChallengesTask(ctx, *event)
 
 	return nil
 }

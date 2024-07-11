@@ -2,10 +2,13 @@ package temporalCode
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -52,10 +55,14 @@ func (s *TemporalCodeService) CreateTemporalContinueRegistrationCode(ctx context
 func (s *TemporalCodeService) GetTemporalContinueRegistrationCodeData(ctx context.Context, code string) (*model.TemporalContinueRegistrationCodeData, error) {
 	id, err := uuid.FromString(code)
 	if err != nil {
-		return nil, err
+		log.Debug().Err(err).Msg("Failed to parse temporal code id")
+		return nil, model.ErrInvalidTemporalCode
 	}
 	temporalCode, err := s.repository.GetTemporalCode(ctx, id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrInvalidTemporalCode
+		}
 		return nil, err
 	}
 
@@ -91,10 +98,14 @@ func (s *TemporalCodeService) CreateTemporalPasswordResettingCode(ctx context.Co
 func (s *TemporalCodeService) GetTemporalPasswordResettingCodeData(ctx context.Context, code string) (*model.TemporalPasswordResettingCodeData, error) {
 	id, err := uuid.FromString(code)
 	if err != nil {
-		return nil, err
+		log.Debug().Err(err).Msg("Failed to parse temporal code id")
+		return nil, model.ErrInvalidTemporalCode
 	}
 	temporalCode, err := s.repository.GetTemporalCode(ctx, id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrInvalidTemporalCode
+		}
 		return nil, err
 	}
 
@@ -135,10 +146,14 @@ func (s *TemporalCodeService) CreateTemporalEmailConfirmationCode(ctx context.Co
 func (s *TemporalCodeService) GetTemporalEmailConfirmationCodeData(ctx context.Context, code string) (*model.TemporalEmailConfirmationCodeData, error) {
 	id, err := uuid.FromString(code)
 	if err != nil {
-		return nil, err
+		log.Debug().Err(err).Msg("Failed to parse temporal code id")
+		return nil, model.ErrInvalidTemporalCode
 	}
 	temporalCode, err := s.repository.GetTemporalCode(ctx, id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, model.ErrInvalidTemporalCode
+		}
 		return nil, err
 	}
 

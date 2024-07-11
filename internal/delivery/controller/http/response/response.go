@@ -1,51 +1,55 @@
 package response
 
 import (
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog/log"
 	"net/http"
 )
 
-func AbortWithStatus(ctx *gin.Context, statusCode int, message string) {
-	ctx.AbortWithStatusJSON(statusCode, gin.H{"message": message})
+func AbortWithCode(ctx *gin.Context, code appError.Code) {
+	ctx.AbortWithStatusJSON(code.GetHTTPCode(), gin.H{"Code": code.GetInformCode(), "Message": code.GetMessage()})
+}
+
+func AbortWithCodeAndContent(ctx *gin.Context, code appError.Code, content interface{}) {
+	ctx.AbortWithStatusJSON(code.GetHTTPCode(), gin.H{"Code": code.GetInformCode(), "Message": code.GetMessage(), "Content": content})
 }
 
 func AbortWithBadRequest(ctx *gin.Context, err ...error) {
-	if len(err) == 0 || err[0] == nil {
-		ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": "Bad request"})
-	} else {
-		ctx.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": err[0].Error()})
+	message := "Invalid input data"
+	if len(err) > 0 && err[0] != nil {
+		message = err[0].Error()
 	}
-}
 
-func LogAndAbortWithInternalServerError(ctx *gin.Context, err error) {
-	log.Error().Err(err).Str("URL:", ctx.Request.URL.Path).Msg("Internal server error")
-	ctx.AbortWithStatus(http.StatusInternalServerError)
+	AbortWithCode(ctx, appError.CodeInvalidInput.WithMessage(message))
 }
 
 func AbortWithUnauthorized(ctx *gin.Context) {
-	ctx.AbortWithStatus(http.StatusUnauthorized)
+	AbortWithCode(ctx, appError.CodeUnauthorized)
+}
+
+func AbortWithForbidden(ctx *gin.Context) {
+	AbortWithCode(ctx, appError.CodeForbidden)
 }
 
 func AbortWithNotFound(ctx *gin.Context) {
-	ctx.AbortWithStatus(http.StatusNotFound)
-}
-
-func AbortWithOK(ctx *gin.Context, message string) {
-	ctx.AbortWithStatusJSON(http.StatusOK, gin.H{"message": message})
+	AbortWithCode(ctx, appError.CodeNotFound)
 }
 
 func AbortWithContent(ctx *gin.Context, content interface{}) {
-	ctx.AbortWithStatusJSON(http.StatusOK, content)
+	ctx.JSON(http.StatusOK, content)
 }
 
-func Redirect(ctx *gin.Context, status int, url string) {
-	ctx.Redirect(status, url)
+func AbortWithSuccess(ctx *gin.Context) {
+	ctx.AbortWithStatus(http.StatusOK)
 }
 
 func AbortWithError(ctx *gin.Context, err error) {
 	// set errorWrapper to context
 	ctx.Set(tools.ErrorCtxKey, err)
 	ctx.Abort()
+}
+
+func TemporaryRedirect(ctx *gin.Context, url string) {
+	ctx.Redirect(http.StatusTemporaryRedirect, url)
 }

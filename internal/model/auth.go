@@ -1,25 +1,39 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/tools"
+	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/gofrs/uuid"
 	"net/http"
 )
 
 // models for token
 
-type Tokens struct {
-	AccessToken      string
-	RefreshToken     string
-	PermissionsToken string
-}
+type (
+	Tokens struct {
+		AccessToken      string
+		RefreshToken     string
+		PermissionsToken string
+	}
+
+	CheckTokensResult struct {
+		Tokens    *Tokens
+		UserID    uuid.UUID
+		Valid     bool
+		Refreshed bool
+	}
+)
 
 // errors for token
 
 var (
-	ErrInvalidUserCredentials    = tools.NewError("invalid user credentials", http.StatusBadRequest)
-	ErrInvalidTemporalCode       = tools.NewError("invalid temporal code", http.StatusBadRequest)
-	ErrInvalidOldPassword        = tools.NewError("invalid old password", http.StatusBadRequest)
-	ErrInvalidPasswordComplexity = tools.NewError("invalid password complexity", http.StatusBadRequest)
+	ErrInvalidUserCredentials = appError.NewError().WithCode(appError.CodeInvalidInput.
+					WithMessage("invalid user credentials").
+					WithHTTPCode(http.StatusUnauthorized))
+	ErrInvalidOldPassword = appError.NewError().WithCode(appError.CodeInvalidInput.
+				WithMessage("invalid old password").
+				WithHTTPCode(http.StatusUnauthorized))
+	ErrInvalidPasswordComplexity = appError.NewError().WithCode(appError.CodeInvalidInput.
+					WithMessage("invalid password complexity"))
 )
 
 // constants for token

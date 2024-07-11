@@ -1,40 +1,43 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
-	"net/http"
 	"time"
 )
 
 type (
 	User struct {
-		ID             uuid.UUID
-		GoogleID       string
-		Email          string
-		Name           string
-		Password       string
+		ID             uuid.UUID `binding:"omitempty,uuid"`
+		GoogleID       string    `binding:"omitempty"`
+		Email          string    `binding:"omitempty,email"`
+		Name           string    `binding:"omitempty,max=255,min=3"`
+		Password       string    `binding:"omitempty,max=255,min=8"`
 		HashedPassword string
-		Picture        string
-		Role           string
+		Picture        string `binding:"omitempty,uuid|url"`
+		Role           string `binding:"omitempty,oneof=Користувач Адміністратор"`
 		LastSeen       time.Time
+		UpdatedAt      time.Time
+		UpdatedBy      uuid.UUID
+		CreatedAt      time.Time
 	}
 
 	UserInfo struct {
-		ID       uuid.UUID
-		Name     string
-		Picture  string
-		Email    string
-		Role     string
-		LastSeen time.Time
+		ID            uuid.UUID
+		ConnectGoogle bool
+		Name          string
+		Picture       string
+		Email         string
+		Role          string
+		LastSeen      time.Time
+		UpdatedAt     time.Time
+		UpdatedBy     uuid.UUID
+		CreatedAt     time.Time
 	}
 )
 
 // errors for user
 
-var (
-	ErrInvalidUserID = tools.NewError("invalid user id", http.StatusBadRequest)
-)
+var ()
 
 // constants for user
 

@@ -7,7 +7,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
-	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
@@ -46,7 +45,7 @@ func HandleProxyToMainPages() gin.HandlerFunc {
 		if subDomain != "" {
 			if startsWithPages(ctx.Request.URL.Path) {
 				protection.SetFromURL(ctx, ctx.Request.Referer())
-				protection.RedirectToMainDomainPage(ctx, http.StatusSeeOther, ctx.Request.URL.Path)
+				protection.RedirectToMainDomainPage(ctx, ctx.Request.URL.Path)
 			}
 		}
 	}
@@ -68,7 +67,7 @@ func HandleProxy(deps Dependencies) gin.HandlerFunc {
 
 		if target == "" {
 			// if target is empty, event is not found, so redirect to event not found page
-			protection.RedirectToMainDomainPage(ctx, http.StatusSeeOther, config.EventNotFoundPage)
+			protection.RedirectToMainDomainPage(ctx, config.EventNotFoundPage)
 			return
 		}
 

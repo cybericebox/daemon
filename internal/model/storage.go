@@ -15,6 +15,9 @@ type (
 	}
 )
 
+// errors for file
+var ()
+
 // constants for file
 
 // Storage types

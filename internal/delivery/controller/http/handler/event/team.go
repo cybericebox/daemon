@@ -17,19 +17,20 @@ type ITeamUseCase interface {
 	JoinTeam(ctx context.Context, eventID uuid.UUID, name, joinCode string) error
 	GetVPNConfig(ctx context.Context, eventID uuid.UUID) (string, error)
 	GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*model.Team, error)
+	ProtectEventTeams(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
 
 func (h *Handler) initTeamAPIHandler(router *gin.RouterGroup) {
 	teamAPI := router.Group("teams")
 	{
-		teamAPI.GET("", protection.RequireProtection, h.getTeams) // get teams
-		teamAPI.GET("info", h.getTeamsInfo)                       // get teams info only
+		teamAPI.GET("", protection.RequireProtection(), h.getTeams)                                              // get teams
+		teamAPI.GET("info", protection.DynamicallyRequireProtection(h.eventTeamsNeedProtection), h.getTeamsInfo) // get teams info only
 
-		teamAPI.POST("", protection.RequireProtection, h.createTeam)   // create team
-		teamAPI.POST("join", protection.RequireProtection, h.joinTeam) // join team
+		teamAPI.POST("", protection.RequireProtection(), h.createTeam)   // create team
+		teamAPI.POST("join", protection.RequireProtection(), h.joinTeam) // join team
 
 		// self team
-		selfTeamAPI := teamAPI.Group("self", protection.RequireProtection)
+		selfTeamAPI := teamAPI.Group("self", protection.RequireProtection())
 		{
 			selfTeamAPI.GET("", h.getSelfTeam)            // get team
 			selfTeamAPI.GET("vpn-config", h.getVPNConfig) // get vpn config
@@ -39,78 +40,125 @@ func (h *Handler) initTeamAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getTeams(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
 	teams, err := h.useCase.GetEventTeams(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
+
 	response.AbortWithContent(ctx, teams)
 }
 
 func (h *Handler) getTeamsInfo(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
 	teams, err := h.useCase.GetEventTeamsInfo(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
+
 	response.AbortWithContent(ctx, teams)
 }
 
-type createTeamInput struct {
-	Name string `json:"name"`
-}
-
 func (h *Handler) createTeam(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
-	var inp createTeamInput
-	if err := ctx.BindJSON(&inp); err != nil {
-		response.AbortWithBadRequest(ctx, err)
-		return
-	}
-	if err := h.useCase.CreateTeam(ctx, eventID, inp.Name); err != nil {
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Team created successfully")
-}
 
-type joinTeamInput struct {
-	Name     string
-	JoinCode string
+	var inp model.Team
+
+	if err = ctx.BindJSON(&inp); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	if err = h.useCase.CreateTeam(ctx, eventID, inp.Name); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) joinTeam(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
-	var inp joinTeamInput
-	if err := ctx.BindJSON(&inp); err != nil {
-		response.AbortWithBadRequest(ctx, err)
-		return
-	}
-	if err := h.useCase.JoinTeam(ctx, eventID, inp.Name, inp.JoinCode); err != nil {
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Team joined successfully")
+
+	var inp model.Team
+
+	if err = ctx.BindJSON(&inp); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	if err = h.useCase.JoinTeam(ctx, eventID, inp.Name, inp.JoinCode); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) getSelfTeam(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
 	team, err := h.useCase.GetSelfTeam(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
+
 	response.AbortWithContent(ctx, team)
 }
 
 func (h *Handler) getVPNConfig(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
 	cfg, err := h.useCase.GetVPNConfig(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
+
 	response.AbortWithContent(ctx, cfg)
+}
+
+func (h *Handler) eventTeamsNeedProtection(ctx *gin.Context) bool {
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return true
+	}
+
+	needProtection, err := h.useCase.ProtectEventTeams(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return true
+	}
+
+	return needProtection
 }

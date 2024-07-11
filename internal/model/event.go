@@ -1,39 +1,38 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/tools"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/gofrs/uuid"
-	"net/http"
 	"time"
 )
 
 type (
 	Event struct {
-		ID uuid.UUID
+		ID uuid.UUID `validate:"omitempty,uuid"`
 
-		Type          int32
-		Availability  int32
-		Participation int32
+		Type          int32 `validate:"required,number,oneof=0 1"`
+		Availability  int32 `validate:"required,number,oneof=0 1"`
+		Participation int32 `validate:"required,number,oneof=0 1"`
 
-		Tag         string
-		Name        string
-		Description string
-		Rules       string
-		Picture     string
+		Tag         string `validate:"required,min=3,max=20,lowercase,alphanum"`
+		Name        string `validate:"required,min=3,max=50,alphanum"`
+		Description string `validate:"required,min=1"`
+		Rules       string `validate:"required,min=1"`
+		Picture     string `validate:"omitempty,uuid|url"`
 
-		DynamicScoring        bool
-		DynamicMaxScore       int32
-		DynamicMinScore       int32
-		DynamicSolveThreshold int32
+		DynamicScoring        bool  `validate:"omitempty,boolean"`
+		DynamicMaxScore       int32 `validate:"required_with=DynamicScoring,min=2,max=100,gtfield=DynamicMinScore"`
+		DynamicMinScore       int32 `validate:"required_with=DynamicScoring,min=1,max=99,ltfield=DynamicMaxScore"`
+		DynamicSolveThreshold int32 `validate:"required_with=DynamicScoring,min=1,max=1000"`
 
-		Registration           int32
-		ScoreboardAvailability int32
-		ParticipantsVisibility int32
+		Registration           int32 `validate:"required,number,oneof=0 1 2"`
+		ScoreboardAvailability int32 `validate:"required,number,oneof=0 1 2"`
+		ParticipantsVisibility int32 `validate:"required,number,oneof=0 1 2"`
 
-		PublishTime  time.Time
-		StartTime    time.Time
-		FinishTime   time.Time
-		WithdrawTime time.Time
+		PublishTime  time.Time `validate:"required"`
+		StartTime    time.Time `validate:"required,gtefield=PublishTime"`
+		FinishTime   time.Time `validate:"required,gtfield=StartTime"`
+		WithdrawTime time.Time `validate:"required,gtefield=FinishTime"`
 
 		CreatedAt time.Time
 
@@ -41,6 +40,7 @@ type (
 		TeamsCount      int64
 	}
 
+	// EventInfo is a struct that contains all the information about an event for response
 	EventInfo struct {
 		Type          int32
 		Participation int32
@@ -60,44 +60,44 @@ type (
 	}
 
 	ChallengeCategory struct {
-		ID      uuid.UUID
-		EventID uuid.UUID
+		ID      uuid.UUID `validate:"omitempty,uuid"`
+		EventID uuid.UUID `validate:"required,uuid"`
 
-		Name  string
-		Order int32
+		Name  string `validate:"required,min=3,max=50,alphanum"`
+		Order int32  `validate:"required,number"`
 
 		CreatedAt time.Time
 	}
 
 	Challenge struct {
-		ID         uuid.UUID
-		EventID    uuid.UUID
-		CategoryID uuid.UUID
+		ID         uuid.UUID `validate:"omitempty,uuid"`
+		EventID    uuid.UUID `validate:"required,uuid"`
+		CategoryID uuid.UUID `validate:"required,uuid"`
 
-		ExerciseID     uuid.UUID
-		ExerciseTaskID uuid.UUID
+		ExerciseID     uuid.UUID `validate:"required,uuid"`
+		ExerciseTaskID uuid.UUID `validate:"required,uuid"`
 
-		Name        string
-		Description string
-		Points      int32
+		Name        string `validate:"required,min=3,max=50,alphanum"`
+		Description string `validate:"required,min=1"`
+		Points      int32  `validate:"required,min=1,max=1000"`
 
-		Order int32
+		Order int32 `validate:"required,number"`
 
 		CreatedAt time.Time
 	}
 
 	Order struct {
-		ID         uuid.UUID
-		CategoryID uuid.UUID
-		Index      int32
+		ID         uuid.UUID `validate:"required,uuid"`
+		CategoryID uuid.UUID `validate:"omitempty,uuid"`
+		OrderIndex int32     `validate:"required,number"`
 	}
 
 	Team struct {
-		ID      uuid.UUID
-		EventID uuid.UUID
+		ID      uuid.UUID `validate:"omitempty,uuid"`
+		EventID uuid.UUID `validate:"required,uuid"`
 
-		Name     string
-		JoinCode string
+		Name     string `validate:"required,min=3,max=50,alphanum"`
+		JoinCode string `validate:"-"`
 
 		LaboratoryID uuid.NullUUID
 
@@ -161,19 +161,32 @@ type (
 )
 
 var (
-	ErrEventAlreadyJoined      = tools.NewError("event already joined", http.StatusConflict)
-	ErrEventRegistrationClosed = tools.NewError("event registration is closed", http.StatusForbidden)
-	ErrEventNotJoined          = tools.NewError("event not joined", http.StatusForbidden)
-	ErrScoreNotAvailable       = tools.NewError("score not available", http.StatusForbidden)
+	ErrEventAlreadyJoined      = appError.NewError().WithCode(appError.CodeAlreadyExists.WithMessage("event already joined"))
+	ErrEventNotJoined          = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("event not joined"))
+	ErrEventRegistrationClosed = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("event registration is closed"))
+	ErrScoreNotAvailable       = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("score not available"))
+	//
+	ErrUserAlreadyInTeam    = appError.NewError().WithCode(appError.CodeAlreadyExists.WithMessage("user already in team"))
+	ErrTeamWrongCredentials = appError.NewError().WithCode(appError.CodeUnauthorized.WithMessage("team wrong credentials"))
+	//
 
-	ErrTeamExists           = tools.NewError("team exists", http.StatusConflict)
-	ErrUserAlreadyInTeam    = tools.NewError("user already in team", http.StatusConflict)
-	ErrTeamWrongCredentials = tools.NewError("team wrong credentials", http.StatusUnauthorized)
-	ErrTeamNotFound         = tools.NewError("team not found", http.StatusNotFound)
-	ErrLaboratoryNotFound   = tools.NewError("laboratory not found", http.StatusNotFound)
+	ErrSolutionAttemptNotAllowed = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("solution attempt not allowed"))
+)
 
-	ErrSolutionAttemptNotAllowed = tools.NewError("solution attempt not allowed", http.StatusForbidden)
-	ErrIncorrectSolution         = tools.NewError("incorrect solution", http.StatusBadRequest)
+// Custom codes
+const (
+	ChallengeSolutionAttemptAccepted = iota + 100
+	ChallengeSolutionAttemptRejected
+)
+
+// solution results
+var (
+	SolutionAccepted = appError.CodeSuccess.
+				WithInformCode(ChallengeSolutionAttemptAccepted).
+				WithMessage("Solution accepted")
+	SolutionRejected = appError.CodeSuccess.
+				WithInformCode(ChallengeSolutionAttemptRejected).
+				WithMessage("Solution rejected")
 )
 
 // Event types

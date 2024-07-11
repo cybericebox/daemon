@@ -14,7 +14,7 @@ import (
 type (
 	IEmailService interface {
 		GetUserByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
-		UpdateUserEmail(ctx context.Context, user *model.User) error
+		UpdateUserEmail(ctx context.Context, user model.User) error
 
 		CreateTemporalEmailConfirmationCode(ctx context.Context, data model.TemporalEmailConfirmationCodeData) (string, error)
 		GetTemporalEmailConfirmationCodeData(ctx context.Context, code string) (*model.TemporalEmailConfirmationCodeData, error)
@@ -71,7 +71,7 @@ func (u *AuthUseCase) ConfirmEmail(ctx context.Context, bsCode string) error {
 		return err
 	}
 
-	user := &model.User{
+	user := model.User{
 		ID:    data.UserID,
 		Email: data.Email,
 	}

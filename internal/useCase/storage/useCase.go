@@ -37,7 +37,7 @@ func (u *StorageUseCase) GetUploadFileLink(ctx context.Context, storageType stri
 	}
 	// only admin can upload banners and tasks
 	if useRole != model.AdministratorRole && (storageType == model.BannerStorageType || storageType == model.TaskStorageType) {
-		return "", tools.NewError("permission denied", 403)
+		return "", model.ErrForbidden
 	}
 
 	return u.service.GetUploadFileLink(ctx, storageType, fileID.String())

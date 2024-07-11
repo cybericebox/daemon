@@ -50,7 +50,7 @@ func (s *EventService) GetParticipantTeam(ctx context.Context, eventID, userID u
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrTeamNotFound
+			return nil, model.ErrNotFound
 		}
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (s *EventService) CreateTeam(ctx context.Context, eventID uuid.UUID, name s
 	}
 
 	if exists {
-		return model.ErrTeamExists
+		return model.ErrAlreadyExists
 	}
 
 	teamID := uuid.Must(uuid.NewV7())

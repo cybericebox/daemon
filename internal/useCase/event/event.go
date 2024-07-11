@@ -4,9 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/cybericebox/daemon/pkg/worker"
 	"github.com/gofrs/uuid"
-	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -15,7 +13,7 @@ type (
 		GetEventByID(ctx context.Context, eventID uuid.UUID) (*model.Event, error)
 		GetEventByTag(ctx context.Context, eventTag string) (*model.Event, error)
 
-		UpdateEvent(ctx context.Context, event *model.Event) error
+		UpdateEvent(ctx context.Context, event model.Event) error
 
 		DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 
@@ -52,7 +50,7 @@ func (u *EventUseCase) GetEventInfo(ctx context.Context, eventID uuid.UUID) (*mo
 	}, nil
 }
 
-func (u *EventUseCase) UpdateEvent(ctx context.Context, event *model.Event) error {
+func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error {
 	// check if event time is changed
 	// get old event
 	oldEvent, err := u.GetEvent(ctx, event.ID)
@@ -65,25 +63,7 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, event *model.Event) erro
 	if oldEvent.StartTime != event.StartTime {
 		// update start event worker
 		// task to create event team challenges on event start
-		u.worker.AddTask(worker.Task{
-			Do: func() {
-				if err = u.service.CreateEventTeamsChallenges(ctx, event.ID); err != nil {
-					log.Error().Err(err).Msg("failed to create event teams challenges")
-				}
-			},
-			CheckIfNeedToDo: func() (bool, *time.Time) {
-				e, err := u.service.GetEventByID(ctx, event.ID)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to get event")
-					return false, nil
-				}
-
-				next := e.StartTime.Add(-time.Minute)
-
-				return e.StartTime.Add(-time.Minute).Before(time.Now().UTC()), &next
-			},
-			TimeToDo: event.StartTime.Add(-time.Minute),
-		})
+		u.CreateEventTeamsChallengesTask(ctx, event)
 	}
 
 	return u.service.UpdateEvent(ctx, event)

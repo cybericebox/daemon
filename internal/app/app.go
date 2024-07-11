@@ -34,7 +34,6 @@ func Run() {
 	// Worker initialization
 
 	w := worker.NewWorker(cfg.Service.MaxWorkers)
-	w.Start()
 
 	useCases := useCase.NewUseCase(
 		useCase.Dependencies{
@@ -54,8 +53,10 @@ func Run() {
 	}
 
 	// Start nginx UDP reverse proxy
-	if err := exec.Command("/bin/sh", "-c", "service nginx start").Run(); err != nil {
-		log.Fatal().Err(err).Msg("Starting nginx UDP reverse proxy failed")
+	if cfg.Environment != config.Local {
+		if err := exec.Command("/bin/sh", "-c", "service nginx start").Run(); err != nil {
+			log.Fatal().Err(err).Msg("Starting nginx UDP reverse proxy failed")
+		}
 	}
 
 	// Start the server
