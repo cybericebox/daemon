@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/pkg/worker"
 	"github.com/gofrs/uuid"
@@ -46,19 +47,21 @@ func NewUseCase(deps Dependencies) *EventUseCase {
 }
 
 func (u *EventUseCase) GetEvents(ctx context.Context) ([]*model.Event, error) {
-	return u.service.GetEvents(ctx)
+	events, err := u.service.GetEvents(ctx)
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get events")
+	}
+	return events, nil
 }
 
 func (u *EventUseCase) GetEventsInfo(ctx context.Context) ([]*model.EventInfo, error) {
 	eventsInfo := make([]*model.EventInfo, 0)
 	events, err := u.GetEvents(ctx)
 	if err != nil {
-		return nil, err
-
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get events")
 	}
 
 	for _, event := range events {
-
 		eventsInfo = append(eventsInfo, &model.EventInfo{
 			Type:                   event.Type,
 			Participation:          event.Participation,
@@ -81,7 +84,7 @@ func (u *EventUseCase) GetEventsInfo(ctx context.Context) ([]*model.EventInfo, e
 func (u *EventUseCase) CreateEvent(ctx context.Context, newEvent model.Event) error {
 	event, err := u.service.CreateEvent(ctx, newEvent)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create event")
 	}
 
 	// task to create event team challenges on event start
@@ -105,11 +108,16 @@ func (u *EventUseCase) CreateEventTeamsChallengesTask(ctx context.Context, event
 				return false, nil
 			}
 
-			next := e.StartTime.Add(-time.Minute)
+			// if event is already finished do not need to do
+			if time.Now().After(e.FinishTime) {
+				return false, nil
+			}
 
-			return e.StartTime.Add(-time.Minute).Before(time.Now().UTC()), &next
+			next := e.StartTime
+
+			return time.Now().After(event.StartTime), &next
 		},
-		TimeToDo: event.StartTime.Add(-time.Minute),
+		TimeToDo: event.StartTime,
 	})
 
 }
@@ -118,7 +126,7 @@ func (u *EventUseCase) CreateEventTeamsChallengesTasks(ctx context.Context) erro
 	// get all events
 	events, err := u.GetEvents(ctx)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get events")
 	}
 
 	for _, event := range events {

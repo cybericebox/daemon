@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -45,7 +46,7 @@ func NewExerciseService(deps Dependencies) *ExerciseService {
 func (s *ExerciseService) GetExercises(ctx context.Context) ([]*model.Exercise, error) {
 	exercises, err := s.repository.GetExercises(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get exercises from repository")
 	}
 
 	var errs error
@@ -55,7 +56,7 @@ func (s *ExerciseService) GetExercises(ctx context.Context) ([]*model.Exercise, 
 
 		data, err := s.convertToModelData(exercise.Data)
 		if err != nil {
-			errs = multierror.Append(errs, err)
+			errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to convert exercise data"))
 			continue
 		}
 
@@ -69,6 +70,10 @@ func (s *ExerciseService) GetExercises(ctx context.Context) ([]*model.Exercise, 
 		})
 	}
 
+	if errs != nil {
+		return nil, errs
+	}
+
 	return result, nil
 }
 
@@ -76,14 +81,14 @@ func (s *ExerciseService) GetExercise(ctx context.Context, exerciseID uuid.UUID)
 	exercise, err := s.repository.GetExerciseByID(ctx, exerciseID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrNotFound
+			return nil, model.ErrNotFound.WithMessage("exercise not found")
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get exercise from repository")
 	}
 
 	data, err := s.convertToModelData(exercise.Data)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to convert exercise data")
 	}
 
 	return &model.Exercise{
@@ -113,7 +118,7 @@ func (s *ExerciseService) CreateExercise(ctx context.Context, exercise model.Exe
 
 	data, err := s.convertToJSON(exercise.Data)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to convert exercise data")
 	}
 
 	createExercise := postgres.CreateExerciseParams{
@@ -125,7 +130,7 @@ func (s *ExerciseService) CreateExercise(ctx context.Context, exercise model.Exe
 	}
 
 	if err = s.repository.CreateExercise(ctx, createExercise); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create exercise")
 	}
 
 	return nil
@@ -146,7 +151,7 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise model.Exe
 
 	data, err := s.convertToJSON(exercise.Data)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to convert exercise data")
 	}
 
 	updateExercise := postgres.UpdateExerciseParams{
@@ -158,7 +163,7 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise model.Exe
 	}
 
 	if err = s.repository.UpdateExercise(ctx, updateExercise); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to update exercise")
 	}
 
 	return nil
@@ -166,7 +171,7 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise model.Exe
 
 func (s *ExerciseService) DeleteExercise(ctx context.Context, exerciseID uuid.UUID) error {
 	if err := s.repository.DeleteExercise(ctx, exerciseID); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to delete exercise")
 	}
 
 	return nil
@@ -175,7 +180,7 @@ func (s *ExerciseService) DeleteExercise(ctx context.Context, exerciseID uuid.UU
 func (s *ExerciseService) convertToModelData(data json.RawMessage) (model.ExerciseData, error) {
 	var modelData model.ExerciseData
 	if err := json.Unmarshal(data, &modelData); err != nil {
-		return model.ExerciseData{}, err
+		return model.ExerciseData{}, appError.NewError().WithError(err).WithMessage("failed to unmarshal exercise data")
 	}
 
 	return modelData, nil
@@ -184,7 +189,7 @@ func (s *ExerciseService) convertToModelData(data json.RawMessage) (model.Exerci
 func (s *ExerciseService) convertToJSON(data model.ExerciseData) (json.RawMessage, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to marshal exercise data")
 	}
 
 	return jsonData, nil

@@ -148,6 +148,10 @@ type solveChallengeRequest struct {
 	Solution string `validate:"required"`
 }
 
+type solveChallengeResponse struct {
+	Solved bool
+}
+
 func (h *Handler) solveChallenge(ctx *gin.Context) {
 	var req solveChallengeRequest
 
@@ -174,12 +178,7 @@ func (h *Handler) solveChallenge(ctx *gin.Context) {
 		return
 	}
 
-	code := model.SolutionRejected
-	if solved {
-		code = model.SolutionAccepted
-	}
-
-	response.AbortWithCode(ctx, code)
+	response.AbortWithContent(ctx, solveChallengeResponse{Solved: solved})
 }
 
 func (h *Handler) getChallengeSolvedBy(ctx *gin.Context) {

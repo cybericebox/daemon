@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -26,13 +27,13 @@ type (
 func (u *AuthUseCase) ChangeEmail(ctx context.Context, email string) error {
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get user id from context")
 	}
 
 	// get user by id
 	user, err := u.service.GetUserByID(ctx, userID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get user by id")
 	}
 
 	// create temporal email confirmation code
@@ -42,7 +43,7 @@ func (u *AuthUseCase) ChangeEmail(ctx context.Context, email string) error {
 	})
 
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create temporal email confirmation code")
 	}
 
 	// normalize temporal code to base64
@@ -53,7 +54,7 @@ func (u *AuthUseCase) ChangeEmail(ctx context.Context, email string) error {
 		Username: user.Name,
 		Link:     fmt.Sprintf("%s://%s%s%s", config.SchemeHTTPS, config.PlatformDomain, model.EmailConfirmationLink, bsCode),
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to send email confirmation email")
 	}
 	return nil
 }
@@ -62,13 +63,13 @@ func (u *AuthUseCase) ConfirmEmail(ctx context.Context, bsCode string) error {
 	// Decode base64 temporal code
 	code, err := base64.StdEncoding.DecodeString(bsCode)
 	if err != nil {
-		return model.ErrInvalidTemporalCode
+		return model.ErrInvalidTemporalCode.WithError(appError.NewError().WithError(err).WithMessage("failed to decode base64 code"))
 	}
 
 	// Get the temporal code from the database
 	data, err := u.service.GetTemporalEmailConfirmationCodeData(ctx, string(code))
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get temporal email confirmation code data")
 	}
 
 	user := model.User{
@@ -78,7 +79,7 @@ func (u *AuthUseCase) ConfirmEmail(ctx context.Context, bsCode string) error {
 
 	// Update the user's email in the database
 	if err = u.service.UpdateUserEmail(ctx, user); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to update user email")
 	}
 
 	return nil

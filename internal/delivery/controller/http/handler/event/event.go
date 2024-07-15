@@ -29,8 +29,8 @@ func (h *Handler) initSingleEventAPIHandler(router *gin.RouterGroup) {
 
 	joinEventAPI := router.Group("join")
 	{
-		joinEventAPI.GET("", protection.RequireProtection(), h.getJoinEventStatus)
-		joinEventAPI.POST("", protection.RequireProtection(true), h.joinEvent)
+		joinEventAPI.GET("info", protection.RequireProtection(), h.getJoinEventStatus)
+		joinEventAPI.GET("", protection.RequireProtection(true), h.joinEvent)
 	}
 
 	h.initChallengeAPIHandler(router)
@@ -127,16 +127,30 @@ func (h *Handler) getJoinEventStatus(ctx *gin.Context) {
 }
 
 func (h *Handler) joinEvent(ctx *gin.Context) {
-	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
+	//redirectQ := ctx.Query("noRedirect")
+	//fmt.Println("redirectQ: ", redirectQ)
+	//redirect := true
+	//if redirectQ != "" {
+	//	redirect = false
+	//}
+	//
+	//fmt.Println("redirect: ", redirect)
 
-	if err = h.useCase.JoinEvent(ctx, eventID); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
+	//eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	//if err != nil {
+	//	response.AbortWithError(ctx, err)
+	//	return
+	//}
+	//
+	//if err = h.useCase.JoinEvent(ctx, eventID); err != nil {
+	//	response.AbortWithError(ctx, err)
+	//	return
+	//}
+	//
+	////if redirect {
+	////	response.TemporaryRedirect(ctx, "/")
+	////	return
+	////}
 
 	response.AbortWithSuccess(ctx)
 }

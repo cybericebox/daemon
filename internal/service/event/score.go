@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -19,22 +20,22 @@ type (
 func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.EventScore, error) {
 	event, err := s.repository.GetEventByID(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event by id from repository")
 	}
 
 	teams, err := s.repository.GetEventTeams(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get teams from repository")
 	}
 
 	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
 	}
 
 	solutionsByChallenges, err := s.getSolutionsByChallenges(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get solutions by challenges")
 	}
 
 	challengePoints := make(map[uuid.UUID]int32)
@@ -101,7 +102,7 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 func (s *EventService) getSolutionsByChallenges(ctx context.Context, eventID uuid.UUID) (map[uuid.UUID][]postgres.GetAllChallengesSolutionsInEventRow, error) {
 	solutions, err := s.repository.GetAllChallengesSolutionsInEvent(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get all challenges solutions in event")
 	}
 
 	result := make(map[uuid.UUID][]postgres.GetAllChallengesSolutionsInEventRow)

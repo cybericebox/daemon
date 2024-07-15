@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -43,7 +45,7 @@ type (
 func (s *EventService) GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error) {
 	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
 	}
 
 	result := make([]*model.Challenge, 0, len(challenges))
@@ -74,7 +76,7 @@ func (s *EventService) GetEventChallengeByID(ctx context.Context, eventID uuid.U
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, model.ErrNotFound
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get challenge by id from repository")
 	}
 
 	return &model.Challenge{
@@ -97,7 +99,7 @@ func (s *EventService) GetEventChallengeSolvedBy(ctx context.Context, eventID, c
 		ChallengeID: challengeID,
 	})
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get teams solved challenge from repository")
 	}
 
 	teams := make([]*model.TeamSolvedChallenge, 0, len(teamSolutions))
@@ -117,16 +119,16 @@ func (s *EventService) GetEventChallengeSolvedBy(ctx context.Context, eventID, c
 
 func (s *EventService) AddExercisesToEvent(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error {
 	ch, err := s.repository.GetEventChallenges(ctx, eventID)
-	count := len(ch)
-
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
 	}
+
+	count := len(ch)
 
 	for _, id := range exerciseIDs {
 		exercise, err := s.exerciseService.GetExercise(ctx, id)
 		if err != nil {
-			return err
+			return appError.NewError().WithError(err).WithMessage(fmt.Sprintf("failed to get exercise by id %s", id.String()))
 		}
 
 		for _, task := range exercise.Data.Tasks {
@@ -141,8 +143,7 @@ func (s *EventService) AddExercisesToEvent(ctx context.Context, eventID, categor
 				ExerciseID:     exercise.ID,
 				ExerciseTaskID: task.ID,
 			}); err != nil {
-
-				return err
+				return appError.NewError().WithError(err).WithMessage("failed to create event challenge")
 			}
 			count++
 		}
@@ -156,14 +157,14 @@ func (s *EventService) DeleteEventChallenges(ctx context.Context, eventID uuid.U
 		EventID:    eventID,
 		ExerciseID: exerciseID,
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to delete event challenges")
 	}
 
 	return nil
 }
 
 func (s *EventService) UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
-
+	// start transaction
 	for _, order := range orders {
 		if err := s.repository.UpdateEventChallengeOrder(ctx, postgres.UpdateEventChallengeOrderParams{
 			ID:         order.ID,
@@ -171,10 +172,12 @@ func (s *EventService) UpdateEventChallengesOrder(ctx context.Context, eventID u
 			OrderIndex: order.OrderIndex,
 			CategoryID: order.CategoryID,
 		}); err != nil {
-
-			return err
+			// rollback transaction
+			return appError.NewError().WithError(err).WithMessage("failed to update event challenge order")
 		}
 	}
+
+	// commit transaction
 
 	return nil
 }
@@ -185,13 +188,13 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 	// get all teams in event
 	teams, err := s.repository.GetEventTeams(ctx, eventID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get teams from repository")
 	}
 
 	// get all challenges in event
 	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
 	}
 
 	// create team challenges
@@ -206,7 +209,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 			// get exercise task
 			exercise, err := s.exerciseService.GetExercise(ctx, challenge.ExerciseID)
 			if err != nil {
-				errs = multierror.Append(errs, err)
+				errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage(fmt.Sprintf("failed to get exercise by id %s", challenge.ExerciseID.String())))
 				continue chF
 			}
 
@@ -241,7 +244,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 						TeamID:      team.ID,
 					})
 					if err != nil && !errors.Is(err, sql.ErrNoRows) {
-						errs = multierror.Append(errs, err)
+						errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to get challenge flag from repository"))
 						continue chF
 					}
 
@@ -255,7 +258,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 					// get solution for challenge
 					flag, err = tools.GetSolutionForTask(task.Flags...)
 					if err != nil {
-						errs = multierror.Append(errs, err)
+						errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to generate flag for challenge"))
 						continue chF
 					}
 
@@ -267,7 +270,7 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 						ChallengeID: challenge.ID,
 						Flag:        flag,
 					}); err != nil {
-						errs = multierror.Append(errs, err)
+						errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to create team challenge"))
 						continue chF
 					}
 					// save flag
@@ -303,9 +306,8 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 
 		// create instances for team
 		if err = s.repository.AddLabChallenges(ctx, team.LaboratoryID.UUID, labChallenges); err != nil {
-			errs = multierror.Append(errs, err)
+			errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to add lab challenges"))
 		}
-
 	}
 
 	if errs != nil {
@@ -316,10 +318,24 @@ func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID u
 }
 
 func (s *EventService) DeleteEventTeamsChallenges(ctx context.Context, eventID, exerciseID uuid.UUID) error {
+	// get exercise
+	exercise, err := s.exerciseService.GetExercise(ctx, exerciseID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.ErrNotFound
+		}
+		return appError.NewError().WithError(err).WithMessage(fmt.Sprintf("failed to get exercise by id %s", exerciseID.String()))
+	}
+
+	// if exercise has no instances return
+	if len(exercise.Data.Instances) == 0 {
+		return nil
+	}
+
 	// get all teams in event
 	teams, err := s.repository.GetEventTeams(ctx, eventID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get teams from repository")
 	}
 
 	// get all labs in event
@@ -330,7 +346,7 @@ func (s *EventService) DeleteEventTeamsChallenges(ctx context.Context, eventID, 
 	}
 
 	if err = s.repository.DeleteLabsChallenges(ctx, labIDs, []uuid.UUID{exerciseID}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to delete lab challenges")
 	}
 
 	return nil
@@ -340,7 +356,7 @@ func (s *EventService) SolveChallenge(ctx context.Context, eventID, teamID, chal
 	// get user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return false, err
+		return false, appError.NewError().WithError(err).WithMessage("failed to get user id from context")
 	}
 
 	// get challenge flag
@@ -349,7 +365,7 @@ func (s *EventService) SolveChallenge(ctx context.Context, eventID, teamID, chal
 		TeamID:      teamID,
 	})
 	if err != nil {
-		return false, err
+		return false, appError.NewError().WithError(err).WithMessage("failed to get challenge flag from repository")
 	}
 
 	// check if flag is correct
@@ -368,7 +384,7 @@ func (s *EventService) SolveChallenge(ctx context.Context, eventID, teamID, chal
 		IsCorrect:     isCorrect,
 		Timestamp:     time.Now().UTC(),
 	}); err != nil {
-		return false, err
+		return false, appError.NewError().WithError(err).WithMessage("failed to create event challenge solution attempt")
 	}
 
 	return isCorrect, nil

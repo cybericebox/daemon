@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -73,7 +74,7 @@ func (s *UserService) CreateUser(ctx context.Context, newUser model.User) (*mode
 		Picture:        newUser.Picture,
 		Role:           newUser.Role,
 	}); err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to create user")
 	}
 	return &newUser, nil
 }
@@ -83,7 +84,7 @@ func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.Use
 	if search == "" {
 		users, err := s.repository.GetAllUsers(ctx)
 		if err != nil {
-			return nil, err
+			return nil, appError.NewError().WithError(err).WithMessage("failed to get all users from db")
 		}
 
 		for _, u := range users {
@@ -105,7 +106,7 @@ func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.Use
 	} else {
 		users, err := s.repository.GetUsersWithSimilar(ctx, search)
 		if err != nil {
-			return nil, err
+			return nil, appError.NewError().WithError(err).WithMessage("failed to get users with similar from db")
 		}
 
 		for _, u := range users {
@@ -134,7 +135,7 @@ func (s *UserService) GetUserByID(ctx context.Context, userID uuid.UUID) (*model
 			return nil, model.ErrNotFound
 		}
 
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by id from db")
 	}
 
 	return &model.User{
@@ -159,7 +160,7 @@ func (s *UserService) GetUserByEmail(ctx context.Context, email string) (*model.
 			return nil, model.ErrNotFound
 		}
 
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by email from db")
 	}
 
 	return &model.User{
@@ -178,43 +179,61 @@ func (s *UserService) GetUserByEmail(ctx context.Context, email string) (*model.
 }
 
 func (s *UserService) UpdateUserEmail(ctx context.Context, user model.User) error {
-	return s.repository.UpdateUserEmail(ctx, postgres.UpdateUserEmailParams{
+	if err := s.repository.UpdateUserEmail(ctx, postgres.UpdateUserEmailParams{
 		ID:    user.ID,
 		Email: user.Email,
-	})
+	}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update user email in db")
+	}
+	return nil
 }
 
 func (s *UserService) UpdateUserPicture(ctx context.Context, user model.User) error {
-	return s.repository.UpdateUserPicture(ctx, postgres.UpdateUserPictureParams{
+	if err := s.repository.UpdateUserPicture(ctx, postgres.UpdateUserPictureParams{
 		ID:      user.ID,
 		Picture: user.Picture,
-	})
+	}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update user picture in db")
+	}
+	return nil
 }
 
 func (s *UserService) UpdateUserGoogleID(ctx context.Context, user model.User) error {
-	return s.repository.UpdateUserGoogleID(ctx, postgres.UpdateUserGoogleIDParams{
+	if err := s.repository.UpdateUserGoogleID(ctx, postgres.UpdateUserGoogleIDParams{
 		ID: user.ID,
 		GoogleID: sql.NullString{
 			String: user.GoogleID,
 			Valid:  user.GoogleID != "",
 		},
-	})
+	}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update user google id in db")
+	}
+	return nil
 }
 
 func (s *UserService) UpdateUserPassword(ctx context.Context, user model.User) error {
-	return s.repository.UpdateUserPassword(ctx, postgres.UpdateUserPasswordParams{
+	if err := s.repository.UpdateUserPassword(ctx, postgres.UpdateUserPasswordParams{
 		ID:             user.ID,
 		HashedPassword: user.HashedPassword,
-	})
+	}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update user password in db")
+	}
+	return nil
 }
 
 func (s *UserService) UpdateUserRole(ctx context.Context, user model.User) error {
-	return s.repository.UpdateUserRole(ctx, postgres.UpdateUserRoleParams{
+	if err := s.repository.UpdateUserRole(ctx, postgres.UpdateUserRoleParams{
 		ID:   user.ID,
 		Role: user.Role,
-	})
+	}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update user role in db")
+	}
+	return nil
 }
 
 func (s *UserService) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	return s.repository.DeleteUser(ctx, id)
+	if err := s.repository.DeleteUser(ctx, id); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to delete user in db")
+	}
+	return nil
 }

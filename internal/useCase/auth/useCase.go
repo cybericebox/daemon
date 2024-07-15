@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -30,7 +30,7 @@ type (
 
 		Matches(password, hashedPassword string) (bool, error)
 
-		ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, bool)
+		ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, error)
 		RefreshTokens(refreshToken string) (*model.Tokens, uuid.UUID, error)
 		GenerateTokens(subject string) (*model.Tokens, error)
 
@@ -51,15 +51,14 @@ func NewUseCase(deps Dependencies) *AuthUseCase {
 
 func (u *AuthUseCase) SignIn(ctx context.Context, email, password string) (*model.Tokens, error) {
 	user, err := u.service.GetUserByEmail(ctx, email)
-	// if error is not nil and error is not ErrNotFound return error
 	if err != nil && !errors.Is(err, model.ErrNotFound) {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by email")
 	}
 	// if user not found emulate password check and after return invalid user credentials error
-	if errors.Is(err, model.ErrNotFound) {
+	if errors.Is(err, model.ErrNotFound) || user.HashedPassword == "" {
 		_, err = u.service.Matches(password, fakeHashedPassword)
 		if err != nil {
-			return nil, err
+			return nil, appError.NewError().WithError(err).WithMessage("failed to check password")
 		}
 		return nil, model.ErrInvalidUserCredentials
 	}
@@ -67,7 +66,7 @@ func (u *AuthUseCase) SignIn(ctx context.Context, email, password string) (*mode
 	// if user has password, check it
 	matches, err := u.service.Matches(password, user.HashedPassword)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to check password")
 	}
 
 	if !matches {
@@ -75,42 +74,48 @@ func (u *AuthUseCase) SignIn(ctx context.Context, email, password string) (*mode
 	}
 
 	// if password is correct generate tokens and return them
-	return u.service.GenerateTokens(user.ID.String())
+	tokens, err := u.service.GenerateTokens(user.ID.String())
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to generate tokens")
+	}
+	return tokens, nil
 }
 
 func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) *model.CheckTokensResult {
-	userID, valid := u.service.ValidateAccessToken(ctx, oldTokens.AccessToken)
-	if valid {
+	userID, err := u.service.ValidateAccessToken(ctx, oldTokens.AccessToken)
+	if err == nil {
 		return &model.CheckTokensResult{
 			Tokens: &oldTokens,
 			UserID: userID,
-			Valid:  valid,
+			Valid:  true,
 		}
+	} else {
+		log.Debug().Err(err).Msg("Failed to validate access token")
 	}
 	// if access token is not valid, try to refresh tokens
 	tokens, userID, err := u.service.RefreshTokens(oldTokens.RefreshToken)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to refresh tokens")
-		return &model.CheckTokensResult{}
+		log.Debug().Err(err).Msg("Failed to refresh tokens")
+		return nil
 	}
 
 	return &model.CheckTokensResult{
 		Tokens:    tokens,
 		UserID:    userID,
-		Valid:     true,
 		Refreshed: true,
+		Valid:     true,
 	}
 }
 
 func (u *AuthUseCase) GetSelfProfile(ctx context.Context) (*model.UserInfo, error) {
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user id from context")
 	}
 
 	user, err := u.service.GetUserByID(ctx, userID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by id")
 	}
 
 	return &model.UserInfo{
@@ -145,8 +150,6 @@ func (u *AuthUseCase) URLNeedsProtection(ctx context.Context, url string) bool {
 			log.Debug().Err(err).Msg("Failed to get event by id")
 			return true
 		}
-
-		fmt.Println(event.ScoreboardAvailability)
 
 		// if event scoreboard is public, then return true
 		if event.ScoreboardAvailability == model.PublicScoreboardAvailabilityType {

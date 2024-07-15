@@ -2,6 +2,7 @@ package exercise
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -22,7 +23,7 @@ type (
 func (s *ExerciseService) GetExerciseCategories(ctx context.Context) ([]*model.ExerciseCategory, error) {
 	categories, err := s.repository.GetExerciseCategories(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get exercise categories")
 	}
 
 	result := make([]*model.ExerciseCategory, 0, len(categories))
@@ -44,7 +45,7 @@ func (s *ExerciseService) CreateExerciseCategory(ctx context.Context, category m
 		Name:        category.Name,
 		Description: category.Description,
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create exercise category")
 	}
 
 	return nil
@@ -56,7 +57,7 @@ func (s *ExerciseService) UpdateExerciseCategory(ctx context.Context, category m
 		Name:        category.Name,
 		Description: category.Description,
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to update exercise category")
 	}
 
 	return nil
@@ -64,8 +65,7 @@ func (s *ExerciseService) UpdateExerciseCategory(ctx context.Context, category m
 
 func (s *ExerciseService) DeleteExerciseCategory(ctx context.Context, categoryID uuid.UUID) error {
 	if err := s.repository.DeleteExerciseCategory(ctx, categoryID); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to delete exercise category")
 	}
-
 	return nil
 }

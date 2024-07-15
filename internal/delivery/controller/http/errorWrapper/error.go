@@ -16,9 +16,11 @@ func WithErrorHandler(ctx *gin.Context) {
 		return
 	}
 
-	if errFromContext.Code().IsInternalError() {
-		log.Error().Err(errFromContext).Str("url", ctx.Request.URL.Path).Interface("context", ctx.Keys).Msg("Internal server error")
+	errUnwrapped := errFromContext.UnwrapNotInternalError()
+
+	if errUnwrapped.Code().IsInternalError() {
+		log.Error().Err(errUnwrapped).Str("url", ctx.Request.URL.Path).Interface("context", ctx.Keys).Msg("Internal server error")
 	}
 
-	response.AbortWithCode(ctx, errFromContext.Code())
+	response.AbortWithCode(ctx, errUnwrapped.Code())
 }

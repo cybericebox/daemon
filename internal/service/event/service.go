@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -51,17 +52,17 @@ func NewEventService(deps Dependencies) *EventService {
 func (s *EventService) GetEvents(ctx context.Context) ([]*model.Event, error) {
 	events, err := s.repository.GetAllEvents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get events from repository")
 	}
 
 	challenges, err := s.repository.CountChallengesInEvents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to count challenges in events")
 	}
 
 	teams, err := s.repository.CountTeamsInEvents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to count teams in events")
 	}
 
 	chaCounts := make(map[uuid.UUID]int64)
@@ -112,7 +113,7 @@ func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID) (*mo
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, model.ErrNotFound
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event by id from repository")
 	}
 	return &model.Event{
 		ID:                     event.ID,
@@ -145,7 +146,7 @@ func (s *EventService) GetEventByTag(ctx context.Context, eventTag string) (*mod
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, model.ErrNotFound
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event by tag from repository")
 	}
 	return &model.Event{
 		ID:                     event.ID,
@@ -199,7 +200,7 @@ func (s *EventService) CreateEvent(ctx context.Context, event model.Event) (*mod
 		FinishTime:             event.FinishTime,
 		WithdrawTime:           event.WithdrawTime,
 	}); err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to create event")
 	}
 	return &event, nil
 }
@@ -223,14 +224,14 @@ func (s *EventService) UpdateEvent(ctx context.Context, event model.Event) error
 		FinishTime:             event.FinishTime,
 		WithdrawTime:           event.WithdrawTime,
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to update event")
 	}
 	return nil
 }
 
 func (s *EventService) DeleteEvent(ctx context.Context, eventID uuid.UUID) error {
 	if err := s.repository.DeleteEvent(ctx, eventID); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to delete event")
 	}
 	return nil
 }

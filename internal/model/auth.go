@@ -18,8 +18,8 @@ type (
 	CheckTokensResult struct {
 		Tokens    *Tokens
 		UserID    uuid.UUID
-		Valid     bool
 		Refreshed bool
+		Valid     bool
 	}
 )
 
@@ -27,13 +27,13 @@ type (
 
 var (
 	ErrInvalidUserCredentials = appError.NewError().WithCode(appError.CodeInvalidInput.
-					WithMessage("invalid user credentials").
+					WithMessage("Invalid user credentials").
 					WithHTTPCode(http.StatusUnauthorized))
 	ErrInvalidOldPassword = appError.NewError().WithCode(appError.CodeInvalidInput.
-				WithMessage("invalid old password").
+				WithMessage("Invalid old password").
 				WithHTTPCode(http.StatusUnauthorized))
 	ErrInvalidPasswordComplexity = appError.NewError().WithCode(appError.CodeInvalidInput.
-					WithMessage("invalid password complexity"))
+					WithMessage("Invalid password complexity"))
 )
 
 // constants for token

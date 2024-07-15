@@ -4,11 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
-	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -47,7 +47,7 @@ func (s *TemporalCodeService) CreateTemporalContinueRegistrationCode(ctx context
 		V0:        data.Email,
 		V1:        data.Role,
 	}); err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to create temporal code")
 	}
 	return id.String(), nil
 }
@@ -55,20 +55,19 @@ func (s *TemporalCodeService) CreateTemporalContinueRegistrationCode(ctx context
 func (s *TemporalCodeService) GetTemporalContinueRegistrationCodeData(ctx context.Context, code string) (*model.TemporalContinueRegistrationCodeData, error) {
 	id, err := uuid.FromString(code)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to parse temporal code id")
-		return nil, model.ErrInvalidTemporalCode
+		return nil, model.ErrInvalidTemporalCode.WithError(appError.NewError().WithError(err).WithMessage("failed to parse temporal code id"))
 	}
 	temporalCode, err := s.repository.GetTemporalCode(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, model.ErrInvalidTemporalCode
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get temporal code")
 	}
 
 	// delete temporal code
 	if err = s.repository.DeleteTemporalCode(ctx, id); err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to delete temporal code")
 	}
 
 	if temporalCode.CodeType != model.ContinueRegistrationCodeType || temporalCode.ExpiredAt.Before(time.Now()) {
@@ -90,7 +89,7 @@ func (s *TemporalCodeService) CreateTemporalPasswordResettingCode(ctx context.Co
 		CodeType:  model.PasswordResettingCodeType,
 		V0:        data.UserID.String(),
 	}); err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to create temporal code")
 	}
 	return id.String(), nil
 }
@@ -98,20 +97,19 @@ func (s *TemporalCodeService) CreateTemporalPasswordResettingCode(ctx context.Co
 func (s *TemporalCodeService) GetTemporalPasswordResettingCodeData(ctx context.Context, code string) (*model.TemporalPasswordResettingCodeData, error) {
 	id, err := uuid.FromString(code)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to parse temporal code id")
-		return nil, model.ErrInvalidTemporalCode
+		return nil, model.ErrInvalidTemporalCode.WithError(appError.NewError().WithError(err).WithMessage("failed to parse temporal code id"))
 	}
 	temporalCode, err := s.repository.GetTemporalCode(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, model.ErrInvalidTemporalCode
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get temporal code")
 	}
 
 	// delete temporal code
 	if err = s.repository.DeleteTemporalCode(ctx, id); err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to delete temporal code")
 	}
 
 	if temporalCode.CodeType != model.PasswordResettingCodeType || temporalCode.ExpiredAt.Before(time.Now()) {
@@ -120,7 +118,7 @@ func (s *TemporalCodeService) GetTemporalPasswordResettingCodeData(ctx context.C
 
 	userID, err := uuid.FromString(temporalCode.V0)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to parse user id")
 	}
 
 	return &model.TemporalPasswordResettingCodeData{
@@ -138,7 +136,7 @@ func (s *TemporalCodeService) CreateTemporalEmailConfirmationCode(ctx context.Co
 		V0:        data.UserID.String(),
 		V1:        data.Email,
 	}); err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to create temporal code")
 	}
 	return id.String(), nil
 }
@@ -146,20 +144,19 @@ func (s *TemporalCodeService) CreateTemporalEmailConfirmationCode(ctx context.Co
 func (s *TemporalCodeService) GetTemporalEmailConfirmationCodeData(ctx context.Context, code string) (*model.TemporalEmailConfirmationCodeData, error) {
 	id, err := uuid.FromString(code)
 	if err != nil {
-		log.Debug().Err(err).Msg("Failed to parse temporal code id")
-		return nil, model.ErrInvalidTemporalCode
+		return nil, model.ErrInvalidTemporalCode.WithError(appError.NewError().WithError(err).WithMessage("failed to parse temporal code id"))
 	}
 	temporalCode, err := s.repository.GetTemporalCode(ctx, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, model.ErrInvalidTemporalCode
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get temporal code")
 	}
 
 	// delete temporal code
 	if err = s.repository.DeleteTemporalCode(ctx, id); err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to delete temporal code")
 	}
 
 	if temporalCode.CodeType != model.EmailConfirmationCodeType || temporalCode.ExpiredAt.Before(time.Now()) {
@@ -168,7 +165,7 @@ func (s *TemporalCodeService) GetTemporalEmailConfirmationCodeData(ctx context.C
 
 	userID, err := uuid.FromString(temporalCode.V0)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to parse user id")
 	}
 
 	return &model.TemporalEmailConfirmationCodeData{

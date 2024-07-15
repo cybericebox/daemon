@@ -2,6 +2,7 @@ package token
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/pkg/token"
@@ -47,52 +48,48 @@ func NewTokenService(deps Dependencies) *TokenService {
 	}
 }
 
-func (s *TokenService) ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, bool) {
+func (s *TokenService) ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, error) {
 	userID, err := s.tokenManager.ParseAccessToken(accessToken)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to parse access token")
-		return uuid.Nil, false
+		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse access token")
 	}
 
 	userIDParsed, err := uuid.FromString(userID.(string))
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to parse user id")
-		return uuid.Nil, false
+		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse user id")
 	}
 
 	exists, err := s.repository.DoesUserExistByID(ctx, userIDParsed)
 	if err != nil {
-		log.Debug().Err(err).Msg("failed to check if user exists")
-		return uuid.Nil, false
+		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to check if user exists")
 	}
 
 	if !exists {
-		return uuid.Nil, false
+		return uuid.Nil, appError.NewError().WithCode(appError.CodeNotFound)
 	}
 
 	// set last seen time
 	if err = s.repository.SetLastSeen(ctx, userIDParsed); err != nil {
-		log.Debug().Err(err).Msg("failed to set last seen")
-		return uuid.Nil, false
+		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to set last seen")
 	}
 
-	return userIDParsed, true
+	return userIDParsed, nil
 }
 
 func (s *TokenService) RefreshTokens(refreshToken string) (*model.Tokens, uuid.UUID, error) {
 	subject, err := s.tokenManager.ParseRefreshToken(refreshToken)
 	if err != nil {
-		return nil, uuid.Nil, err
+		return nil, uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse refresh token")
 	}
 
 	userIDParsed, err := uuid.FromString(subject.(string))
 	if err != nil {
-		return nil, uuid.Nil, err
+		return nil, uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse user id")
 	}
 
 	tokens, err := s.GenerateTokens(subject.(string))
 	if err != nil {
-		return nil, uuid.Nil, err
+		return nil, uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to generate tokens")
 	}
 
 	return tokens, userIDParsed, nil
@@ -104,17 +101,17 @@ func (s *TokenService) GenerateTokens(subject string) (*model.Tokens, error) {
 
 	tokens.AccessToken, err = s.tokenManager.NewAccessToken(subject)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to generate access token")
 	}
 
 	tokens.RefreshToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to generate refresh token")
 	}
 
 	tokens.PermissionsToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to generate permissions token")
 	}
 
 	return &tokens, nil

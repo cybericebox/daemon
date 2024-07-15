@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -26,7 +27,7 @@ func (s *EventService) GetParticipantJoinEventStatus(ctx context.Context, eventI
 			return model.NoParticipationStatus, nil
 		}
 
-		return model.NoParticipationStatus, err
+		return model.NoParticipationStatus, appError.NewError().WithError(err).WithMessage("failed to get event join status")
 	}
 	return status, nil
 }
@@ -38,7 +39,7 @@ func (s *EventService) CreateJoinEventRequest(ctx context.Context, eventID, user
 		ApprovalStatus: status,
 	})
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create join event request")
 	}
 	return nil
 }

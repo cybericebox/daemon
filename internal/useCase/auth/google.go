@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
 )
 
@@ -24,12 +25,12 @@ func (u *AuthUseCase) GetGoogleLoginURL() string {
 func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*model.Tokens, error) {
 	googleUser, err := u.service.GetGoogleUser(ctx, code, state)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get google user")
 	}
 
 	user, err := u.service.GetUserByEmail(ctx, googleUser.Email)
 	if err != nil && !errors.Is(err, model.ErrNotFound) {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by email")
 	}
 	// if user does not exist
 	if errors.Is(err, model.ErrNotFound) {
@@ -38,14 +39,14 @@ func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*mode
 		// create user
 		user, err = u.service.CreateUser(ctx, *googleUser)
 		if err != nil {
-			return nil, err
+			return nil, appError.NewError().WithError(err).WithMessage("failed to create user")
 		}
 
 	} else {
 		if user.GoogleID != googleUser.GoogleID {
 			user.GoogleID = googleUser.GoogleID
 			if err = u.service.UpdateUserGoogleID(ctx, *user); err != nil {
-				return nil, err
+				return nil, appError.NewError().WithError(err).WithMessage("failed to update user google id")
 			}
 		}
 
@@ -53,11 +54,16 @@ func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*mode
 		if user.Picture == "" {
 			user.Picture = googleUser.Picture
 			if err = u.service.UpdateUserPicture(ctx, *user); err != nil {
-				return nil, err
+				return nil, appError.NewError().WithError(err).WithMessage("failed to update user picture")
 			}
 		}
 	}
 
 	// generate tokens and return them
-	return u.service.GenerateTokens(user.ID.String())
+	tokens, err := u.service.GenerateTokens(user.ID.String())
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to generate tokens")
+	}
+
+	return tokens, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -28,7 +29,7 @@ type (
 func (s *EventService) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]*model.Team, error) {
 	teams, err := s.repository.GetEventTeams(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get teams from repository")
 	}
 
 	result := make([]*model.Team, 0, len(teams))
@@ -50,9 +51,9 @@ func (s *EventService) GetParticipantTeam(ctx context.Context, eventID, userID u
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrNotFound
+			return nil, model.ErrNotFound.WithMessage("participant team not found")
 		}
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get participant team")
 	}
 
 	return &model.Team{
@@ -69,7 +70,7 @@ func (s *EventService) CreateTeam(ctx context.Context, eventID uuid.UUID, name s
 		Name:    name,
 	})
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to check if team exists")
 	}
 
 	if exists {
@@ -89,13 +90,13 @@ func (s *EventService) CreateTeam(ctx context.Context, eventID uuid.UUID, name s
 			Valid: laboratoryID != nil,
 		},
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create team")
 	}
 
 	// get current user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get current user id")
 	}
 
 	// update participant team
@@ -107,7 +108,7 @@ func (s *EventService) CreateTeam(ctx context.Context, eventID uuid.UUID, name s
 			Valid: true,
 		},
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to update participant team")
 	}
 
 	return nil
@@ -122,7 +123,7 @@ func (s *EventService) JoinTeam(ctx context.Context, eventID uuid.UUID, name, jo
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.ErrTeamWrongCredentials
 		}
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get team by name")
 	}
 
 	if strings.Compare(team.JoinCode, joinCode) != 0 {
@@ -132,7 +133,7 @@ func (s *EventService) JoinTeam(ctx context.Context, eventID uuid.UUID, name, jo
 	// get current user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get current user id")
 	}
 
 	// update participant team
@@ -144,7 +145,7 @@ func (s *EventService) JoinTeam(ctx context.Context, eventID uuid.UUID, name, jo
 			Valid: true,
 		},
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to update participant team")
 	}
 
 	return nil

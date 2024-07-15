@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
@@ -26,29 +27,33 @@ type (
 )
 
 func (u *EventUseCase) GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error) {
-	return u.service.GetEventChallenges(ctx, eventID)
+	challenges, err := u.service.GetEventChallenges(ctx, eventID)
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenges")
+	}
+	return challenges, nil
 }
 
 func (u *EventUseCase) GetEventChallengesInfo(ctx context.Context, eventID uuid.UUID) ([]*model.CategoryInfo, error) {
 	// check if user has team in event
 	team, err := u.GetSelfTeam(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get self team")
 	}
 
 	challenges, err := u.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenges")
 	}
 
 	categories, err := u.GetEventCategories(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event categories")
 	}
 
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event")
 	}
 
 	result := make([]*model.CategoryInfo, 0, len(categories))
@@ -61,7 +66,7 @@ func (u *EventUseCase) GetEventChallengesInfo(ctx context.Context, eventID uuid.
 
 				solvedBy, err := u.service.GetEventChallengeSolvedBy(ctx, eventID, challenge.ID)
 				if err != nil {
-					return nil, err
+					return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenge solved by")
 				}
 
 				if event.DynamicScoring {
@@ -98,12 +103,12 @@ func (u *EventUseCase) GetEventChallengesInfo(ctx context.Context, eventID uuid.
 
 func (u *EventUseCase) AddExercisesToEvent(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error {
 	if err := u.service.AddExercisesToEvent(ctx, eventID, categoryID, exerciseIDs); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to add exercises to event")
 	}
 
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get event")
 	}
 
 	u.CreateEventTeamsChallengesTask(ctx, *event)
@@ -114,28 +119,31 @@ func (u *EventUseCase) AddExercisesToEvent(ctx context.Context, eventID, categor
 func (u *EventUseCase) DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error {
 	challenge, err := u.service.GetEventChallengeByID(ctx, eventID, challengeID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get event challenge by id")
+	}
+
+	if err = u.service.DeleteEventChallenges(ctx, eventID, challenge.ExerciseID); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to delete event challenges")
 	}
 
 	if err = u.service.DeleteEventTeamsChallenges(ctx, eventID, challenge.ExerciseID); err != nil {
-		return err
-	}
-
-	if err = u.service.DeleteEventChallenges(ctx, eventID, challengeID); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to delete event teams challenges")
 	}
 
 	return nil
 }
 
 func (u *EventUseCase) UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
-	return u.service.UpdateEventChallengesOrder(ctx, eventID, orders)
+	if err := u.service.UpdateEventChallengesOrder(ctx, eventID, orders); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update event challenges order")
+	}
+	return nil
 }
 
 func (u *EventUseCase) GetTeamsSolvedChallenge(ctx context.Context, eventID, challengeID uuid.UUID) ([]*model.TeamSolvedChallenge, error) {
 	solvedBy, err := u.service.GetEventChallengeSolvedBy(ctx, eventID, challengeID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenge solved by")
 	}
 
 	return solvedBy.Teams, nil
@@ -145,14 +153,14 @@ func (u *EventUseCase) SolveChallenge(ctx context.Context, eventID, challengeID 
 	// check if user has team in event
 	team, err := u.GetSelfTeam(ctx, eventID)
 	if err != nil {
-		return false, err
+		return false, appError.NewError().WithError(err).WithMessage("failed to get self team")
 	}
 
 	// check if allowed to solve challenge
 	// if event is not started, or ended, or paused
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return false, err
+		return false, appError.NewError().WithError(err).WithMessage("failed to get event")
 	}
 
 	if event.StartTime.After(time.Now().UTC()) || event.FinishTime.Before(time.Now().UTC()) {
@@ -161,7 +169,7 @@ func (u *EventUseCase) SolveChallenge(ctx context.Context, eventID, challengeID 
 
 	solved, err := u.service.SolveChallenge(ctx, eventID, team.ID, challengeID, solution)
 	if err != nil {
-		return false, err
+		return false, appError.NewError().WithError(err).WithMessage("failed to solve challenge")
 	}
 
 	return solved, nil

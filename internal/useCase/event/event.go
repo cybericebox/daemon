@@ -2,9 +2,11 @@ package event
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -25,13 +27,17 @@ type (
 )
 
 func (u *EventUseCase) GetEvent(ctx context.Context, eventID uuid.UUID) (*model.Event, error) {
-	return u.service.GetEventByID(ctx, eventID)
+	event, err := u.service.GetEventByID(ctx, eventID)
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event by id")
+	}
+	return event, nil
 }
 
 func (u *EventUseCase) GetEventInfo(ctx context.Context, eventID uuid.UUID) (*model.EventInfo, error) {
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event")
 	}
 
 	return &model.EventInfo{
@@ -55,7 +61,7 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error
 	// get old event
 	oldEvent, err := u.GetEvent(ctx, event.ID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get old event")
 	}
 
 	// if any event time is changed, we need update workers
@@ -66,11 +72,17 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error
 		u.CreateEventTeamsChallengesTask(ctx, event)
 	}
 
-	return u.service.UpdateEvent(ctx, event)
+	if err := u.service.UpdateEvent(ctx, event); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update event")
+	}
+	return nil
 }
 
 func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error {
-	return u.service.DeleteEvent(ctx, eventID)
+	if err := u.service.DeleteEvent(ctx, eventID); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to delete event")
+	}
+	return nil
 }
 
 // for event participation
@@ -79,7 +91,7 @@ func (u *EventUseCase) GetJoinEventStatus(ctx context.Context, eventID uuid.UUID
 	// get current userID
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return model.NoParticipationStatus, err
+		return model.NoParticipationStatus, appError.NewError().WithError(err).WithMessage("failed to get user id from context")
 	}
 
 	// if user is administrator, return true
@@ -87,7 +99,7 @@ func (u *EventUseCase) GetJoinEventStatus(ctx context.Context, eventID uuid.UUID
 	// get user role
 	userRole, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err != nil {
-		return model.NoParticipationStatus, err
+		return model.NoParticipationStatus, appError.NewError().WithError(err).WithMessage("failed to get user role from context")
 	}
 
 	if userRole == model.AdministratorRole {
@@ -97,7 +109,7 @@ func (u *EventUseCase) GetJoinEventStatus(ctx context.Context, eventID uuid.UUID
 	// get user participation status
 	status, err := u.service.GetParticipantJoinEventStatus(ctx, eventID, userID)
 	if err != nil {
-		return model.NoParticipationStatus, err
+		return model.NoParticipationStatus, appError.NewError().WithError(err).WithMessage("failed to get participant join event status")
 	}
 
 	return status, nil
@@ -107,7 +119,7 @@ func (u *EventUseCase) JoinEvent(ctx context.Context, eventID uuid.UUID) error {
 	// get event
 	event, err := u.service.GetEventByID(ctx, eventID)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get event by id")
 	}
 
 	// if event type is competition, check if registration is closed or event is started.
@@ -122,18 +134,18 @@ func (u *EventUseCase) JoinEvent(ctx context.Context, eventID uuid.UUID) error {
 	status, err := u.GetJoinEventStatus(ctx, eventID)
 
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get join event status")
 	}
 
-	// if user already requested to join event, return error
+	// if user already requested to join event, pass
 	if status != model.NoParticipationStatus {
-		return model.ErrEventAlreadyJoined
+		return nil
 	}
 
 	// get current userID
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to get user id from context")
 	}
 
 	participationStatus := model.PendingParticipationStatus
@@ -145,7 +157,7 @@ func (u *EventUseCase) JoinEvent(ctx context.Context, eventID uuid.UUID) error {
 
 	// create join event request
 	if err = u.service.CreateJoinEventRequest(ctx, eventID, userID, participationStatus); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create join event request")
 	}
 
 	// if registration is open, create participant for user
@@ -155,11 +167,11 @@ func (u *EventUseCase) JoinEvent(ctx context.Context, eventID uuid.UUID) error {
 			// get user
 			user, err := u.service.GetUserByID(ctx, userID)
 			if err != nil {
-				return err
+				return appError.NewError().WithError(err).WithMessage("failed to get user by id")
 			}
 			// create team for user with name as user`s name
 			if err = u.CreateTeam(ctx, eventID, user.Name); err != nil {
-				return err
+				return appError.NewError().WithError(err).WithMessage("failed to create team")
 			}
 		}
 	}
@@ -172,7 +184,7 @@ func (u *EventUseCase) JoinEvent(ctx context.Context, eventID uuid.UUID) error {
 func (u *EventUseCase) GetEventIDByTag(ctx context.Context, eventTag string) (uuid.UUID, error) {
 	event, err := u.service.GetEventByTag(ctx, eventTag)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to get event by tag")
 	}
 
 	return event.ID, nil
@@ -181,12 +193,14 @@ func (u *EventUseCase) GetEventIDByTag(ctx context.Context, eventTag string) (uu
 func (u *EventUseCase) ShouldProxyEvent(ctx context.Context, eventTag string) bool {
 	event, err := u.service.GetEventByTag(ctx, eventTag)
 	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get event by tag")
 		return false
 	}
 
 	// if user is administrator, return true
 	userRole, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err == nil {
+		log.Debug().Err(err).Msg("Failed to get user role from context")
 		if userRole == model.AdministratorRole {
 			return true
 		}

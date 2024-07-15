@@ -173,22 +173,6 @@ var (
 	ErrSolutionAttemptNotAllowed = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("solution attempt not allowed"))
 )
 
-// Custom codes
-const (
-	ChallengeSolutionAttemptAccepted = iota + 100
-	ChallengeSolutionAttemptRejected
-)
-
-// solution results
-var (
-	SolutionAccepted = appError.CodeSuccess.
-				WithInformCode(ChallengeSolutionAttemptAccepted).
-				WithMessage("Solution accepted")
-	SolutionRejected = appError.CodeSuccess.
-				WithInformCode(ChallengeSolutionAttemptRejected).
-				WithMessage("Solution rejected")
-)
-
 // Event types
 const (
 	CompetitionEventType = int32(iota)

@@ -2,6 +2,7 @@ package exercise
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
 )
@@ -34,21 +35,38 @@ func NewUseCase(deps Dependencies) *ExerciseUseCase {
 }
 
 func (u *ExerciseUseCase) GetExercises(ctx context.Context) ([]*model.Exercise, error) {
-	return u.service.GetExercises(ctx)
+	exercises, err := u.service.GetExercises(ctx)
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get exercises")
+	}
+	return exercises, nil
 }
 
 func (u *ExerciseUseCase) GetExercise(ctx context.Context, exerciseID uuid.UUID) (*model.Exercise, error) {
-	return u.service.GetExercise(ctx, exerciseID)
+	exercise, err := u.service.GetExercise(ctx, exerciseID)
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get exercise")
+	}
+	return exercise, nil
 }
 
 func (u *ExerciseUseCase) CreateExercise(ctx context.Context, exercise model.Exercise) error {
-	return u.service.CreateExercise(ctx, exercise)
+	if err := u.service.CreateExercise(ctx, exercise); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to create exercise")
+	}
+	return nil
 }
 
 func (u *ExerciseUseCase) UpdateExercise(ctx context.Context, exercise model.Exercise) error {
-	return u.service.UpdateExercise(ctx, exercise)
+	if err := u.service.UpdateExercise(ctx, exercise); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to update exercise")
+	}
+	return nil
 }
 
 func (u *ExerciseUseCase) DeleteExercise(ctx context.Context, exerciseID uuid.UUID) error {
-	return u.service.DeleteExercise(ctx, exerciseID)
+	if err := u.service.DeleteExercise(ctx, exerciseID); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to delete exercise")
+	}
+	return nil
 }

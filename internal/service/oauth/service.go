@@ -66,32 +66,31 @@ func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*
 
 	tokens, err := s.googleConfig.Exchange(ctx, code)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to exchange code for tokens")
 	}
 
 	client := s.googleConfig.Client(ctx, tokens)
 
 	response, err := client.Get(oauthGoogleUrlAPI + tokens.AccessToken)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get google user")
 	}
 
 	defer func() {
 		if err = response.Body.Close(); err != nil {
-			log.Error().Err(err).Msg("GetGoogleUser")
+			log.Error().Err(err).Msg("Failed to close response body")
 		}
 	}()
 
 	content, err := io.ReadAll(response.Body)
 	if err != nil {
-		// err
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to read response body")
 	}
 
 	var GoogleUserRes map[string]interface{}
 
 	if err = json.Unmarshal(content, &GoogleUserRes); err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to unmarshal google user response")
 	}
 
 	return &model.User{

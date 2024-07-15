@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -22,7 +23,7 @@ type (
 func (s *EventService) GetEventCategories(ctx context.Context, eventID uuid.UUID) ([]*model.ChallengeCategory, error) {
 	categories, err := s.repository.GetEventChallengeCategories(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event categories from repository")
 	}
 
 	result := make([]*model.ChallengeCategory, 0, len(categories))
@@ -46,7 +47,7 @@ func (s *EventService) CreateEventCategory(ctx context.Context, category model.C
 		Name:       category.Name,
 		OrderIndex: category.Order,
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create event category")
 	}
 
 	return nil
@@ -58,7 +59,7 @@ func (s *EventService) UpdateEventCategory(ctx context.Context, category model.C
 		ID:      category.ID,
 		Name:    category.Name,
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to update event category")
 	}
 
 	return nil
@@ -69,22 +70,24 @@ func (s *EventService) DeleteEventCategory(ctx context.Context, eventID uuid.UUI
 		EventID: eventID,
 		ID:      categoryID,
 	}); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to delete event category")
 	}
 
 	return nil
 }
 
 func (s *EventService) UpdateEventCategoriesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
+	// start transaction TODO: add start transaction
 	for _, order := range orders {
 		if err := s.repository.UpdateEventChallengeCategoryOrder(ctx, postgres.UpdateEventChallengeCategoryOrderParams{
 			EventID:    eventID,
 			ID:         order.ID,
 			OrderIndex: order.OrderIndex,
 		}); err != nil {
-
-			return err
+			// rollback transaction TODO: add rollback transaction
+			return appError.NewError().WithError(err).WithMessage("failed to update event category order")
 		}
 	}
+	// commit transaction TODO: add commit transaction
 	return nil
 }

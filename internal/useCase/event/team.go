@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
@@ -25,14 +26,18 @@ type (
 )
 
 func (u *EventUseCase) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]*model.Team, error) {
-	return u.service.GetEventTeams(ctx, eventID)
+	teams, err := u.service.GetEventTeams(ctx, eventID)
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event teams")
+	}
+	return teams, nil
 }
 
 func (u *EventUseCase) GetEventTeamsInfo(ctx context.Context, eventID uuid.UUID) ([]*model.TeamInfo, error) {
 	teamsInfo := make([]*model.TeamInfo, 0)
 	teams, err := u.GetEventTeams(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event teams")
 	}
 
 	for _, team := range teams {
@@ -52,19 +57,19 @@ func (u *EventUseCase) CreateTeam(ctx context.Context, eventID uuid.UUID, name s
 		return model.ErrUserAlreadyInTeam
 	} else {
 		if !errors.Is(err, model.ErrNotFound) {
-			return err
+			return appError.NewError().WithError(err).WithMessage("failed to get self team")
 		}
 	}
 
 	// create laboratory
 	laboratoryID, err := u.service.CreateLaboratory(ctx, 26)
 	if err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create laboratory")
 	}
 
 	// create team
 	if err = u.service.CreateTeam(ctx, eventID, name, &laboratoryID); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to create team")
 	}
 
 	return nil
@@ -77,13 +82,13 @@ func (u *EventUseCase) JoinTeam(ctx context.Context, eventID uuid.UUID, name, jo
 		return model.ErrUserAlreadyInTeam
 	} else {
 		if !errors.Is(err, model.ErrNotFound) {
-			return err
+			return appError.NewError().WithError(err).WithMessage("failed to get self team")
 		}
 	}
 
 	// join team
 	if err = u.service.JoinTeam(ctx, eventID, name, joinCode); err != nil {
-		return err
+		return appError.NewError().WithError(err).WithMessage("failed to join team")
 	}
 
 	return nil
@@ -94,7 +99,7 @@ func (u *EventUseCase) GetVPNConfig(ctx context.Context, eventID uuid.UUID) (str
 	// get current user role
 	role, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to get user role from context")
 	}
 
 	if role == model.AdministratorRole {
@@ -105,23 +110,23 @@ func (u *EventUseCase) GetVPNConfig(ctx context.Context, eventID uuid.UUID) (str
 
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to get user id from context")
 	}
 
 	team, err := u.GetSelfTeam(ctx, eventID)
 	if err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to get self team")
 	}
 
 	// get lab cidr by id
 	labs, err := u.service.GetLaboratories(ctx, team.LaboratoryID.UUID)
 	if err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to get laboratories")
 	}
 
 	config, err := u.service.GetParticipantVPNConfig(ctx, fmt.Sprintf("%s-%s", eventID.String(), userID.String()), labs[0].CIDR)
 	if err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to get participant vpn config")
 	}
 
 	return config, nil
@@ -131,14 +136,14 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 	// get current user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user id from context")
 	}
 
 	// if user is administrator, return default administrator team
 	// get current user role
 	role, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get user role from context")
 	}
 
 	if role == model.AdministratorRole {
@@ -150,7 +155,7 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 	// check if user is joined event
 	joinedStatus, err := u.GetJoinEventStatus(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get join event status")
 	}
 	// if status is not approved, return nil
 	if joinedStatus != model.ApprovedParticipationStatus {
@@ -160,12 +165,12 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 	// get user team
 	team, err := u.service.GetParticipantTeam(ctx, eventID, userID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get participant team")
 	}
 
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get event")
 	}
 
 	// if event participation is individual, return name only
@@ -190,7 +195,7 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 func (u *EventUseCase) ProtectEventTeams(ctx context.Context, eventID uuid.UUID) (bool, error) {
 	event, err := u.service.GetEventByID(ctx, eventID)
 	if err != nil {
-		return true, err
+		return true, appError.NewError().WithError(err).WithMessage("failed to get event by id")
 	}
 
 	// if event scoreboard is public, then return true

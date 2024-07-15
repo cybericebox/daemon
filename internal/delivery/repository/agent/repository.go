@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/agent/pkg/controller/grpc/client"
 	"github.com/cybericebox/agent/pkg/controller/grpc/protobuf"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
@@ -24,7 +25,7 @@ type (
 func NewRepository(deps Dependencies) *AgentRepository {
 	cl, err := newAgent(deps.Config)
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create agent client")
+		log.Fatal().Err(err).Msg("Failed to create agent repository")
 		return nil
 	}
 
@@ -34,7 +35,7 @@ func NewRepository(deps Dependencies) *AgentRepository {
 }
 
 func newAgent(cfg *config.AgentGRPCConfig) (protobuf.AgentClient, error) {
-	return client.NewAgentConnection(client.Config{
+	c, err := client.NewAgentConnection(client.Config{
 		Endpoint: cfg.Endpoint,
 		Auth: client.Auth{
 			AuthKey: cfg.AuthKey,
@@ -46,6 +47,12 @@ func newAgent(cfg *config.AgentGRPCConfig) (protobuf.AgentClient, error) {
 			CertKey:  cfg.TLS.KeyFile,
 		},
 	})
+
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to create agent client")
+	}
+
+	return c, nil
 }
 
 func (r *AgentRepository) GetLabs(ctx context.Context, labIDs ...uuid.UUID) ([]*model.LabInfo, error) {
@@ -57,7 +64,7 @@ func (r *AgentRepository) GetLabs(ctx context.Context, labIDs ...uuid.UUID) ([]*
 
 	resp, err := r.AgentClient.GetLabs(ctx, &protobuf.GetLabsRequest{LabIDs: srtLabIDs})
 	if err != nil {
-		return nil, err
+		return nil, appError.NewError().WithError(err).WithMessage("failed to get labs")
 	}
 
 	var errs error
@@ -65,7 +72,7 @@ func (r *AgentRepository) GetLabs(ctx context.Context, labIDs ...uuid.UUID) ([]*
 	for _, l := range resp.GetLabs() {
 		id, err := uuid.FromString(l.GetId())
 		if err != nil {
-			errs = multierror.Append(errs, err)
+			errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to parse lab id"))
 		}
 		labsInfo = append(labsInfo, &model.LabInfo{
 			ID:   id,
@@ -83,12 +90,12 @@ func (r *AgentRepository) GetLabs(ctx context.Context, labIDs ...uuid.UUID) ([]*
 func (r *AgentRepository) CreateLab(ctx context.Context, mask int) (uuid.UUID, error) {
 	resp, err := r.AgentClient.CreateLab(ctx, &protobuf.CreateLabRequest{CidrMask: uint32(mask)})
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to create lab")
 	}
 
 	id, err := uuid.FromString(resp.GetId())
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse lab id")
 	}
 
 	return id, nil
@@ -102,8 +109,10 @@ func (r *AgentRepository) DeleteLabs(ctx context.Context, labIDs ...uuid.UUID) e
 		srtLabIDs = append(srtLabIDs, l.String())
 	}
 
-	_, err := r.AgentClient.DeleteLabs(ctx, &protobuf.DeleteLabsRequest{LabIDs: srtLabIDs})
-	return err
+	if _, err := r.AgentClient.DeleteLabs(ctx, &protobuf.DeleteLabsRequest{LabIDs: srtLabIDs}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to delete labs")
+	}
+	return nil
 }
 
 func (r *AgentRepository) AddLabChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error {
@@ -133,8 +142,8 @@ func (r *AgentRepository) AddLabChallenges(ctx context.Context, labID uuid.UUID,
 				Id:    i.ID.String(),
 				Image: i.Image,
 				Resources: &protobuf.Resources{
-					Memory: "50Mi",
-					Cpu:    "300m",
+					Memory: "50Mi", //TODO: make it configurable
+					Cpu:    "30m",  //TODO: make it configurable
 				},
 				Envs:    envs,
 				Records: records,
@@ -147,11 +156,13 @@ func (r *AgentRepository) AddLabChallenges(ctx context.Context, labID uuid.UUID,
 		})
 	}
 
-	_, err := r.AgentClient.AddLabChallenges(ctx, &protobuf.AddLabChallengesRequest{
+	if _, err := r.AgentClient.AddLabChallenges(ctx, &protobuf.AddLabChallengesRequest{
 		LabID:      labID.String(),
 		Challenges: challenges,
-	})
-	return err
+	}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to add lab challenges")
+	}
+	return nil
 }
 
 func (r *AgentRepository) DeleteLabsChallenges(ctx context.Context, labIDs []uuid.UUID, challengeIDs []uuid.UUID) error {
@@ -166,9 +177,11 @@ func (r *AgentRepository) DeleteLabsChallenges(ctx context.Context, labIDs []uui
 		srtChallengeIDs = append(srtChallengeIDs, c.String())
 	}
 
-	_, err := r.AgentClient.DeleteLabsChallenges(ctx, &protobuf.DeleteLabsChallengesRequest{
+	if _, err := r.AgentClient.DeleteLabsChallenges(ctx, &protobuf.DeleteLabsChallengesRequest{
 		LabIDs:       srtLabIDs,
 		ChallengeIDs: srtChallengeIDs,
-	})
-	return err
+	}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to delete lab challenges")
+	}
+	return nil
 }

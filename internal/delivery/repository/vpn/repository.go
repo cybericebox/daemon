@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/wireguard/pkg/controller/grpc/client"
 	"github.com/cybericebox/wireguard/pkg/controller/grpc/protobuf"
@@ -31,7 +32,7 @@ func NewRepository(deps Dependencies) *VPNRepository {
 }
 
 func newVPN(cfg *config.VPNGRPCConfig) (protobuf.WireguardClient, error) {
-	return client.NewWireguardConnection(client.Config{
+	c, err := client.NewWireguardConnection(client.Config{
 		Endpoint: cfg.Endpoint,
 		Auth: client.Auth{
 			AuthKey: cfg.AuthKey,
@@ -43,6 +44,11 @@ func newVPN(cfg *config.VPNGRPCConfig) (protobuf.WireguardClient, error) {
 			CertKey:  cfg.TLS.KeyFile,
 		},
 	})
+	if err != nil {
+		return nil, appError.NewError().WithError(err).WithMessage("failed to create VPN client")
+	}
+
+	return c, nil
 }
 
 func (r *VPNRepository) GetVPNClientConfig(ctx context.Context, clientID, destCIDR string) (string, error) {
@@ -51,13 +57,16 @@ func (r *VPNRepository) GetVPNClientConfig(ctx context.Context, clientID, destCI
 		DestCIDR: destCIDR,
 	})
 	if err != nil {
-		return "", err
+		return "", appError.NewError().WithError(err).WithMessage("failed to get client config")
 	}
 
 	return resp.GetConfig(), nil
 }
 
 func (r *VPNRepository) DeleteClient(ctx context.Context, clientID string) error {
-	_, err := r.WireguardClient.DeleteClient(ctx, &protobuf.ClientRequest{Id: clientID})
-	return err
+	if _, err := r.WireguardClient.DeleteClient(ctx, &protobuf.ClientRequest{Id: clientID}); err != nil {
+		return appError.NewError().WithError(err).WithMessage("failed to delete client")
+	}
+
+	return nil
 }

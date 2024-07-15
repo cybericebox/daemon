@@ -11,10 +11,6 @@ func AbortWithCode(ctx *gin.Context, code appError.Code) {
 	ctx.AbortWithStatusJSON(code.GetHTTPCode(), gin.H{"Code": code.GetInformCode(), "Message": code.GetMessage()})
 }
 
-func AbortWithCodeAndContent(ctx *gin.Context, code appError.Code, content interface{}) {
-	ctx.AbortWithStatusJSON(code.GetHTTPCode(), gin.H{"Code": code.GetInformCode(), "Message": code.GetMessage(), "Content": content})
-}
-
 func AbortWithBadRequest(ctx *gin.Context, err ...error) {
 	message := "Invalid input data"
 	if len(err) > 0 && err[0] != nil {
@@ -37,11 +33,11 @@ func AbortWithNotFound(ctx *gin.Context) {
 }
 
 func AbortWithContent(ctx *gin.Context, content interface{}) {
-	ctx.JSON(http.StatusOK, content)
+	ctx.AbortWithStatusJSON(http.StatusOK, content)
 }
 
 func AbortWithSuccess(ctx *gin.Context) {
-	ctx.AbortWithStatus(http.StatusOK)
+	AbortWithCode(ctx, appError.CodeSuccess)
 }
 
 func AbortWithError(ctx *gin.Context, err error) {
