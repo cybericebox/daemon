@@ -2,7 +2,6 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -13,35 +12,35 @@ import (
 
 type (
 	IScoreRepository interface {
-		GetAllChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]postgres.GetAllChallengesSolutionsInEventRow, error)
+		GetChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]postgres.GetChallengesSolutionsInEventRow, error)
 	}
 )
 
 func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.EventScore, error) {
 	event, err := s.repository.GetEventByID(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get event by id from repository")
+		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get event by id from repository").Cause()
 	}
 
 	teams, err := s.repository.GetEventTeams(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get teams from repository")
+		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get teams from repository").Cause()
 	}
 
-	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
+	challenges, err := s.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
+		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get challenges from repository").Cause()
 	}
 
 	solutionsByChallenges, err := s.getSolutionsByChallenges(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get solutions by challenges")
+		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get solutions by challenges").Cause()
 	}
 
 	challengePoints := make(map[uuid.UUID]int32)
 	if !event.DynamicScoring {
 		for _, challenge := range challenges {
-			challengePoints[challenge.ID] = challenge.Points
+			challengePoints[challenge.ID] = challenge.Data.Points
 		}
 	}
 	var teamScores []model.TeamScore
@@ -79,6 +78,7 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 		latestSolution := teamScoreTimeline[len(teamScoreTimeline)-1][0].(time.Time)
 
 		teamScores = append(teamScores, model.TeamScore{
+			TeamID:            team.ID,
 			TeamName:          team.Name,
 			Score:             score,
 			TeamSolutions:     teamSolutions,
@@ -94,18 +94,18 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 	}
 
 	return &model.EventScore{
-		TeamsScores:   teamScores,
-		ChallengeList: convertToChallengeList(challenges),
+		TeamsScores: teamScores,
+		Challenges:  convertToChallengeList(challenges),
 	}, nil
 }
 
-func (s *EventService) getSolutionsByChallenges(ctx context.Context, eventID uuid.UUID) (map[uuid.UUID][]postgres.GetAllChallengesSolutionsInEventRow, error) {
-	solutions, err := s.repository.GetAllChallengesSolutionsInEvent(ctx, eventID)
+func (s *EventService) getSolutionsByChallenges(ctx context.Context, eventID uuid.UUID) (map[uuid.UUID][]postgres.GetChallengesSolutionsInEventRow, error) {
+	solutions, err := s.repository.GetChallengesSolutionsInEvent(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get all challenges solutions in event")
+		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get all challenges solutions in event").Cause()
 	}
 
-	result := make(map[uuid.UUID][]postgres.GetAllChallengesSolutionsInEventRow)
+	result := make(map[uuid.UUID][]postgres.GetChallengesSolutionsInEventRow)
 	for _, solution := range solutions {
 		result[solution.ChallengeID] = append(result[solution.ChallengeID], solution)
 	}
@@ -151,12 +151,12 @@ func sortTimeline(solvesForTimeline []model.SolutionForTimeline) {
 	})
 }
 
-func convertToChallengeList(challenges []postgres.EventChallenge) []model.ChallengeInfo {
+func convertToChallengeList(challenges []*model.Challenge) []model.ChallengeInfo {
 	var result []model.ChallengeInfo
 	for _, challenge := range challenges {
 		result = append(result, model.ChallengeInfo{
 			ID:   challenge.ID,
-			Name: challenge.Name,
+			Name: challenge.Data.Name,
 		})
 	}
 	return result

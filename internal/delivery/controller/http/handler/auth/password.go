@@ -11,37 +11,14 @@ import (
 type IPasswordUseCase interface {
 	ForgotPassword(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, code, newPassword string) error
-	ChangePassword(ctx context.Context, oldPassword, newPassword string) error
 }
 
 func (h *Handler) initPasswordAPIHandler(router *gin.RouterGroup) {
 	password := router.Group("password")
 	{
-		password.POST("", protection.RequireProtection(), h.changePassword)
 		password.POST("forgot", protection.RequireRecaptcha("forgotPassword"), h.forgotPassword)
 		password.POST("reset/:code", h.resetPassword)
 	}
-}
-
-type changePasswordRequest struct {
-	OldPassword string `binding:"required,min=1,max=64"`
-	NewPassword string `binding:"required,min=1,max=64"`
-}
-
-func (h *Handler) changePassword(ctx *gin.Context) {
-	var inp changePasswordRequest
-
-	if err := ctx.BindJSON(&inp); err != nil {
-		response.AbortWithBadRequest(ctx, err)
-		return
-	}
-
-	if err := h.useCase.ChangePassword(ctx, inp.OldPassword, inp.NewPassword); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-
-	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) forgotPassword(ctx *gin.Context) {

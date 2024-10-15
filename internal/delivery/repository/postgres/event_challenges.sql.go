@@ -11,6 +11,25 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const countChallengesInCategoryInEvent = `-- name: CountChallengesInCategoryInEvent :one
+select count(*)
+from event_challenges
+where category_id = $1
+  and event_id = $2
+`
+
+type CountChallengesInCategoryInEventParams struct {
+	CategoryID uuid.UUID `json:"category_id"`
+	EventID    uuid.UUID `json:"event_id"`
+}
+
+func (q *Queries) CountChallengesInCategoryInEvent(ctx context.Context, arg CountChallengesInCategoryInEventParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countChallengesInCategoryInEvent, arg.CategoryID, arg.EventID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countChallengesInEvents = `-- name: CountChallengesInEvents :many
 select count(*), event_id
 from event_challenges
@@ -23,7 +42,7 @@ type CountChallengesInEventsRow struct {
 }
 
 func (q *Queries) CountChallengesInEvents(ctx context.Context) ([]CountChallengesInEventsRow, error) {
-	rows, err := q.query(ctx, q.countChallengesInEventsStmt, countChallengesInEvents)
+	rows, err := q.db.Query(ctx, countChallengesInEvents)
 	if err != nil {
 		return nil, err
 	}
@@ -36,67 +55,14 @@ func (q *Queries) CountChallengesInEvents(ctx context.Context) ([]CountChallenge
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
 }
 
-const createEventChallenge = `-- name: CreateEventChallenge :exec
-insert into event_challenges
-(id, event_id, category_id, name, description, points, order_index, exercise_id, exercise_task_id)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-`
-
-type CreateEventChallengeParams struct {
-	ID             uuid.UUID `json:"id"`
-	EventID        uuid.UUID `json:"event_id"`
-	CategoryID     uuid.UUID `json:"category_id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	Points         int32     `json:"points"`
-	OrderIndex     int32     `json:"order_index"`
-	ExerciseID     uuid.UUID `json:"exercise_id"`
-	ExerciseTaskID uuid.UUID `json:"exercise_task_id"`
-}
-
-func (q *Queries) CreateEventChallenge(ctx context.Context, arg CreateEventChallengeParams) error {
-	_, err := q.exec(ctx, q.createEventChallengeStmt, createEventChallenge,
-		arg.ID,
-		arg.EventID,
-		arg.CategoryID,
-		arg.Name,
-		arg.Description,
-		arg.Points,
-		arg.OrderIndex,
-		arg.ExerciseID,
-		arg.ExerciseTaskID,
-	)
-	return err
-}
-
-const deleteEventChallenges = `-- name: DeleteEventChallenges :exec
-delete
-from event_challenges
-where exercise_id = $1
-  and event_id = $2
-`
-
-type DeleteEventChallengesParams struct {
-	ExerciseID uuid.UUID `json:"exercise_id"`
-	EventID    uuid.UUID `json:"event_id"`
-}
-
-func (q *Queries) DeleteEventChallenges(ctx context.Context, arg DeleteEventChallengesParams) error {
-	_, err := q.exec(ctx, q.deleteEventChallengesStmt, deleteEventChallenges, arg.ExerciseID, arg.EventID)
-	return err
-}
-
 const getEventChallengeByID = `-- name: GetEventChallengeByID :one
-select id, event_id, category_id, name, description, points, order_index, exercise_id, exercise_task_id, updated_at, updated_by, created_at
+select id, event_id, category_id, data, order_index, exercise_id, exercise_task_id, updated_at, updated_by, created_at
 from event_challenges
 where id = $1
   and event_id = $2
@@ -108,15 +74,13 @@ type GetEventChallengeByIDParams struct {
 }
 
 func (q *Queries) GetEventChallengeByID(ctx context.Context, arg GetEventChallengeByIDParams) (EventChallenge, error) {
-	row := q.queryRow(ctx, q.getEventChallengeByIDStmt, getEventChallengeByID, arg.ID, arg.EventID)
+	row := q.db.QueryRow(ctx, getEventChallengeByID, arg.ID, arg.EventID)
 	var i EventChallenge
 	err := row.Scan(
 		&i.ID,
 		&i.EventID,
 		&i.CategoryID,
-		&i.Name,
-		&i.Description,
-		&i.Points,
+		&i.Data,
 		&i.OrderIndex,
 		&i.ExerciseID,
 		&i.ExerciseTaskID,
@@ -128,14 +92,14 @@ func (q *Queries) GetEventChallengeByID(ctx context.Context, arg GetEventChallen
 }
 
 const getEventChallenges = `-- name: GetEventChallenges :many
-select id, event_id, category_id, name, description, points, order_index, exercise_id, exercise_task_id, updated_at, updated_by, created_at
+select id, event_id, category_id, data, order_index, exercise_id, exercise_task_id, updated_at, updated_by, created_at
 from event_challenges
 where event_id = $1
 order by order_index
 `
 
 func (q *Queries) GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]EventChallenge, error) {
-	rows, err := q.query(ctx, q.getEventChallengesStmt, getEventChallenges, eventID)
+	rows, err := q.db.Query(ctx, getEventChallenges, eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -147,9 +111,7 @@ func (q *Queries) GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]
 			&i.ID,
 			&i.EventID,
 			&i.CategoryID,
-			&i.Name,
-			&i.Description,
-			&i.Points,
+			&i.Data,
 			&i.OrderIndex,
 			&i.ExerciseID,
 			&i.ExerciseTaskID,
@@ -161,36 +123,8 @@ func (q *Queries) GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
-}
-
-const updateEventChallengeOrder = `-- name: UpdateEventChallengeOrder :exec
-update event_challenges
-set category_id = $3,
-    order_index = $4
-where id = $1
-  and event_id = $2
-`
-
-type UpdateEventChallengeOrderParams struct {
-	ID         uuid.UUID `json:"id"`
-	EventID    uuid.UUID `json:"event_id"`
-	CategoryID uuid.UUID `json:"category_id"`
-	OrderIndex int32     `json:"order_index"`
-}
-
-func (q *Queries) UpdateEventChallengeOrder(ctx context.Context, arg UpdateEventChallengeOrderParams) error {
-	_, err := q.exec(ctx, q.updateEventChallengeOrderStmt, updateEventChallengeOrder,
-		arg.ID,
-		arg.EventID,
-		arg.CategoryID,
-		arg.OrderIndex,
-	)
-	return err
 }

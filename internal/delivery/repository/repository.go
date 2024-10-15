@@ -25,7 +25,7 @@ type (
 
 func NewRepository(deps Dependencies) *Repository {
 	return &Repository{
-		storageS3.NewRepository(storageS3.Dependencies{}),
+		storageS3.NewRepository(storageS3.Dependencies{Config: &deps.Config.StorageS3}),
 		postgres.NewRepository(postgres.Dependencies{Config: &deps.Config.Postgres}),
 		email.NewRepository(email.Dependencies{Config: &deps.Config.Email}),
 		agent.NewRepository(agent.Dependencies{Config: &deps.Config.Agent}),

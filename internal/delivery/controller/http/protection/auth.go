@@ -2,6 +2,7 @@ package protection
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
@@ -105,7 +106,7 @@ func (p *protection) authenticateUser(ctx *gin.Context, redirectOnUnauthenticate
 func (p *protection) unauthenticatedResponse(ctx *gin.Context, redirectOnUnauthenticated bool) {
 	// if redirectOnUnauthenticated is false
 	if !redirectOnUnauthenticated {
-		response.AbortWithUnauthorized(ctx)
+		response.AbortWithUnauthenticated(ctx)
 		return
 	}
 	// save "from" url to cookie
@@ -126,8 +127,10 @@ func (p *protection) unauthorizedResponse(ctx *gin.Context, redirectOnUnauthoriz
 	if ctx.Request.URL.Path != "/" {
 		response.TemporaryRedirect(ctx, "/")
 	} else {
-		// if user already on root path then redirect to main domain
-		RedirectToMainDomainPage(ctx, config.SignInPage)
+		// if user already on root path then redirect to main domain and not in main domain root path
+		if ctx.GetString(tools.SubdomainCtxKey) != "" {
+			RedirectToMainDomainPage(ctx)
+		}
 	}
 }
 
@@ -150,7 +153,10 @@ func GetFromURL(ctx *gin.Context) (value string) {
 	// get cookie value to return it
 	value, err := ctx.Cookie(config.FromURLField)
 	if err != nil || value == "" {
-		log.Error().Err(err).Str("Cookie", config.FromURLField).Msg("can not get cookie from context")
+		if err == nil {
+			err = errors.New("no value found")
+		}
+		log.Debug().Err(err).Str("Cookie", config.FromURLField).Msg("can not get cookie from context")
 		value = config.DefaultFromURL
 	}
 	// set cookie with -1 ttl to delete it
@@ -171,14 +177,17 @@ func SetFromURL(ctx *gin.Context, from ...string) {
 	}
 }
 
-func SetAuthenticated(ctx *gin.Context, tokens *model.Tokens) {
+func SetAuthenticated(ctx *gin.Context, tokens *model.Tokens, redirect ...bool) {
 	// set tokens to cookies
 	protector.setTokens(ctx, tokens)
 
-	// get from url if user was redirected to sign in page
-	from := GetFromURL(ctx)
-	// redirect to "from" url
-	response.TemporaryRedirect(ctx, from)
+	// if redirect is true
+	if len(redirect) > 0 && redirect[0] {
+		// get from url if user was redirected to sign in page
+		from := GetFromURL(ctx)
+		// redirect to "from" url
+		response.TemporaryRedirect(ctx, from)
+	}
 
 }
 

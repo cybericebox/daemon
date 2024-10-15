@@ -13,58 +13,69 @@ import (
 )
 
 const createTemporalCode = `-- name: CreateTemporalCode :exec
-insert into temporal_codes (id, expired_at, code_type, v0, v1, v2)
-values ($1, $2, $3, $4, $5, $6)
+insert into temporal_codes (id, expired_at, code_type, data)
+values ($1, $2, $3, $4)
 `
 
 type CreateTemporalCodeParams struct {
 	ID        uuid.UUID `json:"id"`
 	ExpiredAt time.Time `json:"expired_at"`
 	CodeType  int32     `json:"code_type"`
-	V0        string    `json:"v0"`
-	V1        string    `json:"v1"`
-	V2        string    `json:"v2"`
+	Data      []byte    `json:"data"`
 }
 
 func (q *Queries) CreateTemporalCode(ctx context.Context, arg CreateTemporalCodeParams) error {
-	_, err := q.exec(ctx, q.createTemporalCodeStmt, createTemporalCode,
+	_, err := q.db.Exec(ctx, createTemporalCode,
 		arg.ID,
 		arg.ExpiredAt,
 		arg.CodeType,
-		arg.V0,
-		arg.V1,
-		arg.V2,
+		arg.Data,
 	)
 	return err
 }
 
-const deleteTemporalCode = `-- name: DeleteTemporalCode :exec
+const deleteExpiredTemporalCodes = `-- name: DeleteExpiredTemporalCodes :execrows
+delete
+from temporal_codes
+where expired_at < now()
+`
+
+func (q *Queries) DeleteExpiredTemporalCodes(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredTemporalCodes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteTemporalCode = `-- name: DeleteTemporalCode :execrows
 delete
 from temporal_codes
 where id = $1
 `
 
-func (q *Queries) DeleteTemporalCode(ctx context.Context, id uuid.UUID) error {
-	_, err := q.exec(ctx, q.deleteTemporalCodeStmt, deleteTemporalCode, id)
-	return err
+func (q *Queries) DeleteTemporalCode(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTemporalCode, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getTemporalCode = `-- name: GetTemporalCode :one
-select id, expired_at, code_type, v0, v1, v2, created_at
+select id, expired_at, code_type, data, created_at
 from temporal_codes
 where id = $1
 `
 
 func (q *Queries) GetTemporalCode(ctx context.Context, id uuid.UUID) (TemporalCode, error) {
-	row := q.queryRow(ctx, q.getTemporalCodeStmt, getTemporalCode, id)
+	row := q.db.QueryRow(ctx, getTemporalCode, id)
 	var i TemporalCode
 	err := row.Scan(
 		&i.ID,
 		&i.ExpiredAt,
 		&i.CodeType,
-		&i.V0,
-		&i.V1,
-		&i.V2,
+		&i.Data,
 		&i.CreatedAt,
 	)
 	return i, err

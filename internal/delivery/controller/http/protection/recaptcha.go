@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/api/option"
@@ -22,13 +22,6 @@ const (
 	siteVerifyURL = "https://www.google.com/recaptcha/api/siteverify"
 )
 
-var (
-	ErrInvalidRecaptchaToken  = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("invalid recaptcha token"))
-	ErrNoRecaptchaToken       = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("no recaptcha token"))
-	ErrInvalidRecaptchaAction = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("invalid recaptcha action"))
-	ErrLowerScore             = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("lower recaptcha score"))
-)
-
 func RequireRecaptcha(action string) gin.HandlerFunc {
 	verifyToken := verifyRecaptchaToken
 	if protector.config.Recaptcha.ProjectID != "" {
@@ -38,7 +31,7 @@ func RequireRecaptcha(action string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		recaptchaToken, err := getRecaptchaToken(ctx)
 		if err != nil {
-			response.AbortWithError(ctx, ErrNoRecaptchaToken)
+			response.AbortWithError(ctx, model.ErrAuthRecaptchaNoRecaptchaToken.Cause())
 			return
 		}
 
@@ -58,12 +51,12 @@ type siteVerifyRequest struct {
 func getRecaptchaToken(ctx *gin.Context) (string, error) {
 	bodyBytes, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
-		return "", appError.NewError().WithError(err).WithMessage("failed to read request body")
+		return "", model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to read request body").Cause()
 	}
 
 	var body siteVerifyRequest
 	if err = json.Unmarshal(bodyBytes, &body); err != nil {
-		return "", appError.NewError().WithError(err).WithMessage("failed to unmarshal request body")
+		return "", model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to unmarshal request body").Cause()
 	}
 
 	// Restore request body to read more than once.
@@ -76,7 +69,7 @@ func getRecaptchaToken(ctx *gin.Context) (string, error) {
 func verifyRecaptchaEnterpriseToken(ctx context.Context, token, action string) error {
 	client, err := recaptcha.NewClient(ctx, option.WithAPIKey(protector.config.Recaptcha.APIKey))
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to create recaptcha client")
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to create recaptcha client").Cause()
 	}
 	defer func() {
 		if err = client.Close(); err != nil {
@@ -95,19 +88,19 @@ func verifyRecaptchaEnterpriseToken(ctx context.Context, token, action string) e
 			Parent: fmt.Sprintf("projects/%s", protector.config.Recaptcha.ProjectID),
 		})
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to create recaptcha assessment")
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to create recaptcha assessment").Cause()
 	}
 
 	if !recaptchaResp.TokenProperties.Valid {
-		return appError.NewError().WithError(errors.New(recaptchaResp.TokenProperties.InvalidReason.String())).WithMessage("invalid recaptcha token")
+		return model.ErrAuthRecaptchaInvalidRecaptchaToken.WithError(errors.New(recaptchaResp.TokenProperties.InvalidReason.String())).Cause()
 	}
 
 	if recaptchaResp.RiskAnalysis.Score < protector.config.Recaptcha.Score {
-		return ErrLowerScore
+		return model.ErrAuthRecaptchaLowerScore.WithError(errors.New(fmt.Sprintf("%f", recaptchaResp.RiskAnalysis.Score))).Cause()
 	}
 
 	if recaptchaResp.TokenProperties.Action != action {
-		return ErrInvalidRecaptchaAction
+		return model.ErrAuthRecaptchaInvalidRecaptchaAction.WithError(errors.New(recaptchaResp.TokenProperties.Action)).Cause()
 	}
 
 	return nil
@@ -125,7 +118,7 @@ type siteVerifyResponse struct {
 func verifyRecaptchaToken(ctx context.Context, token, action string) error {
 	req, err := http.NewRequest(http.MethodPost, siteVerifyURL, nil)
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to create recaptcha request")
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to create recaptcha request").Cause()
 	}
 
 	// Add necessary request parameters.
@@ -136,7 +129,7 @@ func verifyRecaptchaToken(ctx context.Context, token, action string) error {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to send recaptcha request")
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to send recaptcha request").Cause()
 	}
 	defer func() {
 		if err = resp.Body.Close(); err != nil {
@@ -146,20 +139,20 @@ func verifyRecaptchaToken(ctx context.Context, token, action string) error {
 
 	var body siteVerifyResponse
 	if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to decode recaptcha response")
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to decode recaptcha response").Cause()
 	}
 
 	if !body.Success {
-		return ErrInvalidRecaptchaToken
+		return model.ErrAuthRecaptchaInvalidRecaptchaToken.Cause()
 	}
 
 	// Check additional response parameters applicable for V3.
 	if body.Score < protector.config.Recaptcha.Score {
-		return ErrLowerScore
+		return model.ErrAuthRecaptchaLowerScore.WithError(errors.New(fmt.Sprintf("%f", body.Score))).Cause()
 	}
 
 	if body.Action != action {
-		return ErrInvalidRecaptchaAction
+		return model.ErrAuthRecaptchaInvalidRecaptchaAction.WithError(errors.New(body.Action)).Cause()
 	}
 
 	return nil

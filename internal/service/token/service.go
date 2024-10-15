@@ -1,12 +1,10 @@
 package token
 
 import (
-	"context"
-	"github.com/cybericebox/daemon/internal/appError"
+	"errors"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/pkg/token"
-	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 	"time"
 )
@@ -14,13 +12,7 @@ import (
 type (
 	TokenService struct {
 		config       *config.JWTConfig
-		repository   IRepository
 		tokenManager tokenManager
-	}
-	IRepository interface {
-		DoesUserExistByID(ctx context.Context, id uuid.UUID) (bool, error)
-
-		SetLastSeen(ctx context.Context, id uuid.UUID) error
 	}
 
 	tokenManager interface {
@@ -31,8 +23,7 @@ type (
 	}
 
 	Dependencies struct {
-		Config     *config.JWTConfig
-		Repository IRepository
+		Config *config.JWTConfig
 	}
 )
 
@@ -43,75 +34,56 @@ func NewTokenService(deps Dependencies) *TokenService {
 	}
 	return &TokenService{
 		config:       deps.Config,
-		repository:   deps.Repository,
 		tokenManager: manager,
 	}
 }
 
-func (s *TokenService) ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, error) {
-	userID, err := s.tokenManager.ParseAccessToken(accessToken)
+func (s *TokenService) ValidateAccessToken(accessToken string) (interface{}, error) {
+	subject, err := s.tokenManager.ParseAccessToken(accessToken)
 	if err != nil {
-		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse access token")
+		if errors.Is(err, token.InvalidJWTToken) {
+			return nil, model.ErrAuthInvalidAccessToken.Cause()
+		}
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to parse access token").Cause()
 	}
 
-	userIDParsed, err := uuid.FromString(userID.(string))
-	if err != nil {
-		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse user id")
-	}
-
-	exists, err := s.repository.DoesUserExistByID(ctx, userIDParsed)
-	if err != nil {
-		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to check if user exists")
-	}
-
-	if !exists {
-		return uuid.Nil, appError.NewError().WithCode(appError.CodeNotFound)
-	}
-
-	// set last seen time
-	if err = s.repository.SetLastSeen(ctx, userIDParsed); err != nil {
-		return uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to set last seen")
-	}
-
-	return userIDParsed, nil
+	return subject, nil
 }
 
-func (s *TokenService) RefreshTokens(refreshToken string) (*model.Tokens, uuid.UUID, error) {
+func (s *TokenService) RefreshTokens(refreshToken string) (*model.Tokens, interface{}, error) {
 	subject, err := s.tokenManager.ParseRefreshToken(refreshToken)
 	if err != nil {
-		return nil, uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse refresh token")
+		if errors.Is(err, token.InvalidJWTToken) {
+			return nil, nil, model.ErrAuthInvalidRefreshToken.Cause()
+		}
+		return nil, nil, model.ErrAuth.WithError(err).WithMessage("Failed to parse refresh token").Cause()
 	}
 
-	userIDParsed, err := uuid.FromString(subject.(string))
+	tokens, err := s.GenerateTokens(subject)
 	if err != nil {
-		return nil, uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to parse user id")
+		return nil, nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate tokens").Cause()
 	}
 
-	tokens, err := s.GenerateTokens(subject.(string))
-	if err != nil {
-		return nil, uuid.Nil, appError.NewError().WithError(err).WithMessage("failed to generate tokens")
-	}
-
-	return tokens, userIDParsed, nil
+	return tokens, subject, nil
 }
 
-func (s *TokenService) GenerateTokens(subject string) (*model.Tokens, error) {
+func (s *TokenService) GenerateTokens(subject interface{}) (*model.Tokens, error) {
 	tokens := model.Tokens{}
 	var err error
 
 	tokens.AccessToken, err = s.tokenManager.NewAccessToken(subject)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to generate access token")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate access token").Cause()
 	}
 
 	tokens.RefreshToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to generate refresh token")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate refresh token").Cause()
 	}
 
 	tokens.PermissionsToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to generate permissions token")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate permissions token").Cause()
 	}
 
 	return &tokens, nil

@@ -16,6 +16,7 @@ type (
 
 	IUseCase interface {
 		GetUsers(ctx context.Context, search string) ([]*model.UserInfo, error)
+		InviteUsers(ctx context.Context, data model.InviteUsers) error
 		UpdateUserRole(ctx context.Context, user model.User) error
 		DeleteUser(ctx context.Context, userID uuid.UUID) error
 	}
@@ -29,6 +30,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	userAPI := router.Group("users", protection.RequireProtection())
 	{
 		userAPI.GET("", h.GetUsers) // all routes are protected
+		userAPI.POST("invite", h.InviteUsers)
 		userAPI.PATCH(":userID", h.UpdateUserRole)
 		userAPI.DELETE(":userID", h.DeleteUser)
 	}
@@ -43,7 +45,23 @@ func (h *Handler) GetUsers(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, users)
+	response.AbortWithData(ctx, users)
+}
+
+func (h *Handler) InviteUsers(ctx *gin.Context) {
+	var inp model.InviteUsers
+
+	if err := ctx.BindJSON(&inp); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	if err := h.useCase.InviteUsers(ctx, inp); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) UpdateUserRole(ctx *gin.Context) {

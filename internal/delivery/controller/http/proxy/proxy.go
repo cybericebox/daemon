@@ -5,6 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gin-gonic/gin"
 	"net/http/httputil"
@@ -19,7 +20,7 @@ type (
 	}
 
 	IUseCase interface {
-		ShouldProxyEvent(ctx context.Context, subdomain string) bool
+		ShouldProxyEvent(ctx context.Context, tag string) bool
 	}
 
 	Dependencies struct {
@@ -86,7 +87,7 @@ func (p *proxyHandler) getTarget(ctx *gin.Context) (string, error) {
 	destSubdomain, exists := ctx.Get(tools.SubdomainCtxKey)
 
 	if !exists {
-		return "", tools.ErrNoSubdomainInContext
+		return "", model.ErrPlatformSubdomainNotFoundInContext.Cause()
 	}
 
 	switch destSubdomain.(string) {

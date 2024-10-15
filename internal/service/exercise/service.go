@@ -2,14 +2,10 @@ package exercise
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
-	"errors"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
-	"github.com/hashicorp/go-multierror"
 )
 
 type (
@@ -23,12 +19,14 @@ type (
 		CreateExercise(ctx context.Context, arg postgres.CreateExerciseParams) error
 
 		GetExercises(ctx context.Context) ([]postgres.Exercise, error)
+		GetExercisesWithSimilarName(ctx context.Context, search string) ([]postgres.Exercise, error)
 		GetExercisesByCategory(ctx context.Context, categoryID uuid.UUID) ([]postgres.Exercise, error)
+		GetExercisesByIDs(ctx context.Context, ids []uuid.UUID) ([]postgres.Exercise, error)
 		GetExerciseByID(ctx context.Context, id uuid.UUID) (postgres.Exercise, error)
 
-		UpdateExercise(ctx context.Context, arg postgres.UpdateExerciseParams) error
+		UpdateExercise(ctx context.Context, arg postgres.UpdateExerciseParams) (int64, error)
 
-		DeleteExercise(ctx context.Context, id uuid.UUID) error
+		DeleteExercise(ctx context.Context, id uuid.UUID) (int64, error)
 	}
 
 	Dependencies struct {
@@ -43,35 +41,74 @@ func NewExerciseService(deps Dependencies) *ExerciseService {
 	}
 }
 
-func (s *ExerciseService) GetExercises(ctx context.Context) ([]*model.Exercise, error) {
-	exercises, err := s.repository.GetExercises(ctx)
-	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get exercises from repository")
+func (s *ExerciseService) GetExercises(ctx context.Context, search string) ([]*model.Exercise, error) {
+	var err error
+	var exercises []postgres.Exercise
+	if search == "" {
+		exercises, err = s.repository.GetExercises(ctx)
+	} else {
+		exercises, err = s.repository.GetExercisesWithSimilarName(ctx, search)
 	}
 
-	var errs error
+	if err != nil {
+		return nil, model.ErrExercise.WithError(err).WithMessage("Failed to get exercises from repository").Cause()
+	}
 
 	result := make([]*model.Exercise, 0, len(exercises))
 	for _, exercise := range exercises {
-
-		data, err := s.convertToModelData(exercise.Data)
-		if err != nil {
-			errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to convert exercise data"))
-			continue
-		}
 
 		result = append(result, &model.Exercise{
 			ID:          exercise.ID,
 			CategoryID:  exercise.CategoryID,
 			Name:        exercise.Name,
 			Description: exercise.Description,
-			Data:        data,
+			Data:        exercise.Data,
 			CreatedAt:   exercise.CreatedAt,
 		})
 	}
 
-	if errs != nil {
-		return nil, errs
+	return result, nil
+}
+
+func (s *ExerciseService) GetExercisesByCategory(ctx context.Context, categoryID uuid.UUID) ([]*model.Exercise, error) {
+	exercises, err := s.repository.GetExercisesByCategory(ctx, categoryID)
+	if err != nil {
+		return nil, model.ErrExercise.WithError(err).WithMessage("Failed to get exercises from repository").Cause()
+	}
+
+	result := make([]*model.Exercise, 0, len(exercises))
+	for _, exercise := range exercises {
+
+		result = append(result, &model.Exercise{
+			ID:          exercise.ID,
+			CategoryID:  exercise.CategoryID,
+			Name:        exercise.Name,
+			Description: exercise.Description,
+			Data:        exercise.Data,
+			CreatedAt:   exercise.CreatedAt,
+		})
+	}
+
+	return result, nil
+}
+
+func (s *ExerciseService) GetExercisesByIDs(ctx context.Context, exerciseIDs []uuid.UUID) ([]*model.Exercise, error) {
+	exercises, err := s.repository.GetExercisesByIDs(ctx, exerciseIDs)
+	if err != nil {
+		return nil, model.ErrExercise.WithError(err).WithMessage("Failed to get exercises from repository").WithContext("exerciseIDs", exerciseIDs).Cause()
+	}
+
+	result := make([]*model.Exercise, 0, len(exercises))
+	for _, exercise := range exercises {
+
+		result = append(result, &model.Exercise{
+			ID:          exercise.ID,
+			CategoryID:  exercise.CategoryID,
+			Name:        exercise.Name,
+			Description: exercise.Description,
+			Data:        exercise.Data,
+			CreatedAt:   exercise.CreatedAt,
+		})
 	}
 
 	return result, nil
@@ -80,15 +117,10 @@ func (s *ExerciseService) GetExercises(ctx context.Context) ([]*model.Exercise, 
 func (s *ExerciseService) GetExercise(ctx context.Context, exerciseID uuid.UUID) (*model.Exercise, error) {
 	exercise, err := s.repository.GetExerciseByID(ctx, exerciseID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrNotFound.WithMessage("exercise not found")
+		if tools.IsObjectNotFoundError(err) {
+			return nil, model.ErrExerciseExerciseNotFound.WithContext("exerciseID", exerciseID).Cause()
 		}
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get exercise from repository")
-	}
-
-	data, err := s.convertToModelData(exercise.Data)
-	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to convert exercise data")
+		return nil, model.ErrExercise.WithError(err).WithMessage("Failed to get exercise from repository").WithContext("exerciseID", exerciseID).Cause()
 	}
 
 	return &model.Exercise{
@@ -96,62 +128,42 @@ func (s *ExerciseService) GetExercise(ctx context.Context, exerciseID uuid.UUID)
 		CategoryID:  exercise.CategoryID,
 		Name:        exercise.Name,
 		Description: exercise.Description,
-		Data:        data,
+		Data:        exercise.Data,
 		CreatedAt:   exercise.CreatedAt,
 	}, nil
 }
 
 func (s *ExerciseService) CreateExercise(ctx context.Context, exercise model.Exercise) error {
-	//TODO: check if exercise exists by name
-
-	for _, task := range exercise.Data.Tasks {
-		for i, instance := range exercise.Data.Instances {
-			if task.LinkedInstanceID.Valid && task.LinkedInstanceID.UUID == instance.ID {
-				exercise.Data.Instances[i].LinkedTaskID = uuid.NullUUID{
-					UUID:  task.ID,
-					Valid: true,
-				}
-				exercise.Data.Instances[i].InstanceFlagVar = task.InstanceFlagVar
-			}
-		}
-	}
-
-	data, err := s.convertToJSON(exercise.Data)
-	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to convert exercise data")
-	}
+	s.linkTasksToInstances(&exercise.Data)
 
 	createExercise := postgres.CreateExerciseParams{
 		ID:          uuid.Must(uuid.NewV7()),
 		CategoryID:  exercise.CategoryID,
 		Name:        exercise.Name,
 		Description: exercise.Description,
-		Data:        data,
+		Data:        exercise.Data,
 	}
 
-	if err = s.repository.CreateExercise(ctx, createExercise); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to create exercise")
+	if err := s.repository.CreateExercise(ctx, createExercise); err != nil {
+		if tools.IsUniqueViolationError(err) {
+			return model.ErrExerciseExerciseExists.Cause()
+		}
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrExercise.WithError(err).WithMessage("Failed to create exercise").Cause()
 	}
 
 	return nil
 }
 
 func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise model.Exercise) error {
-	for _, task := range exercise.Data.Tasks {
-		for i, instance := range exercise.Data.Instances {
-			if task.LinkedInstanceID.Valid && task.LinkedInstanceID.UUID == instance.ID {
-				exercise.Data.Instances[i].LinkedTaskID = uuid.NullUUID{
-					UUID:  task.ID,
-					Valid: true,
-				}
-				exercise.Data.Instances[i].InstanceFlagVar = task.InstanceFlagVar
-			}
-		}
-	}
+	s.linkTasksToInstances(&exercise.Data)
 
-	data, err := s.convertToJSON(exercise.Data)
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to convert exercise data")
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
 	}
 
 	updateExercise := postgres.UpdateExerciseParams{
@@ -159,38 +171,55 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise model.Exe
 		CategoryID:  exercise.CategoryID,
 		Name:        exercise.Name,
 		Description: exercise.Description,
-		Data:        data,
+		Data:        exercise.Data,
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
 	}
 
-	if err = s.repository.UpdateExercise(ctx, updateExercise); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to update exercise")
+	affected, err := s.repository.UpdateExercise(ctx, updateExercise)
+	if err != nil {
+		if tools.IsUniqueViolationError(err) {
+			return model.ErrExerciseExerciseExists.Cause()
+		}
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrExercise.WithError(err).WithMessage("Failed to update exercise").Cause()
+	}
+
+	if affected == 0 {
+		return model.ErrExerciseExerciseNotFound.WithContext("exerciseID", exercise.ID).Cause()
 	}
 
 	return nil
 }
 
 func (s *ExerciseService) DeleteExercise(ctx context.Context, exerciseID uuid.UUID) error {
-	if err := s.repository.DeleteExercise(ctx, exerciseID); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to delete exercise")
+	affected, err := s.repository.DeleteExercise(ctx, exerciseID)
+	if err != nil {
+		return model.ErrExercise.WithError(err).WithMessage("Failed to delete exercise").Cause()
+	}
+
+	if affected == 0 {
+		return model.ErrExerciseExerciseNotFound.WithContext("exerciseID", exerciseID).Cause()
 	}
 
 	return nil
 }
 
-func (s *ExerciseService) convertToModelData(data json.RawMessage) (model.ExerciseData, error) {
-	var modelData model.ExerciseData
-	if err := json.Unmarshal(data, &modelData); err != nil {
-		return model.ExerciseData{}, appError.NewError().WithError(err).WithMessage("failed to unmarshal exercise data")
+func (s *ExerciseService) linkTasksToInstances(exerciseData *model.ExerciseData) {
+	for _, task := range exerciseData.Tasks {
+		for i, instance := range exerciseData.Instances {
+			if task.LinkedInstanceID.Valid && task.LinkedInstanceID.UUID == instance.ID {
+				exerciseData.Instances[i].LinkedTaskID = uuid.NullUUID{
+					UUID:  task.ID,
+					Valid: true,
+				}
+				exerciseData.Instances[i].InstanceFlagVar = task.InstanceFlagVar
+			}
+		}
 	}
-
-	return modelData, nil
-}
-
-func (s *ExerciseService) convertToJSON(data model.ExerciseData) (json.RawMessage, error) {
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to marshal exercise data")
-	}
-
-	return jsonData, nil
 }

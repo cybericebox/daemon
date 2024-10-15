@@ -7,8 +7,41 @@ import (
 	"net/http"
 )
 
-func AbortWithCode(ctx *gin.Context, code appError.Code) {
-	ctx.AbortWithStatusJSON(code.GetHTTPCode(), gin.H{"Code": code.GetInformCode(), "Message": code.GetMessage()})
+type (
+	Status struct {
+		Code    int
+		Message string
+		Details map[string]interface{}
+	}
+
+	Response struct {
+		Status Status
+		Data   interface{}
+	}
+)
+
+func AbortWithData(ctx *gin.Context, data interface{}, statusCode ...appError.Error) {
+	code := appError.Success.Err()
+
+	if len(statusCode) > 0 {
+		code = statusCode[0]
+	}
+	ctx.JSON(http.StatusOK, Response{
+		Status: Status{
+			Code:    code.Code().Code(),
+			Message: code.Code().Message(),
+		},
+		Data: data,
+	})
+}
+
+func AbortWithStatus(ctx *gin.Context, code appError.Error) {
+	ctx.AbortWithStatusJSON(code.Code().HTTPCode(), Response{
+		Status: Status{
+			Code:    code.Code().Code(),
+			Message: code.Code().Message(),
+		},
+	})
 }
 
 func AbortWithBadRequest(ctx *gin.Context, err ...error) {
@@ -17,27 +50,23 @@ func AbortWithBadRequest(ctx *gin.Context, err ...error) {
 		message = err[0].Error()
 	}
 
-	AbortWithCode(ctx, appError.CodeInvalidInput.WithMessage(message))
+	AbortWithStatus(ctx, appError.ErrInvalidData.WithMessage(message).Err())
 }
 
-func AbortWithUnauthorized(ctx *gin.Context) {
-	AbortWithCode(ctx, appError.CodeUnauthorized)
+func AbortWithUnauthenticated(ctx *gin.Context) {
+	ctx.AbortWithStatus(http.StatusUnauthorized)
 }
 
 func AbortWithForbidden(ctx *gin.Context) {
-	AbortWithCode(ctx, appError.CodeForbidden)
+	AbortWithStatus(ctx, appError.ErrForbidden.Err())
 }
 
 func AbortWithNotFound(ctx *gin.Context) {
-	AbortWithCode(ctx, appError.CodeNotFound)
-}
-
-func AbortWithContent(ctx *gin.Context, content interface{}) {
-	ctx.AbortWithStatusJSON(http.StatusOK, content)
+	AbortWithStatus(ctx, appError.ErrObjectNotFound.Err())
 }
 
 func AbortWithSuccess(ctx *gin.Context) {
-	AbortWithCode(ctx, appError.CodeSuccess)
+	AbortWithStatus(ctx, appError.Success.Err())
 }
 
 func AbortWithError(ctx *gin.Context, err error) {

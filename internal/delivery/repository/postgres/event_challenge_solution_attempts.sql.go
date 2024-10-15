@@ -31,7 +31,7 @@ type CreateEventChallengeSolutionAttemptParams struct {
 }
 
 func (q *Queries) CreateEventChallengeSolutionAttempt(ctx context.Context, arg CreateEventChallengeSolutionAttemptParams) error {
-	_, err := q.exec(ctx, q.createEventChallengeSolutionAttemptStmt, createEventChallengeSolutionAttempt,
+	_, err := q.db.Exec(ctx, createEventChallengeSolutionAttempt,
 		arg.ID,
 		arg.EventID,
 		arg.ChallengeID,
@@ -45,37 +45,29 @@ func (q *Queries) CreateEventChallengeSolutionAttempt(ctx context.Context, arg C
 	return err
 }
 
-const getAllChallengesSolutionsInEvent = `-- name: GetAllChallengesSolutionsInEvent :many
-
+const getChallengesSolutionsInEvent = `-- name: GetChallengesSolutionsInEvent :many
 select challenge_id, team_id, participant_id, timestamp
 from event_challenge_solution_attempts
 where event_id = $1
   and is_correct = true
 `
 
-type GetAllChallengesSolutionsInEventRow struct {
+type GetChallengesSolutionsInEventRow struct {
 	ChallengeID   uuid.UUID `json:"challenge_id"`
 	TeamID        uuid.UUID `json:"team_id"`
 	ParticipantID uuid.UUID `json:"participant_id"`
 	Timestamp     time.Time `json:"timestamp"`
 }
 
-// -- name: GetAllSolvedChallengesIDsByTeamInEvent :many
-// select challenge_id
-// from event_challenge_solution_attempts
-// where event_id = $1
-//
-//	and team_id = $2
-//	and is_correct = true;
-func (q *Queries) GetAllChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]GetAllChallengesSolutionsInEventRow, error) {
-	rows, err := q.query(ctx, q.getAllChallengesSolutionsInEventStmt, getAllChallengesSolutionsInEvent, eventID)
+func (q *Queries) GetChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]GetChallengesSolutionsInEventRow, error) {
+	rows, err := q.db.Query(ctx, getChallengesSolutionsInEvent, eventID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []GetAllChallengesSolutionsInEventRow{}
+	items := []GetChallengesSolutionsInEventRow{}
 	for rows.Next() {
-		var i GetAllChallengesSolutionsInEventRow
+		var i GetChallengesSolutionsInEventRow
 		if err := rows.Scan(
 			&i.ChallengeID,
 			&i.TeamID,
@@ -86,16 +78,13 @@ func (q *Queries) GetAllChallengesSolutionsInEvent(ctx context.Context, eventID 
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return items, nil
 }
 
-const getTeamsSolvedChallengeInEvent = `-- name: GetTeamsSolvedChallengeInEvent :many
+const getTeamsChallengeSolvedByInEvent = `-- name: GetTeamsChallengeSolvedByInEvent :many
 select t.id, t.name, participant_id, timestamp
 from event_challenge_solution_attempts
          inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
@@ -104,27 +93,27 @@ where t.event_id = $1
   and is_correct = true
 `
 
-type GetTeamsSolvedChallengeInEventParams struct {
+type GetTeamsChallengeSolvedByInEventParams struct {
 	EventID     uuid.UUID `json:"event_id"`
 	ChallengeID uuid.UUID `json:"challenge_id"`
 }
 
-type GetTeamsSolvedChallengeInEventRow struct {
+type GetTeamsChallengeSolvedByInEventRow struct {
 	ID            uuid.UUID `json:"id"`
 	Name          string    `json:"name"`
 	ParticipantID uuid.UUID `json:"participant_id"`
 	Timestamp     time.Time `json:"timestamp"`
 }
 
-func (q *Queries) GetTeamsSolvedChallengeInEvent(ctx context.Context, arg GetTeamsSolvedChallengeInEventParams) ([]GetTeamsSolvedChallengeInEventRow, error) {
-	rows, err := q.query(ctx, q.getTeamsSolvedChallengeInEventStmt, getTeamsSolvedChallengeInEvent, arg.EventID, arg.ChallengeID)
+func (q *Queries) GetTeamsChallengeSolvedByInEvent(ctx context.Context, arg GetTeamsChallengeSolvedByInEventParams) ([]GetTeamsChallengeSolvedByInEventRow, error) {
+	rows, err := q.db.Query(ctx, getTeamsChallengeSolvedByInEvent, arg.EventID, arg.ChallengeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []GetTeamsSolvedChallengeInEventRow{}
+	items := []GetTeamsChallengeSolvedByInEventRow{}
 	for rows.Next() {
-		var i GetTeamsSolvedChallengeInEventRow
+		var i GetTeamsChallengeSolvedByInEventRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
@@ -134,9 +123,6 @@ func (q *Queries) GetTeamsSolvedChallengeInEvent(ctx context.Context, arg GetTea
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

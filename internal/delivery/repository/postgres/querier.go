@@ -11,39 +11,36 @@ import (
 )
 
 type Querier interface {
+	CountChallengesInCategoryInEvent(ctx context.Context, arg CountChallengesInCategoryInEventParams) (int64, error)
 	CountChallengesInEvents(ctx context.Context) ([]CountChallengesInEventsRow, error)
 	CountTeamsInEvents(ctx context.Context) ([]CountTeamsInEventsRow, error)
+	CountUsers(ctx context.Context) (int64, error)
 	CreateEvent(ctx context.Context, arg CreateEventParams) error
-	CreateEventChallenge(ctx context.Context, arg CreateEventChallengeParams) error
+	CreateEventChallenge(ctx context.Context, arg []CreateEventChallengeParams) *CreateEventChallengeBatchResults
 	CreateEventChallengeCategory(ctx context.Context, arg CreateEventChallengeCategoryParams) error
 	CreateEventChallengeSolutionAttempt(ctx context.Context, arg CreateEventChallengeSolutionAttemptParams) error
 	CreateEventParticipant(ctx context.Context, arg CreateEventParticipantParams) error
-	CreateEventTeamChallenge(ctx context.Context, arg CreateEventTeamChallengeParams) error
+	CreateEventTeamChallenge(ctx context.Context, arg []CreateEventTeamChallengeParams) *CreateEventTeamChallengeBatchResults
 	CreateExercise(ctx context.Context, arg CreateExerciseParams) error
 	CreateExerciseCategory(ctx context.Context, arg CreateExerciseCategoryParams) error
 	CreateFile(ctx context.Context, arg CreateFileParams) error
 	CreateTeamInEvent(ctx context.Context, arg CreateTeamInEventParams) error
 	CreateTemporalCode(ctx context.Context, arg CreateTemporalCodeParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
-	DeleteEvent(ctx context.Context, id uuid.UUID) error
-	DeleteEventChallengeCategory(ctx context.Context, arg DeleteEventChallengeCategoryParams) error
-	DeleteEventChallenges(ctx context.Context, arg DeleteEventChallengesParams) error
-	DeleteExercise(ctx context.Context, id uuid.UUID) error
-	DeleteExerciseCategory(ctx context.Context, id uuid.UUID) error
-	DeleteFile(ctx context.Context, id uuid.UUID) error
-	DeleteTemporalCode(ctx context.Context, id uuid.UUID) error
-	DeleteUser(ctx context.Context, id uuid.UUID) error
-	DoesUserExistByID(ctx context.Context, id uuid.UUID) (bool, error)
-	// -- name: GetAllSolvedChallengesIDsByTeamInEvent :many
-	// select challenge_id
-	// from event_challenge_solution_attempts
-	// where event_id = $1
-	//   and team_id = $2
-	//   and is_correct = true;
-	GetAllChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]GetAllChallengesSolutionsInEventRow, error)
-	GetAllEvents(ctx context.Context) ([]Event, error)
+	DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteEventChallengeCategory(ctx context.Context, arg DeleteEventChallengeCategoryParams) (int64, error)
+	DeleteEventChallenges(ctx context.Context, arg []DeleteEventChallengesParams) *DeleteEventChallengesBatchResults
+	DeleteEventParticipant(ctx context.Context, arg DeleteEventParticipantParams) (int64, error)
+	DeleteEventTeam(ctx context.Context, arg DeleteEventTeamParams) (int64, error)
+	DeleteExercise(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteExerciseCategory(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteExpiredTemporalCodes(ctx context.Context) (int64, error)
+	DeleteFile(ctx context.Context, id []uuid.UUID) *DeleteFileBatchResults
+	DeleteTemporalCode(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteUser(ctx context.Context, id uuid.UUID) (int64, error)
 	GetAllUsers(ctx context.Context) ([]GetAllUsersRow, error)
 	GetChallengeFlag(ctx context.Context, arg GetChallengeFlagParams) (string, error)
+	GetChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]GetChallengesSolutionsInEventRow, error)
 	GetEmailTemplateBody(ctx context.Context, key string) (string, error)
 	GetEmailTemplateSubject(ctx context.Context, key string) (string, error)
 	GetEventByID(ctx context.Context, id uuid.UUID) (Event, error)
@@ -53,37 +50,45 @@ type Querier interface {
 	GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]EventChallenge, error)
 	GetEventIDIfNotWithdrawn(ctx context.Context, tag string) (uuid.UUID, error)
 	GetEventIDIfRunning(ctx context.Context, tag string) (uuid.UUID, error)
-	GetEventJoinStatus(ctx context.Context, arg GetEventJoinStatusParams) (int32, error)
+	GetEventParticipantStatus(ctx context.Context, arg GetEventParticipantStatusParams) (int32, error)
 	GetEventParticipantTeam(ctx context.Context, arg GetEventParticipantTeamParams) (GetEventParticipantTeamRow, error)
-	GetEventParticipantTeamID(ctx context.Context, arg GetEventParticipantTeamIDParams) (uuid.NullUUID, error)
+	GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]EventParticipant, error)
+	GetEventTeamByID(ctx context.Context, arg GetEventTeamByIDParams) (GetEventTeamByIDRow, error)
 	GetEventTeamByName(ctx context.Context, arg GetEventTeamByNameParams) (GetEventTeamByNameRow, error)
 	GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]GetEventTeamsRow, error)
+	GetEvents(ctx context.Context) ([]Event, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
 	GetExerciseCategories(ctx context.Context) ([]ExerciseCategory, error)
 	GetExercises(ctx context.Context) ([]Exercise, error)
 	GetExercisesByCategory(ctx context.Context, categoryID uuid.UUID) ([]Exercise, error)
-	GetFileByID(ctx context.Context, id uuid.UUID) (File, error)
-	GetTeamsSolvedChallengeInEvent(ctx context.Context, arg GetTeamsSolvedChallengeInEventParams) ([]GetTeamsSolvedChallengeInEventRow, error)
+	GetExercisesByIDs(ctx context.Context, ids []uuid.UUID) ([]Exercise, error)
+	GetExercisesWithSimilarName(ctx context.Context, search string) ([]Exercise, error)
+	GetFiles(ctx context.Context) ([]File, error)
+	GetTeamsChallengeSolvedByInEvent(ctx context.Context, arg GetTeamsChallengeSolvedByInEventParams) ([]GetTeamsChallengeSolvedByInEventRow, error)
 	GetTemporalCode(ctx context.Context, id uuid.UUID) (TemporalCode, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUsersWithSimilar(ctx context.Context, search string) ([]GetUsersWithSimilarRow, error)
-	SetLastSeen(ctx context.Context, id uuid.UUID) error
-	TeamExistsInEvent(ctx context.Context, arg TeamExistsInEventParams) (bool, error)
-	UpdateEvent(ctx context.Context, arg UpdateEventParams) error
-	UpdateEventChallengeCategory(ctx context.Context, arg UpdateEventChallengeCategoryParams) error
-	UpdateEventChallengeCategoryOrder(ctx context.Context, arg UpdateEventChallengeCategoryOrderParams) error
-	UpdateEventChallengeOrder(ctx context.Context, arg UpdateEventChallengeOrderParams) error
-	UpdateEventParticipantStatus(ctx context.Context, arg UpdateEventParticipantStatusParams) error
-	UpdateEventParticipantTeam(ctx context.Context, arg UpdateEventParticipantTeamParams) error
-	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) error
-	UpdateExerciseCategory(ctx context.Context, arg UpdateExerciseCategoryParams) error
-	UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) error
-	UpdateUserGoogleID(ctx context.Context, arg UpdateUserGoogleIDParams) error
-	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) error
-	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
-	UpdateUserPicture(ctx context.Context, arg UpdateUserPictureParams) error
-	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
+	SetLastSeen(ctx context.Context, id uuid.UUID) (int64, error)
+	UpdateEmailTemplateBody(ctx context.Context, arg UpdateEmailTemplateBodyParams) (int64, error)
+	UpdateEmailTemplateSubject(ctx context.Context, arg UpdateEmailTemplateSubjectParams) (int64, error)
+	UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64, error)
+	UpdateEventChallengeCategory(ctx context.Context, arg UpdateEventChallengeCategoryParams) (int64, error)
+	UpdateEventChallengeCategoryOrder(ctx context.Context, arg []UpdateEventChallengeCategoryOrderParams) *UpdateEventChallengeCategoryOrderBatchResults
+	UpdateEventChallengeOrder(ctx context.Context, arg []UpdateEventChallengeOrderParams) *UpdateEventChallengeOrderBatchResults
+	UpdateEventParticipantName(ctx context.Context, arg UpdateEventParticipantNameParams) (int64, error)
+	UpdateEventParticipantStatus(ctx context.Context, arg UpdateEventParticipantStatusParams) (int64, error)
+	UpdateEventParticipantTeam(ctx context.Context, arg UpdateEventParticipantTeamParams) (int64, error)
+	UpdateEventPicture(ctx context.Context, arg UpdateEventPictureParams) (int64, error)
+	UpdateEventTeamName(ctx context.Context, arg UpdateEventTeamNameParams) (int64, error)
+	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
+	UpdateExerciseCategory(ctx context.Context, arg UpdateExerciseCategoryParams) (int64, error)
+	UpdateUserEmail(ctx context.Context, arg UpdateUserEmailParams) (int64, error)
+	UpdateUserGoogleID(ctx context.Context, arg UpdateUserGoogleIDParams) (int64, error)
+	UpdateUserName(ctx context.Context, arg UpdateUserNameParams) (int64, error)
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) (int64, error)
+	UpdateUserPicture(ctx context.Context, arg UpdateUserPictureParams) (int64, error)
+	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) (int64, error)
 }
 
 var _ Querier = (*Queries)(nil)

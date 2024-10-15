@@ -35,7 +35,7 @@ func (h *Handler) getScore(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, score)
+	response.AbortWithData(ctx, score)
 }
 
 func (h *Handler) scoreNeedProtection(ctx *gin.Context) bool {

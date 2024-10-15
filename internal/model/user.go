@@ -1,6 +1,7 @@
 package model
 
 import (
+	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/gofrs/uuid"
 	"time"
 )
@@ -33,11 +34,20 @@ type (
 		UpdatedBy     uuid.UUID
 		CreatedAt     time.Time
 	}
+
+	// InviteUsers is a struct that contains users emails to invite
+	InviteUsers struct {
+		Role   string   `binding:"required,oneof=Користувач Адміністратор"`
+		Emails []string `binding:"required,min=1,dive,email"`
+	}
 )
 
 // errors for user
-
-var ()
+var (
+	ErrUser             = appError.ErrInternal.WithObjectCode(userObjectCode)
+	ErrUserUserNotFound = appError.ErrObjectNotFound.WithObjectCode(userObjectCode).WithMessage("User not found")
+	ErrUserUserExists   = appError.ErrInvalidData.WithObjectCode(userObjectCode).WithMessage("User already exists")
+)
 
 // constants for user
 

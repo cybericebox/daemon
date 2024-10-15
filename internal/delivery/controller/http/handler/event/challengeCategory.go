@@ -43,7 +43,7 @@ func (h *Handler) getCategories(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, categories)
+	response.AbortWithData(ctx, categories)
 }
 
 func (h *Handler) createCategory(ctx *gin.Context) {

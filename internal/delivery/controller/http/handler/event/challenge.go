@@ -13,13 +13,15 @@ import (
 type IChallengeUseCase interface {
 	GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error)
 	GetEventChallengesInfo(ctx context.Context, eventID uuid.UUID) ([]*model.CategoryInfo, error)
-	AddExercisesToEvent(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error
+	AddEventChallenges(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error
 	DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error
 
 	UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
 
-	GetTeamsSolvedChallenge(ctx context.Context, eventID, challengeID uuid.UUID) ([]*model.TeamSolvedChallenge, error)
+	GetTeamsChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) ([]*model.TeamChallengeSolvedBy, error)
 	SolveChallenge(ctx context.Context, eventID, challengeID uuid.UUID, solution string) (bool, error)
+
+	GetDownloadAttachedFileLink(ctx context.Context, eventID, challengeID, fileID uuid.UUID) (string, error)
 }
 
 func (h *Handler) initChallengeAPIHandler(router *gin.RouterGroup) {
@@ -27,7 +29,7 @@ func (h *Handler) initChallengeAPIHandler(router *gin.RouterGroup) {
 	{
 		challengeAPI.GET("", h.getChallenges)
 		challengeAPI.GET("info", h.getChallengesInfo) // get all challenges info
-		challengeAPI.POST("", h.addExerciseToEvent)   // add all challenges from exercise to event
+		challengeAPI.POST("", h.addChallenges)        // add all challenges from exercise to event
 
 		challengeAPI.PATCH("order", h.updateChallengesOrder)
 
@@ -36,6 +38,8 @@ func (h *Handler) initChallengeAPIHandler(router *gin.RouterGroup) {
 			singleChallengeAPI.DELETE("", h.deleteChallenge)           // delete challenge
 			singleChallengeAPI.POST("solve", h.solveChallenge)         // solve challenge
 			singleChallengeAPI.GET("solvedBy", h.getChallengeSolvedBy) // get teams solved challenge
+
+			singleChallengeAPI.GET("download/:fileID", h.getDownloadFileRedirect) // download attached challenge files
 		}
 
 		h.initChallengeCategoryAPIHandler(challengeAPI)
@@ -55,7 +59,7 @@ func (h *Handler) getChallenges(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, challenges)
+	response.AbortWithData(ctx, challenges)
 }
 
 func (h *Handler) getChallengesInfo(ctx *gin.Context) {
@@ -71,7 +75,7 @@ func (h *Handler) getChallengesInfo(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, challenges)
+	response.AbortWithData(ctx, challenges)
 }
 
 type addExercisesToEventInput struct {
@@ -79,7 +83,7 @@ type addExercisesToEventInput struct {
 	CategoryID  uuid.UUID   `validate:"required"`
 }
 
-func (h *Handler) addExerciseToEvent(ctx *gin.Context) {
+func (h *Handler) addChallenges(ctx *gin.Context) {
 	var inp addExercisesToEventInput
 
 	if err := ctx.BindJSON(&inp); err != nil {
@@ -93,7 +97,7 @@ func (h *Handler) addExerciseToEvent(ctx *gin.Context) {
 		return
 	}
 
-	if err = h.useCase.AddExercisesToEvent(ctx, eventID, inp.CategoryID, inp.ExerciseIDs); err != nil {
+	if err = h.useCase.AddEventChallenges(ctx, eventID, inp.CategoryID, inp.ExerciseIDs); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
@@ -178,7 +182,7 @@ func (h *Handler) solveChallenge(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, solveChallengeResponse{Solved: solved})
+	response.AbortWithData(ctx, solveChallengeResponse{Solved: solved})
 }
 
 func (h *Handler) getChallengeSolvedBy(ctx *gin.Context) {
@@ -194,11 +198,39 @@ func (h *Handler) getChallengeSolvedBy(ctx *gin.Context) {
 		return
 	}
 
-	teams, err := h.useCase.GetTeamsSolvedChallenge(ctx, eventID, challengeID)
+	teams, err := h.useCase.GetTeamsChallengeSolvedBy(ctx, eventID, challengeID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 
-	response.AbortWithContent(ctx, teams)
+	response.AbortWithData(ctx, teams)
+}
+
+func (h *Handler) getDownloadFileRedirect(ctx *gin.Context) {
+	fileID, err := uuid.FromString(ctx.Param("fileID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	challengeID, err := uuid.FromString(ctx.Param("challengeID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	link, err := h.useCase.GetDownloadAttachedFileLink(ctx, eventID, challengeID, fileID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.TemporaryRedirect(ctx, link)
 }

@@ -21,6 +21,7 @@ type (
 		// CheckIfNeedToDo returns if it needs to do now, not nil timeToDo is time to do task if not now
 		CheckIfNeedToDo func() (need bool, nextTimeToDo *time.Time)
 		TimeToDo        time.Time
+		RepeatDuration  time.Duration
 	}
 )
 
@@ -81,6 +82,14 @@ func (d *Worker) runWorkerPool() {
 		go func(workerID int) {
 			for task := range d.toDoTasks {
 				log.Debug().Msgf("Worker %d started task", workerID)
+				// check if task is repeatable then add to queue with new time and do task
+				if task.RepeatDuration > 0 {
+					log.Debug().Msgf("Worker %d task is repeatable", workerID)
+					// if task is repeatable, add to queue with new time
+					task.TimeToDo = time.Now().Add(task.RepeatDuration)
+					d.AddTask(task)
+				}
+				// if task is not repeatable, do task and check if it's needed to do again
 				// check if task is needed to be done
 				need, nextTimeToDo := task.CheckIfNeedToDo()
 				log.Debug().Msgf("Worker %d need: %t, nextTimeToDo: %v", workerID, need, nextTimeToDo)

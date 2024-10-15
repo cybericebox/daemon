@@ -2,8 +2,8 @@ package email
 
 import (
 	"fmt"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/gomail.v2"
 )
@@ -41,7 +41,7 @@ func (r *EmailRepository) SendEmail(to, subject, body string) error {
 	log.Debug().Msgf("Sending email to %s", to)
 
 	if err := r.dialer.DialAndSend(message); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to send email to user")
+		return model.ErrEmail.WithError(err).WithMessage("Failed to send email").Cause()
 	}
 
 	return nil

@@ -3,7 +3,7 @@ create table if not exists exercises
     id          uuid primary key,
     category_id uuid         not null references exercise_categories (id) on delete no action,
 
-    name        varchar(255) not null,
+    name varchar(255) not null unique,
     description text         not null,
     data        jsonb        not null,
 
@@ -13,6 +13,5 @@ create table if not exists exercises
     created_at  timestamptz  not null default now()
 );
 
-create unique index if not exists exercise_name_index on exercises (category_id, name); -- for checking the exercise name is unique in the category
 
 

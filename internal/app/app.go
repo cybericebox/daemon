@@ -5,6 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/service"
 	"github.com/cybericebox/daemon/internal/useCase"
 	"github.com/cybericebox/daemon/pkg/worker"
@@ -82,10 +83,16 @@ func InitWorkers(u *useCase.UseCase) error {
 	// Initialize the application workers
 	ctx := context.Background()
 	// create the teams challenges for already started events
-	if err := u.CreateEventTeamsChallengesTasks(ctx); err != nil {
-		return err
+	if err := u.InitEventsHooks(ctx); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to initialize events hooks").Cause()
 	}
-	log.Info().Msg("All challenges added to already started events")
+
+	log.Info().Msg("Events hooks are initialized")
+
+	// initialize platform hooks
+	u.InitPlatformHooks(ctx)
+
+	log.Info().Msg("Platform hooks are initialized")
 
 	log.Info().Msg("Application workers are initialized")
 	return nil

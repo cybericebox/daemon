@@ -1,11 +1,8 @@
 package model
 
-import (
-	"github.com/cybericebox/daemon/internal/appError"
-)
-
 var (
-	ErrNotFound      = appError.NewError().WithCode(appError.CodeNotFound)
-	ErrAlreadyExists = appError.NewError().WithCode(appError.CodeAlreadyExists)
-	ErrForbidden     = appError.NewError().WithCode(appError.CodeForbidden)
+	ErrPlatformUserNotFoundInContext      = ErrPlatform.WithMessage("User not found in context").WithDetailCode(1)
+	ErrPlatformUserRoleNotFoundInContext  = ErrPlatform.WithMessage("User role not found in context").WithDetailCode(2)
+	ErrPlatformSubdomainNotFoundInContext = ErrPlatform.WithMessage("Subdomain not found in context").WithDetailCode(3)
+	ErrPlatformErrorNotFoundInContext     = ErrPlatform.WithMessage("Error not found in context").WithDetailCode(4)
 )

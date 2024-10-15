@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
@@ -24,17 +23,19 @@ type (
 		IGoogleService
 		ISignUpService
 		IPasswordService
+		ISelfService
 
 		GetUserByEmail(ctx context.Context, email string) (*model.User, error)
-		GetUserByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
 
 		Matches(password, hashedPassword string) (bool, error)
 
-		ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, error)
-		RefreshTokens(refreshToken string) (*model.Tokens, uuid.UUID, error)
-		GenerateTokens(subject string) (*model.Tokens, error)
+		ValidateAccessToken(accessToken string) (interface{}, error)
+		RefreshTokens(refreshToken string) (*model.Tokens, interface{}, error)
+		GenerateTokens(subject interface{}) (*model.Tokens, error)
 
 		GetEventByTag(ctx context.Context, eventTag string) (*model.Event, error)
+
+		SetLastSeen(ctx context.Context, id uuid.UUID) error
 	}
 
 	Dependencies struct {
@@ -51,39 +52,58 @@ func NewUseCase(deps Dependencies) *AuthUseCase {
 
 func (u *AuthUseCase) SignIn(ctx context.Context, email, password string) (*model.Tokens, error) {
 	user, err := u.service.GetUserByEmail(ctx, email)
-	if err != nil && !errors.Is(err, model.ErrNotFound) {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by email")
+	if err != nil && !errors.Is(err, model.ErrUserUserNotFound.Err()) {
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to get user by email").Cause()
 	}
 	// if user not found emulate password check and after return invalid user credentials error
-	if errors.Is(err, model.ErrNotFound) || user.HashedPassword == "" {
+	if errors.Is(err, model.ErrUserUserNotFound.Err()) || user.HashedPassword == "" {
 		_, err = u.service.Matches(password, fakeHashedPassword)
 		if err != nil {
-			return nil, appError.NewError().WithError(err).WithMessage("failed to check password")
+			return nil, model.ErrAuth.WithError(err).WithMessage("Failed to check password").Cause()
 		}
-		return nil, model.ErrInvalidUserCredentials
+		return nil, model.ErrAuthInvalidUserCredentials.Cause()
 	}
 
 	// if user has password, check it
 	matches, err := u.service.Matches(password, user.HashedPassword)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to check password")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to check password").Cause()
 	}
 
 	if !matches {
-		return nil, model.ErrInvalidUserCredentials
+		return nil, model.ErrAuthInvalidUserCredentials.Cause()
 	}
 
 	// if password is correct generate tokens and return them
-	tokens, err := u.service.GenerateTokens(user.ID.String())
+	tokens, err := u.service.GenerateTokens(user.ID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to generate tokens")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate tokens").Cause()
 	}
 	return tokens, nil
 }
 
 func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) *model.CheckTokensResult {
-	userID, err := u.service.ValidateAccessToken(ctx, oldTokens.AccessToken)
+	subject, err := u.service.ValidateAccessToken(oldTokens.AccessToken)
 	if err == nil {
+		userID, err := uuid.FromString(subject.(string))
+		if err != nil {
+			log.Debug().Err(err).Msg("Failed to convert subject to uuid")
+			return nil
+		}
+
+		// set last seen
+		if err = u.service.SetLastSeen(ctx, userID); err != nil {
+			if !errors.Is(err, model.ErrUserUserNotFound.Err()) {
+				log.Debug().Err(err).Msg("Failed to set last seen")
+				return nil
+			}
+			return &model.CheckTokensResult{
+				Tokens: &oldTokens,
+				UserID: userID,
+				Valid:  false,
+			}
+		}
+
 		return &model.CheckTokensResult{
 			Tokens: &oldTokens,
 			UserID: userID,
@@ -93,10 +113,30 @@ func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldToken
 		log.Debug().Err(err).Msg("Failed to validate access token")
 	}
 	// if access token is not valid, try to refresh tokens
-	tokens, userID, err := u.service.RefreshTokens(oldTokens.RefreshToken)
+	tokens, subject, err := u.service.RefreshTokens(oldTokens.RefreshToken)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to refresh tokens")
 		return nil
+	}
+
+	userID, err := uuid.FromString(subject.(string))
+	if err != nil {
+		log.Debug().Err(err).Msg("Failed to convert subject to uuid")
+		return nil
+	}
+
+	// set last seen
+	if err = u.service.SetLastSeen(ctx, userID); err != nil {
+		log.Debug().Err(err).Msg("Failed to set last seen in refresh")
+		if !errors.Is(err, model.ErrUserUserNotFound.Err()) {
+			log.Debug().Err(err).Msg("Failed to set last seen")
+			return nil
+		}
+		return &model.CheckTokensResult{
+			Tokens: &oldTokens,
+			UserID: userID,
+			Valid:  false,
+		}
 	}
 
 	return &model.CheckTokensResult{
@@ -105,28 +145,6 @@ func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldToken
 		Refreshed: true,
 		Valid:     true,
 	}
-}
-
-func (u *AuthUseCase) GetSelfProfile(ctx context.Context) (*model.UserInfo, error) {
-	userID, err := tools.GetCurrentUserIDFromContext(ctx)
-	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get user id from context")
-	}
-
-	user, err := u.service.GetUserByID(ctx, userID)
-	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by id")
-	}
-
-	return &model.UserInfo{
-		ID:            user.ID,
-		ConnectGoogle: user.GoogleID != "",
-		Email:         user.Email,
-		Name:          user.Name,
-		Picture:       user.Picture,
-		Role:          user.Role,
-		LastSeen:      user.LastSeen,
-	}, nil
 }
 
 func (u *AuthUseCase) URLNeedsProtection(ctx context.Context, url string) bool {
@@ -139,13 +157,7 @@ func (u *AuthUseCase) URLNeedsProtection(ctx context.Context, url string) bool {
 
 	// if url is scoreboards check dynamically
 	if strings.HasPrefix(url, "/scoreboard") {
-		eventTag, err := tools.GetSubdomainFromContext(ctx)
-		if err != nil {
-			log.Debug().Err(err).Msg("Failed to get event id from context")
-			return true
-		}
-
-		event, err := u.service.GetEventByTag(ctx, eventTag)
+		event, err := u.service.GetEventByTag(ctx, subdomain)
 		if err != nil {
 			log.Debug().Err(err).Msg("Failed to get event by id")
 			return true
@@ -162,13 +174,7 @@ func (u *AuthUseCase) URLNeedsProtection(ctx context.Context, url string) bool {
 
 	// if url is teams check dynamically
 	if strings.HasPrefix(url, "/teams") {
-		eventTag, err := tools.GetSubdomainFromContext(ctx)
-		if err != nil {
-			log.Debug().Err(err).Msg("Failed to get event id from context")
-			return true
-		}
-
-		event, err := u.service.GetEventByTag(ctx, eventTag)
+		event, err := u.service.GetEventByTag(ctx, subdomain)
 		if err != nil {
 			log.Debug().Err(err).Msg("Failed to get event by id")
 			return true

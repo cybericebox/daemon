@@ -2,58 +2,110 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
 	"slices"
-	"time"
 )
 
 type (
 	IChallengeService interface {
 		GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error)
 		GetEventChallengeByID(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) (*model.Challenge, error)
-		GetEventChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) (*model.ChallengeSoledBy, error)
+		GetEventTeamsChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) (*model.TeamsChallengeSolvedBy, error)
 
-		AddExercisesToEvent(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error
-		DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseID uuid.UUID) error
+		AddEventChallenges(ctx context.Context, eventID, categoryID uuid.UUID, exercises []*model.Exercise) error
+		DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseIDs []uuid.UUID) error
 		UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
+		//
+		GetExercisesByIDs(ctx context.Context, exerciseIDs []uuid.UUID) ([]*model.Exercise, error)
 
-		DeleteEventTeamsChallenges(ctx context.Context, eventID, exerciseID uuid.UUID) error
-
-		SolveChallenge(ctx context.Context, eventID, teamID, challengeID uuid.UUID, solutionAttempt string) (bool, error)
+		//DeleteEventTeamsChallenges(ctx context.Context, eventID, exerciseID uuid.UUID) error
 	}
 )
+
+// for administrators
 
 func (u *EventUseCase) GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error) {
 	challenges, err := u.service.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenges")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event challenges").Cause()
 	}
 	return challenges, nil
 }
+
+func (u *EventUseCase) AddEventChallenges(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error {
+	// get exercises by ids
+	exercises, err := u.service.GetExercisesByIDs(ctx, exerciseIDs)
+	if err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to get exercises by ids").Cause()
+	}
+
+	if err = u.service.AddEventChallenges(ctx, eventID, categoryID, exercises); err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to add exercises to event").Cause()
+	}
+
+	// create event teams challenges
+	if err = u.CreateEventTeamsChallenges(ctx, eventID); err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to create event teams challenges").Cause()
+	}
+
+	event, err := u.GetEvent(ctx, eventID)
+	if err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event").Cause()
+	}
+
+	u.AddCreateTeamsChallengesTask(ctx, *event)
+
+	return nil
+}
+
+func (u *EventUseCase) DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error {
+	challenge, err := u.service.GetEventChallengeByID(ctx, eventID, challengeID)
+	if err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event challenge by id").Cause()
+	}
+
+	if err = u.service.DeleteEventChallenges(ctx, eventID, []uuid.UUID{challenge.ExerciseID}); err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to delete event challenges").Cause()
+	}
+
+	if err = u.DeleteEventTeamsChallengeInfrastructureByExerciseID(ctx, eventID, challenge.ExerciseID); err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to delete event teams challenges").Cause()
+	}
+
+	return nil
+}
+
+func (u *EventUseCase) UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
+	if err := u.service.UpdateEventChallengesOrder(ctx, eventID, orders); err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to update event challenges order").Cause()
+	}
+	return nil
+}
+
+// for participants
 
 func (u *EventUseCase) GetEventChallengesInfo(ctx context.Context, eventID uuid.UUID) ([]*model.CategoryInfo, error) {
 	// check if user has team in event
 	team, err := u.GetSelfTeam(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get self team")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get self team").Cause()
 	}
 
 	challenges, err := u.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenges")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event challenges").Cause()
 	}
 
 	categories, err := u.GetEventCategories(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get event categories")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event categories").Cause()
 	}
 
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get event")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event").Cause()
 	}
 
 	result := make([]*model.CategoryInfo, 0, len(categories))
@@ -62,11 +114,11 @@ func (u *EventUseCase) GetEventChallengesInfo(ctx context.Context, eventID uuid.
 		for _, challenge := range challenges {
 			if challenge.CategoryID == category.ID {
 				// count challenge points
-				points := challenge.Points
+				points := challenge.Data.Points
 
-				solvedBy, err := u.service.GetEventChallengeSolvedBy(ctx, eventID, challenge.ID)
+				solvedBy, err := u.service.GetEventTeamsChallengeSolvedBy(ctx, eventID, challenge.ID)
 				if err != nil {
-					return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenge solved by")
+					return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event challenge solved by").Cause()
 				}
 
 				if event.DynamicScoring {
@@ -77,16 +129,17 @@ func (u *EventUseCase) GetEventChallengesInfo(ctx context.Context, eventID uuid.
 				}
 
 				// check if challenge is solved by team
-				solved := slices.IndexFunc(solvedBy.Teams, func(t *model.TeamSolvedChallenge) bool {
+				solved := slices.IndexFunc(solvedBy.Teams, func(t *model.TeamChallengeSolvedBy) bool {
 					return t.ID == team.ID
 				}) != -1 // -1 if not solved
 
 				challengesInCategory = append(challengesInCategory, &model.ChallengeInfo{
-					ID:          challenge.ID,
-					Name:        challenge.Name,
-					Description: challenge.Description,
-					Points:      points,
-					Solved:      solved,
+					ID:            challenge.ID,
+					Name:          challenge.Data.Name,
+					Description:   challenge.Data.Description,
+					Points:        points,
+					AttachedFiles: challenge.Data.AttachedFiles,
+					Solved:        solved,
 				})
 
 			}
@@ -101,76 +154,39 @@ func (u *EventUseCase) GetEventChallengesInfo(ctx context.Context, eventID uuid.
 	return result, nil
 }
 
-func (u *EventUseCase) AddExercisesToEvent(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error {
-	if err := u.service.AddExercisesToEvent(ctx, eventID, categoryID, exerciseIDs); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to add exercises to event")
-	}
-
-	event, err := u.GetEvent(ctx, eventID)
+func (u *EventUseCase) GetTeamsChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) ([]*model.TeamChallengeSolvedBy, error) {
+	solvedBy, err := u.service.GetEventTeamsChallengeSolvedBy(ctx, eventID, challengeID)
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to get event")
-	}
-
-	u.CreateEventTeamsChallengesTask(ctx, *event)
-
-	return nil
-}
-
-func (u *EventUseCase) DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error {
-	challenge, err := u.service.GetEventChallengeByID(ctx, eventID, challengeID)
-	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to get event challenge by id")
-	}
-
-	if err = u.service.DeleteEventChallenges(ctx, eventID, challenge.ExerciseID); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to delete event challenges")
-	}
-
-	if err = u.service.DeleteEventTeamsChallenges(ctx, eventID, challenge.ExerciseID); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to delete event teams challenges")
-	}
-
-	return nil
-}
-
-func (u *EventUseCase) UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
-	if err := u.service.UpdateEventChallengesOrder(ctx, eventID, orders); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to update event challenges order")
-	}
-	return nil
-}
-
-func (u *EventUseCase) GetTeamsSolvedChallenge(ctx context.Context, eventID, challengeID uuid.UUID) ([]*model.TeamSolvedChallenge, error) {
-	solvedBy, err := u.service.GetEventChallengeSolvedBy(ctx, eventID, challengeID)
-	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get event challenge solved by")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event challenge solved by").Cause()
 	}
 
 	return solvedBy.Teams, nil
 }
 
-func (u *EventUseCase) SolveChallenge(ctx context.Context, eventID, challengeID uuid.UUID, solution string) (bool, error) {
-	// check if user has team in event
-	team, err := u.GetSelfTeam(ctx, eventID)
+func (u *EventUseCase) GetDownloadAttachedFileLink(ctx context.Context, eventID, challengeID, fileID uuid.UUID) (string, error) {
+	challenge, err := u.service.GetEventChallengeByID(ctx, eventID, challengeID)
 	if err != nil {
-		return false, appError.NewError().WithError(err).WithMessage("failed to get self team")
+		return "", model.ErrEventChallenge.WithError(err).WithMessage("Failed to get exercise").Cause()
 	}
 
-	// check if allowed to solve challenge
-	// if event is not started, or ended, or paused
-	event, err := u.GetEvent(ctx, eventID)
+	// find file
+	fileName := fileID.String()
+	for _, file := range challenge.Data.AttachedFiles {
+		if file.ID == fileID {
+			fileName = file.Name
+			break
+		}
+	}
+
+	downloadFileLink, err := u.service.GetDownloadFileLink(ctx, model.DownloadFileParams{
+		StorageType: model.TaskStorageType,
+		FileID:      fileID,
+		FileName:    fileName,
+	})
 	if err != nil {
-		return false, appError.NewError().WithError(err).WithMessage("failed to get event")
+		return "", model.ErrEventChallenge.WithError(err).WithMessage("Failed to get download file link").Cause()
 	}
-
-	if event.StartTime.After(time.Now().UTC()) || event.FinishTime.Before(time.Now().UTC()) {
-		return false, model.ErrSolutionAttemptNotAllowed
-	}
-
-	solved, err := u.service.SolveChallenge(ctx, eventID, team.ID, challengeID, solution)
-	if err != nil {
-		return false, appError.NewError().WithError(err).WithMessage("failed to solve challenge")
-	}
-
-	return solved, nil
+	return downloadFileLink, nil
 }
+
+// other

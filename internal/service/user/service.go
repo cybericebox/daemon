@@ -2,12 +2,11 @@ package user
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type (
@@ -18,23 +17,23 @@ type (
 	IRepository interface {
 		CreateUser(ctx context.Context, arg postgres.CreateUserParams) error
 
-		DoesUserExistByID(ctx context.Context, id uuid.UUID) (bool, error)
+		CountUsers(ctx context.Context) (int64, error)
 
 		GetAllUsers(ctx context.Context) ([]postgres.GetAllUsersRow, error)
 		GetUserByEmail(ctx context.Context, email string) (postgres.User, error)
 		GetUserByID(ctx context.Context, id uuid.UUID) (postgres.User, error)
 		GetUsersWithSimilar(ctx context.Context, search string) ([]postgres.GetUsersWithSimilarRow, error)
 
-		SetLastSeen(ctx context.Context, id uuid.UUID) error
+		SetLastSeen(ctx context.Context, id uuid.UUID) (int64, error)
 
-		UpdateUserEmail(ctx context.Context, arg postgres.UpdateUserEmailParams) error
-		UpdateUserGoogleID(ctx context.Context, arg postgres.UpdateUserGoogleIDParams) error
-		UpdateUserName(ctx context.Context, arg postgres.UpdateUserNameParams) error
-		UpdateUserPassword(ctx context.Context, arg postgres.UpdateUserPasswordParams) error
-		UpdateUserPicture(ctx context.Context, arg postgres.UpdateUserPictureParams) error
-		UpdateUserRole(ctx context.Context, arg postgres.UpdateUserRoleParams) error
+		UpdateUserEmail(ctx context.Context, arg postgres.UpdateUserEmailParams) (int64, error)
+		UpdateUserGoogleID(ctx context.Context, arg postgres.UpdateUserGoogleIDParams) (int64, error)
+		UpdateUserName(ctx context.Context, arg postgres.UpdateUserNameParams) (int64, error)
+		UpdateUserPassword(ctx context.Context, arg postgres.UpdateUserPasswordParams) (int64, error)
+		UpdateUserPicture(ctx context.Context, arg postgres.UpdateUserPictureParams) (int64, error)
+		UpdateUserRole(ctx context.Context, arg postgres.UpdateUserRoleParams) (int64, error)
 
-		DeleteUser(ctx context.Context, id uuid.UUID) error
+		DeleteUser(ctx context.Context, id uuid.UUID) (int64, error)
 	}
 
 	Dependencies struct {
@@ -51,12 +50,12 @@ func NewUserService(deps Dependencies) *UserService {
 
 func (s *UserService) CreateUser(ctx context.Context, newUser model.User) (*model.User, error) {
 	// Check if no users so create admin
-	users, err := s.repository.GetAllUsers(ctx)
+	usersCount, err := s.repository.CountUsers(ctx)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrUser.WithError(err).WithMessage("Failed to count users").Cause()
 	}
 
-	if len(users) == 0 {
+	if usersCount == 0 {
 		newUser.Role = model.AdministratorRole
 	}
 
@@ -64,7 +63,7 @@ func (s *UserService) CreateUser(ctx context.Context, newUser model.User) (*mode
 
 	if err = s.repository.CreateUser(ctx, postgres.CreateUserParams{
 		ID: newUser.ID,
-		GoogleID: sql.NullString{
+		GoogleID: pgtype.Text{
 			String: newUser.GoogleID,
 			Valid:  newUser.GoogleID != "",
 		},
@@ -74,7 +73,10 @@ func (s *UserService) CreateUser(ctx context.Context, newUser model.User) (*mode
 		Picture:        newUser.Picture,
 		Role:           newUser.Role,
 	}); err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to create user")
+		if tools.IsUniqueViolationError(err) {
+			return nil, model.ErrUserUserExists.WithContext("email", newUser.Email).Cause()
+		}
+		return nil, model.ErrUser.WithError(err).WithMessage("Failed to create user").Cause()
 	}
 	return &newUser, nil
 }
@@ -84,7 +86,7 @@ func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.Use
 	if search == "" {
 		users, err := s.repository.GetAllUsers(ctx)
 		if err != nil {
-			return nil, appError.NewError().WithError(err).WithMessage("failed to get all users from db")
+			return nil, model.ErrUser.WithError(err).WithMessage("Failed to get all users from db").Cause()
 		}
 
 		for _, u := range users {
@@ -106,7 +108,7 @@ func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.Use
 	} else {
 		users, err := s.repository.GetUsersWithSimilar(ctx, search)
 		if err != nil {
-			return nil, appError.NewError().WithError(err).WithMessage("failed to get users with similar from db")
+			return nil, model.ErrUser.WithError(err).WithMessage("Failed to get users with similar from db").Cause()
 		}
 
 		for _, u := range users {
@@ -131,11 +133,11 @@ func (s *UserService) GetUsers(ctx context.Context, search string) ([]*model.Use
 func (s *UserService) GetUserByID(ctx context.Context, userID uuid.UUID) (*model.User, error) {
 	u, err := s.repository.GetUserByID(ctx, userID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrNotFound
+		if tools.IsObjectNotFoundError(err) {
+			return nil, model.ErrUserUserNotFound.WithContext("userID", userID).Cause()
 		}
 
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by id from db")
+		return nil, model.ErrUser.WithError(err).WithMessage("Failed to get user by id from db").Cause()
 	}
 
 	return &model.User{
@@ -156,11 +158,11 @@ func (s *UserService) GetUserByID(ctx context.Context, userID uuid.UUID) (*model
 func (s *UserService) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
 	u, err := s.repository.GetUserByEmail(ctx, email)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrNotFound
+		if tools.IsObjectNotFoundError(err) {
+			return nil, model.ErrUserUserNotFound.WithContext("email", email).Cause()
 		}
 
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get user by email from db")
+		return nil, model.ErrUser.WithError(err).WithMessage("Failed to get user by email from db").Cause()
 	}
 
 	return &model.User{
@@ -179,61 +181,194 @@ func (s *UserService) GetUserByEmail(ctx context.Context, email string) (*model.
 }
 
 func (s *UserService) UpdateUserEmail(ctx context.Context, user model.User) error {
-	if err := s.repository.UpdateUserEmail(ctx, postgres.UpdateUserEmailParams{
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
+	}
+
+	affected, err := s.repository.UpdateUserEmail(ctx, postgres.UpdateUserEmailParams{
 		ID:    user.ID,
 		Email: user.Email,
-	}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to update user email in db")
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
+	})
+	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrUser.WithError(err).WithMessage("Failed to update user email in db").Cause()
 	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", user.ID).Cause()
+	}
+
+	return nil
+}
+
+func (s *UserService) UpdateUserName(ctx context.Context, user model.User) error {
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
+	}
+
+	affected, err := s.repository.UpdateUserName(ctx, postgres.UpdateUserNameParams{
+		ID:   user.ID,
+		Name: user.Name,
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
+	})
+	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrUser.WithError(err).WithMessage("Failed to update user name in db").Cause()
+	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", user.ID).Cause()
+	}
+
 	return nil
 }
 
 func (s *UserService) UpdateUserPicture(ctx context.Context, user model.User) error {
-	if err := s.repository.UpdateUserPicture(ctx, postgres.UpdateUserPictureParams{
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
+	}
+
+	affected, err := s.repository.UpdateUserPicture(ctx, postgres.UpdateUserPictureParams{
 		ID:      user.ID,
 		Picture: user.Picture,
-	}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to update user picture in db")
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
+	})
+	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrUser.WithError(err).WithMessage("Failed to update user picture in db").Cause()
 	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", user.ID).Cause()
+	}
+
 	return nil
 }
 
 func (s *UserService) UpdateUserGoogleID(ctx context.Context, user model.User) error {
-	if err := s.repository.UpdateUserGoogleID(ctx, postgres.UpdateUserGoogleIDParams{
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
+	}
+
+	affected, err := s.repository.UpdateUserGoogleID(ctx, postgres.UpdateUserGoogleIDParams{
 		ID: user.ID,
-		GoogleID: sql.NullString{
+		GoogleID: pgtype.Text{
 			String: user.GoogleID,
 			Valid:  user.GoogleID != "",
 		},
-	}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to update user google id in db")
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
+	})
+	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrUser.WithError(err).WithMessage("Failed to update user google id in db").Cause()
 	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", user.ID).Cause()
+	}
+
 	return nil
 }
 
 func (s *UserService) UpdateUserPassword(ctx context.Context, user model.User) error {
-	if err := s.repository.UpdateUserPassword(ctx, postgres.UpdateUserPasswordParams{
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
+	}
+
+	affected, err := s.repository.UpdateUserPassword(ctx, postgres.UpdateUserPasswordParams{
 		ID:             user.ID,
 		HashedPassword: user.HashedPassword,
-	}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to update user password in db")
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
+	})
+	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrUser.WithError(err).WithMessage("Failed to update user password in db").Cause()
 	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", user.ID).Cause()
+	}
+
 	return nil
 }
 
 func (s *UserService) UpdateUserRole(ctx context.Context, user model.User) error {
-	if err := s.repository.UpdateUserRole(ctx, postgres.UpdateUserRoleParams{
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
+	}
+
+	affected, err := s.repository.UpdateUserRole(ctx, postgres.UpdateUserRoleParams{
 		ID:   user.ID,
 		Role: user.Role,
-	}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to update user role in db")
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
+	})
+	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrUser.WithError(err).WithMessage("Failed to update user role in db").Cause()
 	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", user.ID).Cause()
+	}
+
 	return nil
 }
 
 func (s *UserService) DeleteUser(ctx context.Context, id uuid.UUID) error {
-	if err := s.repository.DeleteUser(ctx, id); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to delete user in db")
+	affected, err := s.repository.DeleteUser(ctx, id)
+	if err != nil {
+		return model.ErrUser.WithError(err).WithMessage("Failed to delete user in db").Cause()
+	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", id).Cause()
+	}
+	return nil
+}
+
+func (s *UserService) SetLastSeen(ctx context.Context, id uuid.UUID) error {
+	affected, err := s.repository.SetLastSeen(ctx, id)
+	if err != nil {
+		return model.ErrUser.WithError(err).WithMessage("Failed to set last seen in db").Cause()
+	}
+	if affected == 0 {
+		return model.ErrUserUserNotFound.WithContext("userID", id).Cause()
 	}
 	return nil
 }

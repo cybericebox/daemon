@@ -9,3 +9,6 @@ buildAndPush:
 
 swagger:
 	swag init -g handler.go -o ./internal/delivery/controller/http/handler/docs -d ./internal/delivery/controller/http/handler
+
+updatePackages:
+	go get -u ./...

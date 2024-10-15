@@ -3,7 +3,6 @@ package model
 import (
 	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/gofrs/uuid"
-	"net/http"
 )
 
 type (
@@ -31,7 +30,7 @@ const (
 
 // errors for temporal code
 var (
-	ErrInvalidTemporalCode = appError.NewError().WithCode(appError.CodeInvalidInput.
-		WithMessage("invalid temporal code").
-		WithHTTPCode(http.StatusUnauthorized))
+	ErrTemporalCode            = appError.ErrInternal.WithObjectCode(temporalCoreObjectCode)
+	ErrTemporalCodeInvalidCode = appError.ErrInvalidData.WithObjectCode(temporalCoreObjectCode).WithDetailCode(1).WithMessage("Invalid code")
+	ErrTemporalCodeNotFound    = appError.ErrObjectNotFound.WithObjectCode(temporalCoreObjectCode).WithDetailCode(2).WithMessage("Code not found")
 )

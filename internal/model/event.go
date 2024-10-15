@@ -74,22 +74,27 @@ type (
 		EventID    uuid.UUID `validate:"required,uuid"`
 		CategoryID uuid.UUID `validate:"required,uuid"`
 
+		Data ChallengeData `validate:"required"`
+
 		ExerciseID     uuid.UUID `validate:"required,uuid"`
 		ExerciseTaskID uuid.UUID `validate:"required,uuid"`
-
-		Name        string `validate:"required,min=3,max=50,alphanum"`
-		Description string `validate:"required,min=1"`
-		Points      int32  `validate:"required,min=1,max=1000"`
 
 		Order int32 `validate:"required,number"`
 
 		CreatedAt time.Time
 	}
 
+	ChallengeData struct {
+		Name          string         `validate:"required,min=3,max=50,alphanum"`
+		Description   string         `validate:"required,min=1"`
+		Points        int32          `validate:"required,min=1,max=1000"`
+		AttachedFiles []ExerciseFile `validate:"omitempty,dive"`
+	}
+
 	Order struct {
 		ID         uuid.UUID `validate:"required,uuid"`
 		CategoryID uuid.UUID `validate:"omitempty,uuid"`
-		OrderIndex int32     `validate:"required,number"`
+		Index      int32     `validate:"required,number"`
 	}
 
 	Team struct {
@@ -109,6 +114,24 @@ type (
 		Name string
 	}
 
+	Participant struct {
+		UserID  uuid.UUID     `validate:"required,uuid"`
+		EventID uuid.UUID     `validate:"required,uuid"`
+		TeamID  uuid.NullUUID `validate:"omitempty,uuid"`
+
+		Name           string `validate:"required,min=3,max=255,alphanum"`
+		ApprovalStatus int32  `validate:"required,number,oneof=0 1 2"`
+
+		CreatedAt time.Time
+	}
+
+	ParticipantInfo struct {
+		UserID  uuid.UUID     `validate:"required,uuid"`
+		EventID uuid.UUID     `validate:"required,uuid"`
+		TeamID  uuid.NullUUID `validate:"omitempty,uuid"`
+		Name    string        `validate:"required,min=3,max=255,alphanum"`
+	}
+
 	CategoryInfo struct {
 		ID         uuid.UUID
 		Name       string
@@ -116,31 +139,40 @@ type (
 	}
 
 	ChallengeInfo struct {
-		ID          uuid.UUID
-		Name        string
-		Description string
-		Points      int32
+		ID            uuid.UUID
+		Name          string
+		Description   string
+		Points        int32
+		AttachedFiles []ExerciseFile
 
 		Solved bool
 	}
 
-	ChallengeSoledBy struct {
+	TeamChallenge struct {
+		EventID     uuid.UUID
+		TeamID      uuid.UUID
 		ChallengeID uuid.UUID
-		Teams       []*TeamSolvedChallenge
+		Flag        string
 	}
 
-	TeamSolvedChallenge struct {
+	TeamsChallengeSolvedBy struct {
+		ChallengeID uuid.UUID
+		Teams       []*TeamChallengeSolvedBy
+	}
+
+	TeamChallengeSolvedBy struct {
 		ID       uuid.UUID
 		Name     string
 		SolvedAt time.Time
 	}
 
 	EventScore struct {
-		TeamsScores   []TeamScore
-		ChallengeList []ChallengeInfo
+		TeamsScores []TeamScore
+		Challenges  []ChallengeInfo
 	}
 
 	TeamScore struct {
+		TeamID            uuid.UUID
 		Rank              int
 		TeamName          string
 		Score             int
@@ -161,16 +193,51 @@ type (
 )
 
 var (
-	ErrEventAlreadyJoined      = appError.NewError().WithCode(appError.CodeAlreadyExists.WithMessage("event already joined"))
-	ErrEventNotJoined          = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("event not joined"))
-	ErrEventRegistrationClosed = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("event registration is closed"))
-	ErrScoreNotAvailable       = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("score not available"))
-	//
-	ErrUserAlreadyInTeam    = appError.NewError().WithCode(appError.CodeAlreadyExists.WithMessage("user already in team"))
-	ErrTeamWrongCredentials = appError.NewError().WithCode(appError.CodeUnauthorized.WithMessage("team wrong credentials"))
-	//
+	ErrEvent = appError.ErrInternal.WithObjectCode(eventObjectCode)
 
-	ErrSolutionAttemptNotAllowed = appError.NewError().WithCode(appError.CodeForbidden.WithMessage("solution attempt not allowed"))
+	ErrEventEventNotFound = appError.ErrObjectNotFound.WithObjectCode(eventObjectCode).WithMessage("Event not found")
+
+	ErrEventEventExists   = appError.ErrObjectExists.WithObjectCode(eventObjectCode).WithMessage("Event already exists").WithDetailCode(1)
+	ErrEventAlreadyJoined = appError.ErrObjectExists.WithObjectCode(eventObjectCode).WithMessage("Event already joined").WithDetailCode(2)
+
+	ErrEventRegistrationClosed = appError.ErrForbidden.WithObjectCode(eventObjectCode).WithMessage("Event registration is closed").WithDetailCode(1)
+	ErrEventEventNotJoined     = appError.ErrForbidden.WithObjectCode(eventObjectCode).WithMessage("Event not joined").WithDetailCode(2)
+
+	ErrEventParticipant = appError.ErrInternal.WithObjectCode(eventParticipantObjectCode)
+
+	ErrEventParticipantExists = appError.ErrObjectExists.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant already exists")
+
+	ErrEventParticipantNotFound     = appError.ErrObjectNotFound.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant not found").WithDetailCode(1)
+	ErrEventParticipantTeamNotFound = appError.ErrObjectNotFound.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant team not found").WithDetailCode(2)
+
+	ErrEventChallengeCategory = appError.ErrInternal.WithObjectCode(eventChallengeCategoryObjectCode)
+
+	ErrEventChallengeCategoryCategoryExists = appError.ErrObjectExists.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category already exists")
+
+	ErrEventChallengeCategoryCategoryNotFound = appError.ErrObjectNotFound.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category not found")
+
+	ErrEventChallenge = appError.ErrInternal.WithObjectCode(eventChallengeObjectCode)
+
+	ErrEventChallengeChallengeExists = appError.ErrObjectExists.WithObjectCode(eventChallengeObjectCode).WithMessage("Event challenge already exists")
+
+	ErrEventChallengeChallengeNotFound = appError.ErrObjectNotFound.WithObjectCode(eventChallengeObjectCode).WithMessage("Event challenge not found")
+
+	ErrEventScore = appError.ErrInternal.WithObjectCode(eventScoreObjectCode)
+
+	ErrEventScoreScoreNotAvailable = appError.ErrForbidden.WithObjectCode(eventScoreObjectCode).WithMessage("Score not available")
+
+	ErrEventTeam = appError.ErrInternal.WithObjectCode(eventTeamObjectCode)
+
+	ErrEventTeamTeamExists        = appError.ErrObjectExists.WithObjectCode(eventTeamObjectCode).WithMessage("Team already exists").WithDetailCode(1)
+	ErrEventTeamUserAlreadyInTeam = appError.ErrObjectExists.WithObjectCode(eventTeamObjectCode).WithMessage("User already in team").WithDetailCode(2)
+
+	ErrEventTeamTeamNotFound = appError.ErrObjectNotFound.WithObjectCode(eventTeamObjectCode).WithMessage("Team not found")
+
+	ErrEventTeamWrongCredentials = appError.ErrInvalidData.WithObjectCode(eventTeamObjectCode).WithMessage("Team wrong credentials")
+
+	ErrEventTeamChallenge = appError.ErrInternal.WithObjectCode(eventTeamChallengeObjectCode)
+
+	ErrEventTeamChallengeSolutionAttemptNotAllowed = appError.ErrForbidden.WithObjectCode(eventTeamChallengeObjectCode).WithMessage("Solution attempt not allowed")
 )
 
 // Event types
@@ -181,9 +248,9 @@ const (
 
 // Event registration types
 const (
-	OpenRegistrationType = int32(iota)
+	ClosedRegistrationType = int32(iota)
 	ApprovalRegistrationType
-	ClosedRegistrationType
+	OpenRegistrationType
 )
 
 // Event participation statuses
@@ -202,20 +269,20 @@ const (
 
 // Event availability types
 const (
-	PublicAvailabilityType = int32(iota)
-	PrivateAvailabilityType
+	PrivateAvailabilityType = int32(iota)
+	PublicAvailabilityType
 )
 
 // Event scoreboard availability types
 const (
-	PublicScoreboardAvailabilityType = int32(iota)
+	HiddenScoreboardAvailabilityType = int32(iota)
 	PrivateScoreboardAvailabilityType
-	HiddenScoreboardAvailabilityType
+	PublicScoreboardAvailabilityType
 )
 
 // Event participants visibility types
 const (
-	PublicParticipantsVisibilityType = int32(iota)
+	HiddenParticipantsVisibilityType = int32(iota)
 	PrivateParticipantsVisibilityType
-	NoneParticipantsVisibilityType
+	PublicParticipantsVisibilityType
 )

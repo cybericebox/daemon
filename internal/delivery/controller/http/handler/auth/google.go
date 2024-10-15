@@ -37,5 +37,5 @@ func (h *Handler) googleOAuthCallback(ctx *gin.Context) {
 		return
 	}
 
-	protection.SetAuthenticated(ctx, tokens)
+	protection.SetAuthenticated(ctx, tokens, true)
 }

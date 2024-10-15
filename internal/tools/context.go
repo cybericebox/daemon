@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
 )
 
@@ -15,31 +16,16 @@ const (
 	ErrorCtxKey     = "error"
 )
 
-var (
-	ErrNoUserIDInContext = appError.NewError().
-				WithCode(appError.NewCode().
-					WithMessage("no userID in context"))
-	ErrNoEventIDInContext = appError.NewError().
-				WithCode(appError.NewCode().
-					WithMessage("no eventID in context"))
-	ErrNoUserRoleInContext = appError.NewError().
-				WithCode(appError.NewCode().
-					WithMessage("no userRole in context"))
-	ErrNoSubdomainInContext = appError.NewError().
-				WithCode(appError.NewCode().
-					WithMessage("no subdomain in context"))
-)
-
 func GetCurrentUserIDFromContext(ctx context.Context) (uuid.UUID, error) {
 	userID := ctx.Value(UserIDCtxKey)
 
 	if userID == nil {
-		return uuid.Nil, ErrNoUserIDInContext
+		return uuid.Nil, model.ErrPlatformUserNotFoundInContext.Cause()
 	}
 
 	parsedID, ok := userID.(uuid.UUID)
 	if !ok {
-		return uuid.Nil, ErrNoUserIDInContext
+		return uuid.Nil, model.ErrPlatformUserNotFoundInContext.Cause()
 	}
 
 	return parsedID, nil
@@ -49,12 +35,12 @@ func GetCurrentUserRoleFromContext(ctx context.Context) (string, error) {
 	userRole := ctx.Value(UserRoleCtxKey)
 
 	if userRole == nil {
-		return "", ErrNoUserRoleInContext
+		return "", model.ErrPlatformUserRoleNotFoundInContext.Cause()
 	}
 
 	parsedRole, ok := userRole.(string)
 	if !ok {
-		return "", ErrNoUserRoleInContext
+		return "", model.ErrPlatformUserRoleNotFoundInContext.Cause()
 	}
 
 	return parsedRole, nil
@@ -64,40 +50,25 @@ func GetSubdomainFromContext(ctx context.Context) (string, error) {
 	subdomain := ctx.Value(SubdomainCtxKey)
 
 	if subdomain == nil {
-		return "", ErrNoSubdomainInContext
+		return "", model.ErrPlatformSubdomainNotFoundInContext.Cause()
 	}
 	return subdomain.(string), nil
 }
 
-func GetEventIDFromContext(ctx context.Context) (uuid.UUID, error) {
-	eventID := ctx.Value(EventIDCtxKey)
-
-	parsedID, ok := eventID.(uuid.UUID)
-	if !ok {
-		return uuid.Nil, ErrNoEventIDInContext
-	}
-
-	return parsedID, nil
-}
-
-func GetErrorFromContext(ctx context.Context) appError.IError {
+func GetErrorFromContext(ctx context.Context) appError.Error {
 	errFromContext := ctx.Value(ErrorCtxKey)
 
 	if errFromContext == nil {
 		return nil
 	}
 
-	parsedError, ok := errFromContext.(appError.IError)
+	parsedError, ok := errFromContext.(appError.Error)
 	if !ok {
 		errCommonParsed, ok := errFromContext.(error)
 		if !ok {
-			return appError.NewError().
-				WithCode(appError.NewCode().
-					WithMessage(fmt.Sprintf("error in context is not of type error: got [%v]", errFromContext)))
+			return model.ErrPlatform.WithMessage(fmt.Sprintf("Error in context is not of type error: got [%v]", errFromContext)).Cause()
 		}
-		return appError.NewError().WithError(errCommonParsed).
-			WithCode(appError.NewCode().
-				WithMessage(errCommonParsed.Error()))
+		return model.ErrPlatform.WithError(errCommonParsed).WithMessage(errCommonParsed.Error()).Cause()
 	}
 
 	return parsedError

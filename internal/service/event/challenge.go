@@ -2,50 +2,37 @@ package event
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
 	"github.com/hashicorp/go-multierror"
-	"strings"
-	"time"
+	"github.com/rs/zerolog/log"
 )
 
 type (
 	IChallengeRepository interface {
-		CreateEventChallenge(ctx context.Context, arg postgres.CreateEventChallengeParams) error
+		CreateEventChallenge(ctx context.Context, arg []postgres.CreateEventChallengeParams) *postgres.CreateEventChallengeBatchResults
 
+		CountChallengesInCategoryInEvent(ctx context.Context, arg postgres.CountChallengesInCategoryInEventParams) (int64, error)
 		GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]postgres.EventChallenge, error)
-		GetEventChallengeByID(ctx context.Context, params postgres.GetEventChallengeByIDParams) (postgres.EventChallenge, error)
-		DeleteEventChallenges(ctx context.Context, arg postgres.DeleteEventChallengesParams) error
-		UpdateEventChallengeOrder(ctx context.Context, arg postgres.UpdateEventChallengeOrderParams) error
+		GetEventChallengeByID(ctx context.Context, arg postgres.GetEventChallengeByIDParams) (postgres.EventChallenge, error)
 
-		WithTransaction(ctx context.Context) (withTx interface{}, commit func(), rollback func(), err error)
+		DeleteEventChallenges(ctx context.Context, arg []postgres.DeleteEventChallengesParams) *postgres.DeleteEventChallengesBatchResults
 
-		GetTeamsSolvedChallengeInEvent(ctx context.Context, arg postgres.GetTeamsSolvedChallengeInEventParams) ([]postgres.GetTeamsSolvedChallengeInEventRow, error)
+		UpdateEventChallengeOrder(ctx context.Context, arg []postgres.UpdateEventChallengeOrderParams) *postgres.UpdateEventChallengeOrderBatchResults
+
+		GetTeamsChallengeSolvedByInEvent(ctx context.Context, arg postgres.GetTeamsChallengeSolvedByInEventParams) ([]postgres.GetTeamsChallengeSolvedByInEventRow, error)
 
 		GetChallengeFlag(ctx context.Context, arg postgres.GetChallengeFlagParams) (string, error)
 		CreateEventChallengeSolutionAttempt(ctx context.Context, arg postgres.CreateEventChallengeSolutionAttemptParams) error
-
-		CreateEventTeamChallenge(ctx context.Context, arg postgres.CreateEventTeamChallengeParams) error
-
-		AddLabChallenges(ctx context.Context, labID uuid.UUID, configs []model.LabChallenge) error
-		DeleteLabsChallenges(ctx context.Context, labIDs []uuid.UUID, exerciseIDs []uuid.UUID) error
-	}
-
-	IExerciseService interface {
-		GetExercise(ctx context.Context, exerciseID uuid.UUID) (*model.Exercise, error)
 	}
 )
 
 func (s *EventService) GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error) {
 	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get challenges from repository").Cause()
 	}
 
 	result := make([]*model.Challenge, 0, len(challenges))
@@ -54,11 +41,9 @@ func (s *EventService) GetEventChallenges(ctx context.Context, eventID uuid.UUID
 			ID:             challenge.ID,
 			EventID:        challenge.EventID,
 			CategoryID:     challenge.CategoryID,
+			Data:           challenge.Data,
 			ExerciseID:     challenge.ExerciseID,
 			ExerciseTaskID: challenge.ExerciseTaskID,
-			Name:           challenge.Name,
-			Description:    challenge.Description,
-			Points:         challenge.Points,
 			Order:          challenge.OrderIndex,
 			CreatedAt:      challenge.CreatedAt,
 		})
@@ -67,325 +52,235 @@ func (s *EventService) GetEventChallenges(ctx context.Context, eventID uuid.UUID
 	return result, nil
 }
 
-func (s *EventService) GetEventChallengeByID(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) (*model.Challenge, error) {
-	challenge, err := s.repository.GetEventChallengeByID(ctx, postgres.GetEventChallengeByIDParams{
-		EventID: eventID,
-		ID:      challengeID,
-	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, model.ErrNotFound
-		}
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get challenge by id from repository")
-	}
-
-	return &model.Challenge{
-		ID:             challenge.ID,
-		EventID:        challenge.EventID,
-		CategoryID:     challenge.CategoryID,
-		ExerciseID:     challenge.ExerciseID,
-		ExerciseTaskID: challenge.ExerciseTaskID,
-		Name:           challenge.Name,
-		Description:    challenge.Description,
-		Points:         challenge.Points,
-		Order:          challenge.OrderIndex,
-		CreatedAt:      challenge.CreatedAt,
-	}, nil
-}
-
-func (s *EventService) GetEventChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) (*model.ChallengeSoledBy, error) {
-	teamSolutions, err := s.repository.GetTeamsSolvedChallengeInEvent(ctx, postgres.GetTeamsSolvedChallengeInEventParams{
+func (s *EventService) GetEventTeamsChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) (*model.TeamsChallengeSolvedBy, error) {
+	teamSolutions, err := s.repository.GetTeamsChallengeSolvedByInEvent(ctx, postgres.GetTeamsChallengeSolvedByInEventParams{
 		EventID:     eventID,
 		ChallengeID: challengeID,
 	})
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get teams solved challenge from repository")
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get teams solved challenge from repository").Cause()
 	}
 
-	teams := make([]*model.TeamSolvedChallenge, 0, len(teamSolutions))
+	teams := make([]*model.TeamChallengeSolvedBy, 0, len(teamSolutions))
 	for _, team := range teamSolutions {
-		teams = append(teams, &model.TeamSolvedChallenge{
+		teams = append(teams, &model.TeamChallengeSolvedBy{
 			ID:       team.ID,
 			Name:     team.Name,
 			SolvedAt: team.Timestamp,
 		})
 	}
 
-	return &model.ChallengeSoledBy{
+	return &model.TeamsChallengeSolvedBy{
 		ChallengeID: challengeID,
 		Teams:       teams,
 	}, nil
 }
 
-func (s *EventService) AddExercisesToEvent(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error {
-	ch, err := s.repository.GetEventChallenges(ctx, eventID)
+func (s *EventService) GetEventChallengeByID(ctx context.Context, eventID, challengeID uuid.UUID) (*model.Challenge, error) {
+	challenge, err := s.repository.GetEventChallengeByID(ctx, postgres.GetEventChallengeByIDParams{
+		ID:      challengeID,
+		EventID: eventID,
+	})
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
+		if tools.IsObjectNotFoundError(err) {
+			return nil, model.ErrEventChallengeChallengeNotFound.WithMessage("Event challenge not found").Cause()
+		}
+		return nil, model.ErrEventChallenge.WithError(err).WithMessage("Failed to get challenge from repository").Cause()
 	}
 
-	count := len(ch)
+	return &model.Challenge{
+		ID:             challenge.ID,
+		EventID:        challenge.EventID,
+		CategoryID:     challenge.CategoryID,
+		Data:           challenge.Data,
+		ExerciseID:     challenge.ExerciseID,
+		ExerciseTaskID: challenge.ExerciseTaskID,
+		Order:          challenge.OrderIndex,
+		CreatedAt:      challenge.CreatedAt,
+	}, nil
+}
 
-	for _, id := range exerciseIDs {
-		exercise, err := s.exerciseService.GetExercise(ctx, id)
-		if err != nil {
-			return appError.NewError().WithError(err).WithMessage(fmt.Sprintf("failed to get exercise by id %s", id.String()))
-		}
+func (s *EventService) AddEventChallenges(ctx context.Context, eventID, categoryID uuid.UUID, exercises []*model.Exercise) error {
+	count, err := s.repository.CountChallengesInCategoryInEvent(ctx, postgres.CountChallengesInCategoryInEventParams{
+		EventID:    eventID,
+		CategoryID: categoryID,
+	})
+	if err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to count challenges in category in event").Cause()
+	}
 
+	createParams := make([]postgres.CreateEventChallengeParams, 0, len(exercises))
+
+	for _, exercise := range exercises {
 		for _, task := range exercise.Data.Tasks {
-			if err = s.repository.CreateEventChallenge(ctx, postgres.CreateEventChallengeParams{
+			// create challenge data
+			data := model.ChallengeData{
+				Name:          task.Name,
+				Description:   task.Description,
+				Points:        task.Points,
+				AttachedFiles: make([]model.ExerciseFile, 0, len(task.AttachedFileIDs)),
+			}
+
+			// add attached files
+			for _, fileID := range task.AttachedFileIDs {
+				for _, file := range exercise.Data.Files {
+					if file.ID == fileID {
+						data.AttachedFiles = append(data.AttachedFiles, model.ExerciseFile{
+							ID:   file.ID,
+							Name: file.Name,
+						})
+						break
+					}
+				}
+			}
+			createParams = append(createParams, postgres.CreateEventChallengeParams{
 				ID:             uuid.Must(uuid.NewV7()),
 				EventID:        eventID,
 				CategoryID:     categoryID,
-				Name:           task.Name,
-				Description:    task.Description,
-				Points:         task.Points,
+				Data:           data,
 				OrderIndex:     int32(count + 1),
 				ExerciseID:     exercise.ID,
 				ExerciseTaskID: task.ID,
-			}); err != nil {
-				return appError.NewError().WithError(err).WithMessage("failed to create event challenge")
-			}
+			})
 			count++
 		}
+	}
+
+	batchResult := s.repository.CreateEventChallenge(ctx, createParams)
+	defer func() {
+		if err = batchResult.Close(); err != nil {
+			log.Error().Err(err).Msg("Failed to close batch result")
+		}
+	}()
+
+	var errs error
+	batchResult.Exec(func(i int, err error) {
+		if err != nil {
+			if tools.IsUniqueViolationError(err) {
+				errs = multierror.Append(errs, model.ErrEventChallengeChallengeExists.Cause())
+				return
+			}
+			errCreator, has := tools.ForeignKeyViolationError(err)
+			if has {
+				errs = multierror.Append(errs, errCreator.Cause())
+				return
+			}
+			errs = multierror.Append(errs, model.ErrEventChallenge.WithError(err).WithMessage("Failed to create event challenge").WithContext("ExerciseID", createParams[i].ExerciseID).WithContext("TaskID", createParams[i].ExerciseTaskID).Cause())
+		}
+	})
+
+	if errs != nil {
+		return model.ErrEventChallenge.WithError(errs).WithMessage("Failed to create event challenges").Cause()
 	}
 
 	return nil
 }
 
-func (s *EventService) DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseID uuid.UUID) error {
-	if err := s.repository.DeleteEventChallenges(ctx, postgres.DeleteEventChallengesParams{
-		EventID:    eventID,
-		ExerciseID: exerciseID,
-	}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to delete event challenges")
+func (s *EventService) DeleteEventChallenges(ctx context.Context, eventID uuid.UUID, exerciseIDs []uuid.UUID) error {
+
+	deleteParams := make([]postgres.DeleteEventChallengesParams, 0, len(exerciseIDs))
+	for _, exerciseID := range exerciseIDs {
+		deleteParams = append(deleteParams, postgres.DeleteEventChallengesParams{
+			EventID:    eventID,
+			ExerciseID: exerciseID,
+		})
+	}
+
+	batchResult := s.repository.DeleteEventChallenges(ctx, deleteParams)
+	defer func() {
+		if err := batchResult.Close(); err != nil {
+			log.Error().Err(err).Msg("Failed to close batch result")
+		}
+	}()
+
+	var errs error
+	batchResult.Exec(func(i int, affected int64, err error) {
+		if err != nil {
+			errs = multierror.Append(errs, model.ErrEventChallenge.WithError(err).WithMessage("Failed to delete event challenge").WithContext("ExerciseID", deleteParams[i].ExerciseID).Cause())
+		}
+		if affected == 0 {
+			errs = multierror.Append(errs, model.ErrEventChallengeChallengeNotFound.WithMessage("Event challenges not found").WithContext("ExerciseID", deleteParams[i].ExerciseID).Cause())
+		}
+	})
+
+	// remain rest challenges order
+	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
+	if err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to get event challenges from repository").Cause()
+	}
+
+	orderParams := make([]postgres.UpdateEventChallengeOrderParams, 0, len(challenges))
+	for _, challenge := range challenges {
+		orderParams = append(orderParams, postgres.UpdateEventChallengeOrderParams{
+			EventID:    eventID,
+			ID:         challenge.ID,
+			OrderIndex: challenge.OrderIndex,
+			CategoryID: challenge.CategoryID,
+		})
+	}
+
+	if err = s.updateEventChallengesOrder(ctx, orderParams); err != nil {
+		return model.ErrEventChallenge.WithError(err).WithMessage("Failed to update event categories order after delete").Cause()
+	}
+
+	if errs != nil {
+		return model.ErrEventChallenge.WithError(errs).WithMessage("Failed to delete event challenges").Cause()
 	}
 
 	return nil
 }
 
 func (s *EventService) UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
-	// start transaction
-	for _, order := range orders {
-		if err := s.repository.UpdateEventChallengeOrder(ctx, postgres.UpdateEventChallengeOrderParams{
-			ID:         order.ID,
-			EventID:    eventID,
-			OrderIndex: order.OrderIndex,
-			CategoryID: order.CategoryID,
-		}); err != nil {
-			// rollback transaction
-			return appError.NewError().WithError(err).WithMessage("failed to update event challenge order")
-		}
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
 	}
 
-	// commit transaction
+	params := make([]postgres.UpdateEventChallengeOrderParams, 0, len(orders))
 
-	return nil
+	for _, order := range orders {
+		params = append(params, postgres.UpdateEventChallengeOrderParams{
+			EventID:    eventID,
+			ID:         order.ID,
+			OrderIndex: order.Index,
+			CategoryID: order.CategoryID,
+			UpdatedBy: uuid.NullUUID{
+				UUID:  currentUserID,
+				Valid: true,
+			},
+		})
+	}
+
+	return s.updateEventChallengesOrder(ctx, params)
 }
 
-func (s *EventService) CreateEventTeamsChallenges(ctx context.Context, eventID uuid.UUID) error {
+func (s *EventService) updateEventChallengesOrder(ctx context.Context, orderParams []postgres.UpdateEventChallengeOrderParams) error {
+	batchResult := s.repository.UpdateEventChallengeOrder(ctx, orderParams)
+	defer func() {
+		if err := batchResult.Close(); err != nil {
+			log.Error().Err(err).Msg("Failed to close batch result")
+		}
+	}()
+
 	var errs error
-
-	// get all teams in event
-	teams, err := s.repository.GetEventTeams(ctx, eventID)
-	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to get teams from repository")
-	}
-
-	// get all challenges in event
-	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
-	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to get challenges from repository")
-	}
-
-	// create team challenges
-	for _, team := range teams {
-
-		flags := make(map[uuid.UUID]string)
-		// map[exerciseID][]instance
-		exeInstances := make(map[uuid.UUID][]model.Instance)
-	chF:
-		for _, challenge := range challenges {
-
-			// get exercise task
-			exercise, err := s.exerciseService.GetExercise(ctx, challenge.ExerciseID)
-			if err != nil {
-				errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage(fmt.Sprintf("failed to get exercise by id %s", challenge.ExerciseID.String())))
-				continue chF
+	batchResult.Exec(func(i int, affected int64, err error) {
+		if err != nil {
+			errCreator, has := tools.ForeignKeyViolationError(err)
+			if has {
+				errs = multierror.Append(errs, errCreator.Cause())
+				return
 			}
-
-			//if exercise has instances save them
-			if _, ok := exeInstances[challenge.ExerciseID]; !ok {
-				exeInstances[challenge.ExerciseID] = make([]model.Instance, 0)
-			}
-
-			if len(exercise.Data.Instances) > 0 {
-				for _, instance := range exercise.Data.Instances {
-					exeInstances[challenge.ExerciseID] = append(exeInstances[challenge.ExerciseID], model.Instance{
-						ID:    instance.ID,
-						Name:  instance.Name,
-						Image: instance.Image,
-						LinkedTaskID: uuid.NullUUID{
-							UUID:  instance.LinkedTaskID.UUID,
-							Valid: instance.LinkedTaskID.Valid,
-						},
-						InstanceFlagVar: instance.InstanceFlagVar,
-						EnvVars:         instance.EnvVars,
-						DNSRecords:      instance.DNSRecords,
-					})
-				}
-			}
-
-			// find task for challenge
-			for _, task := range exercise.Data.Tasks {
-				if task.ID == challenge.ExerciseTaskID {
-					// try to get team challenge
-					flag, err := s.repository.GetChallengeFlag(ctx, postgres.GetChallengeFlagParams{
-						ChallengeID: challenge.ID,
-						TeamID:      team.ID,
-					})
-					if err != nil && !errors.Is(err, sql.ErrNoRows) {
-						errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to get challenge flag from repository"))
-						continue chF
-					}
-
-					// if flag is already set skip
-					if err == nil && flag != "" {
-						flags[task.ID] = flag
-						break
-					}
-
-					// if challenge is not created yet
-					// get solution for challenge
-					flag, err = tools.GetSolutionForTask(task.Flags...)
-					if err != nil {
-						errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to generate flag for challenge"))
-						continue chF
-					}
-
-					// create team challenge
-					if err = s.repository.CreateEventTeamChallenge(ctx, postgres.CreateEventTeamChallengeParams{
-						ID:          uuid.Must(uuid.NewV7()),
-						EventID:     eventID,
-						TeamID:      team.ID,
-						ChallengeID: challenge.ID,
-						Flag:        flag,
-					}); err != nil {
-						errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to create team challenge"))
-						continue chF
-					}
-					// save flag
-					flags[task.ID] = flag
-					break
-				}
-			}
+			errs = multierror.Append(errs, model.ErrEventChallenge.WithError(err).WithMessage("Failed to update event challenge order").WithContext("ChallengeID", orderParams[i].ID).Cause())
 		}
 
-		labChallenges := make([]model.LabChallenge, 0)
-
-		for exID, insts := range exeInstances {
-			for index, inst := range insts {
-				// if instance has flag var add it to envs
-				if inst.LinkedTaskID.Valid {
-					// get instance envs
-					envs := inst.EnvVars
-					// add flag to envs
-					envs = append(envs, model.EnvVar{
-						Name:  inst.InstanceFlagVar,
-						Value: flags[inst.LinkedTaskID.UUID],
-					})
-					// set updated envs to instance
-					exeInstances[exID][index].EnvVars = envs
-				}
-			}
-
-			labChallenges = append(labChallenges, model.LabChallenge{
-				ID:        exID,
-				Instances: insts,
-			})
+		if affected == 0 {
+			errs = multierror.Append(errs, model.ErrEventChallengeChallengeNotFound.WithMessage("Event challenge not found").WithContext("ChallengeID", orderParams[i].ID).Cause())
 		}
-
-		// create instances for team
-		if err = s.repository.AddLabChallenges(ctx, team.LaboratoryID.UUID, labChallenges); err != nil {
-			errs = multierror.Append(errs, appError.NewError().WithError(err).WithMessage("failed to add lab challenges"))
-		}
-	}
+	})
 
 	if errs != nil {
-		return errs
+		return model.ErrEventChallenge.WithError(errs).WithMessage("Failed to update event challenge order").Cause()
 	}
 
 	return nil
-}
-
-func (s *EventService) DeleteEventTeamsChallenges(ctx context.Context, eventID, exerciseID uuid.UUID) error {
-	// get exercise
-	exercise, err := s.exerciseService.GetExercise(ctx, exerciseID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return model.ErrNotFound
-		}
-		return appError.NewError().WithError(err).WithMessage(fmt.Sprintf("failed to get exercise by id %s", exerciseID.String()))
-	}
-
-	// if exercise has no instances return
-	if len(exercise.Data.Instances) == 0 {
-		return nil
-	}
-
-	// get all teams in event
-	teams, err := s.repository.GetEventTeams(ctx, eventID)
-	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to get teams from repository")
-	}
-
-	// get all labs in event
-	labIDs := make([]uuid.UUID, 0)
-
-	for _, team := range teams {
-		labIDs = append(labIDs, team.LaboratoryID.UUID)
-	}
-
-	if err = s.repository.DeleteLabsChallenges(ctx, labIDs, []uuid.UUID{exerciseID}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to delete lab challenges")
-	}
-
-	return nil
-}
-
-func (s *EventService) SolveChallenge(ctx context.Context, eventID, teamID, challengeID uuid.UUID, solutionAttempt string) (bool, error) {
-	// get user id
-	userID, err := tools.GetCurrentUserIDFromContext(ctx)
-	if err != nil {
-		return false, appError.NewError().WithError(err).WithMessage("failed to get user id from context")
-	}
-
-	// get challenge flag
-	flag, err := s.repository.GetChallengeFlag(ctx, postgres.GetChallengeFlagParams{
-		ChallengeID: challengeID,
-		TeamID:      teamID,
-	})
-	if err != nil {
-		return false, appError.NewError().WithError(err).WithMessage("failed to get challenge flag from repository")
-	}
-
-	// check if flag is correct
-	// Check if the solution is correct
-	isCorrect := strings.Compare(flag, solutionAttempt) == 0
-
-	// save attempt
-	if err = s.repository.CreateEventChallengeSolutionAttempt(ctx, postgres.CreateEventChallengeSolutionAttemptParams{
-		ID:            uuid.Must(uuid.NewV7()),
-		EventID:       eventID,
-		ChallengeID:   challengeID,
-		TeamID:        teamID,
-		ParticipantID: userID,
-		Answer:        solutionAttempt,
-		Flag:          flag,
-		IsCorrect:     isCorrect,
-		Timestamp:     time.Now().UTC(),
-	}); err != nil {
-		return false, appError.NewError().WithError(err).WithMessage("failed to create event challenge solution attempt")
-	}
-
-	return isCorrect, nil
 }

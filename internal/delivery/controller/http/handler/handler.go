@@ -7,7 +7,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/docs"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/event"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/storage"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/user"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -20,7 +19,6 @@ type (
 	}
 
 	IUseCase interface {
-		storage.IUseCase
 		auth.IUseCase
 		event.IUseCase
 		exercise.IUseCase
@@ -46,7 +44,6 @@ func (h *Handler) Init(router *gin.Engine) {
 		baseAPI.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 		auth.NewAuthAPIHandler(h.useCase).Init(baseAPI)
-		storage.NewStorageAPIHandler(h.useCase).Init(baseAPI) // all routes are protected
 		event.NewEventAPIHandler(h.useCase).Init(baseAPI)
 		exercise.NewExerciseAPIHandler(h.useCase).Init(baseAPI) // all routes are protected
 		user.NewUserAPIHandler(h.useCase).Init(baseAPI)         // all routes are protected

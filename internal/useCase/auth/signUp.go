@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"strings"
@@ -29,8 +28,8 @@ type (
 func (u *AuthUseCase) SignUp(ctx context.Context, email string) error {
 	// Check if the user with the email already exists
 	user, err := u.service.GetUserByEmail(ctx, email)
-	if err != nil && !errors.Is(err, model.ErrNotFound) {
-		return appError.NewError().WithError(err).WithMessage("failed to get user by email")
+	if err != nil && !errors.Is(err, model.ErrUserUserNotFound.Err()) {
+		return model.ErrAuth.WithError(err).WithMessage("Failed to get user by email").Cause()
 	}
 
 	// If the user exists, send an email with the information that the account already exists
@@ -38,7 +37,7 @@ func (u *AuthUseCase) SignUp(ctx context.Context, email string) error {
 		if err = u.service.SendAccountExistsEmail(ctx, email, model.AccountExistsTemplateData{
 			Username: user.Name,
 		}); err != nil {
-			return appError.NewError().WithError(err).WithMessage("failed to send account exists email")
+			return model.ErrAuth.WithError(err).WithMessage("Failed to send account exists email").Cause()
 		}
 	}
 
@@ -48,7 +47,7 @@ func (u *AuthUseCase) SignUp(ctx context.Context, email string) error {
 		Role:  model.UserRole,
 	})
 	if err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to create temporal continue registration code")
+		return model.ErrAuth.WithError(err).WithMessage("Failed to create temporal continue registration code").Cause()
 	}
 
 	// Normalize the temporal code to base64 and create a token with the email and the temporal code
@@ -61,7 +60,7 @@ func (u *AuthUseCase) SignUp(ctx context.Context, email string) error {
 	if err = u.service.SendContinueRegistrationEmail(ctx, email, model.ContinueRegistrationTemplateData{
 		Link: fmt.Sprintf("%s://%s%s%s", config.SchemeHTTPS, config.PlatformDomain, model.ContinueRegistrationLink, bsToken),
 	}); err != nil {
-		return appError.NewError().WithError(err).WithMessage("failed to send continue registration email")
+		return model.ErrAuth.WithError(err).WithMessage("Failed to send continue registration email").Cause()
 	}
 
 	return nil
@@ -71,24 +70,24 @@ func (u *AuthUseCase) SignUpContinue(ctx context.Context, bsCode string, newUser
 	// Decode base64 temporal code
 	code, err := base64.StdEncoding.DecodeString(bsCode)
 	if err != nil {
-		return nil, model.ErrInvalidTemporalCode.WithError(appError.NewError().WithError(err).WithMessage("failed to decode base64 code"))
+		return nil, model.ErrTemporalCodeInvalidCode.WithError(model.ErrAuth.WithError(err).WithMessage("Failed to decode base64 code").Cause()).Cause()
 	}
 
 	// Get the temporal code from the database
 	data, err := u.service.GetTemporalContinueRegistrationCodeData(ctx, string(code))
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get temporal continue registration code data")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to get temporal continue registration code data").Cause()
 	}
 
 	// Check password complexity
 	if err = u.service.CheckPasswordComplexity(newUser.Password); err != nil {
-		return nil, model.ErrInvalidPasswordComplexity.WithError(err)
+		return nil, model.ErrAuthInvalidPasswordComplexity.WithError(err).Cause()
 	}
 
 	// Hash the password
 	hashedPassword, err := u.service.Hash(newUser.Password)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to hash the password")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to hash the password").Cause()
 	}
 
 	newUser.Role = data.Role
@@ -97,12 +96,12 @@ func (u *AuthUseCase) SignUpContinue(ctx context.Context, bsCode string, newUser
 
 	user, err := u.service.CreateUser(ctx, newUser)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to create user")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to create user").Cause()
 	}
 
-	tokes, err := u.service.GenerateTokens(user.ID.String())
+	tokes, err := u.service.GenerateTokens(user.ID)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to generate tokens")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate tokens").Cause()
 	}
 
 	return tokes, nil

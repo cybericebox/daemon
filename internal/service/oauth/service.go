@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/rs/zerolog/log"
@@ -19,10 +18,6 @@ import (
 const (
 	randomStateLen    = 10
 	oauthGoogleUrlAPI = "https://www.googleapis.com/oauth2/v2/userinfo?access_token="
-)
-
-var (
-	ErrInvalidState = appError.NewError().WithCode(appError.CodeInvalidInput.WithMessage("invalid state"))
 )
 
 type (
@@ -61,19 +56,19 @@ func (s *OAuthService) GetGoogleLoginURL() string {
 
 func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*model.User, error) {
 	if strings.Compare(state, s.randomState) != 0 {
-		return nil, ErrInvalidState
+		return nil, model.ErrAuthInvalidOAuth2State.Cause()
 	}
 
 	tokens, err := s.googleConfig.Exchange(ctx, code)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to exchange code for tokens")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to exchange code for tokens").Cause()
 	}
 
 	client := s.googleConfig.Client(ctx, tokens)
 
 	response, err := client.Get(oauthGoogleUrlAPI + tokens.AccessToken)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to get google user")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to get google user").Cause()
 	}
 
 	defer func() {
@@ -84,13 +79,13 @@ func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*
 
 	content, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to read response body")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to read response body").Cause()
 	}
 
 	var GoogleUserRes map[string]interface{}
 
 	if err = json.Unmarshal(content, &GoogleUserRes); err != nil {
-		return nil, appError.NewError().WithError(err).WithMessage("failed to unmarshal google user response")
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to unmarshal google user response").Cause()
 	}
 
 	return &model.User{

@@ -12,72 +12,184 @@ import (
 )
 
 const createEventParticipant = `-- name: CreateEventParticipant :exec
-insert into event_participants (event_id, user_id, approval_status)
-values ($1, $2, $3)
+insert into event_participants (event_id, user_id, name, approval_status)
+values ($1, $2, $3, $4)
 `
 
 type CreateEventParticipantParams struct {
 	EventID        uuid.UUID `json:"event_id"`
 	UserID         uuid.UUID `json:"user_id"`
+	Name           string    `json:"name"`
 	ApprovalStatus int32     `json:"approval_status"`
 }
 
 func (q *Queries) CreateEventParticipant(ctx context.Context, arg CreateEventParticipantParams) error {
-	_, err := q.exec(ctx, q.createEventParticipantStmt, createEventParticipant, arg.EventID, arg.UserID, arg.ApprovalStatus)
+	_, err := q.db.Exec(ctx, createEventParticipant,
+		arg.EventID,
+		arg.UserID,
+		arg.Name,
+		arg.ApprovalStatus,
+	)
 	return err
 }
 
-const getEventJoinStatus = `-- name: GetEventJoinStatus :one
+const deleteEventParticipant = `-- name: DeleteEventParticipant :execrows
+delete
+from event_participants
+where event_id = $1
+  and user_id = $2
+`
+
+type DeleteEventParticipantParams struct {
+	EventID uuid.UUID `json:"event_id"`
+	UserID  uuid.UUID `json:"user_id"`
+}
+
+func (q *Queries) DeleteEventParticipant(ctx context.Context, arg DeleteEventParticipantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEventParticipant, arg.EventID, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getEventParticipantStatus = `-- name: GetEventParticipantStatus :one
 select approval_status
 from event_participants
 where event_id = $1
   and user_id = $2
 `
 
-type GetEventJoinStatusParams struct {
+type GetEventParticipantStatusParams struct {
 	EventID uuid.UUID `json:"event_id"`
 	UserID  uuid.UUID `json:"user_id"`
 }
 
-func (q *Queries) GetEventJoinStatus(ctx context.Context, arg GetEventJoinStatusParams) (int32, error) {
-	row := q.queryRow(ctx, q.getEventJoinStatusStmt, getEventJoinStatus, arg.EventID, arg.UserID)
+func (q *Queries) GetEventParticipantStatus(ctx context.Context, arg GetEventParticipantStatusParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getEventParticipantStatus, arg.EventID, arg.UserID)
 	var approval_status int32
 	err := row.Scan(&approval_status)
 	return approval_status, err
 }
 
-const updateEventParticipantStatus = `-- name: UpdateEventParticipantStatus :exec
+const getEventParticipants = `-- name: GetEventParticipants :many
+select user_id, event_id, team_id, name, approval_status, updated_at, updated_by, created_at
+from event_participants
+where event_id = $1
+`
+
+func (q *Queries) GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]EventParticipant, error) {
+	rows, err := q.db.Query(ctx, getEventParticipants, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventParticipant{}
+	for rows.Next() {
+		var i EventParticipant
+		if err := rows.Scan(
+			&i.UserID,
+			&i.EventID,
+			&i.TeamID,
+			&i.Name,
+			&i.ApprovalStatus,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateEventParticipantName = `-- name: UpdateEventParticipantName :execrows
 update event_participants
-set approval_status = $3
+set name = $3,
+    updated_at = now(),
+    updated_by = $4
+where event_id = $1
+  and user_id = $2
+`
+
+type UpdateEventParticipantNameParams struct {
+	EventID   uuid.UUID     `json:"event_id"`
+	UserID    uuid.UUID     `json:"user_id"`
+	Name      string        `json:"name"`
+	UpdatedBy uuid.NullUUID `json:"updated_by"`
+}
+
+func (q *Queries) UpdateEventParticipantName(ctx context.Context, arg UpdateEventParticipantNameParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventParticipantName,
+		arg.EventID,
+		arg.UserID,
+		arg.Name,
+		arg.UpdatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateEventParticipantStatus = `-- name: UpdateEventParticipantStatus :execrows
+update event_participants
+set approval_status = $3,
+    updated_at = now(),
+    updated_by = $4
 where event_id = $1
   and user_id = $2
 `
 
 type UpdateEventParticipantStatusParams struct {
-	EventID        uuid.UUID `json:"event_id"`
-	UserID         uuid.UUID `json:"user_id"`
-	ApprovalStatus int32     `json:"approval_status"`
+	EventID        uuid.UUID     `json:"event_id"`
+	UserID         uuid.UUID     `json:"user_id"`
+	ApprovalStatus int32         `json:"approval_status"`
+	UpdatedBy      uuid.NullUUID `json:"updated_by"`
 }
 
-func (q *Queries) UpdateEventParticipantStatus(ctx context.Context, arg UpdateEventParticipantStatusParams) error {
-	_, err := q.exec(ctx, q.updateEventParticipantStatusStmt, updateEventParticipantStatus, arg.EventID, arg.UserID, arg.ApprovalStatus)
-	return err
+func (q *Queries) UpdateEventParticipantStatus(ctx context.Context, arg UpdateEventParticipantStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventParticipantStatus,
+		arg.EventID,
+		arg.UserID,
+		arg.ApprovalStatus,
+		arg.UpdatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-const updateEventParticipantTeam = `-- name: UpdateEventParticipantTeam :exec
+const updateEventParticipantTeam = `-- name: UpdateEventParticipantTeam :execrows
 update event_participants
-set team_id = $3
+set team_id = $3,
+    updated_at = now(),
+    updated_by = $4
 where event_id = $1
   and user_id = $2
 `
 
 type UpdateEventParticipantTeamParams struct {
-	EventID uuid.UUID     `json:"event_id"`
-	UserID  uuid.UUID     `json:"user_id"`
-	TeamID  uuid.NullUUID `json:"team_id"`
+	EventID   uuid.UUID     `json:"event_id"`
+	UserID    uuid.UUID     `json:"user_id"`
+	TeamID    uuid.NullUUID `json:"team_id"`
+	UpdatedBy uuid.NullUUID `json:"updated_by"`
 }
 
-func (q *Queries) UpdateEventParticipantTeam(ctx context.Context, arg UpdateEventParticipantTeamParams) error {
-	_, err := q.exec(ctx, q.updateEventParticipantTeamStmt, updateEventParticipantTeam, arg.EventID, arg.UserID, arg.TeamID)
-	return err
+func (q *Queries) UpdateEventParticipantTeam(ctx context.Context, arg UpdateEventParticipantTeamParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventParticipantTeam,
+		arg.EventID,
+		arg.UserID,
+		arg.TeamID,
+		arg.UpdatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

@@ -12,10 +12,10 @@ import (
 
 type ITeamUseCase interface {
 	GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]*model.Team, error)
-	GetEventTeamsInfo(ctx context.Context, eventID uuid.UUID) ([]*model.TeamInfo, error)
+	GetTeamsInfo(ctx context.Context, eventID uuid.UUID) ([]*model.TeamInfo, error)
 	CreateTeam(ctx context.Context, eventID uuid.UUID, name string) error
 	JoinTeam(ctx context.Context, eventID uuid.UUID, name, joinCode string) error
-	GetVPNConfig(ctx context.Context, eventID uuid.UUID) (string, error)
+	GetSelfVPNConfig(ctx context.Context, eventID uuid.UUID) (string, error)
 	GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*model.Team, error)
 	ProtectEventTeams(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
@@ -52,7 +52,7 @@ func (h *Handler) getTeams(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, teams)
+	response.AbortWithData(ctx, teams)
 }
 
 func (h *Handler) getTeamsInfo(ctx *gin.Context) {
@@ -62,13 +62,13 @@ func (h *Handler) getTeamsInfo(ctx *gin.Context) {
 		return
 	}
 
-	teams, err := h.useCase.GetEventTeamsInfo(ctx, eventID)
+	teams, err := h.useCase.GetTeamsInfo(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 
-	response.AbortWithContent(ctx, teams)
+	response.AbortWithData(ctx, teams)
 }
 
 func (h *Handler) createTeam(ctx *gin.Context) {
@@ -128,7 +128,7 @@ func (h *Handler) getSelfTeam(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, team)
+	response.AbortWithData(ctx, team)
 }
 
 func (h *Handler) getVPNConfig(ctx *gin.Context) {
@@ -138,13 +138,13 @@ func (h *Handler) getVPNConfig(ctx *gin.Context) {
 		return
 	}
 
-	cfg, err := h.useCase.GetVPNConfig(ctx, eventID)
+	cfg, err := h.useCase.GetSelfVPNConfig(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 
-	response.AbortWithContent(ctx, cfg)
+	response.AbortWithData(ctx, cfg)
 }
 
 func (h *Handler) eventTeamsNeedProtection(ctx *gin.Context) bool {

@@ -13,10 +13,11 @@ import (
 type ISingleEventUseCase interface {
 	GetEvent(ctx context.Context, eventID uuid.UUID) (*model.Event, error)
 	GetEventInfo(ctx context.Context, eventID uuid.UUID) (*model.EventInfo, error)
+	GetEventBannerDownloadLink(ctx context.Context, eventID uuid.UUID) (string, error)
 	UpdateEvent(ctx context.Context, event model.Event) error
 	DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 
-	GetJoinEventStatus(ctx context.Context, eventID uuid.UUID) (int32, error)
+	GetSelfJoinEventStatus(ctx context.Context, eventID uuid.UUID) (int32, error)
 	JoinEvent(ctx context.Context, eventID uuid.UUID) error
 }
 
@@ -30,7 +31,12 @@ func (h *Handler) initSingleEventAPIHandler(router *gin.RouterGroup) {
 	joinEventAPI := router.Group("join")
 	{
 		joinEventAPI.GET("info", protection.RequireProtection(), h.getJoinEventStatus)
-		joinEventAPI.GET("", protection.RequireProtection(true), h.joinEvent)
+		joinEventAPI.GET("", protection.RequireProtection(true), h.joinEvent) // by clicking link
+	}
+
+	downloadEventAPI := router.Group("download")
+	{
+		downloadEventAPI.GET("banner", h.downloadBanner)
 	}
 
 	h.initChallengeAPIHandler(router)
@@ -52,7 +58,7 @@ func (h *Handler) getEvent(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, event)
+	response.AbortWithData(ctx, event)
 }
 
 func (h *Handler) getEventInfo(ctx *gin.Context) {
@@ -68,7 +74,23 @@ func (h *Handler) getEventInfo(ctx *gin.Context) {
 		return
 	}
 
-	response.AbortWithContent(ctx, event)
+	response.AbortWithData(ctx, event)
+}
+
+func (h *Handler) downloadBanner(ctx *gin.Context) {
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	link, err := h.useCase.GetEventBannerDownloadLink(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithData(ctx, link)
 }
 
 func (h *Handler) updateEvent(ctx *gin.Context) {
@@ -117,40 +139,32 @@ func (h *Handler) getJoinEventStatus(ctx *gin.Context) {
 		return
 	}
 
-	status, err := h.useCase.GetJoinEventStatus(ctx, eventID)
+	status, err := h.useCase.GetSelfJoinEventStatus(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 
-	response.AbortWithContent(ctx, gin.H{"Status": status})
+	response.AbortWithData(ctx, gin.H{"Status": status})
 }
 
 func (h *Handler) joinEvent(ctx *gin.Context) {
-	//redirectQ := ctx.Query("noRedirect")
-	//fmt.Println("redirectQ: ", redirectQ)
-	//redirect := true
-	//if redirectQ != "" {
-	//	redirect = false
-	//}
-	//
-	//fmt.Println("redirect: ", redirect)
 
-	//eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
-	//if err != nil {
-	//	response.AbortWithError(ctx, err)
-	//	return
-	//}
-	//
-	//if err = h.useCase.JoinEvent(ctx, eventID); err != nil {
-	//	response.AbortWithError(ctx, err)
-	//	return
-	//}
-	//
-	////if redirect {
-	////	response.TemporaryRedirect(ctx, "/")
-	////	return
-	////}
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	if err = h.useCase.JoinEvent(ctx, eventID); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	if ctx.Query("noRedirect") == "" {
+		response.TemporaryRedirect(ctx, "/")
+		return
+	}
 
 	response.AbortWithSuccess(ctx)
 }
