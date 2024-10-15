@@ -45,30 +45,26 @@ type (
 )
 
 func NewService(deps Dependencies) *Service {
-	exerciseService := exercise.NewExerciseService(exercise.Dependencies{Repository: deps.Repository})
-
 	return &Service{
 		OAuthService: oauth.NewOAuthService(oauth.Dependencies{Config: &deps.Config.OAuth}),
 		Manager: password.NewHashManager(password.Dependencies{
 			Cost:               deps.Config.Password.HashCost,
 			PasswordComplexity: password.PasswordComplexityConfig(deps.Config.Password.PasswordComplexity),
 		}),
-		StorageService: storage.NewStorageService(storage.Dependencies{Repository: deps.Repository}),
+		StorageService: storage.NewStorageService(storage.Dependencies{Repository: deps.Repository, Config: &deps.Config.Storage}),
 		TemporalCodeService: temporalCode.NewTemporalCodeService(temporalCode.Dependencies{
 			Repository: deps.Repository,
 			Config:     &deps.Config.TemporalCode,
 		}),
 		EmailService: email.NewEmailService(email.Dependencies{Repository: deps.Repository}),
 		TokenService: token.NewTokenService(token.Dependencies{
-			Config:     &deps.Config.JWT,
-			Repository: deps.Repository,
+			Config: &deps.Config.JWT,
 		}),
 		UserService: user.NewUserService(user.Dependencies{Repository: deps.Repository}),
 		EventService: event.NewEventService(event.Dependencies{
-			Repository:      deps.Repository,
-			ExerciseService: exerciseService,
+			Repository: deps.Repository,
 		}),
-		ExerciseService:   exerciseService,
+		ExerciseService:   exercise.NewExerciseService(exercise.Dependencies{Repository: deps.Repository}),
 		LaboratoryService: laboratory.NewLaboratoryService(laboratory.Dependencies{Repository: deps.Repository}),
 	}
 }

@@ -35,7 +35,7 @@ func NewOAuthService(deps Dependencies) *OAuthService {
 	r := make([]byte, randomStateLen)
 	_, err := rand.Read(r)
 	if err != nil {
-		log.Err(err).Msg("Creating google service")
+		log.Fatal().Err(err).Msg("Creating google service")
 		return nil
 	}
 	return &OAuthService{
@@ -56,37 +56,36 @@ func (s *OAuthService) GetGoogleLoginURL() string {
 
 func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*model.User, error) {
 	if strings.Compare(state, s.randomState) != 0 {
-		return nil, fmt.Errorf("invalid state")
+		return nil, model.ErrAuthInvalidOAuth2State.Cause()
 	}
 
 	tokens, err := s.googleConfig.Exchange(ctx, code)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to exchange code for tokens").Cause()
 	}
 
 	client := s.googleConfig.Client(ctx, tokens)
 
 	response, err := client.Get(oauthGoogleUrlAPI + tokens.AccessToken)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to get google user").Cause()
 	}
 
 	defer func() {
 		if err = response.Body.Close(); err != nil {
-			log.Err(err).Msg("GetGoogleUser")
+			log.Error().Err(err).Msg("Failed to close response body")
 		}
 	}()
 
 	content, err := io.ReadAll(response.Body)
 	if err != nil {
-		// err
-		return nil, err
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to read response body").Cause()
 	}
 
 	var GoogleUserRes map[string]interface{}
 
 	if err = json.Unmarshal(content, &GoogleUserRes); err != nil {
-		return nil, err
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to unmarshal google user response").Cause()
 	}
 
 	return &model.User{

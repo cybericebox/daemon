@@ -12,40 +12,42 @@ import (
 )
 
 const createFile = `-- name: CreateFile :exec
-insert into files (id, name)
+insert into files (id, storage_type)
 values ($1, $2)
 `
 
 type CreateFileParams struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID          uuid.UUID `json:"id"`
+	StorageType string    `json:"storage_type"`
 }
 
 func (q *Queries) CreateFile(ctx context.Context, arg CreateFileParams) error {
-	_, err := q.exec(ctx, q.createFileStmt, createFile, arg.ID, arg.Name)
+	_, err := q.db.Exec(ctx, createFile, arg.ID, arg.StorageType)
 	return err
 }
 
-const deleteFile = `-- name: DeleteFile :exec
-delete
+const getFiles = `-- name: GetFiles :many
+select id, storage_type, created_at
 from files
-where id = $1
+order by created_at
 `
 
-func (q *Queries) DeleteFile(ctx context.Context, id uuid.UUID) error {
-	_, err := q.exec(ctx, q.deleteFileStmt, deleteFile, id)
-	return err
-}
-
-const getFileByID = `-- name: GetFileByID :one
-select id, name, created_at
-from files
-where id = $1
-`
-
-func (q *Queries) GetFileByID(ctx context.Context, id uuid.UUID) (File, error) {
-	row := q.queryRow(ctx, q.getFileByIDStmt, getFileByID, id)
-	var i File
-	err := row.Scan(&i.ID, &i.Name, &i.CreatedAt)
-	return i, err
+func (q *Queries) GetFiles(ctx context.Context) ([]File, error) {
+	rows, err := q.db.Query(ctx, getFiles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []File{}
+	for rows.Next() {
+		var i File
+		if err := rows.Scan(&i.ID, &i.StorageType, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

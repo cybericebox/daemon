@@ -16,18 +16,20 @@ type (
 	}
 
 	IUseCase interface {
+		ISingleEventUseCase
+		IParticipantUseCase
+		ITeamUseCase
 		IChallengeUseCase
 		IChallengeCategoryUseCase
-		ITeamUseCase
-		IParticipantUseCase
 		IScoreUseCase
-		ISingleEventUseCase
 
 		GetEvents(ctx context.Context) ([]*model.Event, error)
 		GetEventsInfo(ctx context.Context) ([]*model.EventInfo, error)
-		CreateEvent(ctx context.Context, event *model.Event) error
+		CreateEvent(ctx context.Context, event model.Event) error
 
 		GetEventIDByTag(ctx context.Context, eventTag string) (uuid.UUID, error)
+
+		GetUploadBannerData(ctx context.Context) (*model.UploadFileData, error)
 	}
 )
 
@@ -38,9 +40,13 @@ func NewEventAPIHandler(useCase IUseCase) *Handler {
 func (h *Handler) Init(router *gin.RouterGroup) {
 	eventAPI := router.Group("events")
 	{
-		eventAPI.GET("", protection.RequireProtection, h.getEvents)    // get all events
-		eventAPI.GET("info", h.getEventsInfo)                          // get all events info only
-		eventAPI.POST("", protection.RequireProtection, h.createEvent) // create event
+		eventAPI.GET("", protection.RequireProtection(), h.getEvents)    // get all events
+		eventAPI.GET("info", h.getEventsInfo)                            // get all events info only
+		eventAPI.POST("", protection.RequireProtection(), h.createEvent) // create event
+		eventUploadAPI := eventAPI.Group("upload")
+		{
+			eventUploadAPI.GET("banner", protection.RequireProtection(), h.getUploadBannerData)
+		}
 
 		singleEventAPI := eventAPI.Group(":eventIDOrTag", h.setEventIDToContext)
 		h.initSingleEventAPIHandler(singleEventAPI)
@@ -54,7 +60,8 @@ func (h *Handler) getEvents(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithContent(ctx, events)
+
+	response.AbortWithData(ctx, events)
 }
 
 func (h *Handler) getEventsInfo(ctx *gin.Context) {
@@ -63,7 +70,8 @@ func (h *Handler) getEventsInfo(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithContent(ctx, events)
+
+	response.AbortWithData(ctx, events)
 }
 
 func (h *Handler) createEvent(ctx *gin.Context) {
@@ -73,25 +81,39 @@ func (h *Handler) createEvent(ctx *gin.Context) {
 		return
 	}
 
-	if err := h.useCase.CreateEvent(ctx, &inp); err != nil {
+	if err := h.useCase.CreateEvent(ctx, inp); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Event created successfully")
+
+	response.AbortWithSuccess(ctx)
+}
+
+func (h *Handler) getUploadBannerData(ctx *gin.Context) {
+	data, err := h.useCase.GetUploadBannerData(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithData(ctx, data)
 }
 
 func (h *Handler) setEventIDToContext(ctx *gin.Context) {
 	eventIDOrTag := ctx.Param("eventIDOrTag")
+
 	eventID, err := uuid.FromString(eventIDOrTag)
 	if err != nil {
 		if eventIDOrTag == "self" {
 			eventIDOrTag = ctx.GetString(tools.SubdomainCtxKey)
 		}
+
 		eventID, err = h.useCase.GetEventIDByTag(ctx, eventIDOrTag)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
 		}
 	}
+
 	ctx.Set(tools.EventIDCtxKey, eventID.String())
 }

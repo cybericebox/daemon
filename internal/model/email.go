@@ -1,11 +1,17 @@
 package model
 
+import "github.com/cybericebox/daemon/internal/appError"
+
 type (
 	AccountExistsTemplateData struct {
 		Username string
 	}
 
 	ContinueRegistrationTemplateData struct {
+		Link string
+	}
+
+	InvitationToRegistrationTemplateData struct {
 		Link string
 	}
 
@@ -20,17 +26,23 @@ type (
 	}
 )
 
+// email templates names
 const (
-	AccountExistsTemplate        = "account_exists_template"
-	ContinueRegistrationTemplate = "continue_registration_template"
-	PasswordResettingTemplate    = "password_resetting_template"
-	EmailConfirmationTemplate    = "email_confirmation_template"
+	AccountExistsTemplate            = "account_exists_template"
+	ContinueRegistrationTemplate     = "continue_registration_template"
+	InvitationToRegistrationTemplate = "invitation_to_registration_template"
+	PasswordResettingTemplate        = "password_resetting_template"
+	EmailConfirmationTemplate        = "email_confirmation_template"
 )
 
+// links for email confirmation, password resetting, etc.
 const (
-	// links for email confirmation, password resetting, etc.
-
 	ContinueRegistrationLink = "/sign-up/"
 	PasswordResettingLink    = "/reset-password/"
-	EmailConfirmationLink    = "/email/confirm/"
+	EmailConfirmationLink    = "/confirm-email/"
+)
+
+// errors
+var (
+	ErrEmail = appError.ErrInternal.WithObjectCode(emailObjectCode)
 )

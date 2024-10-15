@@ -11,8 +11,8 @@ import (
 
 type IChallengeCategoryUseCase interface {
 	GetEventCategories(ctx context.Context, eventID uuid.UUID) ([]*model.ChallengeCategory, error)
-	CreateEventCategory(ctx context.Context, category *model.ChallengeCategory) error
-	UpdateEventCategory(ctx context.Context, category *model.ChallengeCategory) error
+	CreateEventCategory(ctx context.Context, category model.ChallengeCategory) error
+	UpdateEventCategory(ctx context.Context, category model.ChallengeCategory) error
 	DeleteEventCategory(ctx context.Context, eventID uuid.UUID, categoryID uuid.UUID) error
 
 	UpdateEventCategoriesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
@@ -31,72 +31,112 @@ func (h *Handler) initChallengeCategoryAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getCategories(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
 
 	categories, err := h.useCase.GetEventCategories(ctx, eventID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithContent(ctx, categories)
+
+	response.AbortWithData(ctx, categories)
 }
 
 func (h *Handler) createCategory(ctx *gin.Context) {
 	var inp model.ChallengeCategory
-	if err := ctx.BindJSON(&inp); err != nil {
+	var err error
+
+	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	inp.EventID = uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
-
-	if err := h.useCase.CreateEventCategory(ctx, &inp); err != nil {
+	inp.EventID, err = uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Category created successfully")
+
+	if err = h.useCase.CreateEventCategory(ctx, inp); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) updateCategory(ctx *gin.Context) {
 	var inp model.ChallengeCategory
-	if err := ctx.BindJSON(&inp); err != nil {
+	var err error
+
+	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	inp.ID = uuid.FromStringOrNil(ctx.Param("categoryID"))
-	inp.EventID = uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
+	inp.ID, err = uuid.FromString(ctx.Param("categoryID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
 
-	if err := h.useCase.UpdateEventCategory(ctx, &inp); err != nil {
+	inp.EventID, err = uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Category updated successfully")
+
+	if err = h.useCase.UpdateEventCategory(ctx, inp); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) deleteCategory(ctx *gin.Context) {
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
-	categoryID := uuid.FromStringOrNil(ctx.Param("categoryID"))
-
-	if err := h.useCase.DeleteEventCategory(ctx, eventID, categoryID); err != nil {
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Category deleted successfully")
-}
 
-func (h *Handler) updateCategoriesOrder(ctx *gin.Context) {
-	var inp []model.Order
-	if err := ctx.BindJSON(&inp); err != nil {
+	categoryID, err := uuid.FromString(ctx.Param("categoryID"))
+	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	eventID := uuid.FromStringOrNil(ctx.GetString(tools.EventIDCtxKey))
-
-	if err := h.useCase.UpdateEventCategoriesOrder(ctx, eventID, inp); err != nil {
+	if err = h.useCase.DeleteEventCategory(ctx, eventID, categoryID); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Categories order updated successfully")
+
+	response.AbortWithSuccess(ctx)
+}
+
+func (h *Handler) updateCategoriesOrder(ctx *gin.Context) {
+	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	var inp []model.Order
+
+	if err = ctx.BindJSON(&inp); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+
+	if err = h.useCase.UpdateEventCategoriesOrder(ctx, eventID, inp); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	response.AbortWithSuccess(ctx)
 }

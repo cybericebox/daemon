@@ -7,16 +7,17 @@ import (
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"os"
 	"time"
 )
 
 type (
 	Config struct {
-		Debug      bool             `yaml:"debug" env:"DAEMON_DEBUG" env-default:"false" env-description:"Debug mode"`
-		Domain     string           `yaml:"domain" env:"DOMAIN" env-description:"Domain of the platform"`
-		Controller ControllerConfig `yaml:"controller"`
-		Service    ServiceConfig    `yaml:"service"`
-		Repository RepositoryConfig `yaml:"repository"`
+		Environment string           `yaml:"environment" env:"ENV" env-default:"production" env-description:"Environment"`
+		Domain      string           `yaml:"domain" env:"DOMAIN" env-description:"Domain of the platform"`
+		Controller  ControllerConfig `yaml:"controller"`
+		Service     ServiceConfig    `yaml:"service"`
+		Repository  RepositoryConfig `yaml:"repository"`
 	}
 
 	ControllerConfig struct {
@@ -62,7 +63,7 @@ type (
 
 	RecaptchaConfig struct {
 		SecretKey string  `yaml:"secretKey" env:"RECAPTCHA_SECRET" env-description:"Recaptcha secret"`
-		SiteKey   string  `yaml:"siteKey" env:"RECAPTCHA_KEY" env-description:"Recaptcha key"`
+		SiteKey   string  `yaml:"siteKey" env:"RECAPTCHA_SITE_KEY" env-description:"Recaptcha site key"`
 		ProjectID string  `yaml:"projectID" env:"RECAPTCHA_PROJECT" env-description:"Recaptcha project ID"`
 		APIKey    string  `yaml:"apiKey" env:"RECAPTCHA_API_KEY" env-description:"Recaptcha API key"`
 		Score     float32 `yaml:"score" env:"RECAPTCHA_SCORE" env-default:"0.5" env-description:"Recaptcha score"`
@@ -80,7 +81,7 @@ type (
 	StorageConfig struct {
 		DownloadExpiration time.Duration `yaml:"download_expiration" env:"STORAGE_DOWNLOAD_EXPIRATION" env-default:"1m"`
 		UploadExpiration   time.Duration `yaml:"upload_expiration" env:"STORAGE_UPLOAD_EXPIRATION" env-default:"1m"`
-		BucketName         string        `yaml:"bucket" env:"STORAGE_BUCKET" env-default:""`
+		BucketName         string
 	}
 
 	JWTConfig struct {
@@ -118,31 +119,32 @@ type (
 	}
 
 	RepositoryConfig struct {
-		Postgres PostgresConfig `yaml:"postgres"`
-		//StorageS3 StorageS3Config `yaml:"storageS3"`
-		Email EmailConfig     `yaml:"email"`
-		VPN   VPNGRPCConfig   `yaml:"vpn"`
-		Agent AgentGRPCConfig `yaml:"agent"`
+		Postgres  PostgresConfig  `yaml:"postgres"`
+		StorageS3 StorageS3Config `yaml:"storageS3"`
+		Email     EmailConfig     `yaml:"email"`
+		VPN       VPNGRPCConfig   `yaml:"vpn"`
+		Agent     AgentGRPCConfig `yaml:"agent"`
 	}
 
 	// PostgresConfig is the configuration for the Postgres database
 	PostgresConfig struct {
 		Host     string `yaml:"host" env:"POSTGRES_HOSTNAME" env-description:"Host of Postgres"`
-		Port     string `yaml:"port" env:"POSTGRES_PORT" env-default:"5432" env-description:"Port of Postgres"`
+		Port     int    `yaml:"port" env:"POSTGRES_PORT" env-default:"5432" env-description:"Port of Postgres"`
 		Username string `yaml:"username" env:"POSTGRES_USER" env-description:"Username of Postgres"`
 		Password string `yaml:"password" env:"POSTGRES_PASSWORD" env-description:"Password of Postgres"`
 		Database string `yaml:"database" env:"POSTGRES_DB" env-description:"Database of Postgres"`
 		SSLMode  string `yaml:"sslMode" env:"POSTGRES_SSL_MODE" env-default:"require" env-description:"SSL mode of Postgres"`
 	}
 
-	// StorageS3Config is the configuration for the S3 storage
-	//StorageS3Config struct {
-	//	Endpoint  string `yaml:"endpoint" env:"STORAGE_ENDPOINT" env-description:"Storage endpoint"`
-	//	Region    string `yaml:"region" env:"STORAGE_REGION" env-description:"Storage region"`
-	//	AccessKey string `yaml:"accessKey" env:"STORAGE_ACCESS_KEY" env-description:"Storage access key"`
-	//	SecretKey string `yaml:"secretKey" env:"STORAGE_SECRET_KEY" env-description:"Storage secret key"`
-	//	UseSSL    bool   `yaml:"useSSL" env:"STORAGE_USE_SSL" env-default:"true" env-description:"Storage use SSL"`
-	//}
+	//StorageS3Config is the configuration for the S3 storage
+	StorageS3Config struct {
+		Endpoint  string `yaml:"endpoint" env:"STORAGE_ENDPOINT" env-description:"Storage endpoint"`
+		Region    string `yaml:"region" env:"STORAGE_REGION" env-description:"Storage region"`
+		Bucket    string `yaml:"bucket" env:"STORAGE_BUCKET" env-default:"files" env-description:"Storage bucket"`
+		AccessKey string `yaml:"accessKey" env:"STORAGE_ACCESS_KEY" env-description:"Storage access key"`
+		SecretKey string `yaml:"secretKey" env:"STORAGE_SECRET_KEY" env-description:"Storage secret key"`
+		UseSSL    bool   `yaml:"useSSL" env:"STORAGE_USE_SSL" env-default:"true" env-description:"Storage use SSL"`
+	}
 
 	EmailConfig struct {
 		Host     string `yaml:"host" env:"EMAIL_HOST" env-description:"Host of email"`
@@ -183,7 +185,10 @@ type (
 	}
 )
 
-var PlatformDomain string
+var (
+	PlatformDomain string
+	MigrationPath  string
+)
 
 func MustGetConfig() *Config {
 	path := flag.String("config", "", "Path to config file")
@@ -192,8 +197,7 @@ func MustGetConfig() *Config {
 	log.Info().Msg("Reading daemon configuration")
 
 	instance := &Config{}
-	header := "Config variables:"
-	help, _ := cleanenv.GetDescription(instance, &header)
+	help, _ := cleanenv.GetDescription(instance, nil)
 
 	var err error
 
@@ -209,16 +213,24 @@ func MustGetConfig() *Config {
 		return nil
 	}
 
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	gin.SetMode(gin.ReleaseMode)
+
 	// set log mode
-	if !instance.Debug {
-		zerolog.SetGlobalLevel(zerolog.InfoLevel)
-		gin.SetMode(gin.ReleaseMode)
+	if instance.Environment != Production {
+		gin.SetMode(gin.DebugMode)
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	}
 
 	instance.populateForAllConfig()
 
 	// Set the domain
 	PlatformDomain = instance.Domain
+	MigrationPath = "migrations"
+	if instance.Environment == Local {
+		MigrationPath = "internal/delivery/repository/postgres/migrations"
+	}
 
 	return instance
 }
@@ -232,4 +244,7 @@ func (c *Config) populateForAllConfig() {
 	}
 
 	c.Service.OAuth.RedirectURLTemplate = fmt.Sprintf("%s://%s/api/auth/%%s/callback", SchemeHTTPS, c.Domain)
+
+	c.Service.Storage.BucketName = c.Repository.StorageS3.Bucket
+
 }

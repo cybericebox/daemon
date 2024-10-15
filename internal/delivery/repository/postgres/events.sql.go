@@ -43,7 +43,7 @@ type CreateEventParams struct {
 }
 
 func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) error {
-	_, err := q.exec(ctx, q.createEventStmt, createEvent,
+	_, err := q.db.Exec(ctx, createEvent,
 		arg.ID,
 		arg.Type,
 		arg.Availability,
@@ -68,67 +68,18 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) error 
 	return err
 }
 
-const deleteEvent = `-- name: DeleteEvent :exec
+const deleteEvent = `-- name: DeleteEvent :execrows
 delete
 from events
 where id = $1
 `
 
-func (q *Queries) DeleteEvent(ctx context.Context, id uuid.UUID) error {
-	_, err := q.exec(ctx, q.deleteEventStmt, deleteEvent, id)
-	return err
-}
-
-const getAllEvents = `-- name: GetAllEvents :many
-select id, type, availability, participation, tag, name, description, rules, picture, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
-from events
-`
-
-func (q *Queries) GetAllEvents(ctx context.Context) ([]Event, error) {
-	rows, err := q.query(ctx, q.getAllEventsStmt, getAllEvents)
+func (q *Queries) DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEvent, id)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
-	items := []Event{}
-	for rows.Next() {
-		var i Event
-		if err := rows.Scan(
-			&i.ID,
-			&i.Type,
-			&i.Availability,
-			&i.Participation,
-			&i.Tag,
-			&i.Name,
-			&i.Description,
-			&i.Rules,
-			&i.Picture,
-			&i.DynamicScoring,
-			&i.DynamicMax,
-			&i.DynamicMin,
-			&i.DynamicSolveThreshold,
-			&i.Registration,
-			&i.ScoreboardAvailability,
-			&i.ParticipantsVisibility,
-			&i.PublishTime,
-			&i.StartTime,
-			&i.FinishTime,
-			&i.WithdrawTime,
-			&i.UpdatedAt,
-			&i.UpdatedBy,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return result.RowsAffected(), nil
 }
 
 const getEventByID = `-- name: GetEventByID :one
@@ -138,7 +89,7 @@ where id = $1
 `
 
 func (q *Queries) GetEventByID(ctx context.Context, id uuid.UUID) (Event, error) {
-	row := q.queryRow(ctx, q.getEventByIDStmt, getEventByID, id)
+	row := q.db.QueryRow(ctx, getEventByID, id)
 	var i Event
 	err := row.Scan(
 		&i.ID,
@@ -175,7 +126,7 @@ where tag = $1
 `
 
 func (q *Queries) GetEventByTag(ctx context.Context, tag string) (Event, error) {
-	row := q.queryRow(ctx, q.getEventByTagStmt, getEventByTag, tag)
+	row := q.db.QueryRow(ctx, getEventByTag, tag)
 	var i Event
 	err := row.Scan(
 		&i.ID,
@@ -213,7 +164,7 @@ where tag = $1
 `
 
 func (q *Queries) GetEventIDIfNotWithdrawn(ctx context.Context, tag string) (uuid.UUID, error) {
-	row := q.queryRow(ctx, q.getEventIDIfNotWithdrawnStmt, getEventIDIfNotWithdrawn, tag)
+	row := q.db.QueryRow(ctx, getEventIDIfNotWithdrawn, tag)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -227,54 +178,112 @@ where tag = $1
 `
 
 func (q *Queries) GetEventIDIfRunning(ctx context.Context, tag string) (uuid.UUID, error) {
-	row := q.queryRow(ctx, q.getEventIDIfRunningStmt, getEventIDIfRunning, tag)
+	row := q.db.QueryRow(ctx, getEventIDIfRunning, tag)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
 }
 
-const updateEvent = `-- name: UpdateEvent :exec
+const getEvents = `-- name: GetEvents :many
+select id, type, availability, participation, tag, name, description, rules, picture, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
+from events
+`
+
+func (q *Queries) GetEvents(ctx context.Context) ([]Event, error) {
+	rows, err := q.db.Query(ctx, getEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Event{}
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Availability,
+			&i.Participation,
+			&i.Tag,
+			&i.Name,
+			&i.Description,
+			&i.Rules,
+			&i.Picture,
+			&i.DynamicScoring,
+			&i.DynamicMax,
+			&i.DynamicMin,
+			&i.DynamicSolveThreshold,
+			&i.Registration,
+			&i.ScoreboardAvailability,
+			&i.ParticipantsVisibility,
+			&i.PublishTime,
+			&i.StartTime,
+			&i.FinishTime,
+			&i.WithdrawTime,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateEvent = `-- name: UpdateEvent :execrows
 update events
-set name                    = $2,
-    description             = $3,
-    rules                   = $4,
-    picture                 = $5,
-    dynamic_scoring         = $6,
-    dynamic_max             = $7,
-    dynamic_min             = $8,
-    dynamic_solve_threshold = $9,
-    registration            = $10,
-    scoreboard_availability = $11,
-    participants_visibility = $12,
-    publish_time            = $13,
-    start_time              = $14,
-    finish_time             = $15,
-    withdraw_time           = $16
+set type                    = $2,
+    availability            = $3,
+    name                    = $4,
+    description             = $5,
+    rules                   = $6,
+    picture                 = $7,
+    dynamic_scoring         = $8,
+    dynamic_max             = $9,
+    dynamic_min             = $10,
+    dynamic_solve_threshold = $11,
+    registration            = $12,
+    scoreboard_availability = $13,
+    participants_visibility = $14,
+    publish_time            = $15,
+    start_time              = $16,
+    finish_time             = $17,
+    withdraw_time           = $18,
+    updated_at              = now(),
+    updated_by              = $19
 where id = $1
 `
 
 type UpdateEventParams struct {
-	ID                     uuid.UUID `json:"id"`
-	Name                   string    `json:"name"`
-	Description            string    `json:"description"`
-	Rules                  string    `json:"rules"`
-	Picture                string    `json:"picture"`
-	DynamicScoring         bool      `json:"dynamic_scoring"`
-	DynamicMax             int32     `json:"dynamic_max"`
-	DynamicMin             int32     `json:"dynamic_min"`
-	DynamicSolveThreshold  int32     `json:"dynamic_solve_threshold"`
-	Registration           int32     `json:"registration"`
-	ScoreboardAvailability int32     `json:"scoreboard_availability"`
-	ParticipantsVisibility int32     `json:"participants_visibility"`
-	PublishTime            time.Time `json:"publish_time"`
-	StartTime              time.Time `json:"start_time"`
-	FinishTime             time.Time `json:"finish_time"`
-	WithdrawTime           time.Time `json:"withdraw_time"`
+	ID                     uuid.UUID     `json:"id"`
+	Type                   int32         `json:"type"`
+	Availability           int32         `json:"availability"`
+	Name                   string        `json:"name"`
+	Description            string        `json:"description"`
+	Rules                  string        `json:"rules"`
+	Picture                string        `json:"picture"`
+	DynamicScoring         bool          `json:"dynamic_scoring"`
+	DynamicMax             int32         `json:"dynamic_max"`
+	DynamicMin             int32         `json:"dynamic_min"`
+	DynamicSolveThreshold  int32         `json:"dynamic_solve_threshold"`
+	Registration           int32         `json:"registration"`
+	ScoreboardAvailability int32         `json:"scoreboard_availability"`
+	ParticipantsVisibility int32         `json:"participants_visibility"`
+	PublishTime            time.Time     `json:"publish_time"`
+	StartTime              time.Time     `json:"start_time"`
+	FinishTime             time.Time     `json:"finish_time"`
+	WithdrawTime           time.Time     `json:"withdraw_time"`
+	UpdatedBy              uuid.NullUUID `json:"updated_by"`
 }
 
-func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) error {
-	_, err := q.exec(ctx, q.updateEventStmt, updateEvent,
+func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEvent,
 		arg.ID,
+		arg.Type,
+		arg.Availability,
 		arg.Name,
 		arg.Description,
 		arg.Rules,
@@ -290,6 +299,29 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) error 
 		arg.StartTime,
 		arg.FinishTime,
 		arg.WithdrawTime,
+		arg.UpdatedBy,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateEventPicture = `-- name: UpdateEventPicture :execrows
+update events
+set picture = $2
+where id = $1
+`
+
+type UpdateEventPictureParams struct {
+	ID      uuid.UUID `json:"id"`
+	Picture string    `json:"picture"`
+}
+
+func (q *Queries) UpdateEventPicture(ctx context.Context, arg UpdateEventPictureParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventPicture, arg.ID, arg.Picture)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

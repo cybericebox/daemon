@@ -12,6 +12,7 @@ sql:
         emit_interface: true
         emit_empty_slices: true
         omit_unused_structs: true
+        sql_package: "pgx/v5"
         overrides:
           - db_type: "uuid"
             engine: "postgresql"
@@ -29,3 +30,11 @@ sql:
             go_type:
               import: "time"
               type: "Time"
+          - column: "exercises.data"
+            go_type:
+              import: "github.com/cybericebox/daemon/internal/model"
+              type: "ExerciseData"
+          - column: "event_challenges.data"
+            go_type:
+              import: "github.com/cybericebox/daemon/internal/model"
+              type: "ChallengeData"

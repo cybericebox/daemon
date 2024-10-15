@@ -1,8 +1,15 @@
 package config
 
 const (
-	//MigrationPath     = "internal/delivery/repository/postgres/migrations"
-	MigrationPath = "migrations"
+// MigrationPath = "internal/delivery/repository/postgres/migrations"
+// MigrationPath = "migrations"
+)
+
+// Environments
+const (
+	Local      = "local"
+	Stage      = "stage"
+	Production = "production"
 )
 
 // exercise flag
@@ -13,9 +20,8 @@ const (
 
 // subdomains and paths
 const (
-	MainSubdomain    = ""
-	AdminSubdomain   = "admin"
-	StorageSubdomain = "storage"
+	MainSubdomain  = ""
+	AdminSubdomain = "admin"
 
 	SignInPage        = "/sign-in"
 	EventNotFoundPage = "/event-not-found"

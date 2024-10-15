@@ -1,11 +1,10 @@
 package token
 
 import (
-	"context"
+	"errors"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/pkg/token"
-	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 	"time"
 )
@@ -13,13 +12,7 @@ import (
 type (
 	TokenService struct {
 		config       *config.JWTConfig
-		repository   IRepository
 		tokenManager tokenManager
-	}
-	IRepository interface {
-		DoesUserExistByID(ctx context.Context, id uuid.UUID) (bool, error)
-
-		SetLastSeen(ctx context.Context, id uuid.UUID) error
 	}
 
 	tokenManager interface {
@@ -30,81 +23,68 @@ type (
 	}
 
 	Dependencies struct {
-		Config     *config.JWTConfig
-		Repository IRepository
+		Config *config.JWTConfig
 	}
 )
 
 func NewTokenService(deps Dependencies) *TokenService {
 	manager, err := token.NewTokenManager(deps.Config.TokenSignature, deps.Config.AccessTokenTTL, deps.Config.RefreshTokenTTL)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create token manager")
+		log.Fatal().Err(err).Msg("Failed to create token manager")
 	}
 	return &TokenService{
 		config:       deps.Config,
-		repository:   deps.Repository,
 		tokenManager: manager,
 	}
 }
 
-func (s *TokenService) ValidateAccessToken(ctx context.Context, accessToken string) (uuid.UUID, bool) {
-	userID, err := s.tokenManager.ParseAccessToken(accessToken)
+func (s *TokenService) ValidateAccessToken(accessToken string) (interface{}, error) {
+	subject, err := s.tokenManager.ParseAccessToken(accessToken)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to parse access token")
-		return uuid.Nil, false
+		if errors.Is(err, token.InvalidJWTToken) {
+			return nil, model.ErrAuthInvalidAccessToken.Cause()
+		}
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to parse access token").Cause()
 	}
 
-	userIDParsed, err := uuid.FromString(userID.(string))
-
-	if err != nil {
-		log.Error().Err(err).Msg("failed to parse user id")
-		return uuid.Nil, false
-	}
-
-	exists, err := s.repository.DoesUserExistByID(ctx, userIDParsed)
-	if err != nil {
-		log.Error().Err(err).Msg("failed to check if user exists")
-		return uuid.Nil, false
-	}
-
-	if !exists {
-		return uuid.Nil, false
-	}
-
-	// set last seen time
-	if err = s.repository.SetLastSeen(ctx, userIDParsed); err != nil {
-		log.Error().Err(err).Msg("failed to set last seen")
-		return uuid.Nil, false
-	}
-
-	return userIDParsed, true
+	return subject, nil
 }
 
-func (s *TokenService) RefreshTokens(refreshToken string) (*model.Tokens, error) {
+func (s *TokenService) RefreshTokens(refreshToken string) (*model.Tokens, interface{}, error) {
 	subject, err := s.tokenManager.ParseRefreshToken(refreshToken)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, token.InvalidJWTToken) {
+			return nil, nil, model.ErrAuthInvalidRefreshToken.Cause()
+		}
+		return nil, nil, model.ErrAuth.WithError(err).WithMessage("Failed to parse refresh token").Cause()
 	}
-	return s.GenerateTokens(subject.(string))
+
+	tokens, err := s.GenerateTokens(subject)
+	if err != nil {
+		return nil, nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate tokens").Cause()
+	}
+
+	return tokens, subject, nil
 }
 
-func (s *TokenService) GenerateTokens(subject string) (*model.Tokens, error) {
-
-	tokens := &model.Tokens{}
+func (s *TokenService) GenerateTokens(subject interface{}) (*model.Tokens, error) {
+	tokens := model.Tokens{}
 	var err error
+
 	tokens.AccessToken, err = s.tokenManager.NewAccessToken(subject)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate access token").Cause()
 	}
+
 	tokens.RefreshToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate refresh token").Cause()
 	}
 
 	tokens.PermissionsToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate permissions token").Cause()
 	}
 
-	return tokens, nil
+	return &tokens, nil
 }

@@ -4,62 +4,63 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
 )
 
 type (
 	EventService struct {
-		repository      IRepository
-		exerciseService IExerciseService
+		repository IRepository
 	}
 
 	IRepository interface {
 		IChallengeCategoryRepository
+		IChallengeSolutionRepository
 		ITeamRepository
 		IChallengeRepository
-		IJoinRepository
+		ITeamChallengeRepository
 		IScoreRepository
 		IParticipantRepository
 
-		CreateEvent(ctx context.Context, arg postgres.CreateEventParams) error
-		DeleteEvent(ctx context.Context, id uuid.UUID) error
-		GetAllEvents(ctx context.Context) ([]postgres.Event, error)
+		GetEvents(ctx context.Context) ([]postgres.Event, error)
 		GetEventByID(ctx context.Context, id uuid.UUID) (postgres.Event, error)
 		GetEventByTag(ctx context.Context, tag string) (postgres.Event, error)
 
-		UpdateEvent(ctx context.Context, arg postgres.UpdateEventParams) error
+		CreateEvent(ctx context.Context, arg postgres.CreateEventParams) error
+		DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error)
+
+		UpdateEvent(ctx context.Context, arg postgres.UpdateEventParams) (int64, error)
+		UpdateEventPicture(ctx context.Context, arg postgres.UpdateEventPictureParams) (int64, error)
 
 		CountChallengesInEvents(ctx context.Context) ([]postgres.CountChallengesInEventsRow, error)
 		CountTeamsInEvents(ctx context.Context) ([]postgres.CountTeamsInEventsRow, error)
 	}
 
 	Dependencies struct {
-		Repository      IRepository
-		ExerciseService IExerciseService
+		Repository IRepository
 	}
 )
 
 func NewEventService(deps Dependencies) *EventService {
 	return &EventService{
-		repository:      deps.Repository,
-		exerciseService: deps.ExerciseService,
+		repository: deps.Repository,
 	}
 }
 
 func (s *EventService) GetEvents(ctx context.Context) ([]*model.Event, error) {
-	events, err := s.repository.GetAllEvents(ctx)
+	events, err := s.repository.GetEvents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get events from repository").Cause()
 	}
 
 	challenges, err := s.repository.CountChallengesInEvents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to count challenges in events").Cause()
 	}
 
 	teams, err := s.repository.CountTeamsInEvents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to count teams in events").Cause()
 	}
 
 	chaCounts := make(map[uuid.UUID]int64)
@@ -107,7 +108,10 @@ func (s *EventService) GetEvents(ctx context.Context) ([]*model.Event, error) {
 func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID) (*model.Event, error) {
 	event, err := s.repository.GetEventByID(ctx, eventID)
 	if err != nil {
-		return nil, err
+		if tools.IsObjectNotFoundError(err) {
+			return nil, model.ErrEventEventNotFound.WithContext("eventID", eventID).Cause()
+		}
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event by id from repository").Cause()
 	}
 	return &model.Event{
 		ID:                     event.ID,
@@ -137,7 +141,10 @@ func (s *EventService) GetEventByID(ctx context.Context, eventID uuid.UUID) (*mo
 func (s *EventService) GetEventByTag(ctx context.Context, eventTag string) (*model.Event, error) {
 	event, err := s.repository.GetEventByTag(ctx, eventTag)
 	if err != nil {
-		return nil, err
+		if tools.IsObjectNotFoundError(err) {
+			return nil, model.ErrEventEventNotFound.WithContext("eventTag", eventTag).Cause()
+		}
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event by tag from repository").Cause()
 	}
 	return &model.Event{
 		ID:                     event.ID,
@@ -164,11 +171,9 @@ func (s *EventService) GetEventByTag(ctx context.Context, eventTag string) (*mod
 	}, nil
 }
 
-func (s *EventService) CreateEvent(ctx context.Context, event *model.Event) (*model.Event, error) {
-	event.ID = uuid.Must(uuid.NewV7())
-
+func (s *EventService) CreateEvent(ctx context.Context, event model.Event) error {
 	if err := s.repository.CreateEvent(ctx, postgres.CreateEventParams{
-		ID:                     event.ID,
+		ID:                     uuid.Must(uuid.NewV7()),
 		Type:                   event.Type,
 		Availability:           event.Availability,
 		Participation:          event.Participation,
@@ -189,14 +194,24 @@ func (s *EventService) CreateEvent(ctx context.Context, event *model.Event) (*mo
 		FinishTime:             event.FinishTime,
 		WithdrawTime:           event.WithdrawTime,
 	}); err != nil {
-		return nil, err
+		if tools.IsUniqueViolationError(err) {
+			return model.ErrEventEventExists.Cause()
+		}
+		return model.ErrEvent.WithError(err).WithMessage("Failed to create event").Cause()
 	}
-	return event, nil
+	return nil
 }
 
-func (s *EventService) UpdateEvent(ctx context.Context, event *model.Event) error {
-	if err := s.repository.UpdateEvent(ctx, postgres.UpdateEventParams{
+func (s *EventService) UpdateEvent(ctx context.Context, event model.Event) error {
+	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
+	}
+
+	affected, err := s.repository.UpdateEvent(ctx, postgres.UpdateEventParams{
 		ID:                     event.ID,
+		Type:                   event.Type,
+		Availability:           event.Availability,
 		Name:                   event.Name,
 		Description:            event.Description,
 		Rules:                  event.Rules,
@@ -212,15 +227,53 @@ func (s *EventService) UpdateEvent(ctx context.Context, event *model.Event) erro
 		StartTime:              event.StartTime,
 		FinishTime:             event.FinishTime,
 		WithdrawTime:           event.WithdrawTime,
-	}); err != nil {
-		return err
+		UpdatedBy: uuid.NullUUID{
+			UUID:  currentUserID,
+			Valid: true,
+		},
+	})
+	if err != nil {
+		if tools.IsUniqueViolationError(err) {
+			return model.ErrEventEventExists.Cause()
+		}
+		errCreator, has := tools.ForeignKeyViolationError(err)
+		if has {
+			return errCreator.Cause()
+		}
+		return model.ErrEvent.WithError(err).WithMessage("Failed to update event").Cause()
 	}
+
+	if affected == 0 {
+		return model.ErrEventEventNotFound.WithMessage("Event not found").WithContext("eventID", event.ID).Cause()
+	}
+
+	return nil
+}
+
+func (s *EventService) RefreshEventPicture(ctx context.Context, eventID uuid.UUID, picture string) error {
+	affected, err := s.repository.UpdateEventPicture(ctx, postgres.UpdateEventPictureParams{
+		ID:      eventID,
+		Picture: picture,
+	})
+	if err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to update event picture").Cause()
+	}
+
+	if affected == 0 {
+		return model.ErrEventEventNotFound.WithMessage("Event not found").WithContext("eventID", eventID).Cause()
+	}
+
 	return nil
 }
 
 func (s *EventService) DeleteEvent(ctx context.Context, eventID uuid.UUID) error {
-	if err := s.repository.DeleteEvent(ctx, eventID); err != nil {
-		return err
+	affected, err := s.repository.DeleteEvent(ctx, eventID)
+	if err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event").Cause()
+	}
+
+	if affected == 0 {
+		return model.ErrEventEventNotFound.WithMessage("Event not found").WithContext("eventID", eventID).Cause()
 	}
 	return nil
 }

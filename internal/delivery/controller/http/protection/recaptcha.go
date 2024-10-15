@@ -3,13 +3,13 @@ package protection
 import (
 	"bytes"
 	recaptcha "cloud.google.com/go/recaptchaenterprise/v2/apiv1"
-	recaptchapb "cloud.google.com/go/recaptchaenterprise/v2/apiv1/recaptchaenterprisepb"
+	"cloud.google.com/go/recaptchaenterprise/v2/apiv1/recaptchaenterprisepb"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/tools"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/api/option"
@@ -22,13 +22,6 @@ const (
 	siteVerifyURL = "https://www.google.com/recaptcha/api/siteverify"
 )
 
-var (
-	ErrInvalidRecaptchaToken  = tools.NewError("recaptcha token is invalid", http.StatusBadRequest)
-	ErrNoRecaptchaToken       = tools.NewError("recaptcha token is required", http.StatusBadRequest)
-	ErrInvalidRecaptchaAction = tools.NewError("recaptcha action is invalid", http.StatusBadRequest)
-	ErrLowerScore             = tools.NewError("recaptcha score is lower than required", http.StatusBadRequest)
-)
-
 func RequireRecaptcha(action string) gin.HandlerFunc {
 	verifyToken := verifyRecaptchaToken
 	if protector.config.Recaptcha.ProjectID != "" {
@@ -38,7 +31,7 @@ func RequireRecaptcha(action string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		recaptchaToken, err := getRecaptchaToken(ctx)
 		if err != nil {
-			response.AbortWithError(ctx, ErrNoRecaptchaToken)
+			response.AbortWithError(ctx, model.ErrAuthRecaptchaNoRecaptchaToken.Cause())
 			return
 		}
 
@@ -51,19 +44,19 @@ func RequireRecaptcha(action string) gin.HandlerFunc {
 }
 
 type siteVerifyRequest struct {
-	RecaptchaToken string `json:"recaptchaToken" binding:"required"` //TODO: change to g-recaptcha-response
+	RecaptchaToken string `binding:"required"`
 }
 
 // getRecaptchaToken from request body 'g-recaptcha-response' field
 func getRecaptchaToken(ctx *gin.Context) (string, error) {
 	bodyBytes, err := io.ReadAll(ctx.Request.Body)
 	if err != nil {
-		return "", err
+		return "", model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to read request body").Cause()
 	}
 
 	var body siteVerifyRequest
 	if err = json.Unmarshal(bodyBytes, &body); err != nil {
-		return "", err
+		return "", model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to unmarshal request body").Cause()
 	}
 
 	// Restore request body to read more than once.
@@ -74,42 +67,40 @@ func getRecaptchaToken(ctx *gin.Context) (string, error) {
 
 // verifyRecaptchaToken checks if the recaptcha token is valid
 func verifyRecaptchaEnterpriseToken(ctx context.Context, token, action string) error {
-	ctx = context.Background()
 	client, err := recaptcha.NewClient(ctx, option.WithAPIKey(protector.config.Recaptcha.APIKey))
 	if err != nil {
-		return err
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to create recaptcha client").Cause()
 	}
 	defer func() {
 		if err = client.Close(); err != nil {
-			log.Error().Err(err).Msg("failed to close recaptcha client")
+			log.Error().Err(err).Msg("Failed to close recaptcha client")
 		}
 	}()
 
 	recaptchaResp, err := client.CreateAssessment(ctx,
-		&recaptchapb.CreateAssessmentRequest{
-			Assessment: &recaptchapb.Assessment{
-				Event: &recaptchapb.Event{
+		&recaptchaenterprisepb.CreateAssessmentRequest{
+			Assessment: &recaptchaenterprisepb.Assessment{
+				Event: &recaptchaenterprisepb.Event{
 					Token:   token,
 					SiteKey: protector.config.Recaptcha.SiteKey,
 				},
 			},
 			Parent: fmt.Sprintf("projects/%s", protector.config.Recaptcha.ProjectID),
 		})
-
 	if err != nil {
-		return err
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to create recaptcha assessment").Cause()
 	}
 
 	if !recaptchaResp.TokenProperties.Valid {
-		return errors.New(recaptchaResp.TokenProperties.InvalidReason.String())
+		return model.ErrAuthRecaptchaInvalidRecaptchaToken.WithError(errors.New(recaptchaResp.TokenProperties.InvalidReason.String())).Cause()
 	}
 
 	if recaptchaResp.RiskAnalysis.Score < protector.config.Recaptcha.Score {
-		return ErrLowerScore
+		return model.ErrAuthRecaptchaLowerScore.WithError(errors.New(fmt.Sprintf("%f", recaptchaResp.RiskAnalysis.Score))).Cause()
 	}
 
 	if recaptchaResp.TokenProperties.Action != action {
-		return ErrInvalidRecaptchaAction
+		return model.ErrAuthRecaptchaInvalidRecaptchaAction.WithError(errors.New(recaptchaResp.TokenProperties.Action)).Cause()
 	}
 
 	return nil
@@ -127,7 +118,7 @@ type siteVerifyResponse struct {
 func verifyRecaptchaToken(ctx context.Context, token, action string) error {
 	req, err := http.NewRequest(http.MethodPost, siteVerifyURL, nil)
 	if err != nil {
-		return err
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to create recaptcha request").Cause()
 	}
 
 	// Add necessary request parameters.
@@ -138,32 +129,30 @@ func verifyRecaptchaToken(ctx context.Context, token, action string) error {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to send recaptcha request").Cause()
 	}
 	defer func() {
 		if err = resp.Body.Close(); err != nil {
-			log.Error().Err(err).Msg("failed to close response body")
+			log.Error().Err(err).Msg("Failed to close response body")
 		}
 	}()
 
 	var body siteVerifyResponse
 	if err = json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return err
+		return model.ErrAuthRecaptcha.WithError(err).WithMessage("Failed to decode recaptcha response").Cause()
 	}
 
-	log.Debug().Interface("body", body).Msg("Recaptcha response")
-
 	if !body.Success {
-		return ErrInvalidRecaptchaToken
+		return model.ErrAuthRecaptchaInvalidRecaptchaToken.Cause()
 	}
 
 	// Check additional response parameters applicable for V3.
 	if body.Score < protector.config.Recaptcha.Score {
-		return ErrLowerScore
+		return model.ErrAuthRecaptchaLowerScore.WithError(errors.New(fmt.Sprintf("%f", body.Score))).Cause()
 	}
 
 	if body.Action != action {
-		return ErrInvalidRecaptchaAction
+		return model.ErrAuthRecaptchaInvalidRecaptchaAction.WithError(errors.New(body.Action)).Cause()
 	}
 
 	return nil

@@ -10,7 +10,7 @@ from events
 where tag = $1
   and now() < withdraw_time;
 
--- name: GetAllEvents :many
+-- name: GetEvents :many
 select *
 from events;
 
@@ -30,26 +30,35 @@ insert into events (id, type, availability, participation, tag, name, descriptio
                     participants_visibility, publish_time, start_time, finish_time, withdraw_time)
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20);
 
--- name: UpdateEvent :exec
+-- name: UpdateEvent :execrows
 update events
-set name                    = $2,
-    description             = $3,
-    rules                   = $4,
-    picture                 = $5,
-    dynamic_scoring         = $6,
-    dynamic_max             = $7,
-    dynamic_min             = $8,
-    dynamic_solve_threshold = $9,
-    registration            = $10,
-    scoreboard_availability = $11,
-    participants_visibility = $12,
-    publish_time            = $13,
-    start_time              = $14,
-    finish_time             = $15,
-    withdraw_time           = $16
+set type                    = $2,
+    availability            = $3,
+    name                    = $4,
+    description             = $5,
+    rules                   = $6,
+    picture                 = $7,
+    dynamic_scoring         = $8,
+    dynamic_max             = $9,
+    dynamic_min             = $10,
+    dynamic_solve_threshold = $11,
+    registration            = $12,
+    scoreboard_availability = $13,
+    participants_visibility = $14,
+    publish_time            = $15,
+    start_time              = $16,
+    finish_time             = $17,
+    withdraw_time           = $18,
+    updated_at              = now(),
+    updated_by              = $19
 where id = $1;
 
--- name: DeleteEvent :exec
+-- name: UpdateEventPicture :execrows
+update events
+set picture = $2
+where id = $1;
+
+-- name: DeleteEvent :execrows
 delete
 from events
 where id = $1;

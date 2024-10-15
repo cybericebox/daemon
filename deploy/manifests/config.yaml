@@ -5,7 +5,7 @@ metadata:
   namespace: cybericebox
 data:
   DOMAIN: "cybericebox.com" # domain of the platform
-  RECAPTCHA_KEY: "sitekey"
+  RECAPTCHA_SITE_KEY: "sitekey"
   RECAPTCHA_SECRET: "secretkey"
   JWT_TOKEN_SIGNATURE: "random" # for signing JWT tokens
   GOOGLE_CLIENT_ID: "clientId"

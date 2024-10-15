@@ -7,8 +7,8 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
 )
 
@@ -19,15 +19,15 @@ values ($1, $2, $3, $4, $5)
 `
 
 type CreateExerciseParams struct {
-	ID          uuid.UUID       `json:"id"`
-	CategoryID  uuid.UUID       `json:"category_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Data        json.RawMessage `json:"data"`
+	ID          uuid.UUID          `json:"id"`
+	CategoryID  uuid.UUID          `json:"category_id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Data        model.ExerciseData `json:"data"`
 }
 
 func (q *Queries) CreateExercise(ctx context.Context, arg CreateExerciseParams) error {
-	_, err := q.exec(ctx, q.createExerciseStmt, createExercise,
+	_, err := q.db.Exec(ctx, createExercise,
 		arg.ID,
 		arg.CategoryID,
 		arg.Name,
@@ -37,15 +37,18 @@ func (q *Queries) CreateExercise(ctx context.Context, arg CreateExerciseParams) 
 	return err
 }
 
-const deleteExercise = `-- name: DeleteExercise :exec
+const deleteExercise = `-- name: DeleteExercise :execrows
 delete
 from exercises
 where id = $1
 `
 
-func (q *Queries) DeleteExercise(ctx context.Context, id uuid.UUID) error {
-	_, err := q.exec(ctx, q.deleteExerciseStmt, deleteExercise, id)
-	return err
+func (q *Queries) DeleteExercise(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExercise, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getExerciseByID = `-- name: GetExerciseByID :one
@@ -55,7 +58,7 @@ where id = $1
 `
 
 func (q *Queries) GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error) {
-	row := q.queryRow(ctx, q.getExerciseByIDStmt, getExerciseByID, id)
+	row := q.db.QueryRow(ctx, getExerciseByID, id)
 	var i Exercise
 	err := row.Scan(
 		&i.ID,
@@ -73,10 +76,11 @@ func (q *Queries) GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, 
 const getExercises = `-- name: GetExercises :many
 select id, category_id, name, description, data, updated_at, updated_by, created_at
 from exercises
+order by name
 `
 
 func (q *Queries) GetExercises(ctx context.Context) ([]Exercise, error) {
-	rows, err := q.query(ctx, q.getExercisesStmt, getExercises)
+	rows, err := q.db.Query(ctx, getExercises)
 	if err != nil {
 		return nil, err
 	}
@@ -97,9 +101,6 @@ func (q *Queries) GetExercises(ctx context.Context) ([]Exercise, error) {
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -111,10 +112,11 @@ const getExercisesByCategory = `-- name: GetExercisesByCategory :many
 select id, category_id, name, description, data, updated_at, updated_by, created_at
 from exercises
 where category_id = $1
+order by name
 `
 
 func (q *Queries) GetExercisesByCategory(ctx context.Context, categoryID uuid.UUID) ([]Exercise, error) {
-	rows, err := q.query(ctx, q.getExercisesByCategoryStmt, getExercisesByCategory, categoryID)
+	rows, err := q.db.Query(ctx, getExercisesByCategory, categoryID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +138,41 @@ func (q *Queries) GetExercisesByCategory(ctx context.Context, categoryID uuid.UU
 		}
 		items = append(items, i)
 	}
-	if err := rows.Close(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	return items, nil
+}
+
+const getExercisesByIDs = `-- name: GetExercisesByIDs :many
+select id, category_id, name, description, data, updated_at, updated_by, created_at
+from exercises
+where id = any ($1::uuid[])
+order by name
+`
+
+func (q *Queries) GetExercisesByIDs(ctx context.Context, ids []uuid.UUID) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercisesByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Exercise{}
+	for rows.Next() {
+		var i Exercise
+		if err := rows.Scan(
+			&i.ID,
+			&i.CategoryID,
+			&i.Name,
+			&i.Description,
+			&i.Data,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -145,30 +180,74 @@ func (q *Queries) GetExercisesByCategory(ctx context.Context, categoryID uuid.UU
 	return items, nil
 }
 
-const updateExercise = `-- name: UpdateExercise :exec
+const getExercisesWithSimilarName = `-- name: GetExercisesWithSimilarName :many
+select id, category_id, name, description, data, updated_at, updated_by, created_at
+from exercises
+where name ilike '%' || $1::text || '%'
+   or description ilike '%' || $1::text || '%'
+order by name
+`
+
+func (q *Queries) GetExercisesWithSimilarName(ctx context.Context, search string) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercisesWithSimilarName, search)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Exercise{}
+	for rows.Next() {
+		var i Exercise
+		if err := rows.Scan(
+			&i.ID,
+			&i.CategoryID,
+			&i.Name,
+			&i.Description,
+			&i.Data,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateExercise = `-- name: UpdateExercise :execrows
 update exercises
 set category_id = $2,
     name        = $3,
     description = $4,
-    data        = $5
+    data        = $5,
+    updated_at  = now(),
+    updated_by  = $6
 where id = $1
 `
 
 type UpdateExerciseParams struct {
-	ID          uuid.UUID       `json:"id"`
-	CategoryID  uuid.UUID       `json:"category_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Data        json.RawMessage `json:"data"`
+	ID          uuid.UUID          `json:"id"`
+	CategoryID  uuid.UUID          `json:"category_id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Data        model.ExerciseData `json:"data"`
+	UpdatedBy   uuid.NullUUID      `json:"updated_by"`
 }
 
-func (q *Queries) UpdateExercise(ctx context.Context, arg UpdateExerciseParams) error {
-	_, err := q.exec(ctx, q.updateExerciseStmt, updateExercise,
+func (q *Queries) UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateExercise,
 		arg.ID,
 		arg.CategoryID,
 		arg.Name,
 		arg.Description,
 		arg.Data,
+		arg.UpdatedBy,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

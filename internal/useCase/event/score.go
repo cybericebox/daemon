@@ -17,44 +17,56 @@ type (
 func (u *EventUseCase) GetScore(ctx context.Context, eventID uuid.UUID) (*model.EventScore, error) {
 	event, err := u.service.GetEventByID(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get event by id").Cause()
 	}
 
 	// if event has not started yet, anyone can't see the scoreboard
 	if event.StartTime.After(time.Now().UTC()) {
-		return nil, model.ErrScoreNotAvailable
+		return nil, model.ErrEventScoreScoreNotAvailable.Cause()
 	}
 
 	// if scoreboard is public, then return the scoreboard
 	if event.ScoreboardAvailability == model.PublicScoreboardAvailabilityType {
-		return u.service.GetScore(ctx, eventID)
+		score, err := u.service.GetScore(ctx, eventID)
+		if err != nil {
+			return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get score").Cause()
+		}
+		return score, nil
 	}
 
 	// return private scoreboard only if the user is a participant
 	if event.ScoreboardAvailability == model.PrivateScoreboardAvailabilityType {
-		if _, err := u.GetSelfTeam(ctx, eventID); err != nil {
-			return nil, model.ErrScoreNotAvailable
+		if _, err = u.GetSelfTeam(ctx, eventID); err != nil {
+			return nil, model.ErrEventScoreScoreNotAvailable.Cause()
 		}
-		return u.service.GetScore(ctx, eventID)
+		score, err := u.service.GetScore(ctx, eventID)
+		if err != nil {
+			return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get score").Cause()
+		}
+		return score, nil
 	}
 
 	// return hidden scoreboard only if the user is an administrator
 	if event.ScoreboardAvailability == model.HiddenScoreboardAvailabilityType {
 		userRole, err := tools.GetCurrentUserRoleFromContext(ctx)
 		if err != nil {
-			return nil, err
+			return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get user role from context").Cause()
 		}
 		if userRole == model.AdministratorRole {
-			return u.service.GetScore(ctx, eventID)
+			score, err := u.service.GetScore(ctx, eventID)
+			if err != nil {
+				return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get score").Cause()
+			}
+			return score, nil
 		}
 	}
-	return nil, model.ErrScoreNotAvailable
+	return nil, model.ErrEventScoreScoreNotAvailable.Cause()
 }
 
 func (u *EventUseCase) ProtectScore(ctx context.Context, eventID uuid.UUID) (bool, error) {
 	event, err := u.service.GetEventByID(ctx, eventID)
 	if err != nil {
-		return true, err
+		return true, model.ErrEventScore.WithError(err).WithMessage("Failed to get event by id").Cause()
 	}
 
 	// if event scoreboard is public, then return true

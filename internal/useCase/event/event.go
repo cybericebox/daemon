@@ -4,9 +4,10 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/cybericebox/daemon/pkg/worker"
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -15,25 +16,130 @@ type (
 		GetEventByID(ctx context.Context, eventID uuid.UUID) (*model.Event, error)
 		GetEventByTag(ctx context.Context, eventTag string) (*model.Event, error)
 
-		UpdateEvent(ctx context.Context, event *model.Event) error
+		UpdateEvent(ctx context.Context, event model.Event) error
+		RefreshEventPicture(ctx context.Context, eventID uuid.UUID, picture string) error
 
 		DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 
-		GetParticipantJoinEventStatus(ctx context.Context, eventID, userID uuid.UUID) (int32, error)
-		CreateJoinEventRequest(ctx context.Context, eventID, userID uuid.UUID, status int32) error
-
-		GetUserByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
+		GetDownloadFileLink(ctx context.Context, params model.DownloadFileParams) (string, error)
+		DeleteFiles(ctx context.Context, files ...model.File) error
 	}
 )
 
+// for administrators
+
 func (u *EventUseCase) GetEvent(ctx context.Context, eventID uuid.UUID) (*model.Event, error) {
-	return u.service.GetEventByID(ctx, eventID)
+	event, err := u.service.GetEventByID(ctx, eventID)
+	if err != nil {
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event by id").Cause()
+	}
+
+	// check banner link if exists
+	if event.Picture != "" {
+		event.Picture, err = u.refreshPictureLink(ctx, eventID, event.Picture)
+		if err != nil {
+			return nil, model.ErrEvent.WithError(err).WithMessage("Failed to refresh banner link").Cause()
+		}
+	}
+
+	return event, nil
 }
+
+func (u *EventUseCase) GetEventBannerDownloadLink(ctx context.Context, eventID uuid.UUID) (string, error) {
+	event, err := u.GetEvent(ctx, eventID)
+	if err != nil {
+		return "", model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
+	}
+
+	return event.Picture, nil
+}
+
+func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error {
+	// get old event
+	oldEvent, err := u.GetEvent(ctx, event.ID)
+	if err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to get old event").Cause()
+	}
+
+	// check if event banner is changed
+	if event.Picture != oldEvent.Picture {
+		// delete old event banner if exists
+		if oldEvent.Picture != "" {
+			fileID, err := parsePictureURL(oldEvent.Picture)
+			if err != nil {
+				return model.ErrEvent.WithError(err).WithMessage("Failed to parse old picture url").Cause()
+			}
+
+			if err = u.service.DeleteFiles(ctx, model.File{ID: fileID, StorageType: model.BannerStorageType}); err != nil {
+				return model.ErrEvent.WithError(err).WithMessage("Failed to delete old file").Cause()
+			}
+		}
+		// confirm new event banner if exists
+		if event.Picture != "" {
+			fileID, err := parsePictureURL(event.Picture)
+			if err != nil {
+				return model.ErrEvent.WithError(err).WithMessage("Failed to parse new picture url").Cause()
+			}
+
+			if err = u.service.ConfirmFileUpload(ctx, fileID); err != nil {
+				return model.ErrEvent.WithError(err).WithMessage("Failed to confirm file upload").Cause()
+			}
+		}
+	}
+
+	// if start time is changed
+	if event.StartTime != oldEvent.StartTime {
+		// update start event worker
+		u.OnEventStarts(ctx, event)
+	}
+	// if finish time is changed
+	if event.FinishTime != oldEvent.FinishTime {
+		// update finish event worker
+		u.OnEventFinishes(ctx, event)
+	}
+
+	if err = u.service.UpdateEvent(ctx, event); err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to update event").Cause()
+	}
+	return nil
+}
+
+func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error {
+	// delete event banner if exists
+	event, err := u.GetEvent(ctx, eventID)
+	if err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
+	}
+
+	// delete event
+	if err = u.service.DeleteEvent(ctx, eventID); err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event").Cause()
+	}
+
+	// delete event banner if exists
+	if event.Picture != "" {
+		fileID, err := parsePictureURL(event.Picture)
+		if err != nil {
+			return model.ErrEvent.WithError(err).WithMessage("Failed to parse picture url").Cause()
+		}
+
+		if err = u.service.DeleteFiles(ctx, model.File{ID: fileID, StorageType: model.BannerStorageType}); err != nil {
+			return model.ErrEvent.WithError(err).WithMessage("Failed to delete file").Cause()
+		}
+	}
+
+	if err = u.DeleteEventTeamsChallengesInfrastructure(ctx, eventID); err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event teams challenges infrastructure").Cause()
+	}
+	return nil
+}
+
+// for participants
 
 func (u *EventUseCase) GetEventInfo(ctx context.Context, eventID uuid.UUID) (*model.EventInfo, error) {
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return nil, err
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
 	}
 
 	return &model.EventInfo{
@@ -52,147 +158,12 @@ func (u *EventUseCase) GetEventInfo(ctx context.Context, eventID uuid.UUID) (*mo
 	}, nil
 }
 
-func (u *EventUseCase) UpdateEvent(ctx context.Context, event *model.Event) error {
-	// check if event time is changed
-	// get old event
-	oldEvent, err := u.GetEvent(ctx, event.ID)
-	if err != nil {
-		return err
-	}
-
-	// if any event time is changed, we need update workers
-	// if event start time is changed we need to update start event worker
-	if oldEvent.StartTime != event.StartTime {
-		// update start event worker
-		// task to create event team challenges on event start
-		u.worker.AddTask(worker.Task{
-			Do: func() {
-				if err = u.service.CreateEventTeamsChallenges(ctx, event.ID); err != nil {
-					log.Error().Err(err).Msg("failed to create event teams challenges")
-				}
-			},
-			CheckIfNeedToDo: func() (bool, *time.Time) {
-				e, err := u.service.GetEventByID(ctx, event.ID)
-				if err != nil {
-					log.Error().Err(err).Msg("failed to get event")
-					return false, nil
-				}
-
-				next := e.StartTime.Add(-time.Minute)
-
-				return e.StartTime.Add(-time.Minute).Before(time.Now().UTC()), &next
-			},
-			TimeToDo: event.StartTime.Add(-time.Minute),
-		})
-	}
-
-	return u.service.UpdateEvent(ctx, event)
-}
-
-func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error {
-	return u.service.DeleteEvent(ctx, eventID)
-}
-
-// for event participation
-
-func (u *EventUseCase) GetJoinEventStatus(ctx context.Context, eventID uuid.UUID) (int32, error) {
-	// get current userID
-	userID, err := tools.GetCurrentUserIDFromContext(ctx)
-	if err != nil {
-		return model.NoParticipationStatus, err
-	}
-
-	// if user is administrator, return true
-
-	// get user role
-	userRole, err := tools.GetCurrentUserRoleFromContext(ctx)
-	if err != nil {
-		return model.NoParticipationStatus, err
-	}
-
-	if userRole == model.AdministratorRole {
-		return model.ApprovedParticipationStatus, nil
-	}
-
-	// get user participation status
-	status, err := u.service.GetParticipantJoinEventStatus(ctx, eventID, userID)
-	if err != nil {
-		return model.NoParticipationStatus, err
-	}
-
-	return status, nil
-}
-
-func (u *EventUseCase) JoinEvent(ctx context.Context, eventID uuid.UUID) error {
-	// get event
-	event, err := u.service.GetEventByID(ctx, eventID)
-	if err != nil {
-		return err
-	}
-
-	// if event type is competition, check if registration is closed or event is started.
-	// if event type is training, check if registration is closed
-
-	if event.Registration == model.ClosedRegistrationType ||
-		(event.Type == model.CompetitionEventType && time.Now().After(event.StartTime)) {
-		return model.ErrEventRegistrationClosed
-	}
-
-	// get join event status
-	status, err := u.GetJoinEventStatus(ctx, eventID)
-
-	if err != nil {
-		return err
-	}
-
-	// if user already requested to join event, return error
-	if status != model.NoParticipationStatus {
-		return model.ErrEventAlreadyJoined
-	}
-
-	// get current userID
-	userID, err := tools.GetCurrentUserIDFromContext(ctx)
-	if err != nil {
-		return err
-	}
-
-	participationStatus := model.PendingParticipationStatus
-
-	// if registration is open, set status to approved
-	if event.Registration == model.OpenRegistrationType {
-		participationStatus = model.ApprovedParticipationStatus
-	}
-
-	// create join event request
-	if err = u.service.CreateJoinEventRequest(ctx, eventID, userID, participationStatus); err != nil {
-		return err
-	}
-
-	// if registration is open, create participant for user
-	if event.Registration == model.OpenRegistrationType {
-		// if event participation is individual, create team for user with name as user`s name
-		if event.Participation == model.IndividualParticipationType {
-			// get user
-			user, err := u.service.GetUserByID(ctx, userID)
-			if err != nil {
-				return err
-			}
-			// create team for user with name as user`s name
-			if err = u.CreateTeam(ctx, eventID, user.Name); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
 // for helpful functions
 
 func (u *EventUseCase) GetEventIDByTag(ctx context.Context, eventTag string) (uuid.UUID, error) {
 	event, err := u.service.GetEventByTag(ctx, eventTag)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event by tag").Cause()
 	}
 
 	return event.ID, nil
@@ -201,12 +172,14 @@ func (u *EventUseCase) GetEventIDByTag(ctx context.Context, eventTag string) (uu
 func (u *EventUseCase) ShouldProxyEvent(ctx context.Context, eventTag string) bool {
 	event, err := u.service.GetEventByTag(ctx, eventTag)
 	if err != nil {
+		log.Debug().Err(err).Msg("Failed to get event by tag")
 		return false
 	}
 
 	// if user is administrator, return true
 	userRole, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err == nil {
+		log.Debug().Err(err).Msg("Failed to get user role from context")
 		if userRole == model.AdministratorRole {
 			return true
 		}
@@ -218,4 +191,93 @@ func (u *EventUseCase) ShouldProxyEvent(ctx context.Context, eventTag string) bo
 	}
 
 	return false
+}
+
+//
+
+func (u *EventUseCase) refreshPictureLink(ctx context.Context, eventID uuid.UUID, pictureLink string) (string, error) {
+	// check if banner link is valid
+	parsedURL, err := url.Parse(pictureLink)
+	if err != nil {
+		return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner url").Cause()
+	}
+
+	expires := parsedURL.Query().Get("X-Amz-Expires")
+	date := parsedURL.Query().Get("X-Amz-Date")
+
+	if expires == "" || date == "" {
+		// try parse banner link as file id
+		fileID, err := uuid.FromString(pictureLink)
+		if err != nil {
+			return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner url as file id").Cause()
+		}
+
+		link, err := u.service.GetDownloadFileLink(ctx, model.DownloadFileParams{
+			StorageType: model.BannerStorageType,
+			FileID:      fileID,
+			Expires:     time.Hour * 24,
+		})
+		if err != nil {
+			return "", model.ErrEvent.WithError(err).WithMessage("Failed to get banner link").Cause()
+		}
+		pictureLink = link
+
+		// update event with new banner link
+		if err = u.service.RefreshEventPicture(ctx, eventID, pictureLink); err != nil {
+			return "", model.ErrEvent.WithError(err).WithMessage("Failed to update event picture").Cause()
+		}
+
+		return pictureLink, nil
+	}
+
+	// check if banner link is expired
+	assignedDate, err := time.Parse("20060102T150405Z", date)
+	if err != nil {
+		return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner link assign date").Cause()
+	}
+
+	expiresDuration, err := time.ParseDuration(expires + "s")
+	if err != nil {
+		return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner link expires duration").Cause()
+	}
+
+	if time.Now().After(assignedDate.Add(expiresDuration)) {
+
+		splitURL := strings.Split(parsedURL.Path, "/")
+		fileID, err := uuid.FromString(splitURL[len(splitURL)-1])
+		if err != nil {
+			return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner url as file id").Cause()
+		}
+
+		link, err := u.service.GetDownloadFileLink(ctx, model.DownloadFileParams{
+			StorageType: model.BannerStorageType,
+			FileID:      fileID,
+			Expires:     time.Hour * 24,
+		})
+		if err != nil {
+			return "", model.ErrEvent.WithError(err).WithMessage("Failed to get banner link").Cause()
+		}
+
+		pictureLink = link
+
+		// update event with new banner link
+		if err = u.service.RefreshEventPicture(ctx, eventID, pictureLink); err != nil {
+			return "", model.ErrEvent.WithError(err).WithMessage("Failed to update event picture").Cause()
+		}
+
+		return pictureLink, nil
+	}
+
+	return pictureLink, nil
+}
+
+func parsePictureURL(pictureLink string) (uuid.UUID, error) {
+	parsedURL, err := url.Parse(pictureLink)
+	if err != nil {
+		return uuid.Nil, model.ErrEvent.WithError(err).WithMessage("Failed to parse picture url").Cause()
+	}
+
+	splitURL := strings.Split(parsedURL.Path, "/")
+
+	return uuid.FromStringOrNil(splitURL[len(splitURL)-1]), nil
 }

@@ -10,7 +10,7 @@ import (
 
 type ISignUpUseCase interface {
 	SignUp(ctx context.Context, email string) error
-	SignUpContinue(ctx context.Context, code string, newUser *model.User) (*model.Tokens, error)
+	SignUpContinue(ctx context.Context, code string, newUser model.User) (*model.Tokens, error)
 }
 
 func (h *Handler) initSignupAPIHandler(router *gin.RouterGroup) {
@@ -21,12 +21,9 @@ func (h *Handler) initSignupAPIHandler(router *gin.RouterGroup) {
 	}
 }
 
-type signUpRequest struct {
-	Email string `json:"email" binding:"required,email,max=255"`
-}
-
 func (h *Handler) signUp(ctx *gin.Context) {
-	var inp signUpRequest
+	var inp model.User
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
@@ -36,29 +33,21 @@ func (h *Handler) signUp(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithOK(ctx, "Check your email for the confirmation code")
-}
 
-type signUpContinueRequest struct {
-	Email    string `json:"email" binding:"required,email,max=255"`
-	Password string `json:"password" binding:"required,min=1,max=64"`
-	Name     string `json:"name" binding:"required,min=1,max=255"`
+	response.AbortWithSuccess(ctx)
 }
 
 func (h *Handler) signUpContinue(ctx *gin.Context) {
 	code := ctx.Param("code")
 
-	var inp signUpContinueRequest
+	var inp model.User
+
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	tokens, err := h.useCase.SignUpContinue(ctx, code, &model.User{
-		Email:    inp.Email,
-		Name:     inp.Name,
-		Password: inp.Password,
-	})
+	tokens, err := h.useCase.SignUpContinue(ctx, code, inp)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

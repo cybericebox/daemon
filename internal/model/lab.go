@@ -1,15 +1,22 @@
 package model
 
-import "github.com/gofrs/uuid"
+import (
+	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/gofrs/uuid"
+)
 
 type (
-	LabInfo struct {
+	LaboratoryInfo struct {
 		ID   uuid.UUID
 		CIDR string
 	}
 
-	LabChallenge struct {
+	LaboratoryChallenge struct {
 		ID        uuid.UUID
 		Instances []Instance
 	}
+)
+
+var (
+	ErrLaboratory = appError.ErrInternal.WithObjectCode(laboratoryObjectCode)
 )

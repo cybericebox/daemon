@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
 )
 
@@ -14,37 +16,31 @@ const (
 	ErrorCtxKey     = "error"
 )
 
-var (
-	ErrNoUserIDInContext    = NewError("no userID in context")
-	ErrNoUserRoleInContext  = NewError("no user role in context")
-	ErrNoSubdomainInContext = NewError("no subdomain in context")
-)
-
 func GetCurrentUserIDFromContext(ctx context.Context) (uuid.UUID, error) {
 	userID := ctx.Value(UserIDCtxKey)
 
 	if userID == nil {
-		return uuid.Nil, ErrNoUserIDInContext
+		return uuid.Nil, model.ErrPlatformUserNotFoundInContext.Cause()
 	}
 
-	parsedID, ok := userID.(*uuid.UUID)
+	parsedID, ok := userID.(uuid.UUID)
 	if !ok {
-		return uuid.Nil, ErrNoUserIDInContext
+		return uuid.Nil, model.ErrPlatformUserNotFoundInContext.Cause()
 	}
 
-	return *parsedID, nil
+	return parsedID, nil
 }
 
 func GetCurrentUserRoleFromContext(ctx context.Context) (string, error) {
 	userRole := ctx.Value(UserRoleCtxKey)
 
 	if userRole == nil {
-		return "", ErrNoUserRoleInContext
+		return "", model.ErrPlatformUserRoleNotFoundInContext.Cause()
 	}
 
 	parsedRole, ok := userRole.(string)
 	if !ok {
-		return "", ErrNoUserRoleInContext
+		return "", model.ErrPlatformUserRoleNotFoundInContext.Cause()
 	}
 
 	return parsedRole, nil
@@ -54,38 +50,26 @@ func GetSubdomainFromContext(ctx context.Context) (string, error) {
 	subdomain := ctx.Value(SubdomainCtxKey)
 
 	if subdomain == nil {
-		return "", ErrNoSubdomainInContext
+		return "", model.ErrPlatformSubdomainNotFoundInContext.Cause()
 	}
 	return subdomain.(string), nil
 }
 
-func GetEventIDFromContext(ctx context.Context) (uuid.UUID, error) {
-	eventIDStr := ctx.Value(EventIDCtxKey)
-
-	eventID := uuid.FromStringOrNil(eventIDStr.(string))
-
-	if eventID == uuid.Nil {
-		return uuid.Nil, ErrNoUserIDInContext
-	}
-	return eventID, nil
-}
-
-func GetErrorFromContext(ctx context.Context) *CError {
+func GetErrorFromContext(ctx context.Context) appError.Error {
 	errFromContext := ctx.Value(ErrorCtxKey)
 
 	if errFromContext == nil {
 		return nil
 	}
 
-	errParsed, ok := errFromContext.(*CError)
+	parsedError, ok := errFromContext.(appError.Error)
 	if !ok {
-		return NewError("error from context is not of type CError")
+		errCommonParsed, ok := errFromContext.(error)
+		if !ok {
+			return model.ErrPlatform.WithMessage(fmt.Sprintf("Error in context is not of type error: got [%v]", errFromContext)).Cause()
+		}
+		return model.ErrPlatform.WithError(errCommonParsed).WithMessage(errCommonParsed.Error()).Cause()
 	}
 
-	var err *CError
-	if ok = errors.As(errParsed, &err); !ok {
-		return NewError("error from context is not of type CError")
-	}
-
-	return err
+	return parsedError
 }
