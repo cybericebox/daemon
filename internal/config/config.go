@@ -42,8 +42,8 @@ type (
 
 	HTTPTLSConfig struct {
 		Enabled  bool   `yaml:"enabled" env:"TLS_ENABLED" env-default:"false" env-description:"TLS enabled"`
-		CertFile string `yaml:"certFile" env:"TLS_CERT_FILE" env-description:"Path to TLS cert"`
-		KeyFile  string `yaml:"keyFile" env:"TLS_KEY_FILE" env-description:"Path to TLS key"`
+		CertFile string `yaml:"certFile" env:"TLS_CERT_FILE" env-default:"/certificates/tls.crt" env-description:"Path to TLS cert"`
+		KeyFile  string `yaml:"keyFile" env:"TLS_KEY_FILE" env-default:"/certificates/tls.key" env-description:"Path to TLS key"`
 	}
 
 	// ProxyConfig is the configuration for the HTTP proxy for another services
@@ -238,10 +238,6 @@ func MustGetConfig() *Config {
 func (c *Config) populateForAllConfig() {
 	c.Controller.HTTP.Protection.JWT = c.Service.JWT
 	c.Controller.HTTP.Protection.TemporalCodeTTL = c.Service.TemporalCode.TTL
-	//
-	if c.Controller.HTTP.Server.TLS.Enabled {
-		c.Controller.HTTP.Server.Port = c.Controller.HTTP.Server.SecurePort
-	}
 
 	c.Service.OAuth.RedirectURLTemplate = fmt.Sprintf("%s://%s/api/auth/%%s/callback", SchemeHTTPS, c.Domain)
 

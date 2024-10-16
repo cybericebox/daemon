@@ -42,3 +42,12 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "200m"
+          volumeMounts:
+            - mountPath: /certificates/
+              name: certificates
+              readOnly: true
+      volumes:
+        - name: certificates
+          secret:
+            secretName: platform-certificates
+            defaultMode: 400
