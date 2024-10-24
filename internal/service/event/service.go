@@ -171,9 +171,10 @@ func (s *EventService) GetEventByTag(ctx context.Context, eventTag string) (*mod
 	}, nil
 }
 
-func (s *EventService) CreateEvent(ctx context.Context, event model.Event) error {
+func (s *EventService) CreateEvent(ctx context.Context, event model.Event) (*model.Event, error) {
+	event.ID = uuid.Must(uuid.NewV7())
 	if err := s.repository.CreateEvent(ctx, postgres.CreateEventParams{
-		ID:                     uuid.Must(uuid.NewV7()),
+		ID:                     event.ID,
 		Type:                   event.Type,
 		Availability:           event.Availability,
 		Participation:          event.Participation,
@@ -195,11 +196,11 @@ func (s *EventService) CreateEvent(ctx context.Context, event model.Event) error
 		WithdrawTime:           event.WithdrawTime,
 	}); err != nil {
 		if tools.IsUniqueViolationError(err) {
-			return model.ErrEventEventExists.Cause()
+			return nil, model.ErrEventEventExists.Cause()
 		}
-		return model.ErrEvent.WithError(err).WithMessage("Failed to create event").Cause()
+		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to create event").Cause()
 	}
-	return nil
+	return &event, nil
 }
 
 func (s *EventService) UpdateEvent(ctx context.Context, event model.Event) error {

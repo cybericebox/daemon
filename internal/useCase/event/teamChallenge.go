@@ -149,6 +149,10 @@ func (u *EventUseCase) DeleteEventTeamsChallengesInfrastructure(ctx context.Cont
 		labIDs = append(labIDs, team.LaboratoryID.UUID)
 	}
 
+	if len(labIDs) == 0 {
+		return nil
+	}
+
 	if err = u.service.DeleteLaboratories(ctx, labIDs...); err != nil {
 		return model.ErrEventTeamChallenge.WithError(err).WithMessage("Failed to delete laboratories").Cause()
 	}
@@ -174,6 +178,10 @@ func (u *EventUseCase) DeleteEventTeamsChallengeInfrastructureByExerciseID(ctx c
 	labIDs := make([]uuid.UUID, 0)
 	for _, team := range teams {
 		labIDs = append(labIDs, team.LaboratoryID.UUID)
+	}
+
+	if len(labIDs) == 0 {
+		return nil
 	}
 
 	if err = u.service.DeleteLaboratoriesChallenges(ctx, labIDs, []uuid.UUID{exerciseID}); err != nil {

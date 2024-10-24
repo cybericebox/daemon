@@ -26,7 +26,7 @@ type (
 		IScoreService
 
 		GetEvents(ctx context.Context) ([]*model.Event, error)
-		CreateEvent(ctx context.Context, event model.Event) error
+		CreateEvent(ctx context.Context, event model.Event) (*model.Event, error)
 
 		ConfirmFileUpload(ctx context.Context, fileID uuid.UUID) error
 		GetUploadFileData(ctx context.Context, storageType string, expires ...time.Duration) (*model.UploadFileData, error)
@@ -60,7 +60,8 @@ func (u *EventUseCase) GetEvents(ctx context.Context) ([]*model.Event, error) {
 }
 
 func (u *EventUseCase) CreateEvent(ctx context.Context, newEvent model.Event) error {
-	if err := u.service.CreateEvent(ctx, newEvent); err != nil {
+	createdEvent, err := u.service.CreateEvent(ctx, newEvent)
+	if err != nil {
 		return model.ErrEvent.WithError(err).WithMessage("Failed to create event").Cause()
 	}
 
@@ -76,7 +77,7 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, newEvent model.Event) er
 	}
 
 	// create event hooks
-	u.InitEventHooks(ctx, newEvent)
+	u.InitEventHooks(ctx, *createdEvent)
 
 	//TODO: create team for administrators
 	return nil
