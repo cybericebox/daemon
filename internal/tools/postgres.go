@@ -28,7 +28,6 @@ func IsUniqueViolationError(err error) bool {
 	return false
 }
 
-// TODO: foreign key violation error can be caused by multiple reasons: the foreign key does not exist on create or update, foreign key value does exists on delete
 func ForeignKeyViolationError(err error, isDelete ...bool) (appError.ErrorCreator, bool) {
 	isDeleteAction := false
 	if len(isDelete) > 0 {

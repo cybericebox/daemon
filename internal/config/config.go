@@ -79,8 +79,8 @@ type (
 	}
 
 	StorageConfig struct {
-		DownloadExpiration time.Duration `yaml:"download_expiration" env:"STORAGE_DOWNLOAD_EXPIRATION" env-default:"1m"`
-		UploadExpiration   time.Duration `yaml:"upload_expiration" env:"STORAGE_UPLOAD_EXPIRATION" env-default:"1m"`
+		DownloadExpiration time.Duration `yaml:"download_expiration" env:"STORAGE_DOWNLOAD_EXPIRATION" env-default:"10m"`
+		UploadExpiration   time.Duration `yaml:"upload_expiration" env:"STORAGE_UPLOAD_EXPIRATION" env-default:"10m"`
 		BucketName         string
 	}
 
