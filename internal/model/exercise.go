@@ -80,7 +80,7 @@ var (
 
 	ErrExerciseCategoryCategoryNotFound = appError.ErrObjectNotFound.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category not found")
 
-	ErrExerciseCategoryCategoryHasExercises = appError.ErrConflict.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category has exercises")
+	ErrExerciseCategoryCategoryHasExercises = appError.ErrConflict.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Category has exercises")
 
 	ErrExercise = appError.ErrInternal.WithObjectCode(exerciseObjectCode)
 

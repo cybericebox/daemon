@@ -111,6 +111,10 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 		return model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
 	}
 
+	if err = u.DeleteEventTeamsChallengesInfrastructure(ctx, eventID); err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event teams challenges infrastructure").Cause()
+	}
+
 	// delete event
 	if err = u.service.DeleteEvent(ctx, eventID); err != nil {
 		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event").Cause()
@@ -128,9 +132,6 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 		}
 	}
 
-	if err = u.DeleteEventTeamsChallengesInfrastructure(ctx, eventID); err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event teams challenges infrastructure").Cause()
-	}
 	return nil
 }
 
