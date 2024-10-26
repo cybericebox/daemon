@@ -1,7 +1,7 @@
 create table if not exists event_challenge_categories
 (
     id          uuid primary key,
-    event_id    uuid         not null references events (id) on delete restrict,
+    event_id uuid not null references events (id) on delete cascade,
 
     name        varchar(255) not null,
     order_index integer      not null,

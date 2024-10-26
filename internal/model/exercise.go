@@ -80,9 +80,13 @@ var (
 
 	ErrExerciseCategoryCategoryNotFound = appError.ErrObjectNotFound.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category not found")
 
+	ErrExerciseCategoryCategoryHasExercises = appError.ErrConflict.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category has exercises")
+
 	ErrExercise = appError.ErrInternal.WithObjectCode(exerciseObjectCode)
 
 	ErrExerciseExerciseNotFound = appError.ErrObjectNotFound.WithObjectCode(exerciseObjectCode).WithMessage("Exercise not found")
 
 	ErrExerciseExerciseExists = appError.ErrObjectExists.WithObjectCode(exerciseObjectCode).WithMessage("Exercise already exists")
+
+	ErrExerciseExerciseInUse = appError.ErrConflict.WithObjectCode(exerciseObjectCode).WithMessage("Exercise is in use")
 )

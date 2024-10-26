@@ -144,6 +144,7 @@ const (
 	platformCodeObjectExists
 	platformCodeUnauthenticated
 	platformCodeForbidden
+	platformCodeConflict
 )
 
 // Code constants for categories
@@ -161,4 +162,6 @@ var (
 	codeForbidden = newCode().WithInformCode(platformCodeForbidden).WithMessage("Forbidden").WithHTTPCode(http.StatusForbidden)
 	// CodeObjectAlreadyExists has http.StatusConflict as default http code
 	codeObjectExists = newCode().WithInformCode(platformCodeObjectExists).WithMessage("Object already exists").WithHTTPCode(http.StatusConflict)
+	// CodeConflict has http.StatusConflict as default http code
+	codeConflict = newCode().WithInformCode(platformCodeConflict).WithMessage("Conflict").WithHTTPCode(http.StatusConflict)
 )

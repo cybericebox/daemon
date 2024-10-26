@@ -28,7 +28,12 @@ func IsUniqueViolationError(err error) bool {
 	return false
 }
 
-func ForeignKeyViolationError(err error) (appError.ErrorCreator, bool) {
+// TODO: foreign key violation error can be caused by multiple reasons: the foreign key does not exist on create or update, foreign key value does exists on delete
+func ForeignKeyViolationError(err error, isDelete ...bool) (appError.ErrorCreator, bool) {
+	isDeleteAction := false
+	if len(isDelete) > 0 {
+		isDeleteAction = isDelete[0]
+	}
 	if err != nil {
 		var perr *pgconn.PgError
 		if errors.As(err, &perr) {
@@ -47,8 +52,14 @@ func ForeignKeyViolationError(err error) (appError.ErrorCreator, bool) {
 				// challengeCategoryID or exerciseCategoryID
 				case "category_id":
 					if perr.TableName == "event_challenges" {
+						if isDeleteAction {
+							return model.ErrEventChallengeCategoryCategoryHasChallenges.WithContext(contextKey, contextValue), true
+						}
 						return model.ErrEventChallengeCategoryCategoryNotFound.WithContext(contextKey, contextValue), true
 					} else {
+						if isDeleteAction {
+							return model.ErrExerciseCategoryCategoryHasExercises.WithContext(contextKey, contextValue), true
+						}
 						return model.ErrExerciseCategoryCategoryNotFound.WithContext(contextKey, contextValue), true
 					}
 				// challengeID
@@ -59,6 +70,9 @@ func ForeignKeyViolationError(err error) (appError.ErrorCreator, bool) {
 					return model.ErrEventTeamTeamNotFound.WithContext(contextKey, contextValue), true
 				// exerciseID
 				case "exercise_id":
+					if isDeleteAction {
+						return model.ErrExerciseExerciseInUse.WithContext(contextKey, contextValue), true
+					}
 					return model.ErrExerciseExerciseNotFound.WithContext(contextKey, contextValue), true
 				}
 				return model.ErrPlatform.WithMessage(perr.Message).WithContext(contextKey, contextValue), true

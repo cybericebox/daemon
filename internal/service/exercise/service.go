@@ -200,6 +200,10 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise model.Exe
 func (s *ExerciseService) DeleteExercise(ctx context.Context, exerciseID uuid.UUID) error {
 	affected, err := s.repository.DeleteExercise(ctx, exerciseID)
 	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err, true)
+		if has {
+			return errCreator.Cause()
+		}
 		return model.ErrExercise.WithError(err).WithMessage("Failed to delete exercise").Cause()
 	}
 

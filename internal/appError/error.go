@@ -158,4 +158,5 @@ var (
 	ErrInvalidData    = newError().WithCode(codeInvalidData)
 	ErrInternal       = newError()
 	Success           = newError().WithCode(codeSuccess)
+	ErrConflict       = newError().WithCode(codeConflict)
 )

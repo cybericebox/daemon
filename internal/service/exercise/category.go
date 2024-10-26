@@ -90,6 +90,10 @@ func (s *ExerciseService) UpdateExerciseCategory(ctx context.Context, category m
 func (s *ExerciseService) DeleteExerciseCategory(ctx context.Context, categoryID uuid.UUID) error {
 	affected, err := s.repository.DeleteExerciseCategory(ctx, categoryID)
 	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err, true)
+		if has {
+			return errCreator.Cause()
+		}
 		return model.ErrExerciseCategory.WithError(err).WithMessage("Failed to delete exercise category").WithContext("categoryID", categoryID).Cause()
 	}
 

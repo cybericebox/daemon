@@ -216,6 +216,8 @@ var (
 
 	ErrEventChallengeCategoryCategoryNotFound = appError.ErrObjectNotFound.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category not found")
 
+	ErrEventChallengeCategoryCategoryHasChallenges = appError.ErrConflict.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Category has challenges")
+
 	ErrEventChallenge = appError.ErrInternal.WithObjectCode(eventChallengeObjectCode)
 
 	ErrEventChallengeChallengeExists = appError.ErrObjectExists.WithObjectCode(eventChallengeObjectCode).WithMessage("Event challenge already exists")

@@ -2,7 +2,7 @@ create table if not exists event_challenges
 (
     id               uuid primary key,
     event_id         uuid        not null references events (id) on delete cascade,
-    category_id      uuid        not null references event_challenge_categories (id) on delete cascade,
+    category_id uuid not null references event_challenge_categories (id) on delete no action,
 
     data             jsonb       not null,
     order_index      integer     not null,

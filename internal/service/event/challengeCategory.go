@@ -101,6 +101,10 @@ func (s *EventService) DeleteEventCategory(ctx context.Context, eventID uuid.UUI
 		ID:      categoryID,
 	})
 	if err != nil {
+		errCreator, has := tools.ForeignKeyViolationError(err, true)
+		if has {
+			return errCreator.Cause()
+		}
 		return model.ErrEventChallengeCategory.WithError(err).WithMessage("Failed to delete event category").Cause()
 	}
 
