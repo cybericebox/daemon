@@ -62,7 +62,7 @@ func AbortWithForbidden(ctx *gin.Context) {
 }
 
 func AbortWithNotFound(ctx *gin.Context) {
-	AbortWithStatus(ctx, appError.ErrObjectNotFound.Err())
+	ctx.AbortWithStatus(http.StatusNotFound)
 }
 
 func AbortWithSuccess(ctx *gin.Context) {

@@ -82,29 +82,29 @@ func (u *AuthUseCase) SignIn(ctx context.Context, email, password string) (*mode
 	return tokens, nil
 }
 
-func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) *model.CheckTokensResult {
+func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) model.CheckTokensResult {
 	subject, err := u.service.ValidateAccessToken(oldTokens.AccessToken)
 	if err == nil {
 		userID, err := uuid.FromString(subject.(string))
 		if err != nil {
 			log.Debug().Err(err).Msg("Failed to convert subject to uuid")
-			return nil
+			return model.CheckTokensResult{}
 		}
 
 		// set last seen
 		if err = u.service.SetLastSeen(ctx, userID); err != nil {
 			if !errors.Is(err, model.ErrUserUserNotFound.Err()) {
 				log.Debug().Err(err).Msg("Failed to set last seen")
-				return nil
+				return model.CheckTokensResult{}
 			}
-			return &model.CheckTokensResult{
+			return model.CheckTokensResult{
 				Tokens: &oldTokens,
 				UserID: userID,
 				Valid:  false,
 			}
 		}
 
-		return &model.CheckTokensResult{
+		return model.CheckTokensResult{
 			Tokens: &oldTokens,
 			UserID: userID,
 			Valid:  true,
@@ -116,13 +116,13 @@ func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldToken
 	tokens, subject, err := u.service.RefreshTokens(oldTokens.RefreshToken)
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to refresh tokens")
-		return nil
+		return model.CheckTokensResult{}
 	}
 
 	userID, err := uuid.FromString(subject.(string))
 	if err != nil {
 		log.Debug().Err(err).Msg("Failed to convert subject to uuid")
-		return nil
+		return model.CheckTokensResult{}
 	}
 
 	// set last seen
@@ -130,16 +130,16 @@ func (u *AuthUseCase) RefreshTokensAndReturnUserID(ctx context.Context, oldToken
 		log.Debug().Err(err).Msg("Failed to set last seen in refresh")
 		if !errors.Is(err, model.ErrUserUserNotFound.Err()) {
 			log.Debug().Err(err).Msg("Failed to set last seen")
-			return nil
+			return model.CheckTokensResult{}
 		}
-		return &model.CheckTokensResult{
+		return model.CheckTokensResult{
 			Tokens: &oldTokens,
 			UserID: userID,
 			Valid:  false,
 		}
 	}
 
-	return &model.CheckTokensResult{
+	return model.CheckTokensResult{
 		Tokens:    tokens,
 		UserID:    userID,
 		Refreshed: true,

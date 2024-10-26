@@ -16,7 +16,7 @@ import (
 type (
 	IAuthProtectionUseCase interface {
 		GetCurrentUserRole(ctx context.Context) (string, error)
-		RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) *model.CheckTokensResult
+		RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) model.CheckTokensResult
 	}
 )
 
