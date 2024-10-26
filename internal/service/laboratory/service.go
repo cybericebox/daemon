@@ -21,8 +21,8 @@ type (
 		StopChallenge(ctx context.Context, labID, challengeID uuid.UUID) error
 		ResetChallenge(ctx context.Context, labID, challengeID uuid.UUID) error
 
-		GetVPNClientConfig(ctx context.Context, clientID, destCIDR string) (string, error)
-		DeleteVPNClient(ctx context.Context, clientID string) error
+		GetVPNClientConfig(ctx context.Context, userID, groupID, destCIDR string) (string, error)
+		DeleteVPNClients(ctx context.Context, userID, groupID string) error
 	}
 
 	Dependencies struct {
@@ -104,8 +104,8 @@ func (s *LaboratoryService) ResetChallenge(ctx context.Context, labID, challenge
 
 // vpn
 
-func (s *LaboratoryService) GetVPNClientConfig(ctx context.Context, clientID, labCIDR string) (string, error) {
-	config, err := s.repository.GetVPNClientConfig(ctx, clientID, labCIDR)
+func (s *LaboratoryService) GetVPNClientConfig(ctx context.Context, userID, groupID uuid.UUID, labCIDR string) (string, error) {
+	config, err := s.repository.GetVPNClientConfig(ctx, userID.String(), groupID.String(), labCIDR)
 	if err != nil {
 		return "", model.ErrLaboratory.WithError(err).WithMessage("Failed to get VPN client config").Cause()
 	}
@@ -113,8 +113,8 @@ func (s *LaboratoryService) GetVPNClientConfig(ctx context.Context, clientID, la
 	return config, nil
 }
 
-func (s *LaboratoryService) DeleteVPNClient(ctx context.Context, clientID string) error {
-	if err := s.repository.DeleteVPNClient(ctx, clientID); err != nil {
+func (s *LaboratoryService) DeleteVPNClients(ctx context.Context, userID, groupID uuid.UUID) error {
+	if err := s.repository.DeleteVPNClients(ctx, userID.String(), groupID.String()); err != nil {
 		return model.ErrLaboratory.WithError(err).WithMessage("Failed to delete VPN client").Cause()
 	}
 

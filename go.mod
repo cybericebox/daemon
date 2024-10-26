@@ -8,8 +8,8 @@ go 1.23.1
 
 require (
 	cloud.google.com/go/recaptchaenterprise/v2 v2.17.3
-	github.com/cybericebox/agent v1.0.1
-	github.com/cybericebox/wireguard v1.0.1
+	github.com/cybericebox/agent v1.0.2-rc
+	github.com/cybericebox/wireguard v1.0.2-rc
 	github.com/gin-gonic/gin v1.10.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang-jwt/jwt v3.2.2+incompatible
