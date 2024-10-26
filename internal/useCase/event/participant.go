@@ -2,7 +2,6 @@ package event
 
 import (
 	"context"
-	"fmt"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
@@ -16,13 +15,22 @@ type (
 
 		GetUserByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
 
-		GetVPNClientConfig(ctx context.Context, clientID, labCIDR string) (string, error)
+		GetVPNClientConfig(ctx context.Context, userID, groupID uuid.UUID, labCIDR string) (string, error)
+		DeleteVPNClients(ctx context.Context, userID, groupID uuid.UUID) error
 
 		GetLaboratories(ctx context.Context, labIDs ...uuid.UUID) ([]*model.LaboratoryInfo, error)
 	}
 )
 
 // for administrators
+
+func (u *EventUseCase) DeleteEventParticipantVPNConfigs(ctx context.Context, eventID uuid.UUID) error {
+	if err := u.service.DeleteVPNClients(ctx, uuid.Nil, eventID); err != nil {
+		return model.ErrEventParticipant.WithError(err).WithMessage("Failed to delete event participant vpn configs").Cause()
+	}
+
+	return nil
+}
 
 // for participants
 
@@ -155,7 +163,7 @@ func (u *EventUseCase) GetSelfVPNConfig(ctx context.Context, eventID uuid.UUID) 
 		return "", model.ErrEventParticipant.WithError(err).WithMessage("Failed to get laboratories").Cause()
 	}
 
-	config, err := u.service.GetVPNClientConfig(ctx, fmt.Sprintf("%s-%s", eventID.String(), userID.String()), labs[0].CIDR)
+	config, err := u.service.GetVPNClientConfig(ctx, userID, eventID, labs[0].CIDR)
 	if err != nil {
 		return "", model.ErrEventParticipant.WithError(err).WithMessage("Failed to get participant vpn config").Cause()
 	}

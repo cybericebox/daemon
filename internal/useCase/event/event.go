@@ -87,16 +87,8 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error
 		}
 	}
 
-	// if start time is changed
-	if event.StartTime != oldEvent.StartTime {
-		// update start event worker
-		u.OnEventStarts(ctx, event)
-	}
-	// if finish time is changed
-	if event.FinishTime != oldEvent.FinishTime {
-		// update finish event worker
-		u.OnEventFinishes(ctx, event)
-	}
+	// update event hooks if needed
+	u.UpdateEventHooks(ctx, event, *oldEvent)
 
 	if err = u.service.UpdateEvent(ctx, event); err != nil {
 		return model.ErrEvent.WithError(err).WithMessage("Failed to update event").Cause()
@@ -111,8 +103,14 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 		return model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
 	}
 
+	// delete event challenges infrastructure
 	if err = u.DeleteEventTeamsChallengesInfrastructure(ctx, eventID); err != nil {
 		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event teams challenges infrastructure").Cause()
+	}
+
+	// delete event participant vpn configs
+	if err = u.DeleteEventParticipantVPNConfigs(ctx, eventID); err != nil {
+		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event participant vpn configs").Cause()
 	}
 
 	// delete event

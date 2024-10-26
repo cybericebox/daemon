@@ -55,21 +55,25 @@ func newVPN(cfg *config.VPNGRPCConfig) (protobuf.WireguardClient, error) {
 	return c, nil
 }
 
-func (r *VPNRepository) GetVPNClientConfig(ctx context.Context, clientID, destCIDR string) (string, error) {
+func (r *VPNRepository) GetVPNClientConfig(ctx context.Context, userID, groupID, destCIDR string) (string, error) {
 	resp, err := r.WireguardClient.GetClientConfig(ctx, &protobuf.ClientConfigRequest{
-		Id:       clientID,
+		UserID:   userID,
+		GroupID:  groupID,
 		DestCIDR: destCIDR,
 	})
 	if err != nil {
-		return "", model.ErrVPN.WithError(err).WithMessage("Failed to get client config").WithContext("clientID", clientID).WithContext("destCIDR", destCIDR).Cause()
+		return "", model.ErrVPN.WithError(err).WithMessage("Failed to get client config").WithContext("userID", userID).WithContext("groupID", groupID).WithContext("destCIDR", destCIDR).Cause()
 	}
 
 	return resp.GetConfig(), nil
 }
 
-func (r *VPNRepository) DeleteVPNClient(ctx context.Context, clientID string) error {
-	if _, err := r.WireguardClient.DeleteClient(ctx, &protobuf.ClientRequest{Id: clientID}); err != nil {
-		return model.ErrVPN.WithError(err).WithMessage("Failed to delete client").WithContext("clientID", clientID).Cause()
+func (r *VPNRepository) DeleteVPNClients(ctx context.Context, userID, groupID string) error {
+	if _, err := r.WireguardClient.DeleteClients(ctx, &protobuf.ClientsRequest{
+		UserID:  userID,
+		GroupID: groupID,
+	}); err != nil {
+		return model.ErrVPN.WithError(err).WithMessage("Failed to delete client").WithContext("userID", userID).WithContext("groupID", groupID).Cause()
 	}
 
 	return nil
