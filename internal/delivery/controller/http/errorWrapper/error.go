@@ -9,6 +9,7 @@ import (
 )
 
 func WithErrorHandler(ctx *gin.Context) {
+	log.Debug().Str("url", ctx.Request.URL.Path).Interface("context", ctx.Keys).Msg("Request")
 	ctx.Next()
 
 	errFromContext := tools.GetErrorFromContext(ctx)
