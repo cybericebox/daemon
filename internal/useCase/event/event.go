@@ -62,7 +62,7 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error
 	}
 
 	// check if event banner is changed
-	if event.Picture != oldEvent.Picture {
+	if !equalPictureURLs(oldEvent.Picture, event.Picture) {
 		// delete old event banner if exists
 		if oldEvent.Picture != "" {
 			fileID, err := parsePictureURL(oldEvent.Picture)
@@ -279,4 +279,18 @@ func parsePictureURL(pictureLink string) (uuid.UUID, error) {
 	splitURL := strings.Split(parsedURL.Path, "/")
 
 	return uuid.FromStringOrNil(splitURL[len(splitURL)-1]), nil
+}
+
+func equalPictureURLs(pictureLink1, pictureLink2 string) bool {
+	fileID1, err := parsePictureURL(pictureLink1)
+	if err != nil {
+		return false
+	}
+
+	fileID2, err := parsePictureURL(pictureLink2)
+	if err != nil {
+		return false
+	}
+
+	return fileID1 == fileID2
 }
