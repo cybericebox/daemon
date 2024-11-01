@@ -36,9 +36,12 @@ func (u *EventUseCase) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 
 	// return private scoreboard only if the user is a participant
 	if event.ScoreboardAvailability == model.PrivateScoreboardAvailabilityType {
-		if _, err = u.GetSelfTeam(ctx, eventID); err != nil {
+
+		joinedStatus, err := u.GetSelfJoinEventStatus(ctx, eventID)
+		if err != nil || joinedStatus != model.ApprovedParticipationStatus {
 			return nil, model.ErrEventScoreScoreNotAvailable.Cause()
 		}
+
 		score, err := u.service.GetScore(ctx, eventID)
 		if err != nil {
 			return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get score").Cause()
