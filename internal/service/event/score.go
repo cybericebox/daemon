@@ -43,7 +43,7 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 			challengePoints[challenge.ID] = challenge.Data.Points
 		}
 	}
-	var teamScores []model.TeamScore
+	teamScores := make([]model.TeamScore, 0)
 	for _, team := range teams {
 		teamSolutions := make(map[uuid.UUID]model.TeamSolution)
 
@@ -152,7 +152,7 @@ func sortTimeline(solvesForTimeline []model.SolutionForTimeline) {
 }
 
 func convertToChallengeList(challenges []*model.Challenge) []model.ChallengeInfo {
-	var result []model.ChallengeInfo
+	result := make([]model.ChallengeInfo, 0, len(challenges))
 	for _, challenge := range challenges {
 		result = append(result, model.ChallengeInfo{
 			ID:   challenge.ID,
