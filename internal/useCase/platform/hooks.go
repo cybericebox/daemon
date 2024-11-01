@@ -41,31 +41,26 @@ func (u *PlatformUseCase) CleanTemporalUploadFiles(ctx context.Context) error {
 
 func (u *PlatformUseCase) InitPlatformHooks(ctx context.Context) {
 	// clean temporal codes
-	u.worker.AddTask(worker.Task{
-		Do: func() {
-			if err := u.CleanTemporalCodes(ctx); err != nil {
-				log.Error().Err(err).Msg("Failed to clean temporal codes")
-			}
-		},
-		RepeatDuration: 7 * 24 * time.Hour, // every week
-		TimeToDo:       time.Now(),
-		CheckIfNeedToDo: func() (need bool, nextTimeToDo *time.Time) {
-			return true, nil
-		},
-	})
+	u.worker.AddTask(
+		worker.NewTask().
+			WithKey("clean_temporal_codes").
+			WithDo(func() {
+				if err := u.CleanTemporalCodes(ctx); err != nil {
+					log.Error().Err(err).Msg("Failed to clean temporal codes")
+				}
+			}).WithRepeatDuration(7 * 24 * time.Hour).
+			Create())
 
 	// clean temporal upload files
-	u.worker.AddTask(worker.Task{
-		Do: func() {
-			if err := u.CleanTemporalUploadFiles(ctx); err != nil {
-				log.Error().Err(err).Msg("Failed to clean temporal upload files")
-			}
-		},
-		RepeatDuration: 7 * 24 * time.Hour, // every week
-		TimeToDo:       time.Now(),
-		CheckIfNeedToDo: func() (need bool, nextTimeToDo *time.Time) {
-			return true, nil
-		},
-	})
+	u.worker.AddTask(
+		worker.NewTask().
+			WithKey("clean_temporal_upload_files").
+			WithDo(func() {
+				if err := u.CleanTemporalUploadFiles(ctx); err != nil {
+					log.Error().Err(err).Msg("Failed to clean temporal upload files")
+				}
+			}).
+			WithRepeatDuration(7 * 24 * time.Hour).
+			Create())
 
 }
