@@ -17,7 +17,8 @@ type (
 	}
 
 	Task struct {
-		Do func()
+		Key string // key to identify task
+		Do  func()
 		// CheckIfNeedToDo returns if it needs to do now, not nil timeToDo is time to do task if not now
 		CheckIfNeedToDo func() (need bool, nextTimeToDo *time.Time)
 		TimeToDo        time.Time
@@ -54,6 +55,8 @@ func (d *Worker) manageTasks() {
 		if task.TimeToDo.IsZero() {
 			task.TimeToDo = time.Now()
 		}
+		// delete task with same key if exists
+		d.deleteTasksByKey(task.Key)
 		d.m.Lock()
 		d.queuedTasks = append(d.queuedTasks, task)
 
@@ -70,7 +73,9 @@ func (d *Worker) manageToDoTasks() {
 		d.m.Lock()
 		if len(d.queuedTasks) > 0 && d.queuedTasks[0].TimeToDo.Before(time.Now()) {
 			log.Debug().Msg("Task moved to toDoTasks")
+			// move task to toDoTasks
 			d.toDoTasks <- d.queuedTasks[0]
+			// remove task from queuedTasks
 			d.queuedTasks = d.queuedTasks[1:]
 		}
 		d.m.Unlock()
@@ -109,4 +114,16 @@ func (d *Worker) runWorkerPool() {
 			}
 		}(i + 1)
 	}
+}
+
+func (d *Worker) deleteTasksByKey(key string) {
+	d.m.Lock()
+	defer d.m.Unlock()
+	newQueuedTasks := make([]Task, 0)
+	for i := 0; i < len(d.queuedTasks); i++ {
+		if d.queuedTasks[i].Key != key {
+			newQueuedTasks = append(newQueuedTasks, d.queuedTasks[i])
+		}
+	}
+	d.queuedTasks = newQueuedTasks
 }
