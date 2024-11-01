@@ -141,9 +141,10 @@ func (s *StorageService) GetDownloadFileLink(ctx context.Context, params model.D
 	// set response-content-disposition to attachment; filename="file.Name"
 	reqParams := url.Values{}
 
-	if params.FileName != "" {
-		reqParams.Set("response-content-disposition", fmt.Sprintf("attachment; filename=\"%s\"", params.FileName))
+	if params.FileName == "" {
+		params.FileName = params.FileID.String()
 	}
+	reqParams.Set("response-content-disposition", fmt.Sprintf("attachment; filename=\"%s\"", params.FileName))
 
 	fileURL, err := s.repository.PresignedGetObject(ctx, s.config.BucketName, objectName, expiresDuration, reqParams)
 	if err != nil {
