@@ -119,8 +119,10 @@ type (
 		EventID uuid.UUID     `validate:"required,uuid"`
 		TeamID  uuid.NullUUID `validate:"omitempty,uuid"`
 
-		Name           string `validate:"required,min=3,max=255,alphanum"`
-		ApprovalStatus int32  `validate:"required,number,oneof=0 1 2"`
+		Name  string `validate:"required,min=3,max=255,alphanum"`
+		Email string `validate:"required,email"`
+
+		ApprovalStatus int32 `validate:"required,number,oneof=0 1 2"`
 
 		CreatedAt time.Time
 	}
@@ -130,6 +132,7 @@ type (
 		EventID uuid.UUID     `validate:"required,uuid"`
 		TeamID  uuid.NullUUID `validate:"omitempty,uuid"`
 		Name    string        `validate:"required,min=3,max=255,alphanum"`
+		Email   string        `validate:"required,email"`
 	}
 
 	CategoryInfo struct {
@@ -153,6 +156,18 @@ type (
 		TeamID      uuid.UUID
 		ChallengeID uuid.UUID
 		Flag        string
+	}
+
+	TeamChallengeSolutionAttempt struct {
+		ID            uuid.UUID
+		EventID       uuid.UUID
+		ChallengeID   uuid.UUID
+		TeamID        uuid.UUID
+		ParticipantID uuid.UUID
+		Answer        string
+		Flag          string
+		IsCorrect     bool
+		Timestamp     time.Time
 	}
 
 	TeamsChallengeSolvedBy struct {

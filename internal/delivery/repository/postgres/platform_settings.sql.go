@@ -41,7 +41,7 @@ func (q *Queries) GetEmailTemplateSubject(ctx context.Context, key string) (stri
 
 const updateEmailTemplateBody = `-- name: UpdateEmailTemplateBody :execrows
 update platform_settings
-set value = $2,
+set value      = $2,
     updated_at = now(),
     updated_by = $3
 where type = 'email_template_body'
@@ -64,7 +64,7 @@ func (q *Queries) UpdateEmailTemplateBody(ctx context.Context, arg UpdateEmailTe
 
 const updateEmailTemplateSubject = `-- name: UpdateEmailTemplateSubject :execrows
 update platform_settings
-set value = $2,
+set value      = $2,
     updated_at = now(),
     updated_by = $3
 where type = 'email_template_subject'

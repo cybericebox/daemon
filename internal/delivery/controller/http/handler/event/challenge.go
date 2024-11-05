@@ -43,6 +43,7 @@ func (h *Handler) initChallengeAPIHandler(router *gin.RouterGroup) {
 		}
 
 		h.initChallengeCategoryAPIHandler(challengeAPI)
+		h.initChallengeSolutionAPIHandler(challengeAPI)
 	}
 }
 

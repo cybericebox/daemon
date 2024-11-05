@@ -7,29 +7,25 @@ package postgres
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createEventParticipant = `-- name: CreateEventParticipant :exec
-insert into event_participants (event_id, user_id, name, approval_status)
-values ($1, $2, $3, $4)
+insert into event_participants (event_id, user_id, approval_status)
+values ($1, $2, $3)
 `
 
 type CreateEventParticipantParams struct {
 	EventID        uuid.UUID `json:"event_id"`
 	UserID         uuid.UUID `json:"user_id"`
-	Name           string    `json:"name"`
 	ApprovalStatus int32     `json:"approval_status"`
 }
 
 func (q *Queries) CreateEventParticipant(ctx context.Context, arg CreateEventParticipantParams) error {
-	_, err := q.db.Exec(ctx, createEventParticipant,
-		arg.EventID,
-		arg.UserID,
-		arg.Name,
-		arg.ApprovalStatus,
-	)
+	_, err := q.db.Exec(ctx, createEventParticipant, arg.EventID, arg.UserID, arg.ApprovalStatus)
 	return err
 }
 
@@ -73,29 +69,44 @@ func (q *Queries) GetEventParticipantStatus(ctx context.Context, arg GetEventPar
 }
 
 const getEventParticipants = `-- name: GetEventParticipants :many
-select user_id, event_id, team_id, name, approval_status, updated_at, updated_by, created_at
+select event_participants.user_id, event_participants.event_id, event_participants.team_id, event_participants.approval_status, event_participants.updated_at, event_participants.updated_by, event_participants.created_at, u.name as name, u.email as email
 from event_participants
+inner join users u on event_participants.user_id = u.id
 where event_id = $1
+order by event_participants.created_at desc
 `
 
-func (q *Queries) GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]EventParticipant, error) {
+type GetEventParticipantsRow struct {
+	UserID         uuid.UUID          `json:"user_id"`
+	EventID        uuid.UUID          `json:"event_id"`
+	TeamID         uuid.NullUUID      `json:"team_id"`
+	ApprovalStatus int32              `json:"approval_status"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy      uuid.NullUUID      `json:"updated_by"`
+	CreatedAt      time.Time          `json:"created_at"`
+	Name           string             `json:"name"`
+	Email          string             `json:"email"`
+}
+
+func (q *Queries) GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]GetEventParticipantsRow, error) {
 	rows, err := q.db.Query(ctx, getEventParticipants, eventID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []EventParticipant{}
+	items := []GetEventParticipantsRow{}
 	for rows.Next() {
-		var i EventParticipant
+		var i GetEventParticipantsRow
 		if err := rows.Scan(
 			&i.UserID,
 			&i.EventID,
 			&i.TeamID,
-			&i.Name,
 			&i.ApprovalStatus,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.CreatedAt,
+			&i.Name,
+			&i.Email,
 		); err != nil {
 			return nil, err
 		}
@@ -107,40 +118,11 @@ func (q *Queries) GetEventParticipants(ctx context.Context, eventID uuid.UUID) (
 	return items, nil
 }
 
-const updateEventParticipantName = `-- name: UpdateEventParticipantName :execrows
-update event_participants
-set name = $3,
-    updated_at = now(),
-    updated_by = $4
-where event_id = $1
-  and user_id = $2
-`
-
-type UpdateEventParticipantNameParams struct {
-	EventID   uuid.UUID     `json:"event_id"`
-	UserID    uuid.UUID     `json:"user_id"`
-	Name      string        `json:"name"`
-	UpdatedBy uuid.NullUUID `json:"updated_by"`
-}
-
-func (q *Queries) UpdateEventParticipantName(ctx context.Context, arg UpdateEventParticipantNameParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateEventParticipantName,
-		arg.EventID,
-		arg.UserID,
-		arg.Name,
-		arg.UpdatedBy,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const updateEventParticipantStatus = `-- name: UpdateEventParticipantStatus :execrows
 update event_participants
 set approval_status = $3,
-    updated_at = now(),
-    updated_by = $4
+    updated_at      = now(),
+    updated_by      = $4
 where event_id = $1
   and user_id = $2
 `
@@ -167,7 +149,7 @@ func (q *Queries) UpdateEventParticipantStatus(ctx context.Context, arg UpdateEv
 
 const updateEventParticipantTeam = `-- name: UpdateEventParticipantTeam :execrows
 update event_participants
-set team_id = $3,
+set team_id    = $3,
     updated_at = now(),
     updated_by = $4
 where event_id = $1

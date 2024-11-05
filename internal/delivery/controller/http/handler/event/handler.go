@@ -21,6 +21,7 @@ type (
 		ITeamUseCase
 		IChallengeUseCase
 		IChallengeCategoryUseCase
+		IChallengeSolutionUseCase
 		IScoreUseCase
 
 		GetEvents(ctx context.Context) ([]*model.Event, error)

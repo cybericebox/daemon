@@ -11,9 +11,13 @@ import (
 type (
 	IParticipantService interface {
 		GetEventParticipantStatus(ctx context.Context, eventID, userID uuid.UUID) (int32, error)
+		GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]*model.Participant, error)
 		CreateJoinEventRequest(ctx context.Context, participant model.Participant) error
 
 		GetUserByID(ctx context.Context, userID uuid.UUID) (*model.User, error)
+
+		UpdateEventParticipantStatus(ctx context.Context, eventID, userID uuid.UUID, status int32) error
+		DeleteEventParticipant(ctx context.Context, eventID, userID uuid.UUID) error
 
 		GetVPNClientConfig(ctx context.Context, userID, groupID uuid.UUID, labCIDR string) (string, error)
 		DeleteVPNClients(ctx context.Context, userID, groupID uuid.UUID) error
@@ -23,6 +27,33 @@ type (
 )
 
 // for administrators
+
+func (u *EventUseCase) GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]*model.Participant, error) {
+	participants, err := u.service.GetEventParticipants(ctx, eventID)
+	if err != nil {
+		return nil, model.ErrEventParticipant.WithError(err).WithMessage("Failed to get event participants").Cause()
+	}
+
+	return participants, nil
+}
+
+func (u *EventUseCase) UpdateEventParticipantStatus(ctx context.Context, eventID, userID uuid.UUID, status int32) error {
+	// update event participant status
+	if err := u.service.UpdateEventParticipantStatus(ctx, eventID, userID, status); err != nil {
+		return model.ErrEventParticipant.WithError(err).WithMessage("Failed to update event participant status").Cause()
+	}
+
+	return nil
+}
+
+func (u *EventUseCase) DeleteEventParticipant(ctx context.Context, eventID, userID uuid.UUID) error {
+	// delete event participant
+	if err := u.service.DeleteEventParticipant(ctx, eventID, userID); err != nil {
+		return model.ErrEventParticipant.WithError(err).WithMessage("Failed to delete event participant").Cause()
+	}
+
+	return nil
+}
 
 func (u *EventUseCase) DeleteEventParticipantVPNConfigs(ctx context.Context, eventID uuid.UUID) error {
 	if err := u.service.DeleteVPNClients(ctx, uuid.Nil, eventID); err != nil {
@@ -112,7 +143,6 @@ func (u *EventUseCase) JoinEvent(ctx context.Context, eventID uuid.UUID) error {
 	if err = u.service.CreateJoinEventRequest(ctx, model.Participant{
 		UserID:         user.ID,
 		EventID:        eventID,
-		Name:           user.Name,
 		ApprovalStatus: participationStatus,
 	}); err != nil {
 		return model.ErrEventParticipant.WithError(err).WithMessage("Failed to create join event request").Cause()

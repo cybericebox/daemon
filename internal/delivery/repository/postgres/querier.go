@@ -47,12 +47,13 @@ type Querier interface {
 	GetEventByTag(ctx context.Context, tag string) (Event, error)
 	GetEventChallengeByID(ctx context.Context, arg GetEventChallengeByIDParams) (EventChallenge, error)
 	GetEventChallengeCategories(ctx context.Context, eventID uuid.UUID) ([]EventChallengeCategory, error)
+	GetEventChallengeSolutionAttempts(ctx context.Context, eventID uuid.UUID) ([]EventChallengeSolutionAttempt, error)
 	GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]EventChallenge, error)
 	GetEventIDIfNotWithdrawn(ctx context.Context, tag string) (uuid.UUID, error)
 	GetEventIDIfRunning(ctx context.Context, tag string) (uuid.UUID, error)
 	GetEventParticipantStatus(ctx context.Context, arg GetEventParticipantStatusParams) (int32, error)
 	GetEventParticipantTeam(ctx context.Context, arg GetEventParticipantTeamParams) (GetEventParticipantTeamRow, error)
-	GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]EventParticipant, error)
+	GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]GetEventParticipantsRow, error)
 	GetEventTeamByID(ctx context.Context, arg GetEventTeamByIDParams) (GetEventTeamByIDRow, error)
 	GetEventTeamByName(ctx context.Context, arg GetEventTeamByNameParams) (GetEventTeamByNameRow, error)
 	GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]GetEventTeamsRow, error)
@@ -76,7 +77,7 @@ type Querier interface {
 	UpdateEventChallengeCategory(ctx context.Context, arg UpdateEventChallengeCategoryParams) (int64, error)
 	UpdateEventChallengeCategoryOrder(ctx context.Context, arg []UpdateEventChallengeCategoryOrderParams) *UpdateEventChallengeCategoryOrderBatchResults
 	UpdateEventChallengeOrder(ctx context.Context, arg []UpdateEventChallengeOrderParams) *UpdateEventChallengeOrderBatchResults
-	UpdateEventParticipantName(ctx context.Context, arg UpdateEventParticipantNameParams) (int64, error)
+	UpdateEventChallengeSolutionAttempt(ctx context.Context, arg UpdateEventChallengeSolutionAttemptParams) (int64, error)
 	UpdateEventParticipantStatus(ctx context.Context, arg UpdateEventParticipantStatusParams) (int64, error)
 	UpdateEventParticipantTeam(ctx context.Context, arg UpdateEventParticipantTeamParams) (int64, error)
 	UpdateEventPicture(ctx context.Context, arg UpdateEventPictureParams) (int64, error)

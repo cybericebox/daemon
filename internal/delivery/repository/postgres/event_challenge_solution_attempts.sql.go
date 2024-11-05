@@ -84,6 +84,43 @@ func (q *Queries) GetChallengesSolutionsInEvent(ctx context.Context, eventID uui
 	return items, nil
 }
 
+const getEventChallengeSolutionAttempts = `-- name: GetEventChallengeSolutionAttempts :many
+select id, event_id, challenge_id, team_id, participant_id, answer, flag, is_correct, timestamp
+from event_challenge_solution_attempts
+where event_id = $1
+order by timestamp desc
+`
+
+func (q *Queries) GetEventChallengeSolutionAttempts(ctx context.Context, eventID uuid.UUID) ([]EventChallengeSolutionAttempt, error) {
+	rows, err := q.db.Query(ctx, getEventChallengeSolutionAttempts, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventChallengeSolutionAttempt{}
+	for rows.Next() {
+		var i EventChallengeSolutionAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.ChallengeID,
+			&i.TeamID,
+			&i.ParticipantID,
+			&i.Answer,
+			&i.Flag,
+			&i.IsCorrect,
+			&i.Timestamp,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTeamsChallengeSolvedByInEvent = `-- name: GetTeamsChallengeSolvedByInEvent :many
 select t.id, t.name, participant_id, timestamp
 from event_challenge_solution_attempts
@@ -128,4 +165,24 @@ func (q *Queries) GetTeamsChallengeSolvedByInEvent(ctx context.Context, arg GetT
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateEventChallengeSolutionAttempt = `-- name: UpdateEventChallengeSolutionAttempt :execrows
+update event_challenge_solution_attempts
+set is_correct = $3
+where id = $1 and event_id = $2
+`
+
+type UpdateEventChallengeSolutionAttemptParams struct {
+	ID        uuid.UUID `json:"id"`
+	EventID   uuid.UUID `json:"event_id"`
+	IsCorrect bool      `json:"is_correct"`
+}
+
+func (q *Queries) UpdateEventChallengeSolutionAttempt(ctx context.Context, arg UpdateEventChallengeSolutionAttemptParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventChallengeSolutionAttempt, arg.ID, arg.EventID, arg.IsCorrect)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

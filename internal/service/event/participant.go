@@ -12,14 +12,13 @@ import (
 
 type (
 	IParticipantRepository interface {
-		GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]postgres.EventParticipant, error)
+		GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]postgres.GetEventParticipantsRow, error)
 		GetEventParticipantStatus(ctx context.Context, arg postgres.GetEventParticipantStatusParams) (int32, error)
 		GetEventParticipantTeam(ctx context.Context, arg postgres.GetEventParticipantTeamParams) (postgres.GetEventParticipantTeamRow, error)
 
 		CreateEventParticipant(ctx context.Context, arg postgres.CreateEventParticipantParams) error
 
 		UpdateEventParticipantStatus(ctx context.Context, arg postgres.UpdateEventParticipantStatusParams) (int64, error)
-		UpdateEventParticipantName(ctx context.Context, arg postgres.UpdateEventParticipantNameParams) (int64, error)
 		DeleteEventParticipant(ctx context.Context, arg postgres.DeleteEventParticipantParams) (int64, error)
 	}
 )
@@ -30,13 +29,14 @@ func (s *EventService) GetEventParticipants(ctx context.Context, eventID uuid.UU
 		return nil, model.ErrEventParticipant.WithError(err).WithMessage("Failed to get event participants").Cause()
 	}
 
-	var res []*model.Participant
+	res := make([]*model.Participant, 0, len(participants))
 	for _, p := range participants {
 		res = append(res, &model.Participant{
 			UserID:         p.UserID,
 			EventID:        p.EventID,
 			TeamID:         p.TeamID,
 			Name:           p.Name,
+			Email:          p.Email,
 			ApprovalStatus: p.ApprovalStatus,
 			CreatedAt:      p.CreatedAt,
 		})
@@ -84,7 +84,6 @@ func (s *EventService) CreateJoinEventRequest(ctx context.Context, participant m
 		EventID:        participant.EventID,
 		UserID:         participant.UserID,
 		ApprovalStatus: participant.ApprovalStatus,
-		Name:           participant.Name,
 	}); err != nil {
 		if tools.IsUniqueViolationError(err) {
 			return model.ErrEventParticipantExists.WithContext("eventID", participant.EventID).WithContext("userID", participant.UserID).Cause()
@@ -119,36 +118,6 @@ func (s *EventService) UpdateEventParticipantStatus(ctx context.Context, eventID
 			return errCreator.Cause()
 		}
 		return model.ErrEventParticipant.WithError(err).WithMessage("Failed to update event participant status").Cause()
-	}
-
-	if affected == 0 {
-		return model.ErrEventParticipantNotFound.WithContext("eventID", eventID).WithContext("userID", userID).Cause()
-	}
-
-	return nil
-}
-
-func (s *EventService) UpdateEventParticipantName(ctx context.Context, eventID, userID uuid.UUID, name string) error {
-	currentUserID, err := tools.GetCurrentUserIDFromContext(ctx)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get current user id from context").Cause()
-	}
-
-	affected, err := s.repository.UpdateEventParticipantName(ctx, postgres.UpdateEventParticipantNameParams{
-		EventID: eventID,
-		UserID:  userID,
-		Name:    name,
-		UpdatedBy: uuid.NullUUID{
-			UUID:  currentUserID,
-			Valid: true,
-		},
-	})
-	if err != nil {
-		errCreator, has := tools.ForeignKeyViolationError(err)
-		if has {
-			return errCreator.Cause()
-		}
-		return model.ErrEventParticipant.WithError(err).WithMessage("Failed to update event participant name").Cause()
 	}
 
 	if affected == 0 {

@@ -91,7 +91,7 @@ func (q *Queries) GetEventChallengeCategories(ctx context.Context, eventID uuid.
 
 const updateEventChallengeCategory = `-- name: UpdateEventChallengeCategory :execrows
 update event_challenge_categories
-set name = $3,
+set name       = $3,
     updated_at = now(),
     updated_by = $4
 where id = $1

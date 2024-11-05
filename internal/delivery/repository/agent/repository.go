@@ -51,9 +51,9 @@ func newAgent(cfg *config.AgentGRPCConfig) (protobuf.AgentClient, error) {
 		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to create agent client").Cause()
 	}
 
-	if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
-		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Cause()
-	}
+	//if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
+	//	return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Cause()
+	//}
 
 	return c, nil
 }

@@ -11,6 +11,9 @@ import (
 type (
 	IChallengeSolutionService interface {
 		SolveChallenge(ctx context.Context, eventID, teamID, userID, challengeID uuid.UUID, solutionAttempt string) (bool, error)
+
+		GetChallengeSolutionAttempts(ctx context.Context, eventID uuid.UUID) ([]*model.TeamChallengeSolutionAttempt, error)
+		UpdateChallengeSolutionAttempt(ctx context.Context, solutionAttempt model.TeamChallengeSolutionAttempt) error
 	}
 )
 
@@ -44,4 +47,22 @@ func (u *EventUseCase) SolveChallenge(ctx context.Context, eventID, challengeID 
 	}
 
 	return solved, nil
+}
+
+func (u *EventUseCase) GetEventChallengeSolutionAttempts(ctx context.Context, eventID uuid.UUID) ([]*model.TeamChallengeSolutionAttempt, error) {
+	solutions, err := u.service.GetChallengeSolutionAttempts(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	return solutions, nil
+}
+
+func (u *EventUseCase) UpdateEventChallengeSolutionAttempt(ctx context.Context, solutionAttempt model.TeamChallengeSolutionAttempt) error {
+	err := u.service.UpdateChallengeSolutionAttempt(ctx, solutionAttempt)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

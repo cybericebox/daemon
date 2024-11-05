@@ -222,9 +222,9 @@ update exercises
 set category_id = $2,
     name        = $3,
     description = $4,
-    data        = $5,
-    updated_at  = now(),
-    updated_by  = $6
+    data       = $5,
+    updated_at = now(),
+    updated_by = $6
 where id = $1
 `
 

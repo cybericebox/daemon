@@ -228,7 +228,7 @@ func (q *Queries) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]GetEv
 
 const updateEventTeamName = `-- name: UpdateEventTeamName :execrows
 update event_teams
-set name = $3,
+set name       = $3,
     updated_at = now(),
     updated_by = $4
 where id = $1

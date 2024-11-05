@@ -48,9 +48,9 @@ func newVPN(cfg *config.VPNGRPCConfig) (protobuf.WireguardClient, error) {
 		return nil, model.ErrVPN.WithError(err).WithMessage("Failed to create VPN client").Cause()
 	}
 
-	if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
-		return nil, model.ErrVPN.WithError(err).WithMessage("Failed to ping VPN").Cause()
-	}
+	//if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
+	//	return nil, model.ErrVPN.WithError(err).WithMessage("Failed to ping VPN").Cause()
+	//}
 
 	return c, nil
 }

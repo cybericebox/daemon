@@ -17,3 +17,15 @@ where t.event_id = $1
   and challenge_id = $2
   and is_correct = true;
 
+-- name: GetEventChallengeSolutionAttempts :many
+select *
+from event_challenge_solution_attempts
+where event_id = $1
+order by timestamp desc;
+
+-- name: UpdateEventChallengeSolutionAttempt :execrows
+update event_challenge_solution_attempts
+set is_correct = $3
+where id = $1
+  and event_id = $2;
+

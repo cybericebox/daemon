@@ -61,15 +61,16 @@ type EventChallengeCategory struct {
 	CreatedAt  time.Time          `json:"created_at"`
 }
 
-type EventParticipant struct {
-	UserID         uuid.UUID          `json:"user_id"`
-	EventID        uuid.UUID          `json:"event_id"`
-	TeamID         uuid.NullUUID      `json:"team_id"`
-	Name           string             `json:"name"`
-	ApprovalStatus int32              `json:"approval_status"`
-	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
-	UpdatedBy      uuid.NullUUID      `json:"updated_by"`
-	CreatedAt      time.Time          `json:"created_at"`
+type EventChallengeSolutionAttempt struct {
+	ID            uuid.UUID `json:"id"`
+	EventID       uuid.UUID `json:"event_id"`
+	ChallengeID   uuid.UUID `json:"challenge_id"`
+	TeamID        uuid.UUID `json:"team_id"`
+	ParticipantID uuid.UUID `json:"participant_id"`
+	Answer        string    `json:"answer"`
+	Flag          string    `json:"flag"`
+	IsCorrect     bool      `json:"is_correct"`
+	Timestamp     time.Time `json:"timestamp"`
 }
 
 type Exercise struct {

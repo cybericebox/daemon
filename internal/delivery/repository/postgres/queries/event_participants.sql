@@ -1,11 +1,13 @@
 -- name: GetEventParticipants :many
-select *
+select event_participants.*, u.name as name, u.email as email
 from event_participants
-where event_id = $1;
+         inner join users u on event_participants.user_id = u.id
+where event_id = $1
+order by event_participants.created_at desc;
 
 -- name: CreateEventParticipant :exec
-insert into event_participants (event_id, user_id, name, approval_status)
-values ($1, $2, $3, $4);
+insert into event_participants (event_id, user_id, approval_status)
+values ($1, $2, $3);
 
 -- name: GetEventParticipantStatus :one
 select approval_status
@@ -24,14 +26,6 @@ where event_id = $1
 -- name: UpdateEventParticipantTeam :execrows
 update event_participants
 set team_id    = $3,
-    updated_at = now(),
-    updated_by = $4
-where event_id = $1
-  and user_id = $2;
-
--- name: UpdateEventParticipantName :execrows
-update event_participants
-set name       = $3,
     updated_at = now(),
     updated_by = $4
 where event_id = $1

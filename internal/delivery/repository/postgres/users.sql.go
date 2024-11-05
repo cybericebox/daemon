@@ -320,8 +320,8 @@ func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) 
 const updateUserPassword = `-- name: UpdateUserPassword :execrows
 update users
 set hashed_password = $2,
-    updated_at      = now(),
-    updated_by      = $3
+    updated_at = now(),
+    updated_by = $3
 where id = $1
 `
 
