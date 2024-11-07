@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -32,12 +31,12 @@ type (
 )
 
 func NewOAuthService(deps Dependencies) *OAuthService {
-	r := make([]byte, randomStateLen)
-	_, err := rand.Read(r)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Creating google service")
-		return nil
-	}
+	//r := make([]byte, randomStateLen)
+	//_, err := rand.Read(r)
+	//if err != nil {
+	//	log.Fatal().Err(err).Msg("Creating google service")
+	//	return nil
+	//}
 	return &OAuthService{
 		googleConfig: &oauth2.Config{
 			ClientID:     deps.Config.Google.ClientID,
@@ -46,7 +45,7 @@ func NewOAuthService(deps Dependencies) *OAuthService {
 			RedirectURL:  fmt.Sprintf(deps.Config.RedirectURLTemplate, "google"),
 			Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
 		},
-		randomState: base64.StdEncoding.EncodeToString(r),
+		randomState: base64.StdEncoding.EncodeToString([]byte("randomState")),
 	}
 }
 
