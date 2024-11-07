@@ -128,12 +128,13 @@ type (
 
 	// PostgresConfig is the configuration for the Postgres database
 	PostgresConfig struct {
-		Host     string `yaml:"host" env:"POSTGRES_HOSTNAME" env-description:"Host of Postgres"`
-		Port     int    `yaml:"port" env:"POSTGRES_PORT" env-default:"5432" env-description:"Port of Postgres"`
-		Username string `yaml:"username" env:"POSTGRES_USER" env-description:"Username of Postgres"`
-		Password string `yaml:"password" env:"POSTGRES_PASSWORD" env-description:"Password of Postgres"`
-		Database string `yaml:"database" env:"POSTGRES_DB" env-description:"Database of Postgres"`
-		SSLMode  string `yaml:"sslMode" env:"POSTGRES_SSL_MODE" env-default:"require" env-description:"SSL mode of Postgres"`
+		Host               string `yaml:"host" env:"POSTGRES_HOSTNAME" env-description:"Host of Postgres"`
+		Port               int    `yaml:"port" env:"POSTGRES_PORT" env-default:"5432" env-description:"Port of Postgres"`
+		Username           string `yaml:"username" env:"POSTGRES_USER" env-description:"Username of Postgres"`
+		Password           string `yaml:"password" env:"POSTGRES_PASSWORD" env-description:"Password of Postgres"`
+		Database           string `yaml:"database" env:"POSTGRES_DB" env-description:"Database of Postgres"`
+		SSLMode            string `yaml:"sslMode" env:"POSTGRES_SSL_MODE" env-default:"require" env-description:"SSL mode of Postgres"`
+		MaxPoolConnections int    `yaml:"maxPoolConnections" env:"POSTGRES_MAX_POOL_CONNECTIONS" env-default:"1000" env-description:"Max pool connections of Postgres"`
 	}
 
 	//StorageS3Config is the configuration for the S3 storage

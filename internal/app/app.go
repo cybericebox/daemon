@@ -36,6 +36,17 @@ func Run() {
 
 	w := worker.NewWorker(cfg.Service.MaxWorkers)
 
+	// task for debugging
+	w.AddTask(worker.NewTask().WithDo(func() {
+		stat := repo.PGStat()
+		total := stat.TotalConns()
+		idle := stat.IdleConns()
+		inUse := stat.AcquiredConns()
+		maxCon := stat.MaxConns()
+		newCon := stat.NewConnsCount()
+		log.Info().Int("total", int(total)).Int("idle", int(idle)).Int("inUse", int(inUse)).Int("maxCon", int(maxCon)).Int("newCon", int(newCon)).Msg("Postgres pool stats")
+	}).WithRepeatDuration(10 * time.Second).Create())
+
 	useCases := useCase.NewUseCase(
 		useCase.Dependencies{
 			Service: services,
@@ -95,5 +106,6 @@ func InitWorkers(u *useCase.UseCase) error {
 	log.Info().Msg("Platform hooks are initialized")
 
 	log.Info().Msg("Application workers are initialized")
+
 	return nil
 }

@@ -46,20 +46,28 @@ func NewRepository(deps Dependencies) *PostgresRepository {
 	}
 }
 
+func (r *PostgresRepository) Close() {
+	r.db.Close()
+}
+
+func (r *PostgresRepository) PGStat() *pgxpool.Stat {
+	return r.db.Stat()
+}
+
 func newPostgresDB(ctx context.Context, cfg *config.PostgresConfig) (*pgxpool.Pool, error) {
 	ConnConfig, err := pgxpool.ParseConfig(
-		fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%d sslmode=%s", cfg.Username, cfg.Password, cfg.Database, cfg.Host, cfg.Port, cfg.SSLMode))
-	conn, err := pgxpool.NewWithConfig(ctx, ConnConfig)
+		fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%d sslmode=%s pool_max_conns=%d", cfg.Username, cfg.Password, cfg.Database, cfg.Host, cfg.Port, cfg.SSLMode, cfg.MaxPoolConnections))
+	pool, err := pgxpool.NewWithConfig(ctx, ConnConfig)
 	if err != nil {
 		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to create new postgres db connection").Cause()
 	}
 
 	// ping db
-	if err = conn.Ping(ctx); err != nil {
+	if err = pool.Ping(ctx); err != nil {
 		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to ping db").Cause()
 	}
 
-	return conn, nil
+	return pool, nil
 
 }
 
