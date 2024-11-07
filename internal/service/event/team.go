@@ -33,12 +33,13 @@ func (s *EventService) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]
 	result := make([]*model.Team, 0, len(teams))
 	for _, team := range teams {
 		result = append(result, &model.Team{
-			ID:           team.ID,
-			EventID:      team.EventID,
-			Name:         team.Name,
-			JoinCode:     "",
-			LaboratoryID: team.LaboratoryID,
-			CreatedAt:    team.CreatedAt,
+			ID:                team.ID,
+			EventID:           team.EventID,
+			Name:              team.Name,
+			JoinCode:          "",
+			ParticipantsCount: team.ParticipantsCount,
+			LaboratoryID:      team.LaboratoryID,
+			CreatedAt:         team.CreatedAt,
 		})
 	}
 

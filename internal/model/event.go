@@ -104,6 +104,8 @@ type (
 		Name     string `validate:"required,min=3,max=50,alphanum"`
 		JoinCode string `validate:"-"`
 
+		ParticipantsCount int64
+
 		LaboratoryID uuid.NullUUID
 
 		CreatedAt time.Time

@@ -4,9 +4,18 @@ from event_teams
 group by event_id;
 
 -- name: GetEventTeams :many
-select id, event_id, name, laboratory_id, updated_at, updated_by, created_at
+select id,
+       event_teams.event_id,
+       event_teams.name,
+       laboratory_id,
+       event_teams.updated_at,
+       event_teams.updated_by,
+       event_teams.created_at,
+       count(event_participants.user_id) as participants_count
 from event_teams
-where event_id = $1;
+         inner join event_participants on event_teams.id = event_participants.team_id
+where event_teams.event_id = $1
+group by event_teams.id;
 
 -- name: GetEventTeamByID :one
 select id, event_id, name, laboratory_id, updated_at, updated_by, created_at

@@ -183,19 +183,22 @@ func (q *Queries) GetEventTeamByName(ctx context.Context, arg GetEventTeamByName
 }
 
 const getEventTeams = `-- name: GetEventTeams :many
-select id, event_id, name, laboratory_id, updated_at, updated_by, created_at
+select id, event_teams.event_id, event_teams.name, laboratory_id, event_teams.updated_at, event_teams.updated_by, event_teams.created_at, count(event_participants.user_id) as participants_count
 from event_teams
-where event_id = $1
+inner join event_participants on event_teams.id = event_participants.team_id
+where event_teams.event_id = $1
+group by event_teams.id
 `
 
 type GetEventTeamsRow struct {
-	ID           uuid.UUID          `json:"id"`
-	EventID      uuid.UUID          `json:"event_id"`
-	Name         string             `json:"name"`
-	LaboratoryID uuid.NullUUID      `json:"laboratory_id"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	UpdatedBy    uuid.NullUUID      `json:"updated_by"`
-	CreatedAt    time.Time          `json:"created_at"`
+	ID                uuid.UUID          `json:"id"`
+	EventID           uuid.UUID          `json:"event_id"`
+	Name              string             `json:"name"`
+	LaboratoryID      uuid.NullUUID      `json:"laboratory_id"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy         uuid.NullUUID      `json:"updated_by"`
+	CreatedAt         time.Time          `json:"created_at"`
+	ParticipantsCount int64              `json:"participants_count"`
 }
 
 func (q *Queries) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]GetEventTeamsRow, error) {
@@ -215,6 +218,7 @@ func (q *Queries) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]GetEv
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.CreatedAt,
+			&i.ParticipantsCount,
 		); err != nil {
 			return nil, err
 		}

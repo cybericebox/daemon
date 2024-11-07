@@ -71,7 +71,7 @@ func (q *Queries) GetEventParticipantStatus(ctx context.Context, arg GetEventPar
 const getEventParticipants = `-- name: GetEventParticipants :many
 select event_participants.user_id, event_participants.event_id, event_participants.team_id, event_participants.approval_status, event_participants.updated_at, event_participants.updated_by, event_participants.created_at, u.name as name, u.email as email
 from event_participants
-inner join users u on event_participants.user_id = u.id
+         inner join users u on event_participants.user_id = u.id
 where event_id = $1
 order by event_participants.created_at desc
 `

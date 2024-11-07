@@ -170,7 +170,8 @@ func (q *Queries) GetTeamsChallengeSolvedByInEvent(ctx context.Context, arg GetT
 const updateEventChallengeSolutionAttempt = `-- name: UpdateEventChallengeSolutionAttempt :execrows
 update event_challenge_solution_attempts
 set is_correct = $3
-where id = $1 and event_id = $2
+where id = $1
+  and event_id = $2
 `
 
 type UpdateEventChallengeSolutionAttemptParams struct {
