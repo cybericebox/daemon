@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
@@ -42,6 +43,9 @@ func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*mode
 		}
 
 	} else {
+		// set user as current user in context
+		ctx = tools.SetCurrentUserIDToContext(ctx, user.ID)
+
 		if user.GoogleID != googleUser.GoogleID {
 			user.GoogleID = googleUser.GoogleID
 			if err = u.service.UpdateUserGoogleID(ctx, *user); err != nil {

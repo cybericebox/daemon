@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
 )
 
@@ -35,6 +36,9 @@ func (u *AuthUseCase) ConfirmEmail(ctx context.Context, bsCode string) error {
 		Email:    data.Email,
 		GoogleID: "",
 	}
+
+	// set user as current user in context
+	ctx = tools.SetCurrentUserIDToContext(ctx, user.ID)
 
 	// Update the user's email in the database
 	if err = u.service.UpdateUserEmail(ctx, user); err != nil {

@@ -85,6 +85,9 @@ func (u *AuthUseCase) ResetPassword(ctx context.Context, bsCode, newPassword str
 		HashedPassword: hashedPassword,
 	}
 
+	// set user as current user in context
+	ctx = tools.SetCurrentUserIDToContext(ctx, user.ID)
+
 	if err = u.service.UpdateUserPassword(ctx, user); err != nil {
 		return model.ErrAuth.WithError(err).WithMessage("Failed to update user password").Cause()
 	}

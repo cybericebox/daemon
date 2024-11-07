@@ -31,6 +31,10 @@ func GetCurrentUserIDFromContext(ctx context.Context) (uuid.UUID, error) {
 	return parsedID, nil
 }
 
+func SetCurrentUserIDToContext(ctx context.Context, userID uuid.UUID) context.Context {
+	return context.WithValue(ctx, UserIDCtxKey, userID)
+}
+
 func GetCurrentUserRoleFromContext(ctx context.Context) (string, error) {
 	userRole := ctx.Value(UserRoleCtxKey)
 
