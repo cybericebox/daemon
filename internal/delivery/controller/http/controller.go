@@ -48,6 +48,9 @@ func NewController(deps Dependencies) *Controller {
 	// add global middleware for validating if the request domain is equal to the domain of the platform
 	router.Use(protection.ValidateRequestDomain)
 
+	// add cors middleware
+	router.Use(protection.CorsMiddleware)
+
 	// create handler for routes on current service
 	handler.NewAPIHandler(deps.UseCase).Init(router)
 

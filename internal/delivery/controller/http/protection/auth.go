@@ -72,6 +72,11 @@ func ValidateRequestDomain(ctx *gin.Context) {
 	ctx.Set(tools.SubdomainCtxKey, subdomain)
 }
 
+// CorsMiddleware adds cors headers to response
+func CorsMiddleware(ctx *gin.Context) {
+	ctx.Header("Access-Control-Allow-Origin", "*")
+}
+
 // authenticateUser authenticate user by tokens
 func (p *protection) authenticateUser(ctx *gin.Context, redirectOnUnauthenticated bool) bool {
 	// get current tokens

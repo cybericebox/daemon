@@ -26,7 +26,7 @@ func NewAPIHandler(useCase IUseCase) *Handler {
 }
 
 func (h *Handler) Init(router *gin.Engine) {
-	baseAPI := router.Group("api", corsMiddleware)
+	baseAPI := router.Group("api", contentMiddleware)
 	{
 		auth.NewAuthAPIHandler(h.useCase).Init(baseAPI)
 		event.NewEventAPIHandler(h.useCase).Init(baseAPI)
@@ -35,6 +35,6 @@ func (h *Handler) Init(router *gin.Engine) {
 	}
 }
 
-func corsMiddleware(ctx *gin.Context) {
+func contentMiddleware(ctx *gin.Context) {
 	ctx.Header("Content-Type", "application/json")
 }
