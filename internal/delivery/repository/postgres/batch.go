@@ -82,7 +82,8 @@ func (b *CreateEventChallengeBatchResults) Close() error {
 const createEventTeamChallenge = `-- name: CreateEventTeamChallenge :batchexec
 insert into event_team_challenges
     (id, event_id, team_id, challenge_id, flag)
-values ($1, $2, $3, $4, $5) on conflict do nothing
+values ($1, $2, $3, $4, $5)
+on conflict do nothing
 `
 
 type CreateEventTeamChallengeBatchResults struct {
@@ -236,8 +237,8 @@ func (b *DeleteFileBatchResults) Close() error {
 const updateEventChallengeCategoryOrder = `-- name: UpdateEventChallengeCategoryOrder :batchexec
 update event_challenge_categories
 set order_index = $3,
-    updated_at = now(),
-    updated_by = $4
+    updated_at  = now(),
+    updated_by  = $4
 where id = $1
   and event_id = $2
 `
@@ -295,8 +296,8 @@ const updateEventChallengeOrder = `-- name: UpdateEventChallengeOrder :batchexec
 update event_challenges
 set category_id = $3,
     order_index = $4,
-    updated_at = now(),
-    updated_by = $5
+    updated_at  = now(),
+    updated_by  = $5
 where id = $1
   and event_id = $2
 `
@@ -348,6 +349,122 @@ func (b *UpdateEventChallengeOrderBatchResults) Exec(f func(int, int64, error)) 
 }
 
 func (b *UpdateEventChallengeOrderBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const updateEventTeamsLaboratories = `-- name: UpdateEventTeamsLaboratories :batchexec
+update event_teams
+set laboratory_id = $3,
+    updated_at    = now(),
+    updated_by    = $4
+where id = $1
+  and event_id = $2
+`
+
+type UpdateEventTeamsLaboratoriesBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type UpdateEventTeamsLaboratoriesParams struct {
+	ID           uuid.UUID     `json:"id"`
+	EventID      uuid.UUID     `json:"event_id"`
+	LaboratoryID uuid.NullUUID `json:"laboratory_id"`
+	UpdatedBy    uuid.NullUUID `json:"updated_by"`
+}
+
+func (q *Queries) UpdateEventTeamsLaboratories(ctx context.Context, arg []UpdateEventTeamsLaboratoriesParams) *UpdateEventTeamsLaboratoriesBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.EventID,
+			a.LaboratoryID,
+			a.UpdatedBy,
+		}
+		batch.Queue(updateEventTeamsLaboratories, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &UpdateEventTeamsLaboratoriesBatchResults{br, len(arg), false}
+}
+
+func (b *UpdateEventTeamsLaboratoriesBatchResults) Exec(f func(int, int64, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, 0, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		res, err := b.br.Exec()
+		if f != nil {
+			f(t, res.RowsAffected(), err)
+		}
+	}
+}
+
+func (b *UpdateEventTeamsLaboratoriesBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const updateEventTeamsVisibility = `-- name: UpdateEventTeamsVisibility :batchexec
+update event_teams
+set hidden     = $3,
+    updated_at = now(),
+    updated_by = $4
+where id = $1
+  and event_id = $2
+`
+
+type UpdateEventTeamsVisibilityBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type UpdateEventTeamsVisibilityParams struct {
+	ID        uuid.UUID     `json:"id"`
+	EventID   uuid.UUID     `json:"event_id"`
+	Hidden    bool          `json:"hidden"`
+	UpdatedBy uuid.NullUUID `json:"updated_by"`
+}
+
+func (q *Queries) UpdateEventTeamsVisibility(ctx context.Context, arg []UpdateEventTeamsVisibilityParams) *UpdateEventTeamsVisibilityBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.ID,
+			a.EventID,
+			a.Hidden,
+			a.UpdatedBy,
+		}
+		batch.Queue(updateEventTeamsVisibility, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &UpdateEventTeamsVisibilityBatchResults{br, len(arg), false}
+}
+
+func (b *UpdateEventTeamsVisibilityBatchResults) Exec(f func(int, int64, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, 0, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		res, err := b.br.Exec()
+		if f != nil {
+			f(t, res.RowsAffected(), err)
+		}
+	}
+}
+
+func (b *UpdateEventTeamsVisibilityBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }
