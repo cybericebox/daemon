@@ -75,7 +75,12 @@ type (
 		Password     PasswordConfig     `yaml:"password"`
 		Storage      StorageConfig      `yaml:"storage"`
 		TemporalCode TemporalCodeConfig `yaml:"temporalCode"`
-		MaxWorkers   int                `yaml:"maxWorkers" env:"DAEMON_MAX_WORKERS" env-default:"5" env-description:"Max workers for the worker pool"`
+		Worker       WorkerConfig       `yaml:"worker"`
+	}
+
+	WorkerConfig struct {
+		MaxWorkers int           `yaml:"maxWorkers" env:"DAEMON_MAX_WORKERS" env-default:"10" env-description:"Max workers for the worker pool"`
+		Throttle   time.Duration `yaml:"throttle" env:"DAEMON_WORKERS_THROTTLE" env-default:"10ms" env-description:"Throttle for the worker pool"`
 	}
 
 	StorageConfig struct {
@@ -134,7 +139,7 @@ type (
 		Password           string `yaml:"password" env:"POSTGRES_PASSWORD" env-description:"Password of Postgres"`
 		Database           string `yaml:"database" env:"POSTGRES_DB" env-description:"Database of Postgres"`
 		SSLMode            string `yaml:"sslMode" env:"POSTGRES_SSL_MODE" env-default:"require" env-description:"SSL mode of Postgres"`
-		MaxPoolConnections int    `yaml:"maxPoolConnections" env:"POSTGRES_MAX_POOL_CONNECTIONS" env-default:"1000" env-description:"Max pool connections of Postgres"`
+		MaxPoolConnections int    `yaml:"maxPoolConnections" env:"POSTGRES_MAX_POOL_CONNECTIONS" env-default:"20" env-description:"Max pool connections of Postgres"`
 	}
 
 	//StorageS3Config is the configuration for the S3 storage
@@ -243,5 +248,4 @@ func (c *Config) populateForAllConfig() {
 	c.Service.OAuth.RedirectURLTemplate = fmt.Sprintf("%s://%s/api/auth/%%s/callback", SchemeHTTPS, c.Domain)
 
 	c.Service.Storage.BucketName = c.Repository.StorageS3.Bucket
-
 }

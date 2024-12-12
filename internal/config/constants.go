@@ -1,10 +1,5 @@
 package config
 
-const (
-// MigrationPath = "internal/delivery/repository/postgres/migrations"
-// MigrationPath = "migrations"
-)
-
 // Environments
 const (
 	Local      = "local"
@@ -35,4 +30,9 @@ const (
 const (
 	FromURLField   = "fromURL"
 	DefaultFromURL = "/"
+)
+
+const (
+	DefaultOnePageLimit = 20
+	AllPages            = -1
 )
