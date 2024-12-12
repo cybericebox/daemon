@@ -8,9 +8,6 @@ create table if not exists events
 
     tag                     varchar(64)  not null, -- subdomain for the event
     name                    varchar(255) not null,
-    description             text         not null, -- description of the event
-    rules                   text         not null, -- rules for the event
-    picture                 text         not null,
 
     dynamic_scoring         boolean      not null,
     dynamic_max             integer      not null,
@@ -34,3 +31,14 @@ create table if not exists events
 );
 
 create unique index if not exists event_tag_index on events (tag, withdraw_time); -- for checking the tag is unique
+
+create table if not exists events_metadata
+(
+    event_id   uuid primary key references events (id) on delete cascade,
+    data       jsonb       not null,
+
+    updated_at timestamptz,
+    updated_by uuid        references users (id) on delete set null,
+
+    created_at timestamptz not null default now()
+);
