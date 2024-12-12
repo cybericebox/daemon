@@ -22,7 +22,7 @@ func GetSolutionForTask(solutions ...string) (string, error) {
 
 	i, err := rand.Int(rand.Reader, big.NewInt(int64(len(solutions))))
 	if err != nil {
-		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to choose solution from list").Cause()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to choose solution from list").Err()
 	}
 	return solutions[i.Int64()], nil
 }
@@ -33,21 +33,21 @@ func getRandSolution() (string, error) {
 	for i := 0; i < config.RandomFlagLength; i++ {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(flagSymbols))))
 		if err != nil {
-			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate random solution").Cause()
+			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate random solution").Err()
 		}
 		str += string(flagSymbols[n.Int64()])
 	}
 
 	i, err := rand.Int(rand.Reader, big.NewInt(int64(len(str)-12)))
 	if err != nil {
-		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate random solution").Cause()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate random solution").Err()
 	}
 
 	i = big.NewInt(i.Int64() + 4)
 
 	j, err := rand.Int(rand.Reader, big.NewInt(int64(len(str))-i.Int64()-4))
 	if err != nil {
-		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate random solution").Cause()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate random solution").Err()
 	}
 	j = big.NewInt(i.Int64() + j.Int64() + 4)
 

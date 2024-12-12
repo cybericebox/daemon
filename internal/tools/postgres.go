@@ -2,8 +2,8 @@ package tools
 
 import (
 	"errors"
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -28,7 +28,7 @@ func IsUniqueViolationError(err error) bool {
 	return false
 }
 
-func ForeignKeyViolationError(err error, isDelete ...bool) (appError.ErrorCreator, bool) {
+func ForeignKeyViolationError(err error, isDelete ...bool) (err.ErrorCreator, bool) {
 	isDeleteAction := false
 	if len(isDelete) > 0 {
 		isDeleteAction = isDelete[0]
