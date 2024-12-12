@@ -236,11 +236,10 @@ func (b *DeleteFileBatchResults) Close() error {
 
 const updateEventChallengeCategoryOrder = `-- name: UpdateEventChallengeCategoryOrder :batchexec
 update event_challenge_categories
-set order_index = $3,
+set order_index = $2,
     updated_at  = now(),
-    updated_by  = $4
+    updated_by  = $3
 where id = $1
-  and event_id = $2
 `
 
 type UpdateEventChallengeCategoryOrderBatchResults struct {
@@ -251,7 +250,6 @@ type UpdateEventChallengeCategoryOrderBatchResults struct {
 
 type UpdateEventChallengeCategoryOrderParams struct {
 	ID         uuid.UUID     `json:"id"`
-	EventID    uuid.UUID     `json:"event_id"`
 	OrderIndex int32         `json:"order_index"`
 	UpdatedBy  uuid.NullUUID `json:"updated_by"`
 }
@@ -261,7 +259,6 @@ func (q *Queries) UpdateEventChallengeCategoryOrder(ctx context.Context, arg []U
 	for _, a := range arg {
 		vals := []interface{}{
 			a.ID,
-			a.EventID,
 			a.OrderIndex,
 			a.UpdatedBy,
 		}
@@ -294,12 +291,11 @@ func (b *UpdateEventChallengeCategoryOrderBatchResults) Close() error {
 
 const updateEventChallengeOrder = `-- name: UpdateEventChallengeOrder :batchexec
 update event_challenges
-set category_id = $3,
-    order_index = $4,
+set category_id = $2,
+    order_index = $3,
     updated_at  = now(),
-    updated_by  = $5
+    updated_by  = $4
 where id = $1
-  and event_id = $2
 `
 
 type UpdateEventChallengeOrderBatchResults struct {
@@ -310,7 +306,6 @@ type UpdateEventChallengeOrderBatchResults struct {
 
 type UpdateEventChallengeOrderParams struct {
 	ID         uuid.UUID     `json:"id"`
-	EventID    uuid.UUID     `json:"event_id"`
 	CategoryID uuid.UUID     `json:"category_id"`
 	OrderIndex int32         `json:"order_index"`
 	UpdatedBy  uuid.NullUUID `json:"updated_by"`
@@ -321,7 +316,6 @@ func (q *Queries) UpdateEventChallengeOrder(ctx context.Context, arg []UpdateEve
 	for _, a := range arg {
 		vals := []interface{}{
 			a.ID,
-			a.EventID,
 			a.CategoryID,
 			a.OrderIndex,
 			a.UpdatedBy,
@@ -355,11 +349,10 @@ func (b *UpdateEventChallengeOrderBatchResults) Close() error {
 
 const updateEventTeamsLaboratories = `-- name: UpdateEventTeamsLaboratories :batchexec
 update event_teams
-set laboratory_id = $3,
+set laboratory_id = $2,
     updated_at    = now(),
-    updated_by    = $4
+    updated_by    = $3
 where id = $1
-  and event_id = $2
 `
 
 type UpdateEventTeamsLaboratoriesBatchResults struct {
@@ -370,7 +363,6 @@ type UpdateEventTeamsLaboratoriesBatchResults struct {
 
 type UpdateEventTeamsLaboratoriesParams struct {
 	ID           uuid.UUID     `json:"id"`
-	EventID      uuid.UUID     `json:"event_id"`
 	LaboratoryID uuid.NullUUID `json:"laboratory_id"`
 	UpdatedBy    uuid.NullUUID `json:"updated_by"`
 }
@@ -380,7 +372,6 @@ func (q *Queries) UpdateEventTeamsLaboratories(ctx context.Context, arg []Update
 	for _, a := range arg {
 		vals := []interface{}{
 			a.ID,
-			a.EventID,
 			a.LaboratoryID,
 			a.UpdatedBy,
 		}
@@ -413,11 +404,10 @@ func (b *UpdateEventTeamsLaboratoriesBatchResults) Close() error {
 
 const updateEventTeamsVisibility = `-- name: UpdateEventTeamsVisibility :batchexec
 update event_teams
-set hidden     = $3,
+set hidden     = $2,
     updated_at = now(),
-    updated_by = $4
+    updated_by = $3
 where id = $1
-  and event_id = $2
 `
 
 type UpdateEventTeamsVisibilityBatchResults struct {
@@ -428,7 +418,6 @@ type UpdateEventTeamsVisibilityBatchResults struct {
 
 type UpdateEventTeamsVisibilityParams struct {
 	ID        uuid.UUID     `json:"id"`
-	EventID   uuid.UUID     `json:"event_id"`
 	Hidden    bool          `json:"hidden"`
 	UpdatedBy uuid.NullUUID `json:"updated_by"`
 }
@@ -438,7 +427,6 @@ func (q *Queries) UpdateEventTeamsVisibility(ctx context.Context, arg []UpdateEv
 	for _, a := range arg {
 		vals := []interface{}{
 			a.ID,
-			a.EventID,
 			a.Hidden,
 			a.UpdatedBy,
 		}
