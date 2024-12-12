@@ -1,26 +1,46 @@
 -- name: GetExercises :many
 select *
 from exercises
-order by name;
+order by lower(name)
+limit $1 offset $2;
 
--- name: GetExercisesByIDs :many
+-- name: GetExercisesWithIDs :many
 select *
 from exercises
 where id = any (@ids::uuid[])
 order by name;
 
+-- name: GetExercisesNotWithIDs :many
+select *
+from exercises
+where id <> all (@ids::uuid[])
+order by lower(name)
+limit $1 offset $2;
+
 -- name: GetExercisesByCategory :many
 select *
 from exercises
 where category_id = $1
-order by name;
+order by lower(name)
+limit $2 offset $3;
 
 -- name: GetExercisesWithSimilarName :many
 select *
 from exercises
-where name ilike '%' || @search::text || '%'
-   or description ilike '%' || @search::text || '%'
-order by name;
+where lower(name) like '%' || lower(@search::text) || '%'
+   or lower(description) like '%' || lower(@search::text) || '%'
+order by lower(name)
+limit $1 offset $2;
+
+
+-- name: GetExercisesNotWithIDsWithSimilarName :many
+select *
+from exercises
+where lower(name) like '%' || lower(@search::text) || '%'
+   or lower(description) like '%' || lower(@search::text) || '%'
+    and id <> all (@ids::uuid[])
+order by lower(name)
+limit $1 offset $2;
 
 -- name: GetExerciseByID :one
 select *

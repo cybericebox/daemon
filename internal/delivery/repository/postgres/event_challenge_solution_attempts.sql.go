@@ -46,21 +46,31 @@ func (q *Queries) CreateEventChallengeSolutionAttempt(ctx context.Context, arg C
 }
 
 const getChallengesSolutionsInEvent = `-- name: GetChallengesSolutionsInEvent :many
-select challenge_id, team_id, participant_id, timestamp
+select challenge_id, t.id as team_id, t.hidden, participant_id, timestamp
 from event_challenge_solution_attempts
-where event_id = $1
-  and is_correct = true
+inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
+where is_correct = true
+    and event_challenge_solution_attempts.event_id = $1
+  and timestamp between $2::timestamptz and $3::timestamptz
+order by timestamp
 `
+
+type GetChallengesSolutionsInEventParams struct {
+	EventID  uuid.UUID `json:"event_id"`
+	FromTime time.Time `json:"from_time"`
+	ToTime   time.Time `json:"to_time"`
+}
 
 type GetChallengesSolutionsInEventRow struct {
 	ChallengeID   uuid.UUID `json:"challenge_id"`
 	TeamID        uuid.UUID `json:"team_id"`
+	Hidden        bool      `json:"hidden"`
 	ParticipantID uuid.UUID `json:"participant_id"`
 	Timestamp     time.Time `json:"timestamp"`
 }
 
-func (q *Queries) GetChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]GetChallengesSolutionsInEventRow, error) {
-	rows, err := q.db.Query(ctx, getChallengesSolutionsInEvent, eventID)
+func (q *Queries) GetChallengesSolutionsInEvent(ctx context.Context, arg GetChallengesSolutionsInEventParams) ([]GetChallengesSolutionsInEventRow, error) {
+	rows, err := q.db.Query(ctx, getChallengesSolutionsInEvent, arg.EventID, arg.FromTime, arg.ToTime)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +81,7 @@ func (q *Queries) GetChallengesSolutionsInEvent(ctx context.Context, eventID uui
 		if err := rows.Scan(
 			&i.ChallengeID,
 			&i.TeamID,
+			&i.Hidden,
 			&i.ParticipantID,
 			&i.Timestamp,
 		); err != nil {
@@ -84,28 +95,53 @@ func (q *Queries) GetChallengesSolutionsInEvent(ctx context.Context, eventID uui
 	return items, nil
 }
 
-const getEventChallengeSolutionAttempts = `-- name: GetEventChallengeSolutionAttempts :many
-select id, event_id, challenge_id, team_id, participant_id, answer, flag, is_correct, timestamp
-from event_challenge_solution_attempts
-where event_id = $1
+const getEventChallengeSolutionAttemptsPaged = `-- name: GetEventChallengeSolutionAttemptsPaged :many
+select sa.id, sa.event_id, challenge_id, team_id, t.name as team_name, participant_id, u.name as participant_name, answer, flag, is_correct, timestamp
+from event_challenge_solution_attempts sa
+inner join event_teams t on t.id = sa.team_id
+inner join users u on u.id = sa.participant_id
+where sa.event_id = $1
 order by timestamp desc
+limit $2 offset $3
 `
 
-func (q *Queries) GetEventChallengeSolutionAttempts(ctx context.Context, eventID uuid.UUID) ([]EventChallengeSolutionAttempt, error) {
-	rows, err := q.db.Query(ctx, getEventChallengeSolutionAttempts, eventID)
+type GetEventChallengeSolutionAttemptsPagedParams struct {
+	EventID uuid.UUID `json:"event_id"`
+	Limit   int32     `json:"limit"`
+	Offset  int32     `json:"offset"`
+}
+
+type GetEventChallengeSolutionAttemptsPagedRow struct {
+	ID              uuid.UUID `json:"id"`
+	EventID         uuid.UUID `json:"event_id"`
+	ChallengeID     uuid.UUID `json:"challenge_id"`
+	TeamID          uuid.UUID `json:"team_id"`
+	TeamName        string    `json:"team_name"`
+	ParticipantID   uuid.UUID `json:"participant_id"`
+	ParticipantName string    `json:"participant_name"`
+	Answer          string    `json:"answer"`
+	Flag            string    `json:"flag"`
+	IsCorrect       bool      `json:"is_correct"`
+	Timestamp       time.Time `json:"timestamp"`
+}
+
+func (q *Queries) GetEventChallengeSolutionAttemptsPaged(ctx context.Context, arg GetEventChallengeSolutionAttemptsPagedParams) ([]GetEventChallengeSolutionAttemptsPagedRow, error) {
+	rows, err := q.db.Query(ctx, getEventChallengeSolutionAttemptsPaged, arg.EventID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []EventChallengeSolutionAttempt{}
+	items := []GetEventChallengeSolutionAttemptsPagedRow{}
 	for rows.Next() {
-		var i EventChallengeSolutionAttempt
+		var i GetEventChallengeSolutionAttemptsPagedRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventID,
 			&i.ChallengeID,
 			&i.TeamID,
+			&i.TeamName,
 			&i.ParticipantID,
+			&i.ParticipantName,
 			&i.Answer,
 			&i.Flag,
 			&i.IsCorrect,
@@ -122,12 +158,13 @@ func (q *Queries) GetEventChallengeSolutionAttempts(ctx context.Context, eventID
 }
 
 const getTeamsChallengeSolvedByInEvent = `-- name: GetTeamsChallengeSolvedByInEvent :many
-select t.id, t.name, participant_id, timestamp
+select t.id, t.name, t.hidden, participant_id, timestamp
 from event_challenge_solution_attempts
          inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
-where t.event_id = $1
+where is_correct = true
   and challenge_id = $2
-  and is_correct = true
+    and event_challenge_solution_attempts.event_id = $1
+order by timestamp
 `
 
 type GetTeamsChallengeSolvedByInEventParams struct {
@@ -138,6 +175,7 @@ type GetTeamsChallengeSolvedByInEventParams struct {
 type GetTeamsChallengeSolvedByInEventRow struct {
 	ID            uuid.UUID `json:"id"`
 	Name          string    `json:"name"`
+	Hidden        bool      `json:"hidden"`
 	ParticipantID uuid.UUID `json:"participant_id"`
 	Timestamp     time.Time `json:"timestamp"`
 }
@@ -154,6 +192,64 @@ func (q *Queries) GetTeamsChallengeSolvedByInEvent(ctx context.Context, arg GetT
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
+			&i.Hidden,
+			&i.ParticipantID,
+			&i.Timestamp,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTeamsChallengeSolvedByInEventPaged = `-- name: GetTeamsChallengeSolvedByInEventPaged :many
+select t.id, t.name, t.hidden, participant_id, timestamp
+from event_challenge_solution_attempts
+         inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
+where is_correct = true
+  and challenge_id = $2
+  and event_challenge_solution_attempts.event_id = $1
+order by timestamp
+limit $3 offset $4
+`
+
+type GetTeamsChallengeSolvedByInEventPagedParams struct {
+	EventID     uuid.UUID `json:"event_id"`
+	ChallengeID uuid.UUID `json:"challenge_id"`
+	Limit       int32     `json:"limit"`
+	Offset      int32     `json:"offset"`
+}
+
+type GetTeamsChallengeSolvedByInEventPagedRow struct {
+	ID            uuid.UUID `json:"id"`
+	Name          string    `json:"name"`
+	Hidden        bool      `json:"hidden"`
+	ParticipantID uuid.UUID `json:"participant_id"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+func (q *Queries) GetTeamsChallengeSolvedByInEventPaged(ctx context.Context, arg GetTeamsChallengeSolvedByInEventPagedParams) ([]GetTeamsChallengeSolvedByInEventPagedRow, error) {
+	rows, err := q.db.Query(ctx, getTeamsChallengeSolvedByInEventPaged,
+		arg.EventID,
+		arg.ChallengeID,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetTeamsChallengeSolvedByInEventPagedRow{}
+	for rows.Next() {
+		var i GetTeamsChallengeSolvedByInEventPagedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Hidden,
 			&i.ParticipantID,
 			&i.Timestamp,
 		); err != nil {
@@ -169,19 +265,20 @@ func (q *Queries) GetTeamsChallengeSolvedByInEvent(ctx context.Context, arg GetT
 
 const updateEventChallengeSolutionAttempt = `-- name: UpdateEventChallengeSolutionAttempt :execrows
 update event_challenge_solution_attempts
-set is_correct = $3
+set is_correct = $2,
+    updated_at = now(),
+    updated_by = $3
 where id = $1
-  and event_id = $2
 `
 
 type UpdateEventChallengeSolutionAttemptParams struct {
-	ID        uuid.UUID `json:"id"`
-	EventID   uuid.UUID `json:"event_id"`
-	IsCorrect bool      `json:"is_correct"`
+	ID        uuid.UUID     `json:"id"`
+	IsCorrect bool          `json:"is_correct"`
+	UpdatedBy uuid.NullUUID `json:"updated_by"`
 }
 
 func (q *Queries) UpdateEventChallengeSolutionAttempt(ctx context.Context, arg UpdateEventChallengeSolutionAttemptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateEventChallengeSolutionAttempt, arg.ID, arg.EventID, arg.IsCorrect)
+	result, err := q.db.Exec(ctx, updateEventChallengeSolutionAttempt, arg.ID, arg.IsCorrect, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}

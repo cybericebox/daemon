@@ -38,16 +38,10 @@ const deleteEventChallengeCategory = `-- name: DeleteEventChallengeCategory :exe
 delete
 from event_challenge_categories
 where id = $1
-  and event_id = $2
 `
 
-type DeleteEventChallengeCategoryParams struct {
-	ID      uuid.UUID `json:"id"`
-	EventID uuid.UUID `json:"event_id"`
-}
-
-func (q *Queries) DeleteEventChallengeCategory(ctx context.Context, arg DeleteEventChallengeCategoryParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteEventChallengeCategory, arg.ID, arg.EventID)
+func (q *Queries) DeleteEventChallengeCategory(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEventChallengeCategory, id)
 	if err != nil {
 		return 0, err
 	}
@@ -89,29 +83,43 @@ func (q *Queries) GetEventChallengeCategories(ctx context.Context, eventID uuid.
 	return items, nil
 }
 
+const getEventChallengeCategoryByID = `-- name: GetEventChallengeCategoryByID :one
+select id, event_id, name, order_index, updated_at, updated_by, created_at
+from event_challenge_categories
+where id = $1
+`
+
+func (q *Queries) GetEventChallengeCategoryByID(ctx context.Context, id uuid.UUID) (EventChallengeCategory, error) {
+	row := q.db.QueryRow(ctx, getEventChallengeCategoryByID, id)
+	var i EventChallengeCategory
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.Name,
+		&i.OrderIndex,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const updateEventChallengeCategory = `-- name: UpdateEventChallengeCategory :execrows
 update event_challenge_categories
-set name       = $3,
+set name       = $2,
     updated_at = now(),
-    updated_by = $4
+    updated_by = $3
 where id = $1
-  and event_id = $2
 `
 
 type UpdateEventChallengeCategoryParams struct {
 	ID        uuid.UUID     `json:"id"`
-	EventID   uuid.UUID     `json:"event_id"`
 	Name      string        `json:"name"`
 	UpdatedBy uuid.NullUUID `json:"updated_by"`
 }
 
 func (q *Queries) UpdateEventChallengeCategory(ctx context.Context, arg UpdateEventChallengeCategoryParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateEventChallengeCategory,
-		arg.ID,
-		arg.EventID,
-		arg.Name,
-		arg.UpdatedBy,
-	)
+	result, err := q.db.Exec(ctx, updateEventChallengeCategory, arg.ID, arg.Name, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}

@@ -1,18 +1,12 @@
--- name: GetEventIDIfRunning :one
-select id
-from events
-where tag = $1
-  and now() between publish_time and withdraw_time;
-
--- name: GetEventIDIfNotWithdrawn :one
-select id
-from events
-where tag = $1
-  and now() < withdraw_time;
-
 -- name: GetEvents :many
 select *
 from events;
+
+-- name: GetEventsPaged :many
+select *
+from events
+order by name
+limit $1 offset $2;
 
 -- name: GetEventByID :one
 select *
@@ -25,40 +19,70 @@ from events
 where tag = $1;
 
 -- name: CreateEvent :exec
-insert into events (id, type, availability, participation, tag, name, description, rules, picture, dynamic_scoring,
+insert into events (id, type, availability, participation, tag, name, dynamic_scoring,
                     dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability,
                     participants_visibility, publish_time, start_time, finish_time, withdraw_time)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20);
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);
 
 -- name: UpdateEvent :execrows
 update events
 set type                    = $2,
     availability            = $3,
     name                    = $4,
-    description             = $5,
-    rules                   = $6,
-    picture                 = $7,
-    dynamic_scoring         = $8,
-    dynamic_max             = $9,
-    dynamic_min             = $10,
-    dynamic_solve_threshold = $11,
-    registration            = $12,
-    scoreboard_availability = $13,
-    participants_visibility = $14,
-    publish_time            = $15,
-    start_time              = $16,
-    finish_time             = $17,
-    withdraw_time           = $18,
-    updated_at              = now(),
-    updated_by              = $19
-where id = $1;
-
--- name: UpdateEventPicture :execrows
-update events
-set picture = $2
+    dynamic_scoring         = $5,
+    dynamic_max             = $6,
+    dynamic_min             = $7,
+    dynamic_solve_threshold = $8,
+    registration            = $9,
+    scoreboard_availability = $10,
+    participants_visibility = $11,
+    publish_time            = $12,
+    start_time              = $13,
+    finish_time             = $14,
+    withdraw_time           = $15,
+    updated_at              = $16,
+    updated_by              = $17
 where id = $1;
 
 -- name: DeleteEvent :execrows
 delete
 from events
 where id = $1;
+
+-- name: GetEventsWithMetadata :many
+select events.*,
+       events_metadata.data
+from events
+         inner join events_metadata on events.id = events_metadata.event_id
+order by events.name;
+
+-- name: GetEventsWithMetadataPaged :many
+select events.*,
+       events_metadata.data
+from events
+         inner join events_metadata on events.id = events_metadata.event_id
+order by events.name
+limit $1 offset $2;
+
+-- name: GetEventWithMetadataByID :one
+select events.*,
+       events_metadata.data
+from events_metadata
+         inner join events on events.id = events_metadata.event_id
+where events_metadata.event_id = $1;
+
+-- name: CreateEventMetadata :exec
+insert into events_metadata (event_id, data)
+values ($1, $2);
+
+-- name: UpdateEventMetadata :execrows
+update events_metadata
+set data       = $2,
+    updated_at = $3,
+    updated_by = $4
+where event_id = $1;
+
+-- name: UpdateEventPicture :execrows
+update events_metadata
+set data = jsonb_set(data, '{picture}', to_jsonb(@picture::text), true)
+where event_id = $1;

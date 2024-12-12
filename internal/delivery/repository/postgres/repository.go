@@ -59,12 +59,12 @@ func newPostgresDB(ctx context.Context, cfg *config.PostgresConfig) (*pgxpool.Po
 		fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%d sslmode=%s pool_max_conns=%d", cfg.Username, cfg.Password, cfg.Database, cfg.Host, cfg.Port, cfg.SSLMode, cfg.MaxPoolConnections))
 	pool, err := pgxpool.NewWithConfig(ctx, ConnConfig)
 	if err != nil {
-		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to create new postgres db connection").Cause()
+		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to create new postgres db connection").Err()
 	}
 
 	// ping db
 	if err = pool.Ping(ctx); err != nil {
-		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to ping db").Cause()
+		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to ping db").Err()
 	}
 
 	return pool, nil
@@ -74,7 +74,7 @@ func newPostgresDB(ctx context.Context, cfg *config.PostgresConfig) (*pgxpool.Po
 func runMigrations(cfg *config.PostgresConfig) error {
 	db, err := sql.Open("postgres", fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%d sslmode=%s", cfg.Username, cfg.Password, cfg.Database, cfg.Host, cfg.Port, cfg.SSLMode))
 	if err != nil {
-		return model.ErrPostgres.WithError(err).WithMessage("Failed to open db connection").Cause()
+		return model.ErrPostgres.WithError(err).WithMessage("Failed to open db connection").Err()
 	}
 	defer func() {
 		if err = db.Close(); err != nil {
@@ -86,7 +86,7 @@ func runMigrations(cfg *config.PostgresConfig) error {
 		DatabaseName:    cfg.Database,
 	})
 	if err != nil {
-		return model.ErrPostgres.WithError(err).WithMessage("Failed to create migration driver").Cause()
+		return model.ErrPostgres.WithError(err).WithMessage("Failed to create migration driver").Err()
 	}
 
 	m, err := migrate.NewWithDatabaseInstance(
@@ -96,12 +96,12 @@ func runMigrations(cfg *config.PostgresConfig) error {
 	)
 
 	if err != nil {
-		return model.ErrPostgres.WithError(err).WithMessage("Failed to create migration instance").Cause()
+		return model.ErrPostgres.WithError(err).WithMessage("Failed to create migration instance").Err()
 	}
 
 	if err = m.Up(); err != nil {
 		if !errors.Is(migrate.ErrNoChange, err) {
-			return model.ErrPostgres.WithError(err).WithMessage("Failed to run migrations").Cause()
+			return model.ErrPostgres.WithError(err).WithMessage("Failed to run migrations").Err()
 		}
 	}
 	return nil
@@ -114,7 +114,7 @@ func (r *PostgresRepository) GetSQLDB() *pgxpool.Pool {
 func (r *PostgresRepository) WithTransaction(ctx context.Context) (withTx Querier, commit func(), rollback func(), err error) {
 	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, nil, nil, model.ErrPostgres.WithError(err).WithMessage("Failed to begin transaction").Cause()
+		return nil, nil, nil, model.ErrPostgres.WithError(err).WithMessage("Failed to begin transaction").Err()
 	}
 
 	withTx = r.WithTx(tx)

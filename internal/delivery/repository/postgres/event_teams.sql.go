@@ -45,16 +45,18 @@ func (q *Queries) CountTeamsInEvents(ctx context.Context) ([]CountTeamsInEventsR
 }
 
 const createTeamInEvent = `-- name: CreateTeamInEvent :exec
-insert into event_teams (id, name, join_code, event_id, laboratory_id)
-values ($1, $2, $3, $4, $5)
+insert into event_teams (id, name, join_code, event_id, laboratory_id, hidden, approval_status)
+values ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type CreateTeamInEventParams struct {
-	ID           uuid.UUID     `json:"id"`
-	Name         string        `json:"name"`
-	JoinCode     string        `json:"join_code"`
-	EventID      uuid.UUID     `json:"event_id"`
-	LaboratoryID uuid.NullUUID `json:"laboratory_id"`
+	ID             uuid.UUID     `json:"id"`
+	Name           string        `json:"name"`
+	JoinCode       string        `json:"join_code"`
+	EventID        uuid.UUID     `json:"event_id"`
+	LaboratoryID   uuid.NullUUID `json:"laboratory_id"`
+	Hidden         bool          `json:"hidden"`
+	ApprovalStatus int32         `json:"approval_status"`
 }
 
 func (q *Queries) CreateTeamInEvent(ctx context.Context, arg CreateTeamInEventParams) error {
@@ -64,6 +66,8 @@ func (q *Queries) CreateTeamInEvent(ctx context.Context, arg CreateTeamInEventPa
 		arg.JoinCode,
 		arg.EventID,
 		arg.LaboratoryID,
+		arg.Hidden,
+		arg.ApprovalStatus,
 	)
 	return err
 }
@@ -72,16 +76,10 @@ const deleteEventTeam = `-- name: DeleteEventTeam :execrows
 delete
 from event_teams
 where id = $1
-  and event_id = $2
 `
 
-type DeleteEventTeamParams struct {
-	ID      uuid.UUID `json:"id"`
-	EventID uuid.UUID `json:"event_id"`
-}
-
-func (q *Queries) DeleteEventTeam(ctx context.Context, arg DeleteEventTeamParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteEventTeam, arg.ID, arg.EventID)
+func (q *Queries) DeleteEventTeam(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteEventTeam, id)
 	if err != nil {
 		return 0, err
 	}
@@ -89,67 +87,77 @@ func (q *Queries) DeleteEventTeam(ctx context.Context, arg DeleteEventTeamParams
 }
 
 const getEventParticipantTeam = `-- name: GetEventParticipantTeam :one
-select event_teams.id, event_teams.name, event_teams.join_code, event_teams.laboratory_id
+select event_teams.id, event_teams.name, event_teams.join_code, event_teams.laboratory_id, event_teams.hidden, event_teams.approval_status
 from event_teams
-         join event_participants on event_teams.id = event_participants.team_id
-where event_participants.event_id = $1
-  and event_participants.user_id = $2
+        inner join event_participants on event_teams.id = event_participants.team_id
+where event_participants.user_id = $1
+and event_participants.event_id = $2
 `
 
 type GetEventParticipantTeamParams struct {
-	EventID uuid.UUID `json:"event_id"`
 	UserID  uuid.UUID `json:"user_id"`
+	EventID uuid.UUID `json:"event_id"`
 }
 
 type GetEventParticipantTeamRow struct {
-	ID           uuid.UUID     `json:"id"`
-	Name         string        `json:"name"`
-	JoinCode     string        `json:"join_code"`
-	LaboratoryID uuid.NullUUID `json:"laboratory_id"`
+	ID             uuid.UUID     `json:"id"`
+	Name           string        `json:"name"`
+	JoinCode       string        `json:"join_code"`
+	LaboratoryID   uuid.NullUUID `json:"laboratory_id"`
+	Hidden         bool          `json:"hidden"`
+	ApprovalStatus int32         `json:"approval_status"`
 }
 
 func (q *Queries) GetEventParticipantTeam(ctx context.Context, arg GetEventParticipantTeamParams) (GetEventParticipantTeamRow, error) {
-	row := q.db.QueryRow(ctx, getEventParticipantTeam, arg.EventID, arg.UserID)
+	row := q.db.QueryRow(ctx, getEventParticipantTeam, arg.UserID, arg.EventID)
 	var i GetEventParticipantTeamRow
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
 		&i.JoinCode,
 		&i.LaboratoryID,
+		&i.Hidden,
+		&i.ApprovalStatus,
 	)
 	return i, err
 }
 
 const getEventTeamByID = `-- name: GetEventTeamByID :one
-select id, event_id, name, laboratory_id, updated_at, updated_by, created_at
+select id,
+       event_id,
+       name,
+       laboratory_id,
+       hidden,
+       approval_status,
+       updated_at,
+       updated_by,
+       created_at
 from event_teams
 where id = $1
-  and event_id = $2
 `
 
-type GetEventTeamByIDParams struct {
-	ID      uuid.UUID `json:"id"`
-	EventID uuid.UUID `json:"event_id"`
-}
-
 type GetEventTeamByIDRow struct {
-	ID           uuid.UUID          `json:"id"`
-	EventID      uuid.UUID          `json:"event_id"`
-	Name         string             `json:"name"`
-	LaboratoryID uuid.NullUUID      `json:"laboratory_id"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	UpdatedBy    uuid.NullUUID      `json:"updated_by"`
-	CreatedAt    time.Time          `json:"created_at"`
+	ID             uuid.UUID          `json:"id"`
+	EventID        uuid.UUID          `json:"event_id"`
+	Name           string             `json:"name"`
+	LaboratoryID   uuid.NullUUID      `json:"laboratory_id"`
+	Hidden         bool               `json:"hidden"`
+	ApprovalStatus int32              `json:"approval_status"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy      uuid.NullUUID      `json:"updated_by"`
+	CreatedAt      time.Time          `json:"created_at"`
 }
 
-func (q *Queries) GetEventTeamByID(ctx context.Context, arg GetEventTeamByIDParams) (GetEventTeamByIDRow, error) {
-	row := q.db.QueryRow(ctx, getEventTeamByID, arg.ID, arg.EventID)
+func (q *Queries) GetEventTeamByID(ctx context.Context, id uuid.UUID) (GetEventTeamByIDRow, error) {
+	row := q.db.QueryRow(ctx, getEventTeamByID, id)
 	var i GetEventTeamByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.EventID,
 		&i.Name,
 		&i.LaboratoryID,
+		&i.Hidden,
+		&i.ApprovalStatus,
 		&i.UpdatedAt,
 		&i.UpdatedBy,
 		&i.CreatedAt,
@@ -183,9 +191,18 @@ func (q *Queries) GetEventTeamByName(ctx context.Context, arg GetEventTeamByName
 }
 
 const getEventTeams = `-- name: GetEventTeams :many
-select id, event_teams.event_id, event_teams.name, laboratory_id, event_teams.updated_at, event_teams.updated_by, event_teams.created_at, count(event_participants.user_id) as participants_count
+select id,
+       event_teams.event_id,
+       event_teams.name,
+       laboratory_id,
+       event_teams.hidden,
+       event_teams.approval_status,
+       event_teams.updated_at,
+       event_teams.updated_by,
+       event_teams.created_at,
+       count(event_participants.user_id) as participants_count
 from event_teams
-inner join event_participants on event_teams.id = event_participants.team_id
+         left join event_participants on event_teams.id = event_participants.team_id
 where event_teams.event_id = $1
 group by event_teams.id
 `
@@ -195,6 +212,8 @@ type GetEventTeamsRow struct {
 	EventID           uuid.UUID          `json:"event_id"`
 	Name              string             `json:"name"`
 	LaboratoryID      uuid.NullUUID      `json:"laboratory_id"`
+	Hidden            bool               `json:"hidden"`
+	ApprovalStatus    int32              `json:"approval_status"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	UpdatedBy         uuid.NullUUID      `json:"updated_by"`
 	CreatedAt         time.Time          `json:"created_at"`
@@ -215,6 +234,8 @@ func (q *Queries) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]GetEv
 			&i.EventID,
 			&i.Name,
 			&i.LaboratoryID,
+			&i.Hidden,
+			&i.ApprovalStatus,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.CreatedAt,
@@ -230,29 +251,113 @@ func (q *Queries) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]GetEv
 	return items, nil
 }
 
+const getEventTeamsPaged = `-- name: GetEventTeamsPaged :many
+select id,
+       event_teams.event_id,
+       text(event_teams.name)            as name,
+       laboratory_id,
+       event_teams.hidden,
+       event_teams.approval_status,
+       event_teams.updated_at,
+       event_teams.updated_by,
+       event_teams.created_at,
+       count(event_participants.user_id) as participants_count
+from event_teams
+         left join event_participants on event_teams.id = event_participants.team_id
+where event_teams.event_id = $1
+group by event_teams.id
+order by name
+limit $2 offset $3
+`
+
+type GetEventTeamsPagedParams struct {
+	EventID uuid.UUID `json:"event_id"`
+	Limit   int32     `json:"limit"`
+	Offset  int32     `json:"offset"`
+}
+
+type GetEventTeamsPagedRow struct {
+	ID                uuid.UUID          `json:"id"`
+	EventID           uuid.UUID          `json:"event_id"`
+	Name              string             `json:"name"`
+	LaboratoryID      uuid.NullUUID      `json:"laboratory_id"`
+	Hidden            bool               `json:"hidden"`
+	ApprovalStatus    int32              `json:"approval_status"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy         uuid.NullUUID      `json:"updated_by"`
+	CreatedAt         time.Time          `json:"created_at"`
+	ParticipantsCount int64              `json:"participants_count"`
+}
+
+func (q *Queries) GetEventTeamsPaged(ctx context.Context, arg GetEventTeamsPagedParams) ([]GetEventTeamsPagedRow, error) {
+	rows, err := q.db.Query(ctx, getEventTeamsPaged, arg.EventID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEventTeamsPagedRow{}
+	for rows.Next() {
+		var i GetEventTeamsPagedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Name,
+			&i.LaboratoryID,
+			&i.Hidden,
+			&i.ApprovalStatus,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.ParticipantsCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateEventTeamApprovalStatus = `-- name: UpdateEventTeamApprovalStatus :execrows
+update event_teams
+set approval_status = $2,
+    updated_at      = now(),
+    updated_by      = $3
+where id = $1
+`
+
+type UpdateEventTeamApprovalStatusParams struct {
+	ID             uuid.UUID     `json:"id"`
+	ApprovalStatus int32         `json:"approval_status"`
+	UpdatedBy      uuid.NullUUID `json:"updated_by"`
+}
+
+func (q *Queries) UpdateEventTeamApprovalStatus(ctx context.Context, arg UpdateEventTeamApprovalStatusParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventTeamApprovalStatus, arg.ID, arg.ApprovalStatus, arg.UpdatedBy)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateEventTeamName = `-- name: UpdateEventTeamName :execrows
 update event_teams
-set name       = $3,
+set name       = $2,
     updated_at = now(),
-    updated_by = $4
+    updated_by = $3
 where id = $1
-  and event_id = $2
 `
 
 type UpdateEventTeamNameParams struct {
 	ID        uuid.UUID     `json:"id"`
-	EventID   uuid.UUID     `json:"event_id"`
 	Name      string        `json:"name"`
 	UpdatedBy uuid.NullUUID `json:"updated_by"`
 }
 
 func (q *Queries) UpdateEventTeamName(ctx context.Context, arg UpdateEventTeamNameParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateEventTeamName,
-		arg.ID,
-		arg.EventID,
-		arg.Name,
-		arg.UpdatedBy,
-	)
+	result, err := q.db.Exec(ctx, updateEventTeamName, arg.ID, arg.Name, arg.UpdatedBy)
 	if err != nil {
 		return 0, err
 	}

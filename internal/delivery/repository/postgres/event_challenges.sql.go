@@ -15,16 +15,10 @@ const countChallengesInCategoryInEvent = `-- name: CountChallengesInCategoryInEv
 select count(*)
 from event_challenges
 where category_id = $1
-  and event_id = $2
 `
 
-type CountChallengesInCategoryInEventParams struct {
-	CategoryID uuid.UUID `json:"category_id"`
-	EventID    uuid.UUID `json:"event_id"`
-}
-
-func (q *Queries) CountChallengesInCategoryInEvent(ctx context.Context, arg CountChallengesInCategoryInEventParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countChallengesInCategoryInEvent, arg.CategoryID, arg.EventID)
+func (q *Queries) CountChallengesInCategoryInEvent(ctx context.Context, categoryID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countChallengesInCategoryInEvent, categoryID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -65,16 +59,10 @@ const getEventChallengeByID = `-- name: GetEventChallengeByID :one
 select id, event_id, category_id, data, order_index, exercise_id, exercise_task_id, updated_at, updated_by, created_at
 from event_challenges
 where id = $1
-  and event_id = $2
 `
 
-type GetEventChallengeByIDParams struct {
-	ID      uuid.UUID `json:"id"`
-	EventID uuid.UUID `json:"event_id"`
-}
-
-func (q *Queries) GetEventChallengeByID(ctx context.Context, arg GetEventChallengeByIDParams) (EventChallenge, error) {
-	row := q.db.QueryRow(ctx, getEventChallengeByID, arg.ID, arg.EventID)
+func (q *Queries) GetEventChallengeByID(ctx context.Context, id uuid.UUID) (EventChallenge, error) {
+	row := q.db.QueryRow(ctx, getEventChallengeByID, id)
 	var i EventChallenge
 	err := row.Scan(
 		&i.ID,

@@ -32,17 +32,17 @@ func (q *Queries) CreateEventParticipant(ctx context.Context, arg CreateEventPar
 const deleteEventParticipant = `-- name: DeleteEventParticipant :execrows
 delete
 from event_participants
-where event_id = $1
-  and user_id = $2
+where user_id = $1
+  and event_id = $2
 `
 
 type DeleteEventParticipantParams struct {
-	EventID uuid.UUID `json:"event_id"`
 	UserID  uuid.UUID `json:"user_id"`
+	EventID uuid.UUID `json:"event_id"`
 }
 
 func (q *Queries) DeleteEventParticipant(ctx context.Context, arg DeleteEventParticipantParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteEventParticipant, arg.EventID, arg.UserID)
+	result, err := q.db.Exec(ctx, deleteEventParticipant, arg.UserID, arg.EventID)
 	if err != nil {
 		return 0, err
 	}
@@ -52,40 +52,42 @@ func (q *Queries) DeleteEventParticipant(ctx context.Context, arg DeleteEventPar
 const getEventParticipantStatus = `-- name: GetEventParticipantStatus :one
 select approval_status
 from event_participants
-where event_id = $1
-  and user_id = $2
+where user_id = $1
+  and event_id = $2
 `
 
 type GetEventParticipantStatusParams struct {
-	EventID uuid.UUID `json:"event_id"`
 	UserID  uuid.UUID `json:"user_id"`
+	EventID uuid.UUID `json:"event_id"`
 }
 
 func (q *Queries) GetEventParticipantStatus(ctx context.Context, arg GetEventParticipantStatusParams) (int32, error) {
-	row := q.db.QueryRow(ctx, getEventParticipantStatus, arg.EventID, arg.UserID)
+	row := q.db.QueryRow(ctx, getEventParticipantStatus, arg.UserID, arg.EventID)
 	var approval_status int32
 	err := row.Scan(&approval_status)
 	return approval_status, err
 }
 
 const getEventParticipants = `-- name: GetEventParticipants :many
-select event_participants.user_id, event_participants.event_id, event_participants.team_id, event_participants.approval_status, event_participants.updated_at, event_participants.updated_by, event_participants.created_at, u.name as name, u.email as email
+select event_participants.user_id, event_participants.event_id, event_participants.team_id, event_participants.hidden, event_participants.approval_status, event_participants.updated_at, event_participants.updated_by, event_participants.created_at, u.name as name, u.email as email, coalesce(et.name, '') as team_name
 from event_participants
          inner join users u on event_participants.user_id = u.id
-where event_id = $1
-order by event_participants.created_at desc
+left join public.event_teams et on event_participants.team_id = et.id
+where event_participants.event_id = $1
 `
 
 type GetEventParticipantsRow struct {
 	UserID         uuid.UUID          `json:"user_id"`
 	EventID        uuid.UUID          `json:"event_id"`
 	TeamID         uuid.NullUUID      `json:"team_id"`
+	Hidden         bool               `json:"hidden"`
 	ApprovalStatus int32              `json:"approval_status"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 	UpdatedBy      uuid.NullUUID      `json:"updated_by"`
 	CreatedAt      time.Time          `json:"created_at"`
 	Name           string             `json:"name"`
 	Email          string             `json:"email"`
+	TeamName       string             `json:"team_name"`
 }
 
 func (q *Queries) GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]GetEventParticipantsRow, error) {
@@ -101,12 +103,76 @@ func (q *Queries) GetEventParticipants(ctx context.Context, eventID uuid.UUID) (
 			&i.UserID,
 			&i.EventID,
 			&i.TeamID,
+			&i.Hidden,
 			&i.ApprovalStatus,
 			&i.UpdatedAt,
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.Name,
 			&i.Email,
+			&i.TeamName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEventParticipantsPaged = `-- name: GetEventParticipantsPaged :many
+select event_participants.user_id, event_participants.event_id, event_participants.team_id, event_participants.hidden, event_participants.approval_status, event_participants.updated_at, event_participants.updated_by, event_participants.created_at, u.name as name, u.email as email, coalesce(et.name, '') as team_name
+from event_participants
+         inner join users u on event_participants.user_id = u.id
+         left join public.event_teams et on event_participants.team_id = et.id
+where event_participants.event_id = $1
+order by event_participants.created_at desc
+limit $2 offset $3
+`
+
+type GetEventParticipantsPagedParams struct {
+	EventID uuid.UUID `json:"event_id"`
+	Limit   int32     `json:"limit"`
+	Offset  int32     `json:"offset"`
+}
+
+type GetEventParticipantsPagedRow struct {
+	UserID         uuid.UUID          `json:"user_id"`
+	EventID        uuid.UUID          `json:"event_id"`
+	TeamID         uuid.NullUUID      `json:"team_id"`
+	Hidden         bool               `json:"hidden"`
+	ApprovalStatus int32              `json:"approval_status"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy      uuid.NullUUID      `json:"updated_by"`
+	CreatedAt      time.Time          `json:"created_at"`
+	Name           string             `json:"name"`
+	Email          string             `json:"email"`
+	TeamName       string             `json:"team_name"`
+}
+
+func (q *Queries) GetEventParticipantsPaged(ctx context.Context, arg GetEventParticipantsPagedParams) ([]GetEventParticipantsPagedRow, error) {
+	rows, err := q.db.Query(ctx, getEventParticipantsPaged, arg.EventID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEventParticipantsPagedRow{}
+	for rows.Next() {
+		var i GetEventParticipantsPagedRow
+		if err := rows.Scan(
+			&i.UserID,
+			&i.EventID,
+			&i.TeamID,
+			&i.Hidden,
+			&i.ApprovalStatus,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.Name,
+			&i.Email,
+			&i.TeamName,
 		); err != nil {
 			return nil, err
 		}
@@ -123,21 +189,21 @@ update event_participants
 set approval_status = $3,
     updated_at      = now(),
     updated_by      = $4
-where event_id = $1
-  and user_id = $2
+where user_id = $1
+  and event_id = $2
 `
 
 type UpdateEventParticipantStatusParams struct {
-	EventID        uuid.UUID     `json:"event_id"`
 	UserID         uuid.UUID     `json:"user_id"`
+	EventID        uuid.UUID     `json:"event_id"`
 	ApprovalStatus int32         `json:"approval_status"`
 	UpdatedBy      uuid.NullUUID `json:"updated_by"`
 }
 
 func (q *Queries) UpdateEventParticipantStatus(ctx context.Context, arg UpdateEventParticipantStatusParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateEventParticipantStatus,
-		arg.EventID,
 		arg.UserID,
+		arg.EventID,
 		arg.ApprovalStatus,
 		arg.UpdatedBy,
 	)
@@ -152,21 +218,21 @@ update event_participants
 set team_id    = $3,
     updated_at = now(),
     updated_by = $4
-where event_id = $1
-  and user_id = $2
+where user_id = $1
+  and event_id = $2
 `
 
 type UpdateEventParticipantTeamParams struct {
-	EventID   uuid.UUID     `json:"event_id"`
 	UserID    uuid.UUID     `json:"user_id"`
+	EventID   uuid.UUID     `json:"event_id"`
 	TeamID    uuid.NullUUID `json:"team_id"`
 	UpdatedBy uuid.NullUUID `json:"updated_by"`
 }
 
 func (q *Queries) UpdateEventParticipantTeam(ctx context.Context, arg UpdateEventParticipantTeamParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateEventParticipantTeam,
-		arg.EventID,
 		arg.UserID,
+		arg.EventID,
 		arg.TeamID,
 		arg.UpdatedBy,
 	)

@@ -1,6 +1,13 @@
 -- name: GetExerciseCategories :many
 select *
-from exercise_categories;
+from exercise_categories
+order by name
+limit $1 offset $2;
+
+-- name: GetExerciseCategoryByID :one
+select *
+from exercise_categories
+where id = $1;
 
 -- name: CreateExerciseCategory :exec
 insert into exercise_categories

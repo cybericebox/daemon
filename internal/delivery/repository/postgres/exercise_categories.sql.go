@@ -45,10 +45,17 @@ func (q *Queries) DeleteExerciseCategory(ctx context.Context, id uuid.UUID) (int
 const getExerciseCategories = `-- name: GetExerciseCategories :many
 select id, name, description, updated_at, updated_by, created_at
 from exercise_categories
+order by name
+limit $1 offset $2
 `
 
-func (q *Queries) GetExerciseCategories(ctx context.Context) ([]ExerciseCategory, error) {
-	rows, err := q.db.Query(ctx, getExerciseCategories)
+type GetExerciseCategoriesParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) GetExerciseCategories(ctx context.Context, arg GetExerciseCategoriesParams) ([]ExerciseCategory, error) {
+	rows, err := q.db.Query(ctx, getExerciseCategories, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +79,26 @@ func (q *Queries) GetExerciseCategories(ctx context.Context) ([]ExerciseCategory
 		return nil, err
 	}
 	return items, nil
+}
+
+const getExerciseCategoryByID = `-- name: GetExerciseCategoryByID :one
+select id, name, description, updated_at, updated_by, created_at
+from exercise_categories
+where id = $1
+`
+
+func (q *Queries) GetExerciseCategoryByID(ctx context.Context, id uuid.UUID) (ExerciseCategory, error) {
+	row := q.db.QueryRow(ctx, getExerciseCategoryByID, id)
+	var i ExerciseCategory
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const updateExerciseCategory = `-- name: UpdateExerciseCategory :execrows

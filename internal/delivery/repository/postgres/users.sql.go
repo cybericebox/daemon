@@ -80,7 +80,13 @@ select id,
        created_at
 from users
 order by name
+limit $1 offset $2
 `
+
+type GetAllUsersParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
 
 type GetAllUsersRow struct {
 	ID        uuid.UUID          `json:"id"`
@@ -95,8 +101,8 @@ type GetAllUsersRow struct {
 	CreatedAt time.Time          `json:"created_at"`
 }
 
-func (q *Queries) GetAllUsers(ctx context.Context) ([]GetAllUsersRow, error) {
-	rows, err := q.db.Query(ctx, getAllUsers)
+func (q *Queries) GetAllUsers(ctx context.Context, arg GetAllUsersParams) ([]GetAllUsersRow, error) {
+	rows, err := q.db.Query(ctx, getAllUsers, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +182,44 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	return i, err
 }
 
+const getUsersWithEmails = `-- name: GetUsersWithEmails :many
+select id, google_id, email, name, hashed_password, picture, role, last_seen, updated_at, updated_by, created_at
+from users
+where email = any ($1::varchar[])
+`
+
+func (q *Queries) GetUsersWithEmails(ctx context.Context, emails []string) ([]User, error) {
+	rows, err := q.db.Query(ctx, getUsersWithEmails, emails)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.GoogleID,
+			&i.Email,
+			&i.Name,
+			&i.HashedPassword,
+			&i.Picture,
+			&i.Role,
+			&i.LastSeen,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUsersWithSimilar = `-- name: GetUsersWithSimilar :many
 select id,
        google_id,
@@ -188,10 +232,17 @@ select id,
        updated_by,
        created_at
 from users
-where name ilike '%' || $1::text || '%'
-   or email ilike '%' || $1::text || '%'
+where lower(name) like '%' || lower($3::text) || '%'
+   or lower(email) like '%' || lower($3::text) || '%'
 order by name
+limit $1 offset $2
 `
+
+type GetUsersWithSimilarParams struct {
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+	Search string `json:"search"`
+}
 
 type GetUsersWithSimilarRow struct {
 	ID        uuid.UUID          `json:"id"`
@@ -206,8 +257,8 @@ type GetUsersWithSimilarRow struct {
 	CreatedAt time.Time          `json:"created_at"`
 }
 
-func (q *Queries) GetUsersWithSimilar(ctx context.Context, search string) ([]GetUsersWithSimilarRow, error) {
-	rows, err := q.db.Query(ctx, getUsersWithSimilar, search)
+func (q *Queries) GetUsersWithSimilar(ctx context.Context, arg GetUsersWithSimilarParams) ([]GetUsersWithSimilarRow, error) {
+	rows, err := q.db.Query(ctx, getUsersWithSimilar, arg.Limit, arg.Offset, arg.Search)
 	if err != nil {
 		return nil, err
 	}
@@ -320,8 +371,8 @@ func (q *Queries) UpdateUserName(ctx context.Context, arg UpdateUserNameParams) 
 const updateUserPassword = `-- name: UpdateUserPassword :execrows
 update users
 set hashed_password = $2,
-    updated_at = now(),
-    updated_by = $3
+    updated_at      = now(),
+    updated_by      = $3
 where id = $1
 `
 

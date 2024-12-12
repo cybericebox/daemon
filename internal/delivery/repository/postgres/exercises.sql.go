@@ -76,11 +76,17 @@ func (q *Queries) GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, 
 const getExercises = `-- name: GetExercises :many
 select id, category_id, name, description, data, updated_at, updated_by, created_at
 from exercises
-order by name
+order by lower(name)
+limit $1 offset $2
 `
 
-func (q *Queries) GetExercises(ctx context.Context) ([]Exercise, error) {
-	rows, err := q.db.Query(ctx, getExercises)
+type GetExercisesParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) GetExercises(ctx context.Context, arg GetExercisesParams) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercises, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -112,11 +118,18 @@ const getExercisesByCategory = `-- name: GetExercisesByCategory :many
 select id, category_id, name, description, data, updated_at, updated_by, created_at
 from exercises
 where category_id = $1
-order by name
+order by lower(name)
+limit $2 offset $3
 `
 
-func (q *Queries) GetExercisesByCategory(ctx context.Context, categoryID uuid.UUID) ([]Exercise, error) {
-	rows, err := q.db.Query(ctx, getExercisesByCategory, categoryID)
+type GetExercisesByCategoryParams struct {
+	CategoryID uuid.UUID `json:"category_id"`
+	Limit      int32     `json:"limit"`
+	Offset     int32     `json:"offset"`
+}
+
+func (q *Queries) GetExercisesByCategory(ctx context.Context, arg GetExercisesByCategoryParams) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercisesByCategory, arg.CategoryID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -144,15 +157,109 @@ func (q *Queries) GetExercisesByCategory(ctx context.Context, categoryID uuid.UU
 	return items, nil
 }
 
-const getExercisesByIDs = `-- name: GetExercisesByIDs :many
+const getExercisesNotWithIDs = `-- name: GetExercisesNotWithIDs :many
+select id, category_id, name, description, data, updated_at, updated_by, created_at
+from exercises
+where id <> all ($3::uuid[])
+order by lower(name)
+limit $1 offset $2
+`
+
+type GetExercisesNotWithIDsParams struct {
+	Limit  int32       `json:"limit"`
+	Offset int32       `json:"offset"`
+	Ids    []uuid.UUID `json:"ids"`
+}
+
+func (q *Queries) GetExercisesNotWithIDs(ctx context.Context, arg GetExercisesNotWithIDsParams) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercisesNotWithIDs, arg.Limit, arg.Offset, arg.Ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Exercise{}
+	for rows.Next() {
+		var i Exercise
+		if err := rows.Scan(
+			&i.ID,
+			&i.CategoryID,
+			&i.Name,
+			&i.Description,
+			&i.Data,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getExercisesNotWithIDsWithSimilarName = `-- name: GetExercisesNotWithIDsWithSimilarName :many
+select id, category_id, name, description, data, updated_at, updated_by, created_at
+from exercises
+where lower(name) like '%' || lower($3::text) || '%'
+   or lower(description) like '%' || lower($3::text) || '%'
+    and id <> all ($4::uuid[])
+order by lower(name)
+limit $1 offset $2
+`
+
+type GetExercisesNotWithIDsWithSimilarNameParams struct {
+	Limit  int32       `json:"limit"`
+	Offset int32       `json:"offset"`
+	Search string      `json:"search"`
+	Ids    []uuid.UUID `json:"ids"`
+}
+
+func (q *Queries) GetExercisesNotWithIDsWithSimilarName(ctx context.Context, arg GetExercisesNotWithIDsWithSimilarNameParams) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercisesNotWithIDsWithSimilarName,
+		arg.Limit,
+		arg.Offset,
+		arg.Search,
+		arg.Ids,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Exercise{}
+	for rows.Next() {
+		var i Exercise
+		if err := rows.Scan(
+			&i.ID,
+			&i.CategoryID,
+			&i.Name,
+			&i.Description,
+			&i.Data,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getExercisesWithIDs = `-- name: GetExercisesWithIDs :many
 select id, category_id, name, description, data, updated_at, updated_by, created_at
 from exercises
 where id = any ($1::uuid[])
 order by name
 `
 
-func (q *Queries) GetExercisesByIDs(ctx context.Context, ids []uuid.UUID) ([]Exercise, error) {
-	rows, err := q.db.Query(ctx, getExercisesByIDs, ids)
+func (q *Queries) GetExercisesWithIDs(ctx context.Context, ids []uuid.UUID) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercisesWithIDs, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -183,13 +290,20 @@ func (q *Queries) GetExercisesByIDs(ctx context.Context, ids []uuid.UUID) ([]Exe
 const getExercisesWithSimilarName = `-- name: GetExercisesWithSimilarName :many
 select id, category_id, name, description, data, updated_at, updated_by, created_at
 from exercises
-where name ilike '%' || $1::text || '%'
-   or description ilike '%' || $1::text || '%'
-order by name
+where lower(name) like '%' || lower($3::text) || '%'
+   or lower(description) like '%' || lower($3::text) || '%'
+order by lower(name)
+limit $1 offset $2
 `
 
-func (q *Queries) GetExercisesWithSimilarName(ctx context.Context, search string) ([]Exercise, error) {
-	rows, err := q.db.Query(ctx, getExercisesWithSimilarName, search)
+type GetExercisesWithSimilarNameParams struct {
+	Limit  int32  `json:"limit"`
+	Offset int32  `json:"offset"`
+	Search string `json:"search"`
+}
+
+func (q *Queries) GetExercisesWithSimilarName(ctx context.Context, arg GetExercisesWithSimilarNameParams) ([]Exercise, error) {
+	rows, err := q.db.Query(ctx, getExercisesWithSimilarName, arg.Limit, arg.Offset, arg.Search)
 	if err != nil {
 		return nil, err
 	}
@@ -222,9 +336,9 @@ update exercises
 set category_id = $2,
     name        = $3,
     description = $4,
-    data       = $5,
-    updated_at = now(),
-    updated_by = $6
+    data        = $5,
+    updated_at  = now(),
+    updated_by  = $6
 where id = $1
 `
 

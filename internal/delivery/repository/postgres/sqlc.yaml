@@ -38,3 +38,7 @@ sql:
             go_type:
               import: "github.com/cybericebox/daemon/internal/model"
               type: "ChallengeData"
+          - column: "events_metadata.data"
+            go_type:
+              import: "github.com/cybericebox/daemon/internal/model"
+              type: "EventMetadata"

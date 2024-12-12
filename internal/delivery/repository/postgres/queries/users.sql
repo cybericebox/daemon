@@ -14,7 +14,8 @@ select id,
        updated_by,
        created_at
 from users
-order by name;
+order by name
+limit $1 offset $2;
 
 -- name: GetUsersWithSimilar :many
 select id,
@@ -28,9 +29,15 @@ select id,
        updated_by,
        created_at
 from users
-where name ilike '%' || @search::text || '%'
-   or email ilike '%' || @search::text || '%'
-order by name;
+where lower(name) like '%' || lower(@search::text) || '%'
+   or lower(email) like '%' || lower(@search::text) || '%'
+order by name
+limit $1 offset $2;
+
+-- name: GetUsersWithEmails :many
+select *
+from users
+where email = any (@emails::varchar[]);
 
 -- name: GetUserByEmail :one
 select *

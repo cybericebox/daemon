@@ -9,14 +9,16 @@ import (
 	"context"
 	"time"
 
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const createEvent = `-- name: CreateEvent :exec
-insert into events (id, type, availability, participation, tag, name, description, rules, picture, dynamic_scoring,
+insert into events (id, type, availability, participation, tag, name, dynamic_scoring,
                     dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability,
                     participants_visibility, publish_time, start_time, finish_time, withdraw_time)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 `
 
 type CreateEventParams struct {
@@ -26,9 +28,6 @@ type CreateEventParams struct {
 	Participation          int32     `json:"participation"`
 	Tag                    string    `json:"tag"`
 	Name                   string    `json:"name"`
-	Description            string    `json:"description"`
-	Rules                  string    `json:"rules"`
-	Picture                string    `json:"picture"`
 	DynamicScoring         bool      `json:"dynamic_scoring"`
 	DynamicMax             int32     `json:"dynamic_max"`
 	DynamicMin             int32     `json:"dynamic_min"`
@@ -50,9 +49,6 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) error 
 		arg.Participation,
 		arg.Tag,
 		arg.Name,
-		arg.Description,
-		arg.Rules,
-		arg.Picture,
 		arg.DynamicScoring,
 		arg.DynamicMax,
 		arg.DynamicMin,
@@ -65,6 +61,21 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) error 
 		arg.FinishTime,
 		arg.WithdrawTime,
 	)
+	return err
+}
+
+const createEventMetadata = `-- name: CreateEventMetadata :exec
+insert into events_metadata (event_id, data)
+values ($1, $2)
+`
+
+type CreateEventMetadataParams struct {
+	EventID uuid.UUID           `json:"event_id"`
+	Data    model.EventMetadata `json:"data"`
+}
+
+func (q *Queries) CreateEventMetadata(ctx context.Context, arg CreateEventMetadataParams) error {
+	_, err := q.db.Exec(ctx, createEventMetadata, arg.EventID, arg.Data)
 	return err
 }
 
@@ -83,7 +94,7 @@ func (q *Queries) DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error) 
 }
 
 const getEventByID = `-- name: GetEventByID :one
-select id, type, availability, participation, tag, name, description, rules, picture, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
+select id, type, availability, participation, tag, name, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
 from events
 where id = $1
 `
@@ -98,9 +109,6 @@ func (q *Queries) GetEventByID(ctx context.Context, id uuid.UUID) (Event, error)
 		&i.Participation,
 		&i.Tag,
 		&i.Name,
-		&i.Description,
-		&i.Rules,
-		&i.Picture,
 		&i.DynamicScoring,
 		&i.DynamicMax,
 		&i.DynamicMin,
@@ -120,7 +128,7 @@ func (q *Queries) GetEventByID(ctx context.Context, id uuid.UUID) (Event, error)
 }
 
 const getEventByTag = `-- name: GetEventByTag :one
-select id, type, availability, participation, tag, name, description, rules, picture, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
+select id, type, availability, participation, tag, name, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
 from events
 where tag = $1
 `
@@ -135,9 +143,6 @@ func (q *Queries) GetEventByTag(ctx context.Context, tag string) (Event, error) 
 		&i.Participation,
 		&i.Tag,
 		&i.Name,
-		&i.Description,
-		&i.Rules,
-		&i.Picture,
 		&i.DynamicScoring,
 		&i.DynamicMax,
 		&i.DynamicMin,
@@ -156,36 +161,69 @@ func (q *Queries) GetEventByTag(ctx context.Context, tag string) (Event, error) 
 	return i, err
 }
 
-const getEventIDIfNotWithdrawn = `-- name: GetEventIDIfNotWithdrawn :one
-select id
-from events
-where tag = $1
-  and now() < withdraw_time
+const getEventWithMetadataByID = `-- name: GetEventWithMetadataByID :one
+select events.id, events.type, events.availability, events.participation, events.tag, events.name, events.dynamic_scoring, events.dynamic_max, events.dynamic_min, events.dynamic_solve_threshold, events.registration, events.scoreboard_availability, events.participants_visibility, events.publish_time, events.start_time, events.finish_time, events.withdraw_time, events.updated_at, events.updated_by, events.created_at,
+       events_metadata.data
+from events_metadata
+            inner join events on events.id = events_metadata.event_id
+where events_metadata.event_id = $1
 `
 
-func (q *Queries) GetEventIDIfNotWithdrawn(ctx context.Context, tag string) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getEventIDIfNotWithdrawn, tag)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+type GetEventWithMetadataByIDRow struct {
+	ID                     uuid.UUID           `json:"id"`
+	Type                   int32               `json:"type"`
+	Availability           int32               `json:"availability"`
+	Participation          int32               `json:"participation"`
+	Tag                    string              `json:"tag"`
+	Name                   string              `json:"name"`
+	DynamicScoring         bool                `json:"dynamic_scoring"`
+	DynamicMax             int32               `json:"dynamic_max"`
+	DynamicMin             int32               `json:"dynamic_min"`
+	DynamicSolveThreshold  int32               `json:"dynamic_solve_threshold"`
+	Registration           int32               `json:"registration"`
+	ScoreboardAvailability int32               `json:"scoreboard_availability"`
+	ParticipantsVisibility int32               `json:"participants_visibility"`
+	PublishTime            time.Time           `json:"publish_time"`
+	StartTime              time.Time           `json:"start_time"`
+	FinishTime             time.Time           `json:"finish_time"`
+	WithdrawTime           time.Time           `json:"withdraw_time"`
+	UpdatedAt              pgtype.Timestamptz  `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID       `json:"updated_by"`
+	CreatedAt              time.Time           `json:"created_at"`
+	Data                   model.EventMetadata `json:"data"`
 }
 
-const getEventIDIfRunning = `-- name: GetEventIDIfRunning :one
-select id
-from events
-where tag = $1
-  and now() between publish_time and withdraw_time
-`
-
-func (q *Queries) GetEventIDIfRunning(ctx context.Context, tag string) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getEventIDIfRunning, tag)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+func (q *Queries) GetEventWithMetadataByID(ctx context.Context, eventID uuid.UUID) (GetEventWithMetadataByIDRow, error) {
+	row := q.db.QueryRow(ctx, getEventWithMetadataByID, eventID)
+	var i GetEventWithMetadataByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.Type,
+		&i.Availability,
+		&i.Participation,
+		&i.Tag,
+		&i.Name,
+		&i.DynamicScoring,
+		&i.DynamicMax,
+		&i.DynamicMin,
+		&i.DynamicSolveThreshold,
+		&i.Registration,
+		&i.ScoreboardAvailability,
+		&i.ParticipantsVisibility,
+		&i.PublishTime,
+		&i.StartTime,
+		&i.FinishTime,
+		&i.WithdrawTime,
+		&i.UpdatedAt,
+		&i.UpdatedBy,
+		&i.CreatedAt,
+		&i.Data,
+	)
+	return i, err
 }
 
 const getEvents = `-- name: GetEvents :many
-select id, type, availability, participation, tag, name, description, rules, picture, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
+select id, type, availability, participation, tag, name, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
 from events
 `
 
@@ -205,9 +243,6 @@ func (q *Queries) GetEvents(ctx context.Context) ([]Event, error) {
 			&i.Participation,
 			&i.Tag,
 			&i.Name,
-			&i.Description,
-			&i.Rules,
-			&i.Picture,
 			&i.DynamicScoring,
 			&i.DynamicMax,
 			&i.DynamicMin,
@@ -233,50 +268,252 @@ func (q *Queries) GetEvents(ctx context.Context) ([]Event, error) {
 	return items, nil
 }
 
+const getEventsPaged = `-- name: GetEventsPaged :many
+select id, type, availability, participation, tag, name, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
+from events
+order by name
+limit $1 offset $2
+`
+
+type GetEventsPagedParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+func (q *Queries) GetEventsPaged(ctx context.Context, arg GetEventsPagedParams) ([]Event, error) {
+	rows, err := q.db.Query(ctx, getEventsPaged, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Event{}
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Availability,
+			&i.Participation,
+			&i.Tag,
+			&i.Name,
+			&i.DynamicScoring,
+			&i.DynamicMax,
+			&i.DynamicMin,
+			&i.DynamicSolveThreshold,
+			&i.Registration,
+			&i.ScoreboardAvailability,
+			&i.ParticipantsVisibility,
+			&i.PublishTime,
+			&i.StartTime,
+			&i.FinishTime,
+			&i.WithdrawTime,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEventsWithMetadata = `-- name: GetEventsWithMetadata :many
+select events.id, events.type, events.availability, events.participation, events.tag, events.name, events.dynamic_scoring, events.dynamic_max, events.dynamic_min, events.dynamic_solve_threshold, events.registration, events.scoreboard_availability, events.participants_visibility, events.publish_time, events.start_time, events.finish_time, events.withdraw_time, events.updated_at, events.updated_by, events.created_at,
+       events_metadata.data
+from events
+         inner join events_metadata on events.id = events_metadata.event_id
+order by events.name
+`
+
+type GetEventsWithMetadataRow struct {
+	ID                     uuid.UUID           `json:"id"`
+	Type                   int32               `json:"type"`
+	Availability           int32               `json:"availability"`
+	Participation          int32               `json:"participation"`
+	Tag                    string              `json:"tag"`
+	Name                   string              `json:"name"`
+	DynamicScoring         bool                `json:"dynamic_scoring"`
+	DynamicMax             int32               `json:"dynamic_max"`
+	DynamicMin             int32               `json:"dynamic_min"`
+	DynamicSolveThreshold  int32               `json:"dynamic_solve_threshold"`
+	Registration           int32               `json:"registration"`
+	ScoreboardAvailability int32               `json:"scoreboard_availability"`
+	ParticipantsVisibility int32               `json:"participants_visibility"`
+	PublishTime            time.Time           `json:"publish_time"`
+	StartTime              time.Time           `json:"start_time"`
+	FinishTime             time.Time           `json:"finish_time"`
+	WithdrawTime           time.Time           `json:"withdraw_time"`
+	UpdatedAt              pgtype.Timestamptz  `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID       `json:"updated_by"`
+	CreatedAt              time.Time           `json:"created_at"`
+	Data                   model.EventMetadata `json:"data"`
+}
+
+func (q *Queries) GetEventsWithMetadata(ctx context.Context) ([]GetEventsWithMetadataRow, error) {
+	rows, err := q.db.Query(ctx, getEventsWithMetadata)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEventsWithMetadataRow{}
+	for rows.Next() {
+		var i GetEventsWithMetadataRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Availability,
+			&i.Participation,
+			&i.Tag,
+			&i.Name,
+			&i.DynamicScoring,
+			&i.DynamicMax,
+			&i.DynamicMin,
+			&i.DynamicSolveThreshold,
+			&i.Registration,
+			&i.ScoreboardAvailability,
+			&i.ParticipantsVisibility,
+			&i.PublishTime,
+			&i.StartTime,
+			&i.FinishTime,
+			&i.WithdrawTime,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.Data,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getEventsWithMetadataPaged = `-- name: GetEventsWithMetadataPaged :many
+select events.id, events.type, events.availability, events.participation, events.tag, events.name, events.dynamic_scoring, events.dynamic_max, events.dynamic_min, events.dynamic_solve_threshold, events.registration, events.scoreboard_availability, events.participants_visibility, events.publish_time, events.start_time, events.finish_time, events.withdraw_time, events.updated_at, events.updated_by, events.created_at,
+       events_metadata.data
+from events
+         inner join events_metadata on events.id = events_metadata.event_id
+order by events.name
+limit $1 offset $2
+`
+
+type GetEventsWithMetadataPagedParams struct {
+	Limit  int32 `json:"limit"`
+	Offset int32 `json:"offset"`
+}
+
+type GetEventsWithMetadataPagedRow struct {
+	ID                     uuid.UUID           `json:"id"`
+	Type                   int32               `json:"type"`
+	Availability           int32               `json:"availability"`
+	Participation          int32               `json:"participation"`
+	Tag                    string              `json:"tag"`
+	Name                   string              `json:"name"`
+	DynamicScoring         bool                `json:"dynamic_scoring"`
+	DynamicMax             int32               `json:"dynamic_max"`
+	DynamicMin             int32               `json:"dynamic_min"`
+	DynamicSolveThreshold  int32               `json:"dynamic_solve_threshold"`
+	Registration           int32               `json:"registration"`
+	ScoreboardAvailability int32               `json:"scoreboard_availability"`
+	ParticipantsVisibility int32               `json:"participants_visibility"`
+	PublishTime            time.Time           `json:"publish_time"`
+	StartTime              time.Time           `json:"start_time"`
+	FinishTime             time.Time           `json:"finish_time"`
+	WithdrawTime           time.Time           `json:"withdraw_time"`
+	UpdatedAt              pgtype.Timestamptz  `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID       `json:"updated_by"`
+	CreatedAt              time.Time           `json:"created_at"`
+	Data                   model.EventMetadata `json:"data"`
+}
+
+func (q *Queries) GetEventsWithMetadataPaged(ctx context.Context, arg GetEventsWithMetadataPagedParams) ([]GetEventsWithMetadataPagedRow, error) {
+	rows, err := q.db.Query(ctx, getEventsWithMetadataPaged, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetEventsWithMetadataPagedRow{}
+	for rows.Next() {
+		var i GetEventsWithMetadataPagedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Availability,
+			&i.Participation,
+			&i.Tag,
+			&i.Name,
+			&i.DynamicScoring,
+			&i.DynamicMax,
+			&i.DynamicMin,
+			&i.DynamicSolveThreshold,
+			&i.Registration,
+			&i.ScoreboardAvailability,
+			&i.ParticipantsVisibility,
+			&i.PublishTime,
+			&i.StartTime,
+			&i.FinishTime,
+			&i.WithdrawTime,
+			&i.UpdatedAt,
+			&i.UpdatedBy,
+			&i.CreatedAt,
+			&i.Data,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateEvent = `-- name: UpdateEvent :execrows
 update events
 set type                    = $2,
     availability            = $3,
     name                    = $4,
-    description             = $5,
-    rules                   = $6,
-    picture                 = $7,
-    dynamic_scoring         = $8,
-    dynamic_max             = $9,
-    dynamic_min             = $10,
-    dynamic_solve_threshold = $11,
-    registration            = $12,
-    scoreboard_availability = $13,
-    participants_visibility = $14,
-    publish_time            = $15,
-    start_time              = $16,
-    finish_time             = $17,
-    withdraw_time           = $18,
-    updated_at              = now(),
-    updated_by              = $19
+    dynamic_scoring         = $5,
+    dynamic_max             = $6,
+    dynamic_min             = $7,
+    dynamic_solve_threshold = $8,
+    registration            = $9,
+    scoreboard_availability = $10,
+    participants_visibility = $11,
+    publish_time            = $12,
+    start_time              = $13,
+    finish_time             = $14,
+    withdraw_time           = $15,
+    updated_at              = $16,
+    updated_by              = $17
 where id = $1
 `
 
 type UpdateEventParams struct {
-	ID                     uuid.UUID     `json:"id"`
-	Type                   int32         `json:"type"`
-	Availability           int32         `json:"availability"`
-	Name                   string        `json:"name"`
-	Description            string        `json:"description"`
-	Rules                  string        `json:"rules"`
-	Picture                string        `json:"picture"`
-	DynamicScoring         bool          `json:"dynamic_scoring"`
-	DynamicMax             int32         `json:"dynamic_max"`
-	DynamicMin             int32         `json:"dynamic_min"`
-	DynamicSolveThreshold  int32         `json:"dynamic_solve_threshold"`
-	Registration           int32         `json:"registration"`
-	ScoreboardAvailability int32         `json:"scoreboard_availability"`
-	ParticipantsVisibility int32         `json:"participants_visibility"`
-	PublishTime            time.Time     `json:"publish_time"`
-	StartTime              time.Time     `json:"start_time"`
-	FinishTime             time.Time     `json:"finish_time"`
-	WithdrawTime           time.Time     `json:"withdraw_time"`
-	UpdatedBy              uuid.NullUUID `json:"updated_by"`
+	ID                     uuid.UUID          `json:"id"`
+	Type                   int32              `json:"type"`
+	Availability           int32              `json:"availability"`
+	Name                   string             `json:"name"`
+	DynamicScoring         bool               `json:"dynamic_scoring"`
+	DynamicMax             int32              `json:"dynamic_max"`
+	DynamicMin             int32              `json:"dynamic_min"`
+	DynamicSolveThreshold  int32              `json:"dynamic_solve_threshold"`
+	Registration           int32              `json:"registration"`
+	ScoreboardAvailability int32              `json:"scoreboard_availability"`
+	ParticipantsVisibility int32              `json:"participants_visibility"`
+	PublishTime            time.Time          `json:"publish_time"`
+	StartTime              time.Time          `json:"start_time"`
+	FinishTime             time.Time          `json:"finish_time"`
+	WithdrawTime           time.Time          `json:"withdraw_time"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID      `json:"updated_by"`
 }
 
 func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64, error) {
@@ -285,9 +522,6 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64
 		arg.Type,
 		arg.Availability,
 		arg.Name,
-		arg.Description,
-		arg.Rules,
-		arg.Picture,
 		arg.DynamicScoring,
 		arg.DynamicMax,
 		arg.DynamicMin,
@@ -299,6 +533,35 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64
 		arg.StartTime,
 		arg.FinishTime,
 		arg.WithdrawTime,
+		arg.UpdatedAt,
+		arg.UpdatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateEventMetadata = `-- name: UpdateEventMetadata :execrows
+update events_metadata
+set data      = $2,
+    updated_at = $3,
+    updated_by = $4
+where event_id = $1
+`
+
+type UpdateEventMetadataParams struct {
+	EventID   uuid.UUID           `json:"event_id"`
+	Data      model.EventMetadata `json:"data"`
+	UpdatedAt pgtype.Timestamptz  `json:"updated_at"`
+	UpdatedBy uuid.NullUUID       `json:"updated_by"`
+}
+
+func (q *Queries) UpdateEventMetadata(ctx context.Context, arg UpdateEventMetadataParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventMetadata,
+		arg.EventID,
+		arg.Data,
+		arg.UpdatedAt,
 		arg.UpdatedBy,
 	)
 	if err != nil {
@@ -308,18 +571,18 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64
 }
 
 const updateEventPicture = `-- name: UpdateEventPicture :execrows
-update events
-set picture = $2
-where id = $1
+update events_metadata
+set data = jsonb_set(data, '{picture}', to_jsonb($2::text), true)
+where event_id = $1
 `
 
 type UpdateEventPictureParams struct {
-	ID      uuid.UUID `json:"id"`
+	EventID uuid.UUID `json:"event_id"`
 	Picture string    `json:"picture"`
 }
 
 func (q *Queries) UpdateEventPicture(ctx context.Context, arg UpdateEventPictureParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateEventPicture, arg.ID, arg.Picture)
+	result, err := q.db.Exec(ctx, updateEventPicture, arg.EventID, arg.Picture)
 	if err != nil {
 		return 0, err
 	}

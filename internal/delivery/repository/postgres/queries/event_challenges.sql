@@ -6,8 +6,7 @@ group by event_id;
 -- name: CountChallengesInCategoryInEvent :one
 select count(*)
 from event_challenges
-where category_id = $1
-  and event_id = $2;
+where category_id = $1;
 
 -- name: GetEventChallenges :many
 select *
@@ -18,8 +17,7 @@ order by order_index;
 -- name: GetEventChallengeByID :one
 select *
 from event_challenges
-where id = $1
-  and event_id = $2;
+where id = $1;
 
 -- name: CreateEventChallenge :batchexec
 insert into event_challenges
@@ -28,12 +26,11 @@ values ($1, $2, $3, $4, $5, $6, $7);
 
 -- name: UpdateEventChallengeOrder :batchexec
 update event_challenges
-set category_id = $3,
-    order_index = $4,
+set category_id = $2,
+    order_index = $3,
     updated_at  = now(),
-    updated_by  = $5
-where id = $1
-  and event_id = $2;
+    updated_by  = $4
+where id = $1;
 
 -- name: DeleteEventChallenges :batchexec
 delete
