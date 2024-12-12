@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 	"time"
 )
@@ -13,7 +13,11 @@ type (
 		Name        string       `validate:"required,min=3,max=50"`
 		Description string       `validate:"omitempty,min=1,max=5000"`
 		Data        ExerciseData `validate:"required"`
-		CreatedAt   time.Time
+
+		UpdatedAt time.Time
+		UpdatedBy uuid.NullUUID
+
+		CreatedAt time.Time
 	}
 
 	ExerciseData struct {
@@ -69,24 +73,32 @@ type (
 		ID          uuid.UUID `validate:"omitempty,uuid"`
 		Name        string    `validate:"required,min=3,max=50"`
 		Description string    `validate:"omitempty"`
-		CreatedAt   time.Time
+
+		UpdatedAt time.Time
+		UpdatedBy uuid.NullUUID
+
+		CreatedAt time.Time
 	}
 )
 
 var (
-	ErrExerciseCategory = appError.ErrInternal.WithObjectCode(exerciseCategoryObjectCode)
+	// ExerciseCategory
+	ErrExerciseCategory = err.ErrInternal.WithObjectCode(exerciseCategoryObjectCode)
 
-	ErrExerciseCategoryCategoryExists = appError.ErrObjectExists.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category already exists")
+	ErrExerciseCategoryCategoryExists = err.ErrObjectExists.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category already exists").WithDetailCode(1) // 41201
 
-	ErrExerciseCategoryCategoryNotFound = appError.ErrObjectNotFound.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category not found")
+	ErrExerciseCategoryCategoryNotFound = err.ErrObjectNotFound.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise category not found").WithDetailCode(1) //31201
 
-	ErrExerciseCategoryCategoryHasExercises = appError.ErrConflict.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Category has exercises")
+	ErrExerciseCategoryCategoryHasExercises = err.ErrConflict.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise Category has exercises").WithDetailCode(1) // 71201
+	ErrExerciseCategoryCategoryDataStale    = err.ErrConflict.WithObjectCode(exerciseCategoryObjectCode).WithMessage("Exercise Category data is stale").WithDetailCode(2) // 71202
 
-	ErrExercise = appError.ErrInternal.WithObjectCode(exerciseObjectCode)
+	// Exercise
+	ErrExercise = err.ErrInternal.WithObjectCode(exerciseObjectCode)
 
-	ErrExerciseExerciseNotFound = appError.ErrObjectNotFound.WithObjectCode(exerciseObjectCode).WithMessage("Exercise not found")
+	ErrExerciseExerciseNotFound = err.ErrObjectNotFound.WithObjectCode(exerciseObjectCode).WithMessage("Exercise not found").WithDetailCode(1) // 31101
 
-	ErrExerciseExerciseExists = appError.ErrObjectExists.WithObjectCode(exerciseObjectCode).WithMessage("Exercise already exists")
+	ErrExerciseExerciseExists = err.ErrObjectExists.WithObjectCode(exerciseObjectCode).WithMessage("Exercise already exists").WithDetailCode(1) // 41101
 
-	ErrExerciseExerciseInUse = appError.ErrConflict.WithObjectCode(exerciseObjectCode).WithMessage("Exercise is in use")
+	ErrExerciseExerciseInUse     = err.ErrConflict.WithObjectCode(exerciseObjectCode).WithMessage("Exercise is in use").WithDetailCode(1)     // 71101
+	ErrExerciseExerciseDataStale = err.ErrConflict.WithObjectCode(exerciseObjectCode).WithMessage("Exercise data is stale").WithDetailCode(2) // 71102
 )

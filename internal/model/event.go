@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 	"time"
 )
@@ -35,6 +35,8 @@ type (
 		WithdrawTime time.Time `validate:"required,gtefield=FinishTime"`
 
 		CreatedAt time.Time
+		UpdatedAt time.Time
+		UpdatedBy uuid.NullUUID
 
 		ChallengesCount int64
 		TeamsCount      int64
@@ -66,6 +68,9 @@ type (
 		Name  string `validate:"required,min=3,max=50,alphanum"`
 		Order int32  `validate:"required,number"`
 
+		UpdatedAt time.Time
+		UpdatedBy uuid.NullUUID
+
 		CreatedAt time.Time
 	}
 
@@ -80,6 +85,9 @@ type (
 		ExerciseTaskID uuid.UUID `validate:"required,uuid"`
 
 		Order int32 `validate:"required,number"`
+
+		UpdatedAt time.Time
+		UpdatedBy uuid.NullUUID
 
 		CreatedAt time.Time
 	}
@@ -104,9 +112,14 @@ type (
 		Name     string `validate:"required,min=3,max=50,alphanum"`
 		JoinCode string `validate:"-"`
 
+		Hidden bool `validate:"required,boolean"`
+
 		ParticipantsCount int64
 
 		LaboratoryID uuid.NullUUID
+
+		UpdatedAt time.Time
+		UpdatedBy uuid.NullUUID
 
 		CreatedAt time.Time
 	}
@@ -117,14 +130,18 @@ type (
 	}
 
 	Participant struct {
-		UserID  uuid.UUID     `validate:"required,uuid"`
-		EventID uuid.UUID     `validate:"required,uuid"`
-		TeamID  uuid.NullUUID `validate:"omitempty,uuid"`
+		UserID   uuid.UUID     `validate:"required,uuid"`
+		EventID  uuid.UUID     `validate:"required,uuid"`
+		TeamID   uuid.NullUUID `validate:"omitempty,uuid"`
+		TeamName string        `validate:"omitempty,min=3,max=50,alphanum"`
 
 		Name  string `validate:"required,min=3,max=255,alphanum"`
 		Email string `validate:"required,email"`
 
 		ApprovalStatus int32 `validate:"required,number,oneof=0 1 2"`
+
+		UpdatedAt time.Time
+		UpdatedBy uuid.NullUUID
 
 		CreatedAt time.Time
 	}
@@ -161,15 +178,17 @@ type (
 	}
 
 	TeamChallengeSolutionAttempt struct {
-		ID            uuid.UUID
-		EventID       uuid.UUID
-		ChallengeID   uuid.UUID
-		TeamID        uuid.UUID
-		ParticipantID uuid.UUID
-		Answer        string
-		Flag          string
-		IsCorrect     bool
-		Timestamp     time.Time
+		ID              uuid.UUID
+		EventID         uuid.UUID
+		ChallengeID     uuid.UUID
+		TeamID          uuid.UUID
+		TeamName        string
+		ParticipantID   uuid.UUID
+		ParticipantName string
+		Answer          string
+		Flag            string
+		IsCorrect       bool
+		Timestamp       time.Time
 	}
 
 	TeamsChallengeSolvedBy struct {
@@ -180,6 +199,7 @@ type (
 	TeamChallengeSolvedBy struct {
 		ID       uuid.UUID
 		Name     string
+		Hidden   bool `json:"-"`
 		SolvedAt time.Time
 	}
 
@@ -210,53 +230,73 @@ type (
 )
 
 var (
-	ErrEvent = appError.ErrInternal.WithObjectCode(eventObjectCode)
+	// Event
+	ErrEvent = err.ErrInternal.WithObjectCode(eventObjectCode)
 
-	ErrEventEventNotFound = appError.ErrObjectNotFound.WithObjectCode(eventObjectCode).WithMessage("Event not found")
+	ErrEventEventDataStale = err.ErrConflict.WithObjectCode(eventObjectCode).WithMessage("Event data is stale").WithDetailCode(1) // 71301
 
-	ErrEventEventExists   = appError.ErrObjectExists.WithObjectCode(eventObjectCode).WithMessage("Event already exists").WithDetailCode(1)
-	ErrEventAlreadyJoined = appError.ErrObjectExists.WithObjectCode(eventObjectCode).WithMessage("Event already joined").WithDetailCode(2)
+	ErrEventEventNotFound = err.ErrObjectNotFound.WithObjectCode(eventObjectCode).WithMessage("Event not found").WithDetailCode(1) // 31301
 
-	ErrEventRegistrationClosed = appError.ErrForbidden.WithObjectCode(eventObjectCode).WithMessage("Event registration is closed").WithDetailCode(1)
-	ErrEventEventNotJoined     = appError.ErrForbidden.WithObjectCode(eventObjectCode).WithMessage("Event not joined").WithDetailCode(2)
+	ErrEventEventExists = err.ErrObjectExists.WithObjectCode(eventObjectCode).WithMessage("Event already exists").WithDetailCode(1) // 41301
 
-	ErrEventParticipant = appError.ErrInternal.WithObjectCode(eventParticipantObjectCode)
+	ErrEventRegistrationClosed = err.ErrForbidden.WithObjectCode(eventObjectCode).WithMessage("Event registration is closed").WithDetailCode(1) // 61301
+	ErrEventEventNotJoined     = err.ErrForbidden.WithObjectCode(eventObjectCode).WithMessage("Event not joined").WithDetailCode(2)             // 61302
 
-	ErrEventParticipantExists = appError.ErrObjectExists.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant already exists")
+	// Event participant
+	ErrEventParticipant = err.ErrInternal.WithObjectCode(eventParticipantObjectCode)
 
-	ErrEventParticipantNotFound     = appError.ErrObjectNotFound.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant not found").WithDetailCode(1)
-	ErrEventParticipantTeamNotFound = appError.ErrObjectNotFound.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant team not found").WithDetailCode(2)
+	ErrEventParticipantExists = err.ErrObjectExists.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant already exists").WithDetailCode(1) // 41601
 
-	ErrEventChallengeCategory = appError.ErrInternal.WithObjectCode(eventChallengeCategoryObjectCode)
+	ErrEventParticipantNotFound     = err.ErrObjectNotFound.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant not found").WithDetailCode(1)      // 31601
+	ErrEventParticipantTeamNotFound = err.ErrObjectNotFound.WithObjectCode(eventParticipantObjectCode).WithMessage("Participant team not found").WithDetailCode(2) // 31602
 
-	ErrEventChallengeCategoryCategoryExists = appError.ErrObjectExists.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category already exists")
+	// Event challenge category
+	ErrEventChallengeCategory = err.ErrInternal.WithObjectCode(eventChallengeCategoryObjectCode)
 
-	ErrEventChallengeCategoryCategoryNotFound = appError.ErrObjectNotFound.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category not found")
+	ErrEventChallengeCategoryCategoryExists = err.ErrObjectExists.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category already exists").WithDetailCode(1) // 41501
 
-	ErrEventChallengeCategoryCategoryHasChallenges = appError.ErrConflict.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Category has challenges")
+	ErrEventChallengeCategoryCategoryNotFound = err.ErrObjectNotFound.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category not found").WithDetailCode(1) // 31501
 
-	ErrEventChallenge = appError.ErrInternal.WithObjectCode(eventChallengeObjectCode)
+	ErrEventChallengeCategoryCategoryHasChallenges = err.ErrConflict.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category has challenges").WithDetailCode(1) // 71501
+	ErrEventChallengeCategoryCategoryDataStale     = err.ErrConflict.WithObjectCode(eventChallengeCategoryObjectCode).WithMessage("Event challenge category data is stale").WithDetailCode(2)  // 71502
 
-	ErrEventChallengeChallengeExists = appError.ErrObjectExists.WithObjectCode(eventChallengeObjectCode).WithMessage("Event challenge already exists")
+	// Event challenge
+	ErrEventChallenge = err.ErrInternal.WithObjectCode(eventChallengeObjectCode)
 
-	ErrEventChallengeChallengeNotFound = appError.ErrObjectNotFound.WithObjectCode(eventChallengeObjectCode).WithMessage("Event challenge not found")
+	ErrEventChallengeChallengeExists = err.ErrObjectExists.WithObjectCode(eventChallengeObjectCode).WithMessage("Event challenge already exists").WithDetailCode(1) // 41401
 
-	ErrEventScore = appError.ErrInternal.WithObjectCode(eventScoreObjectCode)
+	ErrEventChallengeChallengeNotFound = err.ErrObjectNotFound.WithObjectCode(eventChallengeObjectCode).WithMessage("Event challenge not found").WithDetailCode(1) // 31401
 
-	ErrEventScoreScoreNotAvailable = appError.ErrForbidden.WithObjectCode(eventScoreObjectCode).WithMessage("Score not available")
+	// Event score
+	ErrEventScore = err.ErrInternal.WithObjectCode(eventScoreObjectCode)
 
-	ErrEventTeam = appError.ErrInternal.WithObjectCode(eventTeamObjectCode)
+	ErrEventScoreScoreNotAvailable = err.ErrForbidden.WithObjectCode(eventScoreObjectCode).WithMessage("Score not available").WithDetailCode(1) // 61701
 
-	ErrEventTeamTeamExists        = appError.ErrObjectExists.WithObjectCode(eventTeamObjectCode).WithMessage("Team already exists").WithDetailCode(1)
-	ErrEventTeamUserAlreadyInTeam = appError.ErrObjectExists.WithObjectCode(eventTeamObjectCode).WithMessage("User already in team").WithDetailCode(2)
+	// Event team
+	ErrEventTeam = err.ErrInternal.WithObjectCode(eventTeamObjectCode)
 
-	ErrEventTeamTeamNotFound = appError.ErrObjectNotFound.WithObjectCode(eventTeamObjectCode).WithMessage("Team not found")
+	ErrEventTeamTeamExists        = err.ErrObjectExists.WithObjectCode(eventTeamObjectCode).WithMessage("Team already exists").WithDetailCode(1)  // 41801
+	ErrEventTeamUserAlreadyInTeam = err.ErrObjectExists.WithObjectCode(eventTeamObjectCode).WithMessage("User already in team").WithDetailCode(2) // 41802
 
-	ErrEventTeamWrongCredentials = appError.ErrInvalidData.WithObjectCode(eventTeamObjectCode).WithMessage("Team wrong credentials")
+	ErrEventTeamTeamNotFound = err.ErrObjectNotFound.WithObjectCode(eventTeamObjectCode).WithMessage("Team not found").WithDetailCode(1) // 31801
 
-	ErrEventTeamChallenge = appError.ErrInternal.WithObjectCode(eventTeamChallengeObjectCode)
+	ErrEventTeamWrongCredentials = err.ErrInvalidData.WithObjectCode(eventTeamObjectCode).WithMessage("Team wrong credentials").WithDetailCode(1) // 21801
 
-	ErrEventTeamChallengeSolutionAttemptNotAllowed = appError.ErrForbidden.WithObjectCode(eventTeamChallengeObjectCode).WithMessage("Solution attempt not allowed")
+	// Event team challenge
+	ErrEventTeamChallenge = err.ErrInternal.WithObjectCode(eventTeamChallengeObjectCode)
+
+	ErrEventTeamChallengeSolutionAttemptNotAllowed = err.ErrForbidden.WithObjectCode(eventTeamChallengeObjectCode).WithMessage("Solution attempt not allowed").WithDetailCode(1) // 61901
+
+	ErrEventTeamChallengeAlreadySolved = err.ErrConflict.WithObjectCode(eventTeamChallengeObjectCode).WithMessage("Challenge already solved").WithDetailCode(1) // 71901
+)
+
+// Event running statuses
+const (
+	EventNotPublishedStatus = int32(iota)
+	EventPublishedStatus
+	EventStartedStatus
+	EventFinishedStatus
+	EventWithdrawnStatus
 )
 
 // Event types

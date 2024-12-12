@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 )
 
@@ -15,8 +15,16 @@ type (
 		ID        uuid.UUID
 		Instances []Instance
 	}
+
+	FlagVariable struct {
+		LabID       uuid.UUID
+		ChallengeID uuid.UUID
+		InstanceID  uuid.UUID
+		Flag        string
+		Variable    string
+	}
 )
 
 var (
-	ErrLaboratory = appError.ErrInternal.WithObjectCode(laboratoryObjectCode)
+	ErrLaboratory = err.ErrInternal.WithObjectCode(laboratoryObjectCode)
 )

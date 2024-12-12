@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 	"time"
 )
@@ -29,9 +29,9 @@ type (
 
 // errors for file
 var (
-	ErrStorage = appError.ErrInternal.WithObjectCode(storageObjectCode)
+	ErrStorage = err.ErrInternal.WithObjectCode(storageObjectCode)
 
-	ErrStorageTemporalFileNotFound = appError.ErrObjectNotFound.WithObjectCode(storageObjectCode).WithDetailCode(1).WithMessage("Temporal file not found")
+	ErrStorageTemporalFileNotFound = err.ErrObjectNotFound.WithObjectCode(storageObjectCode).WithDetailCode(1).WithMessage("Temporal file not found") // 30401
 )
 
 // constants for file

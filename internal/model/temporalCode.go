@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 )
 
@@ -30,7 +30,10 @@ const (
 
 // errors for temporal code
 var (
-	ErrTemporalCode            = appError.ErrInternal.WithObjectCode(temporalCoreObjectCode)
-	ErrTemporalCodeInvalidCode = appError.ErrInvalidData.WithObjectCode(temporalCoreObjectCode).WithDetailCode(1).WithMessage("Invalid code")
-	ErrTemporalCodeNotFound    = appError.ErrObjectNotFound.WithObjectCode(temporalCoreObjectCode).WithDetailCode(2).WithMessage("Code not found")
+	ErrTemporalCode = err.ErrInternal.WithObjectCode(temporalCoreObjectCode)
+
+	ErrTemporalCodeInvalidCode = err.ErrInvalidData.WithObjectCode(temporalCoreObjectCode).WithDetailCode(1).WithMessage("Invalid code") // 20601
+	ErrTemporalCodeExpired     = err.ErrInvalidData.WithObjectCode(temporalCoreObjectCode).WithDetailCode(2).WithMessage("Code expired") // 20602
+
+	ErrTemporalCodeNotFound = err.ErrObjectNotFound.WithObjectCode(temporalCoreObjectCode).WithDetailCode(1).WithMessage("Code not found") // 30601
 )

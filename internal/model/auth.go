@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 )
 
@@ -25,19 +25,19 @@ type (
 // errors for token
 
 var (
-	ErrAuth                          = appError.ErrInternal.WithObjectCode(authObjectCode)
-	ErrAuthInvalidUserCredentials    = appError.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(1).WithMessage("Invalid user credentials")
-	ErrAuthInvalidOldPassword        = appError.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(2).WithMessage("Invalid old password")
-	ErrAuthInvalidPasswordComplexity = appError.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(3).WithMessage("Invalid password complexity")
-	ErrAuthInvalidOAuth2State        = appError.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(4).WithMessage("Invalid OAuth2 state")
-	ErrAuthInvalidAccessToken        = appError.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(5).WithMessage("Invalid access token")
-	ErrAuthInvalidRefreshToken       = appError.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(6).WithMessage("Invalid refresh token")
+	ErrAuth                          = err.ErrInternal.WithObjectCode(authObjectCode)
+	ErrAuthInvalidUserCredentials    = err.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(1).WithMessage("Invalid user credentials")    //20701
+	ErrAuthInvalidOldPassword        = err.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(2).WithMessage("Invalid old password")        //20702
+	ErrAuthInvalidPasswordComplexity = err.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(3).WithMessage("Invalid password complexity") //20703
+	ErrAuthInvalidOAuth2State        = err.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(4).WithMessage("Invalid OAuth2 state")        //20704
+	ErrAuthInvalidAccessToken        = err.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(5).WithMessage("Invalid access token")        //20705
+	ErrAuthInvalidRefreshToken       = err.ErrInvalidData.WithObjectCode(authObjectCode).WithDetailCode(6).WithMessage("Invalid refresh token")       // 20706
 
-	ErrAuthRecaptcha                       = appError.ErrInternal.WithObjectCode(authRecaptchaObjectCode)
-	ErrAuthRecaptchaInvalidRecaptchaToken  = appError.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(1).WithMessage("Invalid recaptcha token")
-	ErrAuthRecaptchaNoRecaptchaToken       = appError.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(2).WithMessage("No recaptcha token")
-	ErrAuthRecaptchaInvalidRecaptchaAction = appError.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(3).WithMessage("Invalid recaptcha action")
-	ErrAuthRecaptchaLowerScore             = appError.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(4).WithMessage("Lower recaptcha score")
+	ErrAuthRecaptcha                       = err.ErrInternal.WithObjectCode(authRecaptchaObjectCode)
+	ErrAuthRecaptchaInvalidRecaptchaToken  = err.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(1).WithMessage("Invalid recaptcha token")  //20801
+	ErrAuthRecaptchaNoRecaptchaToken       = err.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(2).WithMessage("No recaptcha token")       //20802
+	ErrAuthRecaptchaInvalidRecaptchaAction = err.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(3).WithMessage("Invalid recaptcha action") //20803
+	ErrAuthRecaptchaLowerScore             = err.ErrInvalidData.WithObjectCode(authRecaptchaObjectCode).WithDetailCode(4).WithMessage("Lower recaptcha score")    //20804
 )
 
 // constants for token

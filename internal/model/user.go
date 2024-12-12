@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 	"time"
 )
@@ -18,7 +18,7 @@ type (
 		Role           string `binding:"omitempty,oneof=Користувач Адміністратор"`
 		LastSeen       time.Time
 		UpdatedAt      time.Time
-		UpdatedBy      uuid.UUID
+		UpdatedBy      uuid.NullUUID
 		CreatedAt      time.Time
 	}
 
@@ -31,7 +31,7 @@ type (
 		Role          string
 		LastSeen      time.Time
 		UpdatedAt     time.Time
-		UpdatedBy     uuid.UUID
+		UpdatedBy     uuid.NullUUID
 		CreatedAt     time.Time
 	}
 
@@ -44,9 +44,13 @@ type (
 
 // errors for user
 var (
-	ErrUser             = appError.ErrInternal.WithObjectCode(userObjectCode)
-	ErrUserUserNotFound = appError.ErrObjectNotFound.WithObjectCode(userObjectCode).WithMessage("User not found")
-	ErrUserUserExists   = appError.ErrInvalidData.WithObjectCode(userObjectCode).WithMessage("User already exists")
+	ErrUser = err.ErrInternal.WithObjectCode(userObjectCode)
+
+	ErrUserUserNotFound = err.ErrObjectNotFound.WithObjectCode(userObjectCode).WithMessage("User not found").WithDetailCode(1) // 30901
+
+	ErrUserUserExists = err.ErrInvalidData.WithObjectCode(userObjectCode).WithMessage("User already exists").WithDetailCode(1) // 20901
+
+	ErrUserUserDataStale = err.ErrConflict.WithObjectCode(userObjectCode).WithMessage("User data is stale").WithDetailCode(1) // 70901
 )
 
 // constants for user

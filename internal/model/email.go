@@ -1,6 +1,8 @@
 package model
 
-import "github.com/cybericebox/daemon/internal/appError"
+import (
+	"github.com/cybericebox/lib/pkg/err"
+)
 
 type (
 	AccountExistsTemplateData struct {
@@ -44,5 +46,5 @@ const (
 
 // errors
 var (
-	ErrEmail = appError.ErrInternal.WithObjectCode(emailObjectCode)
+	ErrEmail = err.ErrInternal.WithObjectCode(emailObjectCode)
 )

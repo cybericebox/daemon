@@ -1,11 +1,10 @@
 package model
 
-import "github.com/cybericebox/daemon/internal/appError"
+import "github.com/cybericebox/lib/pkg/err"
 
 // Object codes
 const (
-	unknownObjectCode = iota
-	platformObjectCode
+	platformObjectCode = iota
 	postgresObjectCode
 	agentObjectCode
 	vpnObjectCode
@@ -28,8 +27,8 @@ const (
 )
 
 var (
-	ErrPlatform = appError.ErrInternal.WithObjectCode(platformObjectCode)
-	ErrPostgres = appError.ErrInternal.WithObjectCode(postgresObjectCode)
-	ErrAgent    = appError.ErrInternal.WithObjectCode(agentObjectCode)
-	ErrVPN      = appError.ErrInternal.WithObjectCode(vpnObjectCode)
+	ErrPlatform = err.ErrInternal.WithObjectCode(platformObjectCode)
+	ErrPostgres = err.ErrInternal.WithObjectCode(postgresObjectCode)
+	ErrAgent    = err.ErrInternal.WithObjectCode(agentObjectCode)
+	ErrVPN      = err.ErrInternal.WithObjectCode(vpnObjectCode)
 )
