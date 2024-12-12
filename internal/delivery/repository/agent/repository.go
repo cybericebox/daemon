@@ -13,7 +13,7 @@ import (
 
 type (
 	AgentRepository struct {
-		protobuf.AgentClient
+		client client.AgentClient
 	}
 
 	Dependencies struct {
@@ -33,7 +33,7 @@ func NewRepository(deps Dependencies) *AgentRepository {
 	}
 }
 
-func newAgent(cfg *config.AgentGRPCConfig) (protobuf.AgentClient, error) {
+func newAgent(cfg *config.AgentGRPCConfig) (client.AgentClient, error) {
 	c, err := client.NewAgentConnection(client.Config{
 		Endpoint: cfg.Endpoint,
 		Auth: client.Auth{
@@ -48,15 +48,23 @@ func newAgent(cfg *config.AgentGRPCConfig) (protobuf.AgentClient, error) {
 	})
 
 	if err != nil {
-		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to create agent client").Cause()
+		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to create agent client").Err()
 	}
 
-	//if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
-	//	return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Cause()
-	//}
+	if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
+		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Err()
+	}
 
 	return c, nil
 }
+
+func (r *AgentRepository) Close() {
+	if err := r.client.Close(); err != nil {
+		log.Error().Err(err).Msg("Failed to close agent repository")
+	}
+}
+
+// laboratories
 
 func (r *AgentRepository) GetLaboratories(ctx context.Context, labIDs ...uuid.UUID) ([]*model.LaboratoryInfo, error) {
 	srtLabIDs := make([]string, 0)
@@ -65,21 +73,21 @@ func (r *AgentRepository) GetLaboratories(ctx context.Context, labIDs ...uuid.UU
 		srtLabIDs = append(srtLabIDs, l.String())
 	}
 
-	resp, err := r.AgentClient.GetLabs(ctx, &protobuf.GetLabsRequest{Ids: srtLabIDs})
+	resp, err := r.client.GetLabs(ctx, &protobuf.LabsRequest{IDs: srtLabIDs})
 	if err != nil {
-		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to get labs").Cause()
+		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to get labs").Err()
 	}
 
 	var errs error
 	labsInfo := make([]*model.LaboratoryInfo, 0, len(resp.GetLabs()))
 	for _, l := range resp.GetLabs() {
-		id, err := uuid.FromString(l.GetId())
+		id, err := uuid.FromString(l.GetID())
 		if err != nil {
-			errs = multierror.Append(errs, model.ErrAgent.WithError(err).WithMessage("Failed to parse lab id").WithContext("lab_id", l.GetId()).Cause())
+			errs = multierror.Append(errs, model.ErrAgent.WithError(err).WithMessage("Failed to parse lab id").WithContext("lab_id", l.GetID()).Err())
 		}
 		labsInfo = append(labsInfo, &model.LaboratoryInfo{
 			ID:   id,
-			CIDR: l.GetCidr(),
+			CIDR: l.GetCIDR(),
 		})
 	}
 
@@ -91,22 +99,48 @@ func (r *AgentRepository) GetLaboratories(ctx context.Context, labIDs ...uuid.UU
 }
 
 func (r *AgentRepository) CreateLaboratories(ctx context.Context, mask, count int) ([]uuid.UUID, error) {
-	resp, err := r.AgentClient.CreateLabs(ctx, &protobuf.CreateLabsRequest{CidrMask: uint32(mask), Count: uint32(count)})
+	resp, err := r.client.CreateLabs(ctx, &protobuf.CreateLabsRequest{CIDRMask: uint32(mask), Count: uint32(count)})
 	if err != nil {
-		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to create labs").WithContext("mask", mask).WithContext("count", count).Cause()
+		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to create labs").WithContext("mask", mask).WithContext("count", count).Err()
 	}
 
-	labIDs := make([]uuid.UUID, 0, len(resp.GetIds()))
+	labIDs := make([]uuid.UUID, 0, len(resp.GetLabs()))
 
-	for _, id := range resp.GetIds() {
-		id, err := uuid.FromString(id)
+	for _, lab := range resp.GetLabs() {
+		id, err := uuid.FromString(lab.GetID())
 		if err != nil {
-			return nil, model.ErrAgent.WithError(err).WithMessage("Failed to parse lab id").WithContext("lab_id", id).Cause()
+			return nil, model.ErrAgent.WithError(err).WithMessage("Failed to parse lab id").WithContext("lab_id", id).Err()
 		}
 		labIDs = append(labIDs, id)
 	}
 
 	return labIDs, nil
+}
+
+func (r *AgentRepository) StartLaboratories(ctx context.Context, labIDs ...uuid.UUID) error {
+	srtLabIDs := make([]string, 0, len(labIDs))
+
+	for _, l := range labIDs {
+		srtLabIDs = append(srtLabIDs, l.String())
+	}
+
+	if _, err := r.client.StartLabs(ctx, &protobuf.LabsRequest{IDs: srtLabIDs}); err != nil {
+		return model.ErrAgent.WithError(err).WithMessage("Failed to start labs").WithContext("lab_ids", srtLabIDs).Err()
+	}
+	return nil
+}
+
+func (r *AgentRepository) StopLaboratories(ctx context.Context, labIDs ...uuid.UUID) error {
+	srtLabIDs := make([]string, 0, len(labIDs))
+
+	for _, l := range labIDs {
+		srtLabIDs = append(srtLabIDs, l.String())
+	}
+
+	if _, err := r.client.StopLabs(ctx, &protobuf.LabsRequest{IDs: srtLabIDs}); err != nil {
+		return model.ErrAgent.WithError(err).WithMessage("Failed to stop labs").WithContext("lab_ids", srtLabIDs).Err()
+	}
+	return nil
 }
 
 func (r *AgentRepository) DeleteLaboratories(ctx context.Context, labIDs ...uuid.UUID) error {
@@ -116,13 +150,15 @@ func (r *AgentRepository) DeleteLaboratories(ctx context.Context, labIDs ...uuid
 		srtLabIDs = append(srtLabIDs, l.String())
 	}
 
-	if _, err := r.AgentClient.DeleteLabs(ctx, &protobuf.DeleteLabsRequest{Ids: srtLabIDs}); err != nil {
-		return model.ErrAgent.WithError(err).WithMessage("Failed to delete labs").WithContext("lab_ids", srtLabIDs).Cause()
+	if _, err := r.client.DeleteLabs(ctx, &protobuf.LabsRequest{IDs: srtLabIDs}); err != nil {
+		return model.ErrAgent.WithError(err).WithMessage("Failed to delete labs").WithContext("lab_ids", srtLabIDs).Err()
 	}
 	return nil
 }
 
-func (r *AgentRepository) AddLaboratoryChallenges(ctx context.Context, labID uuid.UUID, configs []model.LaboratoryChallenge) error {
+// laboratory challenges
+
+func (r *AgentRepository) AddLaboratoriesChallenges(ctx context.Context, labIDs []uuid.UUID, configs []model.LaboratoryChallenge, flagEnvVariables []model.FlagVariable) error {
 	challenges := make([]*protobuf.Challenge, 0, len(configs))
 	for _, c := range configs {
 		instances := make([]*protobuf.Instance, 0, len(c.Instances))
@@ -145,11 +181,11 @@ func (r *AgentRepository) AddLaboratoryChallenges(ctx context.Context, labID uui
 			}
 
 			instances = append(instances, &protobuf.Instance{
-				Id:    i.ID.String(),
+				ID:    i.ID.String(),
 				Image: i.Image,
 				Resources: &protobuf.Resources{
-					Memory: "50Mi", //TODO: make it configurable
-					Cpu:    "5m",   //TODO: make it configurable
+					Memory: 50 * 1024 * 1024, //TODO: make it configurable (50Mi)
+					CPU:    5,                //TODO: make it configurable (5m)
 				},
 				Envs:    envs,
 				Records: records,
@@ -157,16 +193,33 @@ func (r *AgentRepository) AddLaboratoryChallenges(ctx context.Context, labID uui
 		}
 
 		challenges = append(challenges, &protobuf.Challenge{
-			Id:        c.ID.String(),
+			ID:        c.ID.String(),
 			Instances: instances,
 		})
 	}
 
-	if _, err := r.AgentClient.AddLabChallenges(ctx, &protobuf.AddLabChallengesRequest{
-		LabID:      labID.String(),
-		Challenges: challenges,
+	srtLabIDs := make([]string, 0, len(labIDs))
+	for _, l := range labIDs {
+		srtLabIDs = append(srtLabIDs, l.String())
+	}
+
+	flagEnvVars := make([]*protobuf.FlagEnvVariable, 0, len(flagEnvVariables))
+	for _, f := range flagEnvVariables {
+		flagEnvVars = append(flagEnvVars, &protobuf.FlagEnvVariable{
+			LabID:       f.LabID.String(),
+			ChallengeID: f.ChallengeID.String(),
+			InstanceID:  f.InstanceID.String(),
+			Variable:    f.Variable,
+			Flag:        f.Flag,
+		})
+	}
+
+	if _, err := r.client.AddLabsChallenges(ctx, &protobuf.AddLabsChallengesRequest{
+		LabIDs:           srtLabIDs,
+		Challenges:       challenges,
+		FlagEnvVariables: flagEnvVars,
 	}); err != nil {
-		return model.ErrAgent.WithError(err).WithMessage("Failed to add lab challenges").WithContext("lab_id", labID).WithContext("challenges", challenges).Cause()
+		return model.ErrAgent.WithError(err).WithMessage("Failed to add lab challenges").WithContext("labIDs", srtLabIDs).WithContext("challenges", challenges).Err()
 	}
 	return nil
 }
@@ -183,41 +236,74 @@ func (r *AgentRepository) DeleteLaboratoriesChallenges(ctx context.Context, labI
 		srtChallengeIDs = append(srtChallengeIDs, c.String())
 	}
 
-	if _, err := r.AgentClient.DeleteLabsChallenges(ctx, &protobuf.DeleteLabsChallengesRequest{
+	if _, err := r.client.DeleteLabsChallenges(ctx, &protobuf.LabsChallengesRequest{
 		LabIDs:       srtLabIDs,
 		ChallengeIDs: srtChallengeIDs,
 	}); err != nil {
-		return model.ErrAgent.WithError(err).WithMessage("Failed to delete lab challenges").WithContext("lab_ids", srtLabIDs).WithContext("challenge_ids", srtChallengeIDs).Cause()
+		return model.ErrAgent.WithError(err).WithMessage("Failed to delete lab challenges").WithContext("lab_ids", srtLabIDs).WithContext("challenge_ids", srtChallengeIDs).Err()
 	}
 	return nil
 }
 
-func (r *AgentRepository) StartChallenge(ctx context.Context, labID, challengeID uuid.UUID) error {
-	if _, err := r.AgentClient.StartChallenge(ctx, &protobuf.ChallengeRequest{
-		LabID: labID.String(),
-		Id:    challengeID.String(),
+func (r *AgentRepository) StartLaboratoriesChallenges(ctx context.Context, labIDs []uuid.UUID, challengeIDs []uuid.UUID) error {
+	srtLabIDs := make([]string, 0, len(labIDs))
+	srtChallengeIDs := make([]string, 0, len(challengeIDs))
+
+	for _, l := range labIDs {
+		srtLabIDs = append(srtLabIDs, l.String())
+	}
+
+	for _, c := range challengeIDs {
+		srtChallengeIDs = append(srtChallengeIDs, c.String())
+	}
+
+	if _, err := r.client.StartLabsChallenges(ctx, &protobuf.LabsChallengesRequest{
+		LabIDs:       srtLabIDs,
+		ChallengeIDs: srtChallengeIDs,
 	}); err != nil {
-		return model.ErrAgent.WithError(err).WithMessage("Failed to start challenge").WithContext("lab_id", labID).WithContext("challenge_id", challengeID).Cause()
+		return model.ErrAgent.WithError(err).WithMessage("Failed to start lab challenges").WithContext("lab_ids", srtLabIDs).WithContext("challenge_ids", srtChallengeIDs).Err()
 	}
 	return nil
 }
 
-func (r *AgentRepository) StopChallenge(ctx context.Context, labID, challengeID uuid.UUID) error {
-	if _, err := r.AgentClient.StopChallenge(ctx, &protobuf.ChallengeRequest{
-		LabID: labID.String(),
-		Id:    challengeID.String(),
+func (r *AgentRepository) StopLaboratoriesChallenges(ctx context.Context, labIDs []uuid.UUID, challengeIDs []uuid.UUID) error {
+	srtLabIDs := make([]string, 0, len(labIDs))
+	srtChallengeIDs := make([]string, 0, len(challengeIDs))
+
+	for _, l := range labIDs {
+		srtLabIDs = append(srtLabIDs, l.String())
+	}
+
+	for _, c := range challengeIDs {
+		srtChallengeIDs = append(srtChallengeIDs, c.String())
+	}
+
+	if _, err := r.client.StopLabsChallenges(ctx, &protobuf.LabsChallengesRequest{
+		LabIDs:       srtLabIDs,
+		ChallengeIDs: srtChallengeIDs,
 	}); err != nil {
-		return model.ErrAgent.WithError(err).WithMessage("Failed to stop challenge").WithContext("lab_id", labID).WithContext("challenge_id", challengeID).Cause()
+		return model.ErrAgent.WithError(err).WithMessage("Failed to stop lab challenges").WithContext("lab_ids", srtLabIDs).WithContext("challenge_ids", srtChallengeIDs).Err()
 	}
 	return nil
 }
 
-func (r *AgentRepository) ResetChallenge(ctx context.Context, labID, challengeID uuid.UUID) error {
-	if _, err := r.AgentClient.ResetChallenge(ctx, &protobuf.ChallengeRequest{
-		LabID: labID.String(),
-		Id:    challengeID.String(),
+func (r *AgentRepository) ResetLaboratoriesChallenges(ctx context.Context, labIDs []uuid.UUID, challengeIDs []uuid.UUID) error {
+	srtLabIDs := make([]string, 0, len(labIDs))
+	srtChallengeIDs := make([]string, 0, len(challengeIDs))
+
+	for _, l := range labIDs {
+		srtLabIDs = append(srtLabIDs, l.String())
+	}
+
+	for _, c := range challengeIDs {
+		srtChallengeIDs = append(srtChallengeIDs, c.String())
+	}
+
+	if _, err := r.client.StopLabsChallenges(ctx, &protobuf.LabsChallengesRequest{
+		LabIDs:       srtLabIDs,
+		ChallengeIDs: srtChallengeIDs,
 	}); err != nil {
-		return model.ErrAgent.WithError(err).WithMessage("Failed to reset challenge").WithContext("lab_id", labID).WithContext("challenge_id", challengeID).Cause()
+		return model.ErrAgent.WithError(err).WithMessage("Failed to reset lab challenges").WithContext("lab_ids", srtLabIDs).WithContext("challenge_ids", srtChallengeIDs).Err()
 	}
 	return nil
 }
