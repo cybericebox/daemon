@@ -165,7 +165,7 @@ const getEventWithMetadataByID = `-- name: GetEventWithMetadataByID :one
 select events.id, events.type, events.availability, events.participation, events.tag, events.name, events.dynamic_scoring, events.dynamic_max, events.dynamic_min, events.dynamic_solve_threshold, events.registration, events.scoreboard_availability, events.participants_visibility, events.publish_time, events.start_time, events.finish_time, events.withdraw_time, events.updated_at, events.updated_by, events.created_at,
        events_metadata.data
 from events_metadata
-            inner join events on events.id = events_metadata.event_id
+         inner join events on events.id = events_metadata.event_id
 where events_metadata.event_id = $1
 `
 
@@ -491,29 +491,28 @@ set type                    = $2,
     start_time              = $13,
     finish_time             = $14,
     withdraw_time           = $15,
-    updated_at              = $16,
-    updated_by              = $17
+    updated_by = $16,
+    updated_at = now()
 where id = $1
 `
 
 type UpdateEventParams struct {
-	ID                     uuid.UUID          `json:"id"`
-	Type                   int32              `json:"type"`
-	Availability           int32              `json:"availability"`
-	Name                   string             `json:"name"`
-	DynamicScoring         bool               `json:"dynamic_scoring"`
-	DynamicMax             int32              `json:"dynamic_max"`
-	DynamicMin             int32              `json:"dynamic_min"`
-	DynamicSolveThreshold  int32              `json:"dynamic_solve_threshold"`
-	Registration           int32              `json:"registration"`
-	ScoreboardAvailability int32              `json:"scoreboard_availability"`
-	ParticipantsVisibility int32              `json:"participants_visibility"`
-	PublishTime            time.Time          `json:"publish_time"`
-	StartTime              time.Time          `json:"start_time"`
-	FinishTime             time.Time          `json:"finish_time"`
-	WithdrawTime           time.Time          `json:"withdraw_time"`
-	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
-	UpdatedBy              uuid.NullUUID      `json:"updated_by"`
+	ID                     uuid.UUID     `json:"id"`
+	Type                   int32         `json:"type"`
+	Availability           int32         `json:"availability"`
+	Name                   string        `json:"name"`
+	DynamicScoring         bool          `json:"dynamic_scoring"`
+	DynamicMax             int32         `json:"dynamic_max"`
+	DynamicMin             int32         `json:"dynamic_min"`
+	DynamicSolveThreshold  int32         `json:"dynamic_solve_threshold"`
+	Registration           int32         `json:"registration"`
+	ScoreboardAvailability int32         `json:"scoreboard_availability"`
+	ParticipantsVisibility int32         `json:"participants_visibility"`
+	PublishTime            time.Time     `json:"publish_time"`
+	StartTime              time.Time     `json:"start_time"`
+	FinishTime             time.Time     `json:"finish_time"`
+	WithdrawTime           time.Time     `json:"withdraw_time"`
+	UpdatedBy              uuid.NullUUID `json:"updated_by"`
 }
 
 func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64, error) {
@@ -533,7 +532,6 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64
 		arg.StartTime,
 		arg.FinishTime,
 		arg.WithdrawTime,
-		arg.UpdatedAt,
 		arg.UpdatedBy,
 	)
 	if err != nil {
@@ -544,26 +542,17 @@ func (q *Queries) UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64
 
 const updateEventMetadata = `-- name: UpdateEventMetadata :execrows
 update events_metadata
-set data      = $2,
-    updated_at = $3,
-    updated_by = $4
+set data = $2
 where event_id = $1
 `
 
 type UpdateEventMetadataParams struct {
-	EventID   uuid.UUID           `json:"event_id"`
-	Data      model.EventMetadata `json:"data"`
-	UpdatedAt pgtype.Timestamptz  `json:"updated_at"`
-	UpdatedBy uuid.NullUUID       `json:"updated_by"`
+	EventID uuid.UUID           `json:"event_id"`
+	Data    model.EventMetadata `json:"data"`
 }
 
 func (q *Queries) UpdateEventMetadata(ctx context.Context, arg UpdateEventMetadataParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateEventMetadata,
-		arg.EventID,
-		arg.Data,
-		arg.UpdatedAt,
-		arg.UpdatedBy,
-	)
+	result, err := q.db.Exec(ctx, updateEventMetadata, arg.EventID, arg.Data)
 	if err != nil {
 		return 0, err
 	}

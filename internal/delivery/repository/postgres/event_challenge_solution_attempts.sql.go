@@ -14,13 +14,12 @@ import (
 
 const createEventChallengeSolutionAttempt = `-- name: CreateEventChallengeSolutionAttempt :exec
 insert into event_challenge_solution_attempts
-(id, event_id, challenge_id, team_id, participant_id, answer, flag, is_correct, timestamp)
-values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+(id, challenge_id, team_id, participant_id, answer, flag, is_correct, timestamp)
+values ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type CreateEventChallengeSolutionAttemptParams struct {
 	ID            uuid.UUID `json:"id"`
-	EventID       uuid.UUID `json:"event_id"`
 	ChallengeID   uuid.UUID `json:"challenge_id"`
 	TeamID        uuid.UUID `json:"team_id"`
 	ParticipantID uuid.UUID `json:"participant_id"`
@@ -33,7 +32,6 @@ type CreateEventChallengeSolutionAttemptParams struct {
 func (q *Queries) CreateEventChallengeSolutionAttempt(ctx context.Context, arg CreateEventChallengeSolutionAttemptParams) error {
 	_, err := q.db.Exec(ctx, createEventChallengeSolutionAttempt,
 		arg.ID,
-		arg.EventID,
 		arg.ChallengeID,
 		arg.TeamID,
 		arg.ParticipantID,
@@ -48,9 +46,9 @@ func (q *Queries) CreateEventChallengeSolutionAttempt(ctx context.Context, arg C
 const getChallengesSolutionsInEvent = `-- name: GetChallengesSolutionsInEvent :many
 select challenge_id, t.id as team_id, t.hidden, participant_id, timestamp
 from event_challenge_solution_attempts
-inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
+         inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
 where is_correct = true
-    and event_challenge_solution_attempts.event_id = $1
+  and t.event_id = $1
   and timestamp between $2::timestamptz and $3::timestamptz
 order by timestamp
 `
@@ -96,11 +94,21 @@ func (q *Queries) GetChallengesSolutionsInEvent(ctx context.Context, arg GetChal
 }
 
 const getEventChallengeSolutionAttemptsPaged = `-- name: GetEventChallengeSolutionAttemptsPaged :many
-select sa.id, sa.event_id, challenge_id, team_id, t.name as team_name, participant_id, u.name as participant_name, answer, flag, is_correct, timestamp
+select sa.id,
+       t.event_id,
+       challenge_id,
+       team_id,
+       t.name as team_name,
+       participant_id,
+       u.name as participant_name,
+       answer,
+       flag,
+       is_correct,
+       timestamp
 from event_challenge_solution_attempts sa
-inner join event_teams t on t.id = sa.team_id
-inner join users u on u.id = sa.participant_id
-where sa.event_id = $1
+         inner join event_teams t on t.id = sa.team_id
+         inner join users u on u.id = sa.participant_id
+where t.event_id = $1
 order by timestamp desc
 limit $2 offset $3
 `
@@ -163,7 +171,7 @@ from event_challenge_solution_attempts
          inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
 where is_correct = true
   and challenge_id = $2
-    and event_challenge_solution_attempts.event_id = $1
+  and t.event_id = $1
 order by timestamp
 `
 
@@ -212,7 +220,7 @@ from event_challenge_solution_attempts
          inner join event_teams t on t.id = event_challenge_solution_attempts.team_id
 where is_correct = true
   and challenge_id = $2
-  and event_challenge_solution_attempts.event_id = $1
+  and t.event_id = $1
 order by timestamp
 limit $3 offset $4
 `

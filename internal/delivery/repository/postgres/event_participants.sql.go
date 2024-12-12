@@ -72,7 +72,7 @@ const getEventParticipants = `-- name: GetEventParticipants :many
 select event_participants.user_id, event_participants.event_id, event_participants.team_id, event_participants.hidden, event_participants.approval_status, event_participants.updated_at, event_participants.updated_by, event_participants.created_at, u.name as name, u.email as email, coalesce(et.name, '') as team_name
 from event_participants
          inner join users u on event_participants.user_id = u.id
-left join public.event_teams et on event_participants.team_id = et.id
+         left join public.event_teams et on event_participants.team_id = et.id
 where event_participants.event_id = $1
 `
 

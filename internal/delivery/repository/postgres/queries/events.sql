@@ -40,8 +40,8 @@ set type                    = $2,
     start_time              = $13,
     finish_time             = $14,
     withdraw_time           = $15,
-    updated_at              = $16,
-    updated_by              = $17
+    updated_by = $16,
+    updated_at = now()
 where id = $1;
 
 -- name: DeleteEvent :execrows
@@ -77,9 +77,7 @@ values ($1, $2);
 
 -- name: UpdateEventMetadata :execrows
 update events_metadata
-set data       = $2,
-    updated_at = $3,
-    updated_by = $4
+set data = $2
 where event_id = $1;
 
 -- name: UpdateEventPicture :execrows

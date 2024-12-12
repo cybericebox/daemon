@@ -87,11 +87,16 @@ func (q *Queries) DeleteEventTeam(ctx context.Context, id uuid.UUID) (int64, err
 }
 
 const getEventParticipantTeam = `-- name: GetEventParticipantTeam :one
-select event_teams.id, event_teams.name, event_teams.join_code, event_teams.laboratory_id, event_teams.hidden, event_teams.approval_status
+select event_teams.id,
+       event_teams.name,
+       event_teams.join_code,
+       event_teams.laboratory_id,
+       event_teams.hidden,
+       event_teams.approval_status
 from event_teams
-        inner join event_participants on event_teams.id = event_participants.team_id
+         inner join event_participants on event_teams.id = event_participants.team_id
 where event_participants.user_id = $1
-and event_participants.event_id = $2
+  and event_participants.event_id = $2
 `
 
 type GetEventParticipantTeamParams struct {

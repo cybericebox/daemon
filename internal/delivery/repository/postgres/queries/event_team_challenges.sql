@@ -1,7 +1,7 @@
 -- name: CreateEventTeamChallenge :batchexec
 insert into event_team_challenges
-    (id, event_id, team_id, challenge_id, flag)
-values ($1, $2, $3, $4, $5)
+    (team_id, challenge_id, flag)
+values ($1, $2, $3)
 on conflict do nothing;
 
 -- name: GetChallengeFlag :one

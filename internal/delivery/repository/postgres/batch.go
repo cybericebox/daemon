@@ -81,8 +81,8 @@ func (b *CreateEventChallengeBatchResults) Close() error {
 
 const createEventTeamChallenge = `-- name: CreateEventTeamChallenge :batchexec
 insert into event_team_challenges
-    (id, event_id, team_id, challenge_id, flag)
-values ($1, $2, $3, $4, $5)
+    (team_id, challenge_id, flag)
+values ($1, $2, $3)
 on conflict do nothing
 `
 
@@ -93,8 +93,6 @@ type CreateEventTeamChallengeBatchResults struct {
 }
 
 type CreateEventTeamChallengeParams struct {
-	ID          uuid.UUID `json:"id"`
-	EventID     uuid.UUID `json:"event_id"`
 	TeamID      uuid.UUID `json:"team_id"`
 	ChallengeID uuid.UUID `json:"challenge_id"`
 	Flag        string    `json:"flag"`
@@ -104,8 +102,6 @@ func (q *Queries) CreateEventTeamChallenge(ctx context.Context, arg []CreateEven
 	batch := &pgx.Batch{}
 	for _, a := range arg {
 		vals := []interface{}{
-			a.ID,
-			a.EventID,
 			a.TeamID,
 			a.ChallengeID,
 			a.Flag,

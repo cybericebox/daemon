@@ -35,10 +35,5 @@ create unique index if not exists event_tag_index on events (tag, withdraw_time)
 create table if not exists events_metadata
 (
     event_id   uuid primary key references events (id) on delete cascade,
-    data       jsonb       not null,
-
-    updated_at timestamptz,
-    updated_by uuid        references users (id) on delete set null,
-
-    created_at timestamptz not null default now()
+    data jsonb not null
 );
