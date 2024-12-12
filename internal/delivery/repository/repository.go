@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/agent"
 	"github.com/cybericebox/daemon/internal/delivery/repository/email"
@@ -31,4 +32,10 @@ func NewRepository(deps Dependencies) *Repository {
 		agent.NewRepository(agent.Dependencies{Config: &deps.Config.Agent}),
 		vpn.NewRepository(vpn.Dependencies{Config: &deps.Config.VPN}),
 	}
+}
+
+func (r *Repository) Close(ctx context.Context) {
+	r.PostgresRepository.Close()
+	r.AgentRepository.Close()
+	r.VPNRepository.Close()
 }

@@ -41,7 +41,7 @@ func (r *EmailRepository) SendEmail(to, subject, body string) error {
 	log.Debug().Msgf("Sending email to %s", to)
 
 	if err := r.dialer.DialAndSend(message); err != nil {
-		return model.ErrEmail.WithError(err).WithMessage("Failed to send email").Cause()
+		return model.ErrEmail.WithError(err).WithMessage("Failed to send email").Err()
 	}
 
 	return nil
