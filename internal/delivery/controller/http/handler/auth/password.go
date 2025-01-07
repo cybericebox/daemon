@@ -49,6 +49,7 @@ func (h *Handler) resetPassword(ctx *gin.Context) {
 
 	if err := h.useCase.ResetPassword(ctx, code, inp.Password); err != nil {
 		response.AbortWithError(ctx, err)
+		return
 	}
 
 	response.AbortWithSuccess(ctx)
