@@ -2,27 +2,37 @@ package oauth
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/auth"
+	"github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/lib/pkg/libError"
+	"github.com/cybericebox/lib/pkg/token"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"io"
-	"strings"
+	"time"
 )
 
 const (
-	randomStateLen    = 10
-	oauthGoogleUrlAPI = "https://www.googleapis.com/oauth2/v2/userinfo?access_token="
+	issuer = "oauth"
+
+	oauthGoogleUrlAPI  = "https://www.googleapis.com/oauth2/v2/userinfo?access_token="
+	oauthGoogleSubject = "google-user"
 )
 
 type (
 	OAuthService struct {
 		googleConfig *oauth2.Config
-		randomState  string
+		tokenManager tokenManager
+	}
+
+	tokenManager interface {
+		NewBase64Token(subject interface{}, ttl ...time.Duration) (string, error)
+		ParseBase64Token(token string) (interface{}, error)
 	}
 
 	Dependencies struct {
@@ -31,12 +41,15 @@ type (
 )
 
 func NewOAuthService(deps Dependencies) *OAuthService {
-	//r := make([]byte, randomStateLen)
-	//_, err := rand.Read(r)
-	//if err != nil {
-	//	log.Fatal().Err(err).Msg("Creating google service")
-	//	return nil
-	//}
+	manager, err := token.NewBase64TokenManager(token.Base64TokenDependencies{
+		SigningKey: deps.Config.StateSignature,
+		Issuer:     issuer,
+		TTL:        deps.Config.StateTTL,
+	})
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create token manager")
+	}
+
 	return &OAuthService{
 		googleConfig: &oauth2.Config{
 			ClientID:     deps.Config.Google.ClientID,
@@ -45,29 +58,40 @@ func NewOAuthService(deps Dependencies) *OAuthService {
 			RedirectURL:  fmt.Sprintf(deps.Config.RedirectURLTemplate, "google"),
 			Scopes:       []string{"https://www.googleapis.com/auth/userinfo.profile", "https://www.googleapis.com/auth/userinfo.email"},
 		},
-		randomState: base64.StdEncoding.EncodeToString([]byte("randomState")),
+		tokenManager: manager,
 	}
 }
 
-func (s *OAuthService) GetGoogleLoginURL() string {
-	return s.googleConfig.AuthCodeURL(s.randomState)
+func (s *OAuthService) GetGoogleLoginURL() (string, error) {
+	randomState, err := s.tokenManager.NewBase64Token(oauthGoogleSubject)
+	if err != nil {
+		return "", authModel.ErrAuth.WithError(err).WithMessage("Failed to generate state").Err()
+	}
+	return s.googleConfig.AuthCodeURL(randomState), nil
 }
 
-func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*model.User, error) {
-	if strings.Compare(state, s.randomState) != 0 {
-		return nil, model.ErrAuthInvalidOAuth2State.Cause()
+func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*userModel.User, error) {
+	subject, err := s.tokenManager.ParseBase64Token(state)
+	if err != nil {
+		if errors.Is(err, libError.ErrTokenInvalidJWTToken.Err()) {
+			return nil, authModel.ErrAuthInvalidOAuth2State.Err()
+		}
+		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to parse state").Err()
+	}
+	if subject != oauthGoogleSubject {
+		return nil, authModel.ErrAuthInvalidOAuth2State.Err()
 	}
 
 	tokens, err := s.googleConfig.Exchange(ctx, code)
 	if err != nil {
-		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to exchange code for tokens").Cause()
+		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to exchange code for tokens").Err()
 	}
 
 	client := s.googleConfig.Client(ctx, tokens)
 
 	response, err := client.Get(oauthGoogleUrlAPI + tokens.AccessToken)
 	if err != nil {
-		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to get google user").Cause()
+		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to get google user").Err()
 	}
 
 	defer func() {
@@ -78,16 +102,16 @@ func (s *OAuthService) GetGoogleUser(ctx context.Context, code, state string) (*
 
 	content, err := io.ReadAll(response.Body)
 	if err != nil {
-		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to read response body").Cause()
+		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to read response body").Err()
 	}
 
 	var GoogleUserRes map[string]interface{}
 
 	if err = json.Unmarshal(content, &GoogleUserRes); err != nil {
-		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to unmarshal google user response").Cause()
+		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to unmarshal google user response").Err()
 	}
 
-	return &model.User{
+	return &userModel.User{
 		GoogleID: GoogleUserRes["id"].(string),
 		Email:    GoogleUserRes["email"].(string),
 		Name:     GoogleUserRes["name"].(string),
