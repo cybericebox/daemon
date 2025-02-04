@@ -1,15 +1,14 @@
 package errorWrapper
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/tools"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 )
 
 func WithErrorHandler(ctx *gin.Context) {
-	log.Debug().Str("url", ctx.Request.URL.Path).Str("method", ctx.Request.Method).Msg("Request")
 	ctx.Next()
 
 	errFromContext := tools.GetErrorFromContext(ctx)
@@ -24,7 +23,7 @@ func WithErrorHandler(ctx *gin.Context) {
 
 	if errUnwrapped.Code().IsInternal() {
 		log.Error().Err(errUnwrapped).Str("url", ctx.Request.URL.Path).Interface("context", ctx.Keys).Msg("Internal server error")
-		errUnwrapped = appError.ErrInternal.WithCode(errUnwrapped.Code()).WithMessage("Internal server error").Err()
+		errUnwrapped = err.ErrInternal.WithCode(errUnwrapped.Code()).WithMessage("Internal server error").Err()
 	}
 
 	response.AbortWithStatus(ctx, errUnwrapped)
