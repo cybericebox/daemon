@@ -1,4 +1,4 @@
-package oauth
+package oauthService
 
 import (
 	"context"
@@ -40,7 +40,7 @@ type (
 	}
 )
 
-func NewOAuthService(deps Dependencies) *OAuthService {
+func NewService(deps Dependencies) *OAuthService {
 	manager, err := token.NewBase64TokenManager(token.Base64TokenDependencies{
 		SigningKey: deps.Config.StateSignature,
 		Issuer:     issuer,

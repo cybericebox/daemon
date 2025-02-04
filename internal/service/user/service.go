@@ -1,4 +1,4 @@
-package user
+package userService
 
 import (
 	"context"
@@ -45,7 +45,7 @@ type (
 	}
 )
 
-func NewUserService(deps Dependencies) *UserService {
+func NewService(deps Dependencies) *UserService {
 	return &UserService{
 		repository: deps.Repository,
 	}

@@ -1,9 +1,9 @@
-package event
+package scoreService
 
 import (
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
-	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/event"
 	"github.com/cybericebox/daemon/internal/tools"
 	"github.com/gofrs/uuid"
 	"sort"
@@ -11,30 +11,48 @@ import (
 )
 
 type (
-	IScoreRepository interface {
-		GetChallengesSolutionsInEvent(ctx context.Context, eventID uuid.UUID) ([]postgres.GetChallengesSolutionsInEventRow, error)
+	ScoreService struct {
+		repository IRepository
+	}
+
+	IRepository interface {
+		GetChallengesSolutionsInEvent(ctx context.Context, arg postgres.GetChallengesSolutionsInEventParams) ([]postgres.GetChallengesSolutionsInEventRow, error)
+
+		GetEventByID(ctx context.Context, id uuid.UUID) (postgres.Event, error)
+		GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]postgres.GetEventTeamsRow, error)
+		GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]postgres.EventChallenge, error)
+	}
+
+	Dependencies struct {
+		Repository IRepository
 	}
 )
 
-func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.EventScore, error) {
+func NewService(deps Dependencies) *ScoreService {
+	return &ScoreService{
+		repository: deps.Repository,
+	}
+}
+
+func (s *ScoreService) GetEventScore(ctx context.Context, eventID uuid.UUID, fromTime, toTime time.Time) (*eventModel.EventScore, error) {
 	event, err := s.repository.GetEventByID(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get event by id from repository").Cause()
+		return nil, eventModel.ErrEventScore.WithError(err).WithMessage("Failed to get event by id from repository").Err()
 	}
 
 	teams, err := s.repository.GetEventTeams(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get teams from repository").Cause()
+		return nil, eventModel.ErrEventScore.WithError(err).WithMessage("Failed to get teams from repository").Err()
 	}
 
-	challenges, err := s.GetEventChallenges(ctx, eventID)
+	challenges, err := s.repository.GetEventChallenges(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get challenges from repository").Cause()
+		return nil, eventModel.ErrEventScore.WithError(err).WithMessage("Failed to get challenges from repository").Err()
 	}
 
-	solutionsByChallenges, err := s.getSolutionsByChallenges(ctx, eventID)
+	solutionsByChallenges, err := s.getSolutionsByChallenges(ctx, eventID, fromTime, toTime)
 	if err != nil {
-		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get solutions by challenges").Cause()
+		return nil, eventModel.ErrEventScore.WithError(err).WithMessage("Failed to get solutions by challenges").Err()
 	}
 
 	challengePoints := make(map[uuid.UUID]int32)
@@ -43,18 +61,21 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 			challengePoints[challenge.ID] = challenge.Data.Points
 		}
 	}
-	teamScores := make([]model.TeamScore, 0)
+	teamScores := make([]eventModel.TeamScore, 0)
 	for _, team := range teams {
-		teamSolutions := make(map[uuid.UUID]model.TeamSolution)
+		if team.Hidden {
+			continue
+		}
+		teamSolutions := make(map[uuid.UUID]eventModel.TeamSolution)
 
-		var solvesForTimeline []model.SolutionForTimeline
+		var solvesForTimeline []eventModel.SolutionForTimeline
 		score := 0
 	GlobalLoop:
 		for challengeID, solutions := range solutionsByChallenges {
 			challengeSolutionCount := len(solutions)
 			for index, solution := range solutions {
 				if solution.TeamID == team.ID {
-					teamSolutions[challengeID] = model.TeamSolution{
+					teamSolutions[challengeID] = eventModel.TeamSolution{
 						ID:   solution.ChallengeID,
 						Rank: index + 1,
 					}
@@ -63,7 +84,7 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 						points = tools.CalculateScore(event.DynamicMin, event.DynamicMax, event.DynamicSolveThreshold, float64(challengeSolutionCount))
 					}
 					score += int(points)
-					solvesForTimeline = append(solvesForTimeline, model.SolutionForTimeline{
+					solvesForTimeline = append(solvesForTimeline, eventModel.SolutionForTimeline{
 						Date:   solution.Timestamp,
 						Points: int(points),
 					})
@@ -77,7 +98,7 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 
 		latestSolution := teamScoreTimeline[len(teamScoreTimeline)-1][0].(time.Time)
 
-		teamScores = append(teamScores, model.TeamScore{
+		teamScores = append(teamScores, eventModel.TeamScore{
 			TeamID:            team.ID,
 			TeamName:          team.Name,
 			Score:             score,
@@ -93,16 +114,20 @@ func (s *EventService) GetScore(ctx context.Context, eventID uuid.UUID) (*model.
 		teamScores[i].Rank = i + 1
 	}
 
-	return &model.EventScore{
+	return &eventModel.EventScore{
 		TeamsScores: teamScores,
 		Challenges:  convertToChallengeList(challenges),
 	}, nil
 }
 
-func (s *EventService) getSolutionsByChallenges(ctx context.Context, eventID uuid.UUID) (map[uuid.UUID][]postgres.GetChallengesSolutionsInEventRow, error) {
-	solutions, err := s.repository.GetChallengesSolutionsInEvent(ctx, eventID)
+func (s *ScoreService) getSolutionsByChallenges(ctx context.Context, eventID uuid.UUID, fromTime, toTime time.Time) (map[uuid.UUID][]postgres.GetChallengesSolutionsInEventRow, error) {
+	solutions, err := s.repository.GetChallengesSolutionsInEvent(ctx, postgres.GetChallengesSolutionsInEventParams{
+		EventID:  eventID,
+		FromTime: fromTime,
+		ToTime:   toTime,
+	})
 	if err != nil {
-		return nil, model.ErrEventScore.WithError(err).WithMessage("Failed to get all challenges solutions in event").Cause()
+		return nil, eventModel.ErrEventScore.WithError(err).WithMessage("Failed to get all challenges solutions in event").Err()
 	}
 
 	result := make(map[uuid.UUID][]postgres.GetChallengesSolutionsInEventRow)
@@ -113,7 +138,7 @@ func (s *EventService) getSolutionsByChallenges(ctx context.Context, eventID uui
 	return result, nil
 }
 
-func convertToScoreTimeline(solvesForTimeline []model.SolutionForTimeline, startTime time.Time) [][]interface{} {
+func convertToScoreTimeline(solvesForTimeline []eventModel.SolutionForTimeline, startTime time.Time) [][]interface{} {
 	var teamScoreTimeline [][]interface{}
 	sortTimeline(solvesForTimeline)
 	scoreForTimeline := 0
@@ -131,7 +156,7 @@ func convertToScoreTimeline(solvesForTimeline []model.SolutionForTimeline, start
 	return teamScoreTimeline
 }
 
-func sortTeamScores(teamsScore []model.TeamScore) {
+func sortTeamScores(teamsScore []eventModel.TeamScore) {
 	sort.SliceStable(teamsScore, func(p, q int) bool {
 		return teamsScore[p].Score > teamsScore[q].Score
 	})
@@ -145,16 +170,16 @@ func sortTeamScores(teamsScore []model.TeamScore) {
 	})
 }
 
-func sortTimeline(solvesForTimeline []model.SolutionForTimeline) {
+func sortTimeline(solvesForTimeline []eventModel.SolutionForTimeline) {
 	sort.SliceStable(solvesForTimeline, func(p, q int) bool {
 		return solvesForTimeline[p].Date.Before(solvesForTimeline[q].Date)
 	})
 }
 
-func convertToChallengeList(challenges []*model.Challenge) []model.ChallengeInfo {
-	result := make([]model.ChallengeInfo, 0, len(challenges))
+func convertToChallengeList(challenges []postgres.EventChallenge) []eventModel.ChallengeInfo {
+	result := make([]eventModel.ChallengeInfo, 0, len(challenges))
 	for _, challenge := range challenges {
-		result = append(result, model.ChallengeInfo{
+		result = append(result, eventModel.ChallengeInfo{
 			ID:   challenge.ID,
 			Name: challenge.Data.Name,
 		})

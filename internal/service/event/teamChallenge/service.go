@@ -1,28 +1,39 @@
-package event
+package teamChallengeService
 
 import (
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
-	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/event"
 	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/gofrs/uuid"
 	"github.com/hashicorp/go-multierror"
 )
 
 type (
-	ITeamChallengeRepository interface {
+	TeamChallengeService struct {
+		repository IRepository
+	}
+
+	IRepository interface {
 		CreateEventTeamChallenge(ctx context.Context, arg []postgres.CreateEventTeamChallengeParams) *postgres.CreateEventTeamChallengeBatchResults
+	}
+
+	Dependencies struct {
+		Repository IRepository
 	}
 )
 
-func (s *EventService) CreateTeamChallenges(ctx context.Context, teamChallenges []model.TeamChallenge) error {
+func NewService(deps Dependencies) *TeamChallengeService {
+	return &TeamChallengeService{
+		repository: deps.Repository,
+	}
+}
+
+func (s *TeamChallengeService) CreateEventTeamChallenges(ctx context.Context, teamChallenges []eventModel.TeamChallenge) error {
 	var errs error
 
 	teamChallengesParams := make([]postgres.CreateEventTeamChallengeParams, 0, len(teamChallenges))
 	for _, teamChallenge := range teamChallenges {
 		teamChallengesParams = append(teamChallengesParams, postgres.CreateEventTeamChallengeParams{
-			ID:          uuid.Must(uuid.NewV7()),
-			EventID:     teamChallenge.EventID,
 			TeamID:      teamChallenge.TeamID,
 			ChallengeID: teamChallenge.ChallengeID,
 			Flag:        teamChallenge.Flag,
@@ -35,15 +46,15 @@ func (s *EventService) CreateTeamChallenges(ctx context.Context, teamChallenges 
 		if err != nil {
 			errCreator, has := tools.ForeignKeyViolationError(err)
 			if has {
-				errs = multierror.Append(errs, errCreator.Cause())
+				errs = multierror.Append(errs, errCreator.Err())
 				return
 			}
-			errs = multierror.Append(errs, model.ErrEventTeamChallenge.WithError(err).WithMessage("Failed to create team challenge").Cause())
+			errs = multierror.Append(errs, eventModel.ErrEventTeamChallenge.WithError(err).WithMessage("Failed to create team challenge").Err())
 		}
 	})
 
 	if errs != nil {
-		return model.ErrEventTeamChallenge.WithError(errs).WithMessage("Failed to create team challenges").Cause()
+		return eventModel.ErrEventTeamChallenge.WithError(errs).WithMessage("Failed to create team challenges").Err()
 	}
 
 	return nil

@@ -1,4 +1,4 @@
-package temporalCode
+package temporalCodeService
 
 import (
 	"context"
@@ -31,7 +31,7 @@ type (
 	}
 )
 
-func NewTemporalCodeService(deps Dependencies) *TemporalCodeService {
+func NewService(deps Dependencies) *TemporalCodeService {
 	return &TemporalCodeService{
 		repository: deps.Repository,
 		ttl:        deps.Config.TTL,

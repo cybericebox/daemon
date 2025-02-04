@@ -4,31 +4,29 @@ import "github.com/cybericebox/lib/pkg/err"
 
 // Object codes
 const (
-	platformObjectCode = iota
-	postgresObjectCode
-	agentObjectCode
-	vpnObjectCode
-	storageObjectCode
-	emailObjectCode
-	temporalCoreObjectCode
-	authObjectCode
-	authRecaptchaObjectCode
-	userObjectCode
-	laboratoryObjectCode
-	exerciseObjectCode
-	exerciseCategoryObjectCode
-	eventObjectCode
-	eventChallengeObjectCode
-	eventChallengeCategoryObjectCode
-	eventParticipantObjectCode
-	eventScoreObjectCode
-	eventTeamObjectCode
-	eventTeamChallengeObjectCode
+	PlatformObjectCode = iota
+	PostgresObjectCode
+	AgentObjectCode
+	VPNObjectCode
+	StorageObjectCode
+	EmailObjectCode
+	TemporalCoreObjectCode
+	AuthObjectCode
+	AuthRecaptchaObjectCode
+	UserObjectCode
+	LaboratoryObjectCode
+	ExerciseObjectCode
+	ExerciseCategoryObjectCode
+	EventObjectCode
+	EventChallengeObjectCode
+	EventChallengeCategoryObjectCode
+	EventParticipantObjectCode
+	EventScoreObjectCode
+	EventTeamObjectCode
+	EventTeamChallengeObjectCode
 )
 
 var (
-	ErrPlatform = err.ErrInternal.WithObjectCode(platformObjectCode)
-	ErrPostgres = err.ErrInternal.WithObjectCode(postgresObjectCode)
-	ErrAgent    = err.ErrInternal.WithObjectCode(agentObjectCode)
-	ErrVPN      = err.ErrInternal.WithObjectCode(vpnObjectCode)
+	ErrPostgres = err.ErrInternal.WithObjectCode(PostgresObjectCode)
+	ErrAgent    = err.ErrInternal.WithObjectCode(AgentObjectCode)
 )

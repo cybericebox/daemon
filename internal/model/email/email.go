@@ -1,10 +1,16 @@
-package model
+package emailModel
 
 import (
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/lib/pkg/err"
 )
 
 type (
+	EmailTemplate struct {
+		Subject string
+		Body    string
+	}
+
 	AccountExistsTemplateData struct {
 		Username string
 	}
@@ -46,5 +52,5 @@ const (
 
 // errors
 var (
-	ErrEmail = err.ErrInternal.WithObjectCode(emailObjectCode)
+	ErrEmail = err.ErrInternal.WithObjectCode(model.EmailObjectCode)
 )

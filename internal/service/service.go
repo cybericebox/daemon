@@ -16,26 +16,26 @@ import (
 
 type (
 	Service struct {
-		*oauth.OAuthService
+		*oauthService.OAuthService
 		*password.Manager
-		*storage.StorageService
-		*temporalCode.TemporalCodeService
-		*email.EmailService
-		*token.TokenService
-		*user.UserService
-		*event.EventService
-		*exercise.ExerciseService
-		*laboratory.LaboratoryService
+		*storageService.StorageService
+		*temporalCodeService.TemporalCodeService
+		*emailService.EmailService
+		*tokenService.TokenService
+		*userService.UserService
+		*eventService.EventService
+		*exerciseService.ExerciseService
+		*laboratoryService.LaboratoryService
 	}
 
 	IRepository interface {
-		storage.IRepository
-		temporalCode.IRepository
-		email.IRepository
-		user.IRepository
-		event.IRepository
-		exercise.IRepository
-		laboratory.IRepository
+		storageService.IRepository
+		temporalCodeService.IRepository
+		emailService.IRepository
+		userService.IRepository
+		eventService.IRepository
+		exerciseService.IRepository
+		laboratoryService.IRepository
 	}
 
 	Dependencies struct {
@@ -46,25 +46,25 @@ type (
 
 func NewService(deps Dependencies) *Service {
 	return &Service{
-		OAuthService: oauth.NewOAuthService(oauth.Dependencies{Config: &deps.Config.OAuth}),
+		OAuthService: oauthService.NewService(oauthService.Dependencies{Config: &deps.Config.OAuth}),
 		Manager: password.NewHashManager(password.Dependencies{
 			Cost:               deps.Config.Password.HashCost,
 			PasswordComplexity: password.PasswordComplexityConfig(deps.Config.Password.PasswordComplexity),
 		}),
-		StorageService: storage.NewStorageService(storage.Dependencies{Repository: deps.Repository, Config: &deps.Config.Storage}),
-		TemporalCodeService: temporalCode.NewTemporalCodeService(temporalCode.Dependencies{
+		StorageService: storageService.NewService(storageService.Dependencies{Repository: deps.Repository, Config: &deps.Config.Storage}),
+		TemporalCodeService: temporalCodeService.NewService(temporalCodeService.Dependencies{
 			Repository: deps.Repository,
 			Config:     &deps.Config.TemporalCode,
 		}),
-		EmailService: email.NewEmailService(email.Dependencies{Repository: deps.Repository}),
-		TokenService: token.NewTokenService(token.Dependencies{
+		EmailService: emailService.NewService(emailService.Dependencies{Repository: deps.Repository}),
+		TokenService: tokenService.NewService(tokenService.Dependencies{
 			Config: &deps.Config.JWT,
 		}),
-		UserService: user.NewUserService(user.Dependencies{Repository: deps.Repository}),
-		EventService: event.NewEventService(event.Dependencies{
+		UserService: userService.NewService(userService.Dependencies{Repository: deps.Repository}),
+		EventService: eventService.NewService(eventService.Dependencies{
 			Repository: deps.Repository,
 		}),
-		ExerciseService:   exercise.NewExerciseService(exercise.Dependencies{Repository: deps.Repository}),
-		LaboratoryService: laboratory.NewLaboratoryService(laboratory.Dependencies{Repository: deps.Repository}),
+		ExerciseService:   exerciseService.NewService(exerciseService.Dependencies{Repository: deps.Repository}),
+		LaboratoryService: laboratoryService.NewService(laboratoryService.Dependencies{Repository: deps.Repository}),
 	}
 }

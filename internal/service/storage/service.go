@@ -1,4 +1,4 @@
-package storage
+package storageService
 
 import (
 	"context"
@@ -42,7 +42,7 @@ type (
 	}
 )
 
-func NewStorageService(deps Dependencies) *StorageService {
+func NewService(deps Dependencies) *StorageService {
 	return &StorageService{
 		config:     deps.Config,
 		repository: deps.Repository,

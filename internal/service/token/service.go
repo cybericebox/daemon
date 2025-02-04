@@ -1,4 +1,4 @@
-package token
+package tokenService
 
 import (
 	"errors"
@@ -32,7 +32,7 @@ type (
 	}
 )
 
-func NewTokenService(deps Dependencies) *TokenService {
+func NewService(deps Dependencies) *TokenService {
 	manager, err := token.NewAccessRefreshTokenManager(token.AccessRefreshTokenDependencies{
 		SigningKey: deps.Config.TokenSignature,
 		Issuer:     issuer,

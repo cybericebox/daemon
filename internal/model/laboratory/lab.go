@@ -1,6 +1,8 @@
-package model
+package laboratoryModel
 
 import (
+	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
 )
@@ -13,7 +15,7 @@ type (
 
 	LaboratoryChallenge struct {
 		ID        uuid.UUID
-		Instances []Instance
+		Instances []exerciseModel.Instance
 	}
 
 	FlagVariable struct {
@@ -26,5 +28,5 @@ type (
 )
 
 var (
-	ErrLaboratory = err.ErrInternal.WithObjectCode(laboratoryObjectCode)
+	ErrLaboratory = err.ErrInternal.WithObjectCode(model.LaboratoryObjectCode)
 )

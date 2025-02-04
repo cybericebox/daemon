@@ -1,6 +1,12 @@
 package model
 
+import (
+	"github.com/cybericebox/lib/pkg/err"
+)
+
 var (
+	ErrPlatform = err.ErrInternal.WithObjectCode(PlatformObjectCode)
+
 	ErrPlatformUserNotFoundInContext      = ErrPlatform.WithMessage("User not found in context").WithDetailCode(1)
 	ErrPlatformUserRoleNotFoundInContext  = ErrPlatform.WithMessage("User role not found in context").WithDetailCode(2)
 	ErrPlatformSubdomainNotFoundInContext = ErrPlatform.WithMessage("Subdomain not found in context").WithDetailCode(3)
