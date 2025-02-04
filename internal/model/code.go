@@ -7,6 +7,7 @@ const (
 	PlatformObjectCode = iota
 	PostgresObjectCode
 	AgentObjectCode
+	VPNServerObjectCode
 	VPNObjectCode
 	StorageObjectCode
 	EmailObjectCode
@@ -27,6 +28,7 @@ const (
 )
 
 var (
-	ErrPostgres = err.ErrInternal.WithObjectCode(PostgresObjectCode)
-	ErrAgent    = err.ErrInternal.WithObjectCode(AgentObjectCode)
+	ErrPostgres  = err.ErrInternal.WithObjectCode(PostgresObjectCode)
+	ErrAgent     = err.ErrInternal.WithObjectCode(AgentObjectCode)
+	ErrVPNServer = err.ErrInternal.WithObjectCode(VPNServerObjectCode)
 )
