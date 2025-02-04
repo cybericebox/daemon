@@ -27,10 +27,10 @@ const (
 type (
 	OAuthService struct {
 		googleConfig *oauth2.Config
-		tokenManager tokenManager
+		tokenManager ITokenManager
 	}
 
-	tokenManager interface {
+	ITokenManager interface {
 		NewBase64Token(subject interface{}, ttl ...time.Duration) (string, error)
 		ParseBase64Token(token string) (interface{}, error)
 	}

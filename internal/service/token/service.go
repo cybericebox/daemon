@@ -17,10 +17,10 @@ const (
 type (
 	TokenService struct {
 		config       *config.JWTConfig
-		tokenManager tokenManager
+		tokenManager ITokenManager
 	}
 
-	tokenManager interface {
+	ITokenManager interface {
 		NewAccessToken(subject interface{}, ttl ...time.Duration) (string, error)
 		NewRefreshToken(subject interface{}, ttl ...time.Duration) (string, error)
 		ParseAccessToken(token string) (interface{}, error)
