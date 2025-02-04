@@ -8,7 +8,7 @@ package postgres
 import (
 	"context"
 
-	"github.com/cybericebox/daemon/internal/model"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
 )
 
@@ -19,11 +19,11 @@ values ($1, $2, $3, $4, $5)
 `
 
 type CreateExerciseParams struct {
-	ID          uuid.UUID          `json:"id"`
-	CategoryID  uuid.UUID          `json:"category_id"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Data        model.ExerciseData `json:"data"`
+	ID          uuid.UUID                  `json:"id"`
+	CategoryID  uuid.UUID                  `json:"category_id"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	Data        exerciseModel.ExerciseData `json:"data"`
 }
 
 func (q *Queries) CreateExercise(ctx context.Context, arg CreateExerciseParams) error {
@@ -336,19 +336,19 @@ update exercises
 set category_id = $2,
     name        = $3,
     description = $4,
-    data       = $5,
-    updated_at = now(),
-    updated_by = $6
+    data        = $5,
+    updated_at  = now(),
+    updated_by  = $6
 where id = $1
 `
 
 type UpdateExerciseParams struct {
-	ID          uuid.UUID          `json:"id"`
-	CategoryID  uuid.UUID          `json:"category_id"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Data        model.ExerciseData `json:"data"`
-	UpdatedBy   uuid.NullUUID      `json:"updated_by"`
+	ID          uuid.UUID                  `json:"id"`
+	CategoryID  uuid.UUID                  `json:"category_id"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	Data        exerciseModel.ExerciseData `json:"data"`
+	UpdatedBy   uuid.NullUUID              `json:"updated_by"`
 }
 
 func (q *Queries) UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error) {

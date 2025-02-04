@@ -9,7 +9,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cybericebox/daemon/internal/model"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -70,8 +70,8 @@ values ($1, $2)
 `
 
 type CreateEventMetadataParams struct {
-	EventID uuid.UUID           `json:"event_id"`
-	Data    model.EventMetadata `json:"data"`
+	EventID uuid.UUID                `json:"event_id"`
+	Data    eventModel.EventMetadata `json:"data"`
 }
 
 func (q *Queries) CreateEventMetadata(ctx context.Context, arg CreateEventMetadataParams) error {
@@ -170,27 +170,27 @@ where events_metadata.event_id = $1
 `
 
 type GetEventWithMetadataByIDRow struct {
-	ID                     uuid.UUID           `json:"id"`
-	Type                   int32               `json:"type"`
-	Availability           int32               `json:"availability"`
-	Participation          int32               `json:"participation"`
-	Tag                    string              `json:"tag"`
-	Name                   string              `json:"name"`
-	DynamicScoring         bool                `json:"dynamic_scoring"`
-	DynamicMax             int32               `json:"dynamic_max"`
-	DynamicMin             int32               `json:"dynamic_min"`
-	DynamicSolveThreshold  int32               `json:"dynamic_solve_threshold"`
-	Registration           int32               `json:"registration"`
-	ScoreboardAvailability int32               `json:"scoreboard_availability"`
-	ParticipantsVisibility int32               `json:"participants_visibility"`
-	PublishTime            time.Time           `json:"publish_time"`
-	StartTime              time.Time           `json:"start_time"`
-	FinishTime             time.Time           `json:"finish_time"`
-	WithdrawTime           time.Time           `json:"withdraw_time"`
-	UpdatedAt              pgtype.Timestamptz  `json:"updated_at"`
-	UpdatedBy              uuid.NullUUID       `json:"updated_by"`
-	CreatedAt              time.Time           `json:"created_at"`
-	Data                   model.EventMetadata `json:"data"`
+	ID                     uuid.UUID                `json:"id"`
+	Type                   int32                    `json:"type"`
+	Availability           int32                    `json:"availability"`
+	Participation          int32                    `json:"participation"`
+	Tag                    string                   `json:"tag"`
+	Name                   string                   `json:"name"`
+	DynamicScoring         bool                     `json:"dynamic_scoring"`
+	DynamicMax             int32                    `json:"dynamic_max"`
+	DynamicMin             int32                    `json:"dynamic_min"`
+	DynamicSolveThreshold  int32                    `json:"dynamic_solve_threshold"`
+	Registration           int32                    `json:"registration"`
+	ScoreboardAvailability int32                    `json:"scoreboard_availability"`
+	ParticipantsVisibility int32                    `json:"participants_visibility"`
+	PublishTime            time.Time                `json:"publish_time"`
+	StartTime              time.Time                `json:"start_time"`
+	FinishTime             time.Time                `json:"finish_time"`
+	WithdrawTime           time.Time                `json:"withdraw_time"`
+	UpdatedAt              pgtype.Timestamptz       `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID            `json:"updated_by"`
+	CreatedAt              time.Time                `json:"created_at"`
+	Data                   eventModel.EventMetadata `json:"data"`
 }
 
 func (q *Queries) GetEventWithMetadataByID(ctx context.Context, eventID uuid.UUID) (GetEventWithMetadataByIDRow, error) {
@@ -268,6 +268,31 @@ func (q *Queries) GetEvents(ctx context.Context) ([]Event, error) {
 	return items, nil
 }
 
+const getEventsMetadata = `-- name: GetEventsMetadata :many
+select event_id, data
+from events_metadata
+`
+
+func (q *Queries) GetEventsMetadata(ctx context.Context) ([]EventsMetadatum, error) {
+	rows, err := q.db.Query(ctx, getEventsMetadata)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventsMetadatum{}
+	for rows.Next() {
+		var i EventsMetadatum
+		if err := rows.Scan(&i.EventID, &i.Data); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getEventsPaged = `-- name: GetEventsPaged :many
 select id, type, availability, participation, tag, name, dynamic_scoring, dynamic_max, dynamic_min, dynamic_solve_threshold, registration, scoreboard_availability, participants_visibility, publish_time, start_time, finish_time, withdraw_time, updated_at, updated_by, created_at
 from events
@@ -330,27 +355,27 @@ order by events.name
 `
 
 type GetEventsWithMetadataRow struct {
-	ID                     uuid.UUID           `json:"id"`
-	Type                   int32               `json:"type"`
-	Availability           int32               `json:"availability"`
-	Participation          int32               `json:"participation"`
-	Tag                    string              `json:"tag"`
-	Name                   string              `json:"name"`
-	DynamicScoring         bool                `json:"dynamic_scoring"`
-	DynamicMax             int32               `json:"dynamic_max"`
-	DynamicMin             int32               `json:"dynamic_min"`
-	DynamicSolveThreshold  int32               `json:"dynamic_solve_threshold"`
-	Registration           int32               `json:"registration"`
-	ScoreboardAvailability int32               `json:"scoreboard_availability"`
-	ParticipantsVisibility int32               `json:"participants_visibility"`
-	PublishTime            time.Time           `json:"publish_time"`
-	StartTime              time.Time           `json:"start_time"`
-	FinishTime             time.Time           `json:"finish_time"`
-	WithdrawTime           time.Time           `json:"withdraw_time"`
-	UpdatedAt              pgtype.Timestamptz  `json:"updated_at"`
-	UpdatedBy              uuid.NullUUID       `json:"updated_by"`
-	CreatedAt              time.Time           `json:"created_at"`
-	Data                   model.EventMetadata `json:"data"`
+	ID                     uuid.UUID                `json:"id"`
+	Type                   int32                    `json:"type"`
+	Availability           int32                    `json:"availability"`
+	Participation          int32                    `json:"participation"`
+	Tag                    string                   `json:"tag"`
+	Name                   string                   `json:"name"`
+	DynamicScoring         bool                     `json:"dynamic_scoring"`
+	DynamicMax             int32                    `json:"dynamic_max"`
+	DynamicMin             int32                    `json:"dynamic_min"`
+	DynamicSolveThreshold  int32                    `json:"dynamic_solve_threshold"`
+	Registration           int32                    `json:"registration"`
+	ScoreboardAvailability int32                    `json:"scoreboard_availability"`
+	ParticipantsVisibility int32                    `json:"participants_visibility"`
+	PublishTime            time.Time                `json:"publish_time"`
+	StartTime              time.Time                `json:"start_time"`
+	FinishTime             time.Time                `json:"finish_time"`
+	WithdrawTime           time.Time                `json:"withdraw_time"`
+	UpdatedAt              pgtype.Timestamptz       `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID            `json:"updated_by"`
+	CreatedAt              time.Time                `json:"created_at"`
+	Data                   eventModel.EventMetadata `json:"data"`
 }
 
 func (q *Queries) GetEventsWithMetadata(ctx context.Context) ([]GetEventsWithMetadataRow, error) {
@@ -410,27 +435,27 @@ type GetEventsWithMetadataPagedParams struct {
 }
 
 type GetEventsWithMetadataPagedRow struct {
-	ID                     uuid.UUID           `json:"id"`
-	Type                   int32               `json:"type"`
-	Availability           int32               `json:"availability"`
-	Participation          int32               `json:"participation"`
-	Tag                    string              `json:"tag"`
-	Name                   string              `json:"name"`
-	DynamicScoring         bool                `json:"dynamic_scoring"`
-	DynamicMax             int32               `json:"dynamic_max"`
-	DynamicMin             int32               `json:"dynamic_min"`
-	DynamicSolveThreshold  int32               `json:"dynamic_solve_threshold"`
-	Registration           int32               `json:"registration"`
-	ScoreboardAvailability int32               `json:"scoreboard_availability"`
-	ParticipantsVisibility int32               `json:"participants_visibility"`
-	PublishTime            time.Time           `json:"publish_time"`
-	StartTime              time.Time           `json:"start_time"`
-	FinishTime             time.Time           `json:"finish_time"`
-	WithdrawTime           time.Time           `json:"withdraw_time"`
-	UpdatedAt              pgtype.Timestamptz  `json:"updated_at"`
-	UpdatedBy              uuid.NullUUID       `json:"updated_by"`
-	CreatedAt              time.Time           `json:"created_at"`
-	Data                   model.EventMetadata `json:"data"`
+	ID                     uuid.UUID                `json:"id"`
+	Type                   int32                    `json:"type"`
+	Availability           int32                    `json:"availability"`
+	Participation          int32                    `json:"participation"`
+	Tag                    string                   `json:"tag"`
+	Name                   string                   `json:"name"`
+	DynamicScoring         bool                     `json:"dynamic_scoring"`
+	DynamicMax             int32                    `json:"dynamic_max"`
+	DynamicMin             int32                    `json:"dynamic_min"`
+	DynamicSolveThreshold  int32                    `json:"dynamic_solve_threshold"`
+	Registration           int32                    `json:"registration"`
+	ScoreboardAvailability int32                    `json:"scoreboard_availability"`
+	ParticipantsVisibility int32                    `json:"participants_visibility"`
+	PublishTime            time.Time                `json:"publish_time"`
+	StartTime              time.Time                `json:"start_time"`
+	FinishTime             time.Time                `json:"finish_time"`
+	WithdrawTime           time.Time                `json:"withdraw_time"`
+	UpdatedAt              pgtype.Timestamptz       `json:"updated_at"`
+	UpdatedBy              uuid.NullUUID            `json:"updated_by"`
+	CreatedAt              time.Time                `json:"created_at"`
+	Data                   eventModel.EventMetadata `json:"data"`
 }
 
 func (q *Queries) GetEventsWithMetadataPaged(ctx context.Context, arg GetEventsWithMetadataPagedParams) ([]GetEventsWithMetadataPagedRow, error) {
@@ -491,8 +516,8 @@ set type                    = $2,
     start_time              = $13,
     finish_time             = $14,
     withdraw_time           = $15,
-    updated_by = $16,
-    updated_at = now()
+    updated_by              = $16,
+    updated_at              = now()
 where id = $1
 `
 
@@ -547,8 +572,8 @@ where event_id = $1
 `
 
 type UpdateEventMetadataParams struct {
-	EventID uuid.UUID           `json:"event_id"`
-	Data    model.EventMetadata `json:"data"`
+	EventID uuid.UUID                `json:"event_id"`
+	Data    eventModel.EventMetadata `json:"data"`
 }
 
 func (q *Queries) UpdateEventMetadata(ctx context.Context, arg UpdateEventMetadataParams) (int64, error) {
@@ -561,7 +586,7 @@ func (q *Queries) UpdateEventMetadata(ctx context.Context, arg UpdateEventMetada
 
 const updateEventPicture = `-- name: UpdateEventPicture :execrows
 update events_metadata
-set data = jsonb_set(data, '{picture}', to_jsonb($2::text), true)
+set data = jsonb_set(data, '{Picture}', to_jsonb($2::text))
 where event_id = $1
 `
 

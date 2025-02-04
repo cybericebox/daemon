@@ -7,7 +7,8 @@ package postgres
 import (
 	"time"
 
-	"github.com/cybericebox/daemon/internal/model"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -36,16 +37,16 @@ type Event struct {
 }
 
 type EventChallenge struct {
-	ID             uuid.UUID           `json:"id"`
-	EventID        uuid.UUID           `json:"event_id"`
-	CategoryID     uuid.UUID           `json:"category_id"`
-	Data           model.ChallengeData `json:"data"`
-	OrderIndex     int32               `json:"order_index"`
-	ExerciseID     uuid.UUID           `json:"exercise_id"`
-	ExerciseTaskID uuid.UUID           `json:"exercise_task_id"`
-	UpdatedAt      pgtype.Timestamptz  `json:"updated_at"`
-	UpdatedBy      uuid.NullUUID       `json:"updated_by"`
-	CreatedAt      time.Time           `json:"created_at"`
+	ID             uuid.UUID                `json:"id"`
+	EventID        uuid.UUID                `json:"event_id"`
+	CategoryID     uuid.UUID                `json:"category_id"`
+	Data           eventModel.ChallengeData `json:"data"`
+	OrderIndex     int32                    `json:"order_index"`
+	ExerciseID     uuid.UUID                `json:"exercise_id"`
+	ExerciseTaskID uuid.UUID                `json:"exercise_task_id"`
+	UpdatedAt      pgtype.Timestamptz       `json:"updated_at"`
+	UpdatedBy      uuid.NullUUID            `json:"updated_by"`
+	CreatedAt      time.Time                `json:"created_at"`
 }
 
 type EventChallengeCategory struct {
@@ -58,15 +59,20 @@ type EventChallengeCategory struct {
 	CreatedAt  time.Time          `json:"created_at"`
 }
 
+type EventsMetadatum struct {
+	EventID uuid.UUID                `json:"event_id"`
+	Data    eventModel.EventMetadata `json:"data"`
+}
+
 type Exercise struct {
-	ID          uuid.UUID          `json:"id"`
-	CategoryID  uuid.UUID          `json:"category_id"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Data        model.ExerciseData `json:"data"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	UpdatedBy   uuid.NullUUID      `json:"updated_by"`
-	CreatedAt   time.Time          `json:"created_at"`
+	ID          uuid.UUID                  `json:"id"`
+	CategoryID  uuid.UUID                  `json:"category_id"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description"`
+	Data        exerciseModel.ExerciseData `json:"data"`
+	UpdatedAt   pgtype.Timestamptz         `json:"updated_at"`
+	UpdatedBy   uuid.NullUUID              `json:"updated_by"`
+	CreatedAt   time.Time                  `json:"created_at"`
 }
 
 type ExerciseCategory struct {

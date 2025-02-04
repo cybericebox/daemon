@@ -59,6 +59,7 @@ type Querier interface {
 	GetEventTeamsPaged(ctx context.Context, arg GetEventTeamsPagedParams) ([]GetEventTeamsPagedRow, error)
 	GetEventWithMetadataByID(ctx context.Context, eventID uuid.UUID) (GetEventWithMetadataByIDRow, error)
 	GetEvents(ctx context.Context) ([]Event, error)
+	GetEventsMetadata(ctx context.Context) ([]EventsMetadatum, error)
 	GetEventsPaged(ctx context.Context, arg GetEventsPagedParams) ([]Event, error)
 	GetEventsWithMetadata(ctx context.Context) ([]GetEventsWithMetadataRow, error)
 	GetEventsWithMetadataPaged(ctx context.Context, arg GetEventsWithMetadataPagedParams) ([]GetEventsWithMetadataPagedRow, error)

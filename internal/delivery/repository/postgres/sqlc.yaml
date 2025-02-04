@@ -32,13 +32,16 @@ sql:
               type: "Time"
           - column: "exercises.data"
             go_type:
-              import: "github.com/cybericebox/daemon/internal/model"
+              import: "github.com/cybericebox/daemon/internal/model/exercise"
               type: "ExerciseData"
+              package: "exerciseModel"
           - column: "event_challenges.data"
             go_type:
-              import: "github.com/cybericebox/daemon/internal/model"
+              import: "github.com/cybericebox/daemon/internal/model/event"
               type: "ChallengeData"
+              package: "eventModel"
           - column: "events_metadata.data"
             go_type:
-              import: "github.com/cybericebox/daemon/internal/model"
+              import: "github.com/cybericebox/daemon/internal/model/event"
               type: "EventMetadata"
+              package: "eventModel"

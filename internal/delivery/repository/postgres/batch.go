@@ -9,7 +9,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/event"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -31,13 +31,13 @@ type CreateEventChallengeBatchResults struct {
 }
 
 type CreateEventChallengeParams struct {
-	ID             uuid.UUID           `json:"id"`
-	EventID        uuid.UUID           `json:"event_id"`
-	CategoryID     uuid.UUID           `json:"category_id"`
-	Data           model.ChallengeData `json:"data"`
-	OrderIndex     int32               `json:"order_index"`
-	ExerciseID     uuid.UUID           `json:"exercise_id"`
-	ExerciseTaskID uuid.UUID           `json:"exercise_task_id"`
+	ID             uuid.UUID                `json:"id"`
+	EventID        uuid.UUID                `json:"event_id"`
+	CategoryID     uuid.UUID                `json:"category_id"`
+	Data           eventModel.ChallengeData `json:"data"`
+	OrderIndex     int32                    `json:"order_index"`
+	ExerciseID     uuid.UUID                `json:"exercise_id"`
+	ExerciseTaskID uuid.UUID                `json:"exercise_task_id"`
 }
 
 func (q *Queries) CreateEventChallenge(ctx context.Context, arg []CreateEventChallengeParams) *CreateEventChallengeBatchResults {

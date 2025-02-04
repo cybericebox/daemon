@@ -71,6 +71,10 @@ from events_metadata
          inner join events on events.id = events_metadata.event_id
 where events_metadata.event_id = $1;
 
+-- name: GetEventsMetadata :many
+select event_id, data
+from events_metadata;
+
 -- name: CreateEventMetadata :exec
 insert into events_metadata (event_id, data)
 values ($1, $2);
@@ -82,5 +86,5 @@ where event_id = $1;
 
 -- name: UpdateEventPicture :execrows
 update events_metadata
-set data = jsonb_set(data, '{picture}', to_jsonb(@picture::text), true)
+set data = jsonb_set(data, '{Picture}', to_jsonb(@picture::text))
 where event_id = $1;
