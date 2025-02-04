@@ -6,6 +6,7 @@ import (
 	"github.com/cybericebox/agent/pkg/controller/grpc/protobuf"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
+	laboratoryModel "github.com/cybericebox/daemon/internal/model/laboratory"
 	"github.com/gofrs/uuid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/rs/zerolog/log"
@@ -51,9 +52,9 @@ func newAgent(cfg *config.AgentGRPCConfig) (client.AgentClient, error) {
 		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to create agent client").Err()
 	}
 
-	if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
-		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Err()
-	}
+	//if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
+	//	return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Err()
+	//}
 
 	return c, nil
 }
@@ -66,7 +67,7 @@ func (r *AgentRepository) Close() {
 
 // laboratories
 
-func (r *AgentRepository) GetLaboratories(ctx context.Context, labsGroupID uuid.UUID, labIDs []uuid.UUID) ([]*model.LaboratoryInfo, error) {
+func (r *AgentRepository) GetLaboratories(ctx context.Context, labsGroupID uuid.UUID, labIDs []uuid.UUID) ([]*laboratoryModel.LaboratoryInfo, error) {
 	srtLabIDs := make([]string, 0)
 
 	for _, l := range labIDs {
@@ -82,13 +83,13 @@ func (r *AgentRepository) GetLaboratories(ctx context.Context, labsGroupID uuid.
 	}
 
 	var errs error
-	labsInfo := make([]*model.LaboratoryInfo, 0, len(resp.GetLabs()))
+	labsInfo := make([]*laboratoryModel.LaboratoryInfo, 0, len(resp.GetLabs()))
 	for _, l := range resp.GetLabs() {
 		id, err := uuid.FromString(l.GetID())
 		if err != nil {
 			errs = multierror.Append(errs, model.ErrAgent.WithError(err).WithMessage("Failed to parse lab id").WithContext("lab_id", l.GetID()).Err())
 		}
-		labsInfo = append(labsInfo, &model.LaboratoryInfo{
+		labsInfo = append(labsInfo, &laboratoryModel.LaboratoryInfo{
 			ID:   id,
 			CIDR: l.GetCIDR(),
 		})
@@ -161,7 +162,7 @@ func (r *AgentRepository) DeleteLaboratories(ctx context.Context, labsGroupID uu
 
 // laboratory challenges
 
-func (r *AgentRepository) AddLaboratoriesChallenges(ctx context.Context, labsGroupID uuid.UUID, labIDs []uuid.UUID, configs []model.LaboratoryChallenge, flagEnvVariables []model.FlagVariable) error {
+func (r *AgentRepository) AddLaboratoriesChallenges(ctx context.Context, labsGroupID uuid.UUID, labIDs []uuid.UUID, configs []laboratoryModel.LaboratoryChallenge, flagEnvVariables []laboratoryModel.FlagVariable) error {
 	challenges := make([]*protobuf.Challenge, 0, len(configs))
 	for _, c := range configs {
 		instances := make([]*protobuf.Instance, 0, len(c.Instances))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
+	laboratoryModel "github.com/cybericebox/daemon/internal/model/laboratory"
 	"github.com/cybericebox/wireguard/pkg/controller/grpc/client"
 	"github.com/cybericebox/wireguard/pkg/controller/grpc/protobuf"
 	"github.com/gofrs/uuid"
@@ -47,28 +48,28 @@ func newVPN(cfg *config.VPNGRPCConfig) (client.WireguardClient, error) {
 		},
 	})
 	if err != nil {
-		return nil, model.ErrVPN.WithError(err).WithMessage("Failed to create VPN client").Err()
+		return nil, model.ErrVPNServer.WithError(err).WithMessage("Failed to create VPN client").Err()
 	}
 
-	if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
-		return nil, model.ErrVPN.WithError(err).WithMessage("Failed to ping VPN").Err()
-	}
+	//if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
+	//	return nil, model.ErrVPN.WithError(err).WithMessage("Failed to ping VPN").Err()
+	//}
 
 	return c, nil
 }
 
-func (r *VPNRepository) GetVPNClients(ctx context.Context, userID, groupID uuid.UUID) ([]*model.VPNClient, error) {
+func (r *VPNRepository) GetVPNClients(ctx context.Context, userID, groupID uuid.UUID) ([]*laboratoryModel.VPNClient, error) {
 	resp, err := r.client.GetClients(ctx, &protobuf.ClientsRequest{
 		UserID:  userID.String(),
 		GroupID: groupID.String(),
 	})
 	if err != nil {
-		return nil, model.ErrVPN.WithError(err).WithMessage("Failed to get clients").WithContext("userID", userID).WithContext("groupID", groupID).Err()
+		return nil, model.ErrVPNServer.WithError(err).WithMessage("Failed to get clients").WithContext("userID", userID).WithContext("groupID", groupID).Err()
 	}
 
-	clients := make([]*model.VPNClient, 0, len(resp.GetClients()))
+	clients := make([]*laboratoryModel.VPNClient, 0, len(resp.GetClients()))
 	for _, c := range resp.GetClients() {
-		clients = append(clients, &model.VPNClient{
+		clients = append(clients, &laboratoryModel.VPNClient{
 			UserID:   uuid.FromStringOrNil(c.GetUserID()),
 			GroupID:  uuid.FromStringOrNil(c.GetGroupID()),
 			Banned:   c.GetBanned(),
@@ -86,7 +87,7 @@ func (r *VPNRepository) GetVPNClientConfig(ctx context.Context, userID, groupID 
 		DestCIDR: destCIDR,
 	})
 	if err != nil {
-		return "", model.ErrVPN.WithError(err).WithMessage("Failed to get client config").WithContext("userID", userID).WithContext("groupID", groupID).WithContext("destCIDR", destCIDR).Err()
+		return "", model.ErrVPNServer.WithError(err).WithMessage("Failed to get client config").WithContext("userID", userID).WithContext("groupID", groupID).WithContext("destCIDR", destCIDR).Err()
 	}
 
 	return resp.GetConfig(), nil
@@ -97,7 +98,7 @@ func (r *VPNRepository) DeleteVPNClients(ctx context.Context, userID, groupID uu
 		UserID:  userID.String(),
 		GroupID: groupID.String(),
 	}); err != nil {
-		return model.ErrVPN.WithError(err).WithMessage("Failed to delete client").WithContext("userID", userID).WithContext("groupID", groupID).Err()
+		return model.ErrVPNServer.WithError(err).WithMessage("Failed to delete client").WithContext("userID", userID).WithContext("groupID", groupID).Err()
 	}
 
 	return nil
@@ -108,7 +109,7 @@ func (r *VPNRepository) BanVPNClients(ctx context.Context, userID, groupID uuid.
 		UserID:  userID.String(),
 		GroupID: groupID.String(),
 	}); err != nil {
-		return model.ErrVPN.WithError(err).WithMessage("Failed to ban client").WithContext("userID", userID).WithContext("groupID", groupID).Err()
+		return model.ErrVPNServer.WithError(err).WithMessage("Failed to ban client").WithContext("userID", userID).WithContext("groupID", groupID).Err()
 	}
 
 	return nil
@@ -119,7 +120,7 @@ func (r *VPNRepository) UnBanVPNClients(ctx context.Context, userID, groupID uui
 		UserID:  userID.String(),
 		GroupID: groupID.String(),
 	}); err != nil {
-		return model.ErrVPN.WithError(err).WithMessage("Failed to unban client").WithContext("userID", userID).WithContext("groupID", groupID).Err()
+		return model.ErrVPNServer.WithError(err).WithMessage("Failed to unban client").WithContext("userID", userID).WithContext("groupID", groupID).Err()
 	}
 
 	return nil
