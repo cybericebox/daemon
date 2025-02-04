@@ -47,7 +47,7 @@ func NewOAuthService(deps Dependencies) *OAuthService {
 		TTL:        deps.Config.StateTTL,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create token manager")
+		log.Fatal().Err(err).Msg("Failed to create token manager for oauth service")
 	}
 
 	return &OAuthService{

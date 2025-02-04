@@ -40,7 +40,7 @@ func NewTokenService(deps Dependencies) *TokenService {
 		RefreshTTL: deps.Config.RefreshTokenTTL,
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create token manager")
+		log.Fatal().Err(err).Msg("Failed to create token manager for token service")
 	}
 	return &TokenService{
 		config:       deps.Config,
