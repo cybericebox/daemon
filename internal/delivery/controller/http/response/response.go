@@ -1,8 +1,8 @@
 package response
 
 import (
-	"github.com/cybericebox/daemon/internal/appError"
 	"github.com/cybericebox/daemon/internal/tools"
+	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )
@@ -20,8 +20,8 @@ type (
 	}
 )
 
-func AbortWithData(ctx *gin.Context, data interface{}, statusCode ...appError.Error) {
-	code := appError.Success.Err()
+func AbortWithData(ctx *gin.Context, data interface{}, statusCode ...err.Error) {
+	code := err.Success.Err()
 
 	if len(statusCode) > 0 {
 		code = statusCode[0]
@@ -35,7 +35,7 @@ func AbortWithData(ctx *gin.Context, data interface{}, statusCode ...appError.Er
 	})
 }
 
-func AbortWithStatus(ctx *gin.Context, code appError.Error) {
+func AbortWithStatus(ctx *gin.Context, code err.Error) {
 	ctx.AbortWithStatusJSON(code.Code().HTTPCode(), Response{
 		Status: Status{
 			Code:    code.Code().Code(),
@@ -44,13 +44,13 @@ func AbortWithStatus(ctx *gin.Context, code appError.Error) {
 	})
 }
 
-func AbortWithBadRequest(ctx *gin.Context, err ...error) {
+func AbortWithBadRequest(ctx *gin.Context, errs ...error) {
 	message := "Invalid input data"
-	if len(err) > 0 && err[0] != nil {
-		message = err[0].Error()
+	if len(errs) > 0 && errs[0] != nil {
+		message = errs[0].Error()
 	}
 
-	AbortWithStatus(ctx, appError.ErrInvalidData.WithMessage(message).Err())
+	AbortWithStatus(ctx, err.ErrInvalidData.WithMessage(message).Err())
 }
 
 func AbortWithUnauthenticated(ctx *gin.Context) {
@@ -58,7 +58,7 @@ func AbortWithUnauthenticated(ctx *gin.Context) {
 }
 
 func AbortWithForbidden(ctx *gin.Context) {
-	AbortWithStatus(ctx, appError.ErrForbidden.Err())
+	AbortWithStatus(ctx, err.ErrForbidden.Err())
 }
 
 func AbortWithNotFound(ctx *gin.Context) {
@@ -66,7 +66,11 @@ func AbortWithNotFound(ctx *gin.Context) {
 }
 
 func AbortWithSuccess(ctx *gin.Context) {
-	AbortWithStatus(ctx, appError.Success.Err())
+	AbortWithStatus(ctx, err.Success.Err())
+}
+
+func AbortWithTooManyRequests(ctx *gin.Context) {
+	ctx.AbortWithStatus(http.StatusTooManyRequests)
 }
 
 func AbortWithError(ctx *gin.Context, err error) {
