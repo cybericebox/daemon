@@ -51,9 +51,9 @@ func newVPN(cfg *config.VPNGRPCConfig) (client.WireguardClient, error) {
 		return nil, model.ErrVPNServer.WithError(err).WithMessage("Failed to create VPN client").Err()
 	}
 
-	//if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
-	//	return nil, model.ErrVPN.WithError(err).WithMessage("Failed to ping VPN").Err()
-	//}
+	if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
+		return nil, model.ErrVPNServer.WithError(err).WithMessage("Failed to ping VPN").Err()
+	}
 
 	return c, nil
 }

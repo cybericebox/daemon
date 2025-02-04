@@ -52,9 +52,9 @@ func newAgent(cfg *config.AgentGRPCConfig) (client.AgentClient, error) {
 		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to create agent client").Err()
 	}
 
-	//if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
-	//	return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Err()
-	//}
+	if _, err = c.Ping(context.Background(), &protobuf.EmptyRequest{}); err != nil {
+		return nil, model.ErrAgent.WithError(err).WithMessage("Failed to ping agent").Err()
+	}
 
 	return c, nil
 }
