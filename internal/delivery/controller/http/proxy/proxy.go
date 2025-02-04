@@ -87,7 +87,7 @@ func (p *proxyHandler) getTarget(ctx *gin.Context) (string, error) {
 	destSubdomain, exists := ctx.Get(tools.SubdomainCtxKey)
 
 	if !exists {
-		return "", model.ErrPlatformSubdomainNotFoundInContext.Cause()
+		return "", model.ErrPlatformSubdomainNotFoundInContext.Err()
 	}
 
 	switch destSubdomain.(string) {
