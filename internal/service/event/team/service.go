@@ -139,10 +139,12 @@ func (s *TeamService) CreateEventTeam(ctx context.Context, team eventModel.Team)
 		LaboratoryID: team.LaboratoryID,
 		Hidden:       team.Hidden,
 	}); err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return nil, eventModel.ErrEventTeamTeamExists.WithContext("name", team.Name).Err()
+		errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventTeamTeamExists)
+		if has {
+			return nil, errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return nil, errCreator.Err()
 		}
@@ -167,10 +169,12 @@ func (s *TeamService) UpdateEventTeamName(ctx context.Context, teamID uuid.UUID,
 		},
 	})
 	if err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return eventModel.ErrEventTeamTeamExists.WithContext("name", name).Err()
+		errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventTeamTeamExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}

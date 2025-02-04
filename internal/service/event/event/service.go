@@ -362,9 +362,11 @@ func (s *EventService) CreateEvent(ctx context.Context, event eventModel.Event) 
 		FinishTime:             event.FinishTime,
 		WithdrawTime:           event.WithdrawTime,
 	}); err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return nil, eventModel.ErrEventEventExists.Err()
+		errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventEventExists)
+		if has {
+			return nil, errCreator.Err()
 		}
+
 		return nil, eventModel.ErrEvent.WithError(err).WithMessage("Failed to create event").Err()
 	}
 
@@ -411,10 +413,12 @@ func (s *EventService) UpdateEvent(ctx context.Context, event eventModel.Event) 
 		},
 	})
 	if err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return eventModel.ErrEventEventExists.Err()
+		errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventEventExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}

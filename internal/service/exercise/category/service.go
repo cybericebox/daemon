@@ -83,9 +83,11 @@ func (s *CategoryService) CreateExerciseCategory(ctx context.Context, category e
 		Name:        category.Name,
 		Description: category.Description,
 	}); err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return exerciseModel.ErrExerciseCategoryCategoryExists.Err()
+		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseCategoryCategoryExists)
+		if has {
+			return errCreator.Err()
 		}
+
 		return exerciseModel.ErrExerciseCategory.WithError(err).WithMessage("Failed to create exercise category").Err()
 	}
 
@@ -108,10 +110,13 @@ func (s *CategoryService) UpdateExerciseCategory(ctx context.Context, category e
 		},
 	})
 	if err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return exerciseModel.ErrExerciseCategoryCategoryExists.Err()
+
+		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseCategoryCategoryExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}

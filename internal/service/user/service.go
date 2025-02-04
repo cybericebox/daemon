@@ -76,8 +76,9 @@ func (s *UserService) CreateUser(ctx context.Context, newUser userModel.User) (*
 		Picture:        newUser.Picture,
 		Role:           newUser.Role,
 	}); err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return nil, userModel.ErrUserUserExists.WithContext("email", newUser.Email).Err()
+		errCreator, has := tools.UniqueViolationError(err, userModel.ErrUserUserExists)
+		if has {
+			return nil, errCreator.Err()
 		}
 		return nil, userModel.ErrUser.WithError(err).WithMessage("Failed to create user").Err()
 	}

@@ -88,8 +88,9 @@ func (s *ChallengeSolutionService) SolveEventChallenge(ctx context.Context, team
 		if has {
 			return false, errCreator.Err()
 		}
-		if tools.IsUniqueViolationError(err) {
-			return true, eventModel.ErrEventTeamChallengeAlreadySolved.Err()
+		errCreator, has = tools.UniqueViolationError(err, eventModel.ErrEventTeamChallengeAlreadySolved)
+		if has {
+			return false, errCreator.Err()
 		}
 		return false, eventModel.ErrEventChallenge.WithError(err).WithMessage("Failed to create event challenge solution attempt").Err()
 	}

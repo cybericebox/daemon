@@ -200,11 +200,12 @@ func (s *ChallengeService) AddEventChallenges(ctx context.Context, eventID, cate
 	var errs error
 	batchResult.Exec(func(i int, err error) {
 		if err != nil {
-			if tools.IsUniqueViolationError(err) {
-				errs = multierror.Append(errs, eventModel.ErrEventChallengeChallengeExists.Err())
+			errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventChallengeChallengeExists)
+			if has {
+				errs = multierror.Append(errs, errCreator.Err())
 				return
 			}
-			errCreator, has := tools.ForeignKeyViolationError(err)
+			errCreator, has = tools.ForeignKeyViolationError(err)
 			if has {
 				errs = multierror.Append(errs, errCreator.Err())
 				return

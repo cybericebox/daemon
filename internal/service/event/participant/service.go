@@ -134,10 +134,12 @@ func (s *ParticipantService) CreateJoinEventRequest(ctx context.Context, partici
 		UserID:         participant.UserID,
 		ApprovalStatus: participant.ApprovalStatus,
 	}); err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return eventModel.ErrEventParticipantExists.WithContext("eventID", participant.EventID).WithContext("userID", participant.UserID).Err()
+		errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventParticipantExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}

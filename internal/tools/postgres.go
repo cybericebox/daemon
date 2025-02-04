@@ -3,29 +3,65 @@ package tools
 import (
 	"errors"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"strings"
+	"regexp"
+)
+
+const (
+	defaultContextKey = "detailed"
+)
+
+var (
+	keyValueRegex = regexp.MustCompile(`Key \(([^)]+)\)=\(([^)]+)\)`)
+
+	fieldFunctions = []struct {
+		fieldName      string
+		tableName      string
+		isDeleteAction bool
+		errorFunc      err.ErrorCreator
+	}{
+		{"updated_by", "", false, userModel.ErrUserUserNotFound},
+		{"user_id", "", false, userModel.ErrUserUserNotFound},
+		{"event_id", "", false, eventModel.ErrEventEventNotFound},
+		{"category_id", "event_challenges", true, eventModel.ErrEventChallengeCategoryCategoryHasChallenges},
+		{"category_id", "event_challenges", false, eventModel.ErrEventChallengeCategoryCategoryNotFound},
+		{"category_id", "exercise_categories", true, exerciseModel.ErrExerciseCategoryCategoryHasExercises},
+		{"category_id", "exercise_categories", false, exerciseModel.ErrExerciseCategoryCategoryNotFound},
+		{"challenge_id", "", false, eventModel.ErrEventChallengeChallengeNotFound},
+		{"team_id", "", false, eventModel.ErrEventTeamTeamNotFound},
+		{"exercise_id", "", true, exerciseModel.ErrExerciseExerciseInUse},
+		{"exercise_id", "", false, exerciseModel.ErrExerciseExerciseNotFound},
+	}
 )
 
 func IsObjectNotFoundError(err error) bool {
 	if err != nil {
-
 		return errors.Is(err, pgx.ErrNoRows)
 	}
 	return false
 }
 
-func IsUniqueViolationError(err error) bool {
+func UniqueViolationError(err error, creator err.ErrorCreator) (err.ErrorCreator, bool) {
 	if err != nil {
 		var perr *pgconn.PgError
 		if errors.As(err, &perr) {
-			return perr.Code == pgerrcode.UniqueViolation
+			if perr.Code == pgerrcode.UniqueViolation {
+				if matches := keyValueRegex.FindStringSubmatch(perr.Detail); len(matches) == 3 {
+					contextKey, contextValue := matches[1], matches[2]
+					return creator.WithContext(contextKey, contextValue), true
+				}
+
+				return creator.WithContext(defaultContextKey, err.Error()), true
+			}
 		}
 	}
-	return false
+	return nil, false
 }
 
 func ForeignKeyViolationError(err error, isDelete ...bool) (err.ErrorCreator, bool) {
@@ -37,44 +73,20 @@ func ForeignKeyViolationError(err error, isDelete ...bool) (err.ErrorCreator, bo
 		var perr *pgconn.PgError
 		if errors.As(err, &perr) {
 			if perr.Code == pgerrcode.ForeignKeyViolation {
-				foreignKey, _ := strings.CutPrefix(perr.ConstraintName, perr.TableName+"_")
-				foreignKey, _ = strings.CutSuffix(foreignKey, "_fkey")
-				contextKey := strings.Replace(foreignKey, "_", "", -1)
-				contextValue := strings.Split(strings.Split(perr.Detail, "(")[2], ")")[0]
-				switch foreignKey {
-				// userID
-				case "updated_by", "user_id":
-					return model.ErrUserUserNotFound.WithContext(contextKey, contextValue), true
-				// eventID
-				case "event_id":
-					return model.ErrEventEventNotFound.WithContext(contextKey, contextValue), true
-				// challengeCategoryID or exerciseCategoryID
-				case "category_id":
-					if perr.TableName == "event_challenges" {
-						if isDeleteAction {
-							return model.ErrEventChallengeCategoryCategoryHasChallenges.WithContext(contextKey, contextValue), true
+				if matches := keyValueRegex.FindStringSubmatch(perr.Detail); len(matches) == 3 {
+					contextKey, contextValue := matches[1], matches[2]
+					for _, fieldFunc := range fieldFunctions {
+						if fieldFunc.fieldName == contextKey {
+							if fieldFunc.tableName == "" || fieldFunc.tableName == perr.TableName {
+								if fieldFunc.isDeleteAction == isDeleteAction {
+									return fieldFunc.errorFunc.WithContext(contextKey, contextValue), true
+								}
+							}
 						}
-						return model.ErrEventChallengeCategoryCategoryNotFound.WithContext(contextKey, contextValue), true
-					} else {
-						if isDeleteAction {
-							return model.ErrExerciseCategoryCategoryHasExercises.WithContext(contextKey, contextValue), true
-						}
-						return model.ErrExerciseCategoryCategoryNotFound.WithContext(contextKey, contextValue), true
 					}
-				// challengeID
-				case "challenge_id":
-					return model.ErrEventChallengeChallengeNotFound.WithContext(contextKey, contextValue), true
-				// teamID
-				case "team_id":
-					return model.ErrEventTeamTeamNotFound.WithContext(contextKey, contextValue), true
-				// exerciseID
-				case "exercise_id":
-					if isDeleteAction {
-						return model.ErrExerciseExerciseInUse.WithContext(contextKey, contextValue), true
-					}
-					return model.ErrExerciseExerciseNotFound.WithContext(contextKey, contextValue), true
+
+					return model.ErrPlatform.WithMessage(perr.Message).WithContext(contextKey, contextValue), true
 				}
-				return model.ErrPlatform.WithMessage(perr.Message).WithContext(contextKey, contextValue), true
 			}
 		}
 	}

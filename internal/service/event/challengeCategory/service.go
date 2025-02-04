@@ -84,10 +84,12 @@ func (s *ChallengeCategoryService) CreateEventChallengeCategory(ctx context.Cont
 		Name:       category.Name,
 		OrderIndex: category.Order,
 	}); err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return eventModel.ErrEventChallengeCategoryCategoryExists.WithMessage("Event category already exists").Err()
+		errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventChallengeCategoryCategoryExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}
@@ -112,10 +114,11 @@ func (s *ChallengeCategoryService) UpdateEventChallengeCategory(ctx context.Cont
 		},
 	})
 	if err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return eventModel.ErrEventChallengeCategoryCategoryExists.WithMessage("Event category already exists").Err()
+		errCreator, has := tools.UniqueViolationError(err, eventModel.ErrEventChallengeCategoryCategoryExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}

@@ -201,10 +201,12 @@ func (s *ExerciseService) CreateExercise(ctx context.Context, exercise exerciseM
 	}
 
 	if err := s.repository.CreateExercise(ctx, createExercise); err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return exerciseModel.ErrExerciseExerciseExists.Err()
+		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseExerciseExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}
@@ -236,10 +238,12 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise exerciseM
 
 	affected, err := s.repository.UpdateExercise(ctx, updateExercise)
 	if err != nil {
-		if tools.IsUniqueViolationError(err) {
-			return exerciseModel.ErrExerciseExerciseExists.Err()
+		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseExerciseExists)
+		if has {
+			return errCreator.Err()
 		}
-		errCreator, has := tools.ForeignKeyViolationError(err)
+
+		errCreator, has = tools.ForeignKeyViolationError(err)
 		if has {
 			return errCreator.Err()
 		}
