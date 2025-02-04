@@ -11,7 +11,7 @@ import (
 	"github.com/cybericebox/daemon/internal/service/temporalCode"
 	"github.com/cybericebox/daemon/internal/service/token"
 	"github.com/cybericebox/daemon/internal/service/user"
-	"github.com/cybericebox/daemon/pkg/password"
+	"github.com/cybericebox/lib/pkg/password"
 )
 
 type (
