@@ -1,4 +1,4 @@
-FROM golang:1.23.1-alpine AS builder
+FROM golang:1.23.5-alpine AS builder
 WORKDIR /build
 RUN apk add gcc g++ --no-cache
 COPY go.* ./
@@ -8,7 +8,7 @@ COPY ./internal/delivery/repository/postgres/migrations /build/migrations
 COPY ./deploy/nginx.conf /build/nginx.conf
 RUN CGO_ENABLED=0 GOOS=linux go build -o app -a -ldflags '-w -extldflags "-static"' /build/cmd/main.go
 
-FROM nginx:1.27
+FROM nginx:1.27.3
 WORKDIR /app
 
 # copy db migration files

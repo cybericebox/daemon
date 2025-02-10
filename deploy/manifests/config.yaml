@@ -26,3 +26,8 @@ data:
   WG_GRPC_SIGN_KEY: "randomkey"
   AGENT_GRPC_AUTH_KEY: "randomkey"
   AGENT_GRPC_SIGN_KEY: "randomkey"
+  STORAGE_ENDPOINT: "storage.cybericebox.com"
+  STORAGE_ACCESS_KEY: "accesskey"
+  STORAGE_SECRET_KEY: "secretkey"
+  STORAGE_BUCKET: "bucket"
+  STORAGE_REGION: "region"
