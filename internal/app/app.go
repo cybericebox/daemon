@@ -64,13 +64,6 @@ func Run() {
 		log.Fatal().Err(err).Msg("Application workers initialization failed")
 	}
 
-	// Start nginx UDP reverse proxy
-	if cfg.Environment != config.Local {
-		if err := exec.Command("/bin/sh", "-c", "service nginx start").Run(); err != nil {
-			log.Fatal().Err(err).Msg("Starting nginx UDP reverse proxy failed")
-		}
-	}
-
 	// Start the server
 	ctrl.Start()
 	log.Info().Msg("Server started")
