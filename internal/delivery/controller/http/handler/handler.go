@@ -1,11 +1,12 @@
 package handler
 
 import (
+	"github.com/gin-gonic/gin"
+
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/event"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/user"
-	"github.com/gin-gonic/gin"
 )
 
 type (

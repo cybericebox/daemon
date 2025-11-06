@@ -1,10 +1,12 @@
 package eventModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -47,8 +49,6 @@ type (
 )
 
 var (
-	ErrEventTeamChallenge = err.ErrInternal.WithObjectCode(model.EventTeamChallengeObjectCode)
-
 	ErrEventTeamChallengeSolutionAttemptNotAllowed = err.ErrForbidden.WithObjectCode(model.EventTeamChallengeObjectCode).WithMessage("Solution attempt not allowed").WithDetailCode(1) // 61901
 
 	ErrEventTeamChallengeAlreadySolved = err.ErrConflict.WithObjectCode(model.EventTeamChallengeObjectCode).WithMessage("Challenge already solved").WithDetailCode(1) // 71901

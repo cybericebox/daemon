@@ -4,19 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
-	"strings"
+
+	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
 	IAuthProtectionUseCase interface {
 		GetCurrentUserRole(ctx context.Context) (string, error)
-		RefreshTokensAndReturnUserID(ctx context.Context, oldTokens model.Tokens) model.CheckTokensResult
+		RefreshTokensAndReturnUserID(ctx context.Context, oldTokens authModel.Tokens) authModel.CheckTokensResult
 	}
 )
 
@@ -53,7 +56,7 @@ func (p *protection) checkDomainPermissions(ctx *gin.Context, redirectOnUnauthor
 
 	// administrative interface
 	if ctx.GetString(tools.SubdomainCtxKey) == config.AdminSubdomain {
-		if role != model.AdministratorRole {
+		if role != userModel.AdministratorRole {
 			// if user is not an admin redirect to main domain page
 			p.unauthorizedResponse(ctx, redirectOnUnauthorized)
 			return
@@ -178,11 +181,19 @@ func SetFromURL(ctx *gin.Context, from ...string) {
 	}
 
 	if fromURL != "" {
-		ctx.SetCookie(config.FromURLField, fromURL, int(protector.config.TemporalCookieTTL.Seconds()), "/", config.PlatformDomain, true, false)
+		ctx.SetCookie(
+			config.FromURLField,
+			fromURL,
+			int(protector.config.TemporalCookieTTL.Seconds()),
+			"/",
+			config.PlatformDomain,
+			true,
+			false,
+		)
 	}
 }
 
-func SetAuthenticated(ctx *gin.Context, tokens *model.Tokens, redirect ...bool) {
+func SetAuthenticated(ctx *gin.Context, tokens *authModel.Tokens, redirect ...bool) {
 	// set tokens to cookies
 	protector.setTokens(ctx, tokens)
 
@@ -201,33 +212,57 @@ func DeAuthenticate(ctx *gin.Context) {
 	response.AbortWithSuccess(ctx)
 }
 
-func (p *protection) getTokens(ctx *gin.Context) model.Tokens {
-	accessToken, err := ctx.Cookie(model.AccessToken)
+func (p *protection) getTokens(ctx *gin.Context) authModel.Tokens {
+	accessToken, err := ctx.Cookie(authModel.AccessToken)
 	if err != nil {
 		log.Debug().Err(err).Msg("Cannot get access token from cookie")
 	}
 
-	refreshToken, err := ctx.Cookie(model.RefreshToken)
+	refreshToken, err := ctx.Cookie(authModel.RefreshToken)
 	if err != nil {
 		log.Debug().Err(err).Msg("Cannot get refresh token from cookie")
 	}
 
-	return model.Tokens{
+	return authModel.Tokens{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}
 }
 
 // setTokens unsets tokens from cookies
-func (p *protection) setTokens(ctx *gin.Context, tokens *model.Tokens) {
-	ctx.SetCookie(model.AccessToken, tokens.AccessToken, int(p.config.JWT.AccessTokenTTL.Seconds()), "/", config.PlatformDomain, true, true)
-	ctx.SetCookie(model.RefreshToken, tokens.RefreshToken, int(p.config.JWT.RefreshTokenTTL.Seconds()), "/", config.PlatformDomain, true, true)
-	ctx.SetCookie(model.PermissionsToken, tokens.PermissionsToken, int(p.config.JWT.RefreshTokenTTL.Seconds()), "/", config.PlatformDomain, true, false)
+func (p *protection) setTokens(ctx *gin.Context, tokens *authModel.Tokens) {
+	ctx.SetCookie(
+		authModel.AccessToken,
+		tokens.AccessToken,
+		int(p.config.JWT.AccessTokenTTL.Seconds()),
+		"/",
+		config.PlatformDomain,
+		true,
+		true,
+	)
+	ctx.SetCookie(
+		authModel.RefreshToken,
+		tokens.RefreshToken,
+		int(p.config.JWT.RefreshTokenTTL.Seconds()),
+		"/",
+		config.PlatformDomain,
+		true,
+		true,
+	)
+	ctx.SetCookie(
+		authModel.PermissionsToken,
+		tokens.PermissionsToken,
+		int(p.config.JWT.RefreshTokenTTL.Seconds()),
+		"/",
+		config.PlatformDomain,
+		true,
+		false,
+	)
 }
 
 // unsetTokens unsets tokens from cookies
 func (p *protection) unsetTokens(ctx *gin.Context) {
-	ctx.SetCookie(model.AccessToken, "", -1, "/", config.PlatformDomain, true, true)
-	ctx.SetCookie(model.RefreshToken, "", -1, "/", config.PlatformDomain, true, true)
-	ctx.SetCookie(model.PermissionsToken, "", -1, "/", config.PlatformDomain, true, false)
+	ctx.SetCookie(authModel.AccessToken, "", -1, "/", config.PlatformDomain, true, true)
+	ctx.SetCookie(authModel.RefreshToken, "", -1, "/", config.PlatformDomain, true, true)
+	ctx.SetCookie(authModel.PermissionsToken, "", -1, "/", config.PlatformDomain, true, false)
 }

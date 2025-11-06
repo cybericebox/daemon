@@ -3,9 +3,10 @@ package tools
 import (
 	"crypto/rand"
 	"fmt"
+	"math/big"
+
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
-	"math/big"
 )
 
 const (

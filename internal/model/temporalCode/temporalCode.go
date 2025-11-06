@@ -1,9 +1,10 @@
 package temporalCodeModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -31,8 +32,6 @@ const (
 
 // errors for temporal code
 var (
-	ErrTemporalCode = err.ErrInternal.WithObjectCode(model.TemporalCoreObjectCode)
-
 	ErrTemporalCodeInvalidCode = err.ErrInvalidData.WithObjectCode(model.TemporalCoreObjectCode).WithDetailCode(1).WithMessage("Invalid code") // 20601
 	ErrTemporalCodeExpired     = err.ErrInvalidData.WithObjectCode(model.TemporalCoreObjectCode).WithDetailCode(2).WithMessage("Code expired") // 20602
 

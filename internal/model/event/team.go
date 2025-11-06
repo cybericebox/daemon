@@ -1,10 +1,12 @@
 package eventModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -35,12 +37,10 @@ type (
 )
 
 var (
-	ErrEventTeam = err.ErrInternal.WithObjectCode(model.EventTeamObjectCode)
+	ErrEventTeamExists        = err.ErrObjectExists.WithObjectCode(model.EventTeamObjectCode).WithMessage("Team already exists").WithDetailCode(1)  // 41801
+	ErrEventUserAlreadyInTeam = err.ErrObjectExists.WithObjectCode(model.EventTeamObjectCode).WithMessage("User already in team").WithDetailCode(2) // 41802
 
-	ErrEventTeamTeamExists        = err.ErrObjectExists.WithObjectCode(model.EventTeamObjectCode).WithMessage("Team already exists").WithDetailCode(1)  // 41801
-	ErrEventTeamUserAlreadyInTeam = err.ErrObjectExists.WithObjectCode(model.EventTeamObjectCode).WithMessage("User already in team").WithDetailCode(2) // 41802
-
-	ErrEventTeamTeamNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventTeamObjectCode).WithMessage("Team not found").WithDetailCode(1) // 31801
+	ErrEventTeamNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventTeamObjectCode).WithMessage("Team not found").WithDetailCode(1) // 31801
 
 	ErrEventTeamWrongCredentials = err.ErrInvalidData.WithObjectCode(model.EventTeamObjectCode).WithMessage("Team wrong credentials").WithDetailCode(1) // 21801
 )

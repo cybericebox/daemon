@@ -2,20 +2,22 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type IChallengeCategoryUseCase interface {
-	GetEventCategories(ctx context.Context, eventID uuid.UUID) ([]*model.ChallengeCategory, error)
-	CreateEventCategory(ctx context.Context, category model.ChallengeCategory) error
-	UpdateEventCategory(ctx context.Context, category model.ChallengeCategory) error
-	DeleteEventCategory(ctx context.Context, eventID uuid.UUID, categoryID uuid.UUID) error
+	GetEventCategories(ctx context.Context, eventID uuid.UUID) ([]*eventModel.ChallengeCategory, error)
+	CreateEventCategory(ctx context.Context, category eventModel.ChallengeCategory) error
+	UpdateEventCategory(ctx context.Context, category eventModel.ChallengeCategory) error
+	DeleteEventCategory(ctx context.Context, eventID, categoryID uuid.UUID) error
 
-	UpdateEventCategoriesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
+	UpdateEventCategoriesOrder(ctx context.Context, orders []eventModel.Order) error
 }
 
 func (h *Handler) initChallengeCategoryAPIHandler(router *gin.RouterGroup) {
@@ -47,7 +49,7 @@ func (h *Handler) getCategories(ctx *gin.Context) {
 }
 
 func (h *Handler) createCategory(ctx *gin.Context) {
-	var inp model.ChallengeCategory
+	var inp eventModel.ChallengeCategory
 	var err error
 
 	if err = ctx.BindJSON(&inp); err != nil {
@@ -70,7 +72,7 @@ func (h *Handler) createCategory(ctx *gin.Context) {
 }
 
 func (h *Handler) updateCategory(ctx *gin.Context) {
-	var inp model.ChallengeCategory
+	var inp eventModel.ChallengeCategory
 	var err error
 
 	if err = ctx.BindJSON(&inp); err != nil {
@@ -120,20 +122,14 @@ func (h *Handler) deleteCategory(ctx *gin.Context) {
 }
 
 func (h *Handler) updateCategoriesOrder(ctx *gin.Context) {
-	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
+	var inp []eventModel.Order
 
-	var inp []model.Order
-
-	if err = ctx.BindJSON(&inp); err != nil {
+	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	if err = h.useCase.UpdateEventCategoriesOrder(ctx, eventID, inp); err != nil {
+	if err := h.useCase.UpdateEventCategoriesOrder(ctx, inp); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

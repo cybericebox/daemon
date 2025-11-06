@@ -2,54 +2,63 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/model"
+
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/model"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 )
 
 type (
 	IChallengeCategoryService interface {
-		GetEventCategories(ctx context.Context, eventID uuid.UUID) ([]*model.ChallengeCategory, error)
-		CreateEventCategory(ctx context.Context, category model.ChallengeCategory) error
-		UpdateEventCategory(ctx context.Context, category model.ChallengeCategory) error
-		DeleteEventCategory(ctx context.Context, eventID uuid.UUID, categoryID uuid.UUID) error
-		UpdateEventCategoriesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
+		GetEventChallengeCategories(ctx context.Context, eventID uuid.UUID) ([]*eventModel.ChallengeCategory, error)
+		CreateEventChallengeCategory(ctx context.Context, category eventModel.ChallengeCategory) error
+		UpdateEventChallengeCategory(ctx context.Context, category eventModel.ChallengeCategory) error
+		DeleteEventChallengeCategory(ctx context.Context, eventID uuid.UUID, categoryID uuid.UUID) error
+		UpdateEventChallengeCategoriesOrder(ctx context.Context, orders []eventModel.Order) error
 	}
 )
 
 // for administrators
 
-func (u *EventUseCase) GetEventCategories(ctx context.Context, eventID uuid.UUID) ([]*model.ChallengeCategory, error) {
-	categories, err := u.service.GetEventCategories(ctx, eventID)
+func (u *EventUseCase) GetEventCategories(ctx context.Context, eventID uuid.UUID) (
+	[]*eventModel.ChallengeCategory,
+	error,
+) {
+	categories, err := u.service.GetEventChallengeCategories(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEventChallengeCategory.WithError(err).WithMessage("Failed to get event categories").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event categories").Err()
 	}
 	return categories, nil
 }
 
-func (u *EventUseCase) CreateEventCategory(ctx context.Context, category model.ChallengeCategory) error {
-	if err := u.service.CreateEventCategory(ctx, category); err != nil {
-		return model.ErrEventChallengeCategory.WithError(err).WithMessage("Failed to create event category").Cause()
+func (u *EventUseCase) CreateEventCategory(ctx context.Context, category eventModel.ChallengeCategory) error {
+	if err := u.service.CreateEventChallengeCategory(ctx, category); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create event category").Err()
 	}
 	return nil
 }
 
-func (u *EventUseCase) UpdateEventCategory(ctx context.Context, category model.ChallengeCategory) error {
-	if err := u.service.UpdateEventCategory(ctx, category); err != nil {
-		return model.ErrEventChallengeCategory.WithError(err).WithMessage("Failed to update event category").Cause()
+func (u *EventUseCase) UpdateEventCategory(ctx context.Context, category eventModel.ChallengeCategory) error {
+	if err := u.service.UpdateEventChallengeCategory(ctx, category); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to update event category").Err()
 	}
 	return nil
 }
 
 func (u *EventUseCase) DeleteEventCategory(ctx context.Context, eventID uuid.UUID, categoryID uuid.UUID) error {
-	if err := u.service.DeleteEventCategory(ctx, eventID, categoryID); err != nil {
-		return model.ErrEventChallengeCategory.WithError(err).WithMessage("Failed to delete event category").Cause()
+	if err := u.service.DeleteEventChallengeCategory(ctx, eventID, categoryID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete event category").Err()
 	}
 	return nil
 }
 
-func (u *EventUseCase) UpdateEventCategoriesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error {
-	if err := u.service.UpdateEventCategoriesOrder(ctx, eventID, orders); err != nil {
-		return model.ErrEventChallengeCategory.WithError(err).WithMessage("Failed to update event categories order").Cause()
+func (u *EventUseCase) UpdateEventCategoriesOrder(
+	ctx context.Context,
+	orders []eventModel.Order,
+) error {
+	if err := u.service.UpdateEventChallengeCategoriesOrder(ctx, orders); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to update event categories order").Err()
 	}
 	return nil
 }

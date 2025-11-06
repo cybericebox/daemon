@@ -2,16 +2,18 @@ package auth
 
 import (
 	"context"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/gin-gonic/gin"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
 type ISelfUseCase interface {
-	GetSelfProfile(ctx context.Context) (*model.UserInfo, error)
+	GetSelfProfile(ctx context.Context) (*userModel.UserInfo, error)
 	UpdatePassword(ctx context.Context, oldPassword, newPassword string) error
-	UpdateSelfProfile(ctx context.Context, user model.User) error
+	UpdateSelfProfile(ctx context.Context, user userModel.User) error
 }
 
 func (h *Handler) initSelfAPIHandler(router *gin.RouterGroup) {
@@ -38,7 +40,7 @@ func (h *Handler) getProfile(ctx *gin.Context) {
 }
 
 func (h *Handler) updateProfile(ctx *gin.Context) {
-	var inp model.User
+	var inp userModel.User
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

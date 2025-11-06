@@ -2,16 +2,18 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type IParticipantUseCase interface {
-	GetEventParticipants(ctx context.Context, eventID uuid.UUID) ([]*model.Participant, error)
+	GetEventParticipants(ctx context.Context, eventID uuid.UUID, page, pageSize int) ([]*eventModel.Participant, error)
 	UpdateEventParticipantStatus(ctx context.Context, eventID, userID uuid.UUID, status int32) error
 	DeleteEventParticipant(ctx context.Context, eventID, userID uuid.UUID) error
 }
@@ -32,7 +34,13 @@ func (h *Handler) getParticipants(ctx *gin.Context) {
 		return
 	}
 
-	participants, err := h.useCase.GetEventParticipants(ctx, eventID)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	participants, err := h.useCase.GetEventParticipants(ctx, eventID, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -54,7 +62,7 @@ func (h *Handler) updateParticipantStatus(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.Participant
+	var inp eventModel.Participant
 
 	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

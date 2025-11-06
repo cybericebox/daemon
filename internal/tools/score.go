@@ -29,9 +29,9 @@ func CalculateScore(dMin, dMax, dSolveThreshold int32, solutions float64) int32 
 	return int32(math.Round(math.Max(f(solutions), f(s))))
 }
 
-//func CalculateScore(dMin, dMax, dSolveThreshold int32, solutions float64) int32 {
+// func CalculateScore(dMin, dMax, dSolveThreshold int32, solutions float64) int32 {
 //	// solutions -1 because we don't want to count the current solution
 //	solutions = math.Max(0, solutions-1)
 //	s := math.Max(1, float64(dSolveThreshold))
 //	return int32(math.Max((float64(dMin-dMax)/(math.Pow(s, 2.0)))*math.Pow(solutions, 2.0)+float64(dMax), float64(dMin)))
-//}
+// }

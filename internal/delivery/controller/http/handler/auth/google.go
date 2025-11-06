@@ -2,15 +2,17 @@ package auth
 
 import (
 	"context"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/gin-gonic/gin"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 )
 
 type IGoogleUseCase interface {
-	GetGoogleLoginURL() string
-	GoogleAuth(ctx context.Context, code, state string) (*model.Tokens, error)
+	GetGoogleLoginURL() (string, error)
+	GoogleAuth(ctx context.Context, code, state string) (*authModel.Tokens, error)
 }
 
 func (h *Handler) initOAuthGoogleAPIHandler(router *gin.RouterGroup) {
@@ -22,7 +24,11 @@ func (h *Handler) initOAuthGoogleAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) googleOAuthRedirect(ctx *gin.Context) {
-	url := h.useCase.GetGoogleLoginURL()
+	url, err := h.useCase.GetGoogleLoginURL()
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
 
 	response.TemporaryRedirect(ctx, url)
 }

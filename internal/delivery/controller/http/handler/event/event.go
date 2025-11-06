@@ -2,19 +2,21 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type ISingleEventUseCase interface {
-	GetEvent(ctx context.Context, eventID uuid.UUID) (*model.Event, error)
-	GetEventInfo(ctx context.Context, eventID uuid.UUID) (*model.EventInfo, error)
+	GetEvent(ctx context.Context, eventID uuid.UUID) (*eventModel.Event, error)
+	GetEventInfo(ctx context.Context, eventID uuid.UUID) (*eventModel.EventInfo, error)
 	GetEventBannerDownloadLink(ctx context.Context, eventID uuid.UUID) (string, error)
-	UpdateEvent(ctx context.Context, event model.Event) error
+	UpdateEvent(ctx context.Context, event eventModel.Event) error
 	DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 
 	GetSelfJoinEventStatus(ctx context.Context, eventID uuid.UUID) (int32, error)
@@ -50,6 +52,7 @@ func (h *Handler) getEvent(ctx *gin.Context) {
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
+
 	}
 
 	event, err := h.useCase.GetEvent(ctx, eventID)
@@ -100,7 +103,7 @@ func (h *Handler) updateEvent(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.Event
+	var inp eventModel.Event
 
 	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

@@ -3,12 +3,13 @@ package config
 import (
 	"flag"
 	"fmt"
+	"os"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/ilyakaznacheev/cleanenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"os"
-	"time"
 )
 
 type (
@@ -116,6 +117,8 @@ type (
 	OAuthConfig struct {
 		Google              GoogleProviderConfig `yaml:"google"`
 		RedirectURLTemplate string
+		StateSignature      string        `yaml:"stateSignature" env:"OAUTH_STATE_SIGNATURE" env-description:"OAuth state signature"`
+		StateTTL            time.Duration `yaml:"stateTTL" env:"OAUTH_STATE_TTL" env-default:"15m" env-description:"OAuth state TTL"`
 	}
 
 	GoogleProviderConfig struct {
@@ -142,7 +145,7 @@ type (
 		MaxPoolConnections int    `yaml:"maxPoolConnections" env:"POSTGRES_MAX_POOL_CONNECTIONS" env-default:"20" env-description:"Max pool connections of Postgres"`
 	}
 
-	//StorageS3Config is the configuration for the S3 storage
+	// StorageS3Config is the configuration for the S3 storage
 	StorageS3Config struct {
 		Endpoint  string `yaml:"endpoint" env:"STORAGE_ENDPOINT" env-description:"Storage endpoint"`
 		Region    string `yaml:"region" env:"STORAGE_REGION" env-description:"Storage region"`
@@ -216,6 +219,7 @@ func MustGetConfig() *Config {
 	if err != nil {
 		fmt.Println(help)
 		log.Fatal().Err(err).Msg("Failed to read config")
+
 		return nil
 	}
 

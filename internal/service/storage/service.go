@@ -4,16 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
-	"github.com/cybericebox/daemon/internal/model/storage"
+	"net/url"
+	"strings"
+	"time"
+
 	"github.com/gofrs/uuid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/minio/minio-go/v7"
 	"github.com/rs/zerolog/log"
-	"net/url"
-	"strings"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/storage"
 )
 
 type (
@@ -32,7 +35,12 @@ type (
 
 		GetObjectInfo(ctx context.Context, objectName string) (*minio.ObjectInfo, error)
 		GetObjectUploadLink(ctx context.Context, objectName string, expiredDuration time.Duration) (string, error)
-		GetObjectDownloadLink(ctx context.Context, objectName string, expiredDuration time.Duration, reqParams url.Values) (string, error)
+		GetObjectDownloadLink(
+			ctx context.Context,
+			objectName string,
+			expiredDuration time.Duration,
+			reqParams url.Values,
+		) (string, error)
 		RemoveObject(ctx context.Context, objectName string) error
 	}
 
@@ -49,15 +57,20 @@ func NewService(deps Dependencies) *StorageService {
 	}
 }
 
-func (s *StorageService) GetUploadFileData(ctx context.Context, params storageModel.UploadFileParams) (*storageModel.UploadFileData, error) {
+func (s *StorageService) GetUploadFileData(
+	ctx context.Context,
+	params storageModel.UploadFileParams,
+) (*storageModel.UploadFileData, error) {
 	fileID := uuid.Must(uuid.NewV7())
 
-	// create record for temporal file
-	if err := s.repository.CreateFile(ctx, postgres.CreateFileParams{
-		ID:          fileID,
-		StorageType: params.StorageType,
-	}); err != nil {
-		return nil, storageModel.ErrStorage.WithError(err).WithMessage("Failed to create file").Err()
+	// create a record for a temporal file
+	if err := s.repository.CreateFile(
+		ctx, postgres.CreateFileParams{
+			ID:          fileID,
+			StorageType: params.StorageType,
+		},
+	); err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to create file").Err()
 	}
 
 	expiresDuration := s.config.UploadExpiration
@@ -71,12 +84,12 @@ func (s *StorageService) GetUploadFileData(ctx context.Context, params storageMo
 
 	uploadFileLink, err := s.repository.GetObjectUploadLink(ctx, objectName, expiresDuration)
 	if err != nil {
-		return nil, storageModel.ErrStorage.WithError(err).WithMessage("Failed to get presigned URL").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get presigned URL").Err()
 	}
 
 	downloadFileLink, err := s.repository.GetObjectDownloadLink(ctx, objectName, expiresDuration, nil)
 	if err != nil {
-		return nil, storageModel.ErrStorage.WithError(err).WithMessage("Failed to get presigned URL").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get presigned URL").Err()
 	}
 
 	return &storageModel.UploadFileData{
@@ -96,15 +109,20 @@ func (s *StorageService) ConfirmUploadFiles(ctx context.Context, fileIDs ...uuid
 		}
 	}()
 
-	batchResult.Exec(func(i int, affected int64, err error) {
-		if err != nil {
-			dErr = storageModel.ErrStorage.WithError(err).WithMessage("Failed to delete file").WithContext("fileID", fileIDs[i]).Err()
-		}
+	batchResult.Exec(
+		func(i int, affected int64, err error) {
+			if err != nil {
+				dErr = model.ErrPlatform.WithError(err).WithMessage("Failed to delete file").WithContext(
+					"fileID",
+					fileIDs[i],
+				).Err()
+			}
 
-		if affected == 0 {
-			dErr = storageModel.ErrStorageTemporalFileNotFound.WithContext("fileID", fileIDs[i]).Err()
-		}
-	})
+			if affected == 0 {
+				dErr = storageModel.ErrStorageTemporalFileNotFound.WithContext("fileID", fileIDs[i]).Err()
+			}
+		},
+	)
 
 	if dErr != nil {
 		return dErr
@@ -113,7 +131,10 @@ func (s *StorageService) ConfirmUploadFiles(ctx context.Context, fileIDs ...uuid
 	return nil
 }
 
-func (s *StorageService) GetDownloadFileURL(ctx context.Context, params storageModel.DownloadFileParams) (storageModel.DownloadFileURL, error) {
+func (s *StorageService) GetDownloadFileURL(
+	ctx context.Context,
+	params storageModel.DownloadFileParams,
+) (storageModel.DownloadFileURL, error) {
 	expiresDuration := s.config.DownloadExpiration
 	// If expires is provided, use it
 	if params.Expires > 0 {
@@ -132,7 +153,7 @@ func (s *StorageService) GetDownloadFileURL(ctx context.Context, params storageM
 		objectInfo, err := s.repository.GetObjectInfo(ctx, objectName)
 		if err != nil {
 			if errors.Is(err, storageModel.ErrStorageFileNotFound.Err()) {
-				return "", storageModel.ErrStorage.WithError(err).WithMessage("Failed to get object info").Err()
+				return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get object info").Err()
 			}
 			log.Error().Err(err).Msg("Failed to get object info")
 		}
@@ -152,7 +173,7 @@ func (s *StorageService) GetDownloadFileURL(ctx context.Context, params storageM
 
 	fileLink, err := s.repository.GetObjectDownloadLink(ctx, objectName, expiresDuration, reqParams)
 	if err != nil {
-		return "", storageModel.ErrStorage.WithError(err).WithMessage("Failed to get presigned URL").Err()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get presigned URL").Err()
 	}
 
 	return storageModel.DownloadFileURL(fileLink), nil
@@ -169,7 +190,10 @@ func (s *StorageService) DeleteFiles(ctx context.Context, files ...storageModel.
 		// delete object from storage
 		if err := s.repository.RemoveObject(ctx, objectName); err != nil {
 			if !errors.Is(err, storageModel.ErrStorageFileNotFound.Err()) {
-				errs = multierror.Append(errs, storageModel.ErrStorage.WithError(err).WithMessage("Failed to delete object").Err())
+				errs = multierror.Append(
+					errs,
+					model.ErrPlatform.WithError(err).WithMessage("Failed to delete object").Err(),
+				)
 			}
 		}
 		fileIDs = append(fileIDs, file.ID)
@@ -183,33 +207,46 @@ func (s *StorageService) DeleteFiles(ctx context.Context, files ...storageModel.
 		}
 	}()
 
-	batchResult.Exec(func(i int, affected int64, err error) {
-		if err != nil {
-			errs = multierror.Append(errs, storageModel.ErrStorage.WithError(err).WithMessage("Failed to delete file").WithContext("fileID", fileIDs[i]).Err())
-		}
-	})
+	batchResult.Exec(
+		func(i int, affected int64, err error) {
+			if err != nil {
+				errs = multierror.Append(
+					errs,
+					model.ErrPlatform.WithError(err).WithMessage("Failed to delete file").WithContext(
+						"fileID",
+						fileIDs[i],
+					).Err(),
+				)
+			}
+		},
+	)
 
 	if errs != nil {
-		return storageModel.ErrStorage.WithError(errs).WithMessage("Failed to delete files").Err()
+		return model.ErrPlatform.WithError(errs).WithMessage("Failed to delete files").Err()
 	}
 
 	return nil
 }
 
-func (s *StorageService) GetTemporalUploadExpiredFiles(ctx context.Context, expiredDuration time.Duration) ([]storageModel.File, error) {
+func (s *StorageService) GetTemporalUploadExpiredFiles(
+	ctx context.Context,
+	expiredDuration time.Duration,
+) ([]storageModel.File, error) {
 	files, err := s.repository.GetFiles(ctx)
 	if err != nil {
-		return nil, storageModel.ErrStorage.WithError(err).WithMessage("Failed to get files").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get files").Err()
 	}
 
 	expiredFiles := make([]storageModel.File, 0)
 	for _, file := range files {
 		if file.CreatedAt.Add(expiredDuration).Before(time.Now()) {
-			expiredFiles = append(expiredFiles, storageModel.File{
-				ID:          file.ID,
-				StorageType: file.StorageType,
-				CreatedAt:   file.CreatedAt,
-			})
+			expiredFiles = append(
+				expiredFiles, storageModel.File{
+					ID:          file.ID,
+					StorageType: file.StorageType,
+					CreatedAt:   file.CreatedAt,
+				},
+			)
 		}
 	}
 

@@ -2,16 +2,20 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/pkg/worker"
+
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/lib/pkg/worker"
+
+	"github.com/cybericebox/daemon/internal/model"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	storageModel "github.com/cybericebox/daemon/internal/model/storage"
 )
 
 type (
 	EventUseCase struct {
 		service IEventService
-		worker  Worker
+		worker  worker.Worker
 	}
 
 	IEventService interface {
@@ -25,20 +29,19 @@ type (
 		IChallengeSolutionService
 		IScoreService
 
-		GetEvents(ctx context.Context) ([]*model.Event, error)
-		CreateEvent(ctx context.Context, event model.Event) (*model.Event, error)
+		GetEvents(ctx context.Context, page, pageSize int) ([]*eventModel.Event, error)
+		CreateEvent(ctx context.Context, event eventModel.Event) (*eventModel.Event, error)
 
-		ConfirmFileUpload(ctx context.Context, fileID uuid.UUID) error
-		GetUploadFileData(ctx context.Context, storageType string, expires ...time.Duration) (*model.UploadFileData, error)
-	}
-
-	Worker interface {
-		AddTask(task worker.Task)
+		ConfirmUploadFiles(ctx context.Context, fileIDs ...uuid.UUID) error
+		GetUploadFileData(ctx context.Context, params storageModel.UploadFileParams) (
+			*storageModel.UploadFileData,
+			error,
+		)
 	}
 
 	Dependencies struct {
 		Service IEventService
-		Worker  Worker
+		Worker  worker.Worker
 	}
 )
 
@@ -51,70 +54,76 @@ func NewUseCase(deps Dependencies) *EventUseCase {
 
 // for administrators
 
-func (u *EventUseCase) GetEvents(ctx context.Context) ([]*model.Event, error) {
-	events, err := u.service.GetEvents(ctx)
+func (u *EventUseCase) GetEvents(ctx context.Context, page, pageSize int) ([]*eventModel.Event, error) {
+	events, err := u.service.GetEvents(ctx, page, pageSize)
 	if err != nil {
-		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get events").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get events").Err()
 	}
 	return events, nil
 }
 
-func (u *EventUseCase) CreateEvent(ctx context.Context, newEvent model.Event) error {
+func (u *EventUseCase) CreateEvent(ctx context.Context, newEvent eventModel.Event) error {
 	createdEvent, err := u.service.CreateEvent(ctx, newEvent)
 	if err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to create event").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create event").Err()
 	}
 
 	// if event banner is not empty confirm that it is saved
 	if newEvent.Picture != "" {
 		fileID, err := parsePictureURL(newEvent.Picture)
 		if err != nil {
-			return model.ErrEvent.WithError(err).WithMessage("Failed to parse picture URL").Cause()
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to parse picture URL").Err()
 		}
-		if err = u.service.ConfirmFileUpload(ctx, fileID); err != nil {
-			return model.ErrEvent.WithError(err).WithMessage("Failed to confirm file upload").Cause()
+		if err = u.service.ConfirmUploadFiles(ctx, fileID); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to confirm file upload").Err()
 		}
 	}
 
 	// create event hooks
 	u.InitEventHooks(ctx, *createdEvent)
 
-	//TODO: create team for administrators
+	// TODO: create team for administrators
 	return nil
 }
 
-func (u *EventUseCase) GetUploadBannerData(ctx context.Context) (*model.UploadFileData, error) {
-	uploadBannerData, err := u.service.GetUploadFileData(ctx, model.BannerStorageType)
+func (u *EventUseCase) GetUploadBannerData(ctx context.Context) (*storageModel.UploadFileData, error) {
+	uploadBannerData, err := u.service.GetUploadFileData(
+		ctx, storageModel.UploadFileParams{
+			StorageType: storageModel.BannerStorageType,
+		},
+	)
 	if err != nil {
-		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get upload banner data").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get upload banner data").Err()
 	}
 	return uploadBannerData, nil
 }
 
 // for participants
 
-func (u *EventUseCase) GetEventsInfo(ctx context.Context) ([]*model.EventInfo, error) {
-	eventsInfo := make([]*model.EventInfo, 0)
-	events, err := u.GetEvents(ctx)
+func (u *EventUseCase) GetEventsInfo(ctx context.Context, page, pageSize int) ([]*eventModel.EventInfo, error) {
+	eventsInfo := make([]*eventModel.EventInfo, 0)
+	events, err := u.GetEvents(ctx, page, pageSize)
 	if err != nil {
-		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get events").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get events").Err()
 	}
 
 	for _, event := range events {
-		eventsInfo = append(eventsInfo, &model.EventInfo{
-			Type:                   event.Type,
-			Participation:          event.Participation,
-			Tag:                    event.Tag,
-			Name:                   event.Name,
-			Description:            event.Description,
-			Rules:                  event.Rules,
-			Picture:                event.Picture,
-			Registration:           event.Registration,
-			ScoreboardAvailability: event.ScoreboardAvailability,
-			ParticipantsVisibility: event.ParticipantsVisibility,
-			StartTime:              event.StartTime,
-			FinishTime:             event.FinishTime,
-		})
+		eventsInfo = append(
+			eventsInfo, &eventModel.EventInfo{
+				Type:                   event.Type,
+				Participation:          event.Participation,
+				Tag:                    event.Tag,
+				Name:                   event.Name,
+				Description:            event.Description,
+				Rules:                  event.Rules,
+				Picture:                event.Picture,
+				Registration:           event.Registration,
+				ScoreboardAvailability: event.ScoreboardAvailability,
+				ParticipantsVisibility: event.ParticipantsVisibility,
+				StartTime:              event.StartTime,
+				FinishTime:             event.FinishTime,
+			},
+		)
 	}
 
 	return eventsInfo, nil

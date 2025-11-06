@@ -1,10 +1,12 @@
 package eventModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -36,8 +38,6 @@ type (
 )
 
 var (
-	ErrEventParticipant = err.ErrInternal.WithObjectCode(model.EventParticipantObjectCode)
-
 	ErrEventParticipantExists = err.ErrObjectExists.WithObjectCode(model.EventParticipantObjectCode).WithMessage("Participant already exists").WithDetailCode(1) // 41601
 
 	ErrEventParticipantNotFound     = err.ErrObjectNotFound.WithObjectCode(model.EventParticipantObjectCode).WithMessage("Participant not found").WithDetailCode(1)      // 31601

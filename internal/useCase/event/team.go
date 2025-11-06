@@ -3,86 +3,102 @@ package event
 import (
 	"context"
 	"errors"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/model"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
 	ITeamService interface {
-		GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]*model.Team, error)
-		GetEventTeam(ctx context.Context, eventID, teamID uuid.UUID) (*model.Team, error)
+		GetEventTeams(ctx context.Context, eventID uuid.UUID, page, pageSize int) ([]*eventModel.Team, error)
+		GetEventTeam(ctx context.Context, teamID uuid.UUID) (*eventModel.Team, error)
 
-		GetParticipantTeam(ctx context.Context, eventID, userID uuid.UUID) (*model.Team, error)
+		GetEventParticipantTeam(ctx context.Context, eventID, userID uuid.UUID) (*eventModel.Team, error)
 
-		CreateTeam(ctx context.Context, eventID uuid.UUID, name string, laboratoryID *uuid.UUID) (*uuid.UUID, error)
-		JoinTeam(ctx context.Context, eventID, userID uuid.UUID, name, joinCode string) error
-		AssignTeam(ctx context.Context, eventID, userID, teamID uuid.UUID) error
-		LeaveTeam(ctx context.Context, eventID, userID uuid.UUID) error
-		UpdateTeamName(ctx context.Context, eventID, teamID uuid.UUID, name string) error
-		DeleteTeam(ctx context.Context, eventID, teamID uuid.UUID) error
+		CreateEventTeam(ctx context.Context, team eventModel.Team) (*uuid.UUID, error)
+		AssignEventTeam(ctx context.Context, eventID, userID, teamID uuid.UUID) error
+		GetEventTeamIDFromCredentials(ctx context.Context, team eventModel.Team) (*uuid.UUID, error)
+		UnassignEventTeam(ctx context.Context, eventID, userID uuid.UUID) error
+		UpdateEventTeamName(ctx context.Context, teamID uuid.UUID, name string) error
+		DeleteEventTeam(ctx context.Context, teamID uuid.UUID) error
 
-		CreateLaboratories(ctx context.Context, networkMask, count int) ([]uuid.UUID, error)
+		CreateLaboratories(
+			ctx context.Context,
+			networkMask, count int,
+			labsGroupID uuid.UUID,
+		) ([]uuid.UUID, error)
 	}
 )
 
 // for administrators
 
-func (u *EventUseCase) GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]*model.Team, error) {
-	teams, err := u.service.GetEventTeams(ctx, eventID)
+func (u *EventUseCase) GetEventTeams(ctx context.Context, eventID uuid.UUID, page, pageSize int) (
+	[]*eventModel.Team,
+	error,
+) {
+	teams, err := u.service.GetEventTeams(ctx, eventID, page, pageSize)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get event teams").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event teams").Err()
 	}
 	return teams, nil
 }
 
-func (u *EventUseCase) GetEventTeam(ctx context.Context, eventID, teamID uuid.UUID) (*model.Team, error) {
-	team, err := u.service.GetEventTeam(ctx, eventID, teamID)
+func (u *EventUseCase) GetEventTeam(ctx context.Context, teamID uuid.UUID) (*eventModel.Team, error) {
+	team, err := u.service.GetEventTeam(ctx, teamID)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get event team").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
 	}
 	return team, nil
 }
 
 func (u *EventUseCase) CreateEventTeam(ctx context.Context, eventID uuid.UUID, name string) error {
-	if _, err := u.service.CreateTeam(ctx, eventID, name, nil); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to create team").Cause()
+	team := eventModel.Team{
+		EventID:      eventID,
+		Name:         name,
+		LaboratoryID: uuid.NullUUID{UUID: uuid.Nil, Valid: false},
+	}
+	if _, err := u.service.CreateEventTeam(ctx, team); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create team").Err()
 	}
 	return nil
 }
 
-func (u *EventUseCase) UpdateEventTeamName(ctx context.Context, eventID, teamID uuid.UUID, name string) error {
-	if err := u.service.UpdateTeamName(ctx, eventID, teamID, name); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to update team").Cause()
+func (u *EventUseCase) UpdateEventTeamName(ctx context.Context, teamID uuid.UUID, name string) error {
+	if err := u.service.UpdateEventTeamName(ctx, teamID, name); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to update team").Err()
 	}
 	return nil
 }
 
-func (u *EventUseCase) DeleteEventTeam(ctx context.Context, eventID, teamID uuid.UUID) error {
-	if err := u.service.DeleteTeam(ctx, eventID, teamID); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to delete team").Cause()
+func (u *EventUseCase) DeleteEventTeam(ctx context.Context, teamID uuid.UUID) error {
+	if err := u.service.DeleteEventTeam(ctx, teamID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete team").Err()
 	}
 	return nil
 }
 
 func (u *EventUseCase) AssignEventTeam(ctx context.Context, eventID, teamID, userID uuid.UUID) error {
 	// check if user is joined team
-	team, err := u.service.GetParticipantTeam(ctx, eventID, userID)
+	team, err := u.service.GetEventParticipantTeam(ctx, eventID, userID)
 	if err == nil {
 		// if user is already in team with the same id, return ok
 		if team.ID == teamID {
 			return nil
 		}
-		return model.ErrEventTeamUserAlreadyInTeam.Err()
+		return eventModel.ErrEventUserAlreadyInTeam.Err()
 	} else {
-		if !errors.Is(err, model.ErrEventParticipantTeamNotFound.Err()) {
-			return model.ErrEventTeam.WithError(err).WithMessage("Failed to get participant team").Cause()
+		if !errors.Is(err, eventModel.ErrEventParticipantTeamNotFound.Err()) {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to get participant team").Err()
 		}
 	}
 
 	// assign user to team
-	if err = u.service.AssignTeam(ctx, eventID, userID, teamID); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to assign user to team").Cause()
+	if err = u.service.AssignEventTeam(ctx, eventID, userID, teamID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to assign user to team").Err()
 	}
 
 	return nil
@@ -90,13 +106,13 @@ func (u *EventUseCase) AssignEventTeam(ctx context.Context, eventID, teamID, use
 
 func (u *EventUseCase) UnassignEventTeam(ctx context.Context, eventID, userID uuid.UUID) error {
 	// check if user is joined team
-	if _, err := u.service.GetParticipantTeam(ctx, eventID, userID); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to get participant team").Cause()
+	if _, err := u.service.GetEventParticipantTeam(ctx, eventID, userID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get participant team").Err()
 	}
 
 	// unassign user from team
-	if err := u.service.LeaveTeam(ctx, eventID, userID); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to unassign user from team").Cause()
+	if err := u.service.UnassignEventTeam(ctx, eventID, userID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to unassign user from team").Err()
 	}
 
 	return nil
@@ -104,34 +120,39 @@ func (u *EventUseCase) UnassignEventTeam(ctx context.Context, eventID, userID uu
 
 // for participants
 
-func (u *EventUseCase) GetTeamsInfo(ctx context.Context, eventID uuid.UUID) ([]*model.TeamInfo, error) {
-	teamsInfo := make([]*model.TeamInfo, 0)
-	teams, err := u.GetEventTeams(ctx, eventID)
+func (u *EventUseCase) GetTeamsInfo(ctx context.Context, eventID uuid.UUID, page, pageSize int) (
+	[]*eventModel.TeamInfo,
+	error,
+) {
+	teamsInfo := make([]*eventModel.TeamInfo, 0)
+	teams, err := u.GetEventTeams(ctx, eventID, page, pageSize)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get event teams").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event teams").Err()
 	}
 
 	for _, team := range teams {
-		teamsInfo = append(teamsInfo, &model.TeamInfo{
-			ID:   team.ID,
-			Name: team.Name,
-		})
+		teamsInfo = append(
+			teamsInfo, &eventModel.TeamInfo{
+				ID:   team.ID,
+				Name: team.Name,
+			},
+		)
 	}
 
 	return teamsInfo, nil
 }
 
-func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*model.Team, error) {
+func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*eventModel.Team, error) {
 	// TODO: check it
 	// if user is administrator, return default administrator team
 	// get current user role
 	role, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get user role from context").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user role from context").Err()
 	}
 
-	if role == model.AdministratorRole {
-		return &model.Team{
+	if role == userModel.AdministratorRole {
+		return &eventModel.Team{
 			Name: "Administrator",
 		}, nil
 	}
@@ -139,33 +160,33 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 	// get current user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get user id from context").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user id from context").Err()
 	}
 
 	// check if user is joined event
 	joinedStatus, err := u.GetSelfJoinEventStatus(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get join event status").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get join event status").Err()
 	}
 	// if status is not approved, return nil
-	if joinedStatus != model.ApprovedParticipationStatus {
-		return nil, model.ErrEventEventNotJoined.Cause()
+	if joinedStatus != eventModel.ApprovedParticipationStatus {
+		return nil, eventModel.ErrEventNotJoined.Err()
 	}
 
 	// get user team
-	team, err := u.service.GetParticipantTeam(ctx, eventID, userID)
+	team, err := u.service.GetEventParticipantTeam(ctx, eventID, userID)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get participant team").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get participant team").Err()
 	}
 
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEventTeam.WithError(err).WithMessage("Failed to get event").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
 
 	// if event participation is individual, return name only
-	if event.Participation == model.IndividualParticipationType {
-		return &model.Team{
+	if event.Participation == eventModel.IndividualParticipationType {
+		return &eventModel.Team{
 			ID:           team.ID,
 			Name:         team.Name,
 			LaboratoryID: team.LaboratoryID,
@@ -173,7 +194,7 @@ func (u *EventUseCase) GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*mod
 	}
 
 	// return only team name and join code
-	return &model.Team{
+	return &eventModel.Team{
 		ID:           team.ID,
 		Name:         team.Name,
 		JoinCode:     team.JoinCode,
@@ -186,34 +207,40 @@ func (u *EventUseCase) CreateTeam(ctx context.Context, eventID uuid.UUID, name s
 	// check if user is joined team
 	_, err := u.GetSelfTeam(ctx, eventID)
 	if err == nil {
-		return model.ErrEventTeamUserAlreadyInTeam.Cause()
+		return eventModel.ErrEventUserAlreadyInTeam.Err()
 	} else {
-		if !errors.Is(err, model.ErrEventParticipantTeamNotFound.Err()) {
-			return model.ErrEventTeam.WithError(err).WithMessage("Failed to get self team").Cause()
+		if !errors.Is(err, eventModel.ErrEventParticipantTeamNotFound.Err()) {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to get self team").Err()
 		}
 	}
 
 	// create laboratory
-	IDs, err := u.service.CreateLaboratories(ctx, 26, 1)
+	IDs, err := u.service.CreateLaboratories(ctx, 26, 1, uuid.Nil)
 	if err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to create laboratory").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create laboratory").Err()
+	}
+
+	team := eventModel.Team{
+		EventID:      eventID,
+		Name:         name,
+		LaboratoryID: uuid.NullUUID{UUID: IDs[0], Valid: true},
 	}
 
 	// create team
-	teamID, err := u.service.CreateTeam(ctx, eventID, name, &IDs[0])
+	teamID, err := u.service.CreateEventTeam(ctx, team)
 	if err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to create team").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create team").Err()
 	}
 
 	// get current user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to get user id from context").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user id from context").Err()
 	}
 
 	// assign user to team
-	if err = u.service.AssignTeam(ctx, eventID, userID, *teamID); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to assign user to team").Cause()
+	if err = u.service.AssignEventTeam(ctx, eventID, userID, *teamID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to assign user to team").Err()
 	}
 
 	return nil
@@ -223,22 +250,33 @@ func (u *EventUseCase) JoinTeam(ctx context.Context, eventID uuid.UUID, name, jo
 	// check if user is joined team
 	_, err := u.GetSelfTeam(ctx, eventID)
 	if err == nil {
-		return model.ErrEventTeamUserAlreadyInTeam.Cause()
+		return eventModel.ErrEventUserAlreadyInTeam.Err()
 	} else {
-		if !errors.Is(err, model.ErrEventParticipantTeamNotFound.Err()) {
-			return model.ErrEventTeam.WithError(err).WithMessage("Failed to get self team").Cause()
+		if !errors.Is(err, eventModel.ErrEventParticipantTeamNotFound.Err()) {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to get self team").Err()
 		}
 	}
 
 	// get current user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to get user id from context").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user id from context").Err()
+	}
+
+	// check team credentials
+	team := eventModel.Team{
+		EventID:  eventID,
+		Name:     name,
+		JoinCode: joinCode,
+	}
+	teamID, err := u.service.GetEventTeamIDFromCredentials(ctx, team)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get team id from credentials").Err()
 	}
 
 	// join team
-	if err = u.service.JoinTeam(ctx, eventID, userID, name, joinCode); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to join team").Cause()
+	if err = u.service.AssignEventTeam(ctx, eventID, userID, *teamID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to join team").Err()
 	}
 
 	return nil
@@ -248,12 +286,12 @@ func (u *EventUseCase) LeaveTeam(ctx context.Context, eventID uuid.UUID) error {
 	// get current user id
 	userID, err := tools.GetCurrentUserIDFromContext(ctx)
 	if err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to get user id from context").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user id from context").Err()
 	}
 
 	// leave team
-	if err = u.service.LeaveTeam(ctx, eventID, userID); err != nil {
-		return model.ErrEventTeam.WithError(err).WithMessage("Failed to leave team").Cause()
+	if err = u.service.UnassignEventTeam(ctx, eventID, userID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to leave team").Err()
 	}
 
 	return nil
@@ -264,11 +302,11 @@ func (u *EventUseCase) LeaveTeam(ctx context.Context, eventID uuid.UUID) error {
 func (u *EventUseCase) ProtectEventTeams(ctx context.Context, eventID uuid.UUID) (bool, error) {
 	event, err := u.service.GetEventByID(ctx, eventID)
 	if err != nil {
-		return true, model.ErrEventTeam.WithError(err).WithMessage("Failed to get event by id").Cause()
+		return true, model.ErrPlatform.WithError(err).WithMessage("Failed to get event by id").Err()
 	}
 
 	// if event scoreboard is public, then return true
-	if event.ParticipantsVisibility == model.PublicParticipantsVisibilityType {
+	if event.ParticipantsVisibility == eventModel.PublicParticipantsVisibilityType {
 		return false, nil
 	}
 

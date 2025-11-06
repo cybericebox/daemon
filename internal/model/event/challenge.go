@@ -1,11 +1,13 @@
 package eventModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/model/exercise"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 type (
@@ -52,10 +54,8 @@ type (
 )
 
 var (
-	ErrEventChallenge = err.ErrInternal.WithObjectCode(model.EventChallengeObjectCode)
+	ErrEventChallengeExists = err.ErrObjectExists.WithObjectCode(model.EventChallengeObjectCode).WithMessage("Event challenge already exists").WithDetailCode(1) // 41401
 
-	ErrEventChallengeChallengeExists = err.ErrObjectExists.WithObjectCode(model.EventChallengeObjectCode).WithMessage("Event challenge already exists").WithDetailCode(1) // 41401
-
-	ErrEventChallengeChallengeNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventChallengeObjectCode).WithMessage("Event challenge not found").WithDetailCode(1) // 31401
+	ErrEventChallengeNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventChallengeObjectCode).WithMessage("Event challenge not found").WithDetailCode(1) // 31401
 
 )

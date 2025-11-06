@@ -3,43 +3,46 @@ package auth
 import (
 	"context"
 	"errors"
+
 	"github.com/cybericebox/daemon/internal/model"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
 	IGoogleService interface {
-		CreateUser(ctx context.Context, newUser model.User) (*model.User, error)
-		UpdateUserPicture(ctx context.Context, user model.User) error
-		UpdateUserGoogleID(ctx context.Context, user model.User) error
+		CreateUser(ctx context.Context, newUser userModel.User) (*userModel.User, error)
+		UpdateUserPicture(ctx context.Context, user userModel.User) error
+		UpdateUserGoogleID(ctx context.Context, user userModel.User) error
 
-		GetGoogleLoginURL() string
-		GetGoogleUser(ctx context.Context, code, state string) (*model.User, error)
+		GetGoogleLoginURL() (string, error)
+		GetGoogleUser(ctx context.Context, code, state string) (*userModel.User, error)
 	}
 )
 
-func (u *AuthUseCase) GetGoogleLoginURL() string {
+func (u *AuthUseCase) GetGoogleLoginURL() (string, error) {
 	return u.service.GetGoogleLoginURL()
 }
 
-func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*model.Tokens, error) {
+func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*authModel.Tokens, error) {
 	googleUser, err := u.service.GetGoogleUser(ctx, code, state)
 	if err != nil {
-		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to get google user").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get google user").Err()
 	}
 
 	user, err := u.service.GetUserByEmail(ctx, googleUser.Email)
-	if err != nil && !errors.Is(err, model.ErrUserUserNotFound.Err()) {
-		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to get user by email").Cause()
+	if err != nil && !errors.Is(err, userModel.ErrUserNotFound.Err()) {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by email").Err()
 	}
 	// if user does not exist
-	if errors.Is(err, model.ErrUserUserNotFound.Err()) {
+	if errors.Is(err, userModel.ErrUserNotFound.Err()) {
 		// set default role to user
-		googleUser.Role = model.UserRole
+		googleUser.Role = userModel.UserRole
 		// create user
 		user, err = u.service.CreateUser(ctx, *googleUser)
 		if err != nil {
-			return nil, model.ErrAuth.WithError(err).WithMessage("Failed to create user").Cause()
+			return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to create user").Err()
 		}
 
 	} else {
@@ -49,7 +52,7 @@ func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*mode
 		if user.GoogleID != googleUser.GoogleID {
 			user.GoogleID = googleUser.GoogleID
 			if err = u.service.UpdateUserGoogleID(ctx, *user); err != nil {
-				return nil, model.ErrAuth.WithError(err).WithMessage("Failed to update user google id").Cause()
+				return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to update user google id").Err()
 			}
 		}
 
@@ -57,7 +60,7 @@ func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*mode
 		if user.Picture == "" {
 			user.Picture = googleUser.Picture
 			if err = u.service.UpdateUserPicture(ctx, *user); err != nil {
-				return nil, model.ErrAuth.WithError(err).WithMessage("Failed to update user picture").Cause()
+				return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to update user picture").Err()
 			}
 		}
 	}
@@ -65,7 +68,7 @@ func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*mode
 	// generate tokens and return them
 	tokens, err := u.service.GenerateTokens(user.ID)
 	if err != nil {
-		return nil, model.ErrAuth.WithError(err).WithMessage("Failed to generate tokens").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate tokens").Err()
 	}
 
 	return tokens, nil

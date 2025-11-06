@@ -23,11 +23,15 @@ type (
 
 func NewService(deps Dependencies) *ExerciseService {
 	return &ExerciseService{
-		exerciseService.NewService(exerciseService.Dependencies{
-			Repository: deps.Repository,
-		}),
-		categoryService.NewService(categoryService.Dependencies{
-			Repository: deps.Repository,
-		}),
+		exerciseService.NewService(
+			exerciseService.Dependencies{
+				Repository: deps.Repository,
+			},
+		),
+		categoryService.NewService(
+			categoryService.Dependencies{
+				Repository: deps.Repository,
+			},
+		),
 	}
 }

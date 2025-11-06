@@ -2,12 +2,13 @@ package exerciseService
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/config"
+
+	"github.com/gofrs/uuid"
+
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/gofrs/uuid"
 )
 
 type (
@@ -19,11 +20,23 @@ type (
 		CreateExercise(ctx context.Context, arg postgres.CreateExerciseParams) error
 
 		GetExercises(ctx context.Context, arg postgres.GetExercisesParams) ([]postgres.Exercise, error)
-		GetExercisesWithSimilarName(ctx context.Context, arg postgres.GetExercisesWithSimilarNameParams) ([]postgres.Exercise, error)
-		GetExercisesByCategory(ctx context.Context, arg postgres.GetExercisesByCategoryParams) ([]postgres.Exercise, error)
+		GetExercisesWithSimilarName(
+			ctx context.Context,
+			arg postgres.GetExercisesWithSimilarNameParams,
+		) ([]postgres.Exercise, error)
+		GetExercisesByCategory(ctx context.Context, arg postgres.GetExercisesByCategoryParams) (
+			[]postgres.Exercise,
+			error,
+		)
 		GetExercisesWithIDs(ctx context.Context, ids []uuid.UUID) ([]postgres.Exercise, error)
-		GetExercisesNotWithIDs(ctx context.Context, arg postgres.GetExercisesNotWithIDsParams) ([]postgres.Exercise, error)
-		GetExercisesNotWithIDsWithSimilarName(ctx context.Context, arg postgres.GetExercisesNotWithIDsWithSimilarNameParams) ([]postgres.Exercise, error)
+		GetExercisesNotWithIDs(ctx context.Context, arg postgres.GetExercisesNotWithIDsParams) (
+			[]postgres.Exercise,
+			error,
+		)
+		GetExercisesNotWithIDsWithSimilarName(
+			ctx context.Context,
+			arg postgres.GetExercisesNotWithIDsWithSimilarNameParams,
+		) ([]postgres.Exercise, error)
 		GetExerciseByID(ctx context.Context, id uuid.UUID) (postgres.Exercise, error)
 
 		UpdateExercise(ctx context.Context, arg postgres.UpdateExerciseParams) (int64, error)
@@ -42,127 +55,165 @@ func NewService(deps Dependencies) *ExerciseService {
 	}
 }
 
-func (s *ExerciseService) GetExercises(ctx context.Context, search string, page int) ([]*exerciseModel.Exercise, error) {
+func (s *ExerciseService) GetExercises(ctx context.Context, search string, page, pageSize int) (
+	[]*exerciseModel.Exercise,
+	error,
+) {
 	var err error
 	var exercises []postgres.Exercise
 	if search == "" {
-		exercises, err = s.repository.GetExercises(ctx, postgres.GetExercisesParams{
-			Limit:  config.DefaultOnePageLimit,
-			Offset: int32(page * config.DefaultOnePageLimit),
-		})
+		exercises, err = s.repository.GetExercises(
+			ctx, postgres.GetExercisesParams{
+				Limit:  int32(pageSize),
+				Offset: int32(page * pageSize),
+			},
+		)
 	} else {
-		exercises, err = s.repository.GetExercisesWithSimilarName(ctx, postgres.GetExercisesWithSimilarNameParams{
-			Search: search,
-			Limit:  config.DefaultOnePageLimit,
-			Offset: int32(page * config.DefaultOnePageLimit),
-		})
+		exercises, err = s.repository.GetExercisesWithSimilarName(
+			ctx, postgres.GetExercisesWithSimilarNameParams{
+				Search: search,
+				Limit:  int32(pageSize),
+				Offset: int32(page * pageSize),
+			},
+		)
 	}
 
 	if err != nil {
-		return nil, exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to get exercises from repository").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercises from repository").Err()
 	}
 
 	result := make([]*exerciseModel.Exercise, 0, len(exercises))
 	for _, exercise := range exercises {
-		result = append(result, &exerciseModel.Exercise{
-			ID:          exercise.ID,
-			CategoryID:  exercise.CategoryID,
-			Name:        exercise.Name,
-			Description: exercise.Description,
-			Data:        exercise.Data,
-			UpdatedAt:   exercise.UpdatedAt.Time,
-			UpdatedBy:   exercise.UpdatedBy,
-			CreatedAt:   exercise.CreatedAt,
-		})
+		result = append(
+			result, &exerciseModel.Exercise{
+				ID:          exercise.ID,
+				CategoryID:  exercise.CategoryID,
+				Name:        exercise.Name,
+				Description: exercise.Description,
+				Data:        exercise.Data,
+				UpdatedAt:   exercise.UpdatedAt.Time,
+				UpdatedBy:   exercise.UpdatedBy,
+				CreatedAt:   exercise.CreatedAt,
+			},
+		)
 	}
 
 	return result, nil
 }
 
-func (s *ExerciseService) GetExercisesByCategory(ctx context.Context, categoryID uuid.UUID, page int) ([]*exerciseModel.Exercise, error) {
-	exercises, err := s.repository.GetExercisesByCategory(ctx, postgres.GetExercisesByCategoryParams{
-		CategoryID: categoryID,
-		Limit:      config.DefaultOnePageLimit,
-		Offset:     int32(page * config.DefaultOnePageLimit),
-	})
+func (s *ExerciseService) GetExercisesByCategory(
+	ctx context.Context,
+	categoryID uuid.UUID,
+	page,
+	pageSize int,
+) ([]*exerciseModel.Exercise, error) {
+	exercises, err := s.repository.GetExercisesByCategory(
+		ctx, postgres.GetExercisesByCategoryParams{
+			CategoryID: categoryID,
+			Limit:      int32(pageSize),
+			Offset:     int32(page * pageSize),
+		},
+	)
 	if err != nil {
-		return nil, exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to get exercises from repository").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercises from repository").Err()
 	}
 
 	result := make([]*exerciseModel.Exercise, 0, len(exercises))
 	for _, exercise := range exercises {
-		result = append(result, &exerciseModel.Exercise{
-			ID:          exercise.ID,
-			CategoryID:  exercise.CategoryID,
-			Name:        exercise.Name,
-			Description: exercise.Description,
-			Data:        exercise.Data,
-			UpdatedAt:   exercise.UpdatedAt.Time,
-			UpdatedBy:   exercise.UpdatedBy,
-			CreatedAt:   exercise.CreatedAt,
-		})
+		result = append(
+			result, &exerciseModel.Exercise{
+				ID:          exercise.ID,
+				CategoryID:  exercise.CategoryID,
+				Name:        exercise.Name,
+				Description: exercise.Description,
+				Data:        exercise.Data,
+				UpdatedAt:   exercise.UpdatedAt.Time,
+				UpdatedBy:   exercise.UpdatedBy,
+				CreatedAt:   exercise.CreatedAt,
+			},
+		)
 	}
 
 	return result, nil
 }
 
-func (s *ExerciseService) GetExercisesWithIDs(ctx context.Context, exerciseIDs []uuid.UUID) ([]*exerciseModel.Exercise, error) {
+func (s *ExerciseService) GetExercisesWithIDs(ctx context.Context, exerciseIDs []uuid.UUID) (
+	[]*exerciseModel.Exercise,
+	error,
+) {
 	exercises, err := s.repository.GetExercisesWithIDs(ctx, exerciseIDs)
 	if err != nil {
-		return nil, exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to get exercises from repository").WithContext("exerciseIDs", exerciseIDs).Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercises from repository").WithContext(
+			"exerciseIDs",
+			exerciseIDs,
+		).Err()
 	}
 
 	result := make([]*exerciseModel.Exercise, 0, len(exercises))
 	for _, exercise := range exercises {
-		result = append(result, &exerciseModel.Exercise{
-			ID:          exercise.ID,
-			CategoryID:  exercise.CategoryID,
-			Name:        exercise.Name,
-			Description: exercise.Description,
-			Data:        exercise.Data,
-			UpdatedAt:   exercise.UpdatedAt.Time,
-			UpdatedBy:   exercise.UpdatedBy,
-			CreatedAt:   exercise.CreatedAt,
-		})
+		result = append(
+			result, &exerciseModel.Exercise{
+				ID:          exercise.ID,
+				CategoryID:  exercise.CategoryID,
+				Name:        exercise.Name,
+				Description: exercise.Description,
+				Data:        exercise.Data,
+				UpdatedAt:   exercise.UpdatedAt.Time,
+				UpdatedBy:   exercise.UpdatedBy,
+				CreatedAt:   exercise.CreatedAt,
+			},
+		)
 	}
 
 	return result, nil
 }
 
-func (s *ExerciseService) GetExercisesNotWithIDs(ctx context.Context, exerciseIDs []uuid.UUID, search string, page int) ([]*exerciseModel.Exercise, error) {
+func (s *ExerciseService) GetExercisesNotWithIDs(
+	ctx context.Context,
+	exerciseIDs []uuid.UUID,
+	search string,
+	page,
+	pageSize int,
+) ([]*exerciseModel.Exercise, error) {
 	var err error
 	var exercises []postgres.Exercise
 	if search == "" {
-		exercises, err = s.repository.GetExercisesNotWithIDs(ctx, postgres.GetExercisesNotWithIDsParams{
-			Limit:  config.DefaultOnePageLimit,
-			Offset: int32(page * config.DefaultOnePageLimit),
-			Ids:    exerciseIDs,
-		})
+		exercises, err = s.repository.GetExercisesNotWithIDs(
+			ctx, postgres.GetExercisesNotWithIDsParams{
+				Limit:  int32(pageSize),
+				Offset: int32(page * pageSize),
+				Ids:    exerciseIDs,
+			},
+		)
 	} else {
-		exercises, err = s.repository.GetExercisesNotWithIDsWithSimilarName(ctx, postgres.GetExercisesNotWithIDsWithSimilarNameParams{
-			Search: search,
-			Limit:  config.DefaultOnePageLimit,
-			Offset: int32(page * config.DefaultOnePageLimit),
-			Ids:    exerciseIDs,
-		})
+		exercises, err = s.repository.GetExercisesNotWithIDsWithSimilarName(
+			ctx, postgres.GetExercisesNotWithIDsWithSimilarNameParams{
+				Search: search,
+				Limit:  int32(pageSize),
+				Offset: int32(page * pageSize),
+				Ids:    exerciseIDs,
+			},
+		)
 	}
 
 	if err != nil {
-		return nil, exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to get exercises from repository").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercises from repository").Err()
 	}
 
 	result := make([]*exerciseModel.Exercise, 0, len(exercises))
 	for _, exercise := range exercises {
-		result = append(result, &exerciseModel.Exercise{
-			ID:          exercise.ID,
-			CategoryID:  exercise.CategoryID,
-			Name:        exercise.Name,
-			Description: exercise.Description,
-			Data:        exercise.Data,
-			UpdatedAt:   exercise.UpdatedAt.Time,
-			UpdatedBy:   exercise.UpdatedBy,
-			CreatedAt:   exercise.CreatedAt,
-		})
+		result = append(
+			result, &exerciseModel.Exercise{
+				ID:          exercise.ID,
+				CategoryID:  exercise.CategoryID,
+				Name:        exercise.Name,
+				Description: exercise.Description,
+				Data:        exercise.Data,
+				UpdatedAt:   exercise.UpdatedAt.Time,
+				UpdatedBy:   exercise.UpdatedBy,
+				CreatedAt:   exercise.CreatedAt,
+			},
+		)
 	}
 
 	return result, nil
@@ -172,9 +223,12 @@ func (s *ExerciseService) GetExercise(ctx context.Context, exerciseID uuid.UUID)
 	exercise, err := s.repository.GetExerciseByID(ctx, exerciseID)
 	if err != nil {
 		if tools.IsObjectNotFoundError(err) {
-			return nil, exerciseModel.ErrExerciseExerciseNotFound.WithContext("exerciseID", exerciseID).Err()
+			return nil, exerciseModel.ErrExerciseNotFound.WithContext("exerciseID", exerciseID).Err()
 		}
-		return nil, exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to get exercise from repository").WithContext("exerciseID", exerciseID).Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise from repository").WithContext(
+			"exerciseID",
+			exerciseID,
+		).Err()
 	}
 
 	return &exerciseModel.Exercise{
@@ -201,7 +255,7 @@ func (s *ExerciseService) CreateExercise(ctx context.Context, exercise exerciseM
 	}
 
 	if err := s.repository.CreateExercise(ctx, createExercise); err != nil {
-		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseExerciseExists)
+		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseExists)
 		if has {
 			return errCreator.Err()
 		}
@@ -210,7 +264,7 @@ func (s *ExerciseService) CreateExercise(ctx context.Context, exercise exerciseM
 		if has {
 			return errCreator.Err()
 		}
-		return exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to create exercise").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create exercise").Err()
 	}
 
 	return nil
@@ -238,7 +292,7 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise exerciseM
 
 	affected, err := s.repository.UpdateExercise(ctx, updateExercise)
 	if err != nil {
-		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseExerciseExists)
+		errCreator, has := tools.UniqueViolationError(err, exerciseModel.ErrExerciseExists)
 		if has {
 			return errCreator.Err()
 		}
@@ -247,11 +301,11 @@ func (s *ExerciseService) UpdateExercise(ctx context.Context, exercise exerciseM
 		if has {
 			return errCreator.Err()
 		}
-		return exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to update exercise").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to update exercise").Err()
 	}
 
 	if affected == 0 {
-		return exerciseModel.ErrExerciseExerciseNotFound.WithContext("exerciseID", exercise.ID).Err()
+		return exerciseModel.ErrExerciseNotFound.WithContext("exerciseID", exercise.ID).Err()
 	}
 
 	return nil
@@ -264,11 +318,11 @@ func (s *ExerciseService) DeleteExercise(ctx context.Context, exerciseID uuid.UU
 		if has {
 			return errCreator.Err()
 		}
-		return exerciseModel.ErrExercise.WithError(err).WithMessage("Failed to delete exercise").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete exercise").Err()
 	}
 
 	if affected == 0 {
-		return exerciseModel.ErrExerciseExerciseNotFound.WithContext("exerciseID", exerciseID).Err()
+		return exerciseModel.ErrExerciseNotFound.WithContext("exerciseID", exerciseID).Err()
 	}
 
 	return nil

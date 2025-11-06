@@ -1,10 +1,12 @@
 package eventModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -30,7 +32,5 @@ type (
 )
 
 var (
-	ErrEventScore = err.ErrInternal.WithObjectCode(model.EventScoreObjectCode)
-
-	ErrEventScoreScoreNotAvailable = err.ErrForbidden.WithObjectCode(model.EventScoreObjectCode).WithMessage("Score not available").WithDetailCode(1) // 61701
+	ErrEventScoreNotAvailable = err.ErrForbidden.WithObjectCode(model.EventScoreObjectCode).WithMessage("Score not available").WithDetailCode(1) // 61701
 )

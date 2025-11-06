@@ -1,10 +1,12 @@
 package eventModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -70,16 +72,14 @@ type (
 )
 
 var (
-	ErrEvent = err.ErrInternal.WithObjectCode(model.EventObjectCode)
+	ErrEventDataStale = err.ErrConflict.WithObjectCode(model.EventObjectCode).WithMessage("Event data is stale").WithDetailCode(1) // 71301
 
-	ErrEventEventDataStale = err.ErrConflict.WithObjectCode(model.EventObjectCode).WithMessage("Event data is stale").WithDetailCode(1) // 71301
+	ErrEventNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventObjectCode).WithMessage("Event not found").WithDetailCode(1) // 31301
 
-	ErrEventEventNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventObjectCode).WithMessage("Event not found").WithDetailCode(1) // 31301
-
-	ErrEventEventExists = err.ErrObjectExists.WithObjectCode(model.EventObjectCode).WithMessage("Event already exists").WithDetailCode(1) // 41301
+	ErrEventExists = err.ErrObjectExists.WithObjectCode(model.EventObjectCode).WithMessage("Event already exists").WithDetailCode(1) // 41301
 
 	ErrEventRegistrationClosed = err.ErrForbidden.WithObjectCode(model.EventObjectCode).WithMessage("Event registration is closed").WithDetailCode(1) // 61301
-	ErrEventEventNotJoined     = err.ErrForbidden.WithObjectCode(model.EventObjectCode).WithMessage("Event not joined").WithDetailCode(2)             // 61302
+	ErrEventNotJoined          = err.ErrForbidden.WithObjectCode(model.EventObjectCode).WithMessage("Event not joined").WithDetailCode(2)             // 61302
 )
 
 // Event running statuses

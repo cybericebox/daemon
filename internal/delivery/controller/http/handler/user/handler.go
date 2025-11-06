@@ -2,11 +2,14 @@ package user
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
@@ -15,9 +18,9 @@ type (
 	}
 
 	IUseCase interface {
-		GetUsers(ctx context.Context, search string) ([]*model.UserInfo, error)
-		InviteUsers(ctx context.Context, data model.InviteUsers) error
-		UpdateUserRole(ctx context.Context, user model.User) error
+		GetUsers(ctx context.Context, search string, page, pageSize int) ([]*userModel.UserInfo, error)
+		InviteUsers(ctx context.Context, data userModel.InviteUsers) error
+		UpdateUserRole(ctx context.Context, user userModel.User) error
 		DeleteUser(ctx context.Context, userID uuid.UUID) error
 	}
 )
@@ -38,8 +41,13 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 func (h *Handler) GetUsers(ctx *gin.Context) {
 	search := ctx.Query("search")
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
 
-	users, err := h.useCase.GetUsers(ctx, search)
+	users, err := h.useCase.GetUsers(ctx, search, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -49,7 +57,7 @@ func (h *Handler) GetUsers(ctx *gin.Context) {
 }
 
 func (h *Handler) InviteUsers(ctx *gin.Context) {
-	var inp model.InviteUsers
+	var inp userModel.InviteUsers
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -71,7 +79,7 @@ func (h *Handler) UpdateUserRole(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.User
+	var inp userModel.User
 
 	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

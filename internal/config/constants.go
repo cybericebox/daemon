@@ -33,6 +33,6 @@ const (
 )
 
 const (
-	DefaultOnePageLimit = 20
-	AllPages            = -1
+	DefaultPageSize = 20
+	AllPages        = -1
 )

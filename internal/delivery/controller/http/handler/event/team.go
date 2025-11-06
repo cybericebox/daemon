@@ -2,29 +2,35 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type ITeamUseCase interface {
-	GetEventTeams(ctx context.Context, eventID uuid.UUID) ([]*model.Team, error)
-	GetTeamsInfo(ctx context.Context, eventID uuid.UUID) ([]*model.TeamInfo, error)
+	GetEventTeams(ctx context.Context, eventID uuid.UUID, page, pageSize int) ([]*eventModel.Team, error)
+	GetTeamsInfo(ctx context.Context, eventID uuid.UUID, page, pageSize int) ([]*eventModel.TeamInfo, error)
 	CreateTeam(ctx context.Context, eventID uuid.UUID, name string) error
 	JoinTeam(ctx context.Context, eventID uuid.UUID, name, joinCode string) error
 	GetSelfVPNConfig(ctx context.Context, eventID uuid.UUID) (string, error)
-	GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*model.Team, error)
+	GetSelfTeam(ctx context.Context, eventID uuid.UUID) (*eventModel.Team, error)
 	ProtectEventTeams(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
 
 func (h *Handler) initTeamAPIHandler(router *gin.RouterGroup) {
 	teamAPI := router.Group("teams")
 	{
-		teamAPI.GET("", protection.RequireProtection(), h.getTeams)                                              // get teams
-		teamAPI.GET("info", protection.DynamicallyRequireProtection(h.eventTeamsNeedProtection), h.getTeamsInfo) // get teams info only
+		teamAPI.GET("", protection.RequireProtection(), h.getTeams) // get teams
+		teamAPI.GET(
+			"info",
+			protection.DynamicallyRequireProtection(h.eventTeamsNeedProtection),
+			h.getTeamsInfo,
+		) // get teams info only
 
 		teamAPI.POST("", protection.RequireProtection(), h.createTeam)   // create team
 		teamAPI.POST("join", protection.RequireProtection(), h.joinTeam) // join team
@@ -46,7 +52,13 @@ func (h *Handler) getTeams(ctx *gin.Context) {
 		return
 	}
 
-	teams, err := h.useCase.GetEventTeams(ctx, eventID)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	teams, err := h.useCase.GetEventTeams(ctx, eventID, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -62,7 +74,13 @@ func (h *Handler) getTeamsInfo(ctx *gin.Context) {
 		return
 	}
 
-	teams, err := h.useCase.GetTeamsInfo(ctx, eventID)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	teams, err := h.useCase.GetTeamsInfo(ctx, eventID, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -78,7 +96,7 @@ func (h *Handler) createTeam(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.Team
+	var inp eventModel.Team
 
 	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -100,7 +118,7 @@ func (h *Handler) joinTeam(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.Team
+	var inp eventModel.Team
 
 	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

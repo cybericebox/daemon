@@ -2,15 +2,18 @@ package auth
 
 import (
 	"context"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/gin-gonic/gin"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
 type ISignUpUseCase interface {
 	SignUp(ctx context.Context, email string) error
-	SignUpContinue(ctx context.Context, code string, newUser model.User) (*model.Tokens, error)
+	SignUpContinue(ctx context.Context, code string, newUser userModel.User) (*authModel.Tokens, error)
 }
 
 func (h *Handler) initSignupAPIHandler(router *gin.RouterGroup) {
@@ -22,7 +25,7 @@ func (h *Handler) initSignupAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) signUp(ctx *gin.Context) {
-	var inp model.User
+	var inp userModel.User
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -40,7 +43,7 @@ func (h *Handler) signUp(ctx *gin.Context) {
 func (h *Handler) signUpContinue(ctx *gin.Context) {
 	code := ctx.Param("code")
 
-	var inp model.User
+	var inp userModel.User
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

@@ -2,15 +2,17 @@ package tools
 
 import (
 	"errors"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/model/event"
-	"github.com/cybericebox/daemon/internal/model/exercise"
-	"github.com/cybericebox/daemon/internal/model/user"
+	"regexp"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"regexp"
+
+	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/cybericebox/daemon/internal/model/user"
 )
 
 const (
@@ -26,17 +28,17 @@ var (
 		isDeleteAction bool
 		errorFunc      err.ErrorCreator
 	}{
-		{"updated_by", "", false, userModel.ErrUserUserNotFound},
-		{"user_id", "", false, userModel.ErrUserUserNotFound},
-		{"event_id", "", false, eventModel.ErrEventEventNotFound},
-		{"category_id", "event_challenges", true, eventModel.ErrEventChallengeCategoryCategoryHasChallenges},
-		{"category_id", "event_challenges", false, eventModel.ErrEventChallengeCategoryCategoryNotFound},
-		{"category_id", "exercise_categories", true, exerciseModel.ErrExerciseCategoryCategoryHasExercises},
-		{"category_id", "exercise_categories", false, exerciseModel.ErrExerciseCategoryCategoryNotFound},
-		{"challenge_id", "", false, eventModel.ErrEventChallengeChallengeNotFound},
-		{"team_id", "", false, eventModel.ErrEventTeamTeamNotFound},
-		{"exercise_id", "", true, exerciseModel.ErrExerciseExerciseInUse},
-		{"exercise_id", "", false, exerciseModel.ErrExerciseExerciseNotFound},
+		{"updated_by", "", false, userModel.ErrUserNotFound},
+		{"user_id", "", false, userModel.ErrUserNotFound},
+		{"event_id", "", false, eventModel.ErrEventNotFound},
+		{"category_id", "event_challenges", true, eventModel.ErrEventChallengeCategoryHasChallenges},
+		{"category_id", "event_challenges", false, eventModel.ErrEventChallengeCategoryNotFound},
+		{"category_id", "exercise_categories", true, exerciseModel.ErrExerciseCategoryHasExercises},
+		{"category_id", "exercise_categories", false, exerciseModel.ErrExerciseCategoryNotFound},
+		{"challenge_id", "", false, eventModel.ErrEventChallengeNotFound},
+		{"team_id", "", false, eventModel.ErrEventTeamNotFound},
+		{"exercise_id", "", true, exerciseModel.ErrExerciseInUse},
+		{"exercise_id", "", false, exerciseModel.ErrExerciseNotFound},
 	}
 )
 
@@ -93,4 +95,4 @@ func ForeignKeyViolationError(err error, isDelete ...bool) (err.ErrorCreator, bo
 	return nil, false
 }
 
-//IntegrityConstraintViolation, RestrictViolation, NotNullViolation, ForeignKeyViolationError, UniqueViolation, CheckViolation, ExclusionViolation
+// IntegrityConstraintViolation, RestrictViolation, NotNullViolation, ForeignKeyViolationError, UniqueViolation, CheckViolation, ExclusionViolation

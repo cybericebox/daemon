@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+
 	"github.com/gin-gonic/gin"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 )
 
 type IEmailUseCase interface {

@@ -1,16 +1,18 @@
 package tools
 
 import (
-	"github.com/cybericebox/daemon/internal/model/event"
-	"github.com/gofrs/uuid"
 	"net/url"
 	"strings"
+
+	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 func ParsePictureURL(pictureLink string) (uuid.UUID, error) {
 	parsedURL, err := url.Parse(pictureLink)
 	if err != nil {
-		return uuid.Nil, eventModel.ErrEvent.WithError(err).WithMessage("Failed to parse picture url").Err()
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to parse picture url").Err()
 	}
 
 	splitURL := strings.Split(parsedURL.Path, "/")

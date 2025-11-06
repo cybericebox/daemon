@@ -5,8 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/model"
+
 	"github.com/golang-migrate/migrate/v4"
 	pg "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
@@ -14,6 +13,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog/log"
+
+	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 const migrationTable = "daemon_schema_migrations"
@@ -56,15 +58,25 @@ func (r *PostgresRepository) PGStat() *pgxpool.Stat {
 
 func newPostgresDB(ctx context.Context, cfg *config.PostgresConfig) (*pgxpool.Pool, error) {
 	ConnConfig, err := pgxpool.ParseConfig(
-		fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%d sslmode=%s pool_max_conns=%d", cfg.Username, cfg.Password, cfg.Database, cfg.Host, cfg.Port, cfg.SSLMode, cfg.MaxPoolConnections))
+		fmt.Sprintf(
+			"user=%s password=%s dbname=%s host=%s port=%d sslmode=%s pool_max_conns=%d",
+			cfg.Username,
+			cfg.Password,
+			cfg.Database,
+			cfg.Host,
+			cfg.Port,
+			cfg.SSLMode,
+			cfg.MaxPoolConnections,
+		),
+	)
 	pool, err := pgxpool.NewWithConfig(ctx, ConnConfig)
 	if err != nil {
-		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to create new postgres db connection").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to create new postgres db connection").Err()
 	}
 
 	// ping db
 	if err = pool.Ping(ctx); err != nil {
-		return nil, model.ErrPostgres.WithError(err).WithMessage("Failed to ping db").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to ping db").Err()
 	}
 
 	return pool, nil
@@ -72,21 +84,34 @@ func newPostgresDB(ctx context.Context, cfg *config.PostgresConfig) (*pgxpool.Po
 }
 
 func runMigrations(cfg *config.PostgresConfig) error {
-	db, err := sql.Open("postgres", fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%d sslmode=%s", cfg.Username, cfg.Password, cfg.Database, cfg.Host, cfg.Port, cfg.SSLMode))
+	db, err := sql.Open(
+		"postgres",
+		fmt.Sprintf(
+			"user=%s password=%s dbname=%s host=%s port=%d sslmode=%s",
+			cfg.Username,
+			cfg.Password,
+			cfg.Database,
+			cfg.Host,
+			cfg.Port,
+			cfg.SSLMode,
+		),
+	)
 	if err != nil {
-		return model.ErrPostgres.WithError(err).WithMessage("Failed to open db connection").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to open db connection").Err()
 	}
 	defer func() {
 		if err = db.Close(); err != nil {
 			log.Error().Err(err).Msg("Failed to close db connection after running migrations")
 		}
 	}()
-	driver, err := pg.WithInstance(db, &pg.Config{
-		MigrationsTable: migrationTable,
-		DatabaseName:    cfg.Database,
-	})
+	driver, err := pg.WithInstance(
+		db, &pg.Config{
+			MigrationsTable: migrationTable,
+			DatabaseName:    cfg.Database,
+		},
+	)
 	if err != nil {
-		return model.ErrPostgres.WithError(err).WithMessage("Failed to create migration driver").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create migration driver").Err()
 	}
 
 	m, err := migrate.NewWithDatabaseInstance(
@@ -96,12 +121,12 @@ func runMigrations(cfg *config.PostgresConfig) error {
 	)
 
 	if err != nil {
-		return model.ErrPostgres.WithError(err).WithMessage("Failed to create migration instance").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create migration instance").Err()
 	}
 
 	if err = m.Up(); err != nil {
 		if !errors.Is(migrate.ErrNoChange, err) {
-			return model.ErrPostgres.WithError(err).WithMessage("Failed to run migrations").Err()
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to run migrations").Err()
 		}
 	}
 	return nil
@@ -111,10 +136,15 @@ func (r *PostgresRepository) GetSQLDB() *pgxpool.Pool {
 	return r.db
 }
 
-func (r *PostgresRepository) WithTransaction(ctx context.Context) (withTx Querier, commit func(), rollback func(), err error) {
+func (r *PostgresRepository) WithTransaction(ctx context.Context) (
+	withTx Querier,
+	commit func(),
+	rollback func(),
+	err error,
+) {
 	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, nil, nil, model.ErrPostgres.WithError(err).WithMessage("Failed to begin transaction").Err()
+		return nil, nil, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to begin transaction").Err()
 	}
 
 	withTx = r.WithTx(tx)

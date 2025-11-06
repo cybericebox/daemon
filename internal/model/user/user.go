@@ -1,10 +1,12 @@
 package userModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -45,13 +47,11 @@ type (
 
 // errors for user
 var (
-	ErrUser = err.ErrInternal.WithObjectCode(model.UserObjectCode)
+	ErrUserNotFound = err.ErrObjectNotFound.WithObjectCode(model.UserObjectCode).WithMessage("User not found").WithDetailCode(1) // 30901
 
-	ErrUserUserNotFound = err.ErrObjectNotFound.WithObjectCode(model.UserObjectCode).WithMessage("User not found").WithDetailCode(1) // 30901
+	ErrUserExists = err.ErrInvalidData.WithObjectCode(model.UserObjectCode).WithMessage("User already exists").WithDetailCode(1) // 20901
 
-	ErrUserUserExists = err.ErrInvalidData.WithObjectCode(model.UserObjectCode).WithMessage("User already exists").WithDetailCode(1) // 20901
-
-	ErrUserUserDataStale = err.ErrConflict.WithObjectCode(model.UserObjectCode).WithMessage("User data is stale").WithDetailCode(1) // 70901
+	ErrUserDataStale = err.ErrConflict.WithObjectCode(model.UserObjectCode).WithMessage("User data is stale").WithDetailCode(1) // 70901
 )
 
 // constants for user

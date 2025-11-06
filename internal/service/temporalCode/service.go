@@ -3,12 +3,15 @@ package temporalCodeService
 import (
 	"context"
 	"encoding/json"
+	"time"
+
+	"github.com/gofrs/uuid"
+
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/model/temporalCode"
 	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/gofrs/uuid"
-	"time"
 )
 
 type (
@@ -38,65 +41,86 @@ func NewService(deps Dependencies) *TemporalCodeService {
 	}
 }
 
-func (s *TemporalCodeService) CreateTemporalContinueRegistrationCode(ctx context.Context, data temporalCodeModel.TemporalContinueRegistrationCodeData) (string, error) {
+func (s *TemporalCodeService) CreateTemporalContinueRegistrationCode(
+	ctx context.Context,
+	data temporalCodeModel.TemporalContinueRegistrationCodeData,
+) (string, error) {
 	return s.createTemporalCode(ctx, temporalCodeModel.ContinueRegistrationCodeType, data)
 }
 
-func (s *TemporalCodeService) GetTemporalContinueRegistrationCodeData(ctx context.Context, code string) (*temporalCodeModel.TemporalContinueRegistrationCodeData, error) {
+func (s *TemporalCodeService) GetTemporalContinueRegistrationCodeData(
+	ctx context.Context,
+	code string,
+) (*temporalCodeModel.TemporalContinueRegistrationCodeData, error) {
 	codeData, err := s.getTemporalCodeData(ctx, code, temporalCodeModel.ContinueRegistrationCodeType)
 	if err != nil {
-		return nil, temporalCodeModel.ErrTemporalCode.WithError(err).WithMessage("Failed to get temporal code data").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get temporal code data").Err()
 	}
 
 	// unmarshal data
 	data := temporalCodeModel.TemporalContinueRegistrationCodeData{}
 	if err = json.Unmarshal(codeData, &data); err != nil {
-		return nil, temporalCodeModel.ErrTemporalCode.WithError(err).WithMessage("Failed to unmarshal data").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to unmarshal data").Err()
 	}
 
 	return &data, nil
 }
 
-func (s *TemporalCodeService) CreateTemporalPasswordResettingCode(ctx context.Context, data temporalCodeModel.TemporalPasswordResettingCodeData) (string, error) {
+func (s *TemporalCodeService) CreateTemporalPasswordResettingCode(
+	ctx context.Context,
+	data temporalCodeModel.TemporalPasswordResettingCodeData,
+) (string, error) {
 	return s.createTemporalCode(ctx, temporalCodeModel.PasswordResettingCodeType, data)
 }
 
-func (s *TemporalCodeService) GetTemporalPasswordResettingCodeData(ctx context.Context, code string) (*temporalCodeModel.TemporalPasswordResettingCodeData, error) {
+func (s *TemporalCodeService) GetTemporalPasswordResettingCodeData(
+	ctx context.Context,
+	code string,
+) (*temporalCodeModel.TemporalPasswordResettingCodeData, error) {
 	codeData, err := s.getTemporalCodeData(ctx, code, temporalCodeModel.PasswordResettingCodeType)
 	if err != nil {
-		return nil, temporalCodeModel.ErrTemporalCode.WithError(err).WithMessage("Failed to get temporal code data").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get temporal code data").Err()
 	}
 
 	// unmarshal data
 	data := temporalCodeModel.TemporalPasswordResettingCodeData{}
 	if err = json.Unmarshal(codeData, &data); err != nil {
-		return nil, temporalCodeModel.ErrTemporalCode.WithError(err).WithMessage("Failed to unmarshal data").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to unmarshal data").Err()
 	}
 
 	return &data, nil
 }
 
-func (s *TemporalCodeService) CreateTemporalEmailConfirmationCode(ctx context.Context, data temporalCodeModel.TemporalEmailConfirmationCodeData) (string, error) {
+func (s *TemporalCodeService) CreateTemporalEmailConfirmationCode(
+	ctx context.Context,
+	data temporalCodeModel.TemporalEmailConfirmationCodeData,
+) (string, error) {
 	return s.createTemporalCode(ctx, temporalCodeModel.EmailConfirmationCodeType, data)
 }
 
-func (s *TemporalCodeService) GetTemporalEmailConfirmationCodeData(ctx context.Context, code string) (*temporalCodeModel.TemporalEmailConfirmationCodeData, error) {
+func (s *TemporalCodeService) GetTemporalEmailConfirmationCodeData(
+	ctx context.Context,
+	code string,
+) (*temporalCodeModel.TemporalEmailConfirmationCodeData, error) {
 	codeData, err := s.getTemporalCodeData(ctx, code, temporalCodeModel.EmailConfirmationCodeType)
 	if err != nil {
-		return nil, temporalCodeModel.ErrTemporalCode.WithError(err).WithMessage("Failed to get temporal code data").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get temporal code data").Err()
 	}
 
 	// unmarshal data
 	data := temporalCodeModel.TemporalEmailConfirmationCodeData{}
 	if err = json.Unmarshal(codeData, &data); err != nil {
-		return nil, temporalCodeModel.ErrTemporalCode.WithError(err).WithMessage("Failed to unmarshal data").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to unmarshal data").Err()
 	}
 
 	return &data, nil
 }
 
-func (s *TemporalCodeService) createTemporalCode(ctx context.Context, codeType int32, data interface{}) (string, error) {
-	baseError := temporalCodeModel.ErrTemporalCode.WithContext("codeType", codeType)
+func (s *TemporalCodeService) createTemporalCode(ctx context.Context, codeType int32, data interface{}) (
+	string,
+	error,
+) {
+	baseError := model.ErrPlatform.WithContext("codeType", codeType)
 
 	id := uuid.Must(uuid.NewV7())
 
@@ -105,19 +129,24 @@ func (s *TemporalCodeService) createTemporalCode(ctx context.Context, codeType i
 		return "", baseError.WithError(err).WithMessage("Failed to marshal data").Err()
 	}
 
-	if err = s.repository.CreateTemporalCode(ctx, postgres.CreateTemporalCodeParams{
-		ID:        id,
-		ExpiredAt: time.Now().Add(s.ttl),
-		CodeType:  codeType,
-		Data:      jData,
-	}); err != nil {
+	if err = s.repository.CreateTemporalCode(
+		ctx, postgres.CreateTemporalCodeParams{
+			ID:        id,
+			ExpiredAt: time.Now().Add(s.ttl),
+			CodeType:  codeType,
+			Data:      jData,
+		},
+	); err != nil {
 		return "", baseError.WithError(err).WithMessage("Failed to create temporal code").Err()
 	}
 	return id.String(), nil
 }
 
-func (s *TemporalCodeService) getTemporalCodeData(ctx context.Context, code string, codeType int32) (json.RawMessage, error) {
-	baseError := temporalCodeModel.ErrTemporalCode.WithContext("codeType", codeType)
+func (s *TemporalCodeService) getTemporalCodeData(ctx context.Context, code string, codeType int32) (
+	json.RawMessage,
+	error,
+) {
+	baseError := model.ErrPlatform.WithContext("codeType", codeType)
 	baseInvalidTemporalCodeError := temporalCodeModel.ErrTemporalCodeInvalidCode.WithContext("codeType", codeType)
 
 	id, err := uuid.FromString(code)
@@ -156,7 +185,7 @@ func (s *TemporalCodeService) getTemporalCodeData(ctx context.Context, code stri
 
 func (s *TemporalCodeService) DeleteExpiredTemporalCodes(ctx context.Context) error {
 	if _, err := s.repository.DeleteExpiredTemporalCodes(ctx); err != nil {
-		return temporalCodeModel.ErrTemporalCode.WithError(err).WithMessage("Failed to delete expired temporal codes").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete expired temporal codes").Err()
 	}
 	return nil
 }

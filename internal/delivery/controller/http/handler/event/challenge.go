@@ -2,26 +2,35 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type IChallengeUseCase interface {
-	GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*model.Challenge, error)
-	GetEventChallengesInfo(ctx context.Context, eventID uuid.UUID) ([]*model.CategoryInfo, error)
+	GetEventChallenges(ctx context.Context, eventID uuid.UUID) ([]*eventModel.Challenge, error)
+	GetEventChallengesInfo(ctx context.Context, eventID uuid.UUID) ([]*eventModel.ChallengeCategoryInfo, error)
 	AddEventChallenges(ctx context.Context, eventID, categoryID uuid.UUID, exerciseIDs []uuid.UUID) error
-	DeleteEventChallenge(ctx context.Context, eventID uuid.UUID, challengeID uuid.UUID) error
-
-	UpdateEventChallengesOrder(ctx context.Context, eventID uuid.UUID, orders []model.Order) error
-
-	GetTeamsChallengeSolvedBy(ctx context.Context, eventID, challengeID uuid.UUID) ([]*model.TeamChallengeSolvedBy, error)
+	DeleteEventChallenge(ctx context.Context, eventID, challengeID uuid.UUID) error
+	//
+	UpdateEventChallengesOrder(ctx context.Context, orders []eventModel.Order) error
+	//
+	GetTeamsChallengeSolvedBy(
+		ctx context.Context,
+		eventID, challengeID uuid.UUID,
+		page, pageSize int,
+	) (
+		[]*eventModel.TeamChallengeSolvedBy,
+		error,
+	)
 	SolveChallenge(ctx context.Context, eventID, challengeID uuid.UUID, solution string) (bool, error)
 
-	GetDownloadAttachedFileLink(ctx context.Context, eventID, challengeID, fileID uuid.UUID) (string, error)
+	GetDownloadAttachedFileLink(ctx context.Context, challengeID, fileID uuid.UUID) (string, error)
 }
 
 func (h *Handler) initChallengeAPIHandler(router *gin.RouterGroup) {
@@ -107,20 +116,14 @@ func (h *Handler) addChallenges(ctx *gin.Context) {
 }
 
 func (h *Handler) updateChallengesOrder(ctx *gin.Context) {
-	var inp []model.Order
+	var inp []eventModel.Order
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
 
-	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-
-	if err = h.useCase.UpdateEventChallengesOrder(ctx, eventID, inp); err != nil {
+	if err := h.useCase.UpdateEventChallengesOrder(ctx, inp); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
@@ -199,7 +202,13 @@ func (h *Handler) getChallengeSolvedBy(ctx *gin.Context) {
 		return
 	}
 
-	teams, err := h.useCase.GetTeamsChallengeSolvedBy(ctx, eventID, challengeID)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	teams, err := h.useCase.GetTeamsChallengeSolvedBy(ctx, eventID, challengeID, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -221,13 +230,7 @@ func (h *Handler) getDownloadFileRedirect(ctx *gin.Context) {
 		return
 	}
 
-	eventID, err := uuid.FromString(ctx.GetString(tools.EventIDCtxKey))
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-
-	link, err := h.useCase.GetDownloadAttachedFileLink(ctx, eventID, challengeID, fileID)
+	link, err := h.useCase.GetDownloadAttachedFileLink(ctx, challengeID, fileID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

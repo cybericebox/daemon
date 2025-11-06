@@ -1,10 +1,12 @@
 package eventModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -29,12 +31,10 @@ type (
 )
 
 var (
-	ErrEventChallengeCategory = err.ErrInternal.WithObjectCode(model.EventChallengeCategoryObjectCode)
+	ErrEventChallengeCategoryExists = err.ErrObjectExists.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category already exists").WithDetailCode(1) // 41501
 
-	ErrEventChallengeCategoryCategoryExists = err.ErrObjectExists.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category already exists").WithDetailCode(1) // 41501
+	ErrEventChallengeCategoryNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category not found").WithDetailCode(1) // 31501
 
-	ErrEventChallengeCategoryCategoryNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category not found").WithDetailCode(1) // 31501
-
-	ErrEventChallengeCategoryCategoryHasChallenges = err.ErrConflict.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category has challenges").WithDetailCode(1) // 71501
-	ErrEventChallengeCategoryCategoryDataStale     = err.ErrConflict.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category data is stale").WithDetailCode(2)  // 71502
+	ErrEventChallengeCategoryHasChallenges = err.ErrConflict.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category has challenges").WithDetailCode(1) // 71501
+	ErrEventChallengeCategoryDataStale     = err.ErrConflict.WithObjectCode(model.EventChallengeCategoryObjectCode).WithMessage("Event challenge category data is stale").WithDetailCode(2)  // 71502
 )

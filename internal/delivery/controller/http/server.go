@@ -5,11 +5,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/config"
-	"github.com/rs/zerolog/log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/rs/zerolog/log"
+
+	"github.com/cybericebox/daemon/internal/config"
 )
 
 type (

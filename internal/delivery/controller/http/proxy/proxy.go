@@ -2,15 +2,17 @@ package proxy
 
 import (
 	"context"
+	"net/http/httputil"
+	"net/url"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/gin-gonic/gin"
-	"net/http/httputil"
-	"net/url"
-	"strings"
 )
 
 type (
@@ -67,7 +69,7 @@ func HandleProxy(deps Dependencies) gin.HandlerFunc {
 		}
 
 		if target == "" {
-			// if target is empty, event is not found, so redirect to event not found page
+			// if the target is empty, the event is not found, so redirect to event not found page
 			protection.RedirectToMainDomainPage(ctx, config.EventNotFoundPage)
 			return
 		}
@@ -87,7 +89,7 @@ func (p *proxyHandler) getTarget(ctx *gin.Context) (string, error) {
 	destSubdomain, exists := ctx.Get(tools.SubdomainCtxKey)
 
 	if !exists {
-		return "", model.ErrPlatformSubdomainNotFoundInContext.Err()
+		return "", model.ErrSubdomainNotFoundInContext.Err()
 	}
 
 	switch destSubdomain.(string) {

@@ -2,12 +2,15 @@ package tokenService
 
 import (
 	"errors"
-	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/model/auth"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/libError"
 	"github.com/cybericebox/lib/pkg/token"
 	"github.com/rs/zerolog/log"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/auth"
 )
 
 const (
@@ -33,12 +36,14 @@ type (
 )
 
 func NewService(deps Dependencies) *TokenService {
-	manager, err := token.NewAccessRefreshTokenManager(token.AccessRefreshTokenDependencies{
-		SigningKey: deps.Config.TokenSignature,
-		Issuer:     issuer,
-		AccessTTL:  deps.Config.AccessTokenTTL,
-		RefreshTTL: deps.Config.RefreshTokenTTL,
-	})
+	manager, err := token.NewAccessRefreshTokenManager(
+		token.AccessRefreshTokenDependencies{
+			SigningKey: deps.Config.TokenSignature,
+			Issuer:     issuer,
+			AccessTTL:  deps.Config.AccessTokenTTL,
+			RefreshTTL: deps.Config.RefreshTokenTTL,
+		},
+	)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create token manager for token service")
 	}
@@ -54,7 +59,7 @@ func (s *TokenService) ValidateAccessToken(accessToken string) (interface{}, err
 		if errors.Is(err, libError.ErrTokenInvalidJWTToken.Err()) {
 			return nil, authModel.ErrAuthInvalidAccessToken.Err()
 		}
-		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to parse access token").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to parse access token").Err()
 	}
 
 	return subject, nil
@@ -66,12 +71,12 @@ func (s *TokenService) RefreshTokens(refreshToken string) (*authModel.Tokens, in
 		if errors.Is(err, libError.ErrTokenInvalidJWTToken.Err()) {
 			return nil, nil, authModel.ErrAuthInvalidRefreshToken.Err()
 		}
-		return nil, nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to parse refresh token").Err()
+		return nil, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to parse refresh token").Err()
 	}
 
 	tokens, err := s.GenerateTokens(subject)
 	if err != nil {
-		return nil, nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to generate tokens").Err()
+		return nil, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate tokens").Err()
 	}
 
 	return tokens, subject, nil
@@ -83,17 +88,17 @@ func (s *TokenService) GenerateTokens(subject interface{}) (*authModel.Tokens, e
 
 	tokens.AccessToken, err = s.tokenManager.NewAccessToken(subject)
 	if err != nil {
-		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to generate access token").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate access token").Err()
 	}
 
 	tokens.RefreshToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to generate refresh token").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate refresh token").Err()
 	}
 
 	tokens.PermissionsToken, err = s.tokenManager.NewRefreshToken(subject)
 	if err != nil {
-		return nil, authModel.ErrAuth.WithError(err).WithMessage("Failed to generate permissions token").Err()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate permissions token").Err()
 	}
 
 	return &tokens, nil

@@ -1,10 +1,12 @@
 package exerciseModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -72,12 +74,10 @@ type (
 )
 
 var (
-	ErrExercise = err.ErrInternal.WithObjectCode(model.ExerciseObjectCode)
+	ErrExerciseNotFound = err.ErrObjectNotFound.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise not found").WithDetailCode(1) // 31101
 
-	ErrExerciseExerciseNotFound = err.ErrObjectNotFound.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise not found").WithDetailCode(1) // 31101
+	ErrExerciseExists = err.ErrObjectExists.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise already exists").WithDetailCode(1) // 41101
 
-	ErrExerciseExerciseExists = err.ErrObjectExists.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise already exists").WithDetailCode(1) // 41101
-
-	ErrExerciseExerciseInUse     = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise is in use").WithDetailCode(1)     // 71101
-	ErrExerciseExerciseDataStale = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise data is stale").WithDetailCode(2) // 71102
+	ErrExerciseInUse     = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise is in use").WithDetailCode(1)     // 71101
+	ErrExerciseDataStale = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).WithMessage("Exercise data is stale").WithDetailCode(2) // 71102
 )

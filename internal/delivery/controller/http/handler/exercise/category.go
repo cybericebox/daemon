@@ -2,16 +2,19 @@ package exercise
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type IExerciseCategoryUseCase interface {
-	GetExerciseCategories(ctx context.Context) ([]*model.ExerciseCategory, error)
-	CreateExerciseCategory(ctx context.Context, category model.ExerciseCategory) error
-	UpdateExerciseCategory(ctx context.Context, category model.ExerciseCategory) error
+	GetExerciseCategories(ctx context.Context, page, pageSize int) ([]*exerciseModel.ExerciseCategory, error)
+	CreateExerciseCategory(ctx context.Context, category exerciseModel.ExerciseCategory) error
+	UpdateExerciseCategory(ctx context.Context, category exerciseModel.ExerciseCategory) error
 	DeleteExerciseCategory(ctx context.Context, categoryID uuid.UUID) error
 }
 
@@ -26,7 +29,12 @@ func (h *Handler) initCategoryExerciseAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getCategories(ctx *gin.Context) {
-	categories, err := h.useCase.GetExerciseCategories(ctx)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	categories, err := h.useCase.GetExerciseCategories(ctx, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -36,7 +44,7 @@ func (h *Handler) getCategories(ctx *gin.Context) {
 }
 
 func (h *Handler) createCategory(ctx *gin.Context) {
-	var inp model.ExerciseCategory
+	var inp exerciseModel.ExerciseCategory
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -58,7 +66,7 @@ func (h *Handler) updateCategory(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.ExerciseCategory
+	var inp exerciseModel.ExerciseCategory
 
 	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

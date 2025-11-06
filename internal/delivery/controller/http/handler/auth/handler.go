@@ -2,10 +2,13 @@ package auth
 
 import (
 	"context"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/gin-gonic/gin"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
 type (
@@ -14,7 +17,7 @@ type (
 	}
 
 	IUseCase interface {
-		SignIn(ctx context.Context, email, password string) (*model.Tokens, error)
+		SignIn(ctx context.Context, email, password string) (*authModel.Tokens, error)
 
 		ISignUpUseCase
 		IPasswordUseCase
@@ -39,7 +42,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		h.initEmailAPIHandler(authAPI)
 		h.initSelfAPIHandler(authAPI)
 
-		//with oauth
+		// with oauth
 		oauth := authAPI.Group("")
 		{
 			h.initOAuthGoogleAPIHandler(oauth)
@@ -48,7 +51,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 }
 
 func (h *Handler) signIn(ctx *gin.Context) {
-	var inp model.User
+	var inp userModel.User
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

@@ -1,10 +1,9 @@
 package laboratoryModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/model/exercise"
-	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 type (
@@ -25,8 +24,4 @@ type (
 		Flag        string
 		Variable    string
 	}
-)
-
-var (
-	ErrLaboratory = err.ErrInternal.WithObjectCode(model.LaboratoryObjectCode)
 )

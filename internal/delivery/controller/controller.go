@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http"
 )
@@ -23,10 +24,12 @@ type (
 
 func NewController(deps Dependencies) *Controller {
 	return &Controller{
-		httpController: http.NewController(http.Dependencies{
-			Config:  &deps.Config.HTTP,
-			UseCase: deps.UseCase,
-		}),
+		httpController: http.NewController(
+			http.Dependencies{
+				Config:  &deps.Config.HTTP,
+				UseCase: deps.UseCase,
+			},
+		),
 	}
 }
 

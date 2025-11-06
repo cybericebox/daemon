@@ -1,21 +1,13 @@
 package model
 
-import "github.com/cybericebox/lib/pkg/err"
-
 // Object codes
 const (
 	PlatformObjectCode = iota
-	PostgresObjectCode
-	AgentObjectCode
-	VPNServerObjectCode
-	VPNObjectCode
 	StorageObjectCode
-	EmailObjectCode
 	TemporalCoreObjectCode
 	AuthObjectCode
 	AuthRecaptchaObjectCode
 	UserObjectCode
-	LaboratoryObjectCode
 	ExerciseObjectCode
 	ExerciseCategoryObjectCode
 	EventObjectCode
@@ -25,10 +17,4 @@ const (
 	EventScoreObjectCode
 	EventTeamObjectCode
 	EventTeamChallengeObjectCode
-)
-
-var (
-	ErrPostgres  = err.ErrInternal.WithObjectCode(PostgresObjectCode)
-	ErrAgent     = err.ErrInternal.WithObjectCode(AgentObjectCode)
-	ErrVPNServer = err.ErrInternal.WithObjectCode(VPNServerObjectCode)
 )

@@ -2,12 +2,15 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	storageModel "github.com/cybericebox/daemon/internal/model/storage"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
@@ -24,13 +27,13 @@ type (
 		IChallengeSolutionUseCase
 		IScoreUseCase
 
-		GetEvents(ctx context.Context) ([]*model.Event, error)
-		GetEventsInfo(ctx context.Context) ([]*model.EventInfo, error)
-		CreateEvent(ctx context.Context, event model.Event) error
+		GetEvents(ctx context.Context, page, pageSize int) ([]*eventModel.Event, error)
+		GetEventsInfo(ctx context.Context, page, pageSize int) ([]*eventModel.EventInfo, error)
+		CreateEvent(ctx context.Context, event eventModel.Event) error
 
 		GetEventIDByTag(ctx context.Context, eventTag string) (uuid.UUID, error)
 
-		GetUploadBannerData(ctx context.Context) (*model.UploadFileData, error)
+		GetUploadBannerData(ctx context.Context) (*storageModel.UploadFileData, error)
 	}
 )
 
@@ -56,7 +59,12 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 }
 
 func (h *Handler) getEvents(ctx *gin.Context) {
-	events, err := h.useCase.GetEvents(ctx)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	events, err := h.useCase.GetEvents(ctx, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -66,7 +74,12 @@ func (h *Handler) getEvents(ctx *gin.Context) {
 }
 
 func (h *Handler) getEventsInfo(ctx *gin.Context) {
-	events, err := h.useCase.GetEventsInfo(ctx)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	events, err := h.useCase.GetEventsInfo(ctx, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -76,7 +89,7 @@ func (h *Handler) getEventsInfo(ctx *gin.Context) {
 }
 
 func (h *Handler) createEvent(ctx *gin.Context) {
-	var inp model.Event
+	var inp eventModel.Event
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return

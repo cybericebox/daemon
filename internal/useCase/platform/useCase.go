@@ -1,24 +1,20 @@
 package platform
 
-import "github.com/cybericebox/daemon/pkg/worker"
+import "github.com/cybericebox/lib/pkg/worker"
 
 type (
 	PlatformUseCase struct {
 		service IPlatformService
-		worker  Worker
+		worker  worker.Worker
 	}
 
 	IPlatformService interface {
 		IPlatformHooksService
 	}
 
-	Worker interface {
-		AddTask(task worker.Task)
-	}
-
 	Dependencies struct {
 		Service IPlatformService
-		Worker  Worker
+		Worker  worker.Worker
 	}
 )
 

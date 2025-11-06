@@ -1,10 +1,12 @@
 package storageModel
 
 import (
-	"github.com/cybericebox/daemon/internal/model"
+	"time"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-	"time"
+
+	"github.com/cybericebox/daemon/internal/model"
 )
 
 type (
@@ -38,8 +40,6 @@ type (
 
 // errors for file
 var (
-	ErrStorage = err.ErrInternal.WithObjectCode(model.StorageObjectCode)
-
 	ErrStorageTemporalFileNotFound = err.ErrObjectNotFound.WithObjectCode(model.StorageObjectCode).WithDetailCode(1).WithMessage("Temporal file not found") // 30401
 	ErrStorageFileNotFound         = err.ErrObjectNotFound.WithObjectCode(model.StorageObjectCode).WithDetailCode(2).WithMessage("File not found")          // 30402
 )

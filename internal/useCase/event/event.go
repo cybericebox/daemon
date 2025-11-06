@@ -2,43 +2,52 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
-	"github.com/gofrs/uuid"
-	"github.com/rs/zerolog/log"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
+
+	"github.com/cybericebox/daemon/internal/model"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	storageModel "github.com/cybericebox/daemon/internal/model/storage"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
 	ISingleEventService interface {
-		GetEventByID(ctx context.Context, eventID uuid.UUID) (*model.Event, error)
-		GetEventByTag(ctx context.Context, eventTag string) (*model.Event, error)
+		GetEventByID(ctx context.Context, eventID uuid.UUID) (*eventModel.Event, error)
+		GetEventWithMetadataByID(ctx context.Context, eventID uuid.UUID) (*eventModel.Event, error)
+		GetEventByTag(ctx context.Context, eventTag string) (*eventModel.Event, error)
 
-		UpdateEvent(ctx context.Context, event model.Event) error
+		UpdateEvent(ctx context.Context, event eventModel.Event) error
 		RefreshEventPicture(ctx context.Context, eventID uuid.UUID, picture string) error
 
 		DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 
-		GetDownloadFileLink(ctx context.Context, params model.DownloadFileParams) (string, error)
-		DeleteFiles(ctx context.Context, files ...model.File) error
+		GetDownloadFileURL(
+			ctx context.Context,
+			params storageModel.DownloadFileParams,
+		) (storageModel.DownloadFileURL, error)
+		DeleteFiles(ctx context.Context, files ...storageModel.File) error
 	}
 )
 
 // for administrators
 
-func (u *EventUseCase) GetEvent(ctx context.Context, eventID uuid.UUID) (*model.Event, error) {
-	event, err := u.service.GetEventByID(ctx, eventID)
+func (u *EventUseCase) GetEvent(ctx context.Context, eventID uuid.UUID) (*eventModel.Event, error) {
+	event, err := u.service.GetEventWithMetadataByID(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event by id").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event by id").Err()
 	}
 
 	// check banner link if exists
 	if event.Picture != "" {
 		event.Picture, err = u.refreshPictureLink(ctx, eventID, event.Picture)
 		if err != nil {
-			return nil, model.ErrEvent.WithError(err).WithMessage("Failed to refresh banner link").Cause()
+			return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to refresh banner link").Err()
 		}
 	}
 
@@ -48,17 +57,17 @@ func (u *EventUseCase) GetEvent(ctx context.Context, eventID uuid.UUID) (*model.
 func (u *EventUseCase) GetEventBannerDownloadLink(ctx context.Context, eventID uuid.UUID) (string, error) {
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return "", model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
 
 	return event.Picture, nil
 }
 
-func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error {
+func (u *EventUseCase) UpdateEvent(ctx context.Context, event eventModel.Event) error {
 	// get old event
 	oldEvent, err := u.GetEvent(ctx, event.ID)
 	if err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to get old event").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get old event").Err()
 	}
 
 	// check if event banner is changed
@@ -67,22 +76,25 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error
 		if oldEvent.Picture != "" {
 			fileID, err := parsePictureURL(oldEvent.Picture)
 			if err != nil {
-				return model.ErrEvent.WithError(err).WithMessage("Failed to parse old picture url").Cause()
+				return model.ErrPlatform.WithError(err).WithMessage("Failed to parse old picture url").Err()
 			}
 
-			if err = u.service.DeleteFiles(ctx, model.File{ID: fileID, StorageType: model.BannerStorageType}); err != nil {
-				return model.ErrEvent.WithError(err).WithMessage("Failed to delete old file").Cause()
+			if err = u.service.DeleteFiles(
+				ctx,
+				storageModel.File{ID: fileID, StorageType: storageModel.BannerStorageType},
+			); err != nil {
+				return model.ErrPlatform.WithError(err).WithMessage("Failed to delete old file").Err()
 			}
 		}
 		// confirm new event banner if exists
 		if event.Picture != "" {
 			fileID, err := parsePictureURL(event.Picture)
 			if err != nil {
-				return model.ErrEvent.WithError(err).WithMessage("Failed to parse new picture url").Cause()
+				return model.ErrPlatform.WithError(err).WithMessage("Failed to parse new picture url").Err()
 			}
 
-			if err = u.service.ConfirmFileUpload(ctx, fileID); err != nil {
-				return model.ErrEvent.WithError(err).WithMessage("Failed to confirm file upload").Cause()
+			if err = u.service.ConfirmUploadFiles(ctx, fileID); err != nil {
+				return model.ErrPlatform.WithError(err).WithMessage("Failed to confirm file upload").Err()
 			}
 		}
 	}
@@ -91,7 +103,7 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, event model.Event) error
 	u.UpdateEventHooks(ctx, event, *oldEvent)
 
 	if err = u.service.UpdateEvent(ctx, event); err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to update event").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to update event").Err()
 	}
 	return nil
 }
@@ -100,33 +112,36 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 	// delete event banner if exists
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
 
 	// delete event challenges infrastructure
 	if err = u.DeleteEventTeamsChallengesInfrastructure(ctx, eventID); err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event teams challenges infrastructure").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete event teams challenges infrastructure").Err()
 	}
 
 	// delete event participant vpn configs
 	if err = u.DeleteEventParticipantVPNConfigs(ctx, eventID); err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event participant vpn configs").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete event participant vpn configs").Err()
 	}
 
 	// delete event
 	if err = u.service.DeleteEvent(ctx, eventID); err != nil {
-		return model.ErrEvent.WithError(err).WithMessage("Failed to delete event").Cause()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete event").Err()
 	}
 
 	// delete event banner if exists
 	if event.Picture != "" {
 		fileID, err := parsePictureURL(event.Picture)
 		if err != nil {
-			return model.ErrEvent.WithError(err).WithMessage("Failed to parse picture url").Cause()
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to parse picture url").Err()
 		}
 
-		if err = u.service.DeleteFiles(ctx, model.File{ID: fileID, StorageType: model.BannerStorageType}); err != nil {
-			return model.ErrEvent.WithError(err).WithMessage("Failed to delete file").Cause()
+		if err = u.service.DeleteFiles(
+			ctx,
+			storageModel.File{ID: fileID, StorageType: storageModel.BannerStorageType},
+		); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to delete file").Err()
 		}
 	}
 
@@ -135,13 +150,13 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, eventID uuid.UUID) error
 
 // for participants
 
-func (u *EventUseCase) GetEventInfo(ctx context.Context, eventID uuid.UUID) (*model.EventInfo, error) {
+func (u *EventUseCase) GetEventInfo(ctx context.Context, eventID uuid.UUID) (*eventModel.EventInfo, error) {
 	event, err := u.GetEvent(ctx, eventID)
 	if err != nil {
-		return nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event").Cause()
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
 
-	return &model.EventInfo{
+	return &eventModel.EventInfo{
 		Type:                   event.Type,
 		Participation:          event.Participation,
 		Tag:                    event.Tag,
@@ -162,7 +177,7 @@ func (u *EventUseCase) GetEventInfo(ctx context.Context, eventID uuid.UUID) (*mo
 func (u *EventUseCase) GetEventIDByTag(ctx context.Context, eventTag string) (uuid.UUID, error) {
 	event, err := u.service.GetEventByTag(ctx, eventTag)
 	if err != nil {
-		return uuid.Nil, model.ErrEvent.WithError(err).WithMessage("Failed to get event by tag").Cause()
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event by tag").Err()
 	}
 
 	return event.ID, nil
@@ -179,7 +194,7 @@ func (u *EventUseCase) ShouldProxyEvent(ctx context.Context, eventTag string) bo
 	userRole, err := tools.GetCurrentUserRoleFromContext(ctx)
 	if err == nil {
 		log.Debug().Err(err).Msg("Failed to get user role from context")
-		if userRole == model.AdministratorRole {
+		if userRole == userModel.AdministratorRole {
 			return true
 		}
 	}
@@ -198,7 +213,7 @@ func (u *EventUseCase) refreshPictureLink(ctx context.Context, eventID uuid.UUID
 	// check if banner link is valid
 	parsedURL, err := url.Parse(pictureLink)
 	if err != nil {
-		return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner url").Cause()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to parse banner url").Err()
 	}
 
 	expires := parsedURL.Query().Get("X-Amz-Expires")
@@ -208,22 +223,24 @@ func (u *EventUseCase) refreshPictureLink(ctx context.Context, eventID uuid.UUID
 		// try parse banner link as file id
 		fileID, err := uuid.FromString(pictureLink)
 		if err != nil {
-			return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner url as file id").Cause()
+			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to parse banner url as file id").Err()
 		}
 
-		link, err := u.service.GetDownloadFileLink(ctx, model.DownloadFileParams{
-			StorageType: model.BannerStorageType,
-			FileID:      fileID,
-			Expires:     time.Hour * 24,
-		})
+		link, err := u.service.GetDownloadFileURL(
+			ctx, storageModel.DownloadFileParams{
+				StorageType: storageModel.BannerStorageType,
+				FileID:      fileID,
+				Expires:     time.Hour * 24,
+			},
+		)
 		if err != nil {
-			return "", model.ErrEvent.WithError(err).WithMessage("Failed to get banner link").Cause()
+			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get banner link").Err()
 		}
-		pictureLink = link
+		pictureLink = string(link)
 
 		// update event with new banner link
 		if err = u.service.RefreshEventPicture(ctx, eventID, pictureLink); err != nil {
-			return "", model.ErrEvent.WithError(err).WithMessage("Failed to update event picture").Cause()
+			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to update event picture").Err()
 		}
 
 		return pictureLink, nil
@@ -232,12 +249,12 @@ func (u *EventUseCase) refreshPictureLink(ctx context.Context, eventID uuid.UUID
 	// check if banner link is expired
 	assignedDate, err := time.Parse("20060102T150405Z", date)
 	if err != nil {
-		return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner link assign date").Cause()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to parse banner link assign date").Err()
 	}
 
 	expiresDuration, err := time.ParseDuration(expires + "s")
 	if err != nil {
-		return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner link expires duration").Cause()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to parse banner link expires duration").Err()
 	}
 
 	if time.Now().After(assignedDate.Add(expiresDuration)) {
@@ -245,23 +262,25 @@ func (u *EventUseCase) refreshPictureLink(ctx context.Context, eventID uuid.UUID
 		splitURL := strings.Split(parsedURL.Path, "/")
 		fileID, err := uuid.FromString(splitURL[len(splitURL)-1])
 		if err != nil {
-			return "", model.ErrEvent.WithError(err).WithMessage("Failed to parse banner url as file id").Cause()
+			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to parse banner url as file id").Err()
 		}
 
-		link, err := u.service.GetDownloadFileLink(ctx, model.DownloadFileParams{
-			StorageType: model.BannerStorageType,
-			FileID:      fileID,
-			Expires:     time.Hour * 24,
-		})
+		link, err := u.service.GetDownloadFileURL(
+			ctx, storageModel.DownloadFileParams{
+				StorageType: storageModel.BannerStorageType,
+				FileID:      fileID,
+				Expires:     time.Hour * 24,
+			},
+		)
 		if err != nil {
-			return "", model.ErrEvent.WithError(err).WithMessage("Failed to get banner link").Cause()
+			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get banner link").Err()
 		}
 
-		pictureLink = link
+		pictureLink = string(link)
 
 		// update event with new banner link
 		if err = u.service.RefreshEventPicture(ctx, eventID, pictureLink); err != nil {
-			return "", model.ErrEvent.WithError(err).WithMessage("Failed to update event picture").Cause()
+			return "", model.ErrPlatform.WithError(err).WithMessage("Failed to update event picture").Err()
 		}
 
 		return pictureLink, nil
@@ -273,7 +292,7 @@ func (u *EventUseCase) refreshPictureLink(ctx context.Context, eventID uuid.UUID
 func parsePictureURL(pictureLink string) (uuid.UUID, error) {
 	parsedURL, err := url.Parse(pictureLink)
 	if err != nil {
-		return uuid.Nil, model.ErrEvent.WithError(err).WithMessage("Failed to parse picture url").Cause()
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to parse picture url").Err()
 	}
 
 	splitURL := strings.Split(parsedURL.Path, "/")

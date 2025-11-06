@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/agent"
 	"github.com/cybericebox/daemon/internal/delivery/repository/email"

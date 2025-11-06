@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/cybericebox/daemon/internal/model/email"
 	"html/template"
+
+	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/email"
 )
 
 type (
@@ -30,37 +32,57 @@ func NewService(deps Dependencies) *EmailService {
 	}
 }
 
-func (s *EmailService) SendContinueRegistrationEmail(ctx context.Context, sendTo string, data emailModel.ContinueRegistrationTemplateData) error {
+func (s *EmailService) SendContinueRegistrationEmail(
+	ctx context.Context,
+	sendTo string,
+	data emailModel.ContinueRegistrationTemplateData,
+) error {
 	if err := s.sendEmailWithTemplate(ctx, sendTo, emailModel.ContinueRegistrationTemplate, data); err != nil {
-		return emailModel.ErrEmail.WithError(err).WithMessage("Failed to send email").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to send email").Err()
 	}
 	return nil
 }
 
-func (s *EmailService) SendInvitationToRegistrationEmail(ctx context.Context, sendTo string, data emailModel.InvitationToRegistrationTemplateData) error {
+func (s *EmailService) SendInvitationToRegistrationEmail(
+	ctx context.Context,
+	sendTo string,
+	data emailModel.InvitationToRegistrationTemplateData,
+) error {
 	if err := s.sendEmailWithTemplate(ctx, sendTo, emailModel.InvitationToRegistrationTemplate, data); err != nil {
-		return emailModel.ErrEmail.WithError(err).WithMessage("Failed to send email").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to send email").Err()
 	}
 	return nil
 }
 
-func (s *EmailService) SendAccountExistsEmail(ctx context.Context, sendTo string, data emailModel.AccountExistsTemplateData) error {
+func (s *EmailService) SendAccountExistsEmail(
+	ctx context.Context,
+	sendTo string,
+	data emailModel.AccountExistsTemplateData,
+) error {
 	if err := s.sendEmailWithTemplate(ctx, sendTo, emailModel.AccountExistsTemplate, data); err != nil {
-		return emailModel.ErrEmail.WithError(err).WithMessage("Failed to send email").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to send email").Err()
 	}
 	return nil
 }
 
-func (s *EmailService) SendPasswordResettingEmail(ctx context.Context, sendTo string, data emailModel.PasswordResettingTemplateData) error {
+func (s *EmailService) SendPasswordResettingEmail(
+	ctx context.Context,
+	sendTo string,
+	data emailModel.PasswordResettingTemplateData,
+) error {
 	if err := s.sendEmailWithTemplate(ctx, sendTo, emailModel.PasswordResettingTemplate, data); err != nil {
-		return emailModel.ErrEmail.WithError(err).WithMessage("Failed to send email").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to send email").Err()
 	}
 	return nil
 }
 
-func (s *EmailService) SendEmailConfirmationEmail(ctx context.Context, sendTo string, data emailModel.EmailConfirmationTemplateData) error {
+func (s *EmailService) SendEmailConfirmationEmail(
+	ctx context.Context,
+	sendTo string,
+	data emailModel.EmailConfirmationTemplateData,
+) error {
 	if err := s.sendEmailWithTemplate(ctx, sendTo, emailModel.EmailConfirmationTemplate, data); err != nil {
-		return emailModel.ErrEmail.WithError(err).WithMessage("Failed to send email").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to send email").Err()
 	}
 	return nil
 }
@@ -68,7 +90,7 @@ func (s *EmailService) SendEmailConfirmationEmail(ctx context.Context, sendTo st
 func (s *EmailService) getTemplate(ctx context.Context, templateName string) (*emailModel.EmailTemplate, error) {
 	// get email template
 	// error with context
-	baseError := emailModel.ErrEmail.WithContext("templateName", templateName)
+	baseError := model.ErrPlatform.WithContext("templateName", templateName)
 
 	data, err := s.repository.GetPlatformSettings(ctx, templateName)
 	if err != nil {
@@ -89,18 +111,18 @@ func (s *EmailService) populatedWithData(tmpl string, data interface{}) (string,
 
 	t, err := template.New("template").Parse(tmpl)
 	if err != nil {
-		return "", emailModel.ErrEmail.WithError(err).WithMessage("Failed to parse template").Err()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to parse template").Err()
 	}
 
 	if err = t.Execute(&tpl, data); err != nil {
-		return "", emailModel.ErrEmail.WithError(err).WithMessage("Failed to execute template").Err()
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to execute template").Err()
 	}
 
 	return tpl.String(), nil
 }
 
 func (s *EmailService) sendEmailWithTemplate(ctx context.Context, sendTo, templateName string, data interface{}) error {
-	baseError := emailModel.ErrEmail.WithContext("sendTo", sendTo).WithContext("type", templateName)
+	baseError := model.ErrPlatform.WithContext("sendTo", sendTo).WithContext("type", templateName)
 
 	t, err := s.getTemplate(ctx, templateName)
 	if err != nil {

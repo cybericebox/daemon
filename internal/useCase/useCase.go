@@ -1,12 +1,13 @@
 package useCase
 
 import (
+	"github.com/cybericebox/lib/pkg/worker"
+
 	"github.com/cybericebox/daemon/internal/useCase/auth"
 	"github.com/cybericebox/daemon/internal/useCase/event"
 	"github.com/cybericebox/daemon/internal/useCase/exercise"
 	"github.com/cybericebox/daemon/internal/useCase/platform"
 	"github.com/cybericebox/daemon/internal/useCase/user"
-	"github.com/cybericebox/daemon/pkg/worker"
 )
 
 type (
@@ -26,34 +27,40 @@ type (
 		platform.IPlatformService
 	}
 
-	Worker interface {
-		AddTask(task worker.Task)
-	}
-
 	Dependencies struct {
 		Service IService
-		Worker  Worker
+		Worker  worker.Worker
 	}
 )
 
 func NewUseCase(deps Dependencies) *UseCase {
 	return &UseCase{
-		PlatformUseCase: platform.NewUseCase(platform.Dependencies{
-			Service: deps.Service,
-			Worker:  deps.Worker,
-		}),
-		AuthUseCase: auth.NewUseCase(auth.Dependencies{
-			Service: deps.Service,
-		}),
-		UserUseCase: user.NewUseCase(user.Dependencies{
-			Service: deps.Service,
-		}),
-		ExerciseUseCase: exercise.NewUseCase(exercise.Dependencies{
-			Service: deps.Service,
-		}),
-		EventUseCase: event.NewUseCase(event.Dependencies{
-			Service: deps.Service,
-			Worker:  deps.Worker,
-		}),
+		PlatformUseCase: platform.NewUseCase(
+			platform.Dependencies{
+				Service: deps.Service,
+				Worker:  deps.Worker,
+			},
+		),
+		AuthUseCase: auth.NewUseCase(
+			auth.Dependencies{
+				Service: deps.Service,
+			},
+		),
+		UserUseCase: user.NewUseCase(
+			user.Dependencies{
+				Service: deps.Service,
+			},
+		),
+		ExerciseUseCase: exercise.NewUseCase(
+			exercise.Dependencies{
+				Service: deps.Service,
+			},
+		),
+		EventUseCase: event.NewUseCase(
+			event.Dependencies{
+				Service: deps.Service,
+				Worker:  deps.Worker,
+			},
+		),
 	}
 }

@@ -2,10 +2,12 @@ package auth
 
 import (
 	"context"
+
+	"github.com/gin-gonic/gin"
+
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/gin-gonic/gin"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
 type IPasswordUseCase interface {
@@ -22,7 +24,7 @@ func (h *Handler) initPasswordAPIHandler(router *gin.RouterGroup) {
 }
 
 func (h *Handler) forgotPassword(ctx *gin.Context) {
-	var inp model.User
+	var inp userModel.User
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -40,7 +42,7 @@ func (h *Handler) forgotPassword(ctx *gin.Context) {
 func (h *Handler) resetPassword(ctx *gin.Context) {
 	code := ctx.Param("code")
 
-	var inp model.User
+	var inp userModel.User
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

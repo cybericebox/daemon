@@ -2,16 +2,24 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type IChallengeSolutionUseCase interface {
-	GetEventChallengeSolutionAttempts(ctx context.Context, eventID uuid.UUID) ([]*model.TeamChallengeSolutionAttempt, error)
-	UpdateEventChallengeSolutionAttempt(ctx context.Context, solutionAttempt model.TeamChallengeSolutionAttempt) error
+	GetEventChallengeSolutionAttempts(ctx context.Context, eventID uuid.UUID, page, pageSize int) (
+		[]*eventModel.TeamChallengeSolutionAttempt,
+		error,
+	)
+	UpdateEventChallengeSolutionAttempt(
+		ctx context.Context,
+		solutionAttempt eventModel.TeamChallengeSolutionAttempt,
+	) error
 }
 
 func (h *Handler) initChallengeSolutionAPIHandler(router *gin.RouterGroup) {
@@ -29,7 +37,13 @@ func (h *Handler) getSolutions(ctx *gin.Context) {
 		return
 	}
 
-	solutions, err := h.useCase.GetEventChallengeSolutionAttempts(ctx, eventID)
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+
+	solutions, err := h.useCase.GetEventChallengeSolutionAttempts(ctx, eventID, page, pageSize)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -51,7 +65,7 @@ func (h *Handler) updateSolutionStatus(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.TeamChallengeSolutionAttempt
+	var inp eventModel.TeamChallengeSolutionAttempt
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithError(ctx, err)
 		return

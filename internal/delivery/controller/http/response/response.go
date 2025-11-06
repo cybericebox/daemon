@@ -1,10 +1,12 @@
 package response
 
 import (
-	"github.com/cybericebox/daemon/internal/tools"
+	"net/http"
+
 	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gin-gonic/gin"
-	"net/http"
+
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
@@ -21,27 +23,31 @@ type (
 )
 
 func AbortWithData(ctx *gin.Context, data interface{}, statusCode ...err.Error) {
-	code := err.Success.Err()
+	code := err.ErrInternal.WithStatusCode(err.StatusCodeSuccess).Err()
 
 	if len(statusCode) > 0 {
 		code = statusCode[0]
 	}
-	ctx.JSON(http.StatusOK, Response{
-		Status: Status{
-			Code:    code.Code().Code(),
-			Message: code.Code().Message(),
+	ctx.JSON(
+		http.StatusOK, Response{
+			Status: Status{
+				Code:    code.StatusCode().FullCode(),
+				Message: code.StatusCode().Message(),
+			},
+			Data: data,
 		},
-		Data: data,
-	})
+	)
 }
 
 func AbortWithStatus(ctx *gin.Context, code err.Error) {
-	ctx.AbortWithStatusJSON(code.Code().HTTPCode(), Response{
-		Status: Status{
-			Code:    code.Code().Code(),
-			Message: code.Code().Message(),
+	ctx.AbortWithStatusJSON(
+		code.StatusCode().HTTPCode(), Response{
+			Status: Status{
+				Code:    code.StatusCode().FullCode(),
+				Message: code.StatusCode().Message(),
+			},
 		},
-	})
+	)
 }
 
 func AbortWithBadRequest(ctx *gin.Context, errs ...error) {
@@ -66,7 +72,7 @@ func AbortWithNotFound(ctx *gin.Context) {
 }
 
 func AbortWithSuccess(ctx *gin.Context) {
-	AbortWithStatus(ctx, err.Success.Err())
+	AbortWithStatus(ctx, err.ErrInternal.WithStatusCode(err.StatusCodeSuccess).Err())
 }
 
 func AbortWithTooManyRequests(ctx *gin.Context) {

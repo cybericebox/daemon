@@ -2,11 +2,15 @@ package exercise
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	storageModel "github.com/cybericebox/daemon/internal/model/storage"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type (
@@ -17,15 +21,15 @@ type (
 	IUseCase interface {
 		IExerciseCategoryUseCase
 
-		GetExercises(ctx context.Context, search string) ([]*model.Exercise, error)
-		GetExercise(ctx context.Context, id uuid.UUID) (*model.Exercise, error)
+		GetExercises(ctx context.Context, search string, page, pageSize int) ([]*exerciseModel.Exercise, error)
+		GetExercise(ctx context.Context, id uuid.UUID) (*exerciseModel.Exercise, error)
 
-		CreateExercise(ctx context.Context, exercise model.Exercise) error
-		UpdateExercise(ctx context.Context, exercise model.Exercise) error
+		CreateExercise(ctx context.Context, exercise exerciseModel.Exercise) error
+		UpdateExercise(ctx context.Context, exercise exerciseModel.Exercise) error
 
 		DeleteExercise(ctx context.Context, id uuid.UUID) error
 
-		GetUploadFileData(ctx context.Context) (*model.UploadFileData, error)
+		GetUploadFileData(ctx context.Context) (*storageModel.UploadFileData, error)
 		GetDownloadFileLink(ctx context.Context, exerciseID, fileID uuid.UUID, fileName string) (string, error)
 	}
 )
@@ -52,8 +56,13 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 func (h *Handler) getExercises(ctx *gin.Context) {
 	search := ctx.Query("search")
+	page, pageSize, err := tools.GetPaginationParams(ctx)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
 
-	exercises, err := h.useCase.GetExercises(ctx, search)
+	exercises, err := h.useCase.GetExercises(ctx, search, page, pageSize)
 
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -80,7 +89,7 @@ func (h *Handler) getExercise(ctx *gin.Context) {
 }
 
 func (h *Handler) createExercise(ctx *gin.Context) {
-	var inp model.Exercise
+	var inp exerciseModel.Exercise
 
 	if err := ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -102,7 +111,7 @@ func (h *Handler) updateExercise(ctx *gin.Context) {
 		return
 	}
 
-	var inp model.Exercise
+	var inp exerciseModel.Exercise
 
 	if err = ctx.BindJSON(&inp); err != nil {
 		response.AbortWithBadRequest(ctx, err)

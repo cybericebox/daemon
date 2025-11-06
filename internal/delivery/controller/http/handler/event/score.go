@@ -2,16 +2,18 @@ package event
 
 import (
 	"context"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/model"
-	"github.com/cybericebox/daemon/internal/tools"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	"github.com/cybericebox/daemon/internal/tools"
 )
 
 type IScoreUseCase interface {
-	GetScore(ctx context.Context, eventID uuid.UUID) (*model.EventScore, error)
+	GetScore(ctx context.Context, eventID uuid.UUID) (*eventModel.EventScore, error)
 	ProtectScore(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
 
