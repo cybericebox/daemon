@@ -57,6 +57,55 @@ func (u *EventUseCase) UpdateEventParticipantStatus(
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to update event participant status").Err()
 	}
 
+	if status == eventModel.ApprovedParticipationStatus {
+		if err := u.createIndividualTeamForUser(ctx, eventID, userID); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (u *EventUseCase) createIndividualTeamForUser(ctx context.Context, eventID, userID uuid.UUID) error {
+	event, err := u.service.GetEventByID(ctx, eventID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event by id").Err()
+	}
+
+	if event.Participation != eventModel.IndividualParticipationType {
+		return nil
+	}
+
+	// skip if user already has a team
+	if _, err = u.service.GetEventParticipantTeam(ctx, eventID, userID); err == nil {
+		return nil
+	}
+
+	user, err := u.service.GetUserByID(ctx, userID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user by id").Err()
+	}
+
+	IDs, err := u.service.CreateLaboratories(ctx, 26, 1, uuid.Nil)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create laboratory").Err()
+	}
+
+	team := eventModel.Team{
+		EventID:      eventID,
+		Name:         user.Name,
+		LaboratoryID: uuid.NullUUID{UUID: IDs[0], Valid: true},
+	}
+
+	teamID, err := u.service.CreateEventTeam(ctx, team)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to create team").Err()
+	}
+
+	if err = u.service.AssignEventTeam(ctx, eventID, userID, *teamID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to assign user to team").Err()
+	}
+
 	return nil
 }
 
