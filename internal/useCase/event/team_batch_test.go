@@ -20,7 +20,7 @@ import (
 )
 
 func batchUC(q *postgresMocks.MockQuerier, unit *testUoW, notifier *invitationNotifier) *event.EventUseCase {
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", SetupTokens: invitationTokens{}})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(notifier)
 	return uc
 }

@@ -15,8 +15,6 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
 
-const maxEventContentImageBytes = 5 << 20
-
 func eventContentImageURL(eventID, fileID uuid.UUID) string {
 	return fmt.Sprintf("/api/events/%s/content-images/%s", eventID, fileID)
 }
@@ -36,7 +34,7 @@ func (u *EventUseCase) UploadEventContentImage(ctx context.Context, eventID, use
 	if err != nil {
 		return "", err
 	}
-	if len(data) > maxEventContentImageBytes {
+	if int64(len(data)) > maxEventContentImageBytes {
 		return "", eventModel.ErrEventPreviewPictureTooLarge.Err()
 	}
 	contentType := http.DetectContentType(data)

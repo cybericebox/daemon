@@ -20,7 +20,7 @@ func TestRunEventMailNotices_PublishesOnceAndRecordsState(t *testing.T) {
 	unit := &testUoW{}
 	publisher := &recordingSignalPublisher{}
 	uc := event.NewEventUseCase(event.Dependencies{
-		Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "cybericebox.com",
+		Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "cybericebox.com", IDHost: "id.cybericebox.com",
 		SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
 	})
 	now := time.Now().UTC()

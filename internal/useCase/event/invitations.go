@@ -159,7 +159,7 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 	if err != nil || address.Address != email || len(email) > 254 {
 		return uuid.Nil, participantModel.ErrInvitationEmailInvalid.Err()
 	}
-	if u.uow == nil || u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" {
+	if u.uow == nil || u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "" {
 		return uuid.Nil, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
 	}
 	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
@@ -225,7 +225,7 @@ func (u *EventUseCase) sendParticipantInvitation(ctx context.Context, e eventMod
 		if tokenErr != nil {
 			return time.Time{}, model.ErrPlatform.WithError(tokenErr).WithMessage("Failed to issue invitation setup link").Err()
 		}
-		inviteURL = fmt.Sprintf("https://id.%s/setup?token=%s&return_to=%s", u.eventDomain, url.QueryEscape(token), url.QueryEscape(inviteURL))
+		inviteURL = fmt.Sprintf("https://%s/setup?token=%s&return_to=%s", u.idHost, url.QueryEscape(token), url.QueryEscape(inviteURL))
 	}
 	invitationType := signalModel.TypeParticipantInvitationSent
 	if toTeam {
@@ -268,7 +268,7 @@ func invitationExpired(e eventModel.Event, p participantModel.Participant, now t
 
 // ResendParticipantInvitation re-sends a pending, unexpired invitation.
 func (u *EventUseCase) ResendParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) (ParticipantInvitationResult, error) {
-	if u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" {
+	if u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "" {
 		return ParticipantInvitationResult{}, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
 	}
 	p, err := u.participants.Get(ctx, eventID, userID)

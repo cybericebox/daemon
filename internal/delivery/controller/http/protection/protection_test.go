@@ -50,7 +50,7 @@ func newProt(uc protection.IUseCase) *protection.Protection {
 	return protection.New(
 		protection.Dependencies{
 			UseCase: uc,
-			Config:  config.AuthConfig{Domain: "example.test"},
+			Config:  config.AuthConfig{Hosts: config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}},
 		},
 	)
 }

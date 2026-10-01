@@ -34,7 +34,7 @@ func newCompleteUC(t *testing.T, superAdminEmail string) (*auth.AuthUseCase, *po
 		Notifier: &fakeNotifier{},
 		Config: config.AuthConfig{
 			SessionIdleTTL:  time.Hour,
-			Domain:          "test",
+			Hosts:           testHosts("test"),
 			SuperAdminEmail: superAdminEmail,
 		},
 	})

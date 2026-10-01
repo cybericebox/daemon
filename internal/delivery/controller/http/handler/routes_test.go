@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
@@ -25,7 +26,7 @@ func TestInitRegistersEveryRouteOnce(t *testing.T) {
 		}
 	}()
 	router := gin.New()
-	NewAPIHandler(nil, noopProtector{}, "example.test").Init(router)
+	NewAPIHandler(nil, noopProtector{}, config.AuthConfig{Hosts: config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}}).Init(router)
 	if len(router.Routes()) == 0 {
 		t.Fatal("no routes registered")
 	}

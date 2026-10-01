@@ -10,7 +10,6 @@ import (
 
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/config"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
@@ -46,7 +45,7 @@ func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, 
 	override := userModel.User{ID: userID, Email: newEmail, FirstName: current.FirstName}
 
 	if err = u.notifier.Notify(ctx, userID, notificationPayloads.EmailConfirmationPayload{
-		ConfirmURL: fmt.Sprintf("https://%s.%s/confirm-email?token=%s", config.IDSubdomain, u.cfg.Domain, bsCode),
+		ConfirmURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/confirm-email?token=%s", bsCode)),
 		Name:       current.FirstName,
 	}, dispatchModel.WithRecipient(override)); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to send email change confirmation").Err()

@@ -7,6 +7,7 @@ import (
 	adminAuditHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/adminAudit"
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/config"
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 	eventHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/event"
 	eventAnalyticsHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/eventAnalytics"
@@ -28,7 +29,7 @@ type (
 	Handler struct {
 		useCase IUseCase
 		prot    Protector
-		domain  string // platform apex domain (e.g. "example.test")
+		cfg     config.AuthConfig
 	}
 
 	// IUseCase is the union of every sub-handler's useCase port. The aggregate
@@ -64,8 +65,8 @@ type (
 	}
 )
 
-func NewAPIHandler(useCase IUseCase, prot Protector, domain string) *Handler {
-	return &Handler{useCase: useCase, prot: prot, domain: domain}
+func NewAPIHandler(useCase IUseCase, prot Protector, cfg config.AuthConfig) *Handler {
+	return &Handler{useCase: useCase, prot: prot, cfg: cfg}
 }
 
 func (h *Handler) Init(router *gin.Engine) {
@@ -93,9 +94,9 @@ func (h *Handler) Init(router *gin.Engine) {
 		// they need the Origin-resolved tenant on top of the PermSelf gate;
 		// built here (not threaded from controller.go) since the aggregator
 		// already holds both the use case and the apex domain.
-		resolveTenant := middleware.ResolveEventTenant(middleware.NewEventTenantResolver(h.useCase), h.domain)
+		resolveTenant := middleware.ResolveEventTenant(middleware.NewEventTenantResolver(h.useCase), h.cfg.Hosts)
 		eventselfHandler.NewEventSelfAPIHandler(h.useCase, h.prot).Init(baseAPI, resolveTenant)
 
-		authHandler.NewAuthAPIHandler(h.useCase, h.prot, h.domain).Init(baseAPI, baseAPI)
+		authHandler.NewAuthAPIHandler(h.useCase, h.prot, h.cfg).Init(baseAPI, baseAPI)
 	}
 }

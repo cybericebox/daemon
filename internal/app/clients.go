@@ -67,6 +67,7 @@ func setupClients(cfg *config.Config) *clients {
 	cls.tokenClient = token.MustNew(
 		token.Config{
 			TokenSignature: cfg.Auth.TokenSignature,
+			SetupTokenTTL:  cfg.Auth.SetupTokenTTL,
 		},
 	)
 

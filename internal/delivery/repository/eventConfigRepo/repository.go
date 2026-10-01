@@ -204,7 +204,7 @@ func ToDomain(row postgres.EventConfig) eventConfigModel.EventConfig {
 	// Treat zero as the migration's safe default rather than letting a legacy
 	// config update erase team-capacity policy.
 	if maxTeamSize == 0 {
-		maxTeamSize = 5
+		maxTeamSize = eventConfigModel.DefaultMaxTeamSize()
 	}
 	theme := eventConfigModel.Theme{
 		Brand: row.BrandColor, Accent: row.AccentColor,

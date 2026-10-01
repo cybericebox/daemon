@@ -18,8 +18,24 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
 
-const maxEventLogoBytes = 2 << 20
-const maxEventPreviewPictureBytes = 5 << 20
+// UploadLimits are the byte limits of the event image uploads (EVENT_LOGO_MAX_BYTES,
+// EVENT_PREVIEW_PICTURE_MAX_BYTES, EVENT_CONTENT_IMAGE_MAX_BYTES, LIVE_LOGO_MAX_BYTES).
+type UploadLimits struct {
+	Logo, PreviewPicture, ContentImage, LiveLogo int64
+}
+
+var (
+	maxEventLogoBytes           int64 = 2 << 20
+	maxEventPreviewPictureBytes int64 = 5 << 20
+	maxEventContentImageBytes   int64 = 5 << 20
+	maxLiveLogoBytes            int64 = 1 << 20
+)
+
+// ConfigureUploadLimits sets the event image upload limits once at start.
+func ConfigureUploadLimits(l UploadLimits) {
+	maxEventLogoBytes, maxEventPreviewPictureBytes = l.Logo, l.PreviewPicture
+	maxEventContentImageBytes, maxLiveLogoBytes = l.ContentImage, l.LiveLogo
+}
 
 // EventLogoURL exposes only the current logo's event-scoped proxy URL.
 // An absent reference intentionally means the frontend uses the platform logo.
@@ -48,7 +64,7 @@ func (u *EventUseCase) UploadEventLogo(ctx context.Context, eventID, userID uuid
 	if err != nil {
 		return "", err
 	}
-	if len(data) > maxEventLogoBytes {
+	if int64(len(data)) > maxEventLogoBytes {
 		return "", eventModel.ErrEventLogoTooLarge.Err()
 	}
 	contentType := http.DetectContentType(data)
@@ -114,7 +130,7 @@ func (u *EventUseCase) UploadEventPreviewPicture(ctx context.Context, eventID, u
 	if err != nil {
 		return "", err
 	}
-	if len(data) > maxEventPreviewPictureBytes {
+	if int64(len(data)) > maxEventPreviewPictureBytes {
 		return "", eventModel.ErrEventPreviewPictureTooLarge.Err()
 	}
 	contentType := http.DetectContentType(data)

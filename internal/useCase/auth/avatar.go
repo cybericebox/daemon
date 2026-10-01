@@ -19,8 +19,8 @@ import (
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
-// MaxAvatarBytes caps avatar size (upload and provider download).
-const MaxAvatarBytes = 5 << 20 // 5 MiB
+// MaxAvatarBytes caps avatar size (upload and provider download); AVATAR_MAX_BYTES sets it once at start.
+var MaxAvatarBytes int64 = 5 << 20 // 5 MiB
 
 // allowedImageTypes is the raster allowlist for avatars. SVG is deliberately
 // excluded: an SVG can carry <script>, and since avatars are served from the

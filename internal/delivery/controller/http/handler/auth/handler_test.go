@@ -229,7 +229,7 @@ func TestSignIn_Returns200WithRedirectURL(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(
 		&fakeUC{cookie: "c", redirect: "l"},
 		&fakeProt{},
-		"example.test",
+		testAuthConfig,
 	)
 	api := r.Group("api")
 	h.Init(api, api)
@@ -267,7 +267,7 @@ func TestListSessions_Returns200(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(
 		&fakeUC{sessions: []authUseCase.SessionInfo{{ID: sid, IsCurrent: true, CreatedAt: sentinel}}},
 		&fakeProt{},
-		"example.test",
+		testAuthConfig,
 	)
 	h.Init(r.Group("api"), r.Group("api"))
 
@@ -298,7 +298,7 @@ func TestListSessions_Returns200(t *testing.T) {
 func TestSessions_NoIdentity_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/sessions", nil)
@@ -312,7 +312,7 @@ func TestSessions_NoIdentity_401(t *testing.T) {
 func TestSignUp_Returns200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(
@@ -330,7 +330,7 @@ func TestSignUp_Returns200(t *testing.T) {
 func TestCompleteSetup_Returns200WithRedirectURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	body := `{"Token":"t","FirstName":"Jane","LastName":"Doe","Password":"Secret!1","TosVersion":1,"Redirect":"https://id.example.test/dashboard"}`
@@ -361,7 +361,7 @@ func TestCompleteSetup_Returns200WithRedirectURL(t *testing.T) {
 func TestChangePassword_NoIdentity_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(
@@ -379,7 +379,7 @@ func TestChangePassword_NoIdentity_401(t *testing.T) {
 func TestGoogleRedirect_Returns307(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google", nil)
@@ -396,7 +396,7 @@ func TestSignIn_RecaptchaWrapped_Returns200WithRedirectURL(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(
 		&fakeUC{cookie: "c", redirect: "l"},
 		&fakeProt{},
-		"example.test",
+		testAuthConfig,
 	)
 	h.Init(r.Group("api"), r.Group("api"))
 
@@ -426,7 +426,7 @@ func TestSignIn_RedirectFlowsToUseCase(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	uc := &fakeUC{cookie: "sess", redirect: "https://event1.example.test/dashboard"}
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	body := `{"Email":"a@b.test","Password":"Secret!1","Redirect":"https://event1.example.test/dashboard"}`
@@ -467,7 +467,7 @@ func TestGoogleCallback_StateMismatch_RedirectsToSignInFailed(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(
 		&fakeUC{cookie: "c", redirect: "l"},
 		&fakeProt{},
-		"example.test",
+		testAuthConfig,
 	)
 	h.Init(r.Group("api"), r.Group("api"))
 
@@ -500,7 +500,7 @@ func TestGoogleCallback_StateMatch_SignsIn(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(
 		&fakeUC{cookie: "c", redirect: "l"},
 		&fakeProt{},
-		"example.test",
+		testAuthConfig,
 	)
 	h.Init(r.Group("api"), r.Group("api"))
 
@@ -522,7 +522,7 @@ func TestGoogleCallback_NotRegistered_RedirectsToSignUpOffer(t *testing.T) {
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
 	uc := &fakeUC{googleAuthErr: authModel.ErrAuthGoogleNotRegistered.Err()}
-	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
@@ -553,7 +553,7 @@ func TestGoogleCallback_GoogleAuthGenericError_RedirectsToSignInFailed(t *testin
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
 	uc := &fakeUC{googleAuthErr: errors.New("some unexpected error")}
-	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
@@ -588,7 +588,7 @@ func TestGetAccount_Returns200(t *testing.T) {
 	sid := uuid.Must(uuid.NewV7())
 	r := gin.New()
 	r.Use(injectIdentity(uid, sid))
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/account", nil)
@@ -602,7 +602,7 @@ func TestGetAccount_Returns200(t *testing.T) {
 func TestAccount_NoIdentity_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/account", nil)
@@ -616,7 +616,7 @@ func TestAccount_NoIdentity_401(t *testing.T) {
 func TestConfirmEmailChange_Returns200(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(
@@ -634,7 +634,7 @@ func TestConfirmEmailChange_Returns200(t *testing.T) {
 func TestGoogleLinkRedirect_NoIdentity_401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/link", nil)
@@ -654,7 +654,7 @@ func TestGoogleLinkRedirect_Returns307(t *testing.T) {
 	sid := uuid.Must(uuid.NewV7())
 	r := gin.New()
 	r.Use(injectIdentity(uid, sid))
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/link", nil)
@@ -697,7 +697,7 @@ func TestGoogleCallback_Link_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
@@ -735,7 +735,7 @@ func TestGoogleCallback_Link_MissingLinkCookie(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
@@ -762,7 +762,7 @@ func TestGoogleCallback_Link_UseCase_Error(t *testing.T) {
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
 	uc := &fakeUC{linkErr: errors.New("account already linked")}
-	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
@@ -787,7 +787,7 @@ func TestGoogleCallback_Register_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
@@ -811,7 +811,7 @@ func TestGoogleCallback_Setup_Success(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)

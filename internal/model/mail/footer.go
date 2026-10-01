@@ -10,7 +10,7 @@ import (
 // PlatformName is the product name in the platform sender and the footer.
 const PlatformName = "Cyber ICE Box"
 
-// supportMailbox is the local part of the default Reply-To (support@<DOMAIN>).
+// supportMailbox is the local part of the default Reply-To (support@<MAIN_HOST>).
 const supportMailbox = "support"
 
 // Language picks the footer text. There is no per-recipient language yet, so

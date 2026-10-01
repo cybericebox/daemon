@@ -14,6 +14,7 @@
 package middleware
 
 import (
+	"github.com/cybericebox/daemon/internal/config"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -26,15 +27,15 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 const preflightMaxAge = 10 * time.Minute
 
 // HandleCORSMiddleWare returns a gin middleware that allows cross-origin, credentialed
-// requests from https://<domain> and any https://*.<domain> origin. Any other
-// present Origin is rejected with 403 before the request reaches routing.
-func HandleCORSMiddleWare(domain string) gin.HandlerFunc {
+// requests from the exact frontend hosts (main, ID, admin, exercises) and from
+// https://<tag>.<EVENT_DOMAIN> event sites. Any other present Origin is rejected
+// with 403 before the request reaches routing.
+func HandleCORSMiddleWare(hosts config.HostsConfig) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		origin := ctx.GetHeader("Origin")
 		if origin == "" {
@@ -42,10 +43,10 @@ func HandleCORSMiddleWare(domain string) gin.HandlerFunc {
 			return
 		}
 
-		if reason, ok := originAllowed(origin, domain); !ok {
+		if reason, ok := originAllowed(origin, hosts); !ok {
 			log.Warn().
 				Str("origin", origin).
-				Str("configuredDomain", domain).
+				Str("eventDomain", hosts.EventDomain).
 				Str("reason", reason).
 				Str("method", ctx.Request.Method).
 				Str("path", ctx.Request.URL.Path).
@@ -74,10 +75,10 @@ func HandleCORSMiddleWare(domain string) gin.HandlerFunc {
 	}
 }
 
-// originAllowed reports whether origin is https and its host is the platform
-// apex or a subdomain of it. On rejection it returns a short reason for logging
+// originAllowed reports whether origin is https and its host is a frontend
+// host or an event site. On rejection it returns a short reason for logging
 // (never surfaced to the client — the 403 body stays opaque).
-func originAllowed(origin, domain string) (reason string, ok bool) {
+func originAllowed(origin string, hosts config.HostsConfig) (reason string, ok bool) {
 	parsed, err := url.Parse(origin)
 	if err != nil {
 		return "unparseable Origin header", false
@@ -89,8 +90,8 @@ func originAllowed(origin, domain string) (reason string, ok bool) {
 		return "empty host in Origin", false
 	}
 	host := strings.ToLower(parsed.Hostname())
-	if _, sub := tools.SubdomainOfHost(host, strings.ToLower(domain)); !sub {
-		return "host is neither the apex nor a subdomain of configured DOMAIN", false
+	if !hosts.IsFrontendOrigin(host) {
+		return "host is neither a platform frontend host nor an event site", false
 	}
 	return "", true
 }

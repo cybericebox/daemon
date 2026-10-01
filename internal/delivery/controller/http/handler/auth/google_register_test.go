@@ -20,7 +20,7 @@ func registerCallback(t *testing.T, uc *fakeUC, prot *fakeProt) *httptest.Respon
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	h := authHandler.NewAuthAPIHandler(uc, prot, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, prot, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
@@ -85,7 +85,7 @@ func TestGoogleCallback_SignIn_Blocked_RedirectsToSignInBlocked(t *testing.T) {
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
 	prot := &fakeProt{}
-	h := authHandler.NewAuthAPIHandler(&fakeUC{googleAuthErr: authModel.ErrAuthAccountBlocked.Err()}, prot, "example.test")
+	h := authHandler.NewAuthAPIHandler(&fakeUC{googleAuthErr: authModel.ErrAuthAccountBlocked.Err()}, prot, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)

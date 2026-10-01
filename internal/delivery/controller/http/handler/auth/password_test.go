@@ -24,7 +24,7 @@ func TestPasswordPolicy_PublicReturnsThresholds(t *testing.T) {
 		MinSpecialCharacters: 0,
 		SpecialCharacters:    "!\"#$%&'()*+,-./",
 	}}
-	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/password/policy", nil)

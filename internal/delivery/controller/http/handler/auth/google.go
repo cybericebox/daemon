@@ -3,13 +3,12 @@ package auth
 import (
 	"crypto/subtle"
 	"errors"
-	"fmt"
+
 	"net/http"
 	"net/url"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -20,7 +19,6 @@ const (
 	oauthSetupTokenCookie  = "cib_oauth_setup_token"
 	oauthStateCookie       = "cib_oauth_state"
 	oauthLinkSessionCookie = "cib_oauth_link_sid"
-	oauthCookieMaxAge      = 600 // seconds
 )
 
 // redirectFromQuery validates the ?return_to= query param against the platform
@@ -49,7 +47,7 @@ func (h *Handler) googleRedirect(ctx *gin.Context) {
 		return
 	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthStateCookie, state, oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 
@@ -68,8 +66,8 @@ func (h *Handler) googleRegisterRedirect(ctx *gin.Context) {
 		return
 	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthStateCookie, state, oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthIntentCookie, "register", oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthIntentCookie, "register", h.oauthCookieMaxAge, "/api/auth", "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 
@@ -95,9 +93,9 @@ func (h *Handler) googleSetupRedirect(ctx *gin.Context) {
 		return
 	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthStateCookie, state, oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthIntentCookie, "setup", oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthSetupTokenCookie, setupToken, oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthIntentCookie, "setup", h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthSetupTokenCookie, setupToken, h.oauthCookieMaxAge, "/api/auth", "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 
@@ -194,11 +192,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		if sessVal == "" {
 			response.TemporaryRedirect(
 				ctx,
-				fmt.Sprintf(
-					"https://%s.%s/profile?error=link_failed",
-					config.IDSubdomain,
-					h.domain,
-				),
+				h.hosts.IDURL("/profile?error=link_failed"),
 			)
 			return
 		}
@@ -210,17 +204,13 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		); err != nil {
 			response.TemporaryRedirect(
 				ctx,
-				fmt.Sprintf(
-					"https://%s.%s/profile?error=link_failed",
-					config.IDSubdomain,
-					h.domain,
-				),
+				h.hosts.IDURL("/profile?error=link_failed"),
 			)
 			return
 		}
 		response.TemporaryRedirect(
 			ctx,
-			fmt.Sprintf("https://%s.%s/profile?tab=connections", config.IDSubdomain, h.domain),
+			h.hosts.IDURL("/profile?tab=connections"),
 		)
 
 	default: // sign-in
@@ -262,9 +252,9 @@ func (h *Handler) googleLinkRedirect(ctx *gin.Context) {
 	// callback can read it.
 	sessVal, _ := ctx.Cookie(authModel.SessionCookie)
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthIntentCookie, "link", oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthStateCookie, state, oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthLinkSessionCookie, sessVal, oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthIntentCookie, "link", h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthLinkSessionCookie, sessVal, h.oauthCookieMaxAge, "/api/auth", "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 
@@ -290,7 +280,7 @@ func (h *Handler) unlinkGoogle(ctx *gin.Context) {
 // setupURL builds the absolute id-frontend setup link, with optional return_to
 // and error query params.
 func (h *Handler) setupURL(setupToken, returnTo, errCode string) string {
-	u := fmt.Sprintf("https://%s.%s/setup?token=%s", config.IDSubdomain, h.domain, url.QueryEscape(setupToken))
+	u := h.hosts.IDURL("/setup?token=" + url.QueryEscape(setupToken))
 	if errCode != "" {
 		u += "&error=" + url.QueryEscape(errCode)
 	}
@@ -302,15 +292,9 @@ func (h *Handler) setupURL(setupToken, returnTo, errCode string) string {
 
 // googleErrorRedirect sends the browser (googleCallback is a top-level navigation)
 // to the id frontend auth UI with a google_error code, instead of rendering raw
-// JSON. Portless https, on the id subdomain.
+// JSON. Portless https, on ID_HOST.
 func (h *Handler) googleErrorRedirect(ctx *gin.Context, path, code, returnTo string) {
-	u := fmt.Sprintf(
-		"https://%s.%s%s?google_error=%s",
-		config.IDSubdomain,
-		h.domain,
-		path,
-		url.QueryEscape(code),
-	)
+	u := h.hosts.IDURL(path + "?google_error=" + url.QueryEscape(code))
 	if returnTo != "" {
 		u += "&return_to=" + url.QueryEscape(returnTo)
 	}

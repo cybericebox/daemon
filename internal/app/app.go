@@ -71,7 +71,10 @@ func Run(cfg *config.Config) {
 		VPNCipher:       cls.vpnCipher,
 		PlatformCipher:  cls.platformCipher,
 	}
-	labIssuer, err := labaccess.New(labaccess.Config{TokenTTL: cfg.LabAccess.TokenTTL})
+	applyTunables(cfg.Tunables)
+	labIssuer, err := labaccess.New(labaccess.Config{
+		TokenTTL: cfg.LabAccess.TokenTTL, MaxTokenTTL: cfg.LabAccess.TokenMaxTTL, SessionTTL: cfg.LabSession.TTL,
+	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to configure the lab access token issuer")
 	}

@@ -26,9 +26,11 @@ type LiveScreenLink struct {
 
 const (
 	liveScreenTokenBytes = 32
-	// LiveScreenLinkMaxTTL caps «until the event ends» for long events.
-	LiveScreenLinkMaxTTL = 60 * 24 * time.Hour
 )
+
+// LiveScreenLinkMaxTTL caps «until the event ends» for long events
+// (LIVE_SCREEN_LINK_MAX_TTL, set once at start).
+var LiveScreenLinkMaxTTL = 60 * 24 * time.Hour
 
 // LiveScreenExpiry is the organizer's choice of how long a link works.
 type LiveScreenExpiry string

@@ -3,7 +3,7 @@ package protection
 import (
 	"context"
 	"errors"
-	"fmt"
+
 	"net/http"
 	"strings"
 	"time"
@@ -35,7 +35,7 @@ type IUseCase interface {
 
 type Protection struct {
 	useCase   IUseCase
-	domain    string
+	hosts     config.HostsConfig
 	ttl       time.Duration
 	recaptcha config.RecaptchaConfig
 }
@@ -48,18 +48,17 @@ type Dependencies struct {
 func New(deps Dependencies) *Protection {
 	return &Protection{
 		useCase:   deps.UseCase,
-		domain:    deps.Config.Domain,
+		hosts:     deps.Config.Hosts,
 		ttl:       deps.Config.SessionIdleTTL,
 		recaptcha: deps.Config.Recaptcha,
 	}
 }
 
-// RequireAPIHost rejects any request whose Host is not exactly api.<domain>.
+// RequireAPIHost rejects any request whose Host is not exactly API_HOST.
 // This service answers on a single host now; every other host is routed to a
 // frontend by the edge proxy and never reaches this process.
 func (p *Protection) RequireAPIHost(ctx *gin.Context) {
-	want := fmt.Sprintf("%s.%s", config.APISubdomain, p.domain)
-	if hostWithoutPort(ctx.Request.Host) != want {
+	if hostWithoutPort(ctx.Request.Host) != p.hosts.API {
 		response.AbortWithNotFound(ctx)
 		return
 	}
@@ -112,9 +111,9 @@ func isAdministrativeAction(required rbac.Permission, ctx *gin.Context) bool {
 	return required != rbac.PermSelf || strings.Contains(ctx.FullPath(), "/manage/")
 }
 
-// signInURL is the identity app's sign-in page URL (id.<domain>/sign-in).
+// signInURL is the identity app's sign-in page URL (ID_HOST/sign-in).
 func (p *Protection) signInURL() string {
-	return fmt.Sprintf("https://%s.%s%s", config.IDSubdomain, p.domain, SignInPath)
+	return p.hosts.IDURL(SignInPath)
 }
 
 // resolveAuth validates the request's session cookie and returns the identity

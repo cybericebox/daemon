@@ -19,7 +19,7 @@ func TestGetAvatar_ServesStoredContentTypeOverJSONDefault(t *testing.T) {
 	r := gin.New()
 	r.Use(middleware.ContentMiddleware)
 	uc := &fakeUC{avatarBody: "\x89PNG", avatarType: "image/png"}
-	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/avatar/01a0d34b-007e-7fd4-b69b-4553cfe20376", nil)

@@ -67,12 +67,12 @@ func NewController(deps Dependencies) *Controller {
 
 	// Every frontend calls this API cross-origin (its own subdomain) — CORS
 	// (with credentials) must run before any route handling.
-	router.Use(middleware.HandleCORSMiddleWare(deps.AuthConfig.Domain), middleware.ContentMiddleware)
+	router.Use(middleware.HandleCORSMiddleWare(deps.AuthConfig.Hosts), middleware.ContentMiddleware)
 
 	RegisterHealth(router)
 
 	// create handler for routes on current service
-	handler.NewAPIHandler(deps.UseCase, prot, deps.AuthConfig.Domain).Init(router)
+	handler.NewAPIHandler(deps.UseCase, prot, deps.AuthConfig).Init(router)
 
 	return &Controller{
 		server: NewServer(&deps.Config.Server, router),

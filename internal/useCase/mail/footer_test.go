@@ -88,7 +88,7 @@ func TestDeliver_ReplyToFallsBackToSupport(t *testing.T) {
 	require.Len(t, smtp.sends, 2)
 
 	event, platform := smtp.sends[0].msg, smtp.sends[1].msg
-	require.Equal(t, "support@cybericebox.com", event.ReplyTo.Email, "no contact, no platform Reply-To → support@DOMAIN")
+	require.Equal(t, "support@cybericebox.com", event.ReplyTo.Email, "no contact, no platform Reply-To → support@MAIN_HOST")
 	requireFooter(t, event, "support@cybericebox.com")
 	require.Equal(t, email.Address{Name: "Cyber ICE Box", Email: "notifications@mail.cybericebox.com"}, platform.From)
 	require.Equal(t, "support@cybericebox.com", platform.ReplyTo.Email)

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cybericebox/daemon/internal/config"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
@@ -58,7 +57,7 @@ func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rba
 
 	override := userModel.User{ID: userID, Email: emailAddr, FirstName: firstName}
 	if err = u.notifier.Notify(ctx, userID, notificationPayloads.UserInvitationPayload{
-		InviteURL: fmt.Sprintf("https://%s.%s/setup?token=%s", config.IDSubdomain, u.cfg.Domain, setupToken),
+		InviteURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/setup?token=%s", setupToken)),
 	}, dispatchModel.WithRecipient(override)); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to send invitation email").Err()
 	}

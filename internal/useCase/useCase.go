@@ -201,15 +201,16 @@ func NewUseCase(deps Dependencies) *UseCase {
 			StandPrewarmLead:         deps.ExerciseConfig.StandPrewarmLead,
 			Media:                    mediaUC,
 			BrandMedia:               mediaUC,
-			PublicAPIBaseURL:         "https://api." + deps.AuthConfig.Domain,
-			EventDomain:              deps.AuthConfig.Domain,
+			PublicAPIBaseURL:         deps.AuthConfig.Hosts.APIURL(""),
+			EventDomain:              deps.AuthConfig.Hosts.EventDomain,
+			IDHost:                   deps.AuthConfig.Hosts.ID,
 			SetupTokens:              deps.Token,
 			LabSessions:              deps.LabSessions,
 		},
 	)
 
 	mailUC := mailUseCase.NewMailUseCase(mailUseCase.Dependencies{
-		Repo: deps.Repo, Cipher: deps.PlatformCipher, Env: deps.SMTPEnv, Domain: deps.AuthConfig.Domain,
+		Repo: deps.Repo, Cipher: deps.PlatformCipher, Env: deps.SMTPEnv, Domain: deps.AuthConfig.Hosts.Main,
 	})
 	handlers := buildNotificationHandlers(deps.Repo, mailUC, mediaUC, eventUC)
 	notificationDispatcher := dispatcherUseCase.NewNotificationDispatcher(
@@ -240,7 +241,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	for _, typ := range inboxRequests.Signals() {
 		signalHooks.RegisterExact(typ, inboxRequests)
 	}
-	signalUseCase.SetEventSiteDomain(deps.AuthConfig.Domain)
+	signalUseCase.SetEventSiteDomain(deps.AuthConfig.Hosts.EventDomain)
 	signalHooks.RegisterWildcard(signalUseCase.NewNotificationPlanner(deps.Repo, signalModel.DefaultRegistry, notificationDispatcher))
 	signalProcessor := signalUseCase.NewProcessor(
 		signalOutboxRepo.NewExecutionStore(deps.Repo),
@@ -269,7 +270,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Notifier:  notificationDispatcher,
 		Accounts:  authUC,
 		Policy:    deps.RetentionPolicy,
-		SignInURL: "https://" + config.IDSubdomain + "." + deps.AuthConfig.Domain + "/sign-in",
+		SignInURL: deps.AuthConfig.Hosts.IDURL("/sign-in"),
 	})
 
 	return &UseCase{
@@ -308,7 +309,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		platformAnalyticsUseCase.New(platformAnalyticsUseCase.Dependencies{Store: platformAnalyticsRepo.New(deps.Repo), TestLabResources: testLabsUC.TotalResources}),
 		broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{
 			Repo: deps.Repo, Notifier: notificationDispatcher, Enqueue: broadcastEnqueue(deps.EnqueuerFactory.NewEnqueuer()),
-			EventDomain: deps.AuthConfig.Domain,
+			EventDomain: deps.AuthConfig.Hosts.EventDomain,
 		}),
 		bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{Repo: deps.Repo}),
 	}

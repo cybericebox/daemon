@@ -29,6 +29,8 @@ type (
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
 		Retention      RetentionConfig      `                                   envPrefix:"RETENTION_"`
 		LabAccess      LabAccessConfig      `                                   envPrefix:"LAB_ACCESS_"`
+		LabSession     LabSessionConfig     `                                   envPrefix:"LAB_SESSION_"`
+		Tunables       TunablesConfig       `                                   envPrefix:""`
 		VPN            VPNConfig            `                                   envPrefix:"VPN_"`
 		Platform       PlatformConfig       `                                   envPrefix:"PLATFORM_"`
 	}
@@ -40,6 +42,13 @@ type (
 		// TokenTTL is how long an access token can be opened: it is exchanged for
 		// the proxy's own cookie at once. Up to 5m.
 		TokenTTL time.Duration `env:"TOKEN_TTL" envDefault:"1m"`
+		// TokenMaxTTL caps TokenTTL (LAB_ACCESS_TOKEN_MAX_TTL); the proxy refuses a longer token too.
+		TokenMaxTTL time.Duration `env:"TOKEN_MAX_TTL" envDefault:"5m"`
+	}
+
+	// LabSessionConfig is how long a lab web session lasts when the caller names no end (LAB_SESSION_TTL).
+	LabSessionConfig struct {
+		TTL time.Duration `env:"TTL" envDefault:"24h"`
 	}
 
 	InfrastructureConfig struct {
@@ -71,6 +80,45 @@ type (
 		// selects by it, so two platform instances can share one cluster. Never change it for a
 		// running deployment.
 		InstanceID string `env:"INSTANCE_ID" envDefault:"cybericebox"`
+	}
+
+	// TunablesConfig holds the operator-set limits and timings that have no other section. The
+	// defaults mirror the values of the deployment env template.
+	TunablesConfig struct {
+		// EventStandDeployTimeout fails a Lab the agent accepted but never reported ready.
+		EventStandDeployTimeout time.Duration `env:"EVENT_STAND_DEPLOY_TIMEOUT" envDefault:"20m"`
+		// SSEMaxLifetime bounds one event stream; the client reconnects with Last-Event-ID.
+		SSEMaxLifetime time.Duration `env:"SSE_MAX_LIFETIME" envDefault:"30m"`
+		// LiveScreenLinkMaxTTL caps «until the event ends» of a live screen link.
+		LiveScreenLinkMaxTTL time.Duration `env:"LIVE_SCREEN_LINK_MAX_TTL" envDefault:"1440h"`
+		// AgentAccessKeyRetention is how long a rotated-out access key stays at the agent.
+		AgentAccessKeyRetention time.Duration `env:"AGENT_ACCESS_KEY_RETENTION" envDefault:"15m"`
+		// AgentCertRenewBefore is how long before its end an agent client certificate is renewed.
+		AgentCertRenewBefore time.Duration `env:"AGENT_CERT_RENEW_BEFORE" envDefault:"240h"`
+		// EventDefaultMaxTeamSize is the team size limit of a new event.
+		EventDefaultMaxTeamSize int32 `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
+
+		// The mail send limiter: the longest a worker waits for its turn, how long a message waits
+		// when the daily quota is used, how often the delivered count is re-read, the quota window,
+		// and the upper bounds an admin may set for the provider limits.
+		MailMaxRateWait       time.Duration `env:"MAIL_MAX_RATE_WAIT"       envDefault:"20s"`
+		MailQuotaRetryAfter   time.Duration `env:"MAIL_QUOTA_RETRY_AFTER"   envDefault:"10m"`
+		MailQuotaRecheck      time.Duration `env:"MAIL_QUOTA_RECHECK"       envDefault:"30s"`
+		MailQuotaWindow       time.Duration `env:"MAIL_QUOTA_WINDOW"        envDefault:"24h"`
+		MailMaxPerSecondLimit float64       `env:"MAIL_MAX_PER_SECOND_LIMIT" envDefault:"10000"`
+		MailDailyQuotaLimit   int           `env:"MAIL_DAILY_QUOTA_LIMIT"   envDefault:"1000000000"`
+
+		// Upload limits, bytes.
+		AvatarMaxBytes              int64 `env:"AVATAR_MAX_BYTES"                envDefault:"5242880"`
+		EventLogoMaxBytes           int   `env:"EVENT_LOGO_MAX_BYTES"            envDefault:"2097152"`
+		EventPreviewPictureMaxBytes int   `env:"EVENT_PREVIEW_PICTURE_MAX_BYTES" envDefault:"5242880"`
+		EventContentImageMaxBytes   int   `env:"EVENT_CONTENT_IMAGE_MAX_BYTES"   envDefault:"5242880"`
+		LiveLogoMaxBytes            int   `env:"LIVE_LOGO_MAX_BYTES"             envDefault:"1048576"`
+		// Email template images: the raw upload, the processed image, its width and the decoded pixels.
+		EmailImageUploadMaxBytes int `env:"EMAIL_IMAGE_UPLOAD_MAX_BYTES" envDefault:"10485760"`
+		EmailImageMaxBytes       int `env:"EMAIL_IMAGE_MAX_BYTES"        envDefault:"307200"`
+		EmailImageMaxWidth       int `env:"EMAIL_IMAGE_MAX_WIDTH"        envDefault:"1200"`
+		EmailImageMaxPixels      int `env:"EMAIL_IMAGE_MAX_PIXELS"       envDefault:"24000000"`
 	}
 
 	// StorageConfig holds the S3/MinIO object store used for user avatars.
@@ -110,8 +158,10 @@ type (
 	}
 
 	AuthConfig struct {
-		Domain          string          `env:"DOMAIN"`
-		TokenSignature  string          `env:"JWT_TOKEN_SIGNATURE"`
+		Hosts          HostsConfig `                                            envPrefix:""`
+		TokenSignature string      `env:"JWT_TOKEN_SIGNATURE"`
+		// SetupTokenTTL is the life of a setup link (account setup and invitations).
+		SetupTokenTTL   time.Duration   `env:"SETUP_TOKEN_TTL" envDefault:"168h"`
 		SessionIdleTTL  time.Duration   `env:"SESSION_IDLE_TTL"    envDefault:"720h"`
 		TemporalCodeTTL time.Duration   `env:"TEMPORAL_CODE_TTL"   envDefault:"1h"`
 		SuperAdminEmail string          `env:"SUPER_ADMIN_EMAIL"`
@@ -223,6 +273,10 @@ type (
 		// into the platform image cache (the agent's PrewarmImages); 0 turns it off. With the
 		// default 30 minutes deploy lead the images are warmed an hour before the start.
 		StandPrewarmLead time.Duration `env:"STAND_PREWARM_LEAD" envDefault:"30m"`
+		// TestDeployTTL is the lease of a catalog author's test lab; extending it never goes past
+		// TestDeployTTLMax counted from the start.
+		TestDeployTTL    time.Duration `env:"TEST_DEPLOY_TTL"     envDefault:"2h"`
+		TestDeployTTLMax time.Duration `env:"TEST_DEPLOY_TTL_MAX" envDefault:"8h"`
 	}
 )
 
@@ -273,6 +327,39 @@ func (c AgentConfig) Validate() error {
 	return nil
 }
 
+// Validate rejects values that would turn a limit off by accident.
+func (c TunablesConfig) Validate() error {
+	durations := map[string]time.Duration{
+		"EVENT_STAND_DEPLOY_TIMEOUT": c.EventStandDeployTimeout, "SSE_MAX_LIFETIME": c.SSEMaxLifetime,
+		"LIVE_SCREEN_LINK_MAX_TTL": c.LiveScreenLinkMaxTTL, "AGENT_ACCESS_KEY_RETENTION": c.AgentAccessKeyRetention,
+		"AGENT_CERT_RENEW_BEFORE": c.AgentCertRenewBefore, "MAIL_MAX_RATE_WAIT": c.MailMaxRateWait,
+		"MAIL_QUOTA_RETRY_AFTER": c.MailQuotaRetryAfter, "MAIL_QUOTA_RECHECK": c.MailQuotaRecheck,
+		"MAIL_QUOTA_WINDOW": c.MailQuotaWindow,
+	}
+	for name, v := range durations {
+		if v <= 0 {
+			return fmt.Errorf("%s must be positive", name)
+		}
+	}
+	sizes := map[string]int64{
+		"EVENT_DEFAULT_MAX_TEAM_SIZE": int64(c.EventDefaultMaxTeamSize), "MAIL_DAILY_QUOTA_LIMIT": int64(c.MailDailyQuotaLimit),
+		"AVATAR_MAX_BYTES": c.AvatarMaxBytes, "EVENT_LOGO_MAX_BYTES": int64(c.EventLogoMaxBytes),
+		"EVENT_PREVIEW_PICTURE_MAX_BYTES": int64(c.EventPreviewPictureMaxBytes),
+		"EVENT_CONTENT_IMAGE_MAX_BYTES":   int64(c.EventContentImageMaxBytes), "LIVE_LOGO_MAX_BYTES": int64(c.LiveLogoMaxBytes),
+		"EMAIL_IMAGE_UPLOAD_MAX_BYTES": int64(c.EmailImageUploadMaxBytes), "EMAIL_IMAGE_MAX_BYTES": int64(c.EmailImageMaxBytes),
+		"EMAIL_IMAGE_MAX_WIDTH": int64(c.EmailImageMaxWidth), "EMAIL_IMAGE_MAX_PIXELS": int64(c.EmailImageMaxPixels),
+	}
+	for name, v := range sizes {
+		if v < 1 {
+			return fmt.Errorf("%s must be at least 1", name)
+		}
+	}
+	if c.MailMaxPerSecondLimit <= 0 {
+		return errors.New("MAIL_MAX_PER_SECOND_LIMIT must be positive")
+	}
+	return nil
+}
+
 func (c ExerciseConfig) Validate() error {
 	if c.FlagRandomBytes < 1 || c.FlagRandomBytes > 1024 {
 		return errors.New("exercise: EXERCISE_FLAG_RANDOM_BYTES must be between 1 and 1024")
@@ -288,6 +375,9 @@ func (c ExerciseConfig) Validate() error {
 	}
 	if c.StandDeployBudget < 1 || c.StandDeployBudget > 5000 {
 		return errors.New("exercise: EXERCISE_STAND_DEPLOY_BUDGET must be between 1 and 5000")
+	}
+	if c.TestDeployTTL <= 0 || c.TestDeployTTLMax < c.TestDeployTTL {
+		return errors.New("exercise: EXERCISE_TEST_DEPLOY_TTL must be positive and not above EXERCISE_TEST_DEPLOY_TTL_MAX")
 	}
 	return nil
 }
@@ -348,10 +438,17 @@ func MustGetConfig() *Config {
 	}
 	instance := &cfg
 
+	if err = instance.Auth.Hosts.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid host configuration")
+	}
+
 	instance.populateForAllConfig()
 
 	if err = instance.Auth.Recaptcha.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid reCAPTCHA configuration")
+	}
+	if err = instance.Tunables.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid limits and timings")
 	}
 	if err = instance.Exercise.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid exercise configuration")
@@ -378,11 +475,7 @@ func (c *Config) populateForAllConfig() {
 		c.Infrastructure.Postgres.MigrationsPath = "migrations"
 	}
 
-	c.Auth.OAuth.RedirectURLTemplate = fmt.Sprintf(
-		"https://%s.%s/api/auth/%%s/callback",
-		APISubdomain,
-		c.Auth.Domain,
-	)
+	c.Auth.OAuth.RedirectURLTemplate = c.Auth.Hosts.APIURL("/api/auth/%s/callback")
 
 	// HTTP server's historical default cert/key paths (moved out of the shared
 	// TLSConfig tags so they don't leak onto mTLS clients like the agent).

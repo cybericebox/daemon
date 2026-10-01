@@ -33,12 +33,13 @@ import (
 )
 
 const (
-	// DefaultSessionTTL is the session length when the caller names no end (an
+	// DefaultSessionTTL is the default session length when the caller names no end (LAB_SESSION_TTL; an
 	// event without a finish).
 	DefaultSessionTTL = 24 * time.Hour
 	// DefaultTokenTTL is how long an access token can be opened.
 	DefaultTokenTTL = time.Minute
-	// MaxTokenTTL caps LAB_ACCESS_TOKEN_TTL; the proxy refuses a longer token too.
+	// MaxTokenTTL is the default cap of LAB_ACCESS_TOKEN_TTL (LAB_ACCESS_TOKEN_MAX_TTL); the proxy
+	// refuses a longer token too.
 	MaxTokenTTL = 5 * time.Minute
 	// AuthPath is the proxy path that consumes a handoff link.
 	AuthPath = "/_auth"
@@ -51,6 +52,10 @@ const Audience = "laboratory-proxy"
 type Config struct {
 	// TokenTTL is how long a token can be opened (default one minute, five at most).
 	TokenTTL time.Duration
+	// MaxTokenTTL caps TokenTTL; zero means MaxTokenTTL.
+	MaxTokenTTL time.Duration
+	// SessionTTL is the session length when the caller names no end; zero means DefaultSessionTTL.
+	SessionTTL time.Duration
 }
 
 // SigningKey is the key of one tenant that signs its access tokens: the tenant name is the issuer, KeyID
@@ -101,18 +106,28 @@ type claims struct {
 }
 
 type Issuer struct {
-	ttl time.Duration
+	ttl        time.Duration
+	sessionTTL time.Duration
 }
 
 // New returns an issuer; the signing key is given per token.
 func New(cfg Config) (*Issuer, error) {
+	if cfg.MaxTokenTTL == 0 {
+		cfg.MaxTokenTTL = MaxTokenTTL
+	}
+	if cfg.SessionTTL == 0 {
+		cfg.SessionTTL = DefaultSessionTTL
+	}
+	if cfg.MaxTokenTTL < 0 || cfg.SessionTTL < 0 {
+		return nil, errors.New("labaccess: the session and the token cap ttl must be positive")
+	}
 	switch {
 	case cfg.TokenTTL == 0:
-		cfg.TokenTTL = DefaultTokenTTL
-	case cfg.TokenTTL < 0 || cfg.TokenTTL > MaxTokenTTL:
-		return nil, fmt.Errorf("labaccess: the token ttl must be up to %s", MaxTokenTTL)
+		cfg.TokenTTL = min(DefaultTokenTTL, cfg.MaxTokenTTL)
+	case cfg.TokenTTL < 0 || cfg.TokenTTL > cfg.MaxTokenTTL:
+		return nil, fmt.Errorf("labaccess: the token ttl must be up to %s", cfg.MaxTokenTTL)
 	}
-	return &Issuer{ttl: cfg.TokenTTL}, nil
+	return &Issuer{ttl: cfg.TokenTTL, sessionTTL: cfg.SessionTTL}, nil
 }
 
 // Issue signs an access link for one device with the tenant's key, valid for the token TTL from now.
@@ -128,7 +143,7 @@ func (i *Issuer) Issue(sk SigningKey, s Session, now time.Time) (Link, error) {
 		return Link{}, errors.New("labaccess: the device has no web address")
 	}
 	host := strings.SplitN(origin.Hostname(), ".", 2)[0]
-	end := now.Add(DefaultSessionTTL)
+	end := now.Add(i.sessionTTL)
 	if s.ExpiresAt.After(now) {
 		end = s.ExpiresAt
 	}

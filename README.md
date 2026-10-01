@@ -58,7 +58,7 @@ make run-local   # sources ./.env, then go run ./cmd/daemon
 
 The daemon reads configuration from the process environment only (there is no `.env` loader in the binary), so `make run-local` sources the file first. Migrations are applied on boot with golang-migrate. In `ENV=development` they are read from `internal/delivery/repository/postgres/migrations`; in any other environment from `migrations` next to the binary.
 
-The service answers only on the `api.<DOMAIN>` host. For local work route that host to the process (for example with a hosts entry or the local edge proxy), or send the `Host` header explicitly. `GET /api/health` is a public liveness probe.
+The service answers only on the `API_HOST` host. For local work route that host to the process (for example with a hosts entry or the local edge proxy), or send the `Host` header explicitly. `GET /api/health` is a public liveness probe.
 
 ## Configuration
 
@@ -69,7 +69,14 @@ All settings are environment variables. Values below are placeholders; durations
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ENV` | `development` | `development`, `stage` or `production`. Development runs Gin in debug mode with console logs; other values run release mode with JSON logs (debug level on stage, info on production). Swagger UI is served unless `production`. |
-| `DOMAIN` | none | Platform apex domain. Used for CORS, cookies, the OAuth redirect URL and the `api.<domain>` host check. |
+| `MAIN_HOST` | required | Landing host (`cybericebox.com`); mail footer links and the support mailbox domain. |
+| `API_HOST` | required | Host this service answers on (`api.cybericebox.com`); the OAuth redirect URI is `https://<API_HOST>/api/auth/<provider>/callback`. |
+| `ID_HOST` | required | Sign-in app host: sign-in, setup, confirmation and invitation links point at it. |
+| `ADMIN_HOST`, `EXERCISES_HOST` | required | Admin and exercise catalog app hosts. |
+| `EVENT_DOMAIN` | required | Event sites are `<tag>.<EVENT_DOMAIN>`; the first labels of the hosts above that sit under it are reserved as tags. |
+
+All six hosts are bare host names (no scheme, port or path) under one registrable domain (SameSite=Strict); the daemon refuses to start otherwise. CORS allows exactly the frontend hosts, `MAIN_HOST` and `https://*.<EVENT_DOMAIN>`. `DOMAIN` and the fixed `id`/`admin`/`exercises`/`api` subdomains are gone.
+
 | `HTTP_SERVER_HOST` | `0.0.0.0` | Listen host. |
 | `HTTP_SERVER_PORT` | `80` | Listen port. |
 | `HTTP_SERVER_READ_TIMEOUT` | `10s` | Read timeout. |
@@ -96,7 +103,8 @@ All settings are environment variables. Values below are placeholders; durations
 | --- | --- | --- |
 | `JWT_TOKEN_SIGNATURE` | none | Signing secret of the user tokens. |
 | `OAUTH_STATE_SIGNATURE` | none | Signing secret of the OAuth state. |
-| `OAUTH_STATE_TTL` | `15m` | OAuth state lifetime. |
+| `OAUTH_STATE_TTL` | `15m` | OAuth state lifetime; also the life of the OAuth state cookies. |
+| `SETUP_TOKEN_TTL` | `168h` | Life of an account setup or invitation link. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_SECRET` | none | Google OAuth client. |
 | `SUPER_ADMIN_EMAIL` | none | Email of the account that is promoted to super admin (at sign-up and at start-up). |
 | `SESSION_IDLE_TTL` | `720h` | Idle session lifetime. |
@@ -165,7 +173,11 @@ Lab infrastructure is served by one or more laboratory agents. Agents live in th
 | `AGENT_NAME` | `default` | Label of the bootstrapped agent. |
 | `AGENT_CA_FILE` | none | CA of the agent's server certificate; only for a self-signed development stand (empty means system roots). |
 | `AGENT_INSTANCE_ID` | `cybericebox` | Immutable platform-instance label put on every object created in the infrastructure, so two platform instances can share one cluster. Must be a valid Kubernetes label value. Never change it for a running deployment. |
-| `LAB_ACCESS_TOKEN_TTL` | `1m` | How long a web access link (`/_auth`) can be opened, up to 5m. Tokens are signed with the access key of the agent that holds the lab, never with a platform-wide key. |
+| `LAB_ACCESS_TOKEN_TTL` | `1m` | How long a web access link (`/_auth`) can be opened, up to `LAB_ACCESS_TOKEN_MAX_TTL`. Tokens are signed with the access key of the agent that holds the lab, never with a platform-wide key. |
+| `LAB_ACCESS_TOKEN_MAX_TTL` | `5m` | Cap of `LAB_ACCESS_TOKEN_TTL`; the proxy refuses a longer token too. |
+| `LAB_SESSION_TTL` | `24h` | Lab web session length when the caller names no end. |
+| `AGENT_ACCESS_KEY_RETENTION` | `15m` | How long a rotated-out access key stays at the agent. |
+| `AGENT_CERT_RENEW_BEFORE` | `240h` | How long before its end an agent client certificate is renewed. |
 
 The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` and `LAB_ACCESS_PRIVATE_KEY` were removed and have no replacement: keys are per agent and stored in the database.
 
@@ -178,8 +190,31 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EXERCISE_MAX_ACTIVE_TEST_DEPLOYS` | `3` | Test labs one user may run at the same time (1 to 20). |
 | `EXERCISE_STAND_DEPLOY_BUDGET` | `200` | Lab deploy calls to an agent per event and pass (1 to 5000). Only protects the agent API from a burst; launch pacing is done by the laboratory operator. |
 | `EXERCISE_STAND_PREWARM_LEAD` | `30m` | How long before the stand deploy time the images are prewarmed in the platform image cache; `0` turns it off (max 24h). |
+| `EXERCISE_TEST_DEPLOY_TTL` / `_MAX` | `2h` / `8h` | Lease of a catalog author's test lab, and the longest it lives from its start however often extended. |
+| `EVENT_STAND_DEPLOY_TIMEOUT` | `20m` | A Lab the agent accepted but never reported ready fails after this. |
+| `EVENT_DEFAULT_MAX_TEAM_SIZE` | `5` | Team size limit of a new event. |
 | `EXERCISE_DEVICE_PERSISTENCE` | `true` | The cluster lets devices keep their state; the editor offers the option only when true. |
 | `VPN_SECRETS_KEY` | none | See above. |
+
+### Limits and timings
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SSE_MAX_LIFETIME` | `30m` | Longest life of one event stream; the client reconnects. |
+| `LIVE_SCREEN_LINK_MAX_TTL` | `1440h` | Cap of «until the event ends» for a live screen link. |
+| `MAIL_MAX_RATE_WAIT` | `20s` | Longest a mail worker waits for its turn before the message is deferred. |
+| `MAIL_QUOTA_RETRY_AFTER` | `10m` | How long a message waits when the daily quota is used. |
+| `MAIL_QUOTA_RECHECK` | `30s` | How often the delivered count is re-read. |
+| `MAIL_QUOTA_WINDOW` | `24h` | Window of the daily quota. |
+| `MAIL_MAX_PER_SECOND_LIMIT` / `MAIL_DAILY_QUOTA_LIMIT` | `10000` / `1000000000` | Upper bounds an admin may set for a provider limit. |
+| `AVATAR_MAX_BYTES` | `5242880` | Avatar size. |
+| `EVENT_LOGO_MAX_BYTES` | `2097152` | Event logo. |
+| `EVENT_PREVIEW_PICTURE_MAX_BYTES` | `5242880` | Event preview picture. |
+| `EVENT_CONTENT_IMAGE_MAX_BYTES` | `5242880` | Image in event page content. |
+| `LIVE_LOGO_MAX_BYTES` | `1048576` | Live screen logo. |
+| `EMAIL_IMAGE_UPLOAD_MAX_BYTES` | `10485760` | Raw upload of an email template image. |
+| `EMAIL_IMAGE_MAX_BYTES` | `307200` | Email template image after processing. |
+| `EMAIL_IMAGE_MAX_WIDTH` / `EMAIL_IMAGE_MAX_PIXELS` | `1200` / `24000000` | Width after downscale, and the decoded pixel cap. |
 
 ### Rate limits and retention
 

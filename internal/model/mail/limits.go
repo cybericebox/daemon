@@ -6,10 +6,11 @@ import (
 )
 
 // Upper bounds of the send limits: far above any real provider quota, they
-// only keep typos out of the database.
-const (
-	MaxPerSecondLimit = 10000
-	DailyQuotaLimit   = 1_000_000_000
+// only keep typos out of the database (MAIL_MAX_PER_SECOND_LIMIT and
+// MAIL_DAILY_QUOTA_LIMIT, set once at start).
+var (
+	MaxPerSecondLimit float64 = 10000
+	DailyQuotaLimit           = 1_000_000_000
 )
 
 // Limits are the send limits of one SMTP transport; zero = no limit.
@@ -98,4 +99,9 @@ func NormalizeLimits(perSecond *float64, daily *int) (*float64, *int, error) {
 		}
 	}
 	return perSecond, daily, nil
+}
+
+// ConfigureLimitCaps sets the upper bounds of the send limits once at start.
+func ConfigureLimitCaps(perSecond float64, daily int) {
+	MaxPerSecondLimit, DailyQuotaLimit = perSecond, daily
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// SetupTokenTTL is the lifetime of a setup link: the one validity of every
+// SetupTokenTTL is the default lifetime (SETUP_TOKEN_TTL overrides it) of a setup link: the one validity of every
 // account setup and invitation link (event and platform invitations, sign-up).
 // It stays well under the 30-day retention of unconfirmed accounts, so a
 // freshly (re)sent link always outlives the account it sets up.
@@ -39,7 +39,7 @@ func (c *Client) GenerateSetupToken(userID uuid.UUID) (string, error) {
 			Issuer:    issuer,
 			Subject:   userID.String(),
 			Audience:  jwt.ClaimStrings{setupAudience},
-			ExpiresAt: jwt.NewNumericDate(now.Add(SetupTokenTTL)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(c.setupTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        uuid.Must(uuid.NewV7()).String(),
 		},

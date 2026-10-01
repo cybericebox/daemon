@@ -39,7 +39,7 @@ func TestInviteParticipantsPrefillsAnswersAndReportsBadValues(t *testing.T) {
 	allowNonStaff(q)
 	stubParticipationModelReads(q)
 	unit := &testUoW{}
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", SetupTokens: invitationTokens{}})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(&invitationNotifier{})
 	eventID, managerID, userID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), eventID).Return(prefillFormVersion(eventID, versionID), nil)
@@ -208,7 +208,7 @@ func TestInviteParticipantsPrefillCountsMissingRequiredFields(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	allowNonStaff(q)
 	stubParticipationModelReads(q)
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}, EventDomain: "example.test", SetupTokens: invitationTokens{}})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(&invitationNotifier{})
 	eventID, managerID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	version := prefillFormVersion(eventID, versionID)

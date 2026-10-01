@@ -666,7 +666,7 @@ func (h *Handler) uploadEventEmailImage(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, emailUseCase.MaxTemplateImageUploadBytes+eventEmailImageMultipartSlack)
+	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, int64(emailUseCase.MaxTemplateImageUploadBytes)+eventEmailImageMultipartSlack)
 	fh, err := ctx.FormFile("file")
 	if err != nil {
 		var tooLarge *http.MaxBytesError

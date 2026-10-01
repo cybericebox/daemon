@@ -9,7 +9,6 @@ import (
 
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/config"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
@@ -43,7 +42,7 @@ func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) erro
 	bsCode := bsEncode(code)
 
 	if err = u.notifier.Notify(ctx, user.ID, notificationPayloads.PasswordResetPayload{
-		ResetURL: fmt.Sprintf("https://%s.%s/reset-password?token=%s", config.IDSubdomain, u.cfg.Domain, bsCode),
+		ResetURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/reset-password?token=%s", bsCode)),
 		Name:     user.FirstName,
 	}); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to send password reset email").Err()

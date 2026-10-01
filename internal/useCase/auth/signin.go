@@ -3,12 +3,10 @@ package auth
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/config"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
@@ -87,7 +85,7 @@ func (u *AuthUseCase) resolveRedirect(raw string) string {
 	if raw != "" && u.IsTrustedRedirect(raw) {
 		return raw
 	}
-	return fmt.Sprintf("https://%s.%s/profile", config.IDSubdomain, u.cfg.Domain)
+	return u.cfg.Hosts.IDURL("/profile")
 }
 
 // refuseBlocked is the single "account is blocked" guard shared by every path

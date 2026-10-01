@@ -166,6 +166,7 @@ type EventUseCase struct {
 	brandMedia               BrandMedia
 	publicAPIBaseURL         string
 	eventDomain              string
+	idHost                   string
 	setupTokens              interface {
 		GenerateSetupToken(uuid.UUID) (string, error)
 	}
@@ -206,7 +207,9 @@ type Dependencies struct {
 	BrandMedia       BrandMedia
 	PublicAPIBaseURL string
 	EventDomain      string
-	SetupTokens      interface {
+	// IDHost is ID_HOST, the sign-in app host of invitation links.
+	IDHost      string
+	SetupTokens interface {
 		GenerateSetupToken(uuid.UUID) (string, error)
 	}
 	// LabSessions signs the proxy tokens of the web side of lab access; nil
@@ -302,6 +305,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		brandMedia:               deps.BrandMedia,
 		publicAPIBaseURL:         deps.PublicAPIBaseURL,
 		eventDomain:              deps.EventDomain,
+		idHost:                   deps.IDHost,
 		setupTokens:              deps.SetupTokens,
 		labSessions:              deps.LabSessions,
 		inAppTemplates:           inAppTemplateRepo.New(deps.Repo),

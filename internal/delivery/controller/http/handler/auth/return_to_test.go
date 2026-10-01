@@ -22,7 +22,7 @@ func serve(t *testing.T, uc *fakeUC, req *http.Request) *httptest.ResponseRecord
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, "example.test")
+	h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

@@ -9,7 +9,6 @@ import (
 
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/config"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
@@ -60,7 +59,7 @@ func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()
 	}
 
-	link := fmt.Sprintf("https://%s.%s/setup?token=%s", config.IDSubdomain, u.cfg.Domain, setupToken)
+	link := u.cfg.Hosts.IDURL(fmt.Sprintf("/setup?token=%s", setupToken))
 	if returnTo != "" {
 		link += "&return_to=" + url.QueryEscape(returnTo)
 	}

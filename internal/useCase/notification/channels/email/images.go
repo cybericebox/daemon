@@ -20,7 +20,9 @@ import (
 	notificationModel "github.com/cybericebox/daemon/internal/model/notification"
 )
 
-const (
+// The template image limits are set once at start (EMAIL_IMAGE_UPLOAD_MAX_BYTES,
+// EMAIL_IMAGE_MAX_BYTES, EMAIL_IMAGE_MAX_WIDTH, EMAIL_IMAGE_MAX_PIXELS).
+var (
 	// MaxTemplateImageUploadBytes caps the RAW upload (before processing); the
 	// processed image must additionally fit MaxTemplateImageBytes.
 	MaxTemplateImageUploadBytes = 10 << 20
@@ -29,7 +31,21 @@ const (
 	// MaxTemplateImageWidth is 2× a 600 px email column.
 	MaxTemplateImageWidth = 1200
 	// maxTemplateImagePixels bounds the decoded size (decompression-bomb guard).
-	maxTemplateImagePixels   = 24_000_000
+	maxTemplateImagePixels = 24_000_000
+)
+
+// TemplateImageLimits are the email template image limits.
+type TemplateImageLimits struct {
+	UploadBytes, Bytes, Width, Pixels int
+}
+
+// ConfigureTemplateImages sets the email template image limits once at start.
+func ConfigureTemplateImages(l TemplateImageLimits) {
+	MaxTemplateImageUploadBytes, MaxTemplateImageBytes = l.UploadBytes, l.Bytes
+	MaxTemplateImageWidth, maxTemplateImagePixels = l.Width, l.Pixels
+}
+
+const (
 	templateImageJPEGQuality = 85
 
 	contentTypePNG  = "image/png"
@@ -60,7 +76,7 @@ func templateImageTooLarge(cause error) error {
 // JPEG as JPEG q85. A PNG above MaxTemplateImageBytes without transparency is
 // retried as JPEG q85. A result still above the limit → ErrTemplateImageTooLarge.
 func ProcessTemplateImage(r io.Reader) (data []byte, contentType string, err error) {
-	raw, err := io.ReadAll(io.LimitReader(r, MaxTemplateImageUploadBytes+1))
+	raw, err := io.ReadAll(io.LimitReader(r, int64(MaxTemplateImageUploadBytes)+1))
 	if err != nil {
 		return nil, "", templateImageInvalid(fmt.Errorf("read image: %w", err))
 	}
@@ -192,7 +208,7 @@ const templateImageName = "email-image"
 // MaxEmailImageUploadBytes exposes the raw upload cap so the multipart handler
 // enforces the same limit at the HTTP boundary.
 func (u *NotificationEmailTemplateUseCase) MaxEmailImageUploadBytes() int64 {
-	return MaxTemplateImageUploadBytes
+	return int64(MaxTemplateImageUploadBytes)
 }
 
 // UploadEmailImage processes an uploaded image (ProcessTemplateImage) and

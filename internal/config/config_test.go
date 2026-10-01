@@ -1,22 +1,44 @@
 package config
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 )
 
+// testHosts is the host set every test config starts with: the hosts are required, so MustGetConfig
+// stops without them.
+var testHosts = map[string]string{
+	"MAIN_HOST": "example.test", "API_HOST": "api.example.test", "ID_HOST": "id.example.test",
+	"ADMIN_HOST": "admin.example.test", "EXERCISES_HOST": "exercises.example.test", "EVENT_DOMAIN": "example.test",
+}
+
+func TestMain(m *testing.M) {
+	for k, v := range testHosts {
+		_ = os.Setenv(k, v)
+	}
+	os.Exit(m.Run())
+}
+
+func setTestHosts(t *testing.T) {
+	t.Helper()
+	for k, v := range testHosts {
+		t.Setenv(k, v)
+	}
+}
+
 func TestAuthConfig_ParsedFromEnv(t *testing.T) {
-	t.Setenv("DOMAIN", "example.test")
+	setTestHosts(t)
 	t.Setenv("JWT_TOKEN_SIGNATURE", "sig")
 	t.Setenv("OAUTH_STATE_SIGNATURE", "oauth-sig")
 	t.Setenv("GOOGLE_CLIENT_ID", "gcid")
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
 
 	cfg := MustGetConfig()
-	if cfg.Auth.Domain != "example.test" {
-		t.Fatalf("Domain: got %q want example.test", cfg.Auth.Domain)
+	if cfg.Auth.Hosts.API != "api.example.test" || cfg.Auth.Hosts.EventDomain != "example.test" {
+		t.Fatalf("Hosts: got %+v", cfg.Auth.Hosts)
 	}
 	if cfg.Auth.TokenSignature != "sig" {
 		t.Fatalf("TokenSignature: got %q", cfg.Auth.TokenSignature)
@@ -194,7 +216,7 @@ func TestAgentBootstrapConfig(t *testing.T) {
 }
 
 func TestExerciseConfigStandDeployBudgetBounds(t *testing.T) {
-	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200}
+	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200, TestDeployTTL: 2 * time.Hour, TestDeployTTLMax: 8 * time.Hour}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("default budget rejected: %v", err)
 	}
@@ -208,7 +230,7 @@ func TestExerciseConfigStandDeployBudgetBounds(t *testing.T) {
 }
 
 func TestExerciseConfigStandPrewarmLeadBounds(t *testing.T) {
-	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200}
+	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200, TestDeployTTL: 2 * time.Hour, TestDeployTTLMax: 8 * time.Hour}
 	for _, lead := range []time.Duration{0, 30 * time.Minute, 24 * time.Hour} {
 		ok := valid
 		ok.StandPrewarmLead = lead
@@ -239,5 +261,33 @@ func TestAgentConfigInstanceIDMustBeALabelValue(t *testing.T) {
 	// The instance id is also the label of agents configured in the admin: it must always be valid.
 	if (AgentConfig{}).Validate() == nil {
 		t.Error("an empty instance id is invalid even without the environment agent")
+	}
+}
+
+func TestTunablesDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	cfg := MustGetConfig()
+	tn := cfg.Tunables
+	if tn.SSEMaxLifetime != 30*time.Minute || tn.EventStandDeployTimeout != 20*time.Minute || tn.LiveScreenLinkMaxTTL != 1440*time.Hour ||
+		tn.AgentAccessKeyRetention != 15*time.Minute || tn.AgentCertRenewBefore != 240*time.Hour || tn.EventDefaultMaxTeamSize != 5 ||
+		tn.MailMaxRateWait != 20*time.Second || tn.MailQuotaWindow != 24*time.Hour || tn.AvatarMaxBytes != 5<<20 ||
+		tn.EmailImageUploadMaxBytes != 10<<20 || tn.EmailImageMaxBytes != 300<<10 || tn.EmailImageMaxWidth != 1200 {
+		t.Fatalf("defaults drifted from the env template: %+v", tn)
+	}
+	if cfg.Auth.SetupTokenTTL != 168*time.Hour || cfg.LabSession.TTL != 24*time.Hour || cfg.LabAccess.TokenMaxTTL != 5*time.Minute ||
+		cfg.Exercise.TestDeployTTL != 2*time.Hour || cfg.Exercise.TestDeployTTLMax != 8*time.Hour {
+		t.Fatalf("TTL defaults drifted: %v %v %v", cfg.Auth.SetupTokenTTL, cfg.LabSession.TTL, cfg.LabAccess.TokenMaxTTL)
+	}
+	t.Setenv("SSE_MAX_LIFETIME", "5m")
+	t.Setenv("SETUP_TOKEN_TTL", "1h")
+	t.Setenv("LAB_SESSION_TTL", "2h")
+	cfg = MustGetConfig()
+	if cfg.Tunables.SSEMaxLifetime != 5*time.Minute || cfg.Auth.SetupTokenTTL != time.Hour || cfg.LabSession.TTL != 2*time.Hour {
+		t.Fatal("env overrides are not read")
+	}
+	bad := cfg.Tunables
+	bad.AvatarMaxBytes = 0
+	if bad.Validate() == nil {
+		t.Fatal("a zero upload limit must be rejected")
 	}
 }

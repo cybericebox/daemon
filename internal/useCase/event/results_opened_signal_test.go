@@ -35,7 +35,7 @@ func TestSetResultsOpened_AnnouncesOnlyTheFirstOpening(t *testing.T) {
 			q := newFormGateMock(ctrl)
 			publisher := &recordingSignalPublisher{}
 			uc := event.NewEventUseCase(event.Dependencies{
-				Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}, EventDomain: "cybericebox.com",
+				Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}, EventDomain: "cybericebox.com", IDHost: "id.cybericebox.com",
 				SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
 			})
 			eventID := uuid.Must(uuid.NewV7())

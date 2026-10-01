@@ -34,7 +34,7 @@ func newSignupUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 		Token:    tk,
 		Password: password.New(password.Config{HashCost: 4}),
 		Notifier: notifier,
-		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Domain: "example.test"},
+		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
 	})
 	return uc, repo, tk, notifier
 }

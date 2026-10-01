@@ -12,8 +12,6 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
 
-const maxLiveLogoBytes = 1 << 20
-
 // liveLogoType sniffs the content (never the file name): PNG and WebP as
 // they are, SVG only after the allowlist rebuild (mediaModel.SanitizeSVG).
 func liveLogoType(data []byte) (string, []byte, error) {
@@ -49,7 +47,7 @@ func (u *EventUseCase) UploadLiveLogo(ctx context.Context, eventID, userID uuid.
 	if err != nil {
 		return "", err
 	}
-	if len(data) > maxLiveLogoBytes {
+	if int64(len(data)) > maxLiveLogoBytes {
 		return "", eventContentModel.ErrLiveLogoTooLarge.Err()
 	}
 	contentType, clean, err := liveLogoType(data)

@@ -37,7 +37,7 @@ func newPwUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *pass
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: pw,
 		Notifier: notifier,
-		Config:   config.AuthConfig{TemporalCodeTTL: time.Hour, Domain: "example.test"},
+		Config:   config.AuthConfig{TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
 	})
 	return uc, repo, pw, notifier
 }

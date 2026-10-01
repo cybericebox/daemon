@@ -20,12 +20,15 @@ var (
 type Config struct {
 	TokenSignature string
 	Issuer         string
+	// SetupTokenTTL is the life of a setup link (SETUP_TOKEN_TTL); zero means SetupTokenTTL.
+	SetupTokenTTL time.Duration
 }
 
 // Client signs and verifies JWTs.
 type Client struct {
-	signKey []byte
-	issuer  string
+	signKey  []byte
+	issuer   string
+	setupTTL time.Duration
 }
 
 // New constructs a Client, returning an error on invalid config.
@@ -33,7 +36,13 @@ func New(cfg Config) (*Client, error) {
 	if cfg.TokenSignature == "" {
 		return nil, ErrEmptySignKey
 	}
-	return &Client{signKey: []byte(cfg.TokenSignature), issuer: cfg.Issuer}, nil
+	if cfg.SetupTokenTTL < 0 {
+		return nil, errors.New("token: the setup token ttl cannot be negative")
+	}
+	if cfg.SetupTokenTTL == 0 {
+		cfg.SetupTokenTTL = SetupTokenTTL
+	}
+	return &Client{signKey: []byte(cfg.TokenSignature), issuer: cfg.Issuer, setupTTL: cfg.SetupTokenTTL}, nil
 }
 
 // MustNew is New but panics on error — safe to call at startup.

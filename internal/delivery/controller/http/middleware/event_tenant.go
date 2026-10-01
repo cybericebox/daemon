@@ -25,7 +25,6 @@ import (
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	"github.com/cybericebox/daemon/internal/useCase/event"
-	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 // EventTenant is the resolved tenant event for a request — the one bundle
@@ -62,24 +61,13 @@ type EventResolver interface {
 	RequireReadEvent(ctx context.Context, eventID, userID uuid.UUID) error
 }
 
-// reservedSubdomains are platform-frontend/self labels that can never be an
-// event tag — a request whose Origin resolves to one of these is rejected
-// without ever calling the resolver.
-var reservedSubdomains = map[string]bool{
-	config.IDSubdomain:        true,
-	config.AdminSubdomain:     true,
-	config.ExercisesSubdomain: true,
-	config.APISubdomain:       true,
-}
-
 // ResolveEventTenant returns a gin middleware that resolves the tenant event
-// from the request's Origin header (its subdomain label under apex is the
+// from the request's Origin header (its label under EVENT_DOMAIN is the
 // event tag) and stores it in the request context as EventTenant. Requests
 // with no/invalid Origin, a reserved or apex subdomain, or an unknown tag are
 // rejected with a bare 404 — participant routes never reveal which case
 // applied (mirrors the anti-enumeration category-A error convention).
-func ResolveEventTenant(resolver EventResolver, apex string) gin.HandlerFunc {
-	apex = strings.ToLower(apex)
+func ResolveEventTenant(resolver EventResolver, hosts config.HostsConfig) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		origin := ctx.GetHeader("Origin")
 		if origin == "" {
@@ -94,8 +82,8 @@ func ResolveEventTenant(resolver EventResolver, apex string) gin.HandlerFunc {
 		}
 		host := strings.ToLower(parsed.Hostname())
 
-		tag, ok := tools.SubdomainOfHost(host, apex)
-		if !ok || tag == "" || reservedSubdomains[tag] {
+		tag, ok := hosts.EventTag(host)
+		if !ok {
 			response.AbortWithNotFound(ctx)
 			return
 		}

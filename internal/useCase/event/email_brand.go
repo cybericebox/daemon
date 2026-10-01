@@ -54,7 +54,7 @@ func (u *EventUseCase) ResolveEventEmailBrand(ctx context.Context, eventID uuid.
 	if err != nil {
 		return emailUseCase.Brand{}, err
 	}
-	if len(data) > maxEventLogoBytes {
+	if int64(len(data)) > maxEventLogoBytes {
 		return emailUseCase.Brand{}, fmt.Errorf("event logo exceeds %d bytes", maxEventLogoBytes)
 	}
 	if e, err := u.events.GetByID(ctx, eventID); err == nil {

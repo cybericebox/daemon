@@ -49,7 +49,7 @@ type (
 		// Env is the bootstrap SMTP_* transport, used only while the database
 		// holds no platform settings.
 		Env config.SMTPConfig
-		// Domain is the platform DOMAIN: the main site in the footer and the
+		// Domain is MAIN_HOST: the main site in the footer and the
 		// support@ Reply-To fallback.
 		Domain string
 		// NewSender defaults to pkg/email.
@@ -219,7 +219,7 @@ type platformSender struct {
 }
 
 // platformSender resolves the platform sender in effect: saved values over the
-// env bootstrap, with the product name and support@DOMAIN where both are
+// env bootstrap, with the product name and support@MAIN_HOST where both are
 // empty. A saved sending domain moves the sender address (saved or env
 // mailbox, else notifications) onto that domain unless a sender address is saved.
 func (u *MailUseCase) platformSender(ctx context.Context) (platformSender, error) {

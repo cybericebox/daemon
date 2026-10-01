@@ -7,13 +7,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 )
 
 func newRouter(domain string) *gin.Engine {
+	hosts := config.HostsConfig{Main: domain, API: "api." + domain, ID: "id." + domain, Admin: "admin." + domain, Exercises: "exercises." + domain, EventDomain: domain}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.Use(middleware.HandleCORSMiddleWare(domain))
+	r.Use(middleware.HandleCORSMiddleWare(hosts))
 	r.GET("/api/auth/me", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.POST("/api/auth/sign-out", func(c *gin.Context) { c.Status(http.StatusOK) })
 	return r

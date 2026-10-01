@@ -46,7 +46,7 @@ func newGoogleUC(t *testing.T, gu *oauth.GoogleUser) (*auth.AuthUseCase, *postgr
 		Password: password.New(password.Config{HashCost: 4}),
 		Notifier: &fakeNotifier{},
 		OAuth:    &fakeOAuth{user: gu},
-		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Domain: "test"},
+		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Hosts: testHosts("test")},
 	})
 	return uc, repo
 }
@@ -62,7 +62,7 @@ func newGoogleUCRedirect(t *testing.T, gu *oauth.GoogleUser, redirect string) (*
 		Password: password.New(password.Config{HashCost: 4}),
 		Notifier: &fakeNotifier{},
 		OAuth:    &fakeOAuth{user: gu, redirect: redirect},
-		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Domain: "test"},
+		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Hosts: testHosts("test")},
 	})
 	return uc, repo
 }

@@ -110,8 +110,27 @@ const vpnConnectedWindow = 3 * time.Minute
 // testLabOperationTimeout bounds one deploy or teardown, agent calls included.
 const testLabOperationTimeout = 60 * time.Second
 
-const testDeployTTL = 2 * time.Hour
-const maxTestDeployTTL = 8 * time.Hour
+// The defaults of EXERCISE_TEST_DEPLOY_TTL and EXERCISE_TEST_DEPLOY_TTL_MAX, used while the config is unset.
+const (
+	defaultTestDeployTTL    = 2 * time.Hour
+	defaultTestDeployTTLMax = 8 * time.Hour
+)
+
+// testDeployTTL is the lease of a test lab.
+func (u *ExerciseUseCase) testDeployTTL() time.Duration {
+	if u.flagConfig.TestDeployTTL > 0 {
+		return u.flagConfig.TestDeployTTL
+	}
+	return defaultTestDeployTTL
+}
+
+// maxTestDeployTTL is the longest a test lab lives from its start, however often it is extended.
+func (u *ExerciseUseCase) maxTestDeployTTL() time.Duration {
+	if u.flagConfig.TestDeployTTLMax > 0 {
+		return u.flagConfig.TestDeployTTLMax
+	}
+	return defaultTestDeployTTLMax
+}
 
 // DevicePersistenceAllowed says the cluster lets devices keep their state, so the editor offers the option.
 func (u *ExerciseUseCase) DevicePersistenceAllowed() bool {
@@ -186,7 +205,7 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		deployFlags = append(deployFlags, exerciseModel.DeployFlag{TaskID: link.TaskID, Name: link.Name, Flag: link.Flag})
 	}
 	id := uuid.Must(uuid.NewV7())
-	deploy := exerciseModel.TestDeploy{Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(testDeployTTL)}
+	deploy := exerciseModel.TestDeploy{Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(u.testDeployTTL())}
 
 	// Everything an author does to their test labs is serialized, so the group is created with the
 	// first lab, grows with the next ones and is deleted with the last one without racing.
@@ -552,9 +571,9 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 	if !current.ExpiresAt.IsZero() && !current.ExpiresAt.After(now) {
 		return exerciseModel.TestDeploy{}, exerciseModel.ErrTestDeployNotFound.Err()
 	}
-	expiresAt := now.Add(testDeployTTL)
+	expiresAt := now.Add(u.testDeployTTL())
 	if !current.CreatedAt.IsZero() {
-		if absoluteLimit := current.CreatedAt.Add(maxTestDeployTTL); expiresAt.After(absoluteLimit) {
+		if absoluteLimit := current.CreatedAt.Add(u.maxTestDeployTTL()); expiresAt.After(absoluteLimit) {
 			expiresAt = absoluteLimit
 		}
 	}

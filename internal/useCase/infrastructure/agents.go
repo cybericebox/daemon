@@ -18,12 +18,13 @@ import (
 	"github.com/cybericebox/daemon/pkg/agentcrypto"
 )
 
-const (
+var (
 	// CertRenewBefore is how long before its end a client certificate is renewed: a certificate is valid
-	// 30 days and is renewed at about two thirds of its life.
+	// 30 days and is renewed at about two thirds of its life (AGENT_CERT_RENEW_BEFORE, set once at start).
 	CertRenewBefore = 10 * 24 * time.Hour
 	// AccessKeyRetention is how long a rotated-out access key stays at the agent: longer than the
-	// longest access token lives (5 minutes) plus a margin. Only then is it removed.
+	// longest access token lives (5 minutes) plus a margin. Only then is it removed
+	// (AGENT_ACCESS_KEY_RETENTION, set once at start).
 	AccessKeyRetention = 15 * time.Minute
 )
 

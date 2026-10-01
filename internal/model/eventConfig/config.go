@@ -16,7 +16,15 @@ import (
 )
 
 const previewDescriptionMaxLen = 1000
-const defaultMaxTeamSize int32 = 5
+
+// defaultMaxTeamSize is the team size limit of a new event (EVENT_DEFAULT_MAX_TEAM_SIZE, set once at start).
+var defaultMaxTeamSize int32 = 5
+
+// SetDefaultMaxTeamSize sets the team size limit of a new event.
+func SetDefaultMaxTeamSize(n int32) { defaultMaxTeamSize = n }
+
+// DefaultMaxTeamSize is the team size limit of a new event, and what a legacy row without one gets.
+func DefaultMaxTeamSize() int32 { return defaultMaxTeamSize }
 
 type Participation int32
 

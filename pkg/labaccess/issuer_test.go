@@ -156,3 +156,15 @@ func TestDefaultTokenTTLAndSessionFallback(t *testing.T) {
 		t.Fatalf("default ttl = %v", got.ExpiresAt)
 	}
 }
+
+func TestConfiguredSessionAndTokenCap(t *testing.T) {
+	if _, err := New(Config{TokenTTL: 10 * time.Minute, MaxTokenTTL: 15 * time.Minute}); err != nil {
+		t.Fatalf("a raised cap allows a longer token: %v", err)
+	}
+	if _, err := New(Config{TokenTTL: 2 * time.Minute, MaxTokenTTL: time.Minute}); err == nil {
+		t.Fatal("a token above the configured cap must be rejected")
+	}
+	if _, err := New(Config{SessionTTL: -time.Hour}); err == nil {
+		t.Fatal("a negative session ttl must be rejected")
+	}
+}

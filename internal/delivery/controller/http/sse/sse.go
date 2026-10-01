@@ -14,7 +14,11 @@ import (
 
 // maxLifetime bounds one stream. When it runs out, the server ends the
 // stream cleanly and the client reconnects with Last-Event-ID.
+// It is set once at start (SSE_MAX_LIFETIME).
 var maxLifetime = 30 * time.Minute
+
+// SetMaxLifetime sets the longest life of one stream.
+func SetMaxLifetime(d time.Duration) { maxLifetime = d }
 
 // Open prepares ctx for an event stream. The server WriteTimeout would close
 // the stream after a few seconds, so Open lifts the write deadline for this

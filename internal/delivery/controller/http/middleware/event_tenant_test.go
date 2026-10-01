@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
@@ -48,7 +49,9 @@ func newEventTenantRouter(resolver middleware.EventResolver, apex string) (*gin.
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	reached := new(bool)
-	r.Use(middleware.ResolveEventTenant(resolver, apex))
+	r.Use(middleware.ResolveEventTenant(resolver, config.HostsConfig{
+		Main: apex, API: "api." + apex, ID: "id." + apex, Admin: "admin." + apex, Exercises: "exercises." + apex, EventDomain: apex,
+	}))
 	r.GET("/api/events/self", func(c *gin.Context) {
 		*reached = true
 		tenant, ok := middleware.EventTenantFromContext(c.Request.Context())

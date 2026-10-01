@@ -32,7 +32,7 @@ func newUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *passwo
 		Repo:     repo,
 		Token:    tk,
 		Password: pw,
-		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Domain: "test"},
+		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Hosts: testHosts("test")},
 	})
 	return uc, repo, pw
 }

@@ -37,7 +37,7 @@ func newInviteUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
 		Notifier: notifier,
-		Config:   config.AuthConfig{TemporalCodeTTL: time.Hour, Domain: "example.test"},
+		Config:   config.AuthConfig{TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
 	})
 	return uc, repo, notifier
 }

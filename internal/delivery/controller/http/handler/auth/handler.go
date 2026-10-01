@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/config"
 	"io"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +17,9 @@ type (
 	Handler struct {
 		useCase IUseCase
 		prot    IProtection
-		domain  string // platform apex domain (e.g. "example.test")
+		hosts   config.HostsConfig
+		// oauthCookieMaxAge is the life of the short OAuth state cookies, seconds (OAUTH_STATE_TTL).
+		oauthCookieMaxAge int
 	}
 
 	IUseCase interface {
@@ -100,8 +103,8 @@ type (
 	}
 )
 
-func NewAuthAPIHandler(useCase IUseCase, prot IProtection, domain string) *Handler {
-	return &Handler{useCase: useCase, prot: prot, domain: domain}
+func NewAuthAPIHandler(useCase IUseCase, prot IProtection, cfg config.AuthConfig) *Handler {
+	return &Handler{useCase: useCase, prot: prot, hosts: cfg.Hosts, oauthCookieMaxAge: int(cfg.OAuth.StateTTL.Seconds())}
 }
 
 func (h *Handler) Init(public, secured *gin.RouterGroup) {

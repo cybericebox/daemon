@@ -6,6 +6,8 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/cybericebox/daemon/pkg/token"
 )
 
 // TestSetupToken_RoundTrip verifies the full generate→parse cycle for setup tokens,
@@ -96,4 +98,20 @@ func TestSetupToken_RoundTrip(t *testing.T) {
 			t.Fatal("ParseSetupToken must not accept a session cookie token")
 		}
 	})
+}
+
+func TestSetupTokenUsesConfiguredTTL(t *testing.T) {
+	c := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough", SetupTokenTTL: time.Minute})
+	tok, err := c.GenerateSetupToken(uuid.Must(uuid.NewV7()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _, err := jwt.NewParser().ParseUnverified(tok, &jwt.RegisteredClaims{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exp, _ := parsed.Claims.GetExpirationTime()
+	if d := time.Until(exp.Time); d > time.Minute || d < 50*time.Second {
+		t.Fatalf("setup token lives %v, want about the configured minute", d)
+	}
 }

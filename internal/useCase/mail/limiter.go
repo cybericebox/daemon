@@ -11,7 +11,9 @@ import (
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 )
 
-const (
+// The limiter timings are set once at start (MAIL_MAX_RATE_WAIT, MAIL_QUOTA_RETRY_AFTER,
+// MAIL_QUOTA_RECHECK, MAIL_QUOTA_WINDOW).
+var (
 	// maxRateWait is the longest a worker waits for its turn. A longer queue
 	// (a big broadcast behind a slow provider limit) defers the message
 	// instead of holding the worker past the job timeout.
@@ -23,6 +25,16 @@ const (
 	quotaRecheck = 30 * time.Second
 	quotaWindow  = 24 * time.Hour
 )
+
+// LimiterTimings are the send limiter timings.
+type LimiterTimings struct {
+	MaxRateWait, QuotaRetryAfter, QuotaRecheck, QuotaWindow time.Duration
+}
+
+// ConfigureLimiter sets the send limiter timings once at start.
+func ConfigureLimiter(t LimiterTimings) {
+	maxRateWait, quotaRetryAfter, quotaRecheck, quotaWindow = t.MaxRateWait, t.QuotaRetryAfter, t.QuotaRecheck, t.QuotaWindow
+}
 
 // sendLimiter enforces the send limits of SMTP transports inside one process,
 // keyed by transport identity: a rate limit (messages are spaced by the

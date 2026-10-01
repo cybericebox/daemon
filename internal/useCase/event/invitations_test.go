@@ -49,7 +49,7 @@ func TestInviteParticipantCreatesPendingAccountAndSendsSetupLink(t *testing.T) {
 	allowNonStaff(q)
 	unit := &testUoW{}
 	notifier := &invitationNotifier{}
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", SetupTokens: invitationTokens{}})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(notifier)
 	eventID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	email := "new@example.test"
@@ -85,7 +85,7 @@ func TestInviteParticipantResendsExistingPendingInvitation(t *testing.T) {
 	allowNonStaff(q)
 	unit := &testUoW{}
 	notifier := &invitationNotifier{}
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", SetupTokens: invitationTokens{}})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(notifier)
 	eventID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil)
@@ -106,7 +106,7 @@ func TestInviteTeamMemberStoresTargetBeforeSending(t *testing.T) {
 	allowNonStaff(q)
 	unit := &testUoW{}
 	notifier := &invitationNotifier{}
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", SetupTokens: invitationTokens{}})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(notifier)
 	eventID, teamID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true}}, nil)
@@ -238,7 +238,7 @@ func TestDeclineParticipantInvitationRequiresPendingInvitation(t *testing.T) {
 func TestResendParticipantInvitationSendsAgain(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
 	notifier := &invitationNotifier{}
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, EventDomain: "example.test", SetupTokens: invitationTokens{}})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(notifier)
 	eventID, userID, managerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: 1, Invited: true}, nil)

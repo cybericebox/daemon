@@ -49,12 +49,14 @@ const (
 	maxDeployLeadMinutes        int32 = 1440
 	maxTeardownDelayMinutes     int32 = 10080
 
-	// DeployTimeout fails a Lab that the agent accepted but never reported
-	// ready, so a stuck image pull or crash loop reaches the moderators.
-	DeployTimeout = 20 * time.Minute
 	// reasonMaxLen keeps agent error text readable in lists and notifications.
 	reasonMaxLen = 300
 )
+
+// DeployTimeout fails a Lab that the agent accepted but never reported
+// ready, so a stuck image pull or crash loop reaches the moderators
+// (EVENT_STAND_DEPLOY_TIMEOUT, set once at start).
+var DeployTimeout = 20 * time.Minute
 
 // Timing is the event's stand schedule: deploy N minutes before the start and
 // tear down N minutes after the effective finish.
