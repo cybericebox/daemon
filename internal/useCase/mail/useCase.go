@@ -49,9 +49,10 @@ type (
 		// Env is the bootstrap SMTP_* transport, used only while the database
 		// holds no platform settings.
 		Env config.SMTPConfig
-		// Domain is MAIN_HOST: the main site in the footer and the
-		// support@ Reply-To fallback.
+		// Domain is MAIN_HOST: the main site link in the footer.
 		Domain string
+		// SupportEmail is SUPPORT_EMAIL: the default Reply-To and the footer contact.
+		SupportEmail string
 		// NewSender defaults to pkg/email.
 		NewSender func(email.Config) (sender, error)
 	}
@@ -64,6 +65,7 @@ type (
 		cipher     *secret.Cipher
 		env        config.SMTPConfig
 		domain     string
+		support    string
 		newSender  func(email.Config) (sender, error)
 		now        func() time.Time
 		limiter    *sendLimiter
@@ -83,6 +85,7 @@ func NewMailUseCase(deps Dependencies) *MailUseCase {
 		cipher:     deps.Cipher,
 		env:        deps.Env,
 		domain:     deps.Domain,
+		support:    deps.SupportEmail,
 		newSender:  newSender,
 		now:        time.Now,
 	}
@@ -219,7 +222,7 @@ type platformSender struct {
 }
 
 // platformSender resolves the platform sender in effect: saved values over the
-// env bootstrap, with the product name and support@MAIN_HOST where both are
+// env bootstrap, with the product name and SUPPORT_EMAIL where both are
 // empty. A saved sending domain moves the sender address (saved or env
 // mailbox, else notifications) onto that domain unless a sender address is saved.
 func (u *MailUseCase) platformSender(ctx context.Context) (platformSender, error) {
@@ -231,7 +234,7 @@ func (u *MailUseCase) platformSender(ctx context.Context) (platformSender, error
 	if stored.Identity.FromAddress == "" {
 		identity = identity.WithSendingDomain(stored.SendingDomain)
 	}
-	identity = identity.WithPlatformDefaults(u.domain)
+	identity = identity.WithPlatformDefaults(u.support)
 	return platformSender{
 		identity: identity, stored: stored,
 		domain: mailModel.ResolveSendingDomain(stored.SendingDomain, identity.FromAddress),

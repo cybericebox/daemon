@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"regexp"
 	"time"
 
@@ -158,8 +159,10 @@ type (
 	}
 
 	AuthConfig struct {
-		Hosts          HostsConfig `                                            envPrefix:""`
-		TokenSignature string      `env:"JWT_TOKEN_SIGNATURE"`
+		Hosts HostsConfig `                                            envPrefix:""`
+		// SupportEmail is the default Reply-To of all mail and the contact in the mail footer.
+		SupportEmail   string `env:"SUPPORT_EMAIL,required"`
+		TokenSignature string `env:"JWT_TOKEN_SIGNATURE"`
 		// SetupTokenTTL is the life of a setup link (account setup and invitations).
 		SetupTokenTTL   time.Duration   `env:"SETUP_TOKEN_TTL" envDefault:"168h"`
 		SessionIdleTTL  time.Duration   `env:"SESSION_IDLE_TTL"    envDefault:"720h"`
@@ -440,6 +443,9 @@ func MustGetConfig() *Config {
 
 	if err = instance.Auth.Hosts.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid host configuration")
+	}
+	if addr, perr := mail.ParseAddress(instance.Auth.SupportEmail); perr != nil || addr.Address != instance.Auth.SupportEmail {
+		log.Fatal().Msg("Config: SUPPORT_EMAIL must be a bare email address")
 	}
 
 	instance.populateForAllConfig()

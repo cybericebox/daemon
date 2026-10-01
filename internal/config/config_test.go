@@ -11,7 +11,7 @@ import (
 // testHosts is the host set every test config starts with: the hosts are required, so MustGetConfig
 // stops without them.
 var testHosts = map[string]string{
-	"MAIN_HOST": "example.test", "API_HOST": "api.example.test", "ID_HOST": "id.example.test",
+	"SUPPORT_EMAIL": "support@example.test", "MAIN_HOST": "example.test", "API_HOST": "api.example.test", "ID_HOST": "id.example.test",
 	"ADMIN_HOST": "admin.example.test", "EXERCISES_HOST": "exercises.example.test", "EVENT_DOMAIN": "example.test",
 }
 

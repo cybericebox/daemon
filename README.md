@@ -73,6 +73,7 @@ All settings are environment variables. Values below are placeholders; durations
 | `API_HOST` | required | Host this service answers on (`api.cybericebox.com`); the OAuth redirect URI is `https://<API_HOST>/api/auth/<provider>/callback`. |
 | `ID_HOST` | required | Sign-in app host: sign-in, setup, confirmation and invitation links point at it. |
 | `ADMIN_HOST`, `EXERCISES_HOST` | required | Admin and exercise catalog app hosts. |
+| `SUPPORT_EMAIL` | required | Default Reply-To of all mail and the contact in the mail footer (`support@cybericebox.com`). |
 | `EVENT_DOMAIN` | required | Event sites are `<tag>.<EVENT_DOMAIN>`; the first labels of the hosts above that sit under it are reserved as tags. |
 
 All six hosts are bare host names (no scheme, port or path) under one registrable domain (SameSite=Strict); the daemon refuses to start otherwise. CORS allows exactly the frontend hosts, `MAIN_HOST` and `https://*.<EVENT_DOMAIN>`. `DOMAIN` and the fixed `id`/`admin`/`exercises`/`api` subdomains are gone.

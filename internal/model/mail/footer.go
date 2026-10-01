@@ -10,9 +10,6 @@ import (
 // PlatformName is the product name in the platform sender and the footer.
 const PlatformName = "Cyber ICE Box"
 
-// supportMailbox is the local part of the default Reply-To (support@<MAIN_HOST>).
-const supportMailbox = "support"
-
 // Language picks the footer text. There is no per-recipient language yet, so
 // every email uses LanguageUK; unknown values fall back to it as well.
 type Language string
@@ -21,14 +18,6 @@ const (
 	LanguageUK Language = "uk"
 	LanguageEN Language = "en"
 )
-
-// SupportAddress is the default Reply-To of all mail: support@<domain>.
-func SupportAddress(domain string) string {
-	if domain == "" {
-		return ""
-	}
-	return supportMailbox + "@" + domain
-}
 
 // PlatformSite is the main site URL of the platform.
 func PlatformSite(domain string) string {
@@ -39,13 +28,13 @@ func PlatformSite(domain string) string {
 }
 
 // WithPlatformDefaults fills what the platform sender leaves empty: the
-// product name and the support Reply-To.
-func (id Identity) WithPlatformDefaults(domain string) Identity {
+// product name and the support Reply-To (SUPPORT_EMAIL).
+func (id Identity) WithPlatformDefaults(supportEmail string) Identity {
 	if id.FromName == "" {
 		id.FromName = PlatformName
 	}
 	if id.ReplyToAddress == "" {
-		id.ReplyToAddress = SupportAddress(domain)
+		id.ReplyToAddress = supportEmail
 	}
 	return id
 }

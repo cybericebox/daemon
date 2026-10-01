@@ -56,7 +56,7 @@ func newBareTestUseCase(t *testing.T, env config.SMTPConfig, cipher *secret.Ciph
 	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	smtp := &fakeSMTP{fail: map[string]error{}}
 	uc := NewMailUseCase(Dependencies{
-		Repo: repo, Cipher: cipher, Env: env, Domain: "cybericebox.com",
+		Repo: repo, Cipher: cipher, Env: env, Domain: "cybericebox.com", SupportEmail: "support@cybericebox.com",
 		NewSender: func(cfg email.Config) (sender, error) { return fakeClient{owner: smtp, conn: cfg}, nil },
 	})
 	uc.now = func() time.Time { return time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC) }
@@ -413,7 +413,7 @@ func TestGetPlatformMailSettings_NothingSavedFallsBackToEnvThenDefaults(t *testi
 	require.Equal(t, "cybericebox.com", view.SendingDomain)
 	require.Empty(t, view.SavedSendingDomain)
 
-	uc.env, uc.domain = config.SMTPConfig{}, ""
+	uc.env, uc.domain, uc.support = config.SMTPConfig{}, "", ""
 	view, err = uc.GetPlatformMailSettings(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, FieldNone, view.Sources.SenderAddress)

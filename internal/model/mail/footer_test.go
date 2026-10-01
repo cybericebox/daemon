@@ -140,18 +140,13 @@ func TestFooter_Append(t *testing.T) {
 }
 
 func TestPlatformDefaults(t *testing.T) {
-	id := Identity{FromAddress: "notifications@mail.cybericebox.com"}.WithPlatformDefaults("cybericebox.com")
+	id := Identity{FromAddress: "notifications@mail.cybericebox.com"}.WithPlatformDefaults("support@cybericebox.com")
 	require.Equal(t, Identity{FromName: "Cyber ICE Box", FromAddress: "notifications@mail.cybericebox.com", ReplyToAddress: "support@cybericebox.com"}, id)
 
-	kept := Identity{FromName: "CIB", FromAddress: "n@mail.x.y", ReplyToAddress: "help@x.y"}.WithPlatformDefaults("cybericebox.com")
+	kept := Identity{FromName: "CIB", FromAddress: "n@mail.x.y", ReplyToAddress: "help@x.y"}.WithPlatformDefaults("support@cybericebox.com")
 	require.Equal(t, Identity{FromName: "CIB", FromAddress: "n@mail.x.y", ReplyToAddress: "help@x.y"}, kept)
 
-	require.Empty(t, Identity{}.WithPlatformDefaults("").ReplyToAddress, "no domain → no support fallback")
-}
-
-func TestSupportAddress(t *testing.T) {
-	require.Equal(t, "support@cybericebox.com", SupportAddress("cybericebox.com"))
-	require.Empty(t, SupportAddress(""))
+	require.Empty(t, Identity{}.WithPlatformDefaults("").ReplyToAddress, "no support address → no fallback")
 }
 
 func TestPlatformSite(t *testing.T) {
