@@ -3,36 +3,24 @@ SELECT *
 FROM infrastructure_agents
 ORDER BY key;
 
--- name: DeleteInfrastructureAgentByKey :execrows
-DELETE FROM infrastructure_agents
-WHERE key = sqlc.arg(key);
-
--- name: UpsertInfrastructureAgent :one
-INSERT INTO infrastructure_agents (id, key, name, configured, created_at, updated_at)
-VALUES (sqlc.arg(id), sqlc.arg(key), sqlc.arg(name), sqlc.arg(configured), sqlc.arg(created_at), sqlc.arg(updated_at))
-ON CONFLICT (key) DO UPDATE
-    SET name = EXCLUDED.name,
-        configured = EXCLUDED.configured,
-        updated_at = EXCLUDED.updated_at
-RETURNING *;
-
 -- name: GetInfrastructureAgent :one
 SELECT *
 FROM infrastructure_agents
 WHERE id = sqlc.arg(id);
 
--- name: CreateAdminInfrastructureAgent :one
--- An enrolled agent: its key is its id; the certificate is public, both private keys are ciphertext.
+-- name: CreateInfrastructureAgent :one
+-- An enrolled agent (source admin, or env when bootstrapped from the deployment config): its key is its
+-- id; the certificate is public, both private keys are ciphertext.
 INSERT INTO infrastructure_agents (id, key, name, configured, source, endpoint, tenant, client_cert_pem, client_key_ciphertext,
                                    cert_not_after, ca_pem, access_key_id, access_private_key_ciphertext, access_public_key,
                                    enabled, priority, created_at, updated_at)
-VALUES (sqlc.arg(id), sqlc.arg(key), sqlc.arg(name), true, 'admin', sqlc.arg(endpoint), sqlc.arg(tenant),
+VALUES (sqlc.arg(id), sqlc.arg(key), sqlc.arg(name), true, sqlc.arg(source), sqlc.arg(endpoint), sqlc.arg(tenant),
         sqlc.arg(client_cert_pem), sqlc.arg(client_key_ciphertext), sqlc.arg(cert_not_after), sqlc.arg(ca_pem),
         sqlc.arg(access_key_id), sqlc.arg(access_private_key_ciphertext), sqlc.arg(access_public_key),
         sqlc.arg(enabled), sqlc.arg(priority), sqlc.arg(created_at), sqlc.arg(updated_at))
 RETURNING *;
 
--- name: UpdateAdminInfrastructureAgent :execrows
+-- name: UpdateInfrastructureAgent :execrows
 -- What an admin may change after enrollment: the label, the order, the switch and the server CA. The
 -- endpoint identifies the agent (and its certificate), so it never changes.
 UPDATE infrastructure_agents
@@ -41,8 +29,7 @@ SET name       = sqlc.arg(name),
     enabled    = sqlc.arg(enabled),
     priority   = sqlc.arg(priority),
     updated_at = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id)
-  AND source = 'admin';
+WHERE id = sqlc.arg(id);
 
 -- name: SetInfrastructureAgentCertificate :execrows
 -- A renewed client certificate with its new key (the tenant is the certificate CN and stays).
@@ -52,8 +39,7 @@ SET client_cert_pem       = sqlc.arg(client_cert_pem),
     cert_not_after        = sqlc.arg(cert_not_after),
     tenant                = sqlc.arg(tenant),
     updated_at            = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id)
-  AND source = 'admin';
+WHERE id = sqlc.arg(id);
 
 -- name: SetInfrastructureAgentAccessKey :execrows
 -- A rotated access key: the new key signs from now on, the previous ones are recorded as retired.
@@ -63,21 +49,18 @@ SET access_key_id                 = sqlc.arg(access_key_id),
     access_public_key             = sqlc.arg(access_public_key),
     retired_access_keys           = sqlc.arg(retired_access_keys),
     updated_at                    = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id)
-  AND source = 'admin';
+WHERE id = sqlc.arg(id);
 
 -- name: SetInfrastructureAgentRetiredKeys :execrows
 -- The retired keys that are still waiting for RemoveAccessKey.
 UPDATE infrastructure_agents
 SET retired_access_keys = sqlc.arg(retired_access_keys),
     updated_at          = sqlc.arg(updated_at)
-WHERE id = sqlc.arg(id)
-  AND source = 'admin';
+WHERE id = sqlc.arg(id);
 
--- name: DeleteAdminInfrastructureAgent :execrows
+-- name: DeleteInfrastructureAgent :execrows
 DELETE FROM infrastructure_agents
-WHERE id = sqlc.arg(id)
-  AND source = 'admin';
+WHERE id = sqlc.arg(id);
 
 -- name: ClaimLabGroupPlacement :one
 -- Places a group on an agent unless it is placed already; returns the agent that holds it, so two
@@ -128,7 +111,6 @@ SET name                           = sqlc.arg(name),
     archived_at                    = sqlc.arg(archived_at),
     updated_at                     = sqlc.arg(archived_at)
 WHERE id = sqlc.arg(id)
-  AND source = 'admin'
   AND archived_at IS NULL;
 
 -- name: ReplaceInfrastructureAgentCredentials :execrows
@@ -145,5 +127,4 @@ SET client_cert_pem                = sqlc.arg(client_cert_pem),
     retired_access_keys            = '[]',
     updated_at                     = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
-  AND source = 'admin'
   AND archived_at IS NULL;

@@ -264,7 +264,6 @@
   "71407": "The device is being restarted, try again in a minute",
   "71410": "The platform secrets key is not configured",
   "71411": "The agent still holds laboratories",
-  "71412": "The environment agent is configured by the deployment",
   "71415": "The renewed certificate names another tenant",
   "71416": "Deleting the agent affects future reservations: confirm the delete",
   "71502": "Secret storage is not configured",

@@ -16,7 +16,6 @@ import (
 	labclient "github.com/cybericebox/laboratory/pkg/agent/client"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
-	"github.com/cybericebox/daemon/internal/config"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
 
@@ -27,27 +26,6 @@ type Client struct {
 	// instance is the value of the immutable platform-instance label on every object this
 	// client creates; the Monitoring stream is subscribed with it.
 	instance string
-}
-
-// New dials the configured LabManager agent over mutual TLS. Callers construct
-// this only when cfg.Endpoint is set; an empty endpoint means "no
-// infrastructure" and this is never called.
-func New(cfg config.AgentConfig) (*Client, error) {
-	c, err := labclient.NewConnection(labclient.Config{
-		Endpoint: cfg.Endpoint,
-		// ServerName left empty: we dial the agent by its cert hostname, so gRPC
-		// derives the verified name from the endpoint.
-		TLS: labclient.TLS{
-			Enabled:  cfg.TLS.Enabled,
-			CertFile: cfg.TLS.CertFile,
-			KeyFile:  cfg.TLS.KeyFile,
-			CAFile:   cfg.TLS.CAFile,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &Client{Client: c, instance: cfg.InstanceID}, nil
 }
 
 // Health probes the agent connection with a gRPC Ping. It satisfies the

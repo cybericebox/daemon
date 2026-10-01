@@ -27,9 +27,9 @@ const (
 	AccessKeyRetention = 15 * time.Minute
 )
 
-// ErrEnrollmentDenied is what the agent adapter returns when the agent refuses the enrollment token
-// or the request (a used, expired or unknown token is PERMISSION_DENIED).
-var ErrEnrollmentDenied = errors.New("the agent denied the enrollment")
+// ErrEnrollmentDenied is returned by the agent adapter when the agent refuses the enrollment token or
+// the request.
+var ErrEnrollmentDenied = infraModel.ErrEnrollmentDenied
 
 type (
 	// AgentStore is the agent registry the admin edits.
@@ -37,12 +37,12 @@ type (
 		ListRecords(ctx context.Context) ([]infraModel.AgentRecord, error)
 		ListAllRecords(ctx context.Context) ([]infraModel.AgentRecord, error)
 		Get(ctx context.Context, id uuid.UUID) (infraModel.AgentRecord, error)
-		CreateAdmin(ctx context.Context, a infraModel.AgentRecord) (infraModel.AgentRecord, error)
-		UpdateAdmin(ctx context.Context, a infraModel.AgentRecord) (bool, error)
+		Create(ctx context.Context, a infraModel.AgentRecord) (infraModel.AgentRecord, error)
+		Update(ctx context.Context, a infraModel.AgentRecord) (bool, error)
 		SetCertificate(ctx context.Context, id uuid.UUID, certPEM, keyCiphertext, tenant string, notAfter, now time.Time) (bool, error)
 		SetAccessKey(ctx context.Context, id uuid.UUID, keyID, privateCiphertext, publicPEM string, retired []infraModel.RetiredKey, now time.Time) (bool, error)
 		SetRetiredKeys(ctx context.Context, id uuid.UUID, retired []infraModel.RetiredKey, now time.Time) (bool, error)
-		DeleteAdmin(ctx context.Context, id uuid.UUID) (bool, error)
+		Delete(ctx context.Context, id uuid.UUID) (bool, error)
 		SetCapacity(ctx context.Context, id uuid.UUID, cpuMillicores, memoryBytes *int64, seenAt time.Time) error
 		Archive(ctx context.Context, id uuid.UUID, name string, at time.Time) (bool, error)
 		ReplaceCredentials(ctx context.Context, a infraModel.AgentRecord) (bool, error)
@@ -132,7 +132,7 @@ type (
 	// AgentAdminView is one agent for the admin list.
 	AgentAdminView struct {
 		infraModel.AgentRegistration
-		// InUse is false for the environment agent while admin agents exist (it is ignored then).
+		// InUse is false for an archived (deleted) agent.
 		InUse bool
 		// Groups is how many lab groups the agent holds.
 		Groups int64
@@ -141,11 +141,9 @@ type (
 		Probe       agentfleet.AgentProbe
 	}
 
-	// AgentsView is the admin agent list. EnvironmentUsed is true while no admin agent exists and the
-	// environment agent serves: the UI notes that it is used because no agents are configured.
+	// AgentsView is the admin agent list.
 	AgentsView struct {
-		EnvironmentUsed bool
-		Items           []AgentAdminView
+		Items []AgentAdminView
 	}
 )
 
@@ -157,8 +155,7 @@ func NewAgentsUseCase(deps AgentsDependencies) *AgentsUseCase {
 	return &AgentsUseCase{store: deps.Store, placements: deps.Placements, sealer: deps.Sealer, fleet: deps.Fleet, remote: deps.Remote, impacts: deps.Impacts, now: now, lastCapacity: map[uuid.UUID]capacityReading{}}
 }
 
-// ListAgents lists the admin agents and the environment agent with their live state, ordered like the
-// placement: by priority, then by name.
+// ListAgents lists the agents with their live state, ordered like the placement: by priority, then by name.
 func (u *AgentsUseCase) ListAgents(ctx context.Context, includeArchived bool) (AgentsView, error) {
 	list := u.store.ListRecords
 	if includeArchived {
@@ -172,14 +169,10 @@ func (u *AgentsUseCase) ListAgents(ctx context.Context, includeArchived bool) (A
 	if err != nil {
 		return AgentsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count laboratories per agent").Err()
 	}
-	adminExists := false
-	for _, r := range records {
-		adminExists = adminExists || r.Source == infraModel.AgentSourceAdmin
-	}
-	view := AgentsView{EnvironmentUsed: !adminExists, Items: make([]AgentAdminView, len(records))}
+	view := AgentsView{Items: make([]AgentAdminView, len(records))}
 	var wg sync.WaitGroup
 	for i, r := range records {
-		item := AgentAdminView{AgentRegistration: r.AgentRegistration, Groups: counts[r.ID], RetiredKeys: len(r.RetiredAccessKeys), InUse: (r.Source == infraModel.AgentSourceAdmin || !adminExists) && r.ArchivedAt == nil}
+		item := AgentAdminView{AgentRegistration: r.AgentRegistration, Groups: counts[r.ID], RetiredKeys: len(r.RetiredAccessKeys), InUse: r.ArchivedAt == nil}
 		view.Items[i] = item
 		if item.InUse {
 			wg.Add(1)
@@ -203,58 +196,90 @@ func (u *AgentsUseCase) ListAgents(ctx context.Context, includeArchived bool) (A
 // EnrollAgent adds an agent. The platform generates the mutual-TLS key and the access signing key
 // pair itself, sends only the certificate request and the public access key with the one-time token,
 // and stores the issued certificate with both private keys (encrypted). The tenant is the
-// certificate's CN. From the first admin agent on the environment agent is no longer used.
+// certificate's CN.
 func (u *AgentsUseCase) EnrollAgent(ctx context.Context, in infraModel.AgentEnrollment) (AgentAdminView, error) {
-	in, err := in.Normalize()
+	id, err := u.enroll(ctx, in, infraModel.AgentSourceAdmin)
 	if err != nil {
 		return AgentAdminView{}, err
 	}
+	return u.afterChange(ctx, id)
+}
+
+// BootstrapAgent enrolls the agent named by the deployment config (AGENT_ENDPOINT with a one-time
+// token) when no live agent with that endpoint exists yet. Afterwards the token is not used again: the
+// agent lives in the database like any other. It reports whether it enrolled; an enrollment that fails
+// (a used or expired token) is returned for the caller to log, the daemon starts anyway.
+func (u *AgentsUseCase) BootstrapAgent(ctx context.Context, in infraModel.AgentEnrollment) (enrolled bool, err error) {
+	if strings.TrimSpace(in.Endpoint) == "" {
+		return false, nil
+	}
+	records, err := u.store.ListRecords(ctx)
+	if err != nil {
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to list infrastructure agents").Err()
+	}
+	for _, r := range records {
+		if r.Endpoint == strings.TrimSpace(in.Endpoint) {
+			return false, nil
+		}
+	}
+	if _, err = u.enroll(ctx, in, infraModel.AgentSourceEnv); err != nil {
+		return false, err
+	}
+	return true, u.reload(ctx)
+}
+
+// enroll runs the enrollment and stores the agent; source says how it was added.
+func (u *AgentsUseCase) enroll(ctx context.Context, in infraModel.AgentEnrollment, source string) (uuid.UUID, error) {
+	in, err := in.Normalize()
+	if err != nil {
+		return uuid.Nil, err
+	}
 	if u.sealer == nil {
-		return AgentAdminView{}, infraModel.ErrAgentSecretsUnavailable.Err()
+		return uuid.Nil, infraModel.ErrAgentSecretsUnavailable.Err()
 	}
 	clientKey, err := agentcrypto.NewClientKey()
 	if err != nil {
-		return AgentAdminView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to generate the client key").Err()
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate the client key").Err()
 	}
 	accessKey, err := agentcrypto.NewAccessKey()
 	if err != nil {
-		return AgentAdminView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to generate the access key").Err()
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate the access key").Err()
 	}
 	certPEM, err := u.remote.Enroll(ctx, in.Endpoint, []byte(in.CAPEM), in.Token, clientKey.CSRPEM, accessKey.PublicKeyPEM, accessKey.ID)
 	if err != nil {
 		if errors.Is(err, ErrEnrollmentDenied) {
-			return AgentAdminView{}, infraModel.ErrAgentEnrollmentRejected.WithError(err).Err()
+			return uuid.Nil, infraModel.ErrAgentEnrollmentRejected.WithError(err).Err()
 		}
-		return AgentAdminView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to enroll the agent").Err()
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to enroll the agent").Err()
 	}
 	cert, err := u.checkCertificate(certPEM, clientKey.KeyPEM)
 	if err != nil {
-		return AgentAdminView{}, err
+		return uuid.Nil, err
 	}
 	id := uuid.Must(uuid.NewV7())
 	keyCT, err := u.seal(id, "key", clientKey.KeyPEM)
 	if err != nil {
-		return AgentAdminView{}, err
+		return uuid.Nil, err
 	}
 	accessCT, err := u.seal(id, "access", accessKey.PrivateKeyPEM)
 	if err != nil {
-		return AgentAdminView{}, err
+		return uuid.Nil, err
 	}
 	now := u.now().UTC()
 	record := infraModel.AgentRecord{
 		AgentRegistration: infraModel.AgentRegistration{
-			ID: id, Name: in.Name, Source: infraModel.AgentSourceAdmin, Endpoint: in.Endpoint, Configured: true, Enabled: in.Enabled,
+			ID: id, Name: in.Name, Source: source, Endpoint: in.Endpoint, Configured: true, Enabled: in.Enabled,
 			Priority: in.Priority, Tenant: cert.Tenant, AccessKeyID: accessKey.ID, CertNotAfter: &cert.NotAfter, CreatedAt: now, UpdatedAt: now,
 		},
 		CertPEM: certPEM, KeyCiphertext: keyCT, CAPEM: in.CAPEM, AccessPrivateKeyCiphertext: accessCT, AccessPublicKey: accessKey.PublicKeyPEM,
 	}
-	if _, err = u.store.CreateAdmin(ctx, record); err != nil {
+	if _, err = u.store.Create(ctx, record); err != nil {
 		if creator, unique := repositoryTools.UniqueViolationError(err, infraModel.ErrAgentExists); unique {
-			return AgentAdminView{}, creator.WithError(err).Err()
+			return uuid.Nil, creator.WithError(err).Err()
 		}
-		return AgentAdminView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save the infrastructure agent").Err()
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to save the infrastructure agent").Err()
 	}
-	return u.afterChange(ctx, id)
+	return id, nil
 }
 
 // UpdateAgent changes the label, order, switch and server CA of an admin agent.
@@ -268,7 +293,7 @@ func (u *AgentsUseCase) UpdateAgent(ctx context.Context, id uuid.UUID, in infraM
 		return AgentAdminView{}, err
 	}
 	existing.Name, existing.CAPEM, existing.Enabled, existing.Priority, existing.UpdatedAt = in.Name, in.CAPEM, in.Enabled, in.Priority, u.now().UTC()
-	ok, err := u.store.UpdateAdmin(ctx, existing)
+	ok, err := u.store.Update(ctx, existing)
 	if err != nil {
 		return AgentAdminView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save the infrastructure agent").Err()
 	}
@@ -365,9 +390,6 @@ func (u *AgentsUseCase) MaintainAgents(ctx context.Context) error {
 	var errs []error
 	changed := false
 	for _, r := range records {
-		if r.Source != infraModel.AgentSourceAdmin {
-			continue
-		}
 		if r.CertNotAfter != nil && r.CertNotAfter.Sub(now) <= CertRenewBefore {
 			if err = u.renew(ctx, r); err != nil {
 				log.Error().Err(err).Str("agent", r.Name).Msg("Agent certificate renewal failed")
@@ -594,7 +616,7 @@ func (u *AgentsUseCase) reload(ctx context.Context) error {
 	return nil
 }
 
-// loadAdmin loads an admin agent; the environment agent is read-only.
+// loadAdmin loads an agent that is in use (not archived).
 func (u *AgentsUseCase) loadAdmin(ctx context.Context, id uuid.UUID) (infraModel.AgentRecord, error) {
 	record, err := u.store.Get(ctx, id)
 	if err != nil {
@@ -602,9 +624,6 @@ func (u *AgentsUseCase) loadAdmin(ctx context.Context, id uuid.UUID) (infraModel
 			return infraModel.AgentRecord{}, infraModel.ErrAgentNotFound.Err()
 		}
 		return infraModel.AgentRecord{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load the infrastructure agent").Err()
-	}
-	if record.Source != infraModel.AgentSourceAdmin {
-		return infraModel.AgentRecord{}, infraModel.ErrAgentReadOnly.Err()
 	}
 	if record.ArchivedAt != nil {
 		return infraModel.AgentRecord{}, infraModel.ErrAgentNotFound.Err()

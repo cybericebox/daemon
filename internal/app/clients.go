@@ -4,7 +4,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/infrastructure/labagent"
 	"github.com/cybericebox/daemon/pkg/oauth"
 	"github.com/cybericebox/daemon/pkg/password"
 	"github.com/cybericebox/daemon/pkg/secret"
@@ -18,10 +17,9 @@ type clients struct {
 	storageClient  *storage.Client // nil when storage is unconfigured (dev path)
 	tokenClient    *token.Client
 	passwordClient *password.Client
-	exerciseCipher *secret.Cipher   // nil when EXERCISE_SECRETS_KEY is unset
-	vpnCipher      *secret.Cipher   // nil when VPN_SECRETS_KEY is unset
-	platformCipher *secret.Cipher   // nil when PLATFORM_SECRETS_KEY is unset
-	agentClient    *labagent.Client // nil when the infrastructure agent is unconfigured
+	exerciseCipher *secret.Cipher // nil when EXERCISE_SECRETS_KEY is unset
+	vpnCipher      *secret.Cipher // nil when VPN_SECRETS_KEY is unset
+	platformCipher *secret.Cipher // nil when PLATFORM_SECRETS_KEY is unset
 }
 
 func setupClients(cfg *config.Config) *clients {
@@ -86,15 +84,6 @@ func setupClients(cfg *config.Config) *clients {
 	cls.exerciseCipher = mustCipher("EXERCISE_SECRETS_KEY", cfg.Exercise.SecretsKey, "exercise secret env vars")
 	cls.vpnCipher = mustCipher("VPN_SECRETS_KEY", cfg.VPN.SecretsKey, "VPN config storage (test deploys and event VPN access)")
 	cls.platformCipher = mustCipher("PLATFORM_SECRETS_KEY", cfg.Platform.SecretsKey, "platform settings secrets (SMTP password)")
-
-	if cfg.Infrastructure.Agent.Endpoint != "" {
-		cls.agentClient, err = labagent.New(cfg.Infrastructure.Agent)
-		if err != nil {
-			log.Fatal().Err(err).Msg("Infrastructure agent configured but client setup failed")
-		}
-	} else {
-		log.Warn().Msg("Infrastructure agent unconfigured — lab deployment disabled; operations that need infrastructure are blocked")
-	}
 
 	return cls
 }

@@ -46,13 +46,6 @@ func Run(cfg *config.Config) {
 
 	// ── clients ──
 	cls := setupClients(cfg)
-	if cls.agentClient != nil {
-		if _, err := infrastructureAgentRepo.New(repo.Queries).ReconcileConfiguredPrimary(ctx, time.Now()); err != nil {
-			log.Fatal().Err(err).Msg("Failed to reconcile configured infrastructure agent")
-		}
-	} else if err := infrastructureAgentRepo.New(repo.Queries).RemoveConfiguredPrimary(ctx); err != nil {
-		log.Fatal().Err(err).Msg("Failed to remove unconfigured infrastructure agent projection")
-	}
 
 	// job worker client
 	wc := worker.NewWorkerClient(repo.Pool())
@@ -83,23 +76,18 @@ func Run(cfg *config.Config) {
 		log.Fatal().Err(err).Msg("Failed to configure the lab access token issuer")
 	}
 	var ucs *useCase.UseCase // set below; the monitors start only after it exists
-	environmentAccess, err := envAccess(cfg.Infrastructure.Agent)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to configure the environment agent access key")
-	}
-	// The infrastructure port is the agent fleet: the admin-configured agents while any exist, else
-	// the single environment agent. It reports itself unavailable while it has no agent, so agents
-	// can be added in the admin without a restart.
+	// The infrastructure port is the agent fleet: every enrolled agent in the database. It reports
+	// itself unavailable while it has no agent, so agents can be added in the admin without a restart.
 	fleet := labagent.NewFleet(labPlacementRepo.New(repo.Queries), nil)
 	trafficIngest := labMonitoring.NewTrafficIngest(labTrafficRepo.New(repo.Queries))
 	observations := eventLabObservationRepo.New(repo.Queries)
 	agentManager := agentfleet.New(agentfleet.Config{
 		Instance: cfg.Infrastructure.Agent.InstanceID,
-		Env:      cls.agentClient,
 		Registry: infrastructureAgentRepo.New(repo.Queries),
 		Cipher:   cipherOrNil(cls.platformCipher),
-		Fleet:    fleet, EnvAccess: environmentAccess,
-		Monitor: func(ctx context.Context, member *labagent.Member, envAgent bool) error {
+		Fleet:    fleet,
+		Enroll:   labagent.Enroll,
+		Monitor: func(ctx context.Context, member *labagent.Member) error {
 			runner := labMonitoring.NewRunner(repo.Pool(), func(ctx context.Context, request *labpb.MonitoringRequest) (labMonitoring.Stream, error) {
 				return member.Client.Monitoring(ctx, request)
 			}, observations).
@@ -118,11 +106,8 @@ func Run(cfg *config.Config) {
 				}
 				return ucs.AgentsUseCase.RecordAgentCapacity(ctx, member.ID, cpu, memory, observedAt)
 			})
-			if !envAgent {
-				// Several agents: everything stored carries the registry id of the agent.
-				runner = runner.WithAgentID(member.ID.String())
-			}
-			return runner.Run(ctx)
+			// Everything stored carries the registry id of the agent.
+			return runner.WithAgentID(member.ID.String()).Run(ctx)
 		},
 	})
 	deps.LabAgent = fleet
@@ -131,6 +116,7 @@ func Run(cfg *config.Config) {
 	// Web links are signed with the access key of the agent that holds the lab group.
 	deps.LabSessions = labagent.SessionIssuer{Fleet: fleet, Issuer: labIssuer}
 	ucs = useCase.NewUseCase(deps)
+	bootstrapAgent(ctx, cfg.Infrastructure.Agent, ucs.AgentsUseCase)
 
 	// ── bootstrap: promote designated super-admin if the account already exists ──
 	if err := ucs.PromoteSuperAdminIfDesignated(ctx); err != nil {

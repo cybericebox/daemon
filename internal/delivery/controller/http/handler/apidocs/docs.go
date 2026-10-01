@@ -14642,7 +14642,7 @@ const docTemplate = `{
         },
         "/infrastructure/agents": {
             "get": {
-                "description": "The admin-configured agents and the environment agent, with live state, held lab groups and the certificate expiry. While any admin agent exists the environment agent is not used (EnvironmentUsed false, its InUse false). Requires infrastructure.read (super_admin only).",
+                "description": "The enrolled agents (Source admin: added in the admin; env: bootstrapped from AGENT_ENDPOINT and the enrollment token), with live state, held lab groups, capacity and the certificate expiry. Requires infrastructure.read (super_admin only).",
                 "produces": [
                     "application/json"
                 ],
@@ -14680,7 +14680,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Enrolls the agent with the one-time token: the platform generates its mutual-TLS key and the signing key pair of the lab access tokens, the agent signs the client certificate (the tenant is its CN) and trusts the access public key. Both private keys are stored encrypted. From the first admin agent on the environment agent is no longer used. 400 (21414) when the agent rejects the token (used, expired, unknown), 409 (41413) when the endpoint is already added. Requires infrastructure.write (super_admin only).",
+                "description": "Enrolls the agent with the one-time token: the platform generates its mutual-TLS key and the signing key pair of the lab access tokens, the agent signs the client certificate (the tenant is its CN) and trusts the access public key. Both private keys are stored encrypted. 400 (21414) when the agent rejects the token (used, expired, unknown), 409 (41413) when the endpoint is already added. Requires infrastructure.write (super_admin only).",
                 "consumes": [
                     "application/json"
                 ],
@@ -14726,7 +14726,7 @@ const docTemplate = `{
         },
         "/infrastructure/agents/{agentID}": {
             "put": {
-                "description": "Name, server CA, switch and priority; the endpoint, certificate and keys stay. The environment agent cannot be changed (409, 71412). Requires infrastructure.write (super_admin only).",
+                "description": "Name, server CA, switch and priority; the endpoint, certificate and keys stay. Requires infrastructure.write (super_admin only).",
                 "consumes": [
                     "application/json"
                 ],
@@ -24166,6 +24166,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/eventAnalytics.usageLabResponse"
                     }
                 },
+                "LastLabAt": {
+                    "type": "string"
+                },
+                "LastSeenAt": {
+                    "description": "LastSeenAt is the last request on the event, LastLabAt the last lab\naccess over the VPN or the proxy; null when never.",
+                    "type": "string"
+                },
                 "Proxy": {
                     "$ref": "#/definitions/eventAnalytics.usageProxyResponse"
                 },
@@ -27216,10 +27223,6 @@ const docTemplate = `{
         "infrastructure.agentsResponse": {
             "type": "object",
             "properties": {
-                "EnvironmentUsed": {
-                    "description": "EnvironmentUsed is true while no admin agent exists and the environment agent serves: the UI\nnotes that it is used because no agents are configured.",
-                    "type": "boolean"
-                },
                 "Items": {
                     "type": "array",
                     "items": {
@@ -28339,7 +28342,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "source": {
-                    "description": "Source of the SMTP transport in use: database (the providers below),\nenv (SMTP_*, used only while no provider is saved) or none. EnvActive\nmeans the env transport is the one in use.",
+                    "description": "Source of the SMTP transport in use: database (the providers below),\nenv (SMTP_*, used only while no provider is enabled) or none. EnvActive\nmeans the env transport is the one in use.",
                     "type": "string"
                 },
                 "sources": {
@@ -30016,6 +30019,9 @@ const docTemplate = `{
                 "ID": {
                     "type": "string"
                 },
+                "LastSeenAt": {
+                    "type": "string"
+                },
                 "Name": {
                     "type": "string"
                 },
@@ -30980,6 +30986,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "LastName": {
+                    "type": "string"
+                },
+                "LastSeen": {
                     "type": "string"
                 },
                 "Role": {

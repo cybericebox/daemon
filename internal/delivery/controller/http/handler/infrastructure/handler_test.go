@@ -509,7 +509,7 @@ func TestStandAndTestLabDetailExposeQueueSnapshotAndWarnings(t *testing.T) {
 func TestAgentsListExposesStateButNeverSecrets(t *testing.T) {
 	id := uuid.Must(uuid.NewV7())
 	expires := time.Date(2027, 1, 2, 3, 4, 5, 0, time.UTC)
-	uc := &fakeUseCase{agentsView: infrastructureUseCase.AgentsView{EnvironmentUsed: false, Items: []infrastructureUseCase.AgentAdminView{{
+	uc := &fakeUseCase{agentsView: infrastructureUseCase.AgentsView{Items: []infrastructureUseCase.AgentAdminView{{
 		AgentRegistration: infraModel.AgentRegistration{ID: id, Name: "eu", Source: infraModel.AgentSourceAdmin, Endpoint: "eu.example.com:443", Enabled: true, Priority: 5, HasCA: true, Tenant: "platform", AccessKeyID: "k-1", CertNotAfter: &expires},
 		InUse:             true, Groups: 12, RetiredKeys: 1, Probe: agentfleet.AgentProbe{Connected: true, Healthy: true, Latency: 42 * time.Millisecond},
 	}}}}
@@ -517,7 +517,7 @@ func TestAgentsListExposesStateButNeverSecrets(t *testing.T) {
 	router := newRouter(uc, prot)
 	recorder := do(router, http.MethodGet, "/api/infrastructure/agents")
 	body := recorder.Body.String()
-	for _, want := range []string{`"EnvironmentUsed":false`, `"Name":"eu"`, `"Endpoint":"eu.example.com:443"`, `"Priority":5`, `"InUse":true`, `"Groups":12`, `"Healthy":true`, `"LatencyMs":42`, `"Tenant":"platform"`, `"AccessKeyID":"k-1"`, `"RetiredKeys":1`, `"CertExpiresAt":"2027-01-02T03:04:05Z"`, `"HasCA":true`} {
+	for _, want := range []string{`"Name":"eu"`, `"Endpoint":"eu.example.com:443"`, `"Priority":5`, `"InUse":true`, `"Groups":12`, `"Healthy":true`, `"LatencyMs":42`, `"Tenant":"platform"`, `"AccessKeyID":"k-1"`, `"RetiredKeys":1`, `"CertExpiresAt":"2027-01-02T03:04:05Z"`, `"HasCA":true`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("list lacks %s: %s", want, body)
 		}

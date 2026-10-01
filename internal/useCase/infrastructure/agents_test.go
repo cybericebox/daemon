@@ -58,7 +58,7 @@ func (m *memAgents) SetCapacity(_ context.Context, id uuid.UUID, cpu, memory *in
 }
 func (m *memAgents) Archive(_ context.Context, id uuid.UUID, name string, at time.Time) (bool, error) {
 	r, ok := m.records[id]
-	if !ok || r.Source != infraModel.AgentSourceAdmin || r.ArchivedAt != nil {
+	if !ok || r.ArchivedAt != nil {
 		return false, nil
 	}
 	r.Name, r.Endpoint, r.Tenant, r.CertPEM, r.KeyCiphertext, r.AccessKeyID, r.AccessPrivateKeyCiphertext, r.AccessPublicKey, r.Enabled, r.ArchivedAt = name, "", "", "", "", "", "", "", false, &at
@@ -82,9 +82,9 @@ func (m *memAgents) Get(_ context.Context, id uuid.UUID) (infraModel.AgentRecord
 	}
 	return r, nil
 }
-func (m *memAgents) CreateAdmin(_ context.Context, a infraModel.AgentRecord) (infraModel.AgentRecord, error) {
+func (m *memAgents) Create(_ context.Context, a infraModel.AgentRecord) (infraModel.AgentRecord, error) {
 	for _, r := range m.records {
-		if r.Source == infraModel.AgentSourceAdmin && r.Endpoint == a.Endpoint {
+		if r.ArchivedAt == nil && r.Endpoint != "" && r.Endpoint == a.Endpoint {
 			return infraModel.AgentRecord{}, &pgconn.PgError{Code: "23505", Detail: "Key (endpoint)=(" + a.Endpoint + ") already exists."}
 		}
 	}
@@ -92,9 +92,9 @@ func (m *memAgents) CreateAdmin(_ context.Context, a infraModel.AgentRecord) (in
 	m.order = append(m.order, a.ID)
 	return a, nil
 }
-func (m *memAgents) UpdateAdmin(_ context.Context, a infraModel.AgentRecord) (bool, error) {
+func (m *memAgents) Update(_ context.Context, a infraModel.AgentRecord) (bool, error) {
 	old, ok := m.records[a.ID]
-	if !ok || old.Source != infraModel.AgentSourceAdmin {
+	if !ok {
 		return false, nil
 	}
 	old.Name, old.CAPEM, old.Enabled, old.Priority, old.UpdatedAt = a.Name, a.CAPEM, a.Enabled, a.Priority, a.UpdatedAt
@@ -128,8 +128,8 @@ func (m *memAgents) SetRetiredKeys(_ context.Context, id uuid.UUID, retired []in
 	m.records[id] = r
 	return true, nil
 }
-func (m *memAgents) DeleteAdmin(_ context.Context, id uuid.UUID) (bool, error) {
-	if r, ok := m.records[id]; !ok || r.Source != infraModel.AgentSourceAdmin {
+func (m *memAgents) Delete(_ context.Context, id uuid.UUID) (bool, error) {
+	if _, ok := m.records[id]; !ok {
 		return false, nil
 	}
 	delete(m.records, id)
@@ -419,39 +419,83 @@ func TestUpdateAgentChangesOnlyLabelOrderSwitchAndCA(t *testing.T) {
 	}
 }
 
-func TestEnvironmentAgentIsReadOnlyAndListedNotInUseWhileAdminAgentsExist(t *testing.T) {
+func TestListAgentsOrdersByPriorityAndShowsHowEachWasAdded(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentsFixture(t, boundSealer{})
-	envID := uuid.Must(uuid.NewV7())
-	f.store.records[envID] = infraModel.AgentRecord{AgentRegistration: infraModel.AgentRegistration{ID: envID, Key: infraModel.ConfiguredPrimaryAgentKey, Source: infraModel.AgentSourceEnv, Enabled: true, Priority: 100}}
-	f.store.order = append(f.store.order, envID)
-
-	view, err := f.uc.ListAgents(ctx, false)
-	if err != nil || !view.EnvironmentUsed || len(view.Items) != 1 || !view.Items[0].InUse {
-		t.Fatalf("env only: %+v, %v", view, err)
-	}
-	for name, call := range map[string]func() error{
-		"update": func() error { _, e := f.uc.UpdateAgent(ctx, envID, infraModel.AgentUpdate{Name: "x"}); return e },
-		"delete": func() error { return f.uc.DeleteAgent(ctx, envID, false) },
-		"renew":  func() error { _, e := f.uc.RenewAgentCertificate(ctx, envID); return e },
-		"rotate": func() error { _, e := f.uc.RotateAgentAccessKey(ctx, envID); return e },
-	} {
-		if err = call(); !errors.Is(err, infraModel.ErrAgentReadOnly.Err()) {
-			t.Fatalf("%s of the env agent = %v, want read-only", name, err)
-		}
-	}
-	created, err := f.uc.EnrollAgent(ctx, enrollForm("a", 50))
-	if err != nil {
+	if _, err := f.uc.EnrollAgent(ctx, enrollForm("b", 50)); err != nil {
 		t.Fatal(err)
 	}
-	f.fleet.healthy[created.ID] = true
-	f.counts[created.ID] = 4
-	view, err = f.uc.ListAgents(ctx, false)
-	if err != nil || view.EnvironmentUsed || len(view.Items) != 2 {
-		t.Fatalf("with an admin agent: %+v, %v", view, err)
+	bootstrapped, err := f.uc.BootstrapAgent(ctx, enrollForm("a", 10))
+	if err != nil || !bootstrapped {
+		t.Fatalf("bootstrap = %v, %v", bootstrapped, err)
 	}
-	if view.Items[0].ID != created.ID || !view.Items[0].InUse || !view.Items[0].Probe.Healthy || view.Items[0].Groups != 4 || view.Items[0].Tenant != "platform" || view.Items[1].InUse {
-		t.Fatalf("items = %+v", view.Items)
+	var first, second uuid.UUID
+	for id, r := range f.store.records {
+		if r.Name == "a" {
+			first = id
+		} else {
+			second = id
+		}
+	}
+	f.fleet.healthy[first] = true
+	f.counts[first] = 4
+	view, err := f.uc.ListAgents(ctx, false)
+	if err != nil || len(view.Items) != 2 {
+		t.Fatalf("list = %+v, %v", view, err)
+	}
+	if view.Items[0].ID != first || view.Items[0].Source != infraModel.AgentSourceEnv || !view.Items[0].InUse || !view.Items[0].Probe.Healthy || view.Items[0].Groups != 4 || view.Items[0].Tenant != "platform" {
+		t.Fatalf("first = %+v", view.Items[0])
+	}
+	if view.Items[1].ID != second || view.Items[1].Source != infraModel.AgentSourceAdmin {
+		t.Fatalf("second = %+v", view.Items[1])
+	}
+}
+
+func TestBootstrapAgentEnrollsOnceAndThenIgnoresTheToken(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	in := enrollForm("default", 100)
+	if enrolled, err := f.uc.BootstrapAgent(ctx, infraModel.AgentEnrollment{}); err != nil || enrolled {
+		t.Fatalf("no endpoint is nothing to do: %v %v", enrolled, err)
+	}
+	enrolled, err := f.uc.BootstrapAgent(ctx, in)
+	if err != nil || !enrolled || len(f.store.records) != 1 || f.fleet.reloads != 1 {
+		t.Fatalf("first start: %v %v records=%d reloads=%d", enrolled, err, len(f.store.records), f.fleet.reloads)
+	}
+	var stored infraModel.AgentRecord
+	for _, r := range f.store.records {
+		stored = r
+	}
+	if stored.Source != infraModel.AgentSourceEnv || stored.Tenant != "platform" || stored.KeyCiphertext == "" || stored.AccessPrivateKeyCiphertext == "" || stored.Endpoint != in.Endpoint {
+		t.Fatalf("stored = %+v", stored.AgentRegistration)
+	}
+	// The next start: the agent exists, the (spent) token is not used again.
+	f.remote.denyToken = true
+	enrolled, err = f.uc.BootstrapAgent(ctx, in)
+	if err != nil || enrolled || len(f.store.records) != 1 {
+		t.Fatalf("second start: %v %v records=%d", enrolled, err, len(f.store.records))
+	}
+	// A deleted (archived) agent is gone: the endpoint is enrolled again when the config still names it.
+	f.remote.denyToken = false
+	if err = f.uc.DeleteAgent(ctx, stored.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if enrolled, err = f.uc.BootstrapAgent(ctx, in); err != nil || !enrolled || len(f.store.records) != 2 {
+		t.Fatalf("after a delete: %v %v records=%d", enrolled, err, len(f.store.records))
+	}
+}
+
+func TestBootstrapAgentFailureIsReportedNotFatal(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	f.remote.denyToken = true
+	if enrolled, err := f.uc.BootstrapAgent(ctx, enrollForm("default", 100)); enrolled || !errors.Is(err, infraModel.ErrAgentEnrollmentRejected.Err()) || len(f.store.records) != 0 {
+		t.Fatalf("a used token: %v %v", enrolled, err)
+	}
+	noToken := enrollForm("default", 100)
+	noToken.Token = ""
+	if _, err := f.uc.BootstrapAgent(ctx, noToken); !errors.Is(err, infraModel.ErrAgentInvalid.Err()) {
+		t.Fatalf("no token: %v", err)
 	}
 }
 

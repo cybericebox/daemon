@@ -10,6 +10,8 @@ import (
 	labclient "github.com/cybericebox/laboratory/pkg/agent/client"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
@@ -42,7 +44,9 @@ type fakeAgent struct {
 	// strict makes the agent stateful about groups: only created ones are known (ready at once).
 	strict bool
 	// listErr fails ListLabGroups.
-	listErr error
+	listErr                                      error
+	renewCSR, rotateKeyID, rotatePub, removedKey string
+	keyErr                                       error
 }
 
 func (f *fakeAgent) Close() error { return nil }
@@ -177,6 +181,24 @@ func (f *fakeAgent) RescueDevices(_ context.Context, in *labpb.RescueDevicesRequ
 func (f *fakeAgent) PrewarmImages(_ context.Context, in *labpb.PrewarmImagesRequest, _ ...grpc.CallOption) (*labpb.PrewarmImagesResult, error) {
 	f.prewarm = in
 	return f.prewarmOut, f.callErr
+}
+
+func (f *fakeAgent) RenewCertificate(_ context.Context, in *labpb.RenewCertificateRequest, _ ...grpc.CallOption) (*labpb.CertificateResponse, error) {
+	f.renewCSR = in.GetCsrPem()
+	if f.keyErr != nil {
+		return nil, f.keyErr
+	}
+	return &labpb.CertificateResponse{CertificatePem: "RENEWED"}, nil
+}
+
+func (f *fakeAgent) RotateAccessKey(_ context.Context, in *labpb.RotateAccessKeyRequest, _ ...grpc.CallOption) (*labpb.Empty, error) {
+	f.rotateKeyID, f.rotatePub = in.GetKeyId(), in.GetPublicKeyPem()
+	return &labpb.Empty{}, f.keyErr
+}
+
+func (f *fakeAgent) RemoveAccessKey(_ context.Context, in *labpb.RemoveAccessKeyRequest, _ ...grpc.CallOption) (*labpb.Empty, error) {
+	f.removedKey = in.GetKeyId()
+	return &labpb.Empty{}, f.keyErr
 }
 
 func newClient(f *fakeAgent) *Client {
@@ -483,5 +505,37 @@ func TestMapLabStatusKeepsDeviceReasonAndSumsUsage(t *testing.T) {
 	}
 	if none := mapLabStatus(&labpb.Lab{Status: &labpb.LabStatus{Devices: []*labpb.LabDeviceStatus{{Name: "a"}}}}); none.UsageAvailable || none.CPUMillicores != 0 {
 		t.Fatalf("a lab nobody measured has no usage: %+v", none)
+	}
+}
+
+func TestKeyUpkeepCallsTheAgentAndTreatsAGoneKeyAsRemoved(t *testing.T) {
+	f := &fakeAgent{}
+	c := newClient(f)
+	ctx := context.Background()
+	cert, err := c.RenewCertificate(ctx, "CSR2")
+	if err != nil || cert != "RENEWED" || f.renewCSR != "CSR2" {
+		t.Fatalf("renew = %q %v csr=%q", cert, err, f.renewCSR)
+	}
+	if err = c.RotateAccessKey(ctx, "k-2", "PUB2"); err != nil || f.rotateKeyID != "k-2" || f.rotatePub != "PUB2" {
+		t.Fatalf("rotate = %v %q %q", err, f.rotateKeyID, f.rotatePub)
+	}
+	if err = c.RemoveAccessKey(ctx, "k-1"); err != nil || f.removedKey != "k-1" {
+		t.Fatalf("remove = %v %q", err, f.removedKey)
+	}
+	f.keyErr = status.Error(codes.NotFound, "no such key")
+	if err = c.RemoveAccessKey(ctx, "k-gone"); err != nil {
+		t.Fatalf("an unknown key is already removed: %v", err)
+	}
+	f.keyErr = status.Error(codes.FailedPrecondition, "the last key of a tenant cannot be removed")
+	if err = c.RemoveAccessKey(ctx, "k-last"); err == nil {
+		t.Fatal("the last key cannot be removed")
+	}
+	f.keyErr = status.Error(codes.AlreadyExists, "the id has another key")
+	if err = c.RotateAccessKey(ctx, "k-1", "OTHER"); err == nil {
+		t.Fatal("the same id with another key is an error")
+	}
+	f.keyErr = status.Error(codes.Unavailable, "down")
+	if _, err = c.RenewCertificate(ctx, "CSR"); err == nil {
+		t.Fatal("a failed renewal is an error")
 	}
 }

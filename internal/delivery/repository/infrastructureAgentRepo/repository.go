@@ -1,6 +1,6 @@
-// Package infrastructureAgentRepo persists the agent registry: the projection of the
-// environment-configured agent (no endpoint, no credentials: those stay deployment configuration)
-// and the admin-configured agents with their connection material as ciphertext.
+// Package infrastructureAgentRepo persists the agent registry: every agent is enrolled (added in the
+// admin, or bootstrapped from the deployment config with an enrollment token) and keeps its connection
+// material in the database: the certificate in plain, the private keys as ciphertext.
 package infrastructureAgentRepo
 
 import (
@@ -17,26 +17,16 @@ import (
 
 type Queries interface {
 	ListInfrastructureAgents(context.Context) ([]postgres.InfrastructureAgent, error)
-	DeleteInfrastructureAgentByKey(context.Context, string) (int64, error)
-	UpsertInfrastructureAgent(context.Context, postgres.UpsertInfrastructureAgentParams) (postgres.InfrastructureAgent, error)
 	GetInfrastructureAgent(context.Context, uuid.UUID) (postgres.InfrastructureAgent, error)
-	CreateAdminInfrastructureAgent(context.Context, postgres.CreateAdminInfrastructureAgentParams) (postgres.InfrastructureAgent, error)
-	UpdateAdminInfrastructureAgent(context.Context, postgres.UpdateAdminInfrastructureAgentParams) (int64, error)
-	DeleteAdminInfrastructureAgent(context.Context, uuid.UUID) (int64, error)
+	CreateInfrastructureAgent(context.Context, postgres.CreateInfrastructureAgentParams) (postgres.InfrastructureAgent, error)
+	UpdateInfrastructureAgent(context.Context, postgres.UpdateInfrastructureAgentParams) (int64, error)
+	DeleteInfrastructureAgent(context.Context, uuid.UUID) (int64, error)
 	SetInfrastructureAgentCertificate(context.Context, postgres.SetInfrastructureAgentCertificateParams) (int64, error)
 	SetInfrastructureAgentAccessKey(context.Context, postgres.SetInfrastructureAgentAccessKeyParams) (int64, error)
 	SetInfrastructureAgentRetiredKeys(context.Context, postgres.SetInfrastructureAgentRetiredKeysParams) (int64, error)
 	SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error)
 	ArchiveInfrastructureAgent(context.Context, postgres.ArchiveInfrastructureAgentParams) (int64, error)
 	ReplaceInfrastructureAgentCredentials(context.Context, postgres.ReplaceInfrastructureAgentCredentialsParams) (int64, error)
-}
-
-// RemoveConfiguredPrimary removes the projection when deployment configuration
-// no longer supplies an agent. Connection state is config-owned, so a stale
-// row must never make a no-agent boot appear configured.
-func (r *Repository) RemoveConfiguredPrimary(ctx context.Context) error {
-	_, err := r.q.DeleteInfrastructureAgentByKey(ctx, infraModel.ConfiguredPrimaryAgentKey)
-	return err
 }
 
 type Repository struct{ q Queries }
@@ -53,21 +43,6 @@ func (r *Repository) List(ctx context.Context) ([]infraModel.AgentRegistration, 
 		out = append(out, toDomain(row))
 	}
 	return out, nil
-}
-
-// ReconcileConfiguredPrimary records only whether the environment-backed
-// primary agent is configured. It never persists its endpoint or TLS settings.
-func (r *Repository) ReconcileConfiguredPrimary(ctx context.Context, now time.Time) (infraModel.AgentRegistration, error) {
-	row, err := r.q.UpsertInfrastructureAgent(ctx, postgres.UpsertInfrastructureAgentParams{
-		ID: uuid.Must(uuid.NewV7()), Key: infraModel.ConfiguredPrimaryAgentKey,
-		// Name stays empty: the display label is UI text and belongs to the frontend i18n.
-		Name: "", Configured: true,
-		CreatedAt: now, UpdatedAt: now,
-	})
-	if err != nil {
-		return infraModel.AgentRegistration{}, err
-	}
-	return toDomain(row), nil
 }
 
 func toDomain(row postgres.InfrastructureAgent) infraModel.AgentRegistration {
@@ -152,11 +127,11 @@ func (r *Repository) Get(ctx context.Context, id uuid.UUID) (infraModel.AgentRec
 	return toRecord(row), nil
 }
 
-// CreateAdmin stores a newly enrolled agent; its key is its id. The error of an endpoint that is
+// Create stores a newly enrolled agent (a.Source says how it was added); its key is its id. The error of an endpoint that is
 // already added is the repository's unique violation.
-func (r *Repository) CreateAdmin(ctx context.Context, a infraModel.AgentRecord) (infraModel.AgentRecord, error) {
-	row, err := r.q.CreateAdminInfrastructureAgent(ctx, postgres.CreateAdminInfrastructureAgentParams{
-		ID: a.ID, Key: a.ID.String(), Name: a.Name, Endpoint: a.Endpoint, Tenant: a.Tenant,
+func (r *Repository) Create(ctx context.Context, a infraModel.AgentRecord) (infraModel.AgentRecord, error) {
+	row, err := r.q.CreateInfrastructureAgent(ctx, postgres.CreateInfrastructureAgentParams{
+		ID: a.ID, Key: a.ID.String(), Source: a.Source, Name: a.Name, Endpoint: a.Endpoint, Tenant: a.Tenant,
 		ClientCertPem: a.CertPEM, ClientKeyCiphertext: a.KeyCiphertext, CertNotAfter: notAfter(a.CertNotAfter), CaPem: a.CAPEM,
 		AccessKeyID: a.AccessKeyID, AccessPrivateKeyCiphertext: a.AccessPrivateKeyCiphertext, AccessPublicKey: a.AccessPublicKey,
 		Enabled: a.Enabled, Priority: int32(a.Priority), CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
@@ -174,9 +149,9 @@ func notAfter(t *time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: *t, Valid: true}
 }
 
-// UpdateAdmin changes the label, order, switch and server CA of an admin agent.
-func (r *Repository) UpdateAdmin(ctx context.Context, a infraModel.AgentRecord) (bool, error) {
-	n, err := r.q.UpdateAdminInfrastructureAgent(ctx, postgres.UpdateAdminInfrastructureAgentParams{
+// Update changes the label, order, switch and server CA of an agent.
+func (r *Repository) Update(ctx context.Context, a infraModel.AgentRecord) (bool, error) {
+	n, err := r.q.UpdateInfrastructureAgent(ctx, postgres.UpdateInfrastructureAgentParams{
 		ID: a.ID, Name: a.Name, CaPem: a.CAPEM, Enabled: a.Enabled, Priority: int32(a.Priority), UpdatedAt: a.UpdatedAt,
 	})
 	return n > 0, err
@@ -212,9 +187,9 @@ func (r *Repository) SetRetiredKeys(ctx context.Context, id uuid.UUID, retired [
 	return n > 0, err
 }
 
-// DeleteAdmin removes an admin agent; false when there is none.
-func (r *Repository) DeleteAdmin(ctx context.Context, id uuid.UUID) (bool, error) {
-	n, err := r.q.DeleteAdminInfrastructureAgent(ctx, id)
+// Delete removes an agent row; false when there is none.
+func (r *Repository) Delete(ctx context.Context, id uuid.UUID) (bool, error) {
+	n, err := r.q.DeleteInfrastructureAgent(ctx, id)
 	return n > 0, err
 }
 

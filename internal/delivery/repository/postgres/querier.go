@@ -113,8 +113,6 @@ type Querier interface {
 	CountUsersByStatus(ctx context.Context, status string) (int64, error)
 	CountUsersCreatedSince(ctx context.Context, createdAt time.Time) (int64, error)
 	CreateAdminAuditLog(ctx context.Context, arg CreateAdminAuditLogParams) error
-	// An enrolled agent: its key is its id; the certificate is public, both private keys are ciphertext.
-	CreateAdminInfrastructureAgent(ctx context.Context, arg CreateAdminInfrastructureAgentParams) (InfrastructureAgent, error)
 	CreateChallengeAttempt(ctx context.Context, arg CreateChallengeAttemptParams) (ChallengeAttempt, error)
 	CreateChallengeAttemptDecision(ctx context.Context, arg CreateChallengeAttemptDecisionParams) (ChallengeAttemptDecision, error)
 	CreateDispatch(ctx context.Context, arg CreateDispatchParams) (NotificationDispatch, error)
@@ -176,6 +174,9 @@ type Querier interface {
 	// asynchronous delivery) is created already resolved and read.
 	CreateInApp(ctx context.Context, arg CreateInAppParams) error
 	CreateInAppTemplate(ctx context.Context, arg CreateInAppTemplateParams) (NotificationInAppTemplate, error)
+	// An enrolled agent (source admin, or env when bootstrapped from the deployment config): its key is its
+	// id; the certificate is public, both private keys are ciphertext.
+	CreateInfrastructureAgent(ctx context.Context, arg CreateInfrastructureAgentParams) (InfrastructureAgent, error)
 	CreateInitialEventForm(ctx context.Context, arg CreateInitialEventFormParams) (EventFormVersion, error)
 	CreateIntegrityDismissal(ctx context.Context, arg CreateIntegrityDismissalParams) (int64, error)
 	CreateLabBinding(ctx context.Context, arg CreateLabBindingParams) (LabBinding, error)
@@ -199,7 +200,6 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserProvider(ctx context.Context, arg CreateUserProviderParams) (UserProvider, error)
 	DecideExerciseProposal(ctx context.Context, arg DecideExerciseProposalParams) (int64, error)
-	DeleteAdminInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error)
 	// Guarded delete: refuses when the blob got re-referenced between the S3
 	// removal decision and this call.
 	DeleteBlob(ctx context.Context, contentHash string) (int64, error)
@@ -233,7 +233,7 @@ type Querier interface {
 	DeleteFileReferences(ctx context.Context, arg DeleteFileReferencesParams) (int64, error)
 	DeleteFileReferencesBatch(ctx context.Context, arg DeleteFileReferencesBatchParams) (int64, error)
 	DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error)
-	DeleteInfrastructureAgentByKey(ctx context.Context, key string) (int64, error)
+	DeleteInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
@@ -1324,9 +1324,6 @@ type Querier interface {
 	TryAddEventTeamMember(ctx context.Context, arg TryAddEventTeamMemberParams) (int64, error)
 	TryRemoveEventTeamMember(ctx context.Context, arg TryRemoveEventTeamMemberParams) (int64, error)
 	UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error
-	// What an admin may change after enrollment: the label, the order, the switch and the server CA. The
-	// endpoint identifies the agent (and its certificate), so it never changes.
-	UpdateAdminInfrastructureAgent(ctx context.Context, arg UpdateAdminInfrastructureAgentParams) (int64, error)
 	UpdateEmailBlockPreset(ctx context.Context, arg UpdateEmailBlockPresetParams) (NotificationEmailBlockPreset, error)
 	UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) (NotificationEmailTemplate, error)
 	// Whole-aggregate write; excludes created_at/created_by (immutable).
@@ -1371,6 +1368,9 @@ type Querier interface {
 	// would race a concurrent publish) and created_at/created_by (immutable).
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
 	UpdateInAppTemplate(ctx context.Context, arg UpdateInAppTemplateParams) (NotificationInAppTemplate, error)
+	// What an admin may change after enrollment: the label, the order, the switch and the server CA. The
+	// endpoint identifies the agent (and its certificate), so it never changes.
+	UpdateInfrastructureAgent(ctx context.Context, arg UpdateInfrastructureAgentParams) (int64, error)
 	UpdateLabBindingReadiness(ctx context.Context, arg UpdateLabBindingReadinessParams) (int64, error)
 	UpdatePlatformSMTPProvider(ctx context.Context, arg UpdatePlatformSMTPProviderParams) (MailSmtpConfig, error)
 	UpdateSiteBanner(ctx context.Context, arg UpdateSiteBannerParams) (SiteBanner, error)
@@ -1406,7 +1406,6 @@ type Querier interface {
 	// (updated_at & co) are deliberately untouched — the identity optimistic lock
 	// must not be disturbed by content saves.
 	UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error)
-	UpsertInfrastructureAgent(ctx context.Context, arg UpsertInfrastructureAgentParams) (InfrastructureAgent, error)
 	UpsertLabMonitoringCurrent(ctx context.Context, arg UpsertLabMonitoringCurrentParams) error
 	UpsertNotificationSetting(ctx context.Context, arg UpsertNotificationSettingParams) (NotificationSetting, error)
 	UpsertPlatformMailIdentity(ctx context.Context, arg UpsertPlatformMailIdentityParams) (MailIdentity, error)

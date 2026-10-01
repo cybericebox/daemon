@@ -1,11 +1,9 @@
-// Package agentfleet keeps the fleet of infrastructure agents in step with the registry: the
-// admin-configured agents while any exist, else the single environment agent. For every agent it
-// holds the connection and runs its monitoring subscription.
+// Package agentfleet keeps the fleet of infrastructure agents in step with the registry. For every
+// agent it holds the mutual-TLS connection and runs its monitoring subscription.
 package agentfleet
 
 import (
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"sync"
 	"time"
@@ -28,10 +26,8 @@ type Cipher interface {
 	DecryptWithContext(encoded string, context []byte) ([]byte, error)
 }
 
-// Monitor follows one agent's Monitoring stream until ctx ends. envAgent is true for the agent of
-// the deployment environment: its stored state keeps the agent's own id, as before agents were
-// configurable.
-type Monitor func(ctx context.Context, member *labagent.Member, envAgent bool) error
+// Monitor follows one agent's Monitoring stream until ctx ends.
+type Monitor func(ctx context.Context, member *labagent.Member) error
 
 // Enroller performs the enrollment call of a new agent over server-authenticated TLS (the platform has
 // no certificate yet). nil means the agent API of this build cannot enroll.
@@ -48,21 +44,11 @@ type KeyUpkeep interface {
 // ErrEnrollmentUnsupported is returned while the agent API of this build has no enrollment.
 var ErrEnrollmentUnsupported = errors.New("the agent API of this build does not support enrollment")
 
-// EnvAccess is the access signing key and tenant of the environment agent. The tenant is its client
-// certificate's CN.
-type EnvAccess struct {
-	Tenant string
-	KeyID  string
-	Key    ed25519.PrivateKey
-}
-
 // Dialer builds the client of an admin agent from its connection material.
 type Dialer func(c labagent.Connection, instance string) (*labagent.Client, error)
 
 type Config struct {
 	Instance string
-	// Env is the client of the environment agent; nil when AGENT_* is not configured.
-	Env      *labagent.Client
 	Registry Registry
 	// Cipher may be nil: admin agents then cannot be opened and are skipped.
 	Cipher  Cipher
@@ -72,8 +58,7 @@ type Config struct {
 	Dial Dialer
 	// Enroll performs the enrollment call; see Enroller.
 	Enroll Enroller
-	// EnvAccess is the signing key of the environment agent's lab access tokens; nil when unset.
-	EnvAccess *EnvAccess
+
 	// Interval is how often the registry is re-read; a minute by default.
 	Interval time.Duration
 }
@@ -81,7 +66,6 @@ type Config struct {
 type running struct {
 	member    *labagent.Member
 	signature string
-	env       bool
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
@@ -179,40 +163,12 @@ func (m *Manager) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var admin []infraModel.AgentRecord
-	envID := uuid.Nil
-	for _, r := range records {
-		switch r.Source {
-		case infraModel.AgentSourceAdmin:
-			admin = append(admin, r)
-		default:
-			if r.Key == infraModel.ConfiguredPrimaryAgentKey {
-				envID = r.ID
-			}
-		}
-	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	next := map[uuid.UUID]*running{}
-	switch {
-	case len(admin) > 0:
-		for _, r := range admin {
-			next[r.ID] = m.adminMember(r)
-		}
-		for id, run := range next {
-			if run == nil {
-				delete(next, id)
-			}
-		}
-	case m.cfg.Env != nil:
-		member := &labagent.Member{ID: envID, Name: "", Priority: 100, Enabled: true, Client: m.cfg.Env}
-		if access := m.cfg.EnvAccess; access != nil {
-			member.Tenant, member.AccessKeyID, member.AccessKey = access.Tenant, access.KeyID, access.Key
-		}
-		next[envID] = &running{member: member, signature: "env", env: true}
-		if old := m.current[envID]; old != nil && old.signature == "env" {
-			next[envID] = old
+	for _, r := range records {
+		if run := m.member(r); run != nil {
+			next[r.ID] = run
 		}
 	}
 
@@ -230,19 +186,16 @@ func (m *Manager) Reload(ctx context.Context) error {
 			continue
 		}
 		m.stop(old)
-		// Only clients this manager dialed are closed; the environment client belongs to the app.
-		if !old.env {
-			_ = old.member.Client.Close()
-		}
+		_ = old.member.Client.Close()
 	}
 	m.current = next
 	return nil
 }
 
-// adminMember returns the running entry of an admin agent: the current one when its connection
+// member returns the running entry of an agent: the current one when its connection
 // material is unchanged (the member is refreshed with the new name, priority and enabled flag),
 // otherwise a freshly dialed one. nil when the material cannot be used.
-func (m *Manager) adminMember(r infraModel.AgentRecord) *running {
+func (m *Manager) member(r infraModel.AgentRecord) *running {
 	sig := signature(r)
 	if old := m.current[r.ID]; old != nil && old.signature == sig {
 		// The fleet's readers hold the old member: replace it instead of changing it in place.
@@ -289,10 +242,10 @@ func (m *Manager) startMonitor(id uuid.UUID, run *running) {
 	done := make(chan struct{})
 	run.done = done
 	// The goroutine reads copies: Reload replaces run.member while the monitor runs.
-	member, env, monitor := run.member, run.env, m.cfg.Monitor
+	member, monitor := run.member, m.cfg.Monitor
 	go func() {
 		defer close(done)
-		if err := monitor(ctx, member, env); err != nil && ctx.Err() == nil {
+		if err := monitor(ctx, member); err != nil && ctx.Err() == nil {
 			log.Error().Err(err).Str("agent_id", id.String()).Msg("Agent fleet: monitoring stopped")
 		}
 	}()
@@ -310,9 +263,7 @@ func (m *Manager) stopAll() {
 	defer m.mu.Unlock()
 	for _, run := range m.current {
 		m.stop(run)
-		if !run.env {
-			_ = run.member.Client.Close()
-		}
+		_ = run.member.Client.Close()
 	}
 	m.current = map[uuid.UUID]*running{}
 }

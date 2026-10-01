@@ -30,7 +30,6 @@ SET name                           = $1,
     archived_at                    = $2,
     updated_at                     = $2
 WHERE id = $3
-  AND source = 'admin'
   AND archived_at IS NULL
 `
 
@@ -111,21 +110,22 @@ func (q *Queries) CountLabGroupPlacementsByAgent(ctx context.Context) ([]CountLa
 	return items, nil
 }
 
-const createAdminInfrastructureAgent = `-- name: CreateAdminInfrastructureAgent :one
+const createInfrastructureAgent = `-- name: CreateInfrastructureAgent :one
 INSERT INTO infrastructure_agents (id, key, name, configured, source, endpoint, tenant, client_cert_pem, client_key_ciphertext,
                                    cert_not_after, ca_pem, access_key_id, access_private_key_ciphertext, access_public_key,
                                    enabled, priority, created_at, updated_at)
-VALUES ($1, $2, $3, true, 'admin', $4, $5,
-        $6, $7, $8, $9,
-        $10, $11, $12,
-        $13, $14, $15, $16)
+VALUES ($1, $2, $3, true, $4, $5, $6,
+        $7, $8, $9, $10,
+        $11, $12, $13,
+        $14, $15, $16, $17)
 RETURNING id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at
 `
 
-type CreateAdminInfrastructureAgentParams struct {
+type CreateInfrastructureAgentParams struct {
 	ID                         uuid.UUID          `json:"id"`
 	Key                        string             `json:"key"`
 	Name                       string             `json:"name"`
+	Source                     string             `json:"source"`
 	Endpoint                   string             `json:"endpoint"`
 	Tenant                     string             `json:"tenant"`
 	ClientCertPem              string             `json:"client_cert_pem"`
@@ -141,12 +141,14 @@ type CreateAdminInfrastructureAgentParams struct {
 	UpdatedAt                  time.Time          `json:"updated_at"`
 }
 
-// An enrolled agent: its key is its id; the certificate is public, both private keys are ciphertext.
-func (q *Queries) CreateAdminInfrastructureAgent(ctx context.Context, arg CreateAdminInfrastructureAgentParams) (InfrastructureAgent, error) {
-	row := q.db.QueryRow(ctx, createAdminInfrastructureAgent,
+// An enrolled agent (source admin, or env when bootstrapped from the deployment config): its key is its
+// id; the certificate is public, both private keys are ciphertext.
+func (q *Queries) CreateInfrastructureAgent(ctx context.Context, arg CreateInfrastructureAgentParams) (InfrastructureAgent, error) {
+	row := q.db.QueryRow(ctx, createInfrastructureAgent,
 		arg.ID,
 		arg.Key,
 		arg.Name,
+		arg.Source,
 		arg.Endpoint,
 		arg.Tenant,
 		arg.ClientCertPem,
@@ -190,27 +192,13 @@ func (q *Queries) CreateAdminInfrastructureAgent(ctx context.Context, arg Create
 	return i, err
 }
 
-const deleteAdminInfrastructureAgent = `-- name: DeleteAdminInfrastructureAgent :execrows
+const deleteInfrastructureAgent = `-- name: DeleteInfrastructureAgent :execrows
 DELETE FROM infrastructure_agents
 WHERE id = $1
-  AND source = 'admin'
 `
 
-func (q *Queries) DeleteAdminInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteAdminInfrastructureAgent, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const deleteInfrastructureAgentByKey = `-- name: DeleteInfrastructureAgentByKey :execrows
-DELETE FROM infrastructure_agents
-WHERE key = $1
-`
-
-func (q *Queries) DeleteInfrastructureAgentByKey(ctx context.Context, key string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteInfrastructureAgentByKey, key)
+func (q *Queries) DeleteInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteInfrastructureAgent, id)
 	if err != nil {
 		return 0, err
 	}
@@ -340,7 +328,6 @@ SET client_cert_pem                = $1,
     retired_access_keys            = '[]',
     updated_at                     = $9
 WHERE id = $10
-  AND source = 'admin'
   AND archived_at IS NULL
 `
 
@@ -385,7 +372,6 @@ SET access_key_id                 = $1,
     retired_access_keys           = $4,
     updated_at                    = $5
 WHERE id = $6
-  AND source = 'admin'
 `
 
 type SetInfrastructureAgentAccessKeyParams struct {
@@ -450,7 +436,6 @@ SET client_cert_pem       = $1,
     tenant                = $4,
     updated_at            = $5
 WHERE id = $6
-  AND source = 'admin'
 `
 
 type SetInfrastructureAgentCertificateParams struct {
@@ -483,7 +468,6 @@ UPDATE infrastructure_agents
 SET retired_access_keys = $1,
     updated_at          = $2
 WHERE id = $3
-  AND source = 'admin'
 `
 
 type SetInfrastructureAgentRetiredKeysParams struct {
@@ -501,7 +485,7 @@ func (q *Queries) SetInfrastructureAgentRetiredKeys(ctx context.Context, arg Set
 	return result.RowsAffected(), nil
 }
 
-const updateAdminInfrastructureAgent = `-- name: UpdateAdminInfrastructureAgent :execrows
+const updateInfrastructureAgent = `-- name: UpdateInfrastructureAgent :execrows
 UPDATE infrastructure_agents
 SET name       = $1,
     ca_pem     = $2,
@@ -509,10 +493,9 @@ SET name       = $1,
     priority   = $4,
     updated_at = $5
 WHERE id = $6
-  AND source = 'admin'
 `
 
-type UpdateAdminInfrastructureAgentParams struct {
+type UpdateInfrastructureAgentParams struct {
 	Name      string    `json:"name"`
 	CaPem     string    `json:"ca_pem"`
 	Enabled   bool      `json:"enabled"`
@@ -523,8 +506,8 @@ type UpdateAdminInfrastructureAgentParams struct {
 
 // What an admin may change after enrollment: the label, the order, the switch and the server CA. The
 // endpoint identifies the agent (and its certificate), so it never changes.
-func (q *Queries) UpdateAdminInfrastructureAgent(ctx context.Context, arg UpdateAdminInfrastructureAgentParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateAdminInfrastructureAgent,
+func (q *Queries) UpdateInfrastructureAgent(ctx context.Context, arg UpdateInfrastructureAgentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateInfrastructureAgent,
 		arg.Name,
 		arg.CaPem,
 		arg.Enabled,
@@ -536,61 +519,4 @@ func (q *Queries) UpdateAdminInfrastructureAgent(ctx context.Context, arg Update
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const upsertInfrastructureAgent = `-- name: UpsertInfrastructureAgent :one
-INSERT INTO infrastructure_agents (id, key, name, configured, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (key) DO UPDATE
-    SET name = EXCLUDED.name,
-        configured = EXCLUDED.configured,
-        updated_at = EXCLUDED.updated_at
-RETURNING id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at
-`
-
-type UpsertInfrastructureAgentParams struct {
-	ID         uuid.UUID `json:"id"`
-	Key        string    `json:"key"`
-	Name       string    `json:"name"`
-	Configured bool      `json:"configured"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-}
-
-func (q *Queries) UpsertInfrastructureAgent(ctx context.Context, arg UpsertInfrastructureAgentParams) (InfrastructureAgent, error) {
-	row := q.db.QueryRow(ctx, upsertInfrastructureAgent,
-		arg.ID,
-		arg.Key,
-		arg.Name,
-		arg.Configured,
-		arg.CreatedAt,
-		arg.UpdatedAt,
-	)
-	var i InfrastructureAgent
-	err := row.Scan(
-		&i.ID,
-		&i.Key,
-		&i.Name,
-		&i.Configured,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Source,
-		&i.Endpoint,
-		&i.ClientCertPem,
-		&i.ClientKeyCiphertext,
-		&i.CaPem,
-		&i.Enabled,
-		&i.Priority,
-		&i.Tenant,
-		&i.CertNotAfter,
-		&i.AccessKeyID,
-		&i.AccessPrivateKeyCiphertext,
-		&i.AccessPublicKey,
-		&i.RetiredAccessKeys,
-		&i.CapacityCpuMillicores,
-		&i.CapacityMemoryBytes,
-		&i.CapacitySeenAt,
-		&i.ArchivedAt,
-	)
-	return i, err
 }

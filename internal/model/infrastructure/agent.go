@@ -2,18 +2,15 @@ package infrastructure
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/gofrs/uuid"
 )
 
-// ConfiguredPrimaryAgentKey is the stable identity of the single agent wired
-// from process configuration today. Its connection details deliberately never
-// enter the database: they remain deployment secrets/configuration.
-const ConfiguredPrimaryAgentKey = "configured-primary"
-
-// Agent sources: the single agent of the deployment environment, or an agent an administrator
-// configured. While any admin agent exists the environment agent is not used.
+// Agent sources: an agent an administrator enrolled, or the agent bootstrapped from the deployment
+// config (AGENT_ENDPOINT with a one-time enrollment token). Both are ordinary enrolled agents kept in the
+// database; the source only says how the agent was added.
 const (
 	AgentSourceEnv   = "env"
 	AgentSourceAdmin = "admin"
@@ -29,8 +26,7 @@ type AgentRegistration struct {
 	UpdatedAt  time.Time
 	// Source is AgentSourceEnv or AgentSourceAdmin.
 	Source string
-	// Endpoint is host:port of an admin agent; empty for the environment one (its connection stays
-	// deployment configuration).
+	// Endpoint is host:port of the agent.
 	Endpoint string
 	// Enabled agents receive new lab groups; a disabled one only serves the groups it holds.
 	Enabled bool
@@ -153,3 +149,7 @@ type DeviceController interface {
 func AgentSecretContext(id uuid.UUID, field string) []byte {
 	return []byte("infra.agent:" + id.String() + ":" + field)
 }
+
+// ErrEnrollmentDenied is what the agent adapter returns when the agent refuses the enrollment token or
+// the request (a used, expired or unknown token is PERMISSION_DENIED).
+var ErrEnrollmentDenied = errors.New("the agent denied the enrollment")

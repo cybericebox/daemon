@@ -73,11 +73,6 @@ var (
 			WithMessage("The agent still holds laboratories").
 			WithDetailCode(11)
 
-	// ErrAgentReadOnly: the environment agent is configured by the deployment, not in the admin.
-	ErrAgentReadOnly = err.ErrConflict.WithObjectCode(model.InfrastructureObjectCode).
-				WithMessage("The environment agent is configured by the deployment").
-				WithDetailCode(12)
-
 	// ErrAgentExists: an agent with this endpoint is already added.
 	ErrAgentExists = err.ErrObjectExists.WithObjectCode(model.InfrastructureObjectCode).
 			WithMessage("An agent with this endpoint is already added").

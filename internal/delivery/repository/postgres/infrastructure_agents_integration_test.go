@@ -17,42 +17,39 @@ import (
 func newAdminAgent(name string, priority int, now time.Time) infraModel.AgentRecord {
 	id := uuid.Must(uuid.NewV7())
 	return infraModel.AgentRecord{
-		AgentRegistration: infraModel.AgentRegistration{ID: id, Name: name, Endpoint: name + ".example.test:443", Enabled: true, Priority: priority, CreatedAt: now, UpdatedAt: now, Tenant: "platform", AccessKeyID: "k-" + name},
+		AgentRegistration: infraModel.AgentRegistration{ID: id, Source: infraModel.AgentSourceAdmin, Name: name, Endpoint: name + ".example.test:443", Enabled: true, Priority: priority, CreatedAt: now, UpdatedAt: now, Tenant: "platform", AccessKeyID: "k-" + name},
 		CertPEM:           "cert-" + name, KeyCiphertext: "key-" + name, AccessPrivateKeyCiphertext: "access-" + name, AccessPublicKey: "pub-" + name, CAPEM: "",
 	}
 }
 
-func TestInfrastructureAgents_EnrolledAgentsKeepKeysUntilRenewedAndEnvAgentIsUntouchable(t *testing.T) {
+func TestInfrastructureAgents_EnrolledAgentsKeepKeysUntilRenewed(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
 	repo := infrastructureAgentRepo.New(db.Queries)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
-	if _, err := repo.ReconcileConfiguredPrimary(ctx, now); err != nil {
-		t.Fatal(err)
-	}
 	a := newAdminAgent("alpha", 20, now)
 	notAfter := now.Add(90 * 24 * time.Hour)
 	a.CertNotAfter = &notAfter
-	created, err := repo.CreateAdmin(ctx, a)
+	created, err := repo.Create(ctx, a)
 	if err != nil || created.Source != infraModel.AgentSourceAdmin || created.Key != a.ID.String() || created.Priority != 20 || !created.Enabled || created.HasCA ||
 		created.Tenant != "platform" || created.AccessKeyID != "k-alpha" || created.CertNotAfter == nil || !created.CertNotAfter.Equal(notAfter) || len(created.RetiredAccessKeys) != 0 {
 		t.Fatalf("created = %+v, %v", created, err)
 	}
 	// The same endpoint cannot be enrolled twice; another agent with the same tenant can.
 	dup := newAdminAgent("alpha", 30, now)
-	if _, err = repo.CreateAdmin(ctx, dup); err == nil {
+	if _, err = repo.Create(ctx, dup); err == nil {
 		t.Fatal("the same endpoint twice must fail")
 	}
 	other := newAdminAgent("beta", 40, now)
-	if _, err = repo.CreateAdmin(ctx, other); err != nil {
+	if _, err = repo.Create(ctx, other); err != nil {
 		t.Fatalf("the tenant is not unique: %v", err)
 	}
 
 	// An update changes the label, order, switch and server CA only.
 	upd := a
 	upd.Name, upd.Priority, upd.Enabled, upd.CAPEM, upd.UpdatedAt = "alpha2", 5, false, "ca-pem", now.Add(time.Minute)
-	if ok, updErr := repo.UpdateAdmin(ctx, upd); updErr != nil || !ok {
+	if ok, updErr := repo.Update(ctx, upd); updErr != nil || !ok {
 		t.Fatalf("update = %v, %v", ok, updErr)
 	}
 	got, err := repo.Get(ctx, a.ID)
@@ -85,31 +82,27 @@ func TestInfrastructureAgents_EnrolledAgentsKeepKeysUntilRenewedAndEnvAgentIsUnt
 		t.Fatalf("retired = %+v", got.RetiredAccessKeys)
 	}
 
-	// The environment agent can be neither changed nor deleted through the admin queries.
+	// An agent bootstrapped from the deployment config (source env) is managed like any other.
+	fromEnv := newAdminAgent("gamma", 60, now)
+	fromEnv.Source = infraModel.AgentSourceEnv
+	if _, err = repo.Create(ctx, fromEnv); err != nil {
+		t.Fatal(err)
+	}
 	records, err := repo.ListRecords(ctx)
 	if err != nil || len(records) != 3 {
 		t.Fatalf("records = %d, %v", len(records), err)
 	}
-	var env infraModel.AgentRecord
-	for _, r := range records {
-		if r.Source == infraModel.AgentSourceEnv {
-			env = r
-		}
+	fromEnv.Name, fromEnv.UpdatedAt = "gamma2", now.Add(time.Minute)
+	if ok, updErr := repo.Update(ctx, fromEnv); updErr != nil || !ok {
+		t.Fatalf("an env-source agent is updated like any other: %v %v", ok, updErr)
 	}
-	if env.Key != infraModel.ConfiguredPrimaryAgentKey || !env.Enabled || env.Priority != 100 || env.Tenant != "" {
-		t.Fatalf("env agent = %+v", env)
+	if ok, setErr := repo.SetCertificate(ctx, fromEnv.ID, "x", "y", "platform", renewedAt, now); setErr != nil || !ok {
+		t.Fatalf("an env-source agent gets renewed certificates: %v %v", ok, setErr)
 	}
-	env.Name = "hijack"
-	if ok, _ := repo.UpdateAdmin(ctx, env); ok {
-		t.Fatal("the env agent must not be updated by the admin path")
+	if got, _ = repo.Get(ctx, fromEnv.ID); got.Source != infraModel.AgentSourceEnv || got.Name != "gamma2" || got.CertPEM != "x" {
+		t.Fatalf("env-source agent = %+v", got)
 	}
-	if ok, _ := repo.SetCertificate(ctx, env.ID, "x", "y", "z", renewedAt, now); ok {
-		t.Fatal("the env agent must not get a certificate through the admin path")
-	}
-	if ok, _ := repo.DeleteAdmin(ctx, env.ID); ok {
-		t.Fatal("the env agent must not be deleted by the admin path")
-	}
-	if ok, err := repo.DeleteAdmin(ctx, a.ID); err != nil || !ok {
+	if ok, err := repo.Delete(ctx, a.ID); err != nil || !ok {
 		t.Fatalf("delete admin = %v, %v", ok, err)
 	}
 }
@@ -120,11 +113,11 @@ func TestLabGroupPlacements_ClaimIsFirstWinsAndCountsPerAgent(t *testing.T) {
 	agents := infrastructureAgentRepo.New(db.Queries)
 	placements := labPlacementRepo.New(db.Queries)
 	now := time.Now().UTC()
-	a, err := agents.CreateAdmin(ctx, newAdminAgent("a", 1, now))
+	a, err := agents.Create(ctx, newAdminAgent("a", 1, now))
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := agents.CreateAdmin(ctx, newAdminAgent("b", 2, now))
+	b, err := agents.Create(ctx, newAdminAgent("b", 2, now))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +150,7 @@ func TestLabGroupPlacements_ClaimIsFirstWinsAndCountsPerAgent(t *testing.T) {
 		t.Fatal("a released group is not placed")
 	}
 	// An agent that still holds a group cannot be deleted (the foreign key protects it).
-	if _, err = agents.DeleteAdmin(ctx, b.ID); err == nil {
+	if _, err = agents.Delete(ctx, b.ID); err == nil {
 		t.Fatal("deleting an agent that holds a group must fail")
 	}
 }
@@ -168,7 +161,7 @@ func TestInfrastructureAgents_RecordedCapacityArchiveAndReconnect(t *testing.T) 
 	repo := infrastructureAgentRepo.New(db.Queries)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	a := newAdminAgent("alpha", 1, now)
-	if _, err := repo.CreateAdmin(ctx, a); err != nil {
+	if _, err := repo.Create(ctx, a); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := repo.Get(ctx, a.ID); got.CapacitySeenAt != nil || got.CapacityCPUMillicores != nil {
@@ -219,10 +212,10 @@ func TestInfrastructureAgents_RecordedCapacityArchiveAndReconnect(t *testing.T) 
 		t.Fatalf("archived agents are kept for history: %d", len(records))
 	}
 	// The same endpoint can be added again after the delete, and twice among live agents it cannot.
-	if _, err := repo.CreateAdmin(ctx, newAdminAgent("alpha", 2, now)); err != nil {
+	if _, err := repo.Create(ctx, newAdminAgent("alpha", 2, now)); err != nil {
 		t.Fatalf("the endpoint is free after the archive: %v", err)
 	}
-	if _, err := repo.CreateAdmin(ctx, newAdminAgent("alpha", 3, now)); err == nil {
+	if _, err := repo.Create(ctx, newAdminAgent("alpha", 3, now)); err == nil {
 		t.Fatal("a live endpoint stays unique")
 	}
 }

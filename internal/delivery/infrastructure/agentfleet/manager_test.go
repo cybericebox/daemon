@@ -34,12 +34,9 @@ type monitorLog struct {
 	stopped []string
 }
 
-func (l *monitorLog) monitor(ctx context.Context, m *labagent.Member, env bool) error {
+func (l *monitorLog) monitor(ctx context.Context, m *labagent.Member) error {
 	l.mu.Lock()
 	tag := m.Name
-	if env {
-		tag = "env"
-	}
 	l.started = append(l.started, tag)
 	l.mu.Unlock()
 	<-ctx.Done()
@@ -57,10 +54,10 @@ func admin(name string, priority int, enabled bool) infraModel.AgentRecord {
 	}
 }
 
-func newManager(reg *memRegistry, env *labagent.Client, log *monitorLog, cipher Cipher) (*Manager, *int) {
+func newManager(reg *memRegistry, log *monitorLog, cipher Cipher) (*Manager, *int) {
 	dials := 0
 	m := New(Config{
-		Instance: "prod", Env: env, Registry: reg, Cipher: cipher, Fleet: labagent.NewFleet(nil, nil), Monitor: log.monitor,
+		Instance: "prod", Registry: reg, Cipher: cipher, Fleet: labagent.NewFleet(nil, nil), Monitor: log.monitor,
 		Dial: func(labagent.Connection, string) (*labagent.Client, error) {
 			dials++
 			return &labagent.Client{Client: closedClient{}}, nil
@@ -78,44 +75,11 @@ func names(f *labagent.Fleet) []string {
 	return out
 }
 
-func TestAdminAgentsWinOverTheEnvironmentAgent(t *testing.T) {
-	envID := uuid.Must(uuid.NewV7())
-	reg := &memRegistry{records: []infraModel.AgentRecord{{AgentRegistration: infraModel.AgentRegistration{ID: envID, Key: infraModel.ConfiguredPrimaryAgentKey, Source: infraModel.AgentSourceEnv}}}}
-	env := &labagent.Client{Client: closedClient{}}
-	log := &monitorLog{}
-	m, _ := newManager(reg, env, log, plainCipher{})
-
-	if err := m.Reload(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := m.Fleet().Members(); len(got) != 1 || got[0].ID != envID || got[0].Client != env || !got[0].Enabled {
-		t.Fatalf("with no admin agents the env agent serves: %+v", got)
-	}
-
-	// The first admin agent (even a disabled one) replaces the env agent for good.
-	disabled := admin("disabled", 5, false)
-	reg.records = append(reg.records, disabled)
-	if err := m.Reload(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if got := names(m.Fleet()); len(got) != 1 || got[0] != "disabled" || m.Fleet().Members()[0].Enabled {
-		t.Fatalf("members = %v, the env agent must be ignored while an admin agent exists", got)
-	}
-	m.stopAll()
-	started := map[string]bool{}
-	for _, tag := range log.started {
-		started[tag] = true
-	}
-	if len(log.started) != 2 || !started["env"] || !started["disabled"] {
-		t.Fatalf("monitors started = %v, stopped = %v", log.started, log.stopped)
-	}
-}
-
 func TestReloadKeepsUnchangedAgentsAppliesFlagsAndDropsRemovedOnes(t *testing.T) {
 	a, b := admin("a", 20, true), admin("b", 10, true)
 	reg := &memRegistry{records: []infraModel.AgentRecord{a, b}}
 	log := &monitorLog{}
-	m, dials := newManager(reg, nil, log, plainCipher{})
+	m, dials := newManager(reg, log, plainCipher{})
 	ctx := context.Background()
 	if err := m.Reload(ctx); err != nil {
 		t.Fatal(err)
@@ -153,15 +117,54 @@ func TestReloadKeepsUnchangedAgentsAppliesFlagsAndDropsRemovedOnes(t *testing.T)
 
 func TestAnAgentWhoseCredentialsCannotBeOpenedIsSkipped(t *testing.T) {
 	reg := &memRegistry{records: []infraModel.AgentRecord{admin("a", 1, true), admin("b", 2, true)}}
-	m, _ := newManager(reg, nil, &monitorLog{}, plainCipher{wrongContext: true})
+	m, _ := newManager(reg, &monitorLog{}, plainCipher{wrongContext: true})
 	if err := m.Reload(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got := m.Fleet().Members(); len(got) != 0 {
 		t.Fatalf("members = %v, want none: nothing can be opened", names(m.Fleet()))
 	}
-	m2, _ := newManager(reg, nil, &monitorLog{}, nil)
+	m2, _ := newManager(reg, &monitorLog{}, nil)
 	if err := m2.Reload(context.Background()); err != nil || len(m2.Fleet().Members()) != 0 {
 		t.Fatalf("no cipher: members = %v, err = %v", names(m2.Fleet()), err)
+	}
+}
+
+func TestManagerUpkeepGoesToTheAgentsOwnConnection(t *testing.T) {
+	a := admin("a", 1, true)
+	reg := &memRegistry{records: []infraModel.AgentRecord{a}}
+	var renewed, rotated, removed []string
+	m := New(Config{
+		Instance: "prod", Registry: reg, Cipher: plainCipher{}, Fleet: labagent.NewFleet(nil, nil),
+		Dial: func(labagent.Connection, string) (*labagent.Client, error) {
+			return &labagent.Client{Client: closedClient{renewed: &renewed, rotated: &rotated, removed: &removed}}, nil
+		},
+	})
+	ctx := context.Background()
+	if err := m.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if cert, err := m.RenewCertificate(ctx, a.ID, "CSR"); err != nil || cert != "NEWCERT" || len(renewed) != 1 || renewed[0] != "CSR" {
+		t.Fatalf("renew = %q %v %v", cert, err, renewed)
+	}
+	if err := m.RotateAccessKey(ctx, a.ID, "k-2", "PUB"); err != nil || len(rotated) != 1 || rotated[0] != "k-2" {
+		t.Fatalf("rotate = %v %v", err, rotated)
+	}
+	if err := m.RemoveAccessKey(ctx, a.ID, "k-1"); err != nil || len(removed) != 1 || removed[0] != "k-1" {
+		t.Fatalf("remove = %v %v", err, removed)
+	}
+	unknown := uuid.Must(uuid.NewV7())
+	if _, err := m.RenewCertificate(ctx, unknown, "CSR"); err == nil {
+		t.Fatal("an agent that is not connected cannot renew")
+	}
+	// Enrollment is the platform's call to an agent it has no connection to yet.
+	if _, err := m.Enroll(ctx, "a:443", nil, "t", "csr", "pub", "k"); !errors.Is(err, ErrEnrollmentUnsupported) {
+		t.Fatalf("without an enroller = %v", err)
+	}
+	m.cfg.Enroll = func(_ context.Context, endpoint string, _ []byte, token, csr, pub, kid string) (string, error) {
+		return endpoint + "|" + token + "|" + csr + "|" + pub + "|" + kid, nil
+	}
+	if got, err := m.Enroll(ctx, "a:443", nil, "t", "csr", "pub", "k"); err != nil || got != "a:443|t|csr|pub|k" {
+		t.Fatalf("enroll = %q %v", got, err)
 	}
 }

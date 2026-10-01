@@ -895,21 +895,6 @@ func (mr *MockQuerierMockRecorder) CreateAdminAuditLog(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAdminAuditLog", reflect.TypeOf((*MockQuerier)(nil).CreateAdminAuditLog), ctx, arg)
 }
 
-// CreateAdminInfrastructureAgent mocks base method.
-func (m *MockQuerier) CreateAdminInfrastructureAgent(ctx context.Context, arg postgres.CreateAdminInfrastructureAgentParams) (postgres.InfrastructureAgent, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateAdminInfrastructureAgent", ctx, arg)
-	ret0, _ := ret[0].(postgres.InfrastructureAgent)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CreateAdminInfrastructureAgent indicates an expected call of CreateAdminInfrastructureAgent.
-func (mr *MockQuerierMockRecorder) CreateAdminInfrastructureAgent(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAdminInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).CreateAdminInfrastructureAgent), ctx, arg)
-}
-
 // CreateChallengeAttempt mocks base method.
 func (m *MockQuerier) CreateChallengeAttempt(ctx context.Context, arg postgres.CreateChallengeAttemptParams) (postgres.ChallengeAttempt, error) {
 	m.ctrl.T.Helper()
@@ -1386,6 +1371,21 @@ func (mr *MockQuerierMockRecorder) CreateInAppTemplate(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateInAppTemplate", reflect.TypeOf((*MockQuerier)(nil).CreateInAppTemplate), ctx, arg)
 }
 
+// CreateInfrastructureAgent mocks base method.
+func (m *MockQuerier) CreateInfrastructureAgent(ctx context.Context, arg postgres.CreateInfrastructureAgentParams) (postgres.InfrastructureAgent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateInfrastructureAgent", ctx, arg)
+	ret0, _ := ret[0].(postgres.InfrastructureAgent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateInfrastructureAgent indicates an expected call of CreateInfrastructureAgent.
+func (mr *MockQuerierMockRecorder) CreateInfrastructureAgent(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).CreateInfrastructureAgent), ctx, arg)
+}
+
 // CreateInitialEventForm mocks base method.
 func (m *MockQuerier) CreateInitialEventForm(ctx context.Context, arg postgres.CreateInitialEventFormParams) (postgres.EventFormVersion, error) {
 	m.ctrl.T.Helper()
@@ -1622,21 +1622,6 @@ func (m *MockQuerier) DecideExerciseProposal(ctx context.Context, arg postgres.D
 func (mr *MockQuerierMockRecorder) DecideExerciseProposal(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecideExerciseProposal", reflect.TypeOf((*MockQuerier)(nil).DecideExerciseProposal), ctx, arg)
-}
-
-// DeleteAdminInfrastructureAgent mocks base method.
-func (m *MockQuerier) DeleteAdminInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteAdminInfrastructureAgent", ctx, id)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DeleteAdminInfrastructureAgent indicates an expected call of DeleteAdminInfrastructureAgent.
-func (mr *MockQuerierMockRecorder) DeleteAdminInfrastructureAgent(ctx, id any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAdminInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).DeleteAdminInfrastructureAgent), ctx, id)
 }
 
 // DeleteBlob mocks base method.
@@ -1978,19 +1963,19 @@ func (mr *MockQuerierMockRecorder) DeleteInAppTemplate(ctx, id any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteInAppTemplate", reflect.TypeOf((*MockQuerier)(nil).DeleteInAppTemplate), ctx, id)
 }
 
-// DeleteInfrastructureAgentByKey mocks base method.
-func (m *MockQuerier) DeleteInfrastructureAgentByKey(ctx context.Context, key string) (int64, error) {
+// DeleteInfrastructureAgent mocks base method.
+func (m *MockQuerier) DeleteInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteInfrastructureAgentByKey", ctx, key)
+	ret := m.ctrl.Call(m, "DeleteInfrastructureAgent", ctx, id)
 	ret0, _ := ret[0].(int64)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// DeleteInfrastructureAgentByKey indicates an expected call of DeleteInfrastructureAgentByKey.
-func (mr *MockQuerierMockRecorder) DeleteInfrastructureAgentByKey(ctx, key any) *gomock.Call {
+// DeleteInfrastructureAgent indicates an expected call of DeleteInfrastructureAgent.
+func (mr *MockQuerierMockRecorder) DeleteInfrastructureAgent(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteInfrastructureAgentByKey", reflect.TypeOf((*MockQuerier)(nil).DeleteInfrastructureAgentByKey), ctx, key)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).DeleteInfrastructureAgent), ctx, id)
 }
 
 // DeleteIntegrityDismissal mocks base method.
@@ -8961,21 +8946,6 @@ func (mr *MockQuerierMockRecorder) UnpublishEventExerciseChallenges(ctx, eventEx
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnpublishEventExerciseChallenges", reflect.TypeOf((*MockQuerier)(nil).UnpublishEventExerciseChallenges), ctx, eventExerciseID)
 }
 
-// UpdateAdminInfrastructureAgent mocks base method.
-func (m *MockQuerier) UpdateAdminInfrastructureAgent(ctx context.Context, arg postgres.UpdateAdminInfrastructureAgentParams) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateAdminInfrastructureAgent", ctx, arg)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpdateAdminInfrastructureAgent indicates an expected call of UpdateAdminInfrastructureAgent.
-func (mr *MockQuerierMockRecorder) UpdateAdminInfrastructureAgent(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAdminInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).UpdateAdminInfrastructureAgent), ctx, arg)
-}
-
 // UpdateEmailBlockPreset mocks base method.
 func (m *MockQuerier) UpdateEmailBlockPreset(ctx context.Context, arg postgres.UpdateEmailBlockPresetParams) (postgres.NotificationEmailBlockPreset, error) {
 	m.ctrl.T.Helper()
@@ -9306,6 +9276,21 @@ func (mr *MockQuerierMockRecorder) UpdateInAppTemplate(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInAppTemplate", reflect.TypeOf((*MockQuerier)(nil).UpdateInAppTemplate), ctx, arg)
 }
 
+// UpdateInfrastructureAgent mocks base method.
+func (m *MockQuerier) UpdateInfrastructureAgent(ctx context.Context, arg postgres.UpdateInfrastructureAgentParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateInfrastructureAgent", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateInfrastructureAgent indicates an expected call of UpdateInfrastructureAgent.
+func (mr *MockQuerierMockRecorder) UpdateInfrastructureAgent(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).UpdateInfrastructureAgent), ctx, arg)
+}
+
 // UpdateLabBindingReadiness mocks base method.
 func (m *MockQuerier) UpdateLabBindingReadiness(ctx context.Context, arg postgres.UpdateLabBindingReadinessParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -9572,21 +9557,6 @@ func (m *MockQuerier) UpsertExerciseDraft(ctx context.Context, arg postgres.Upse
 func (mr *MockQuerierMockRecorder) UpsertExerciseDraft(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).UpsertExerciseDraft), ctx, arg)
-}
-
-// UpsertInfrastructureAgent mocks base method.
-func (m *MockQuerier) UpsertInfrastructureAgent(ctx context.Context, arg postgres.UpsertInfrastructureAgentParams) (postgres.InfrastructureAgent, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpsertInfrastructureAgent", ctx, arg)
-	ret0, _ := ret[0].(postgres.InfrastructureAgent)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UpsertInfrastructureAgent indicates an expected call of UpsertInfrastructureAgent.
-func (mr *MockQuerierMockRecorder) UpsertInfrastructureAgent(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertInfrastructureAgent", reflect.TypeOf((*MockQuerier)(nil).UpsertInfrastructureAgent), ctx, arg)
 }
 
 // UpsertLabMonitoringCurrent mocks base method.

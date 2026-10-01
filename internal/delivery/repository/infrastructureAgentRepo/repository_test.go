@@ -2,44 +2,37 @@ package infrastructureAgentRepo
 
 import (
 	"context"
-	"github.com/gofrs/uuid"
 	"testing"
 	"time"
+
+	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
 
 type queryStub struct {
-	deletedKey string
-	upserted   postgres.UpsertInfrastructureAgentParams
+	rows    []postgres.InfrastructureAgent
+	created postgres.CreateInfrastructureAgentParams
 }
 
 func (q *queryStub) ListInfrastructureAgents(context.Context) ([]postgres.InfrastructureAgent, error) {
-	return nil, nil
+	return q.rows, nil
 }
-func (q *queryStub) DeleteInfrastructureAgentByKey(_ context.Context, key string) (int64, error) {
-	q.deletedKey = key
-	return 1, nil
-}
-func (q *queryStub) UpsertInfrastructureAgent(_ context.Context, p postgres.UpsertInfrastructureAgentParams) (postgres.InfrastructureAgent, error) {
-	q.upserted = p
-	return postgres.InfrastructureAgent{Key: p.Key, Name: p.Name, Configured: p.Configured}, nil
-}
-
 func (q *queryStub) GetInfrastructureAgent(context.Context, uuid.UUID) (postgres.InfrastructureAgent, error) {
 	return postgres.InfrastructureAgent{}, nil
 }
-func (q *queryStub) CreateAdminInfrastructureAgent(context.Context, postgres.CreateAdminInfrastructureAgentParams) (postgres.InfrastructureAgent, error) {
-	return postgres.InfrastructureAgent{}, nil
+func (q *queryStub) CreateInfrastructureAgent(_ context.Context, p postgres.CreateInfrastructureAgentParams) (postgres.InfrastructureAgent, error) {
+	q.created = p
+	return postgres.InfrastructureAgent{ID: p.ID, Source: p.Source}, nil
 }
-func (q *queryStub) UpdateAdminInfrastructureAgent(context.Context, postgres.UpdateAdminInfrastructureAgentParams) (int64, error) {
+func (q *queryStub) UpdateInfrastructureAgent(context.Context, postgres.UpdateInfrastructureAgentParams) (int64, error) {
 	return 1, nil
 }
-func (q *queryStub) DeleteAdminInfrastructureAgent(context.Context, uuid.UUID) (int64, error) {
+func (q *queryStub) DeleteInfrastructureAgent(context.Context, uuid.UUID) (int64, error) {
 	return 1, nil
 }
-
 func (q *queryStub) SetInfrastructureAgentCertificate(context.Context, postgres.SetInfrastructureAgentCertificateParams) (int64, error) {
 	return 1, nil
 }
@@ -49,7 +42,6 @@ func (q *queryStub) SetInfrastructureAgentAccessKey(context.Context, postgres.Se
 func (q *queryStub) SetInfrastructureAgentRetiredKeys(context.Context, postgres.SetInfrastructureAgentRetiredKeysParams) (int64, error) {
 	return 1, nil
 }
-
 func (q *queryStub) SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error) {
 	return 1, nil
 }
@@ -60,26 +52,41 @@ func (q *queryStub) ReplaceInfrastructureAgentCredentials(context.Context, postg
 	return 1, nil
 }
 
-func TestRemoveConfiguredPrimaryRemovesConfigurationProjection(t *testing.T) {
-	q := &queryStub{}
-	if err := New(q).RemoveConfiguredPrimary(context.Background()); err != nil {
-		t.Fatalf("RemoveConfiguredPrimary() error = %v", err)
+func TestListRecordsHidesArchivedAndMapsTheRow(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	live := postgres.InfrastructureAgent{
+		ID: uuid.Must(uuid.NewV7()), Name: "eu", Source: infraModel.AgentSourceEnv, Endpoint: "eu:443", Tenant: "platform", Enabled: true, Priority: 7,
+		CapacityCpuMillicores: pgtype.Int8{Int64: 8000, Valid: true}, CapacitySeenAt: pgtype.Timestamptz{Time: now, Valid: true},
+		RetiredAccessKeys: []byte(`[{"key_id":"k-old","retired_at":"2026-10-01T11:00:00Z"}]`), CaPem: "ca",
 	}
-	if q.deletedKey != infraModel.ConfiguredPrimaryAgentKey {
-		t.Fatalf("deleted key = %q, want %q", q.deletedKey, infraModel.ConfiguredPrimaryAgentKey)
+	gone := postgres.InfrastructureAgent{ID: uuid.Must(uuid.NewV7()), ArchivedAt: pgtype.Timestamptz{Time: now, Valid: true}}
+	broken := postgres.InfrastructureAgent{ID: uuid.Must(uuid.NewV7()), RetiredAccessKeys: []byte(`not json`)}
+	repo := New(&queryStub{rows: []postgres.InfrastructureAgent{live, gone, broken}})
+
+	records, err := repo.ListRecords(context.Background())
+	if err != nil || len(records) != 2 {
+		t.Fatalf("records = %d, %v; archived agents must be hidden", len(records), err)
+	}
+	got := records[0]
+	if got.Source != infraModel.AgentSourceEnv || got.Priority != 7 || !got.HasCA || got.CapacityCPUMillicores == nil || *got.CapacityCPUMillicores != 8000 || got.CapacityMemoryBytes != nil ||
+		got.CapacitySeenAt == nil || len(got.RetiredAccessKeys) != 1 || got.RetiredAccessKeys[0].KeyID != "k-old" {
+		t.Fatalf("record = %+v", got)
+	}
+	if len(records[1].RetiredAccessKeys) != 0 {
+		t.Fatal("a malformed retired list must read as empty, not hide the agent")
+	}
+	if all, _ := repo.ListAllRecords(context.Background()); len(all) != 3 {
+		t.Fatalf("every agent is listed with archived: %d", len(all))
 	}
 }
 
-func TestReconcileConfiguredPrimaryStoresEmptyName(t *testing.T) {
+func TestCreateKeepsHowTheAgentWasAdded(t *testing.T) {
 	q := &queryStub{}
-	agent, err := New(q).ReconcileConfiguredPrimary(context.Background(), time.Now())
-	if err != nil {
-		t.Fatalf("ReconcileConfiguredPrimary() error = %v", err)
+	a := infraModel.AgentRecord{AgentRegistration: infraModel.AgentRegistration{ID: uuid.Must(uuid.NewV7()), Source: infraModel.AgentSourceEnv, Name: "default"}}
+	if _, err := New(q).Create(context.Background(), a); err != nil {
+		t.Fatal(err)
 	}
-	if q.upserted.Key != infraModel.ConfiguredPrimaryAgentKey || q.upserted.Name != "" || !q.upserted.Configured {
-		t.Fatalf("upserted = %+v, want configured primary key with empty name", q.upserted)
-	}
-	if agent.Name != "" {
-		t.Fatalf("agent name = %q, want empty", agent.Name)
+	if q.created.Source != infraModel.AgentSourceEnv || q.created.Key != a.ID.String() {
+		t.Fatalf("created = %+v", q.created)
 	}
 }

@@ -13,8 +13,9 @@ import (
 )
 
 type (
-	// agentAdminResponse is one infrastructure agent. The environment agent (Source env) is read-only;
-	// it is InUse only while no admin agent exists. Keys and the enrollment token never leave the server.
+	// agentAdminResponse is one infrastructure agent. Source is admin (added in the admin) or env
+	// (bootstrapped from the deployment config); both are managed the same way. Keys and the enrollment
+	// token never leave the server.
 	agentAdminResponse struct {
 		ID       uuid.UUID `json:"ID"`
 		Name     string    `json:"Name"`
@@ -58,10 +59,7 @@ type (
 	}
 
 	agentsResponse struct {
-		// EnvironmentUsed is true while no admin agent exists and the environment agent serves: the UI
-		// notes that it is used because no agents are configured.
-		EnvironmentUsed bool                 `json:"EnvironmentUsed"`
-		Items           []agentAdminResponse `json:"Items"`
+		Items []agentAdminResponse `json:"Items"`
 	}
 
 	// enrollAgentRequest adds an agent: where it is and the one-time enrollment token the cluster
@@ -108,7 +106,7 @@ func parseAgentID(ctx *gin.Context) (uuid.UUID, bool) {
 // listAgents godoc
 //
 //	@Summary		List infrastructure agents
-//	@Description	The admin-configured agents and the environment agent, with live state, held lab groups and the certificate expiry. While any admin agent exists the environment agent is not used (EnvironmentUsed false, its InUse false). Requires infrastructure.read (super_admin only).
+//	@Description	The enrolled agents (Source admin: added in the admin; env: bootstrapped from AGENT_ENDPOINT and the enrollment token), with live state, held lab groups, capacity and the certificate expiry. Requires infrastructure.read (super_admin only).
 //	@Tags			infrastructure
 //	@Produce		json
 //	@Param			archived	query		string	false	"1 also lists deleted (archived) agents"
@@ -120,7 +118,7 @@ func (h *Handler) listAgents(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	out := agentsResponse{EnvironmentUsed: v.EnvironmentUsed, Items: make([]agentAdminResponse, 0, len(v.Items))}
+	out := agentsResponse{Items: make([]agentAdminResponse, 0, len(v.Items))}
 	for _, item := range v.Items {
 		out.Items = append(out.Items, toAgentResponse(item))
 	}
@@ -131,7 +129,7 @@ func (h *Handler) listAgents(ctx *gin.Context) {
 // createAgent godoc
 //
 //	@Summary		Add (enroll) an infrastructure agent
-//	@Description	Enrolls the agent with the one-time token: the platform generates its mutual-TLS key and the signing key pair of the lab access tokens, the agent signs the client certificate (the tenant is its CN) and trusts the access public key. Both private keys are stored encrypted. From the first admin agent on the environment agent is no longer used. 400 (21414) when the agent rejects the token (used, expired, unknown), 409 (41413) when the endpoint is already added. Requires infrastructure.write (super_admin only).
+//	@Description	Enrolls the agent with the one-time token: the platform generates its mutual-TLS key and the signing key pair of the lab access tokens, the agent signs the client certificate (the tenant is its CN) and trusts the access public key. Both private keys are stored encrypted. 400 (21414) when the agent rejects the token (used, expired, unknown), 409 (41413) when the endpoint is already added. Requires infrastructure.write (super_admin only).
 //	@Tags			infrastructure
 //	@Accept			json
 //	@Produce		json
@@ -156,7 +154,7 @@ func (h *Handler) createAgent(ctx *gin.Context) {
 // updateAgent godoc
 //
 //	@Summary		Change an infrastructure agent
-//	@Description	Name, server CA, switch and priority; the endpoint, certificate and keys stay. The environment agent cannot be changed (409, 71412). Requires infrastructure.write (super_admin only).
+//	@Description	Name, server CA, switch and priority; the endpoint, certificate and keys stay. Requires infrastructure.write (super_admin only).
 //	@Tags			infrastructure
 //	@Accept			json
 //	@Produce		json

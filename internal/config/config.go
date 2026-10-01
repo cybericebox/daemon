@@ -49,33 +49,28 @@ type (
 		Agent    AgentConfig    `envPrefix:"AGENT_"`
 	}
 
-	// AgentConfig holds the optional LabManager agent — the cyber-range
-	// infrastructure that deploys labs. Empty Endpoint disables it: the daemon
-	// runs fine (catalog, event setup, exercise authoring all work), but any
-	// operation that needs to deploy or run a lab fails explicitly with
-	// ErrInfrastructureUnavailable rather than silently doing nothing.
+	// AgentConfig bootstraps the first infrastructure agent from the deployment config. Agents live in
+	// the database: they are enrolled in the admin, or, when Endpoint and EnrollmentToken are set here and
+	// no live agent with that endpoint exists yet, enrolled once at startup with the one-time token. The
+	// token is ignored afterwards (a still-set token is logged once). Without any agent the daemon runs
+	// fine (catalog, event setup, exercise authoring), but whatever needs to deploy a lab fails with
+	// ErrInfrastructureUnavailable.
 	AgentConfig struct {
-		// Endpoint is host:port. Dial the agent by its certificate hostname so
-		// TLS verifies the peer name against the cert SAN automatically (no
-		// separate SNI setting needed).
+		// Endpoint is host:443 of the agent. Dial it by its certificate hostname.
 		Endpoint string `env:"ENDPOINT"`
-		// Outbound client-mTLS (shared TLSConfig): CertFile/KeyFile is the CLIENT
-		// certificate we present (its CN must be in the agent's allowlist);
-		// CAFile verifies the agent's server certificate. Empty means the system
-		// roots (a publicly trusted certificate, e.g. Let's Encrypt).
-		TLS TLSConfig `envPrefix:"TLS_"`
+		// EnrollmentToken is the one-time enrollment token of the agent's tenant (from the cluster
+		// administrator's kit).
+		EnrollmentToken string `env:"ENROLLMENT_TOKEN"`
+		// Name labels the bootstrapped agent in the admin.
+		Name string `env:"NAME" envDefault:"default"`
+		// CAFile verifies the agent's server certificate; empty means the system roots (a publicly
+		// trusted certificate). Needed for self-signed development stands only.
+		CAFile string `env:"CA_FILE"`
 		// InstanceID is the immutable platform-instance label put on every object this daemon
 		// creates in the infrastructure (cybericebox.io/instance); its Monitoring subscription
 		// selects by it, so two platform instances can share one cluster. Never change it for a
 		// running deployment.
 		InstanceID string `env:"INSTANCE_ID" envDefault:"cybericebox"`
-		// AccessPrivateKey and AccessKeyID are the Ed25519 PKCS#8 PEM key (one line with "\n" is
-		// accepted) and the key id that sign the lab access tokens of the environment agent (from the
-		// kit's enroll.sh). The tenant is the CN of the client certificate (TLS_CERT_FILE), or "default"
-		// without TLS. Agents added in the admin have their own keys. Unset: no web links for the
-		// environment agent, VPN access is unaffected.
-		AccessPrivateKey string `env:"ACCESS_PRIVATE_KEY"`
-		AccessKeyID      string `env:"ACCESS_KEY_ID"`
 	}
 
 	// StorageConfig holds the S3/MinIO object store used for user avatars.

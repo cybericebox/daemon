@@ -178,20 +178,18 @@ func TestExerciseMaxActiveTestDeploys_DefaultsToThreeAndIsValidated(t *testing.T
 	}
 }
 
-func TestAgentTLS_EmptyCAFileMeansSystemRoots(t *testing.T) {
+func TestAgentBootstrapConfig(t *testing.T) {
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
 	t.Setenv("AGENT_ENDPOINT", "ctl.example.test:443")
-	t.Setenv("AGENT_TLS_ENABLED", "true")
-	t.Setenv("AGENT_TLS_CERT_FILE", "/tls/client.crt")
-	t.Setenv("AGENT_TLS_KEY_FILE", "/tls/client.key")
-	t.Setenv("AGENT_TLS_CA_FILE", "")
-
-	cfg := MustGetConfig()
-	if !cfg.Infrastructure.Agent.TLS.Enabled || cfg.Infrastructure.Agent.TLS.CertFile != "/tls/client.crt" {
-		t.Fatalf("agent TLS not parsed: %+v", cfg.Infrastructure.Agent.TLS)
+	t.Setenv("AGENT_ENROLLMENT_TOKEN", "one-time")
+	t.Setenv("AGENT_CA_FILE", "/ca/ca.crt")
+	agent := MustGetConfig().Infrastructure.Agent
+	if agent.Endpoint != "ctl.example.test:443" || agent.EnrollmentToken != "one-time" || agent.CAFile != "/ca/ca.crt" || agent.Name != "default" || agent.InstanceID != "cybericebox" {
+		t.Fatalf("agent bootstrap config = %+v", agent)
 	}
-	if cfg.Infrastructure.Agent.TLS.CAFile != "" {
-		t.Fatalf("an empty AGENT_TLS_CA_FILE must stay empty (system roots), got %q", cfg.Infrastructure.Agent.TLS.CAFile)
+	t.Setenv("AGENT_NAME", "eu-1")
+	if got := MustGetConfig().Infrastructure.Agent.Name; got != "eu-1" {
+		t.Fatalf("name = %q", got)
 	}
 }
 
