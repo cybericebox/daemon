@@ -1,27 +1,244 @@
 package protection
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
+
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	"github.com/cybericebox/daemon/internal/model/rbac"
+	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
+	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
-type (
-	protection struct {
-		config  *config.ProtectionConfig
-		useCase IUseCase
-	}
-	IUseCase interface {
-		IAuthProtectionUseCase
-	}
+// IUseCase is the auth port the middleware depends on.
+type IUseCase interface {
+	ValidateSessionCookie(
+		ctx context.Context,
+		cookieValue string,
+	) (*authUseCase.SessionAuthResult, error)
+	UpdateLastSeen(ctx context.Context, sessionID, userID uuid.UUID) error
+	SignOut(ctx context.Context, sessionID uuid.UUID) error
+	RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
+}
 
-	// Dependencies for the routes protection
-	Dependencies struct {
-		Config  *config.ProtectionConfig
-		UseCase IUseCase
+type Protection struct {
+	useCase   IUseCase
+	domain    string
+	ttl       time.Duration
+	recaptcha config.RecaptchaConfig
+}
+
+type Dependencies struct {
+	UseCase IUseCase
+	Config  config.AuthConfig
+}
+
+func New(deps Dependencies) *Protection {
+	return &Protection{
+		useCase:   deps.UseCase,
+		domain:    deps.Config.Domain,
+		ttl:       deps.Config.SessionIdleTTL,
+		recaptcha: deps.Config.Recaptcha,
 	}
-)
+}
 
-var protector *protection
+// RequireAPIHost rejects any request whose Host is not exactly api.<domain>.
+// This service answers on a single host now; every other host is routed to a
+// frontend by the edge proxy and never reaches this process.
+func (p *Protection) RequireAPIHost(ctx *gin.Context) {
+	want := fmt.Sprintf("%s.%s", config.APISubdomain, p.domain)
+	if hostWithoutPort(ctx.Request.Host) != want {
+		response.AbortWithNotFound(ctx)
+		return
+	}
+	ctx.Next()
+}
 
-func InitProtection(deps *Dependencies) {
-	protector = &protection{useCase: deps.UseCase, config: deps.Config}
+// RequirePermission is the single entry point that gates a route: it runs
+// checkAuthentication internally (hard-401 if required.RequireAuthentication()
+// is true, i.e. the permission is not public-optional; silent otherwise),
+// which injects the role into the request context. An unauthenticated caller
+// uses RolePublic only for permissions explicitly granted to that role.
+func (p *Protection) RequirePermission(required rbac.Permission) gin.HandlerFunc {
+	silentAuthCheck := required.RequireAuthentication() == false
+	return func(ctx *gin.Context) {
+		p.checkAuthentication(ctx, silentAuthCheck)
+		if ctx.IsAborted() {
+			// checkAuthentication already aborted (hard-401 case) — the
+			// deferred global error handler will write the response; don't
+			// let the permission check below run and race it with a 403.
+			return
+		}
+
+		_, authenticated := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+		if !rbac.HasPermissionInContext(ctx.Request.Context(), required) &&
+			(authenticated || !rbac.RolePublic.HasPermission(required)) {
+			response.AbortWithForbidden(ctx)
+			return
+		}
+		ctx.Next()
+		if !isAdministrativeAction(required, ctx) || ctx.Writer.Status() >= http.StatusBadRequest {
+			return
+		}
+		claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+		if !ok {
+			return
+		}
+		if err := p.useCase.RecordAdminAction(ctx.Request.Context(), adminAuditUseCase.Entry{
+			ActorID: claims.UserID, Permission: string(required), Method: ctx.Request.Method,
+			Route: ctx.FullPath(), ResponseStatus: ctx.Writer.Status(), Target: audit.Target(ctx),
+		}); err != nil {
+			log.Warn().Err(err).Str("route", ctx.FullPath()).Msg("Failed to record admin audit action")
+		}
+	}
+}
+
+func isAdministrativeAction(required rbac.Permission, ctx *gin.Context) bool {
+	if ctx.Request.Method == http.MethodGet || ctx.Request.Method == http.MethodHead || ctx.Request.Method == http.MethodOptions {
+		return false
+	}
+	return required != rbac.PermSelf || strings.Contains(ctx.FullPath(), "/manage/")
+}
+
+// signInURL is the identity app's sign-in page URL (id.<domain>/sign-in).
+func (p *Protection) signInURL() string {
+	return fmt.Sprintf("https://%s.%s%s", config.IDSubdomain, p.domain, SignInPath)
+}
+
+// resolveAuth validates the request's session cookie and returns the identity
+// claims. There is exactly one credential now, valid across every frontend
+// origin — which caller may do what is enforced by RBAC permissions and the
+// CORS/Origin allowlist, not by which cookie is present.
+func (p *Protection) resolveAuth(ctx *gin.Context) (authModel.AuthClaims, error) {
+	cookie := getCookie(ctx, authModel.SessionCookie)
+	if cookie == "" {
+		return authModel.AuthClaims{}, authModel.ErrAuthMissingSessionCookie.Err()
+	}
+	res, err := p.useCase.ValidateSessionCookie(ctx.Request.Context(), cookie)
+	if err != nil {
+		if isUnauthorized(err) {
+			p.clearSessionCookie(ctx)
+		}
+		return authModel.AuthClaims{}, err
+	}
+	return res.Claims, nil
+}
+
+// checkAuthentication validates the session cookie and, on success, injects
+// userID / role / sessionID into the request context (rbac seam). It is not a
+// standalone middleware — RequirePermission calls it internally, once per
+// request, before checking HasPermissionInContext. silent controls the
+// failure behavior: false (the permission requires authentication) aborts
+// with the session-validation error's own status (401 for an invalid,
+// expired, or revoked session) and the X-Sign-In-URL header so the client
+// can redirect; true (the permission is public-optional, i.e. RolePublic
+// already covers it) just logs and lets the request continue unauthenticated.
+func (p *Protection) checkAuthentication(ctx *gin.Context, silent bool) {
+	claims, err := p.resolveAuth(ctx)
+	if err != nil {
+		if silent {
+			log.Debug().Err(err).Caller().Msg("Silent auth check failed")
+			return
+		}
+		// Advertise the sign-in URL so the client can redirect on 401 without
+		// computing the address itself (harmless on the success path).
+		if isUnauthorized(err) {
+			ctx.Header(SignInURLHeader, p.signInURL())
+		}
+		response.AbortWithError(ctx, err)
+		return
+	}
+	p.injectContext(ctx, claims)
+}
+
+func isUnauthorized(err error) bool {
+	var classified appErr.Error
+	return errors.As(err, &classified) && classified.StatusCode().HTTPCode() == http.StatusUnauthorized
+}
+
+// injectContext writes identity into the request context and fires an async last-seen touch.
+func (p *Protection) injectContext(ctx *gin.Context, claims authModel.AuthClaims) {
+	ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), claims))
+	p.touchAsync(claims.SessionID, claims.UserID)
+}
+
+func (p *Protection) touchAsync(sessionID, userID uuid.UUID) {
+	go func() {
+		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.useCase.UpdateLastSeen(c, sessionID, userID); err != nil {
+			log.Debug().
+				Err(err).
+				Str("sessionID", sessionID.String()).
+				Str("userID", userID.String()).
+				Msg("Failed to update last_seen")
+		}
+	}()
+}
+
+// ── cookie helpers ─────────────────────────────────────────────────────────
+
+// Authenticate sets the platform session cookie. SameSite=Strict: every
+// frontend origin is same-site with api.<domain>, so Strict cookies are sent
+// on ordinary same-site fetches/navigations; the one case they are withheld —
+// Google's cross-site redirect back — is handled by the OAuth link flow's own
+// short-lived stash cookie (see handler/auth/google.go).
+func (p *Protection) Authenticate(ctx *gin.Context, value string) {
+	setCookie(ctx, authModel.SessionCookie, value, http.SameSiteStrictMode, p.ttl)
+}
+
+func (p *Protection) clearSessionCookie(ctx *gin.Context) {
+	clearCookie(ctx, authModel.SessionCookie, http.SameSiteStrictMode)
+}
+
+// DeAuthenticate clears the session cookie and deletes the session. Reads the
+// session id from the request context (populated by checkAuthentication, via
+// RequirePermission) to delete the session.
+func (p *Protection) DeAuthenticate(ctx *gin.Context) {
+	if authSession, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context()); ok {
+		if err := p.useCase.SignOut(ctx.Request.Context(), authSession.SessionID); err != nil {
+			log.Warn().Err(err).Caller().Msg("Failed to sign out session")
+		}
+	}
+	p.clearSessionCookie(ctx)
+	response.AbortWithSuccess(ctx)
+}
+
+// helpers
+
+func hostWithoutPort(host string) string {
+	if i := strings.IndexByte(host, ':'); i >= 0 {
+		return host[:i]
+	}
+	return host
+}
+
+func getCookie(ctx *gin.Context, name string) string {
+	value, err := ctx.Cookie(name)
+	if err != nil || value == "" {
+		return ""
+	}
+	return value
+}
+
+func setCookie(ctx *gin.Context, name, value string, sameSite http.SameSite, ttl time.Duration) {
+	ctx.SetSameSite(sameSite)
+	ctx.SetCookie(name, value, int(ttl.Seconds()), "/", "", true, true)
+}
+
+func clearCookie(ctx *gin.Context, name string, sameSite http.SameSite) {
+	ctx.SetSameSite(sameSite)
+	ctx.SetCookie(name, "", -1, "/", "", true, true)
 }

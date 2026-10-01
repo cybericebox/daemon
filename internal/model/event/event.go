@@ -1,139 +1,228 @@
+// Package eventModel is the DOMAIN layer of the platform event: the thin
+// Event tenancy aggregate (subdomain tag + a two-date availability window)
+// and the invariants it holds. Rich event content lives in the per-event
+// domain, not here.
 package eventModel
 
 import (
+	"regexp"
+	"strings"
 	"time"
 
-	"github.com/cybericebox/lib/pkg/err"
 	"github.com/gofrs/uuid"
-
-	"github.com/cybericebox/daemon/internal/model"
 )
 
-type (
-	Event struct {
-		ID uuid.UUID `validate:"omitempty,uuid"`
+const (
+	tagMinLen  = 3
+	tagMaxLen  = 64
+	nameMaxLen = 255
+)
 
-		Type          int32 `validate:"required,number,oneof=0 1"`
-		Availability  int32 `validate:"required,number,oneof=0 1"`
-		Participation int32 `validate:"required,number,oneof=0 1"`
+var tagPattern = regexp.MustCompile(`^[a-z0-9]+$`)
 
-		Tag         string `validate:"required,min=3,max=20,lowercase,alphanum"`
-		Name        string `validate:"required,min=3,max=50,alphanum"`
-		Description string `validate:"required,min=1"`
-		Rules       string `validate:"required,min=1"`
-		Picture     string `validate:"omitempty,uuid|url"`
+// EventStatus is the read-only lifecycle position derived from the window.
+type EventStatus int32
 
-		DynamicScoring        bool  `validate:"omitempty,boolean"`
-		DynamicMaxScore       int32 `validate:"required_with=DynamicScoring,min=2,max=100,gtfield=DynamicMinScore"`
-		DynamicMinScore       int32 `validate:"required_with=DynamicScoring,min=1,max=99,ltfield=DynamicMaxScore"`
-		DynamicSolveThreshold int32 `validate:"required_with=DynamicScoring,min=1,max=1000"`
+const (
+	EventPendingStatus EventStatus = iota
+	EventActiveStatus
+	EventArchivedStatus
+)
 
-		Registration           int32 `validate:"required,number,oneof=0 1 2"`
-		ScoreboardAvailability int32 `validate:"required,number,oneof=0 1 2"`
-		ParticipantsVisibility int32 `validate:"required,number,oneof=0 1 2"`
+// Event is the platform tenancy aggregate. The platform owns ONLY the tag,
+// an optional admin name and the availability window; everything else about
+// the event is configured in the per-event domain.
+type Event struct {
+	ID           uuid.UUID
+	Tag          string // event subdomain
+	Name         string // public label, changed by event managers
+	InternalName string // platform-only label, changed by platform administrators
+	// Lifecycle is the canonical runtime model. The availability window below
+	// is retained only while the central-admin API is migrated.
+	Lifecycle         Lifecycle
+	ScoringProfile    ScoringProfile
+	ForceEventScoring bool
+	// StaticPoints is the one value of static event scoring (required for
+	// static scoring; tasks «Як у заходу» and forced scoring use it).
+	StaticPoints *int32
+	// InfrastructureAllowed is the platform administrator's decision, made
+	// whether the event may use challenges with team stands. It is set at
+	// creation and may be changed only before publication (SetInfrastructureAllowed).
+	InfrastructureAllowed bool
 
-		PublishTime  time.Time `validate:"required"`
-		StartTime    time.Time `validate:"required,gtefield=PublishTime"`
-		FinishTime   time.Time `validate:"required,gtfield=StartTime"`
-		WithdrawTime time.Time `validate:"required,gtefield=FinishTime"`
+	AvailableFrom time.Time // domain becomes available to moderators/users
+	ArchiveAt     time.Time // zero means platform access has no planned end
 
-		CreatedAt time.Time
-		UpdatedAt time.Time
-		UpdatedBy uuid.NullUUID
+	CreatedAt time.Time
+	CreatedBy uuid.NullUUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.NullUUID
+}
 
-		ChallengesCount int64
-		TeamsCount      int64
+// NewEvent builds a platform event with domain-owned defaults (UUIDv7 id,
+// timestamps from the caller's clock). A zero availableFrom defaults to now.
+func NewEvent(tag, name string, availableFrom, archiveAt time.Time, createdBy uuid.UUID, now time.Time) (Event, error) {
+	e := Event{
+		ID:        uuid.Must(uuid.NewV7()),
+		CreatedAt: now,
+		CreatedBy: uuid.NullUUID{UUID: createdBy, Valid: createdBy != uuid.Nil},
+	}
+	if availableFrom.IsZero() {
+		availableFrom = now
+	}
+	if err := e.UpdateEvent(tag, name, availableFrom, archiveAt, createdBy, now); err != nil {
+		return Event{}, err
+	}
+	e.Name = e.InternalName
+	return e, nil
+}
+
+// AllowInfrastructure records the creation-time infrastructure decision. It
+// has effect only before the first persist: the event update write never
+// changes the stored flag.
+func (e *Event) AllowInfrastructure(allowed bool) {
+	e.InfrastructureAllowed = allowed
+}
+
+// SetInfrastructureAllowed changes the administrator's infrastructure flag. It
+// is refused once the event is published, and turning it off is refused while
+// attached sets still need infrastructure (attachedInfrastructure counts them):
+// detaching is the manager's decision, never a silent side effect. Setting the
+// current value is a no-op.
+func (e *Event) SetInfrastructureAllowed(allowed bool, attachedInfrastructure int, updatedBy uuid.UUID, now time.Time) error {
+	if e.InfrastructureAllowed == allowed {
+		return nil
+	}
+	if e.Lifecycle.Status(now) != LifecycleNotPublished {
+		return ErrEventInfrastructureLocked.Err()
+	}
+	if !allowed && attachedInfrastructure > 0 {
+		return ErrEventInfrastructureInUse.Err()
+	}
+	e.InfrastructureAllowed = allowed
+	e.UpdatedAt = now
+	e.UpdatedBy = uuid.NullUUID{UUID: updatedBy, Valid: updatedBy != uuid.Nil}
+	return nil
+}
+
+// UpdateEvent validates and applies tag/name/window in one place and touches
+// UpdatedAt/By. On validation failure the entity is untouched.
+func (e *Event) UpdateEvent(tag, name string, availableFrom, archiveAt time.Time, updatedBy uuid.UUID, now time.Time) error {
+	tag = strings.TrimSpace(tag)
+	if len(tag) < tagMinLen || len(tag) > tagMaxLen || !tagPattern.MatchString(tag) {
+		return ErrEventTagInvalid.Err()
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ErrEventNameInvalid.Err()
+	}
+	if len(name) > nameMaxLen {
+		return ErrEventNameTooLong.Err()
+	}
+	if !archiveAt.IsZero() && !archiveAt.After(availableFrom) {
+		return ErrEventDatesInvalid.Err()
+	}
+	if e.Lifecycle.Configured {
+		if e.Lifecycle.PublishAt.Before(availableFrom) ||
+			(!archiveAt.IsZero() && (!e.Lifecycle.StartAt.Before(archiveAt) ||
+				(e.Lifecycle.WithdrawAt != nil && e.Lifecycle.WithdrawAt.After(archiveAt)))) {
+			return ErrEventDatesInvalid.Err()
+		}
+	}
+	// Platform updates never overwrite a moderator's configured lifecycle.
+	unconfigured := !e.Lifecycle.Configured
+	var lifecycle Lifecycle
+	if unconfigured {
+		lifecycle = Lifecycle{JoinPolicy: JoinPolicyLockedAtStart, PublishAt: availableFrom, StartAt: availableFrom}
 	}
 
-	// EventInfo is a struct that contains all the information about an event for response
-	EventInfo struct {
-		Type          int32
-		Participation int32
-
-		Tag         string
-		Name        string
-		Description string
-		Rules       string
-		Picture     string
-
-		Registration           int32
-		ScoreboardAvailability int32
-		ParticipantsVisibility int32
-
-		StartTime  time.Time
-		FinishTime time.Time
+	e.Tag = tag
+	e.InternalName = name
+	e.AvailableFrom = availableFrom
+	e.ArchiveAt = archiveAt
+	if unconfigured {
+		e.Lifecycle = lifecycle
 	}
+	e.UpdatedAt = now
+	e.UpdatedBy = uuid.NullUUID{UUID: updatedBy, Valid: updatedBy != uuid.Nil}
+	return nil
+}
 
-	EventMetadata struct {
-		Description string
-		Rules       string
-		Picture     string
+// UpdatePublicName does not touch the platform administrator's label.
+func (e *Event) UpdatePublicName(name string, updatedBy uuid.UUID, now time.Time) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ErrEventNameInvalid.Err()
 	}
-)
+	if len(name) > nameMaxLen {
+		return ErrEventNameTooLong.Err()
+	}
+	e.Name = name
+	e.UpdatedAt = now
+	e.UpdatedBy = uuid.NullUUID{UUID: updatedBy, Valid: updatedBy != uuid.Nil}
+	return nil
+}
 
-var (
-	ErrEventDataStale = err.ErrConflict.WithObjectCode(model.EventObjectCode).WithMessage("Event data is stale").WithDetailCode(1) // 71301
+// Archive collapses the window end to `now` (early cancel). For an event that
+// has not started, the canonical lifecycle is compressed to a one-microsecond
+// run before withdrawal; the original availability date remains historical.
+func (e *Event) Archive(now time.Time, updatedBy uuid.UUID) {
+	e.ArchiveAt = now
+	startAt := e.Lifecycle.StartAt
+	if !startAt.Before(now) {
+		startAt = now.Add(-time.Microsecond)
+	}
+	publishAt := e.Lifecycle.PublishAt
+	if publishAt.After(startAt) {
+		publishAt = startAt
+	}
+	finishAt := now
+	withdrawAt := now.Add(time.Microsecond)
+	if lifecycle, err := NewLifecycle(e.Lifecycle.JoinPolicy,
+		publishAt, startAt, &finishAt, &withdrawAt, nil); err == nil {
+		e.Lifecycle = lifecycle
+	}
+	e.UpdatedAt = now
+	e.UpdatedBy = uuid.NullUUID{UUID: updatedBy, Valid: updatedBy != uuid.Nil}
+}
 
-	ErrEventNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventObjectCode).WithMessage("Event not found").WithDetailCode(1) // 31301
+// UpdateLifecycle replaces the canonical runtime configuration. Callers build
+// the Lifecycle through NewLifecycle first, so this method cannot admit an
+// invalid combination of schedule and timestamps.
+func (e *Event) UpdateLifecycle(lifecycle Lifecycle, updatedBy uuid.UUID, now time.Time) {
+	e.Lifecycle = lifecycle
+	e.UpdatedAt = now
+	e.UpdatedBy = uuid.NullUUID{UUID: updatedBy, Valid: updatedBy != uuid.Nil}
+}
 
-	ErrEventExists = err.ErrObjectExists.WithObjectCode(model.EventObjectCode).WithMessage("Event already exists").WithDetailCode(1) // 41301
+func (e *Event) UpdateScoringProfile(profile ScoringProfile, force bool, staticPoints *int32, updatedBy uuid.UUID, now time.Time) error {
+	// Static scoring needs its one value; dynamic scoring keeps any value.
+	if (profile.Mode == ScoringStatic && staticPoints == nil) || (staticPoints != nil && *staticPoints <= 0) {
+		return ErrEventStaticPointsInvalid.Err()
+	}
+	e.ScoringProfile = profile
+	e.ForceEventScoring = force
+	e.StaticPoints = staticPoints
+	e.UpdatedAt = now
+	e.UpdatedBy = uuid.NullUUID{UUID: updatedBy, Valid: updatedBy != uuid.Nil}
+	return nil
+}
 
-	ErrEventRegistrationClosed = err.ErrForbidden.WithObjectCode(model.EventObjectCode).WithMessage("Event registration is closed").WithDetailCode(1) // 61301
-	ErrEventNotJoined          = err.ErrForbidden.WithObjectCode(model.EventObjectCode).WithMessage("Event not joined").WithDetailCode(2)             // 61302
-)
+func legacyWindowLifecycle(availableFrom, archiveAt time.Time) (Lifecycle, error) {
+	finishAt := archiveAt
+	withdrawAt := archiveAt.Add(time.Microsecond)
+	return NewLifecycle(JoinPolicyLockedAtStart, availableFrom, availableFrom, &finishAt, &withdrawAt, nil)
+}
 
-// Event running statuses
-const (
-	EventNotPublishedStatus = int32(iota)
-	EventPublishedStatus
-	EventStartedStatus
-	EventFinishedStatus
-	EventWithdrawnStatus
-)
-
-// Event types
-const (
-	CompetitionEventType = int32(iota)
-	TrainingEventType
-)
-
-// Event registration types
-const (
-	ClosedRegistrationType = int32(iota)
-	ApprovalRegistrationType
-	OpenRegistrationType
-)
-
-// Event participation statuses
-const (
-	NoParticipationStatus = int32(iota)
-	PendingParticipationStatus
-	ApprovedParticipationStatus
-	RejectedParticipationStatus
-)
-
-// Event participation types
-const (
-	IndividualParticipationType = int32(iota)
-	TeamParticipationType
-)
-
-// Event availability types
-const (
-	PrivateAvailabilityType = int32(iota)
-	PublicAvailabilityType
-)
-
-// Event scoreboard availability types
-const (
-	HiddenScoreboardAvailabilityType = int32(iota)
-	PrivateScoreboardAvailabilityType
-	PublicScoreboardAvailabilityType
-)
-
-// Event participants visibility types
-const (
-	HiddenParticipantsVisibilityType = int32(iota)
-	PrivateParticipantsVisibilityType
-	PublicParticipantsVisibilityType
-)
+// Status derives the lifecycle position. Archived is checked first so an
+// early Archive (ArchiveAt moved to now, possibly before AvailableFrom) reads
+// as Archived rather than Pending.
+func (e *Event) Status(now time.Time) EventStatus {
+	if !e.ArchiveAt.IsZero() && !now.Before(e.ArchiveAt) {
+		return EventArchivedStatus
+	}
+	if now.Before(e.AvailableFrom) {
+		return EventPendingStatus
+	}
+	return EventActiveStatus
+}

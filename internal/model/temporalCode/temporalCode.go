@@ -1,39 +1,62 @@
 package temporalCodeModel
 
 import (
-	"github.com/cybericebox/lib/pkg/err"
+	"time"
+
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/pkg/err"
 
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-type (
-	TemporalEmailConfirmationCodeData struct {
-		UserID uuid.UUID
-		Email  string
-	}
+// Code is a single-use opaque temporal code (password reset / email change),
+// carrying its typed JSON payload and a TTL. Data stays opaque bytes at this
+// layer; callers marshal/unmarshal the concrete *CodeData payloads.
+type Code struct {
+	ID        uuid.UUID
+	Code      string
+	Type      int32
+	Data      []byte
+	ExpiresAt time.Time
+}
 
-	TemporalPasswordResettingCodeData struct {
-		UserID uuid.UUID
-	}
+// NewCode builds a temporal code for storage. now/ttl are resolved by the caller.
+func NewCode(id uuid.UUID, code string, codeType int32, data []byte, expiresAt time.Time) Code {
+	return Code{ID: id, Code: code, Type: codeType, Data: data, ExpiresAt: expiresAt}
+}
 
-	TemporalContinueRegistrationCodeData struct {
-		Email string
-		Role  string
-	}
-)
+// TemporalPasswordResettingCodeData is the JSON payload stored with a
+// password-reset temporal code.
+type TemporalPasswordResettingCodeData struct {
+	UserID uuid.UUID
+}
+
+// TemporalEmailChangeCodeData is the JSON payload stored with an email-change code.
+type TemporalEmailChangeCodeData struct {
+	UserID uuid.UUID
+	Email  string
+}
 
 // temporal code types
 const (
-	EmailConfirmationCodeType = int32(iota)
-	PasswordResettingCodeType
-	ContinueRegistrationCodeType
+	PasswordResettingCodeType = int32(iota)
+	EmailChangeCodeType
 )
 
-// errors for temporal code
+// Error-code convention: see internal/model/auth/errors.go. Enforced by
+// `make lint-errors`.
+//
+// TemporalCodeObjectCode — next free detail code: 3
 var (
-	ErrTemporalCodeInvalidCode = err.ErrInvalidData.WithObjectCode(model.TemporalCoreObjectCode).WithDetailCode(1).WithMessage("Invalid code") // 20601
-	ErrTemporalCodeExpired     = err.ErrInvalidData.WithObjectCode(model.TemporalCoreObjectCode).WithDetailCode(2).WithMessage("Code expired") // 20602
-
-	ErrTemporalCodeNotFound = err.ErrObjectNotFound.WithObjectCode(model.TemporalCoreObjectCode).WithDetailCode(1).WithMessage("Code not found") // 30601
+	// multi-site (category A, security-indistinguishable): covers every way a
+	// submitted code can be bad — undecodable, wrong type, and used-or-never-
+	// existed. The client must not be able to tell these apart; per-site
+	// reason via WithError. Expiry stays separate (ErrTemporalCodeExpired):
+	// "request a new code" is deliberate UX, and 256-bit random codes make
+	// the existence oracle worthless anyway.
+	ErrTemporalCodeInvalidCode = err.ErrInvalidData.WithObjectCode(model.TemporalCodeObjectCode).
+					WithMessage("Invalid code").WithDetailCode(1)
+	ErrTemporalCodeExpired = err.ErrInvalidData.WithObjectCode(model.TemporalCodeObjectCode).
+				WithMessage("Code expired").WithDetailCode(2)
 )

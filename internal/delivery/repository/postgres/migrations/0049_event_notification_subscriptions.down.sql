@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS event_signal_notification_subscriptions_enabled_idx;
+DROP TABLE IF EXISTS event_signal_notification_subscriptions;
+DROP TABLE IF EXISTS platform_signal_notification_defaults;

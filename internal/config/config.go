@@ -1,255 +1,400 @@
 package config
 
 import (
-	"flag"
+	"errors"
 	"fmt"
-	"os"
+	"regexp"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/ilyakaznacheev/cleanenv"
-	"github.com/rs/zerolog"
+	"github.com/caarlos0/env/v11"
 	"github.com/rs/zerolog/log"
+
+	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 )
 
 type (
 	Config struct {
-		Environment string           `yaml:"environment" env:"ENV" env-default:"production" env-description:"Environment"`
-		Domain      string           `yaml:"domain" env:"DOMAIN" env-description:"Domain of the platform"`
-		Controller  ControllerConfig `yaml:"controller"`
-		Service     ServiceConfig    `yaml:"service"`
-		Repository  RepositoryConfig `yaml:"repository"`
+		// Environment (ENV): development (default) | stage | production. It also
+		// sets gin and log output (SetupLogger, middleware.ForMode): development
+		// runs gin debug mode with the [GIN-debug] route dump, gin's coloured
+		// request lines and console logs; any other value runs gin release mode
+		// and logs everything, requests included, as zerolog JSON (debug level
+		// on stage, info on production).
+		Environment    string               `env:"ENV" envDefault:"development"`
+		HTTPController HTTPControllerConfig `                                   envPrefix:""`
+		Infrastructure InfrastructureConfig `                                   envPrefix:""`
+		Auth           AuthConfig           `                                   envPrefix:""`
+		Media          MediaConfig          `                                   envPrefix:"MEDIA_"`
+		Exercise       ExerciseConfig       `                                   envPrefix:"EXERCISE_"`
+		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
+		Retention      RetentionConfig      `                                   envPrefix:"RETENTION_"`
+		LabAccess      LabAccessConfig      `                                   envPrefix:"LAB_ACCESS_"`
+		VPN            VPNConfig            `                                   envPrefix:"VPN_"`
+		Platform       PlatformConfig       `                                   envPrefix:"PLATFORM_"`
 	}
 
-	ControllerConfig struct {
-		HTTP HTTPConfig `yaml:"http"`
+	// LabAccessConfig sets how long the lab access tokens (the /_auth links) of the laboratory L7
+	// proxy can be opened. They are signed with the access key of the agent that holds the lab group
+	// (every agent is a tenant with its own key), never with a platform-wide key.
+	LabAccessConfig struct {
+		// TokenTTL is how long an access token can be opened: it is exchanged for
+		// the proxy's own cookie at once. Up to 5m.
+		TokenTTL time.Duration `env:"TOKEN_TTL" envDefault:"1m"`
 	}
 
-	HTTPConfig struct {
-		Server     ServerConfig     `yaml:"server"`
-		Proxy      ProxyConfig      `yaml:"proxy"`
-		Protection ProtectionConfig `yaml:"protection"`
+	InfrastructureConfig struct {
+		Postgres PostgresConfig `envPrefix:"POSTGRES_"`
+		SMTP     SMTPConfig     `envPrefix:"SMTP_"`
+		Storage  StorageConfig  `envPrefix:"STORAGE_"`
+		Agent    AgentConfig    `envPrefix:"AGENT_"`
 	}
 
-	ServerConfig struct {
-		Host               string        `yaml:"host" env:"HTTP_HOST" env-default:"0.0.0.0" env-description:"HTTP host"`
-		TLS                HTTPTLSConfig `yaml:"tls"`
-		Port               string        `yaml:"port" env:"HTTP_PORT" env-default:"80" env-description:"HTTP port"`
-		SecurePort         string        `yaml:"securePort" env:"HTTP_SECURE_PORT" env-default:"443" env-description:"HTTP secure port"`
-		ReadTimeout        time.Duration `yaml:"readTimeout" env-default:"10s" env-description:"HTTP readTimeout"`
-		WriteTimeout       time.Duration `yaml:"writeTimeout" env-default:"10s" env-description:"HTTP writeTimeout"`
-		MaxHeaderMegabytes int           `yaml:"maxHeaderMegabytes" env-default:"1" env-description:"HTTP maxHeaderBytes"`
+	// AgentConfig holds the optional LabManager agent — the cyber-range
+	// infrastructure that deploys labs. Empty Endpoint disables it: the daemon
+	// runs fine (catalog, event setup, exercise authoring all work), but any
+	// operation that needs to deploy or run a lab fails explicitly with
+	// ErrInfrastructureUnavailable rather than silently doing nothing.
+	AgentConfig struct {
+		// Endpoint is host:port. Dial the agent by its certificate hostname so
+		// TLS verifies the peer name against the cert SAN automatically (no
+		// separate SNI setting needed).
+		Endpoint string `env:"ENDPOINT"`
+		// Outbound client-mTLS (shared TLSConfig): CertFile/KeyFile is the CLIENT
+		// certificate we present (its CN must be in the agent's allowlist);
+		// CAFile verifies the agent's server certificate. Empty means the system
+		// roots (a publicly trusted certificate, e.g. Let's Encrypt).
+		TLS TLSConfig `envPrefix:"TLS_"`
+		// InstanceID is the immutable platform-instance label put on every object this daemon
+		// creates in the infrastructure (cybericebox.io/instance); its Monitoring subscription
+		// selects by it, so two platform instances can share one cluster. Never change it for a
+		// running deployment.
+		InstanceID string `env:"INSTANCE_ID" envDefault:"cybericebox"`
+		// AccessPrivateKey and AccessKeyID are the Ed25519 PKCS#8 PEM key (one line with "\n" is
+		// accepted) and the key id that sign the lab access tokens of the environment agent (from the
+		// kit's enroll.sh). The tenant is the CN of the client certificate (TLS_CERT_FILE), or "default"
+		// without TLS. Agents added in the admin have their own keys. Unset: no web links for the
+		// environment agent, VPN access is unaffected.
+		AccessPrivateKey string `env:"ACCESS_PRIVATE_KEY"`
+		AccessKeyID      string `env:"ACCESS_KEY_ID"`
 	}
 
-	HTTPTLSConfig struct {
-		Enabled  bool   `yaml:"enabled" env:"TLS_ENABLED" env-default:"false" env-description:"TLS enabled"`
-		CertFile string `yaml:"certFile" env:"TLS_CERT_FILE" env-default:"/certificates/tls.crt" env-description:"Path to TLS cert"`
-		KeyFile  string `yaml:"keyFile" env:"TLS_KEY_FILE" env-default:"/certificates/tls.key" env-description:"Path to TLS key"`
+	// StorageConfig holds the S3/MinIO object store used for user avatars.
+	// Empty Endpoint disables storage (avatar upload/serve becomes unavailable).
+	StorageConfig struct {
+		Endpoint  string `env:"ENDPOINT"`
+		AccessKey string `env:"ACCESS_KEY"`
+		SecretKey string `env:"SECRET_KEY"`
+		Bucket    string `env:"BUCKET"     envDefault:"cybericebox"`
+		Region    string `env:"REGION"     envDefault:"us-east-1"`
+		UseSSL    bool   `env:"USE_SSL"    envDefault:"false"`
 	}
 
-	// ProxyConfig is the configuration for the HTTP proxy for another services
-	ProxyConfig struct {
-		MainFrontend  string `yaml:"mainFrontend" env:"PROXY_MAIN_FRONTEND" env-default:"http://main-frontend:3000" env-description:"Main frontend proxy"`
-		AdminFrontend string `yaml:"adminFrontend" env:"PROXY_ADMIN_FRONTEND" env-default:"http://admin-frontend:3000" env-description:"Admin frontend proxy"`
-		EventFrontend string `yaml:"eventFrontend" env:"PROXY_EVENT_FRONTEND" env-default:"http://event-frontend:3000" env-description:"Event frontend proxy"`
+	SMTPConfig struct {
+		Host         string `env:"HOST"`
+		Port         int    `env:"PORT"           envDefault:"587"`
+		Username     string `env:"USERNAME"`
+		Password     string `env:"PASSWORD"`
+		SenderName   string `env:"SENDER_NAME"`
+		SenderEmail  string `env:"SENDER_EMAIL"`
+		ReplyToName  string `env:"REPLY_TO_NAME"`
+		ReplyToEmail string `env:"REPLY_TO_EMAIL"`
+		// MaxPerSecond and DailyQuota are the provider send limits of the env
+		// transport (Amazon SES: Sending quota); 0 = no limit.
+		MaxPerSecond float64 `env:"MAX_PER_SECOND"`
+		DailyQuota   int     `env:"DAILY_QUOTA"`
 	}
 
-	// ProtectionConfig is the configuration for the protection layer
-	ProtectionConfig struct {
-		Recaptcha         RecaptchaConfig `yaml:"recaptcha"`
-		JWT               JWTConfig       // link to the jwt in service configs
-		TemporalCodeTTL   time.Duration   // link to the temporal code TTL in service configs
-		TemporalCookieTTL time.Duration   `yaml:"temporalCookieTTL" env:"TEMPORAL_COOKIE_TTL" env-default:"1h" env-description:"Temporal cookie TTL"`
+	PostgresConfig struct {
+		Host           string `env:"HOST"     envDefault:"localhost"`
+		Port           string `env:"PORT"     envDefault:"5432"`
+		User           string `env:"USER"     envDefault:"postgres"`
+		Password       string `env:"PASSWORD" envDefault:"postgres"`
+		Database       string `env:"DB"       envDefault:"cybericebox_dev"`
+		SSLMode        string `env:"SSL_MODE" envDefault:"disable"`
+		MigrationsPath string // derived in populateForAllConfig
+	}
+
+	AuthConfig struct {
+		Domain          string          `env:"DOMAIN"`
+		TokenSignature  string          `env:"JWT_TOKEN_SIGNATURE"`
+		SessionIdleTTL  time.Duration   `env:"SESSION_IDLE_TTL"    envDefault:"720h"`
+		TemporalCodeTTL time.Duration   `env:"TEMPORAL_CODE_TTL"   envDefault:"1h"`
+		SuperAdminEmail string          `env:"SUPER_ADMIN_EMAIL"`
+		OAuth           OAuthConfig     `                                            envPrefix:""`
+		Recaptcha       RecaptchaConfig `                                            envPrefix:"RECAPTCHA_"`
+		Password        PasswordConfig  `                                            envPrefix:"PASSWORD_"`
+	}
+
+	// PasswordConfig is the password complexity policy enforced on
+	// registration / password change and published at GET /api/auth/password/policy.
+	// MaxLength defaults to 72 — bcrypt ignores bytes beyond that.
+	PasswordConfig struct {
+		MinLength            int `env:"MIN_LENGTH"             envDefault:"8"`
+		MaxLength            int `env:"MAX_LENGTH"             envDefault:"72"`
+		MinCapitalLetters    int `env:"MIN_CAPITAL_LETTERS"    envDefault:"1"`
+		MinSmallLetters      int `env:"MIN_SMALL_LETTERS"      envDefault:"1"`
+		MinDigits            int `env:"MIN_DIGITS"             envDefault:"1"`
+		MinSpecialCharacters int `env:"MIN_SPECIAL_CHARACTERS" envDefault:"0"`
+	}
+
+	// OAuthConfig keeps the historical flat env names (GOOGLE_CLIENT_ID,
+	// OAUTH_STATE_SIGNATURE) — the Google prefix is provider-level, not nested
+	// under OAUTH_, so deployments keep working.
+	OAuthConfig struct {
+		Google              OAuthProviderConfig `envPrefix:"GOOGLE_"`
+		RedirectURLTemplate string              // derived from Domain in MustGetConfig
+		StateSignature      string              `                    env:"OAUTH_STATE_SIGNATURE"`
+		StateTTL            time.Duration       `                    env:"OAUTH_STATE_TTL"       envDefault:"15m"`
+	}
+
+	OAuthProviderConfig struct {
+		ClientID     string `env:"CLIENT_ID"`
+		ClientSecret string `env:"SECRET"`
 	}
 
 	RecaptchaConfig struct {
-		SecretKey string  `yaml:"secretKey" env:"RECAPTCHA_SECRET" env-description:"Recaptcha secret"`
-		SiteKey   string  `yaml:"siteKey" env:"RECAPTCHA_SITE_KEY" env-description:"Recaptcha site key"`
-		ProjectID string  `yaml:"projectID" env:"RECAPTCHA_PROJECT" env-description:"Recaptcha project ID"`
-		APIKey    string  `yaml:"apiKey" env:"RECAPTCHA_API_KEY" env-description:"Recaptcha API key"`
-		Score     float32 `yaml:"score" env:"RECAPTCHA_SCORE" env-default:"0.5" env-description:"Recaptcha score"`
+		SecretKey string  `env:"SECRET"`
+		SiteKey   string  `env:"SITE_KEY"`
+		ProjectID string  `env:"PROJECT"`
+		APIKey    string  `env:"API_KEY"`
+		Score     float32 `env:"SCORE"    envDefault:"0.5"`
 	}
 
-	ServiceConfig struct {
-		JWT          JWTConfig          `yaml:"jwt"`
-		OAuth        OAuthConfig        `yaml:"oauth"`
-		Password     PasswordConfig     `yaml:"password"`
-		Storage      StorageConfig      `yaml:"storage"`
-		TemporalCode TemporalCodeConfig `yaml:"temporalCode"`
-		Worker       WorkerConfig       `yaml:"worker"`
+	HTTPControllerConfig struct {
+		Server            HTTPServerConfig `envPrefix:"HTTP_SERVER_"`
+		EnableSwaggerDocs bool
 	}
 
-	WorkerConfig struct {
-		MaxWorkers int           `yaml:"maxWorkers" env:"DAEMON_MAX_WORKERS" env-default:"10" env-description:"Max workers for the worker pool"`
-		Throttle   time.Duration `yaml:"throttle" env:"DAEMON_WORKERS_THROTTLE" env-default:"10ms" env-description:"Throttle for the worker pool"`
+	HTTPServerConfig struct {
+		Host               string        `env:"HOST"          envDefault:"0.0.0.0"`
+		Port               string        `env:"PORT"          envDefault:"80"`
+		ReadTimeout        time.Duration `env:"READ_TIMEOUT"  envDefault:"10s"`
+		WriteTimeout       time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
+		MaxHeaderMegabytes int           `env:"MAX_HEADER_MB" envDefault:"1"`
+		TLS                TLSConfig     `                                         envPrefix:"TLS_"`
 	}
 
-	StorageConfig struct {
-		DownloadExpiration time.Duration `yaml:"download_expiration" env:"STORAGE_DOWNLOAD_EXPIRATION" env-default:"10m"`
-		UploadExpiration   time.Duration `yaml:"upload_expiration" env:"STORAGE_UPLOAD_EXPIRATION" env-default:"10m"`
-		BucketName         string
+	// TLSConfig is shared by the inbound HTTP server (presents CertFile/KeyFile;
+	// CAFile unused) and outbound mTLS clients such as the agent (CertFile/KeyFile
+	// is the CLIENT certificate we present, CAFile verifies the peer's server
+	// certificate; an empty CAFile means the system roots, for a publicly trusted
+	// certificate). Cert/key have no tag default so each user sets its own; the
+	// HTTP server's historical /certificates defaults are applied in
+	// populateForAllConfig.
+	TLSConfig struct {
+		Enabled  bool   `env:"ENABLED"   envDefault:"false"`
+		CertFile string `env:"CERT_FILE"`
+		KeyFile  string `env:"KEY_FILE"`
+		CAFile   string `env:"CA_FILE"`
 	}
 
-	JWTConfig struct {
-		AccessTokenTTL  time.Duration `yaml:"accessTokenTTL" env:"JWT_ACCESS_TOKEN_TTL" env-default:"15m" env-description:"JWT accessToken TTL"`
-		RefreshTokenTTL time.Duration `yaml:"refreshTokenTTL" env:"JWT_REFRESH_TOKEN_TTL" env-default:"1h" env-description:"JWT refreshToken TTL"`
-		TokenSignature  string        `yaml:"tokenSignature" env:"JWT_TOKEN_SIGNATURE" env-description:"JWT token Signature"`
+	// MediaConfig bounds uploads and schedules unreferenced-file GC for the
+	// media subsystem (exercise attachments).
+	MediaConfig struct {
+		MaxUploadBytes int64         `env:"MAX_UPLOAD_BYTES" envDefault:"52428800"` // 50 MiB
+		GCGrace        time.Duration `env:"GC_GRACE"         envDefault:"24h"`
 	}
 
-	PasswordConfig struct {
-		HashCost           int                      `yaml:"hashCost" env:"PASSWORD_HASH_COST" env-default:"10" env-description:"Password hash cost"`
-		PasswordComplexity PasswordComplexityConfig `yaml:"passwordComplexity"`
+	// VPNConfig seals the stored VPN client configs (participants' and test deploys'
+	// tester keys). Empty key disables VPN config storage; an invalid one is fatal.
+	VPNConfig struct {
+		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 	}
 
-	PasswordComplexityConfig struct {
-		MinLength            int `yaml:"minLength" env:"PASSWORD_MIN_LENGTH" env-default:"8" env-description:"Password min length"`
-		MaxLength            int `yaml:"maxLength" env:"PASSWORD_MAX_LENGTH" env-default:"64" env-description:"Password max length"`
-		MinCapitalLetters    int `yaml:"minCapitalLetters" env:"PASSWORD_MIN_CAPITAL_LETTERS" env-default:"1" env-description:"Password min capital letters"`
-		MinSmallLetters      int `yaml:"minSmallLetters" env:"PASSWORD_MIN_SMALL_LETTERS" env-default:"1" env-description:"Password min small letters"`
-		MinDigits            int `yaml:"minDigits" env:"PASSWORD_MIN_DIGITS" env-default:"1" env-description:"Password min digits"`
-		MinSpecialCharacters int `yaml:"minSpecialCharacters" env:"PASSWORD_MIN_SPECIAL_CHARACTERS" env-default:"1" env-description:"Password min special characters"`
+	// PlatformConfig seals platform-level settings secrets (SMTP/mail passwords and
+	// the like). Empty key disables them; an invalid one is fatal.
+	PlatformConfig struct {
+		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 	}
 
-	TemporalCodeConfig struct {
-		TTL time.Duration `yaml:"ttl" env:"TEMPORAL_CODE_TTL" env-default:"24h" env-description:"Temporal code TTL"`
-	}
-
-	OAuthConfig struct {
-		Google              GoogleProviderConfig `yaml:"google"`
-		RedirectURLTemplate string
-		StateSignature      string        `yaml:"stateSignature" env:"OAUTH_STATE_SIGNATURE" env-description:"OAuth state signature"`
-		StateTTL            time.Duration `yaml:"stateTTL" env:"OAUTH_STATE_TTL" env-default:"15m" env-description:"OAuth state TTL"`
-	}
-
-	GoogleProviderConfig struct {
-		ClientID     string `yaml:"clientID" env:"GOOGLE_CLIENT_ID" env-description:"OAuth client ID"`
-		ClientSecret string `yaml:"clientSecret" env:"GOOGLE_SECRET" env-description:"Google OAuth client secret"`
-	}
-
-	RepositoryConfig struct {
-		Postgres  PostgresConfig  `yaml:"postgres"`
-		StorageS3 StorageS3Config `yaml:"storageS3"`
-		Email     EmailConfig     `yaml:"email"`
-		VPN       VPNGRPCConfig   `yaml:"vpn"`
-		Agent     AgentGRPCConfig `yaml:"agent"`
-	}
-
-	// PostgresConfig is the configuration for the Postgres database
-	PostgresConfig struct {
-		Host               string `yaml:"host" env:"POSTGRES_HOSTNAME" env-description:"Host of Postgres"`
-		Port               int    `yaml:"port" env:"POSTGRES_PORT" env-default:"5432" env-description:"Port of Postgres"`
-		Username           string `yaml:"username" env:"POSTGRES_USER" env-description:"Username of Postgres"`
-		Password           string `yaml:"password" env:"POSTGRES_PASSWORD" env-description:"Password of Postgres"`
-		Database           string `yaml:"database" env:"POSTGRES_DB" env-description:"Database of Postgres"`
-		SSLMode            string `yaml:"sslMode" env:"POSTGRES_SSL_MODE" env-default:"require" env-description:"SSL mode of Postgres"`
-		MaxPoolConnections int    `yaml:"maxPoolConnections" env:"POSTGRES_MAX_POOL_CONNECTIONS" env-default:"20" env-description:"Max pool connections of Postgres"`
-	}
-
-	// StorageS3Config is the configuration for the S3 storage
-	StorageS3Config struct {
-		Endpoint  string `yaml:"endpoint" env:"STORAGE_ENDPOINT" env-description:"Storage endpoint"`
-		Region    string `yaml:"region" env:"STORAGE_REGION" env-description:"Storage region"`
-		Bucket    string `yaml:"bucket" env:"STORAGE_BUCKET" env-default:"files" env-description:"Storage bucket"`
-		AccessKey string `yaml:"accessKey" env:"STORAGE_ACCESS_KEY" env-description:"Storage access key"`
-		SecretKey string `yaml:"secretKey" env:"STORAGE_SECRET_KEY" env-description:"Storage secret key"`
-		UseSSL    bool   `yaml:"useSSL" env:"STORAGE_USE_SSL" env-default:"true" env-description:"Storage use SSL"`
-	}
-
-	EmailConfig struct {
-		Host     string `yaml:"host" env:"EMAIL_HOST" env-description:"Host of email"`
-		Port     int    `yaml:"port" env:"EMAIL_PORT" env-default:"587" env-description:"Port of email"`
-		Username string `yaml:"username" env:"EMAIL_USERNAME" env-description:"Username of email"`
-		Password string `yaml:"password" env:"EMAIL_PASSWORD" env-description:"Password of email"`
-
-		SenderName   string `yaml:"senderName" env:"EMAIL_SENDER_NAME" env-description:"Sender name of email"`
-		SenderEmail  string `yaml:"senderEmail" env:"EMAIL_SENDER_EMAIL" env-description:"Sender email of email"`
-		ReplyToName  string `yaml:"replyToName" env:"EMAIL_REPLY_TO_NAME" env-description:"Reply to name of email"`
-		ReplyToEmail string `yaml:"replyToEmail" env:"EMAIL_REPLY_TO_EMAIL" env-description:"Reply to email of email"`
-	}
-
-	VPNGRPCConfig struct {
-		Endpoint string           `yaml:"endpoint" env:"WG_GRPC_ENDPOINT" env-description:"Endpoint for the VPN gRPC server" env-default:"wireguard:5454"`
-		AuthKey  string           `yaml:"authKey" env:"WG_GRPC_AUTH_KEY" env-description:"Auth key for the VPN gRPC server"`
-		SignKey  string           `yaml:"signKey" env:"WG_GRPC_SIGN_KEY" env-description:"Sign key for the VPN gRPC server"`
-		TLS      VPNGRPCTLSConfig `yaml:"tls"`
-	}
-
-	VPNGRPCTLSConfig struct {
-		Enabled  bool   `yaml:"enabled" env:"WG_GRPC_TLS_ENABLED" env-default:"false" env-description:"VPN gRPC TLS enabled"`
-		CertFile string `yaml:"certFile" env:"WG_GRPC_TLS_CERT_FILE" env-description:"Path to VPN gRPC TLS cert"`
-		KeyFile  string `yaml:"keyFile" env:"WG_GRPC_TLS_KEY_FILE" env-description:"Path to VPN gRPC TLS key"`
-	}
-
-	AgentGRPCConfig struct {
-		Endpoint string             `yaml:"endpoint" env:"AGENT_GRPC_ENDPOINT" env-description:"Endpoint for the Agent gRPC server" env-default:"agent:5454"`
-		AuthKey  string             `yaml:"authKey" env:"AGENT_GRPC_AUTH_KEY" env-description:"Auth key for the Agent gRPC server"`
-		SignKey  string             `yaml:"signKey" env:"AGENT_GRPC_SIGN_KEY" env-description:"Sign key for the Agent gRPC server"`
-		TLS      AgentGRPCTLSConfig `yaml:"tls"`
-	}
-
-	AgentGRPCTLSConfig struct {
-		Enabled  bool   `yaml:"enabled" env:"AGENT_GRPC_TLS_ENABLED" env-default:"false" env-description:"Agent gRPC TLS enabled"`
-		CertFile string `yaml:"certFile" env:"AGENT_GRPC_TLS_CERT_FILE" env-description:"Path to Agent gRPC TLS cert"`
-		KeyFile  string `yaml:"keyFile" env:"AGENT_GRPC_TLS_KEY_FILE" env-description:"Path to Agent gRPC TLS key"`
+	// ExerciseConfig holds catalog secret handling and flag generation policy.
+	// Empty key disables exercise secret env vars (saving one yields a 409).
+	ExerciseConfig struct {
+		SecretsKey      string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
+		FlagRandomBytes int    `env:"FLAG_RANDOM_BYTES" envDefault:"20"`
+		FlagWarningBits int    `env:"FLAG_WARNING_BITS" envDefault:"20"`
+		// MaxActiveTestDeploys is how many test labs one user may run at the same time.
+		MaxActiveTestDeploys int `env:"MAX_ACTIVE_TEST_DEPLOYS" envDefault:"3"`
+		// StandDeployBudget caps the Lab deploy calls the stand engine sends to the agent per event and
+		// pass (a pass runs every 10 seconds). It only protects the agent API from a burst: the launch
+		// pacing (order, waves, image preparation) is done by the Laboratory operator, which queues the
+		// Labs, so the backend hands them over quickly.
+		StandDeployBudget int `env:"STAND_DEPLOY_BUDGET" envDefault:"200"`
+		// DevicePersistence says the cluster lets devices keep their state (the chart's
+		// devices.statePersistence and the tenant policy). The exercise editor offers the option only
+		// when it is true; the agent refuses it otherwise.
+		DevicePersistence bool `env:"DEVICE_PERSISTENCE" envDefault:"true"`
+		// StandPrewarmLead is how long before an event's stand deploy time its images are fetched
+		// into the platform image cache (the agent's PrewarmImages); 0 turns it off. With the
+		// default 30 minutes deploy lead the images are warmed an hour before the start.
+		StandPrewarmLead time.Duration `env:"STAND_PREWARM_LEAD" envDefault:"30m"`
 	}
 )
 
-var (
-	PlatformDomain string
-	MigrationPath  string
-)
+// FlagRateLimitConfig bounds flag submissions in sliding windows: per team
+// and challenge (also the moderators board check) and per team overall.
+type FlagRateLimitConfig struct {
+	ChallengeAttempts int32         `env:"CHALLENGE_ATTEMPTS" envDefault:"5"`
+	ChallengeWindow   time.Duration `env:"CHALLENGE_WINDOW"   envDefault:"30s"`
+	TeamAttempts      int32         `env:"TEAM_ATTEMPTS"      envDefault:"20"`
+	TeamWindow        time.Duration `env:"TEAM_WINDOW"        envDefault:"1m"`
+}
 
-func MustGetConfig() *Config {
-	path := flag.String("config", "", "Path to config file")
-	flag.Parse()
+// RetentionConfig holds the data retention periods of the Privacy Policy.
+// The defaults are the published periods; change them only together with the
+// policy text.
+type RetentionConfig struct {
+	SessionAfterExpiry       time.Duration `env:"SESSION_AFTER_EXPIRY"         envDefault:"2160h"`  // 90 days
+	LabTelemetry             time.Duration `env:"LAB_TELEMETRY"                envDefault:"2160h"`  // 90 days
+	DeliveryLog              time.Duration `env:"DELIVERY_LOG"                 envDefault:"4320h"`  // 180 days
+	FormAnswersAfterEventEnd time.Duration `env:"FORM_ANSWERS_AFTER_EVENT_END" envDefault:"8760h"`  // 365 days
+	InactiveAccount          time.Duration `env:"INACTIVE_ACCOUNT"             envDefault:"26280h"` // 3 x 365 days
+	InactivityGrace          time.Duration `env:"INACTIVITY_GRACE"             envDefault:"720h"`   // 30 days
+	ExpiredInvitation        time.Duration `env:"EXPIRED_INVITATION"           envDefault:"168h"`   // 7 days
+	PendingAccount           time.Duration `env:"PENDING_ACCOUNT"              envDefault:"720h"`   // 30 days
+	UnusedAnswerFile         time.Duration `env:"UNUSED_ANSWER_FILE"           envDefault:"24h"`    // 1 day
+	SignalHistory            time.Duration `env:"SIGNAL_HISTORY"               envDefault:"8760h"`  // 365 days
+	EventAnalyticsAfterEnd   time.Duration `env:"EVENT_ANALYTICS_AFTER_END"    envDefault:"8760h"`  // 365 days
+	BatchSize                int32         `env:"BATCH_SIZE"                   envDefault:"1000"`
+}
 
-	log.Info().Msg("Reading daemon configuration")
-
-	instance := &Config{}
-	help, _ := cleanenv.GetDescription(instance, nil)
-
-	var err error
-
-	if path != nil && *path != "" {
-		err = cleanenv.ReadConfig(*path, instance)
-	} else {
-		err = cleanenv.ReadEnv(instance)
+func (c FlagRateLimitConfig) Validate() error {
+	if c.ChallengeAttempts < 1 || c.TeamAttempts < 1 {
+		return errors.New("flag rate limit: FLAG_RATE_LIMIT_*_ATTEMPTS must be at least 1")
 	}
+	if c.ChallengeWindow < time.Second || c.TeamWindow < time.Second {
+		return errors.New("flag rate limit: FLAG_RATE_LIMIT_*_WINDOW must be at least 1s")
+	}
+	return nil
+}
 
-	if err != nil {
-		fmt.Println(help)
-		log.Fatal().Err(err).Msg("Failed to read config")
+var instanceIDPattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$`)
 
+// Validate checks the instance id is a valid Kubernetes label value: it is used as one.
+func (c AgentConfig) Validate() error {
+	if !instanceIDPattern.MatchString(c.InstanceID) {
+		return errors.New("infrastructure agent: AGENT_INSTANCE_ID must be a label value (1-63 characters of letters, digits, '-', '_' or '.', starting and ending with a letter or digit)")
+	}
+	return nil
+}
+
+func (c ExerciseConfig) Validate() error {
+	if c.FlagRandomBytes < 1 || c.FlagRandomBytes > 1024 {
+		return errors.New("exercise: EXERCISE_FLAG_RANDOM_BYTES must be between 1 and 1024")
+	}
+	if c.FlagWarningBits < 1 || c.FlagWarningBits > 1024 {
+		return errors.New("exercise: EXERCISE_FLAG_WARNING_BITS must be between 1 and 1024")
+	}
+	if c.MaxActiveTestDeploys < 1 || c.MaxActiveTestDeploys > 20 {
+		return errors.New("exercise: EXERCISE_MAX_ACTIVE_TEST_DEPLOYS must be between 1 and 20")
+	}
+	if c.StandPrewarmLead < 0 || c.StandPrewarmLead > 24*time.Hour {
+		return errors.New("exercise: EXERCISE_STAND_PREWARM_LEAD must be between 0 and 24h")
+	}
+	if c.StandDeployBudget < 1 || c.StandDeployBudget > 5000 {
+		return errors.New("exercise: EXERCISE_STAND_DEPLOY_BUDGET must be between 1 and 5000")
+	}
+	return nil
+}
+
+// Validate ensures exactly one reCAPTCHA mode is fully configured. The mode is
+// selected by ProjectID: set → Enterprise (needs APIKey + SiteKey); unset →
+// classic v3 (needs SecretKey). reCAPTCHA is mandatory in every environment.
+func (c RecaptchaConfig) Validate() error {
+	if c.ProjectID != "" {
+		if c.APIKey == "" || c.SiteKey == "" {
+			return errors.New(
+				"recaptcha: Enterprise mode (RECAPTCHA_PROJECT set) requires RECAPTCHA_API_KEY and RECAPTCHA_SITE_KEY",
+			)
+		}
 		return nil
 	}
-
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	gin.SetMode(gin.ReleaseMode)
-
-	// set log mode
-	if instance.Environment != Production {
-		gin.SetMode(gin.DebugMode)
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	if c.SecretKey == "" {
+		return errors.New(
+			"recaptcha: configure classic (RECAPTCHA_SECRET) or Enterprise (RECAPTCHA_PROJECT + RECAPTCHA_API_KEY + RECAPTCHA_SITE_KEY) — reCAPTCHA is mandatory",
+		)
 	}
+	return nil
+}
+
+// Policy is the configured retention policy.
+func (c RetentionConfig) Policy() retentionModel.Policy {
+	return retentionModel.Policy{
+		SessionAfterExpiry:       c.SessionAfterExpiry,
+		LabTelemetry:             c.LabTelemetry,
+		DeliveryLog:              c.DeliveryLog,
+		FormAnswersAfterEventEnd: c.FormAnswersAfterEventEnd,
+		InactiveAccount:          c.InactiveAccount,
+		InactivityGrace:          c.InactivityGrace,
+		ExpiredInvitation:        c.ExpiredInvitation,
+		PendingAccount:           c.PendingAccount,
+		UnusedAnswerFile:         c.UnusedAnswerFile,
+		SignalHistory:            c.SignalHistory,
+		EventAnalyticsAfterEnd:   c.EventAnalyticsAfterEnd,
+		BatchSize:                c.BatchSize,
+	}
+}
+
+// DSN builds a pgx connection string.
+func (p PostgresConfig) DSN() string {
+	return "postgres://" + p.User + ":" + p.Password + "@" + p.Host + ":" + p.Port + "/" + p.Database + "?sslmode=" + p.SSLMode
+}
+
+func MustGetConfig() *Config {
+	log.Info().Msg("Reading daemon configuration")
+
+	// ParseAs takes the struct type itself (a pointer type parameter fails at
+	// runtime with "expected a pointer to a Struct"). No RequiredIfNoDef:
+	// most settings are optional with code-level validation (e.g. Recaptcha).
+	cfg, err := env.ParseAs[Config]()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid environment variables")
+		return nil
+	}
+	instance := &cfg
 
 	instance.populateForAllConfig()
 
-	// Set the domain
-	PlatformDomain = instance.Domain
-	MigrationPath = "migrations"
-	if instance.Environment == Local {
-		MigrationPath = "internal/delivery/repository/postgres/migrations"
+	if err = instance.Auth.Recaptcha.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid reCAPTCHA configuration")
+	}
+	if err = instance.Exercise.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid exercise configuration")
+	}
+	if err = instance.FlagRateLimit.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid flag rate limit configuration")
+	}
+	if err = instance.Infrastructure.Agent.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid infrastructure agent configuration")
+	}
+	if err = instance.Retention.Policy().Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid retention configuration")
 	}
 
 	return instance
 }
 
 func (c *Config) populateForAllConfig() {
-	c.Controller.HTTP.Protection.JWT = c.Service.JWT
-	c.Controller.HTTP.Protection.TemporalCodeTTL = c.Service.TemporalCode.TTL
+	c.HTTPController.EnableSwaggerDocs = c.Environment != Production
 
-	c.Service.OAuth.RedirectURLTemplate = fmt.Sprintf("%s://%s/api/auth/%%s/callback", SchemeHTTPS, c.Domain)
+	if c.Environment == Development {
+		c.Infrastructure.Postgres.MigrationsPath = "internal/delivery/repository/postgres/migrations"
+	} else {
+		c.Infrastructure.Postgres.MigrationsPath = "migrations"
+	}
 
-	c.Service.Storage.BucketName = c.Repository.StorageS3.Bucket
+	c.Auth.OAuth.RedirectURLTemplate = fmt.Sprintf(
+		"https://%s.%s/api/auth/%%s/callback",
+		APISubdomain,
+		c.Auth.Domain,
+	)
+
+	// HTTP server's historical default cert/key paths (moved out of the shared
+	// TLSConfig tags so they don't leak onto mTLS clients like the agent).
+	if c.HTTPController.Server.TLS.CertFile == "" {
+		c.HTTPController.Server.TLS.CertFile = "/certificates/tls.crt"
+	}
+	if c.HTTPController.Server.TLS.KeyFile == "" {
+		c.HTTPController.Server.TLS.KeyFile = "/certificates/tls.key"
+	}
 }

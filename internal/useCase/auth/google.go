@@ -3,73 +3,268 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
+	"github.com/gofrs/uuid"
+
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
-	"github.com/cybericebox/daemon/internal/tools"
+	"github.com/cybericebox/daemon/pkg/oauth"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
-type (
-	IGoogleService interface {
-		CreateUser(ctx context.Context, newUser userModel.User) (*userModel.User, error)
-		UpdateUserPicture(ctx context.Context, user userModel.User) error
-		UpdateUserGoogleID(ctx context.Context, user userModel.User) error
-
-		GetGoogleLoginURL() (string, error)
-		GetGoogleUser(ctx context.Context, code, state string) (*userModel.User, error)
+// GetGoogleLoginURL returns the Google OAuth2 consent URL and the state token.
+// redirect is embedded (signed) in the state so it survives the round-trip to
+// Google without relying on a cookie.
+func (u *AuthUseCase) GetGoogleLoginURL(redirect string) (loginURL, state string, err error) {
+	if !u.oauthConfigured {
+		return "", "", model.ErrPlatform.WithMessage("OAuth is not configured").Err()
 	}
-)
-
-func (u *AuthUseCase) GetGoogleLoginURL() (string, error) {
-	return u.service.GetGoogleLoginURL()
+	loginURL, state, err = u.oauth.GetGoogleLoginURL(redirect)
+	if err != nil {
+		return "", "", model.ErrPlatform.WithError(err).WithMessage("Failed to get google login url").Err()
+	}
+	return loginURL, state, nil
 }
 
-func (u *AuthUseCase) GoogleAuth(ctx context.Context, code, state string) (*authModel.Tokens, error) {
-	googleUser, err := u.service.GetGoogleUser(ctx, code, state)
+// resolveGoogleUser validates the OAuth callback and returns the verified
+// Google profile plus the redirect embedded in the state at start time.
+func (u *AuthUseCase) resolveGoogleUser(ctx context.Context, code, state string) (*oauth.GoogleUser, string, error) {
+	if !u.oauthConfigured {
+		return nil, "", model.ErrPlatform.WithMessage("OAuth is not configured").Err()
+	}
+	googleUser, redirect, err := u.oauth.GetGoogleUser(ctx, code, state)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get google user").Err()
+		return nil, "", model.ErrPlatform.WithError(err).WithMessage("Failed to get google user").Err()
+	}
+	return googleUser, redirect, nil
+}
+
+// GoogleAuth signs in the account linked to the Google identity. It NEVER creates an
+// account or a provider link — an unlinked identity is told to register. safeRedirect
+// is populated even on ErrAuthGoogleNotRegistered so the caller's error page can
+// still carry a return_to.
+func (u *AuthUseCase) GoogleAuth(
+	ctx context.Context,
+	code, state string,
+	meta authModel.SessionMetadata,
+) (sessionCookie, safeRedirect string, err error) {
+	googleUser, stateRedirect, err := u.resolveGoogleUser(ctx, code, state)
+	if err != nil {
+		return "", "", err
+	}
+	safeRedirect = u.resolveRedirect(stateRedirect)
+
+	user, err := u.users.GetByProvider(ctx, userModel.GoogleProvider, googleUser.GoogleID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return "", safeRedirect, authModel.ErrAuthGoogleNotRegistered.Err()
+		}
+		return "", safeRedirect, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by provider").Err()
+	}
+	if err = refuseBlocked(&user); err != nil {
+		return "", safeRedirect, err
 	}
 
-	user, err := u.service.GetUserByEmail(ctx, googleUser.Email)
-	if err != nil && !errors.Is(err, userModel.ErrUserNotFound.Err()) {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user by email").Err()
+	cookie, err := u.createSession(ctx, user.ID, meta)
+	if err != nil {
+		return "", safeRedirect, err
 	}
-	// if user does not exist
-	if errors.Is(err, userModel.ErrUserNotFound.Err()) {
-		// set default role to user
-		googleUser.Role = userModel.UserRole
-		// create user
-		user, err = u.service.CreateUser(ctx, *googleUser)
+	return cookie, safeRedirect, nil
+}
+
+// BeginGoogleRegistration provisions or links an incomplete account from a verified
+// Google profile. Exactly one of the result's SetupToken / SessionCookie is set:
+// a Google identity already linked to a finished account signs that account in
+// (the user is already registered), everything else continues to setup.
+func (u *AuthUseCase) BeginGoogleRegistration(
+	ctx context.Context,
+	code, state string,
+	meta authModel.SessionMetadata,
+) (GoogleRegistrationResult, error) {
+	googleUser, stateRedirect, err := u.resolveGoogleUser(ctx, code, state)
+	if err != nil {
+		return GoogleRegistrationResult{}, err
+	}
+	returnTo := u.trustedReturnTo(stateRedirect)
+
+	// 1. Provider already linked → sign in (finished account) or resume setup.
+	linked, provErr := u.users.GetByProvider(ctx, userModel.GoogleProvider, googleUser.GoogleID)
+	if provErr != nil && !repositoryTools.IsObjectNotFoundError(provErr) {
+		return GoogleRegistrationResult{}, model.ErrPlatform.WithError(provErr).WithMessage("Failed to get user by provider").Err()
+	}
+	if provErr == nil {
+		if linked.IsIncomplete() {
+			return u.setupResult(linked.ID, returnTo)
+		}
+		if err = refuseBlocked(&linked); err != nil {
+			return GoogleRegistrationResult{}, err
+		}
+		// Same session path as GoogleAuth's sign-in.
+		cookie, err := u.createSession(ctx, linked.ID, meta)
 		if err != nil {
-			return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to create user").Err()
+			return GoogleRegistrationResult{}, err
 		}
-
-	} else {
-		// set user as current user in context
-		ctx = tools.SetCurrentUserIDToContext(ctx, user.ID)
-
-		if user.GoogleID != googleUser.GoogleID {
-			user.GoogleID = googleUser.GoogleID
-			if err = u.service.UpdateUserGoogleID(ctx, *user); err != nil {
-				return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to update user google id").Err()
-			}
-		}
-
-		// if picture is not set, update the user with the picture
-		if user.Picture == "" {
-			user.Picture = googleUser.Picture
-			if err = u.service.UpdateUserPicture(ctx, *user); err != nil {
-				return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to update user picture").Err()
-			}
-		}
+		return GoogleRegistrationResult{SessionCookie: cookie, Redirect: u.resolveRedirect(stateRedirect)}, nil
 	}
 
-	// generate tokens and return them
-	tokens, err := u.service.GenerateTokens(user.ID)
+	existing, dbErr := u.users.GetByEmail(ctx, googleUser.Email)
+	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
+		return GoogleRegistrationResult{}, model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
+	}
+
+	switch {
+	case repositoryTools.IsObjectNotFoundError(dbErr):
+		// 2. brand-new account — create incomplete + link Google.
+		userID := tools.NewUUIDv7()
+		// Picture stays empty: re-hosted to our storage below, never hot-linked.
+		firstName, lastName := googleUser.FirstLastName()
+		if _, err = u.users.Create(ctx, userModel.NewGoogleUser(userID, googleUser.Email, firstName, lastName, time.Now())); err != nil {
+			return GoogleRegistrationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create user").Err()
+		}
+		if err = u.users.LinkProvider(ctx, tools.NewUUIDv7(), userID, userModel.GoogleProvider, googleUser.GoogleID); err != nil {
+			if ce, ok := repositoryTools.UniqueViolationError(err, userModel.ErrUserExists); ok {
+				return GoogleRegistrationResult{}, ce.Err()
+			}
+			return GoogleRegistrationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create user provider").Err()
+		}
+		u.adoptProviderAvatar(ctx, userID, googleUser.Picture)
+		return u.setupResult(userID, returnTo)
+
+	case existing.Status == userModel.UserStatusActive:
+		// 3. an active account already owns this email — block (link from profile instead).
+		return GoogleRegistrationResult{}, authModel.ErrAuthAccountExistsSignIn.Err()
+
+	default:
+		// 4. incomplete account exists — link Google, confirm email, backfill name.
+		if err = u.users.LinkProvider(ctx, tools.NewUUIDv7(), existing.ID, userModel.GoogleProvider, googleUser.GoogleID); err != nil {
+			if ce, ok := repositoryTools.UniqueViolationError(err, userModel.ErrUserExists); ok {
+				return GoogleRegistrationResult{}, ce.Err()
+			}
+			return GoogleRegistrationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create user provider").Err()
+		}
+		// One aggregate write: provider-verified email confirmation plus the
+		// adopted display name (when the account had none).
+		if err = u.mutateUser(ctx, existing.ID, func(user *userModel.User) error {
+			user.ConfirmEmail(time.Now())
+			firstName, lastName := googleUser.FirstLastName()
+			if user.FirstName == "" && user.LastName == "" && (firstName != "" || lastName != "") {
+				user.UpdateProfile(firstName, lastName, time.Now())
+			}
+			return nil
+		}); err != nil {
+			return GoogleRegistrationResult{}, err
+		}
+		if existing.Picture == "" {
+			u.adoptProviderAvatar(ctx, existing.ID, googleUser.Picture)
+		}
+		return u.setupResult(existing.ID, returnTo)
+	}
+}
+
+// linkGoogleProvider links googleProviderID to userID. Idempotent if already linked
+// to this same user; returns ErrUserExists if linked to a different account.
+func (u *AuthUseCase) linkGoogleProvider(ctx context.Context, userID uuid.UUID, googleProviderID string) error {
+	existing, provErr := u.users.GetByProvider(ctx, userModel.GoogleProvider, googleProviderID)
+	if provErr != nil {
+		if !repositoryTools.IsObjectNotFoundError(provErr) {
+			return model.ErrPlatform.WithError(provErr).WithMessage("Failed to get user by provider").Err()
+		}
+		if err := u.users.LinkProvider(ctx, tools.NewUUIDv7(), userID, userModel.GoogleProvider, googleProviderID); err != nil {
+			if ce, ok := repositoryTools.UniqueViolationError(err, userModel.ErrUserExists); ok {
+				return ce.Err()
+			}
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to create user provider").Err()
+		}
+		return nil
+	}
+	if existing.ID != userID {
+		return userModel.ErrUserExists.WithError(errors.New("google-link: provider already linked to a different account")).Err()
+	}
+	return nil
+}
+
+// LinkGoogleToSetup links a Google provider to an incomplete account identified by a
+// setup token. Status stays incomplete; the flip to active happens in CompleteRegistration.
+func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleProviderID string) error {
+	userID, err := u.token.ParseSetupToken(setupToken)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to generate tokens").Err()
+		return authModel.ErrInvalidToken.WithError(fmt.Errorf("google-link-setup: parse setup token: %w", err)).Err()
 	}
+	user, err := u.users.GetByID(ctx, userID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return authModel.ErrInvalidToken.WithError(errors.New("google-link-setup: user behind setup token no longer exists")).Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user for setup").Err()
+	}
+	if user.Status != userModel.UserStatusIncomplete {
+		return authModel.ErrSetupAlreadyComplete.Err()
+	}
+	return u.linkGoogleProvider(ctx, userID, googleProviderID)
+}
 
-	return tokens, nil
+// LinkGoogleToSetupFromOAuth resolves a Google OAuth callback and links the provider
+// to the incomplete account identified by setupToken. returnTo is the trusted
+// return_to carried in the OAuth state; it is returned even when linking fails
+// (so the caller can keep it on the setup page), "" when the state is invalid.
+func (u *AuthUseCase) LinkGoogleToSetupFromOAuth(ctx context.Context, setupToken, code, state string) (returnTo string, err error) {
+	googleUser, stateRedirect, err := u.resolveGoogleUser(ctx, code, state)
+	if err != nil {
+		return "", err
+	}
+	returnTo = u.trustedReturnTo(stateRedirect)
+	return returnTo, u.LinkGoogleToSetup(ctx, setupToken, googleUser.GoogleID)
+}
+
+// LinkGoogleToAccountFromOAuth links a Google identity to the signed-in user.
+// The OAuth callback runs outside the auth middleware, so identity comes from
+// the session cookie. Rejects if the Google account is already linked elsewhere.
+func (u *AuthUseCase) LinkGoogleToAccountFromOAuth(ctx context.Context, sessionCookieValue, code, state string) error {
+	res, err := u.ValidateSessionCookie(ctx, sessionCookieValue)
+	if err != nil {
+		return err
+	}
+	googleUser, _, err := u.resolveGoogleUser(ctx, code, state)
+	if err != nil {
+		return err
+	}
+	return u.linkGoogleProvider(ctx, res.Claims.UserID, googleUser.GoogleID)
+}
+
+// UnlinkGoogle removes the user's Google link, refusing if it is the last login
+// method (lockout guard). affected==0 (already unlinked) is a no-op.
+func (u *AuthUseCase) UnlinkGoogle(ctx context.Context, userID uuid.UUID) error {
+	methods, err := u.users.CountLoginMethods(ctx, userID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to count login methods").Err()
+	}
+	if methods <= 1 {
+		return authModel.ErrNoLoginMethod.WithError(errors.New("google-unlink: would leave account without any login method")).Err()
+	}
+	if _, err = u.users.UnlinkProvider(ctx, userID, userModel.GoogleProvider); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to unlink google").Err()
+	}
+	return nil
+}
+
+// issueSetupToken generates a fresh setup token for userID.
+// setupResult wraps a freshly issued setup token as a registration result.
+func (u *AuthUseCase) setupResult(userID uuid.UUID, returnTo string) (GoogleRegistrationResult, error) {
+	tok, err := u.issueSetupToken(userID)
+	if err != nil {
+		return GoogleRegistrationResult{}, err
+	}
+	return GoogleRegistrationResult{SetupToken: tok, ReturnTo: returnTo}, nil
+}
+
+func (u *AuthUseCase) issueSetupToken(userID uuid.UUID) (string, error) {
+	setupToken, err := u.token.GenerateSetupToken(userID)
+	if err != nil {
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()
+	}
+	return setupToken, nil
 }

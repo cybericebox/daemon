@@ -1,2 +1,12 @@
-.idea
-configs
+docs/
+.worktrees/
+.superpowers/
+.env
+.idea/
+.claude/
+.DS_Store
+graphify-out/
+
+# Local agent tooling notes
+.superpowers/
+docs/superpowers/

@@ -1,0 +1,103 @@
+-- name: RequestEventLabAccessSync :one
+INSERT INTO event_lab_access_syncs (event_team_id, desired_revision, applied_revision, updated_at)
+VALUES (sqlc.arg(event_team_id), 1, 0, sqlc.arg(updated_at))
+ON CONFLICT (event_team_id) DO UPDATE
+SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    updated_at = EXCLUDED.updated_at
+RETURNING *;
+
+-- name: RequestEventLabAccessSyncsForEvent :exec
+INSERT INTO event_lab_access_syncs (event_team_id, desired_revision, applied_revision, updated_at)
+SELECT id, 1, 0, sqlc.arg(updated_at)
+FROM event_teams team
+WHERE team.event_id = sqlc.arg(event_id)
+  -- The moderators team of an event without infrastructure has no VPN or
+  -- Labs: it exists only for the moderators board and never syncs.
+  AND (NOT team.moderators
+    OR EXISTS (SELECT 1 FROM events event WHERE event.id = team.event_id AND event.infrastructure_allowed))
+ON CONFLICT (event_team_id) DO UPDATE
+SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    updated_at = EXCLUDED.updated_at;
+
+-- name: ListDirtyEventLabAccessSyncs :many
+WITH access_state AS (
+    SELECT sync.event_team_id,
+           team.event_id,
+           sync.desired_revision,
+           sync.applied_revision,
+           sync.updated_at,
+           sync.runtime_open AS applied_runtime_open,
+           sync.vpn_enabled AS applied_vpn_enabled,
+           -- After the final stand teardown no team VPN group is recreated.
+           COALESCE(event.infrastructure_allowed AND rollout.torn_down_at IS NULL, false)::boolean AS vpn_enabled,
+           CASE WHEN event.lifecycle_configured
+               AND event.available_from <= now()
+               AND (event.archive_at IS NULL OR now() < event.archive_at)
+               AND event.start_at <= now()
+               AND (event.finish_at IS NULL OR now() < event.finish_at)
+               AND (event.manual_finished_at IS NULL OR now() < event.manual_finished_at)
+               AND (event.withdraw_at IS NULL OR now() < event.withdraw_at)
+               THEN true ELSE false END AS runtime_open
+    FROM event_lab_access_syncs sync
+    JOIN event_teams team ON team.id = sync.event_team_id
+    JOIN events event ON event.id = team.event_id
+    LEFT JOIN event_stand_rollouts rollout ON rollout.event_id = event.id
+)
+SELECT event_team_id, event_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled
+FROM access_state
+WHERE desired_revision > applied_revision
+   OR applied_runtime_open IS DISTINCT FROM runtime_open
+   OR applied_vpn_enabled IS DISTINCT FROM vpn_enabled
+ORDER BY updated_at, event_team_id
+LIMIT sqlc.arg(limit_val);
+
+-- name: MarkEventLabAccessSyncApplied :execrows
+UPDATE event_lab_access_syncs
+SET applied_revision = sqlc.arg(desired_revision),
+    runtime_open = sqlc.arg(runtime_open),
+    vpn_enabled = sqlc.arg(vpn_enabled),
+    updated_at = sqlc.arg(updated_at)
+WHERE event_team_id = sqlc.arg(event_team_id)
+  AND desired_revision = sqlc.arg(desired_revision)
+  AND (applied_revision < sqlc.arg(desired_revision)
+       OR runtime_open IS DISTINCT FROM sqlc.arg(runtime_open)
+       OR vpn_enabled IS DISTINCT FROM sqlc.arg(vpn_enabled));
+
+-- name: ListEventLabAccessClients :many
+-- The hidden moderators team has no participant rows: its VPN clients are the
+-- event owner and moderators (observers are read-only and get no client).
+SELECT participant.user_id
+FROM event_participants participant
+WHERE participant.team_id = sqlc.arg(event_team_id)::uuid
+  AND participant.status = 2
+UNION
+SELECT manager.user_id
+FROM event_managers manager
+JOIN event_teams team ON team.event_id = manager.event_id
+WHERE team.id = sqlc.arg(event_team_id)::uuid
+  AND team.moderators
+  AND manager.role IN (0, 1)
+ORDER BY user_id;
+
+-- name: ListEventLabAccessLabs :many
+SELECT lb.lab_group_name,
+       lb.lab_name,
+       CASE WHEN lb.readiness = 1 AND tc.readiness = 2 THEN true ELSE false END AS available
+FROM lab_bindings lb
+JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
+                       AND tc.event_challenge_id = lb.event_challenge_id
+WHERE lb.event_team_id = sqlc.arg(event_team_id)
+  AND lb.readiness <> 3
+ORDER BY lb.lab_name;
+
+-- name: RequestModeratorsTeamLabAccessSync :exec
+-- Manager changes alter the moderators team's VPN client set.
+INSERT INTO event_lab_access_syncs (event_team_id, desired_revision, applied_revision, updated_at)
+SELECT id, 1, 0, sqlc.arg(updated_at)
+FROM event_teams team
+WHERE team.event_id = sqlc.arg(event_id)
+  AND team.moderators
+  AND EXISTS (SELECT 1 FROM events event WHERE event.id = team.event_id AND event.infrastructure_allowed)
+ON CONFLICT (event_team_id) DO UPDATE
+SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    updated_at = EXCLUDED.updated_at;

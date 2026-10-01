@@ -1,1 +1,0 @@
-drop table if exists event_challenge_solution_attempts;

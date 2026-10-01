@@ -2,37 +2,23 @@ package config
 
 // Environments
 const (
-	Local      = "local"
-	Stage      = "stage"
-	Production = "production"
+	Development = "development"
+	Stage       = "stage"
+	Production  = "production"
 )
 
-// exercise flag
 const (
-	FlagFormat       = "ICE{%s}"
-	RandomFlagLength = 20
-)
-
-// subdomains and paths
-const (
+	IDSubdomain    = "id"
 	MainSubdomain  = ""
 	AdminSubdomain = "admin"
-
-	SignInPage        = "/sign-in"
-	EventNotFoundPage = "/event-not-found"
-)
-
-const (
-	SchemeHTTPS = "https"
-)
-
-// from url field
-const (
-	FromURLField   = "fromURL"
-	DefaultFromURL = "/"
+	// ExercisesSubdomain hosts the exercise catalog and editor app (W4).
+	ExercisesSubdomain = "exercises"
+	// APISubdomain is this service's own host label — api.<domain> is the only
+	// Host it answers on (see protection.RequireAPIHost). Frontend routing is
+	// nginx's job; this service no longer proxies anything.
+	APISubdomain = "api"
 )
 
 const (
 	DefaultPageSize = 20
-	AllPages        = -1
 )

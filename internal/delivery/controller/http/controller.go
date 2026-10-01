@@ -2,14 +2,18 @@ package http
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/errorWrapper"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler"
+	_ "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/apidocs"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/proxy"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 )
 
 type (
@@ -20,66 +24,67 @@ type (
 	IUseCase interface {
 		// IUseCase is dependencies for the http handler
 		handler.IUseCase
-		// IUseCase is dependencies for the http proxy
-		proxy.IUseCase
-		// IUseCase is dependencies for the routes protection
 		protection.IUseCase
-
-		URLNeedsProtection(ctx context.Context, url string) bool
 	}
 
 	Dependencies struct {
-		UseCase IUseCase
-		Config  *config.HTTPConfig
+		UseCase    IUseCase
+		Config     *config.HTTPControllerConfig
+		AuthConfig config.AuthConfig
 	}
 )
 
 func NewController(deps Dependencies) *Controller {
 	// create the router
-	router := gin.Default()
-
-	// initialize protection
-	protection.InitProtection(
-		&protection.Dependencies{
-			Config:  &deps.Config.Protection,
-			UseCase: deps.UseCase,
-		},
-	)
+	// gin.New, not gin.Default: logger and recovery come from ForMode, per the
+	// gin mode config.SetupLogger set from ENV (and so does the route dump).
+	router := gin.New()
+	router.Use(middleware.ForMode(gin.Mode())...)
 
 	// add global middleware for error handling
-	router.Use(errorWrapper.WithErrorHandler)
+	router.Use(response.WithErrorHandler)
+	router.Use(middleware.CaptureRequestReceivedAt())
 
-	// add global middleware for validating if the request domain is equal to the domain of the platform
-	router.Use(protection.ValidateRequestDomain)
+	// build protection middleware and wire it into the handler aggregator
+	prot := protection.New(protection.Dependencies{
+		UseCase: deps.UseCase,
+		Config:  deps.AuthConfig,
+	})
 
-	// add cors middleware
-	router.Use(protection.CorsMiddleware)
+	// This service answers on exactly one host, api.<domain> — every other
+	// host is routed to a frontend by the edge proxy and never reaches here.
+	router.Use(prot.RequireAPIHost)
 
-	// create handler for routes on current service
-	handler.NewAPIHandler(deps.UseCase).Init(router)
-
-	// proxy sign-in and profile pages to main frontend
-	router.Use(proxy.HandleProxyToMainPages())
-
-	// frontends that need protection
-	protectFrontends := func(ctx *gin.Context) bool {
-		return deps.UseCase.URLNeedsProtection(ctx, ctx.Request.URL.Path)
+	// optionally serve the Swagger UI
+	if deps.Config.EnableSwaggerDocs {
+		// redirect /docs -> /docs/index.html (no trailing slash: distinct path segment, avoids
+		// conflicting with the /docs/*any catch-all in gin's radix tree)
+		router.GET("/docs", func(c *gin.Context) {
+			c.Redirect(http.StatusMovedPermanently, "/docs/index.html")
+		})
+		router.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
-	// proxy to frontends
-	router.NoRoute(
-		protection.DynamicallyRequireProtection(protectFrontends, true),
-		proxy.HandleProxy(
-			proxy.Dependencies{
-				Config:  &deps.Config.Proxy,
-				UseCase: deps.UseCase,
-			},
-		),
-	)
+	// Every frontend calls this API cross-origin (its own subdomain) — CORS
+	// (with credentials) must run before any route handling.
+	router.Use(middleware.HandleCORSMiddleWare(deps.AuthConfig.Domain), middleware.ContentMiddleware)
+
+	RegisterHealth(router)
+
+	// create handler for routes on current service
+	handler.NewAPIHandler(deps.UseCase, prot, deps.AuthConfig.Domain).Init(router)
 
 	return &Controller{
 		server: NewServer(&deps.Config.Server, router),
 	}
+}
+
+// RegisterHealth adds GET /api/health — a public liveness probe (no auth, no
+// DB). Session-aware frontend recovery probes /api/auth/me instead.
+func RegisterHealth(router gin.IRouter) {
+	router.GET("/api/health", func(ctx *gin.Context) {
+		response.AbortWithSuccess(ctx)
+	})
 }
 
 func (c *Controller) Start() {

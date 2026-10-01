@@ -2,28 +2,31 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"fmt"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
-	pg "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-const migrationTable = "daemon_schema_migrations"
+const migrationTable = "ap_backend_schema_migrations"
 
 type (
+	// PostgresRepository is the concrete postgres data store. It embeds the
+	// pool-bound *Queries (so it IS a Querier for non-tx reads/writes) and holds
+	// the tx-aware *DB used to mint per-useCase Units of Work via UoWFactory.
 	PostgresRepository struct {
 		*Queries
-		db *pgxpool.Pool
+		db   *DB
+		pool *pgxpool.Pool
+		cfg  *config.PostgresConfig
 	}
 
 	Dependencies struct {
@@ -33,134 +36,75 @@ type (
 
 func NewRepository(deps Dependencies) *PostgresRepository {
 	ctx := context.Background()
-	db, err := newPostgresDB(ctx, deps.Config)
+
+	pool, err := pgxpool.New(ctx, deps.Config.DSN())
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create new postgres db connection")
+		log.Fatal().Err(err).Msg("Failed to open postgres pool")
+	}
+	if err = pool.Ping(ctx); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ping postgres")
 	}
 
-	if err = runMigrations(deps.Config); err != nil {
-		log.Fatal().Err(err).Msg("Failed to run db migrations")
-	}
+	db := NewDB(pool)
 
 	return &PostgresRepository{
-		Queries: New(db),
+		Queries: New(pool),
 		db:      db,
+		pool:    pool,
+		cfg:     deps.Config,
 	}
 }
 
+// Close releases the connection pool. pgxpool.Close blocks until EVERY connection
+// is returned; a connection still held by a goroutine that outlived its owner
+// (e.g. River after a timed-out stop) would hang the process forever on shutdown.
+// Bound it so Ctrl+C always exits promptly — a connection still open at process
+// exit is reclaimed by the OS anyway.
 func (r *PostgresRepository) Close() {
-	r.db.Close()
-}
-
-func (r *PostgresRepository) PGStat() *pgxpool.Stat {
-	return r.db.Stat()
-}
-
-func newPostgresDB(ctx context.Context, cfg *config.PostgresConfig) (*pgxpool.Pool, error) {
-	ConnConfig, err := pgxpool.ParseConfig(
-		fmt.Sprintf(
-			"user=%s password=%s dbname=%s host=%s port=%d sslmode=%s pool_max_conns=%d",
-			cfg.Username,
-			cfg.Password,
-			cfg.Database,
-			cfg.Host,
-			cfg.Port,
-			cfg.SSLMode,
-			cfg.MaxPoolConnections,
-		),
-	)
-	pool, err := pgxpool.NewWithConfig(ctx, ConnConfig)
-	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to create new postgres db connection").Err()
-	}
-
-	// ping db
-	if err = pool.Ping(ctx); err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to ping db").Err()
-	}
-
-	return pool, nil
-
-}
-
-func runMigrations(cfg *config.PostgresConfig) error {
-	db, err := sql.Open(
-		"postgres",
-		fmt.Sprintf(
-			"user=%s password=%s dbname=%s host=%s port=%d sslmode=%s",
-			cfg.Username,
-			cfg.Password,
-			cfg.Database,
-			cfg.Host,
-			cfg.Port,
-			cfg.SSLMode,
-		),
-	)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to open db connection").Err()
-	}
-	defer func() {
-		if err = db.Close(); err != nil {
-			log.Error().Err(err).Msg("Failed to close db connection after running migrations")
-		}
+	done := make(chan struct{})
+	go func() {
+		r.pool.Close()
+		close(done)
 	}()
-	driver, err := pg.WithInstance(
-		db, &pg.Config{
-			MigrationsTable: migrationTable,
-			DatabaseName:    cfg.Database,
-		},
-	)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		log.Warn().Msg("Postgres pool close timed out; forcing exit (a connection was not released)")
+	}
+}
+
+// Pool exposes the underlying pool for infrastructure that needs it (e.g. River).
+func (r *PostgresRepository) Pool() *pgxpool.Pool {
+	return r.pool
+}
+
+// UoWFactory hands out the Unit of Work factory with the *DB already wired in.
+// useCases mint their own typed workers from it (postgres.BuildUnitOfWorker),
+// so the db itself never crosses into the business layer.
+func (r *PostgresRepository) UoWFactory() *UoWFactory {
+	return newUoWFactory(r.db)
+}
+
+// Migrate applies the schema migrations. It is a separate step — the caller
+// creates the repository and decides when (or whether) to migrate, rather than
+// pulling golang-migrate directly in the app bootstrap.
+func (r *PostgresRepository) Migrate() error {
+	db := stdlib.OpenDBFromPool(r.pool)
+	defer func() { _ = db.Close() }()
+
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{MigrationsTable: migrationTable})
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to create migration driver").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to init migrate driver").Err()
 	}
 
-	m, err := migrate.NewWithDatabaseInstance(
-		fmt.Sprintf("file://%s", config.MigrationPath),
-		cfg.Database,
-		driver,
-	)
-
+	m, err := migrate.NewWithDatabaseInstance("file://"+r.cfg.MigrationsPath, "postgres", driver)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to create migration instance").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to init migrator").Err()
 	}
 
-	if err = m.Up(); err != nil {
-		if !errors.Is(migrate.ErrNoChange, err) {
-			return model.ErrPlatform.WithError(err).WithMessage("Failed to run migrations").Err()
-		}
+	if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to run migrations").Err()
 	}
+
 	return nil
-}
-
-func (r *PostgresRepository) GetSQLDB() *pgxpool.Pool {
-	return r.db
-}
-
-func (r *PostgresRepository) WithTransaction(ctx context.Context) (
-	withTx Querier,
-	commit func(),
-	rollback func(),
-	err error,
-) {
-	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return nil, nil, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to begin transaction").Err()
-	}
-
-	withTx = r.WithTx(tx)
-
-	rollback = func() {
-		if err = tx.Rollback(ctx); err != nil {
-			log.Error().Err(err).Msg("Failed to rollback transaction")
-		}
-	}
-
-	commit = func() {
-		if err = tx.Commit(ctx); err != nil {
-			log.Error().Err(err).Msg("Failed to commit transaction")
-			rollback()
-		}
-	}
-
-	return withTx, commit, rollback, nil
 }

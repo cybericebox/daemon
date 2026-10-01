@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS event_challenge_prerequisites_prerequisite_idx;
+DROP TABLE IF EXISTS event_challenge_prerequisites;

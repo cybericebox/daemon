@@ -17,8 +17,9 @@ type (
 	}
 
 	Dependencies struct {
-		UseCase IUseCase
-		Config  *config.ControllerConfig
+		UseCase              IUseCase
+		HTTPControllerConfig config.HTTPControllerConfig
+		AuthConfig           config.AuthConfig
 	}
 )
 
@@ -26,8 +27,9 @@ func NewController(deps Dependencies) *Controller {
 	return &Controller{
 		httpController: http.NewController(
 			http.Dependencies{
-				Config:  &deps.Config.HTTP,
-				UseCase: deps.UseCase,
+				Config:     &deps.HTTPControllerConfig,
+				UseCase:    deps.UseCase,
+				AuthConfig: deps.AuthConfig,
 			},
 		),
 	}

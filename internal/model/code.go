@@ -1,20 +1,31 @@
 package model
 
-// Object codes
+// Object codes — one per domain, used to namespace error detail codes.
 const (
 	PlatformObjectCode = iota
-	StorageObjectCode
-	TemporalCoreObjectCode
-	AuthObjectCode
-	AuthRecaptchaObjectCode
+	SettingObjectCode
+	NotificationObjectCode
 	UserObjectCode
+	AuthObjectCode
+	TemporalCodeObjectCode
+	AuthRecaptchaObjectCode
+	// Infrastructure packages (pkg/...) also namespace their error codes here
+	// so the registry stays single and collision-free.
+	IPAMObjectCode
+	WgKeyGenObjectCode
 	ExerciseObjectCode
-	ExerciseCategoryObjectCode
+	MediaObjectCode
 	EventObjectCode
-	EventChallengeObjectCode
-	EventChallengeCategoryObjectCode
-	EventParticipantObjectCode
-	EventScoreObjectCode
+	EventConfigObjectCode
+	ParticipantObjectCode
+	InfrastructureObjectCode
+	VPNConfigObjectCode
+	EventManagerObjectCode
 	EventTeamObjectCode
-	EventTeamChallengeObjectCode
+	EventExerciseObjectCode
+	EventChallengeObjectCode
+	EventStandObjectCode
+	MailObjectCode
+	EventAnalyticsObjectCode
+	PlatformAnalyticsObjectCode
 )

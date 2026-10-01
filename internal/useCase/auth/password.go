@@ -3,167 +3,120 @@ package auth
 import (
 	"context"
 	"encoding/base64"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"strings"
+	"time"
+
+	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/config"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
-	emailModel "github.com/cybericebox/daemon/internal/model/email"
+	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
-	"github.com/cybericebox/daemon/internal/tools"
 )
 
-type (
-	IPasswordService interface {
-		UpdateUserPassword(ctx context.Context, user userModel.User) error
-
-		CreateTemporalPasswordResettingCode(
-			ctx context.Context,
-			data temporalCodeModel.TemporalPasswordResettingCodeData,
-		) (
-			string,
-			error,
-		)
-		GetTemporalPasswordResettingCodeData(
-			ctx context.Context,
-			code string,
-		) (*temporalCodeModel.TemporalPasswordResettingCodeData, error)
-
-		SendPasswordResettingEmail(
-			ctx context.Context,
-			sendTo string,
-			data emailModel.PasswordResettingTemplateData,
-		) error
-
-		CheckPasswordComplexity(password string) error
-		Hash(plaintextPassword string) (string, error)
-		Matches(plaintextPassword, hashedPassword string) (bool, error)
-	}
-)
-
-func (u *AuthUseCase) ForgotPassword(ctx context.Context, email string) error {
-	userByEmail, err := u.service.GetUserByEmail(ctx, email)
+// ForgotPassword issues a single-use reset code and emails a reset link. It is
+// silent when the address is unknown (no account-existence leak). An
+// incomplete account gets the continue-registration email instead.
+func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) error {
+	user, err := u.users.GetByEmail(ctx, emailAddr)
 	if err != nil {
-		if errors.Is(err, userModel.ErrUserNotFound.Err()) {
+		if repositoryTools.IsObjectNotFoundError(err) {
 			return nil
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user by email").Err()
 	}
-
-	// create a temporal code for the password resetting
-	temporalCode, err := u.service.CreateTemporalPasswordResettingCode(
-		ctx, temporalCodeModel.TemporalPasswordResettingCodeData{
-			UserID: userByEmail.ID,
-		},
-	)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to create temporal password resetting code").Err()
+	// Registration not finished: there is no password to reset — re-send the
+	// continue-registration link instead (same neutral response).
+	if user.IsIncomplete() {
+		return u.sendContinueRegistration(ctx, user.ID, user.FirstName, "")
 	}
 
-	// normalize the temporal code to base64
-	bsCode := strings.ReplaceAll(base64.StdEncoding.EncodeToString([]byte(temporalCode)), "=", "")
+	code, err := u.createTemporalCode(ctx, temporalCodeModel.PasswordResettingCodeType,
+		temporalCodeModel.TemporalPasswordResettingCodeData{UserID: user.ID})
+	if err != nil {
+		return err
+	}
+	bsCode := bsEncode(code)
 
-	// send a password resetting email
-	if err = u.service.SendPasswordResettingEmail(
-		ctx, email, emailModel.PasswordResettingTemplateData{
-			Username: userByEmail.Name,
-			Link: fmt.Sprintf(
-				"%s://%s%s%s",
-				config.SchemeHTTPS,
-				config.PlatformDomain,
-				emailModel.PasswordResettingLink,
-				bsCode,
-			),
-		},
-	); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to send password resetting email").Err()
+	if err = u.notifier.Notify(ctx, user.ID, notificationPayloads.PasswordResetPayload{
+		ResetURL: fmt.Sprintf("https://%s.%s/reset-password?token=%s", config.IDSubdomain, u.cfg.Domain, bsCode),
+		Name:     user.FirstName,
+	}); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to send password reset email").Err()
 	}
 	return nil
 }
 
+// ResetPassword consumes a reset code and sets a new password.
 func (u *AuthUseCase) ResetPassword(ctx context.Context, bsCode, newPassword string) error {
-	code, err := base64.StdEncoding.DecodeString(bsCode)
+	code, decErr := base64.StdEncoding.DecodeString(bsDecode(bsCode))
+	if decErr != nil {
+		return temporalCodeModel.ErrTemporalCodeInvalidCode.WithError(fmt.Errorf("password-reset: base64 decode: %w", decErr)).Err()
+	}
+
+	raw, err := u.consumeTemporalCode(ctx, string(code), temporalCodeModel.PasswordResettingCodeType)
 	if err != nil {
-		return temporalCodeModel.ErrTemporalCodeInvalidCode.WithError(model.ErrPlatform.WithError(err).WithMessage("Failed to decode base64 code").Err()).Err()
+		return err
 	}
-
-	// get the temporal code data
-	temporalCodeData, err := u.service.GetTemporalPasswordResettingCodeData(ctx, string(code))
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get temporal password resetting code data").Err()
+	var data temporalCodeModel.TemporalPasswordResettingCodeData
+	if err = json.Unmarshal(raw, &data); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to unmarshal temporal code data").Err()
 	}
-
-	// check the password complexity
-	if err = u.service.CheckPasswordComplexity(newPassword); err != nil {
-		return authModel.ErrAuthInvalidPasswordComplexity.WithError(err).Err()
-	}
-
-	// hash the new password
-	hashedPassword, err := u.service.Hash(newPassword)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to hash the new password").Err()
-	}
-
-	// update the user password
-	user := userModel.User{
-		ID:             temporalCodeData.UserID,
-		HashedPassword: hashedPassword,
-	}
-
-	// set user as current user in context
-	ctx = tools.SetCurrentUserIDToContext(ctx, user.ID)
-
-	if err = u.service.UpdateUserPassword(ctx, user); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to update user password").Err()
-	}
-	return nil
+	return u.applyNewPassword(ctx, data.UserID, newPassword)
 }
 
-func (u *AuthUseCase) UpdatePassword(ctx context.Context, oldPassword, newPassword string) error {
-	userID, err := tools.GetCurrentUserIDFromContext(ctx)
+// SetAccountPassword sets the authenticated user's password. With an existing
+// password it verifies oldPassword (change); with none it sets the first
+// password and ignores oldPassword.
+func (u *AuthUseCase) SetAccountPassword(ctx context.Context, userID uuid.UUID, oldPassword, newPassword string) error {
+	user, err := u.users.GetByID(ctx, userID)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user id from context").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
 	}
+	if user.HasPassword() {
+		matches, mErr := u.password.Matches(oldPassword, user.HashedPassword)
+		if mErr != nil {
+			return model.ErrPlatform.WithError(mErr).WithMessage("Failed to check password").Err()
+		}
+		if !matches {
+			return authModel.ErrAuthInvalidOldPassword.Err()
+		}
+	}
+	return u.applyNewPassword(ctx, userID, newPassword)
+}
 
-	// get user by id
-	user, err := u.service.GetUserByID(ctx, userID)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user by id").Err()
-	}
-
-	// check if user is google user and has no password
-	if user.HashedPassword == "" {
-		return authModel.ErrAuthInvalidOldPassword.Err()
-	}
-
-	// check old password
-	matches, err := u.service.Matches(oldPassword, user.HashedPassword)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to check if old password matches").Err()
-	}
-	if !matches {
-		return authModel.ErrAuthInvalidOldPassword.Err()
-	}
-
-	// check new password complexity
-	if err = u.service.CheckPasswordComplexity(newPassword); err != nil {
+// applyNewPassword validates complexity, hashes and persists newPassword.
+func (u *AuthUseCase) applyNewPassword(ctx context.Context, userID uuid.UUID, newPassword string) error {
+	if err := u.password.CheckPasswordComplexity(newPassword); err != nil {
 		return authModel.ErrAuthInvalidPasswordComplexity.WithError(err).Err()
 	}
-
-	// hash new password
-	hashedPassword, err := u.service.Hash(newPassword)
+	hashedPassword, err := u.password.Hash(newPassword)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to hash the new password").Err()
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to hash password").Err()
 	}
+	return u.mutateUser(ctx, userID, func(user *userModel.User) error {
+		user.SetPassword(hashedPassword, time.Now())
+		return nil
+	})
+}
 
-	user.HashedPassword = hashedPassword
-
-	// update user password
-	if err = u.service.UpdateUserPassword(ctx, *user); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to update user password").Err()
+// bsEncode base64-encodes a raw code and strips '=' padding for URL embedding.
+func bsEncode(code string) string {
+	enc := base64.StdEncoding.EncodeToString([]byte(code))
+	for len(enc) > 0 && enc[len(enc)-1] == '=' {
+		enc = enc[:len(enc)-1]
 	}
-	return nil
+	return enc
+}
+
+// bsDecode restores '=' padding stripped by bsEncode so StdEncoding can decode.
+func bsDecode(bs string) string {
+	if m := len(bs) % 4; m != 0 {
+		bs += "===="[m:]
+	}
+	return bs
 }

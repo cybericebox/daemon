@@ -1,42 +1,26 @@
 package repository
 
 import (
-	"context"
-
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/repository/agent"
-	"github.com/cybericebox/daemon/internal/delivery/repository/email"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
-	"github.com/cybericebox/daemon/internal/delivery/repository/storageS3"
-	"github.com/cybericebox/daemon/internal/delivery/repository/vpn"
 )
 
 type (
 	Repository struct {
-		*storageS3.StorageS3Repository
 		*postgres.PostgresRepository
-		*email.EmailRepository
-		*agent.AgentRepository
-		*vpn.VPNRepository
 	}
 
 	Dependencies struct {
-		Config *config.RepositoryConfig
+		PostgresConfig *config.PostgresConfig
 	}
 )
 
 func NewRepository(deps Dependencies) *Repository {
 	return &Repository{
-		storageS3.NewRepository(storageS3.Dependencies{Config: &deps.Config.StorageS3}),
-		postgres.NewRepository(postgres.Dependencies{Config: &deps.Config.Postgres}),
-		email.NewRepository(email.Dependencies{Config: &deps.Config.Email}),
-		agent.NewRepository(agent.Dependencies{Config: &deps.Config.Agent}),
-		vpn.NewRepository(vpn.Dependencies{Config: &deps.Config.VPN}),
+		postgres.NewRepository(postgres.Dependencies{Config: deps.PostgresConfig}),
 	}
 }
 
-func (r *Repository) Close(ctx context.Context) {
+func (r *Repository) Close() {
 	r.PostgresRepository.Close()
-	r.AgentRepository.Close()
-	r.VPNRepository.Close()
 }

@@ -1,3 +1,5 @@
+// Package exercise implements the versioned exercise catalog application
+// layer: identity CRUD, draft/publish lifecycle and secret handling.
 package exercise
 
 import (
@@ -5,213 +7,183 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	storageModel "github.com/cybericebox/daemon/internal/model/storage"
+	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
+	"github.com/cybericebox/daemon/pkg/secret"
 )
 
-type (
-	ExerciseUseCase struct {
-		service IExerciseService
+// IRepository is the narrow data port: the whole exerciseRepo query slice (which
+// now includes the list/count/id-projection shapes), so the use case holds no
+// postgres.* types. The gomock Querier and the real Queries both satisfy it.
+type IRepository interface {
+	exerciseRepo.Queries
+	testDeployRepo.Queries
+}
+
+// IMedia is the media port (satisfied by *media.MediaUseCase).
+type IMedia interface {
+	ReplaceReferences(ctx context.Context, refType string, refID uuid.UUID, fileIDs []uuid.UUID) error
+	RemoveReferences(ctx context.Context, refType string, refID uuid.UUID) error
+	RemoveReferencesBatch(ctx context.Context, refType string, refIDs []uuid.UUID) error
+}
+
+type ExerciseUseCase struct {
+	repo        IRepository
+	exercises   *exerciseRepo.Repository
+	testDeploys *testDeployRepo.Repository
+	deployUoW   postgres.IUnitOfWorker[testDeployRepo.Queries]
+	cipher      *secret.Cipher // nil when EXERCISE_SECRETS_KEY is unset
+	media       IMedia
+	infra       IInfrastructure // nil when no infrastructure agent is configured
+	vpnStore    IVPNStore       // nil when secret storage is not configured
+	flagConfig  config.ExerciseConfig
+	sessions    ITestSessions  // nil when no proxy key is configured
+	proposals   IProposalInbox // nil until wired; proposal inbox requests are then skipped
+}
+
+// IProposalInbox turns catalog proposals into inbox requests for platform
+// admins and closes them on decision (satisfied by inbox.RequestRouter).
+type IProposalInbox interface {
+	ProposalSubmitted(ctx context.Context, p inboxUseCase.Proposal) error
+	ProposalDecided(ctx context.Context, p inboxUseCase.Proposal, approved bool, by uuid.UUID) error
+}
+
+// SetProposalInbox wires the proposal inbox after the dispatcher exists.
+func (u *ExerciseUseCase) SetProposalInbox(inbox IProposalInbox) {
+	u.proposals = inbox
+}
+
+type Dependencies struct {
+	Repo   IRepository
+	Cipher *secret.Cipher
+	Media  IMedia
+	// Infra is nil when infrastructure is not configured; the per-variant test
+	// deploy is then unavailable.
+	Infra IInfrastructure
+	// VPNStore persists a tester's VPN config; nil when secret storage is absent.
+	VPNStore   IVPNStore
+	FlagConfig config.ExerciseConfig
+	// Sessions signs the proxy token of a test deploy; nil when unconfigured.
+	Sessions ITestSessions
+	// DeployUoW makes the "one active test lab per user" check and the reservation one
+	// serialized transaction. Nil (tests): the check and the insert are separate calls.
+	DeployUoW postgres.IUnitOfWorker[testDeployRepo.Queries]
+}
+
+type FlagPolicy struct {
+	RandomHexLength int `json:"RandomHexLength"`
+	RandomBits      int `json:"RandomBits"`
+	WarningBits     int `json:"WarningBits"`
+}
+
+func (u *ExerciseUseCase) FlagPolicy() FlagPolicy {
+	bytes := u.flagConfig.FlagRandomBytes
+	if bytes == 0 { // tests and manually constructed use cases keep the default
+		bytes = 20
 	}
-
-	IExerciseService interface {
-		IExerciseCategoryService
-
-		GetExercises(ctx context.Context, search string, page, pageSize int) ([]*exerciseModel.Exercise, error)
-		GetExercise(ctx context.Context, exerciseID uuid.UUID) (*exerciseModel.Exercise, error)
-		CreateExercise(ctx context.Context, exercise exerciseModel.Exercise) error
-		UpdateExercise(ctx context.Context, exercise exerciseModel.Exercise) error
-		DeleteExercise(ctx context.Context, exerciseID uuid.UUID) error
-
-		ConfirmUploadFiles(ctx context.Context, fileIDs ...uuid.UUID) error
-		GetUploadFileData(ctx context.Context, params storageModel.UploadFileParams) (
-			*storageModel.UploadFileData,
-			error,
-		)
-		GetDownloadFileURL(
-			ctx context.Context,
-			params storageModel.DownloadFileParams,
-		) (storageModel.DownloadFileURL, error)
-		DeleteFiles(ctx context.Context, files ...storageModel.File) error
+	warning := u.flagConfig.FlagWarningBits
+	if warning == 0 {
+		warning = 20
 	}
+	return FlagPolicy{RandomHexLength: bytes * 2, RandomBits: bytes * 8, WarningBits: warning}
+}
 
-	Dependencies struct {
-		Service IExerciseService
-	}
-)
-
-func NewUseCase(deps Dependencies) *ExerciseUseCase {
+func NewExerciseUseCase(deps Dependencies) *ExerciseUseCase {
 	return &ExerciseUseCase{
-		service: deps.Service,
+		repo:        deps.Repo,
+		exercises:   exerciseRepo.New(deps.Repo),
+		testDeploys: testDeployRepo.New(deps.Repo),
+		deployUoW:   deps.DeployUoW,
+		cipher:      deps.Cipher,
+		media:       deps.Media,
+		infra:       deps.Infra,
+		vpnStore:    deps.VPNStore,
+		sessions:    deps.Sessions,
+		flagConfig:  deps.FlagConfig,
 	}
 }
 
-func (u *ExerciseUseCase) GetExercises(
-	ctx context.Context,
-	search string,
-	page, pageSize int,
-) ([]*exerciseModel.Exercise, error) {
-	exercises, err := u.service.GetExercises(ctx, search, page, pageSize)
+// mutateExercise: fetch → domain mutation → whole-identity write under the
+// optimistic lock; zero rows re-reads to tell 404 from 409 (mutateUser twin).
+func (u *ExerciseUseCase) mutateExercise(ctx context.Context, id uuid.UUID, mutate func(*exerciseModel.Exercise) error) (exerciseModel.Exercise, error) {
+	e, err := u.exercises.GetByID(ctx, id)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercises").Err()
-	}
-	return exercises, nil
-}
-
-func (u *ExerciseUseCase) GetExercise(ctx context.Context, exerciseID uuid.UUID) (*exerciseModel.Exercise, error) {
-	exercise, err := u.service.GetExercise(ctx, exerciseID)
-	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise").Err()
-	}
-	return exercise, nil
-}
-
-func (u *ExerciseUseCase) CreateExercise(ctx context.Context, exercise exerciseModel.Exercise) error {
-	if err := u.service.CreateExercise(ctx, exercise); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to create exercise").Err()
-	}
-	// confirm file upload
-	files := exercise.Data.Files
-	for _, file := range files {
-		if err := u.service.ConfirmUploadFiles(ctx, file.ID); err != nil {
-			return model.ErrPlatform.WithError(err).WithMessage("Failed to confirm file upload").Err()
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return exerciseModel.Exercise{}, exerciseModel.ErrExerciseNotFound.Err()
 		}
+		return exerciseModel.Exercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise").Err()
 	}
-
-	return nil
-}
-
-func (u *ExerciseUseCase) UpdateExercise(ctx context.Context, exercise exerciseModel.Exercise) error {
-	oldExercise, err := u.service.GetExercise(ctx, exercise.ID)
+	expectedUpdatedAt := e.UpdatedAt
+	if err = mutate(&e); err != nil {
+		return exerciseModel.Exercise{}, err
+	}
+	affected, err := u.exercises.Update(ctx, e, expectedUpdatedAt)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise").Err()
+		return exerciseModel.Exercise{}, classifyExerciseWriteError(err, "update")
 	}
-	// old attached files
-	oldFiles := oldExercise.Data.Files
-
-	// new attached files
-	newFiles := exercise.Data.Files
-
-	// compare files
-	toAdd, toDelete := compareFileLists(oldFiles, newFiles)
-
-	// confirm file upload
-	for _, file := range toAdd {
-		if err = u.service.ConfirmUploadFiles(ctx, file.ID); err != nil {
-			return model.ErrPlatform.WithError(err).WithMessage("Failed to confirm file upload").Err()
+	if affected == 0 {
+		if _, err = u.exercises.GetByID(ctx, id); err != nil {
+			return exerciseModel.Exercise{}, exerciseModel.ErrExerciseNotFound.Err()
 		}
+		return exerciseModel.Exercise{}, exerciseModel.ErrExerciseModified.Err()
 	}
-
-	// delete files that are not in new list
-	if err = u.service.DeleteFiles(ctx, toDelete...); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete files").Err()
-	}
-
-	if err = u.service.UpdateExercise(ctx, exercise); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to update exercise").Err()
-	}
-	return nil
+	return e, nil
 }
 
-func (u *ExerciseUseCase) DeleteExercise(ctx context.Context, exerciseID uuid.UUID) error {
-	exercise, err := u.service.GetExercise(ctx, exerciseID)
+// loadEditable fetches the exercise and refuses archived ones — the first
+// step of every catalog-content mutation (working copy, publish, snapshots,
+// restore). Identity edits get the same rule through Exercise.UpdateIdentity.
+func (u *ExerciseUseCase) loadEditable(ctx context.Context, id uuid.UUID) (exerciseModel.Exercise, error) {
+	e, err := u.exercises.GetByID(ctx, id)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise").Err()
-	}
-
-	// attached files
-	files := exercise.Data.Files
-
-	// delete exercise
-	if err = u.service.DeleteExercise(ctx, exerciseID); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete exercise").Err()
-	}
-	_, toDelete := compareFileLists(files, nil)
-	// delete all attached files
-	if err = u.service.DeleteFiles(ctx, toDelete...); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete files").Err()
-	}
-
-	return nil
-}
-
-func (u *ExerciseUseCase) GetUploadFileData(ctx context.Context) (*storageModel.UploadFileData, error) {
-	uploadFileData, err := u.service.GetUploadFileData(
-		ctx, storageModel.UploadFileParams{
-			StorageType: storageModel.TaskStorageType,
-		},
-	)
-	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get upload file data").Err()
-	}
-	return uploadFileData, nil
-}
-
-func (u *ExerciseUseCase) GetDownloadFileLink(
-	ctx context.Context,
-	exerciseID, fileID uuid.UUID,
-	fileName string,
-) (string, error) {
-	exercise, err := u.service.GetExercise(ctx, exerciseID)
-	if err != nil {
-		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise").Err()
-	}
-
-	// find file
-	if fileName == "" {
-		fileName = fileID.String()
-	}
-	for _, file := range exercise.Data.Files {
-		if file.ID == fileID {
-			fileName = file.Name
-			break
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return exerciseModel.Exercise{}, exerciseModel.ErrExerciseNotFound.Err()
 		}
+		return exerciseModel.Exercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise").Err()
 	}
-
-	downloadFileLink, err := u.service.GetDownloadFileURL(
-		ctx, storageModel.DownloadFileParams{
-			StorageType: storageModel.TaskStorageType,
-			FileID:      fileID,
-			FileName:    fileName,
-		},
-	)
-	if err != nil {
-		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get download file link").Err()
+	// Check-then-write: this archive check is not inside the same UoW/write
+	// statement as the mutation that follows it. A concurrent archive between
+	// this read and that write may let one in-flight write through. Accepted
+	// as low impact (admin-only).
+	if err = e.EnsureNotArchived(); err != nil {
+		return exerciseModel.Exercise{}, err
 	}
-	return string(downloadFileLink), nil
+	return e, nil
 }
 
-func compareFileLists(oldFiles, newFiles []exerciseModel.ExerciseFile) (
-	toAdd []exerciseModel.ExerciseFile,
-	toDelete []storageModel.File,
-) {
-	oldFilesMap := make(map[uuid.UUID]exerciseModel.ExerciseFile)
-	for _, file := range oldFiles {
-		oldFilesMap[file.ID] = file
-	}
-
-	newFilesMap := make(map[uuid.UUID]exerciseModel.ExerciseFile)
-	for _, file := range newFiles {
-		newFilesMap[file.ID] = file
-	}
-
-	for id, file := range newFilesMap {
-		if _, ok := oldFilesMap[id]; !ok {
-			toAdd = append(toAdd, file)
+// exerciseView builds the card read model. HasChanges asks SQL to compare the
+// draft and published content only when both exist; the domain decides the
+// rest (Exercise.HasUnpublishedChanges).
+func (u *ExerciseUseCase) exerciseView(ctx context.Context, e exerciseModel.Exercise) (ExerciseView, error) {
+	hasChanges, err := e.HasUnpublishedChanges(func() (bool, error) {
+		differs, err := u.exercises.DraftDiffersFromPublished(ctx, e.ID)
+		if repositoryTools.IsObjectNotFoundError(err) {
+			// A pointer moved concurrently (publish cleared the draft):
+			// nothing is left unpublished.
+			return false, nil
 		}
+		return differs, err
+	})
+	if err != nil {
+		return ExerciseView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to compare exercise working copy").Err()
 	}
+	v := toExerciseView(e)
+	v.HasChanges = hasChanges
+	return v, nil
+}
 
-	for id, file := range oldFilesMap {
-		if _, ok := newFilesMap[id]; !ok {
-			toDelete = append(
-				toDelete, storageModel.File{
-					ID:          file.ID,
-					StorageType: storageModel.TaskStorageType,
-				},
-			)
-		}
+// classifyExerciseWriteError maps a unique-violation on exercises.name to the
+// domain 409; anything else becomes a platform error. The single call path
+// for BOTH create and rename.
+func classifyExerciseWriteError(err error, action string) error {
+	if creator, ok := repositoryTools.UniqueViolationError(err, exerciseModel.ErrExerciseExists); ok {
+		return creator.Err()
 	}
-
-	return toAdd, toDelete
+	return model.ErrPlatform.WithError(err).WithMessage("Failed to " + action + " exercise").Err()
 }

@@ -1,19 +1,13 @@
--- name: CreateTemporalCode :exec
-insert into temporal_codes (id, expired_at, code_type, data)
-values ($1, $2, $3, $4);
+-- name: CreateTemporalCode :one
+INSERT INTO temporal_codes (id, code, type, data, expires_at)
+VALUES ($1, $2, $3, $4, $5) RETURNING *;
 
--- name: GetTemporalCode :one
-select *
-from temporal_codes
-where id = $1;
+-- name: GetTemporalCodeByCode :one
+SELECT *
+FROM temporal_codes
+WHERE code = $1;
 
 -- name: DeleteTemporalCode :execrows
-delete
-from temporal_codes
-where id = $1;
-
--- name: DeleteExpiredTemporalCodes :execrows
-delete
-from temporal_codes
-where expired_at < now();
-
+DELETE
+FROM temporal_codes
+WHERE id = $1;
