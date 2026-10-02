@@ -140,16 +140,28 @@ func (u *EventUseCase) changesAfterFromDB(ctx context.Context, eventID uuid.UUID
 	return append(make([]eventResultRepo.Change, 0, len(changes)), changes...), nil
 }
 
-// hiddenByFreeze reports another team's solve at or after the cutoff.
+// hiddenByFreeze reports another team's result change at or after the cutoff:
+// a solve, or the withdrawal of one (an annulled solve is as much news about
+// another team as the solve was).
 func hiddenByFreeze(change eventResultRepo.Change, cutoff *time.Time, own *uuid.UUID) bool {
-	if cutoff == nil || change.Kind != eventResultRepo.ChangeTeamChallengeSolved {
+	if cutoff == nil {
 		return false
 	}
 	var payload teamChallengeResultChange
-	if err := json.Unmarshal(change.Payload, &payload); err != nil || payload.SolvedAt == nil {
-		return false
+	switch change.Kind {
+	case eventResultRepo.ChangeTeamChallengeSolved:
+		if err := json.Unmarshal(change.Payload, &payload); err != nil || payload.SolvedAt == nil {
+			return false
+		}
+		return payload.SolvedAt.Compare(*cutoff) >= 0 && (own == nil || payload.TeamID != *own)
+	case eventResultRepo.ChangeTeamChallengeUnsolved:
+		// An unsolved change carries no solve time: it happened when it was recorded.
+		if err := json.Unmarshal(change.Payload, &payload); err != nil {
+			return true // unreadable: fail closed during a freeze
+		}
+		return change.CreatedAt.Compare(*cutoff) >= 0 && (own == nil || payload.TeamID != *own)
 	}
-	return payload.SolvedAt.Compare(*cutoff) >= 0 && (own == nil || payload.TeamID != *own)
+	return false
 }
 
 func liveResultChangeView(change eventResultRepo.Change) LiveResultChangeView {

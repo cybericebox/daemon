@@ -88,6 +88,11 @@ func (p resultsPolicy) readErr(now time.Time, liveScreen bool) error {
 	if liveScreen && !p.manager {
 		return eventConfigModel.ErrResultsLiveScreenManagersOnly.Err()
 	}
+	// The route is public: an event that is not published yet does not exist for anyone but its
+	// staff (its teams and scores are not for the public to read, whatever the page settings say).
+	if !p.manager && p.event.Lifecycle.Status(now) == eventModel.LifecycleNotPublished {
+		return eventModel.ErrEventNotFound.Err()
+	}
 	// Before the start the table is readable too: its audience sees the
 	// admitted teams with no points yet instead of a closed page.
 	if availability := p.availability(now); availability != ResultsNotStarted {

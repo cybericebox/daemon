@@ -14,6 +14,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	challengeAttemptModel "github.com/cybericebox/daemon/internal/model/challengeAttempt"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	event "github.com/cybericebox/daemon/internal/useCase/event"
@@ -184,6 +185,31 @@ func TestReplayLiveResultsSkipsOtherTeamsSolvesAfterFreeze(t *testing.T) {
 	}
 }
 
+// L19: the withdrawal of another team's solve during the freeze is news about that team, like the solve was.
+func TestReplayLiveResultsSkipsOtherTeamsAnnulmentsAfterFreeze(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	eventID := uuid.Must(uuid.NewV7())
+	now := time.Now().UTC()
+	started := startedEvent(eventID, now)
+	frozenAt := started.FinishAt.Time.Add(-90 * time.Minute)
+	unsolved := func(revision int64, at time.Time) postgres.EventResultChange {
+		payload, _ := json.Marshal(map[string]any{"TeamID": uuid.Must(uuid.NewV7()), "EventChallengeID": uuid.Must(uuid.NewV7()), "SolvedAt": nil})
+		return postgres.EventResultChange{EventID: eventID, Revision: revision, Kind: "team_challenge_unsolved", Payload: payload, CreatedAt: at}
+	}
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(started, nil)
+	q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 6, UpdatedAt: now}, nil)
+	q.EXPECT().GetEarliestEventResultChangeRevision(gomock.Any(), eventID).Return(int64(5), nil)
+	q.EXPECT().ListEventResultChangesAfter(gomock.Any(), gomock.Any()).Return([]postgres.EventResultChange{unsolved(5, frozenAt.Add(-time.Minute)), unsolved(6, frozenAt.Add(time.Minute))}, nil)
+
+	replay, err := uc.ReplayLiveResults(context.Background(), eventID, event.ResultsAccess{}, 4, false)
+	if err != nil || len(replay.Changes) != 1 || replay.Changes[0].Revision != 5 {
+		t.Fatalf("only the annulment before the freeze may be replayed, got %+v, %v", replay, err)
+	}
+}
+
 func TestGetManageResultsRanksOnlyVisibleAdmittedTeams(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
@@ -304,5 +330,25 @@ func TestUpdateResultsSettingsReloadsLiveClients(t *testing.T) {
 		eventConfigModel.ResultsSettings{FreezeEnabled: true, FreezeMinutes: 30, LiveFreeze: true, ChartEnabled: true, ChartTeams: 5, RowsLimit: &rows}, by)
 	if err != nil || got.FreezeMinutes != 30 || got.Freeze.FrozenAt == nil {
 		t.Fatalf("UpdateResultsSettings = %+v, %v", got, err)
+	}
+}
+
+// L19: the results route is public and takes the event id from the URL: an
+// unpublished event's teams and scores are not for the public.
+func TestGetResultsSnapshotOfAnUnpublishedEventIsNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	eventID := uuid.Must(uuid.NewV7())
+	now := time.Now().UTC()
+	notPublished := startedEvent(eventID, now)
+	notPublished.LifecycleConfigured = false
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(notPublished, nil)
+	q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 3, UpdatedAt: now}, nil)
+
+	_, err := uc.GetResultsSnapshot(context.Background(), eventID, event.ResultsAccess{}, false)
+	if !errors.Is(err, eventModel.ErrEventNotFound.Err()) {
+		t.Fatalf("an anonymous read of an unpublished event must be not-found, got %v", err)
 	}
 }
