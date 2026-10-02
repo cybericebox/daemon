@@ -51,6 +51,8 @@ type Runner struct {
 	capacity CapacitySink
 	// features receives what the agent says the tenant can use (first message, then on change).
 	features FeaturesSink
+	// link hears whether the stream to the agent works (the error journal's agent-offline check).
+	link LinkSink
 	// position is the last message processed: where a reconnect resumes. It lives in memory for the
 	// runner's lifetime; a restarted daemon starts with a snapshot.
 	position position
@@ -72,6 +74,19 @@ type CapacitySink func(ctx context.Context, capacity *labpb.CapacityResponse, ob
 
 // FeaturesSink keeps the features an agent reports.
 type FeaturesSink func(ctx context.Context, features *labpb.FeaturesResponse, observedAt time.Time) error
+
+// LinkSink hears the state of the monitoring link: Down when the stream could not be opened or broke, Up when
+// the agent delivered a message. A sink must not block.
+type LinkSink interface {
+	Down(cause error)
+	Up()
+}
+
+// WithLinkSink reports the state of the link to sink.
+func (r *Runner) WithLinkSink(sink LinkSink) *Runner {
+	r.link = sink
+	return r
+}
 
 // WithFeaturesSink hands every reported features message to sink.
 func (r *Runner) WithFeaturesSink(sink FeaturesSink) *Runner {
@@ -131,6 +146,9 @@ func (r *Runner) Run(ctx context.Context) error {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return nil
 		}
+		if r.link != nil && err != nil {
+			r.link.Down(err)
+		}
 		if !wait(ctx, backoff) {
 			return nil
 		}
@@ -156,10 +174,15 @@ func (r *Runner) consume(ctx context.Context) error {
 		return err
 	}
 	needSnapshot := !resuming
+	linkUp := false
 	for {
 		update, err := stream.Recv()
 		if err != nil {
 			return err
+		}
+		if !linkUp && r.link != nil {
+			linkUp = true
+			r.link.Up()
 		}
 		if r.agentID != "" {
 			update.AgentId = r.agentID

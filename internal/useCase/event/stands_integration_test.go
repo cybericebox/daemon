@@ -20,6 +20,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
+	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
@@ -171,9 +172,36 @@ type standFixture struct {
 	infraTaskID, infraDevice  uuid.UUID
 }
 
+// journalCollector stands in for the error journal and keeps what is reported.
+type journalCollector struct {
+	mu     sync.Mutex
+	events []errorJournal.Event
+}
+
+func (c *journalCollector) Report(e errorJournal.Event) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.events = append(c.events, e)
+}
+
+func (c *journalCollector) kind(k errorJournal.Kind) []errorJournal.Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []errorJournal.Event
+	for _, e := range c.events {
+		if e.Kind == k {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 func TestStandEngine_StrictAvailabilityRecreateFailureAndTeardown(t *testing.T) {
 	f := newStandFixture(t)
 	ctx := context.Background()
+	journal := &journalCollector{}
+	errorJournal.SetReporter(journal)
+	t.Cleanup(func() { errorJournal.SetReporter(nil) })
 
 	// Pass 1 (inside the deploy window, before start): every admitted team and
 	// the moderators team get assignments; static challenges are published at
@@ -248,6 +276,10 @@ func TestStandEngine_StrictAvailabilityRecreateFailureAndTeardown(t *testing.T) 
 	f.pass(t)
 	f.pass(t)
 	f.assertStatuses(t, map[string]string{"Blue": "failed"})
+	// A failed lab deploy goes to the error journal once, with the lab named and no team data.
+	if failed := journal.kind(errorJournal.KindLabDeploy); len(failed) != 1 || !strings.HasSuffix(last, "/"+failed[0].Details["lab"]) || failed[0].Message == "" {
+		t.Fatalf("lab deploy journal events = %+v, want exactly one for %s", failed, last)
+	}
 	if n := f.count(t, `SELECT count(*) FROM signal_outbox WHERE signal_type = 'event.lab.failed' AND payload->>'team_id' = $1`, f.blueID.String()); n != 1 {
 		t.Fatalf("event.lab.failed signals = %d, want 1", n)
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
@@ -347,7 +348,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 			if now.Sub(*binding.DeployedAt) < eventStandModel.DeployTimeout {
 				continue
 			}
-			if _, err = u.labBindings.MarkFailed(ctx, binding, eventStandModel.Reason("Laboratory status unavailable: "+statusErr.Error())); err != nil {
+			if _, err = u.failStandLab(ctx, binding, eventStandModel.Reason("Laboratory status unavailable: "+statusErr.Error())); err != nil {
 				errs = append(errs, model.ErrPlatform.WithError(err).WithMessage("Failed to fail stand lab").Err())
 			}
 			continue
@@ -361,12 +362,27 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				ready[binding.EventTeamID] = struct{}{}
 			}
 		case eventStandModel.OutcomeFailed:
-			if _, err = u.labBindings.MarkFailed(ctx, binding, reason); err != nil {
+			if _, err = u.failStandLab(ctx, binding, reason); err != nil {
 				errs = append(errs, model.ErrPlatform.WithError(err).WithMessage("Failed to fail stand lab").Err())
 			}
 		}
 	}
 	return ready, errors.Join(errs...)
+}
+
+// failStandLab fails the pending Lab of a team's stand and tells the error journal about a failed lab deploy. The
+// journal hears about it once per failure (only when this call changed the binding).
+func (u *EventUseCase) failStandLab(ctx context.Context, binding labBindingModel.Binding, reason string) (bool, error) {
+	changed, err := u.labBindings.MarkFailed(ctx, binding, reason)
+	if err == nil && changed {
+		errorJournal.Report(errorJournal.Event{
+			Kind: errorJournal.KindLabDeploy, Source: "stands", Message: reason,
+			Details: map[string]string{
+				"event_id": binding.EventID.String(), "lab_group": binding.LabGroupName, "lab": binding.LabName,
+			},
+		})
+	}
+	return changed, err
 }
 
 func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, topologies map[topologyKey]exerciseModel.Topology, now time.Time) error {
@@ -378,7 +394,7 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	if !cached {
 		resolved, err := u.topologies.ResolveDeployedTopology(ctx, lab.ExerciseVersionID, lab.VariantIndex)
 		if err != nil {
-			if _, markErr := u.labBindings.MarkFailed(ctx, lab.Binding, eventStandModel.Reason("Topology unavailable: "+err.Error())); markErr != nil {
+			if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Topology unavailable: "+err.Error())); markErr != nil {
 				return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 			}
 			return nil
@@ -387,7 +403,7 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	}
 	topology, err := u.withTeamFlags(ctx, lab, topology)
 	if err != nil {
-		if _, markErr := u.labBindings.MarkFailed(ctx, lab.Binding, eventStandModel.Reason("Flag injection failed: "+err.Error())); markErr != nil {
+		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Flag injection failed: "+err.Error())); markErr != nil {
 			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
 		return nil
@@ -399,7 +415,7 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 			log.Info().Err(terminating).Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Stand lab deploy waits for deletion to finish")
 			return nil
 		}
-		if _, markErr := u.labBindings.MarkFailed(ctx, lab.Binding, eventStandModel.Reason("Deploy failed: "+err.Error())); markErr != nil {
+		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Deploy failed: "+err.Error())); markErr != nil {
 			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
 		return nil

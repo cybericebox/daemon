@@ -17,6 +17,8 @@ type (
 		client    *river.Client[pgx.Tx]
 		pool      *pgxpool.Pool
 		retention Retention
+		// errorHandler sees every failed attempt and panic of a job; nil keeps River's own logging only.
+		errorHandler river.ErrorHandler
 	}
 
 	// Retention is how long River keeps finished jobs. The arguments of a job carry what the job needs
@@ -46,6 +48,12 @@ func NewWorkerClient(pool *pgxpool.Pool, retention Retention) *workerClient {
 	}
 }
 
+// WithErrorHandler sets the handler River calls for a failed attempt or a panic of a job (the error journal).
+func (wc *workerClient) WithErrorHandler(h river.ErrorHandler) *workerClient {
+	wc.errorHandler = h
+	return wc
+}
+
 func (wc *workerClient) Initialize(ctx context.Context, registry iWorkerRegistry) {
 	driver := riverpgxv5.New(wc.pool)
 
@@ -63,6 +71,7 @@ func (wc *workerClient) Initialize(ctx context.Context, registry iWorkerRegistry
 		driver, &river.Config{
 			Queues:                      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}},
 			Workers:                     workers,
+			ErrorHandler:                wc.errorHandler,
 			PeriodicJobs:                registry.PeriodicJobs(),
 			CompletedJobRetentionPeriod: wc.retention.Completed,
 			CancelledJobRetentionPeriod: wc.retention.Failed,

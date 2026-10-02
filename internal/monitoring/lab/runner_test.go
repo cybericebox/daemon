@@ -266,3 +266,31 @@ func TestFeaturesSinkReceivesTheReportedFeatures(t *testing.T) {
 		t.Fatalf("sink got %+v at %v", got, at)
 	}
 }
+
+type linkRecorder struct{ ups, downs int }
+
+func (l *linkRecorder) Down(error) { l.downs++ }
+func (l *linkRecorder) Up()        { l.ups++ }
+
+func TestLinkSinkHearsUpOnceWhenTheAgentDeliversAndNeverForAnOpenFailure(t *testing.T) {
+	link := &linkRecorder{}
+	store := &recordingStore{}
+	stream := &scriptedStream{updates: []*labpb.MonitoringUpdate{update("e1", 1, true, "group-a"), update("e1", 2, false, "group-a")}}
+	var requests []*labpb.MonitoringRequest
+	runner := NewRunner(nil, openOnce(stream, &requests), store).WithLinkSink(link)
+	if err := runner.consume(context.Background()); err != io.EOF {
+		t.Fatalf("consume error = %v, want EOF", err)
+	}
+	if link.ups != 1 || link.downs != 0 {
+		t.Fatalf("link up/down = %d/%d, want 1/0 (up once, not per message)", link.ups, link.downs)
+	}
+
+	failing := &linkRecorder{}
+	broken := NewRunner(nil, func(context.Context, *labpb.MonitoringRequest) (Stream, error) { return nil, io.ErrClosedPipe }, store).WithLinkSink(failing)
+	if err := broken.consume(context.Background()); err != io.ErrClosedPipe {
+		t.Fatalf("consume error = %v, want the open error", err)
+	}
+	if failing.ups != 0 {
+		t.Fatalf("a link that never opened must not report up, got %d", failing.ups)
+	}
+}

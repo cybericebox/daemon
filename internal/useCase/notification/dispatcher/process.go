@@ -2,10 +2,12 @@ package dispatcherUseCase
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/dispatchRepo"
 	"github.com/cybericebox/daemon/internal/model"
+	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/notification"
 	"github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/notification/types"
@@ -154,6 +156,7 @@ func (u *NotificationDispatcher) ProcessNotification(
 				status, msg = dispatchModel.TargetStatusError, "no template"
 			} else {
 				status, msg = dispatchModel.TargetStatusError, hErr.Error()
+				reportMailFailure(p.ch, in, hErr, attempts[p.ch])
 			}
 		}
 		result := dispatchRepo.TargetResult{Status: status, Error: msg, Attempts: attempts[p.ch]}
@@ -171,4 +174,18 @@ func (u *NotificationDispatcher) ProcessNotification(
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to mark dispatch done").Err()
 	}
 	return nil
+}
+
+// reportMailFailure tells the error journal about an e-mail that failed after its retry rounds. Other channels
+// (the in-app copy) are not mail. The error text is scrubbed by the journal: it can hold an address.
+func reportMailFailure(ch notificationTypes.NotificationChannel, in dispatchModel.ProcessInput, err error, attempts int32) {
+	if ch != notificationTypes.NotificationChannelEmail {
+		return
+	}
+	errorJournal.Report(errorJournal.Event{
+		Kind: errorJournal.KindMail, Source: "email", Message: err.Error(),
+		Details: map[string]string{
+			"notification_type": in.Type, "dispatch_id": in.DispatchID.String(), "attempts": strconv.Itoa(int(attempts)),
+		},
+	})
 }
