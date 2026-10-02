@@ -147,6 +147,7 @@
   "21929": "Solution attempt cursor is invalid",
   "21931": "Hint costs must name hints of this challenge and be 0-10000",
   "21935": "Group order must contain every challenge of the group exactly once",
+  "21937": "The answer is too long",
   "22002": "Laboratory deploy lead must be 5-1440 minutes and teardown delay 0-10080 minutes",
   "22101": "SMTP settings are invalid",
   "22104": "Mail sender settings are invalid",

@@ -98,6 +98,9 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 		return SubmitChallengeResult{}, challengeAttempt.ErrIdempotencyKeyRequired.Err()
 	}
 	canonicalAnswer := strings.TrimSpace(in.Answer)
+	if err := challengeAttempt.CheckAnswerLength(canonicalAnswer); err != nil {
+		return SubmitChallengeResult{}, err
+	}
 	requestHash := sha256.Sum256([]byte(eventID.String() + "\x00" + challengeID.String() + "\x00" + canonicalAnswer))
 	now := time.Now()
 	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)

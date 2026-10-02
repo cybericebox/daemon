@@ -269,7 +269,7 @@ func TestTunablesDefaultsAndOverrides(t *testing.T) {
 	cfg := MustGetConfig()
 	tn := cfg.Tunables
 	if tn.SSEMaxLifetime != 30*time.Minute || tn.EventStandDeployTimeout != 20*time.Minute || tn.LiveScreenLinkMaxTTL != 1440*time.Hour ||
-		tn.EventDefaultMaxTeamSize != 5 || len(tn.SMTPAllowedPorts) != 4 || tn.SMTPAllowedPorts[2] != 587 ||
+		tn.EventDefaultMaxTeamSize != 5 || tn.FlagAnswerMaxBytes != 512 || len(tn.SMTPAllowedPorts) != 4 || tn.SMTPAllowedPorts[2] != 587 ||
 		tn.MailMaxRateWait != 20*time.Second || tn.MailQuotaWindow != 24*time.Hour || tn.AvatarMaxBytes != 5<<20 ||
 		tn.EmailImageUploadMaxBytes != 10<<20 || tn.EmailImageMaxBytes != 300<<10 || tn.EmailImageMaxWidth != 1200 {
 		t.Fatalf("defaults drifted from the env template: %+v", tn)

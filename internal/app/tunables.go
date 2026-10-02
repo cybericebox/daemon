@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
+	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
@@ -28,6 +29,7 @@ func applyTunables(t config.TunablesConfig) {
 	mailModel.ConfigureLimitCaps(t.MailMaxPerSecondLimit, t.MailDailyQuotaLimit)
 
 	authUseCase.MaxAvatarBytes = t.AvatarMaxBytes
+	challengeAttempt.MaxAnswerBytes = t.FlagAnswerMaxBytes
 	eventUseCase.ConfigureUploadLimits(eventUseCase.UploadLimits{
 		Logo: int64(t.EventLogoMaxBytes), PreviewPicture: int64(t.EventPreviewPictureMaxBytes),
 		ContentImage: int64(t.EventContentImageMaxBytes), LiveLogo: int64(t.LiveLogoMaxBytes),
