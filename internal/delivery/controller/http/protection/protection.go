@@ -16,6 +16,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -98,6 +99,8 @@ func (p *Protection) RequirePermission(required rbac.Permission) gin.HandlerFunc
 		_, authenticated := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 		if !rbac.HasPermissionInContext(ctx.Request.Context(), required) &&
 			(authenticated || !rbac.RolePublic.HasPermission(required)) {
+			// The journal records which permission refused: refusals point at wrong permissions.
+			errjournal.SetPermission(ctx, string(required))
 			response.AbortWithForbidden(ctx)
 			// A refused administrative action by a signed-in user is worth a
 			// line too (probing shows up as a run of 403s).

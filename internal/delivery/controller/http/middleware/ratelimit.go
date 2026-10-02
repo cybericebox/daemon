@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
@@ -34,6 +35,7 @@ func RateLimitPerUser(limit int, window time.Duration) gin.HandlerFunc {
 		allowed := counts[key] <= limit
 		mu.Unlock()
 		if !allowed {
+			errjournal.SetLimiter(ctx, "per-user")
 			response.AbortWithTooManyRequests(ctx)
 			return
 		}

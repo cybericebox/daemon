@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/labview"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
@@ -376,6 +377,7 @@ func (h *Handler) liveResults(ctx *gin.Context) {
 	}
 	release, admitted := sse.Streams.Acquire("results:"+key, limit)
 	if !admitted {
+		errjournal.SetLimiter(ctx, "results-streams")
 		response.AbortWithTooManyRequests(ctx)
 		return
 	}

@@ -5,6 +5,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 )
 
 type (
@@ -20,6 +21,8 @@ type (
 		UseCase              IUseCase
 		HTTPControllerConfig config.HTTPControllerConfig
 		AuthConfig           config.AuthConfig
+		// ErrorJournal captures HTTP errors; nil captures nothing.
+		ErrorJournal errjournal.Sink
 	}
 )
 
@@ -27,9 +30,10 @@ func NewController(deps Dependencies) *Controller {
 	return &Controller{
 		httpController: http.NewController(
 			http.Dependencies{
-				Config:     &deps.HTTPControllerConfig,
-				UseCase:    deps.UseCase,
-				AuthConfig: deps.AuthConfig,
+				Config:       &deps.HTTPControllerConfig,
+				UseCase:      deps.UseCase,
+				AuthConfig:   deps.AuthConfig,
+				ErrorJournal: deps.ErrorJournal,
 			},
 		),
 	}

@@ -10,6 +10,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler"
 	_ "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/apidocs"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
@@ -32,6 +33,8 @@ type (
 		UseCase    IUseCase
 		Config     *config.HTTPControllerConfig
 		AuthConfig config.AuthConfig
+		// ErrorJournal receives 5xx, panics, 403, 429 and the 404 counters; nil captures nothing.
+		ErrorJournal errjournal.Sink
 	}
 )
 
@@ -64,6 +67,9 @@ func NewController(deps Dependencies) *Controller {
 	// gin mode config.SetupLogger set from ENV (and so does the route dump).
 	router := newRouter()
 	router.Use(middleware.ForMode(gin.Mode())...)
+	// Inside the recovery (it records a panic and lets it through) and outside the error handler (the status it
+	// reads is the one the client gets).
+	router.Use(errjournal.Middleware(deps.ErrorJournal))
 
 	if err := hardenRouter(router, deps.Config); err != nil {
 		log.Fatal().Err(err).Msg("Invalid HTTP controller configuration")
