@@ -408,7 +408,8 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		}
 		return nil
 	}
-	if err := u.infra.DeployLab(ctx, lab.Binding.LabGroupName, lab.Binding.LabName, standLabMeta(e, lab), topology); err != nil {
+	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).
+	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, standLabMeta(e, lab), topology); err != nil {
 		// The previous group or Lab of this name is still being deleted: not a
 		// failure. The binding stays pending and the next pass deploys again.
 		if terminating, ok := infraModel.AsTerminating(err); ok {

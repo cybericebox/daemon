@@ -244,6 +244,7 @@ PUT    /api/events/:id/manage/participants/:userID/visibility | gate: self | lay
 POST   /api/events/:id/manage/participants/invitations | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/preview-picture | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/preview-picture | gate: self | layers: event.requireManage
+GET    /api/events/:id/manage/resource-plan | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/results | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/results-settings | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/results-settings | gate: self | layers: event.requireManage
@@ -345,6 +346,8 @@ GET    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 PUT    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/proposals | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/publish | gate: self | layers: exercise.authorize.func
+GET    /api/exercises/:id/resource-elevations | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/resource-elevations | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/unarchive | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/usage | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/versions | gate: self | layers: exercise.authorize.func
@@ -370,6 +373,8 @@ POST   /api/exercises/import | gate: exercises.write | layers: -
 GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
 POST   /api/exercises/proposals/:proposalID/reject | gate: exercises.publish | layers: -
+GET    /api/exercises/resource-elevations | gate: exercises.elevations.read | layers: -
+POST   /api/exercises/resource-elevations/:elevationID/decide | gate: exercises.elevations.write | layers: -
 GET    /api/exercises/tags | gate: self | layers: -
 GET    /api/infrastructure/agents | gate: infrastructure.read | layers: -
 POST   /api/infrastructure/agents | gate: infrastructure.write | layers: -

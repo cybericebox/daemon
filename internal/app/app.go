@@ -64,6 +64,12 @@ func Run(cfg *config.Config) {
 
 	limits.Set(cfg.Limits)
 
+	// The device resources settings were validated with the configuration.
+	resourcesPolicy, err := cfg.Resources.Policy()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Invalid device resources settings")
+	}
+
 	// ── useCases ──
 	deps := useCase.Dependencies{
 		Repo:             repo,
@@ -76,6 +82,7 @@ func Run(cfg *config.Config) {
 		AuthConfig:       cfg.Auth,
 		MediaConfig:      cfg.Media,
 		ExerciseConfig:   cfg.Exercise,
+		ResourcesPolicy:  resourcesPolicy,
 		SMTPAllowedPorts: cfg.Tunables.SMTPAllowedPorts,
 		RetentionPolicy:  cfg.Retention.Policy(),
 		ExerciseCipher:   cls.exerciseCipher,
@@ -95,6 +102,7 @@ func Run(cfg *config.Config) {
 	// The infrastructure port is the agent fleet: every enrolled agent in the database. It reports
 	// itself unavailable while it has no agent, so agents can be added in the admin without a restart.
 	fleet := labagent.NewFleet(labPlacementRepo.New(repo.Queries), nil)
+	fleet.SetPolicy(resourcesPolicy)
 	trafficIngest := labMonitoring.NewTrafficIngest(labTrafficRepo.New(repo.Queries))
 	observations := eventLabObservationRepo.New(repo.Queries)
 	agentManager := agentfleet.New(agentfleet.Config{

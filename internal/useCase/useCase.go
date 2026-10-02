@@ -24,6 +24,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
@@ -96,6 +97,9 @@ type (
 		AuthConfig     config.AuthConfig
 		MediaConfig    config.MediaConfig
 		ExerciseConfig config.ExerciseConfig
+		// ResourcesPolicy is the platform's device resources settings (presets, frame, ceiling); zero: the
+		// owner's defaults.
+		ResourcesPolicy resourcesModel.Policy
 		// SMTPAllowedPorts are the ports an organizer may use for an event SMTP server.
 		SMTPAllowedPorts []int
 		// RetentionPolicy is the Privacy Policy's retention periods.
@@ -176,6 +180,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			FlagConfig: deps.ExerciseConfig,
 			Sessions:   testSessions,
 			DeployUoW:  postgres.NewUnitOfWorker[testDeployRepo.Queries](deps.Repo.UoWFactory()),
+			Resources:  deps.ResourcesPolicy,
 		},
 	)
 
@@ -189,7 +194,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}
 	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
 		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),
-		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote,
+		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote, Frame: deps.ResourcesPolicy.Frame,
 	})
 
 	testLabsUC := infrastructureUseCase.NewTestLabsUseCase(
@@ -219,6 +224,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			IDHost:                   deps.AuthConfig.Hosts.ID,
 			SetupTokens:              setupTokens,
 			LabSessions:              deps.LabSessions,
+			Resources:                deps.ResourcesPolicy,
 		},
 	)
 
@@ -240,6 +246,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	inboxRequests := inboxUseCase.NewRequestRouter(deps.Repo, notificationDispatcher)
 	eventUC.SetStandInbox(inboxRequests)
 	exerciseUC.SetProposalInbox(inboxRequests)
+	exerciseUC.SetElevationInbox(inboxRequests)
 	eventUC.SetEmailFooters(mailUC)
 	emailTemplateUC := emailUseCase.NewNotificationEmailTemplateUseCase(deps.Repo, mediaUC)
 	emailTemplateUC.SetFooterSource(mailUC)

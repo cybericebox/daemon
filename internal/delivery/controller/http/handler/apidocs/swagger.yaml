@@ -970,15 +970,6 @@ definitions:
         type: string
       ExerciseVersionID:
         type: string
-      Fit:
-        description: |-
-          Fit lists the variants some laboratory cannot run within its resource limits (set when attaching the
-          exercise); each entry gives the variant index, whether any laboratory can run it, and per laboratory the
-          device (empty for a lab-wide cap), the resource (cpu, memory, devices, groupLabs, groupCpu, groupMemory), what it asks
-          for and the limit. CPU in millicores, memory in bytes.
-        items:
-          $ref: '#/definitions/event.eventVariantFitResponse'
-        type: array
       FixedVariantIndex:
         type: integer
       Fork:
@@ -993,10 +984,21 @@ definitions:
         type: string
       LatestVersionNumber:
         type: integer
+      NoAgentFits:
+        type: boolean
       PublishedCount:
         type: integer
       ReplacesID:
         type: string
+      ResourceHeavy:
+        type: boolean
+      Resources:
+        allOf:
+        - $ref: '#/definitions/event.eventResourceRangeResponse'
+        description: |-
+          Resources is the total of the pinned version: the least and the most it needs over its variants (equal for
+          one variant); planning reserves the largest. ResourceHeavy: an approved elevation holds a device above the
+          platform frame (a badge). NoAgentFits: no laboratory that is used can run it (never names one).
       Revision:
         type: integer
       Scope:
@@ -1015,19 +1017,6 @@ definitions:
         type: integer
       VersionNumber:
         type: integer
-    type: object
-  event.eventFitWarningResponse:
-    properties:
-      Agent:
-        type: string
-      Device:
-        type: string
-      Max:
-        type: integer
-      Requested:
-        type: integer
-      Resource:
-        type: string
     type: object
   event.eventFormAssignmentSwaggerRequest:
     properties:
@@ -1175,6 +1164,50 @@ definitions:
       Name:
         type: string
     type: object
+  event.eventResourcePlanResponse:
+    properties:
+      Group:
+        $ref: '#/definitions/event.resourcePlanGroupResponse'
+      NoAgentFits:
+        description: 'NoAgentFits: some task cannot be placed on any laboratory that
+          is used.'
+        type: boolean
+      PerTeam:
+        $ref: '#/definitions/event.eventResourceTotalsResponse'
+      Tasks:
+        items:
+          $ref: '#/definitions/event.resourcePlanTaskResponse'
+        type: array
+      TeamTasks:
+        $ref: '#/definitions/event.eventResourceTotalsResponse'
+      Teams:
+        description: 'Teams is the number of teams reserved for: MaxTeams when set,
+          else the teams there are now (at least 1).'
+        type: integer
+      TeamsBasis:
+        enum:
+        - max_teams
+        - current
+        type: string
+      Total:
+        $ref: '#/definitions/event.eventResourceTotalsResponse'
+    type: object
+  event.eventResourceRangeResponse:
+    properties:
+      Max:
+        $ref: '#/definitions/event.eventResourceTotalsResponse'
+      Min:
+        $ref: '#/definitions/event.eventResourceTotalsResponse'
+    type: object
+  event.eventResourceTotalsResponse:
+    properties:
+      CPUMillicores:
+        type: integer
+      Devices:
+        type: integer
+      MemoryBytes:
+        type: integer
+    type: object
   event.eventResponse:
     properties:
       ArchiveAt:
@@ -1199,17 +1232,6 @@ definitions:
         type: string
       UpdatedAt:
         type: string
-    type: object
-  event.eventVariantFitResponse:
-    properties:
-      FitsAny:
-        type: boolean
-      VariantIndex:
-        type: integer
-      Warnings:
-        items:
-          $ref: '#/definitions/event.eventFitWarningResponse'
-        type: array
     type: object
   event.hintCostRequest:
     properties:
@@ -1726,6 +1748,14 @@ definitions:
         type: string
       PublishedVersionID:
         type: string
+      ResourceHeavy:
+        type: boolean
+      Resources:
+        allOf:
+        - $ref: '#/definitions/event.eventResourceRangeResponse'
+        description: |-
+          Resources is the total of the published version (min and max over its variants); ResourceHeavy: an
+          approved elevation holds a device above the platform frame (a badge in the picker).
       Scope:
         description: 'Scope: catalog | event (the event''s own exercise).'
         type: string
@@ -1767,6 +1797,48 @@ definitions:
       Enable:
         description: Enable true starts the device in rescue mode (a shell from its
           latest snapshot), false returns it to normal.
+        type: boolean
+    type: object
+  event.resourceAmountResponse:
+    properties:
+      CPUMillicores:
+        type: integer
+      MemoryBytes:
+        type: integer
+    type: object
+  event.resourcePlanGroupResponse:
+    properties:
+      Gateway:
+        $ref: '#/definitions/event.resourceAmountResponse'
+      InternetLabs:
+        type: integer
+      Known:
+        type: boolean
+      MaxUsers:
+        type: integer
+      VPN:
+        $ref: '#/definitions/event.resourceAmountResponse'
+    type: object
+  event.resourcePlanTaskResponse:
+    properties:
+      EventExerciseID:
+        type: string
+      ExerciseID:
+        type: string
+      ExerciseName:
+        type: string
+      InternetLab:
+        type: boolean
+      NoAgentFits:
+        type: boolean
+      Range:
+        $ref: '#/definitions/event.eventResourceRangeResponse'
+      Reserved:
+        allOf:
+        - $ref: '#/definitions/event.eventResourceTotalsResponse'
+        description: 'Reserved is what planning reserves per team: the largest variant
+          (the pinned one for a fixed variant).'
+      ResourceHeavy:
         type: boolean
     type: object
   event.resultsFreezeStateResponse:
@@ -4816,6 +4888,20 @@ definitions:
           type: string
         type: array
     type: object
+  exercise.decideElevationRequest:
+    properties:
+      Approve:
+        description: |-
+          Approve true approves, false rejects. Devices are the approved values per requested device (a value may
+          be lower than requested, never above the ceiling); empty approves exactly what was requested.
+        type: boolean
+      Devices:
+        items:
+          $ref: '#/definitions/exercise.elevationDeviceResponse'
+        type: array
+      Note:
+        type: string
+    type: object
   exercise.deployAccessResponse:
     properties:
       Device:
@@ -4995,11 +5081,33 @@ definitions:
         allOf:
         - $ref: '#/definitions/exercise.persistenceDTO'
         description: Persistence is absent when the device keeps no state.
+      ResourcePreset:
+        description: |-
+          ResourcePreset is a platform preset id (see the capabilities Resources); when empty the device carries its
+          own custom Resources (limits; requests always equal limits), and with neither it gets the default preset.
+        type: string
       Resources:
         $ref: '#/definitions/exercise.resourcesDTO'
       SecurityPreset:
         type: string
       Type:
+        type: string
+    type: object
+  exercise.deviceOutsideResponse:
+    properties:
+      AboveCeiling:
+        type: boolean
+      CPUMillicores:
+        type: integer
+      Covered:
+        type: boolean
+      DeviceID:
+        type: string
+      MemoryBytes:
+        type: integer
+      Name:
+        type: string
+      VariantID:
         type: string
     type: object
   exercise.dhcpRangeDTO:
@@ -5008,6 +5116,55 @@ definitions:
         type: integer
       Start:
         type: integer
+    type: object
+  exercise.elevationDeviceResponse:
+    properties:
+      CPUMillicores:
+        type: integer
+      DeviceID:
+        type: string
+      MemoryBytes:
+        type: integer
+      Name:
+        type: string
+    type: object
+  exercise.elevationResponse:
+    properties:
+      Approved:
+        items:
+          $ref: '#/definitions/exercise.elevationDeviceResponse'
+        type: array
+      DecidedAt:
+        type: string
+      DecidedBy:
+        type: string
+      DecidedByName:
+        type: string
+      DecisionNote:
+        type: string
+      ExerciseID:
+        type: string
+      ExerciseName:
+        type: string
+      ID:
+        type: string
+      Reason:
+        type: string
+      Requested:
+        items:
+          $ref: '#/definitions/exercise.elevationDeviceResponse'
+        type: array
+      RequestedAt:
+        type: string
+      RequestedBy:
+        type: string
+      RequestedByName:
+        type: string
+      Status:
+        description: Status is pending, approved or rejected.
+        type: string
+      VersionID:
+        type: string
     type: object
   exercise.endpointDTO:
     properties:
@@ -5083,6 +5240,15 @@ definitions:
         type: string
       Permissions:
         $ref: '#/definitions/exercise.exercisePermissionsResponse'
+      ResourceHeavy:
+        type: boolean
+      Resources:
+        allOf:
+        - $ref: '#/definitions/exercise.resourceRangeResponse'
+        description: |-
+          Resources is the total of the published version: min and max over its variants (equal for one variant);
+          zeros without a published version. ResourceHeavy: an approved elevation holds a device of the published
+          version above the platform frame (shown as a badge).
       Scope:
         type: string
       Status:
@@ -5167,6 +5333,15 @@ definitions:
         $ref: '#/definitions/exercise.exercisePermissionsResponse'
       PublishedVersionID:
         type: string
+      ResourceHeavy:
+        type: boolean
+      Resources:
+        allOf:
+        - $ref: '#/definitions/exercise.resourceRangeResponse'
+        description: |-
+          Resources is the total of the published version: min and max over its variants (equal for one variant);
+          zeros without a published version. ResourceHeavy: an approved elevation holds a device of the published
+          version above the platform frame (shown as a badge).
       Scope:
         type: string
       Tags:
@@ -5226,19 +5401,6 @@ definitions:
         type: string
       Size:
         type: integer
-    type: object
-  exercise.fitWarningResponse:
-    properties:
-      Agent:
-        type: string
-      Device:
-        type: string
-      Max:
-        type: integer
-      Requested:
-        type: integer
-      Resource:
-        type: string
     type: object
   exercise.forkSourceResponse:
     properties:
@@ -5383,12 +5545,34 @@ definitions:
       Note:
         type: string
     type: object
+  exercise.requestElevationRequest:
+    properties:
+      Reason:
+        description: Reason says why the devices need more than the frame; required.
+        type: string
+    type: object
   exercise.rescueDeviceRequest:
     properties:
       Enable:
         description: Enable true starts the device in rescue mode (a shell from its
           latest snapshot), false returns it to normal.
         type: boolean
+    type: object
+  exercise.resourceRangeResponse:
+    properties:
+      Max:
+        $ref: '#/definitions/exercise.resourceTotalsResponse'
+      Min:
+        $ref: '#/definitions/exercise.resourceTotalsResponse'
+    type: object
+  exercise.resourceTotalsResponse:
+    properties:
+      CPUMillicores:
+        type: integer
+      Devices:
+        type: integer
+      MemoryBytes:
+        type: integer
     type: object
   exercise.resourcesDTO:
     properties:
@@ -5516,16 +5700,16 @@ definitions:
       Topology:
         $ref: '#/definitions/exercise.topologyDTO'
     type: object
-  exercise.variantFitResponse:
+  exercise.variantResourcesResponse:
     properties:
-      FitsAny:
-        type: boolean
+      CPUMillicores:
+        type: integer
+      Devices:
+        type: integer
+      MemoryBytes:
+        type: integer
       VariantID:
         type: string
-      Warnings:
-        items:
-          $ref: '#/definitions/exercise.fitWarningResponse'
-        type: array
     type: object
   exercise.versionListItemResponse:
     properties:
@@ -5548,6 +5732,30 @@ definitions:
       VariantCount:
         type: integer
     type: object
+  exercise.versionResourcesResponse:
+    properties:
+      Max:
+        $ref: '#/definitions/exercise.resourceTotalsResponse'
+      Min:
+        $ref: '#/definitions/exercise.resourceTotalsResponse'
+      Outside:
+        items:
+          $ref: '#/definitions/exercise.deviceOutsideResponse'
+        type: array
+      ResourceHeavy:
+        type: boolean
+      SpreadPercent:
+        description: |-
+          SpreadPercent is the largest of (max-min)/max over CPU and memory between the variants; VariantsDiffer is
+          SpreadPercent above the warning threshold (25).
+        type: integer
+      Variants:
+        items:
+          $ref: '#/definitions/exercise.variantResourcesResponse'
+        type: array
+      VariantsDiffer:
+        type: boolean
+    type: object
   exercise.versionResponse:
     properties:
       AdminNote:
@@ -5558,20 +5766,26 @@ definitions:
         type: string
       CreatedBy:
         type: string
+      Elevation:
+        allOf:
+        - $ref: '#/definitions/exercise.elevationResponse'
+        description: |-
+          Elevation is the exercise's open resource elevation request, else its latest decided one; null when it
+          never had one.
       ExerciseID:
         type: string
-      Fit:
-        description: Fit lists the variants some laboratory cannot run within its
-          resource limits; empty when all fit.
-        items:
-          $ref: '#/definitions/exercise.variantFitResponse'
-        type: array
       ID:
         type: string
       Label:
         type: string
       PublishedAt:
         type: string
+      Resources:
+        allOf:
+        - $ref: '#/definitions/exercise.versionResourcesResponse'
+        description: |-
+          Resources: the totals of the version (min and max over its variants, per variant), the devices outside
+          the platform frame and whether the task is resource-heavy.
       Status:
         type: string
       Variants:
@@ -5748,6 +5962,13 @@ definitions:
         type: boolean
       LatencyMs:
         type: integer
+      MeetsRequirements:
+        description: |-
+          MeetsRequirements is false when the agent's device maxima are below the platform frame or it allows
+          fewer than 32 devices per lab: it is then not used for planning or placement. Unmet says where
+          (Resource deviceCpu, deviceMemory or devices; Required is what the platform needs, Max what the
+          agent reports). An agent that has not reported yet meets them.
+        type: boolean
       Name:
         type: string
       Priority:
@@ -5763,6 +5984,10 @@ definitions:
           Tenant is the agent's tenant name (its certificate CN); AccessKeyID the key that signs the lab
           access tokens now; RetiredKeys how many rotated-out keys still wait for removal at the agent.
         type: string
+      Unmet:
+        items:
+          $ref: '#/definitions/infrastructure.agentUnmetRequirement'
+        type: array
       UpdatedAt:
         type: string
     type: object
@@ -5777,12 +6002,27 @@ definitions:
     type: object
   infrastructure.agentFeaturesResponse:
     properties:
+      DeviceMaxCPUMillicores:
+        description: |-
+          DeviceMaxCPUMillicores and DeviceMaxMemoryBytes are the most one device may get; LabMaxDevices the
+          container devices of one lab. 0 = no limit.
+        type: integer
+      DeviceMaxMemoryBytes:
+        type: integer
+      DeviceProfiles:
+        items:
+          type: string
+        type: array
+      Gateway:
+        $ref: '#/definitions/infrastructure.groupPodSizingResponse'
       ImageCacheEnabled:
         type: boolean
       ImageCacheRegistries:
         items:
           type: string
         type: array
+      LabMaxDevices:
+        type: integer
       LabsDomain:
         description: LabsDomain is the base domain of the lab web endpoints; VPNEndpoint
           is host:port of WireGuard.
@@ -5815,6 +6055,12 @@ definitions:
       SchedulerMaxPods:
         description: SchedulerMaxPods is the most pods starting at once; 0 = no limit.
         type: integer
+      VPN:
+        allOf:
+        - $ref: '#/definitions/infrastructure.groupPodSizingResponse'
+        description: |-
+          VPN and Gateway size the pods of a lab group: base plus per user (VPN) or per lab with internet
+          (gateway), at most Max; 0 in all three = the agent did not report it.
       VPNEndpoint:
         type: string
     type: object
@@ -5829,6 +6075,15 @@ definitions:
       Key:
         type: string
       Name:
+        type: string
+    type: object
+  infrastructure.agentUnmetRequirement:
+    properties:
+      Max:
+        type: integer
+      Required:
+        type: integer
+      Resource:
         type: string
     type: object
   infrastructure.agentsResponse:
@@ -5916,6 +6171,21 @@ definitions:
       Name:
         type: string
       Priority:
+        type: integer
+    type: object
+  infrastructure.groupPodSizingResponse:
+    properties:
+      BaseCPUMillicores:
+        type: integer
+      BaseMemoryBytes:
+        type: integer
+      MaxCPUMillicores:
+        type: integer
+      MaxMemoryBytes:
+        type: integer
+      PerUnitCPUMillicores:
+        type: integer
+      PerUnitMemoryBytes:
         type: integer
     type: object
   infrastructure.keysetResponse-infrastructure_capacityResponse:
@@ -14603,6 +14873,35 @@ paths:
       summary: Invite event participants by email
       tags:
       - events
+  /events/{id}/manage/resource-plan:
+    get:
+      description: What the event reserves. Per attached task its totals (CPU, memory,
+        devices; the least and the most over its variants) and what planning reserves
+        (the largest variant, the pinned one for a fixed variant); the group overhead
+        as a separate line (the VPN sized by the event's maximum team size and the
+        gateway sized by the group's internet labs, with the laboratories' formula);
+        the per-team sum and the total for the teams. Never names a laboratory.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.eventResourcePlanResponse'
+              type: object
+      summary: 'Resource plan of the event: tasks, group overhead and total'
+      tags:
+      - events
   /events/{id}/manage/results:
     get:
       parameters:
@@ -17217,6 +17516,68 @@ paths:
       summary: Publish the draft version
       tags:
       - exercises
+  /exercises/{id}/resource-elevations:
+    get:
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.elevationResponse'
+                  type: array
+              type: object
+      summary: Resource elevation requests of one exercise, newest first
+      tags:
+      - exercises
+    post:
+      consumes:
+      - application/json
+      description: Asks for the devices of the working copy (the draft, else the published
+        version) that pass the frame and are not covered by an earlier approval, with
+        a reason. One request is open per exercise. 409 (70969) when no device needs
+        it, 409 (70970) when a request is already pending, 400 (20967) when a device
+        is above the elevation ceiling, 400 (20973) without a reason. The platform
+        admins are notified.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.requestElevationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.elevationResponse'
+              type: object
+      summary: Ask a platform admin to let devices of the task go above the platform
+        resource frame
+      tags:
+      - exercises
   /exercises/{id}/unarchive:
     post:
       parameters:
@@ -17871,6 +18232,68 @@ paths:
                   $ref: '#/definitions/exercise.proposalResponse'
               type: object
       summary: Reject a proposal
+      tags:
+      - exercises
+  /exercises/resource-elevations:
+    get:
+      description: Requires exercises.elevations.read (super_admin only).
+      parameters:
+      - description: pending | approved | rejected; empty lists all
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.elevationResponse'
+                  type: array
+              type: object
+      summary: Resource elevation requests (platform admin)
+      tags:
+      - exercises
+  /exercises/resource-elevations/{elevationID}/decide:
+    post:
+      consumes:
+      - application/json
+      description: 'The approval stores the approved values per device (default: exactly
+        what was requested; lower values are allowed, never above the ceiling): a
+        later version of the exercise keeps it while every value stays at or below
+        them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid
+        approved values. Notifies the author and closes the admins'' request. Requires
+        exercises.elevations.write (super_admin only).'
+      parameters:
+      - description: request ID
+        in: path
+        name: elevationID
+        required: true
+        type: string
+      - description: decision
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.decideElevationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.elevationResponse'
+              type: object
+      summary: Approve or reject a resource elevation request
       tags:
       - exercises
   /exercises/tags:

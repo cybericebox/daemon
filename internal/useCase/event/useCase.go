@@ -53,6 +53,7 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
 	eventManagerUseCase "github.com/cybericebox/daemon/internal/useCase/eventManager"
@@ -189,6 +190,10 @@ type EventUseCase struct {
 	taskOpens *taskOpenThrottle
 	// tagListener is told when an event is created, deleted or retagged.
 	tagListener TagListener
+	// resources is the platform's device resources settings (zero: the owner's defaults, see resourcePolicy);
+	// elevations reads the approved elevations of exercises (nil: none exist).
+	resources  resourcesModel.Policy
+	elevations ApprovalStore
 }
 
 type Dependencies struct {
@@ -218,6 +223,9 @@ type Dependencies struct {
 	// LabSessions signs the proxy tokens of the web side of lab access; nil
 	// when unconfigured.
 	LabSessions LabSessionIssuer
+	// Resources are the platform's device resources settings; Elevations reads approved resource elevations.
+	Resources  resourcesModel.Policy
+	Elevations ApprovalStore
 }
 
 // BrandMedia owns the event logo reference independently of email template images.
@@ -321,6 +329,8 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		mail:                     mailRepo.New(deps.Repo),
 		activity:                 eventActivityRepo.New(deps.Repo),
 		taskOpens:                newTaskOpenThrottle(eventActivityModel.TaskOpenWindow),
+		resources:                deps.Resources,
+		elevations:               deps.Elevations,
 	}
 }
 

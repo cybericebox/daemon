@@ -14,6 +14,7 @@ import (
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 )
 
@@ -472,8 +473,13 @@ type EventExerciseView struct {
 	ChallengeCount      int32
 	PublishedCount      int32
 	HasAttempts         bool
-	// Fit lists the variants some laboratory cannot run within its resource limits (set when attaching).
-	Fit []VariantFit
+	// Resources is the total of the pinned version: the least and the most it needs over its variants (equal for
+	// one variant); planning reserves the largest. ResourceHeavy: an approved elevation holds a device above the
+	// platform frame (a badge in the task picker and list). NoAgentFits: no agent that is used can run it; it
+	// never names an agent.
+	Resources     resourcesModel.Range
+	ResourceHeavy bool
+	NoAgentFits   bool
 }
 
 // EventExerciseForkView describes the catalog source of an event fork.
@@ -497,6 +503,10 @@ type EventCatalogItem struct {
 	PublishedVersionID uuid.UUID
 	Infrastructure     bool
 	Attached           bool
+	// Resources is the total of the published version (min and max over its variants); ResourceHeavy: an
+	// approved elevation holds a device above the platform frame.
+	Resources     resourcesModel.Range
+	ResourceHeavy bool
 }
 
 // EventCatalogTag is a tag of the event's attachable exercises with how many

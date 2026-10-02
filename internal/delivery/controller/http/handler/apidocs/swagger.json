@@ -10306,6 +10306,47 @@
                 }
             }
         },
+        "/events/{id}/manage/resource-plan": {
+            "get": {
+                "description": "What the event reserves. Per attached task its totals (CPU, memory, devices; the least and the most over its variants) and what planning reserves (the largest variant, the pinned one for a fixed variant); the group overhead as a separate line (the VPN sized by the event's maximum team size and the gateway sized by the group's internet labs, with the laboratories' formula); the per-team sum and the total for the teams. Never names a laboratory.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Resource plan of the event: tasks, group overhead and total",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.eventResourcePlanResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/results": {
             "get": {
                 "produces": [
@@ -14187,6 +14228,102 @@
                 }
             }
         },
+        "/exercises/resource-elevations": {
+            "get": {
+                "description": "Requires exercises.elevations.read (super_admin only).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Resource elevation requests (platform admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "pending | approved | rejected; empty lists all",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.elevationResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/resource-elevations/{elevationID}/decide": {
+            "post": {
+                "description": "The approval stores the approved values per device (default: exactly what was requested; lower values are allowed, never above the ceiling): a later version of the exercise keeps it while every value stays at or below them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid approved values. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Approve or reject a resource elevation request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "request ID",
+                        "name": "elevationID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "decision",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.decideElevationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.elevationResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/tags": {
             "get": {
                 "produces": [
@@ -14762,6 +14899,100 @@
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/resource-elevations": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Resource elevation requests of one exercise, newest first",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.elevationResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Asks for the devices of the working copy (the draft, else the published version) that pass the frame and are not covered by an earlier approval, with a reason. One request is open per exercise. 409 (70969) when no device needs it, 409 (70970) when a request is already pending, 400 (20967) when a device is above the elevation ceiling, 400 (20973) without a reason. The platform admins are notified.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Ask a platform admin to let devices of the task go above the platform resource frame",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.requestElevationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.elevationResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -21048,13 +21279,6 @@
                 "ExerciseVersionID": {
                     "type": "string"
                 },
-                "Fit": {
-                    "description": "Fit lists the variants some laboratory cannot run within its resource limits (set when attaching the\nexercise); each entry gives the variant index, whether any laboratory can run it, and per laboratory the\ndevice (empty for a lab-wide cap), the resource (cpu, memory, devices, groupLabs, groupCpu, groupMemory), what it asks\nfor and the limit. CPU in millicores, memory in bytes.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/event.eventVariantFitResponse"
-                    }
-                },
                 "FixedVariantIndex": {
                     "type": "integer"
                 },
@@ -21076,11 +21300,25 @@
                 "LatestVersionNumber": {
                     "type": "integer"
                 },
+                "NoAgentFits": {
+                    "type": "boolean"
+                },
                 "PublishedCount": {
                     "type": "integer"
                 },
                 "ReplacesID": {
                     "type": "string"
+                },
+                "ResourceHeavy": {
+                    "type": "boolean"
+                },
+                "Resources": {
+                    "description": "Resources is the total of the pinned version: the least and the most it needs over its variants (equal for\none variant); planning reserves the largest. ResourceHeavy: an approved elevation holds a device above the\nplatform frame (a badge). NoAgentFits: no laboratory that is used can run it (never names one).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.eventResourceRangeResponse"
+                        }
+                    ]
                 },
                 "Revision": {
                     "type": "integer"
@@ -21106,26 +21344,6 @@
                 },
                 "VersionNumber": {
                     "type": "integer"
-                }
-            }
-        },
-        "event.eventFitWarningResponse": {
-            "type": "object",
-            "properties": {
-                "Agent": {
-                    "type": "string"
-                },
-                "Device": {
-                    "type": "string"
-                },
-                "Max": {
-                    "type": "integer"
-                },
-                "Requested": {
-                    "type": "integer"
-                },
-                "Resource": {
-                    "type": "string"
                 }
             }
         },
@@ -21346,6 +21564,69 @@
                 }
             }
         },
+        "event.eventResourcePlanResponse": {
+            "type": "object",
+            "properties": {
+                "Group": {
+                    "$ref": "#/definitions/event.resourcePlanGroupResponse"
+                },
+                "NoAgentFits": {
+                    "description": "NoAgentFits: some task cannot be placed on any laboratory that is used.",
+                    "type": "boolean"
+                },
+                "PerTeam": {
+                    "$ref": "#/definitions/event.eventResourceTotalsResponse"
+                },
+                "Tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.resourcePlanTaskResponse"
+                    }
+                },
+                "TeamTasks": {
+                    "$ref": "#/definitions/event.eventResourceTotalsResponse"
+                },
+                "Teams": {
+                    "description": "Teams is the number of teams reserved for: MaxTeams when set, else the teams there are now (at least 1).",
+                    "type": "integer"
+                },
+                "TeamsBasis": {
+                    "type": "string",
+                    "enum": [
+                        "max_teams",
+                        "current"
+                    ]
+                },
+                "Total": {
+                    "$ref": "#/definitions/event.eventResourceTotalsResponse"
+                }
+            }
+        },
+        "event.eventResourceRangeResponse": {
+            "type": "object",
+            "properties": {
+                "Max": {
+                    "$ref": "#/definitions/event.eventResourceTotalsResponse"
+                },
+                "Min": {
+                    "$ref": "#/definitions/event.eventResourceTotalsResponse"
+                }
+            }
+        },
+        "event.eventResourceTotalsResponse": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "Devices": {
+                    "type": "integer"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
+                }
+            }
+        },
         "event.eventResponse": {
             "type": "object",
             "properties": {
@@ -21379,23 +21660,6 @@
                 },
                 "UpdatedAt": {
                     "type": "string"
-                }
-            }
-        },
-        "event.eventVariantFitResponse": {
-            "type": "object",
-            "properties": {
-                "FitsAny": {
-                    "type": "boolean"
-                },
-                "VariantIndex": {
-                    "type": "integer"
-                },
-                "Warnings": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/event.eventFitWarningResponse"
-                    }
                 }
             }
         },
@@ -22175,6 +22439,17 @@
                 "PublishedVersionID": {
                     "type": "string"
                 },
+                "ResourceHeavy": {
+                    "type": "boolean"
+                },
+                "Resources": {
+                    "description": "Resources is the total of the published version (min and max over its variants); ResourceHeavy: an\napproved elevation holds a device above the platform frame (a badge in the picker).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.eventResourceRangeResponse"
+                        }
+                    ]
+                },
                 "Scope": {
                     "description": "Scope: catalog | event (the event's own exercise).",
                     "type": "string"
@@ -22236,6 +22511,71 @@
             "properties": {
                 "Enable": {
                     "description": "Enable true starts the device in rescue mode (a shell from its latest snapshot), false returns it to normal.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "event.resourceAmountResponse": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.resourcePlanGroupResponse": {
+            "type": "object",
+            "properties": {
+                "Gateway": {
+                    "$ref": "#/definitions/event.resourceAmountResponse"
+                },
+                "InternetLabs": {
+                    "type": "integer"
+                },
+                "Known": {
+                    "type": "boolean"
+                },
+                "MaxUsers": {
+                    "type": "integer"
+                },
+                "VPN": {
+                    "$ref": "#/definitions/event.resourceAmountResponse"
+                }
+            }
+        },
+        "event.resourcePlanTaskResponse": {
+            "type": "object",
+            "properties": {
+                "EventExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseName": {
+                    "type": "string"
+                },
+                "InternetLab": {
+                    "type": "boolean"
+                },
+                "NoAgentFits": {
+                    "type": "boolean"
+                },
+                "Range": {
+                    "$ref": "#/definitions/event.eventResourceRangeResponse"
+                },
+                "Reserved": {
+                    "description": "Reserved is what planning reserves per team: the largest variant (the pinned one for a fixed variant).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.eventResourceTotalsResponse"
+                        }
+                    ]
+                },
+                "ResourceHeavy": {
                     "type": "boolean"
                 }
             }
@@ -26765,6 +27105,24 @@
                 }
             }
         },
+        "exercise.decideElevationRequest": {
+            "type": "object",
+            "properties": {
+                "Approve": {
+                    "description": "Approve true approves, false rejects. Devices are the approved values per requested device (a value may\nbe lower than requested, never above the ceiling); empty approves exactly what was requested.",
+                    "type": "boolean"
+                },
+                "Devices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.elevationDeviceResponse"
+                    }
+                },
+                "Note": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.deployAccessResponse": {
             "type": "object",
             "properties": {
@@ -27029,6 +27387,10 @@
                         }
                     ]
                 },
+                "ResourcePreset": {
+                    "description": "ResourcePreset is a platform preset id (see the capabilities Resources); when empty the device carries its\nown custom Resources (limits; requests always equal limits), and with neither it gets the default preset.",
+                    "type": "string"
+                },
                 "Resources": {
                     "$ref": "#/definitions/exercise.resourcesDTO"
                 },
@@ -27036,6 +27398,32 @@
                     "type": "string"
                 },
                 "Type": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.deviceOutsideResponse": {
+            "type": "object",
+            "properties": {
+                "AboveCeiling": {
+                    "type": "boolean"
+                },
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "Covered": {
+                    "type": "boolean"
+                },
+                "DeviceID": {
+                    "type": "string"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "VariantID": {
                     "type": "string"
                 }
             }
@@ -27048,6 +27436,80 @@
                 },
                 "Start": {
                     "type": "integer"
+                }
+            }
+        },
+        "exercise.elevationDeviceResponse": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "DeviceID": {
+                    "type": "string"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
+                },
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.elevationResponse": {
+            "type": "object",
+            "properties": {
+                "Approved": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.elevationDeviceResponse"
+                    }
+                },
+                "DecidedAt": {
+                    "type": "string"
+                },
+                "DecidedBy": {
+                    "type": "string"
+                },
+                "DecidedByName": {
+                    "type": "string"
+                },
+                "DecisionNote": {
+                    "type": "string"
+                },
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseName": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "Requested": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.elevationDeviceResponse"
+                    }
+                },
+                "RequestedAt": {
+                    "type": "string"
+                },
+                "RequestedBy": {
+                    "type": "string"
+                },
+                "RequestedByName": {
+                    "type": "string"
+                },
+                "Status": {
+                    "description": "Status is pending, approved or rejected.",
+                    "type": "string"
+                },
+                "VersionID": {
+                    "type": "string"
                 }
             }
         },
@@ -27158,6 +27620,17 @@
                 },
                 "Permissions": {
                     "$ref": "#/definitions/exercise.exercisePermissionsResponse"
+                },
+                "ResourceHeavy": {
+                    "type": "boolean"
+                },
+                "Resources": {
+                    "description": "Resources is the total of the published version: min and max over its variants (equal for one variant);\nzeros without a published version. ResourceHeavy: an approved elevation holds a device of the published\nversion above the platform frame (shown as a badge).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.resourceRangeResponse"
+                        }
+                    ]
                 },
                 "Scope": {
                     "type": "string"
@@ -27283,6 +27756,17 @@
                 "PublishedVersionID": {
                     "type": "string"
                 },
+                "ResourceHeavy": {
+                    "type": "boolean"
+                },
+                "Resources": {
+                    "description": "Resources is the total of the published version: min and max over its variants (equal for one variant);\nzeros without a published version. ResourceHeavy: an approved elevation holds a device of the published\nversion above the platform frame (shown as a badge).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.resourceRangeResponse"
+                        }
+                    ]
+                },
                 "Scope": {
                     "type": "string"
                 },
@@ -27372,26 +27856,6 @@
                 },
                 "Size": {
                     "type": "integer"
-                }
-            }
-        },
-        "exercise.fitWarningResponse": {
-            "type": "object",
-            "properties": {
-                "Agent": {
-                    "type": "string"
-                },
-                "Device": {
-                    "type": "string"
-                },
-                "Max": {
-                    "type": "integer"
-                },
-                "Requested": {
-                    "type": "integer"
-                },
-                "Resource": {
-                    "type": "string"
                 }
             }
         },
@@ -27615,12 +28079,46 @@
                 }
             }
         },
+        "exercise.requestElevationRequest": {
+            "type": "object",
+            "properties": {
+                "Reason": {
+                    "description": "Reason says why the devices need more than the frame; required.",
+                    "type": "string"
+                }
+            }
+        },
         "exercise.rescueDeviceRequest": {
             "type": "object",
             "properties": {
                 "Enable": {
                     "description": "Enable true starts the device in rescue mode (a shell from its latest snapshot), false returns it to normal.",
                     "type": "boolean"
+                }
+            }
+        },
+        "exercise.resourceRangeResponse": {
+            "type": "object",
+            "properties": {
+                "Max": {
+                    "$ref": "#/definitions/exercise.resourceTotalsResponse"
+                },
+                "Min": {
+                    "$ref": "#/definitions/exercise.resourceTotalsResponse"
+                }
+            }
+        },
+        "exercise.resourceTotalsResponse": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "Devices": {
+                    "type": "integer"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
                 }
             }
         },
@@ -27807,20 +28305,20 @@
                 }
             }
         },
-        "exercise.variantFitResponse": {
+        "exercise.variantResourcesResponse": {
             "type": "object",
             "properties": {
-                "FitsAny": {
-                    "type": "boolean"
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "Devices": {
+                    "type": "integer"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
                 },
                 "VariantID": {
                     "type": "string"
-                },
-                "Warnings": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/exercise.fitWarningResponse"
-                    }
                 }
             }
         },
@@ -27856,6 +28354,39 @@
                 }
             }
         },
+        "exercise.versionResourcesResponse": {
+            "type": "object",
+            "properties": {
+                "Max": {
+                    "$ref": "#/definitions/exercise.resourceTotalsResponse"
+                },
+                "Min": {
+                    "$ref": "#/definitions/exercise.resourceTotalsResponse"
+                },
+                "Outside": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.deviceOutsideResponse"
+                    }
+                },
+                "ResourceHeavy": {
+                    "type": "boolean"
+                },
+                "SpreadPercent": {
+                    "description": "SpreadPercent is the largest of (max-min)/max over CPU and memory between the variants; VariantsDiffer is\nSpreadPercent above the warning threshold (25).",
+                    "type": "integer"
+                },
+                "Variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.variantResourcesResponse"
+                    }
+                },
+                "VariantsDiffer": {
+                    "type": "boolean"
+                }
+            }
+        },
         "exercise.versionResponse": {
             "type": "object",
             "properties": {
@@ -27871,15 +28402,16 @@
                 "CreatedBy": {
                     "type": "string"
                 },
+                "Elevation": {
+                    "description": "Elevation is the exercise's open resource elevation request, else its latest decided one; null when it\nnever had one.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.elevationResponse"
+                        }
+                    ]
+                },
                 "ExerciseID": {
                     "type": "string"
-                },
-                "Fit": {
-                    "description": "Fit lists the variants some laboratory cannot run within its resource limits; empty when all fit.",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/exercise.variantFitResponse"
-                    }
                 },
                 "ID": {
                     "type": "string"
@@ -27889,6 +28421,14 @@
                 },
                 "PublishedAt": {
                     "type": "string"
+                },
+                "Resources": {
+                    "description": "Resources: the totals of the version (min and max over its variants, per variant), the devices outside\nthe platform frame and whether the task is resource-heavy.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.versionResourcesResponse"
+                        }
+                    ]
                 },
                 "Status": {
                     "type": "string"
@@ -28139,6 +28679,10 @@
                 "LatencyMs": {
                     "type": "integer"
                 },
+                "MeetsRequirements": {
+                    "description": "MeetsRequirements is false when the agent's device maxima are below the platform frame or it allows\nfewer than 32 devices per lab: it is then not used for planning or placement. Unmet says where\n(Resource deviceCpu, deviceMemory or devices; Required is what the platform needs, Max what the\nagent reports). An agent that has not reported yet meets them.",
+                    "type": "boolean"
+                },
                 "Name": {
                     "type": "string"
                 },
@@ -28155,6 +28699,12 @@
                 "Tenant": {
                     "description": "Tenant is the agent's tenant name (its certificate CN); AccessKeyID the key that signs the lab\naccess tokens now; RetiredKeys how many rotated-out keys still wait for removal at the agent.",
                     "type": "string"
+                },
+                "Unmet": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/infrastructure.agentUnmetRequirement"
+                    }
                 },
                 "UpdatedAt": {
                     "type": "string"
@@ -28178,6 +28728,22 @@
         "infrastructure.agentFeaturesResponse": {
             "type": "object",
             "properties": {
+                "DeviceMaxCPUMillicores": {
+                    "description": "DeviceMaxCPUMillicores and DeviceMaxMemoryBytes are the most one device may get; LabMaxDevices the\ncontainer devices of one lab. 0 = no limit.",
+                    "type": "integer"
+                },
+                "DeviceMaxMemoryBytes": {
+                    "type": "integer"
+                },
+                "DeviceProfiles": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Gateway": {
+                    "$ref": "#/definitions/infrastructure.groupPodSizingResponse"
+                },
                 "ImageCacheEnabled": {
                     "type": "boolean"
                 },
@@ -28186,6 +28752,9 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "LabMaxDevices": {
+                    "type": "integer"
                 },
                 "LabsDomain": {
                     "description": "LabsDomain is the base domain of the lab web endpoints; VPNEndpoint is host:port of WireGuard.",
@@ -28227,6 +28796,14 @@
                     "description": "SchedulerMaxPods is the most pods starting at once; 0 = no limit.",
                     "type": "integer"
                 },
+                "VPN": {
+                    "description": "VPN and Gateway size the pods of a lab group: base plus per user (VPN) or per lab with internet\n(gateway), at most Max; 0 in all three = the agent did not report it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/infrastructure.groupPodSizingResponse"
+                        }
+                    ]
+                },
                 "VPNEndpoint": {
                     "type": "string"
                 }
@@ -28248,6 +28825,20 @@
                     "type": "string"
                 },
                 "Name": {
+                    "type": "string"
+                }
+            }
+        },
+        "infrastructure.agentUnmetRequirement": {
+            "type": "object",
+            "properties": {
+                "Max": {
+                    "type": "integer"
+                },
+                "Required": {
+                    "type": "integer"
+                },
+                "Resource": {
                     "type": "string"
                 }
             }
@@ -28381,6 +28972,29 @@
                     "type": "string"
                 },
                 "Priority": {
+                    "type": "integer"
+                }
+            }
+        },
+        "infrastructure.groupPodSizingResponse": {
+            "type": "object",
+            "properties": {
+                "BaseCPUMillicores": {
+                    "type": "integer"
+                },
+                "BaseMemoryBytes": {
+                    "type": "integer"
+                },
+                "MaxCPUMillicores": {
+                    "type": "integer"
+                },
+                "MaxMemoryBytes": {
+                    "type": "integer"
+                },
+                "PerUnitCPUMillicores": {
+                    "type": "integer"
+                },
+                "PerUnitMemoryBytes": {
                     "type": "integer"
                 }
             }

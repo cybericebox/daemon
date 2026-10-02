@@ -151,6 +151,7 @@ type (
 		TransferManagedTeamCaptaincy(ctx context.Context, eventID, teamID, newCaptainID uuid.UUID) error
 		AttachExercise(ctx context.Context, eventID uuid.UUID, in eventUseCase.AttachExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
 		ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.EventExerciseView, error)
+		GetResourcePlan(ctx context.Context, eventID uuid.UUID) (eventUseCase.EventResourcePlan, error)
 		ListPublishedExercisesForEvent(ctx context.Context, eventID uuid.UUID, search, infrastructure string, tags []string) ([]eventUseCase.PublishedExerciseChoice, error)
 		ListEventCatalogTags(ctx context.Context, eventID uuid.UUID, prefix string, limit int) ([]eventUseCase.EventCatalogTag, error)
 		GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (eventUseCase.PublishedExercisePreview, error)
@@ -373,6 +374,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("notification-templates/in-app/:templateID/rollback", h.requireManage, h.rollbackEventInAppTemplate)
 		manage.POST("notification-templates/in-app/:templateID/customize", h.requireManage, h.customizeEventInAppTemplate)
 		manage.GET("exercises", h.requireRead, h.listEventExercises)
+		manage.GET("resource-plan", h.requireRead, h.getResourcePlan)
 		manage.GET("exercise-catalog", h.requireRead, h.listPublishedExercisesForEvent)
 		manage.GET("exercise-catalog/tags", h.requireRead, h.listEventCatalogTags)
 		manage.GET("exercise-catalog/:versionID", h.requireRead, h.getPublishedExercisePreviewForEvent)
@@ -422,6 +424,27 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	}
 }
 
+// getResourcePlan godoc
+// @Summary Resource plan of the event: tasks, group overhead and total
+// @Description What the event reserves. Per attached task its totals (CPU, memory, devices; the least and the most over its variants) and what planning reserves (the largest variant, the pinned one for a fixed variant); the group overhead as a separate line (the VPN sized by the event's maximum team size and the gateway sized by the group's internet labs, with the laboratories' formula); the per-team sum and the total for the teams. Never names a laboratory.
+// @Tags events
+// @Produce json
+// @Param id path string true "event ID"
+// @Success 200 {object} response.Response{data=eventResourcePlanResponse}
+// @Router /events/{id}/manage/resource-plan [get]
+func (h *Handler) getResourcePlan(ctx *gin.Context) {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	plan, err := h.useCase.GetResourcePlan(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, toResourcePlanResponse(plan))
+}
+
 // listPublishedExercisesForEvent godoc
 // @Summary List published catalog choices available to this event manager
 // @Tags events
@@ -449,7 +472,8 @@ func (h *Handler) listPublishedExercisesForEvent(ctx *gin.Context) {
 			tags = []string{}
 		}
 		out = append(out, publishedExerciseChoiceResponse{ID: item.ID, Name: item.Name, Description: item.Description, PublishedVersionID: item.PublishedVersionID,
-			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, Attached: item.Attached})
+			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, Attached: item.Attached,
+			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy})
 	}
 	response.AbortWithData(ctx, out)
 }

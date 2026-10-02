@@ -23,7 +23,6 @@ import (
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
-	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 )
@@ -72,7 +71,7 @@ func (u *EventUseCase) AttachExercise(ctx context.Context, eventID uuid.UUID, in
 	}
 	view := toEventExerciseView(created)
 	view.ExerciseName = catalogEntry.Name
-	view.Fit = u.versionFits(version)
+	u.applyVersionResources(ctx, &view, version)
 	return view, nil
 }
 
@@ -129,6 +128,9 @@ func (u *EventUseCase) ListEventExercises(ctx context.Context, eventID uuid.UUID
 	items := make([]EventExerciseView, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, toEventExerciseDetailView(row))
+	}
+	if err = u.decorateExerciseResources(ctx, items); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -242,6 +244,9 @@ func (u *EventUseCase) ListPublishedExercisesForEvent(ctx context.Context, event
 		}
 		items = append(items, EventCatalogItem{ID: row.ID, Name: row.Name, Description: row.Description, Tags: row.Tags, Scope: scope,
 			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached})
+	}
+	if err = u.decorateCatalogResources(ctx, items); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -749,47 +754,5 @@ func (u *EventUseCase) requireInfrastructureForVersion(ctx context.Context, even
 	if !e.InfrastructureAllowed {
 		return eventExerciseModel.ErrEventExerciseInfrastructureNotAllowed.Err()
 	}
-	// Some laboratory must be able to run every variant within its resource limits.
-	for _, fit := range u.versionFits(version) {
-		if !fit.FitsAny {
-			worst := fit.Warnings[0].FitViolation
-			for _, w := range fit.Warnings {
-				if w.Max > worst.Max {
-					worst = w.FitViolation
-				}
-			}
-			return infraModel.ErrNoAgentFitsTask.WithContext("variant", fit.VariantIndex).WithContext("device", worst.Device).
-				WithContext("resource", worst.Resource).WithContext("requested", worst.Requested).WithContext("max", worst.Max).Err()
-		}
-	}
 	return nil
-}
-
-// fitChecker is the optional capability of the infrastructure port that knows the agents' resource limits.
-type fitChecker interface {
-	TopologyFit(topo exerciseModel.Topology) infraModel.TopologyFit
-}
-
-// VariantFit is how one variant of an attached exercise sits on the laboratories: FitsAny false means none can
-// run it. Only variants some laboratory cannot run are listed.
-type VariantFit struct {
-	VariantIndex int
-	FitsAny      bool
-	Warnings     []infraModel.FitWarning
-}
-
-// versionFits lists the variants of a version that some enabled laboratory cannot run.
-func (u *EventUseCase) versionFits(version exerciseModel.ExerciseVersion) []VariantFit {
-	checker, ok := u.infra.(fitChecker)
-	if !ok {
-		return nil
-	}
-	var out []VariantFit
-	for i, variant := range version.Variants {
-		fit := checker.TopologyFit(variant.Topology)
-		if len(fit.Warnings) > 0 {
-			out = append(out, VariantFit{VariantIndex: i, FitsAny: fit.FitsAny, Warnings: fit.Warnings})
-		}
-	}
-	return out
 }

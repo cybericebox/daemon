@@ -25,14 +25,18 @@ type cachedNeed struct {
 	at   time.Time
 }
 
-// withPlacementNeed tells the placement of a team's group which labs the event will put on it: a team
-// lives on one agent, so an agent that cannot run one of the event's tasks within its limits is not a
-// candidate. A failure to read the topologies only loses that filter; the deploy of each lab still
-// checks its own.
+// withPlacementNeed tells the placement of a team's group what the event will put on it: a team lives on one
+// agent, so an agent whose device maxima are below the event's largest device is not a candidate, and the
+// group's own pods are sized by the event's maximum team size (VPN) and its internet labs (gateway). A
+// failure to read the event only loses that: the deploy of each lab still checks its own.
 func (u *EventUseCase) withPlacementNeed(ctx context.Context, eventID uuid.UUID) context.Context {
+	// Only a port that knows the agents (the fleet) can place and size by it.
+	if _, ok := u.infra.(resourcePlanner); !ok {
+		return ctx
+	}
 	need, err := u.eventPlacementNeed(ctx, eventID)
 	if err != nil {
-		log.Warn().Err(err).Str("event_id", eventID.String()).Msg("Placement: cannot read the labs of the event, placing without the limits filter")
+		log.Warn().Err(err).Str("event_id", eventID.String()).Msg("Placement: cannot read the labs of the event, placing without its needs")
 		return ctx
 	}
 	return infraModel.WithPlacementNeed(ctx, need)
@@ -46,34 +50,24 @@ func (u *EventUseCase) eventPlacementNeed(ctx context.Context, eventID uuid.UUID
 	if ok && now.Sub(cached.at) < placementNeedTTL {
 		return cached.need, nil
 	}
-	resolver, ok := u.topologies.(VersionTopologyResolver)
-	if !ok {
-		return infraModel.PlacementNeed{}, nil
-	}
-	attachments, err := u.eventExercises.List(ctx, eventID)
+	plan, err := u.resourcePlanInputs(ctx, eventID)
 	if err != nil {
 		return infraModel.PlacementNeed{}, err
 	}
-	var need infraModel.PlacementNeed
-	versions := map[uuid.UUID]struct{}{}
-	for _, attachment := range attachments {
-		if attachment.Status != eventExerciseModel.StatusActive {
-			continue
-		}
-		if _, seen := versions[attachment.ExerciseVersionID]; seen {
-			continue
-		}
-		versions[attachment.ExerciseVersionID] = struct{}{}
-		topologies, resolveErr := resolver.ResolveVersionTopologies(ctx, attachment.ExerciseVersionID)
-		if resolveErr != nil {
-			return infraModel.PlacementNeed{}, resolveErr
-		}
-		for _, topology := range topologies {
-			need.Labs = append(need.Labs, infraModel.DemandOf(topology))
-		}
-	}
+	need := plan.placementNeed()
 	u.placement.mu.Lock()
 	u.placement.need[eventID] = cachedNeed{need: need, at: now}
 	u.placement.mu.Unlock()
 	return need, nil
+}
+
+// activeAttachments are the event's attachments that are in force.
+func activeAttachments(all []eventExerciseModel.EventExercise) []eventExerciseModel.EventExercise {
+	out := make([]eventExerciseModel.EventExercise, 0, len(all))
+	for _, attachment := range all {
+		if attachment.Status == eventExerciseModel.StatusActive && attachment.SupersededAt == nil {
+			out = append(out, attachment)
+		}
+	}
+	return out
 }

@@ -589,6 +589,10 @@ func TestListPublishedExercisesForEvent_ScopesToEventAndFilters(t *testing.T) {
 
 	q.EXPECT().ListEventCatalog(gomock.Any(), postgres.ListEventCatalogParams{EventID: eventID, Search: "web", Infrastructure: "yes", Tags: []string{"web", "crypto"}}).
 		Return([]postgres.ListEventCatalogRow{{ID: exerciseID, Name: "Web", Scope: 1, PublishedVersionID: versionID, Infrastructure: true}}, nil)
+	q.EXPECT().ListVersionVariantDevices(gomock.Any(), []uuid.UUID{versionID}).Return([]postgres.ListVersionVariantDevicesRow{{
+		VersionID: versionID, ExerciseID: exerciseID,
+		Variants: []byte(`[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","topology":{"devices":[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"web","type":"container","resource_preset":"small"}]}}]`),
+	}}, nil)
 
 	items, err := uc.ListPublishedExercisesForEvent(context.Background(), eventID, " web ", "yes", []string{" Web", "crypto", "WEB", " "})
 	if err != nil {
@@ -596,6 +600,10 @@ func TestListPublishedExercisesForEvent_ScopesToEventAndFilters(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].PublishedVersionID != versionID || items[0].Scope != "event" || !items[0].Infrastructure {
 		t.Fatalf("items = %+v", items)
+	}
+	// The picker shows the task's total resources: one small device (50m / 128Mi); not resource-heavy.
+	if r := items[0].Resources; r.Min != r.Max || r.Max.Devices != 1 || r.Max.CPUMillicores != 50 || r.Max.MemoryBytes != 128<<20 || items[0].ResourceHeavy {
+		t.Fatalf("resources = %+v heavy=%v", items[0].Resources, items[0].ResourceHeavy)
 	}
 }
 
