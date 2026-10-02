@@ -6,12 +6,12 @@ package participantModel
 import (
 	"strings"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/gofrs/uuid"
 
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 type Status int32
@@ -69,7 +69,7 @@ func NormalizePseudonym(raw *string) (*string, error) {
 		return nil, ErrPseudonymInvalid.Err()
 	}
 	for _, r := range value {
-		if unicode.IsControl(r) {
+		if tools.UnsafeDisplayRune(r) {
 			return nil, ErrPseudonymInvalid.Err()
 		}
 	}

@@ -154,3 +154,17 @@ func TestJoinCodeExpiryResolution(t *testing.T) {
 }
 
 func ptr(t time.Time) *time.Time { return &t }
+
+// The reported impersonation: a team name that reads like another one on the board.
+func TestATeamNameWithBidiOrInvisibleCharactersIsRefused(t *testing.T) {
+	for name, bad := range map[string]string{
+		"bidi override": "Blue" + string(rune(0x202e)) + "eulB", "zero width": "Blue" + string(rune(0x200b)) + "Team", "control": "Blue" + string(rune(7)),
+	} {
+		if _, err := New(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), bad, "secure-join-code", time.Now()); !errors.Is(err, ErrEventTeamNameInvalid.Err()) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := New(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "Команда Альфа", "secure-join-code", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+}

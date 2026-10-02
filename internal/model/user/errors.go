@@ -9,7 +9,7 @@ import (
 // Error-code convention: see internal/model/auth/errors.go. Enforced by
 // `make lint-errors`.
 //
-// UserObjectCode — next free detail code: 4
+// UserObjectCode — next free detail code: 5
 var (
 	ErrUserNotFound = err.ErrObjectNotFound.WithObjectCode(model.UserObjectCode).
 			WithMessage("User not found").WithDetailCode(1)
@@ -26,4 +26,8 @@ var (
 	// and write. 409: the client should reload and retry.
 	ErrUserModified = err.ErrConflict.WithObjectCode(model.UserObjectCode).
 			WithMessage("User was modified concurrently").WithDetailCode(3)
+	// ErrUserNameInvalid: a first or last name holds a control, bidirectional or zero-width character, or is
+	// too long; such names let one person pass for another.
+	ErrUserNameInvalid = err.ErrInvalidData.WithObjectCode(model.UserObjectCode).
+				WithMessage("The name contains characters that are not allowed").WithDetailCode(4)
 )

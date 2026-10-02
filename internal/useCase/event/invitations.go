@@ -203,6 +203,9 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 	if err != nil || address.Address != email || len(email) > 254 {
 		return uuid.Nil, participantModel.ErrInvitationEmailInvalid.Err()
 	}
+	if err = userModel.ValidName(firstName, lastName); err != nil {
+		return uuid.Nil, err
+	}
 	if u.uow == nil || u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "" {
 		return uuid.Nil, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
 	}

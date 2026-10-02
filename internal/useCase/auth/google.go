@@ -157,8 +157,10 @@ func (u *AuthUseCase) BeginGoogleRegistration(
 		if err = u.mutateUser(ctx, existing.ID, func(user *userModel.User) error {
 			user.ConfirmEmail(time.Now())
 			firstName, lastName := googleUser.FirstLastName()
+			// A name from the provider cannot be sent back for correction: what a name must not hold is dropped.
+			firstName, lastName = tools.StripUnsafeDisplayText(firstName), tools.StripUnsafeDisplayText(lastName)
 			if user.FirstName == "" && user.LastName == "" && (firstName != "" || lastName != "") {
-				user.UpdateProfile(firstName, lastName, time.Now())
+				return user.UpdateProfile(firstName, lastName, time.Now())
 			}
 			return nil
 		}); err != nil {

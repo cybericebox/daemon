@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 const (
@@ -258,7 +260,7 @@ func (t EventTeam) CanAcceptMember(maxTeamSize int32) error {
 
 func validateName(name string) (string, error) {
 	name = strings.TrimSpace(name)
-	if len(name) < nameMinLen || len(name) > nameMaxLen {
+	if len(name) < nameMinLen || len(name) > nameMaxLen || tools.HasUnsafeDisplayText(name) {
 		return "", ErrEventTeamNameInvalid.Err()
 	}
 	return name, nil

@@ -110,3 +110,18 @@ func TestSetPseudonym(t *testing.T) {
 		t.Fatalf("clearing must be allowed when disabled: %v %v", p.Pseudonym, err)
 	}
 }
+
+func TestAPseudonymWithBidiOrInvisibleCharactersIsRefused(t *testing.T) {
+	for name, bad := range map[string]string{
+		"bidi override": "ne" + string(rune(0x202e)) + "o", "zero width": "ne" + string(rune(0x200b)) + "o", "control": "ne" + string(rune(7)) + "o",
+	} {
+		value := bad
+		if _, err := participantModel.NormalizePseudonym(&value); !errors.Is(err, participantModel.ErrPseudonymInvalid.Err()) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	ok := "neo_7"
+	if got, err := participantModel.NormalizePseudonym(&ok); err != nil || *got != "neo_7" {
+		t.Fatalf("got %v %v", got, err)
+	}
+}

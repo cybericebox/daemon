@@ -25,6 +25,9 @@ func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rba
 	if err := u.assertCanInvite(ctx, role); err != nil {
 		return err
 	}
+	if err := userModel.ValidName(firstName, lastName); err != nil {
+		return err
+	}
 
 	emailAddr, err := parseEmail(emailAddr)
 	if err != nil {

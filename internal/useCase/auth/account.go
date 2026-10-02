@@ -39,8 +39,7 @@ func (u *AuthUseCase) GetAccount(ctx context.Context, userID uuid.UUID) (*Accoun
 // UpdateAccountProfile updates the user's display name.
 func (u *AuthUseCase) UpdateAccountProfile(ctx context.Context, userID uuid.UUID, firstName, lastName string) error {
 	return u.mutateUser(ctx, userID, func(user *userModel.User) error {
-		user.UpdateProfile(firstName, lastName, time.Now())
-		return nil
+		return user.UpdateProfile(firstName, lastName, time.Now())
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 // User is the domain entity for a platform account. All mutations live on the
@@ -124,6 +125,9 @@ func (u *User) CompleteSetup(firstName, lastName, hashedPassword string, tosVers
 	if !u.IsIncomplete() {
 		return authModel.ErrSetupAlreadyComplete.Err()
 	}
+	if err := ValidName(firstName, lastName); err != nil {
+		return err
+	}
 	if tosVersion <= 0 {
 		return authModel.ErrTosNotAccepted.Err()
 	}
@@ -151,10 +155,22 @@ func (u *User) CompleteSetup(firstName, lastName, hashedPassword string, tosVers
 }
 
 // UpdateProfile changes the display name.
-func (u *User) UpdateProfile(firstName, lastName string, now time.Time) {
+func (u *User) UpdateProfile(firstName, lastName string, now time.Time) error {
+	if err := ValidName(firstName, lastName); err != nil {
+		return err
+	}
 	u.FirstName = firstName
 	u.LastName = lastName
 	u.touch(now)
+	return nil
+}
+
+// ValidName refuses a name with a control, bidirectional or zero-width character.
+func ValidName(firstName, lastName string) error {
+	if tools.HasUnsafeDisplayText(firstName) || tools.HasUnsafeDisplayText(lastName) {
+		return ErrUserNameInvalid.Err()
+	}
+	return nil
 }
 
 // ChangeEmail sets a new (already verified by the flow) email address.
