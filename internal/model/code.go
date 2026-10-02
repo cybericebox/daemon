@@ -28,4 +28,5 @@ const (
 	MailObjectCode
 	EventAnalyticsObjectCode
 	PlatformAnalyticsObjectCode
+	ErrorJournalObjectCode
 )

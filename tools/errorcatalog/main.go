@@ -61,6 +61,7 @@ var objectByName = map[string]int{
 	"MailObjectCode":              21,
 	"EventAnalyticsObjectCode":    22,
 	"PlatformAnalyticsObjectCode": 23,
+	"ErrorJournalObjectCode":      24,
 }
 
 // declRe captures one builder chain: var name, base error, object constant, and
