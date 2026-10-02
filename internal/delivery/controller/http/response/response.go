@@ -87,6 +87,11 @@ func AbortWithForbidden(ctx *gin.Context) {
 	AbortWithStatus(ctx, err.ErrForbidden.Err())
 }
 
+// AbortWithUnsupportedMediaType refuses a body that is not in a type the API reads.
+func AbortWithUnsupportedMediaType(ctx *gin.Context) {
+	ctx.AbortWithStatus(http.StatusUnsupportedMediaType)
+}
+
 func AbortWithConflict(ctx *gin.Context) {
 	AbortWithStatus(ctx, err.ErrConflict.Err())
 }

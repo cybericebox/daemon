@@ -24,6 +24,11 @@ type HostsConfig struct {
 	Exercises string `env:"EXERCISES_HOST,required"`
 	// EventDomain holds the event sites: <tag>.<EventDomain>.
 	EventDomain string `env:"EVENT_DOMAIN,required"`
+	// LabsDomain is the base domain of the lab device pages (<device>-<code>.<LABS_DOMAIN>). It is
+	// optional here (no laboratory, no value), but when set the API refuses every state-changing
+	// request that comes from a page under it: those pages run task-controlled content on a domain
+	// that is same-site with the platform, so SameSite=Strict does not keep them out.
+	LabsDomain string `env:"LABS_DOMAIN"`
 }
 
 // Validate normalises the hosts (lower case) and checks that each is a bare host name under one
@@ -56,7 +61,22 @@ func (h *HostsConfig) Validate() error {
 		}
 		*f.val = v
 	}
+	if labs := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(h.LabsDomain), ".")); labs != "" {
+		if strings.ContainsAny(labs, "/:@?# ") || strings.HasPrefix(labs, ".") {
+			return fmt.Errorf("LABS_DOMAIN must be a bare domain name (no scheme, port or path), got %q", h.LabsDomain)
+		}
+		h.LabsDomain = labs
+	}
 	return nil
+}
+
+// IsLabsHost reports whether host is the labs domain or any subdomain of it.
+func (h HostsConfig) IsLabsHost(host string) bool {
+	if h.LabsDomain == "" {
+		return false
+	}
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	return host == h.LabsDomain || strings.HasSuffix(host, "."+h.LabsDomain)
 }
 
 // URL returns https://<host><path>.
