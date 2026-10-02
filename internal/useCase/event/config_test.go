@@ -615,3 +615,46 @@ func TestParticipantEventInfoExposesBoardPresentationAndInfrastructure(t *testin
 		})
 	}
 }
+
+// L21: the preview picture is the event's own uploaded image; an organizer-chosen address would be fetched by
+// every link preview of the event (a tracking pixel).
+func TestUpdateEventConfig_PreviewPictureMustBeOwnOrUnchanged(t *testing.T) {
+	eventID, by := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	t0 := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	own := "https://api.example.test/api/events/" + eventID.String() + "/preview-picture/" + uuid.Must(uuid.NewV7()).String()
+	foreign := "https://tracker.example.net/pixel.gif"
+	otherEvent := "https://api.example.test/api/events/" + uuid.Must(uuid.NewV7()).String() + "/preview-picture/" + uuid.Must(uuid.NewV7()).String()
+
+	run := func(t *testing.T, stored, requested string) error {
+		ctrl := gomock.NewController(t)
+		q := newFormGateMock(ctrl)
+		uc := event.NewEventUseCase(event.Dependencies{
+			Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}, PublicAPIBaseURL: "https://api.example.test",
+			Media: newTemplateMediaFake(), InfrastructureCapability: availableLaboratoriesCapability{},
+		})
+		q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
+			EventID: eventID, PreviewPicture: stored, Registration: int16(eventConfigModel.RegistrationClose),
+			ScoreboardVisibility: int16(eventConfigModel.VisibilityHidden), ParticipantsVisibility: int16(eventConfigModel.VisibilityHidden),
+			MaxTeamSize: 4, CreatedAt: t0, UpdatedAt: pgtype.Timestamptz{Time: t0, Valid: true},
+		}, nil).AnyTimes()
+		q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, CreatedAt: t0, AvailableFrom: t0}, nil).AnyTimes()
+		q.EXPECT().UpdateEventConfig(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
+		_, err := uc.UpdateEventConfig(context.Background(), eventID, event.UpdateConfigInput{
+			Registration: eventConfigModel.RegistrationClose, ScoreboardVisibility: eventConfigModel.VisibilityHidden,
+			ParticipantsVisibility: eventConfigModel.VisibilityHidden, PreviewPicture: requested, MaxTeamSize: 4,
+		}, by)
+		return err
+	}
+	invalid := eventConfigModel.ErrPreviewPictureInvalid.Err()
+	if err := run(t, "", foreign); !errors.Is(err, invalid) {
+		t.Fatalf("a foreign address must be refused, got %v", err)
+	}
+	if err := run(t, "", otherEvent); !errors.Is(err, invalid) {
+		t.Fatalf("another event's picture must be refused, got %v", err)
+	}
+	for name, c := range map[string][2]string{"own upload": {"", own}, "unchanged": {foreign, foreign}, "cleared": {own, ""}} {
+		if err := run(t, c[0], c[1]); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}

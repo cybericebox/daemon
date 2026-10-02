@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -129,6 +130,9 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 				}
 			}
 		}
+		if !u.acceptablePreviewPicture(eventID, in.PreviewPicture, cfg.PreviewPicture) {
+			return eventConfigModel.ErrPreviewPictureInvalid.Err()
+		}
 		if err := cfg.Update(in.toConfigInput(*cfg), now, by); err != nil {
 			return err
 		}
@@ -152,6 +156,21 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 		return EventConfigView{}, err
 	}
 	return toEventConfigView(c), nil
+}
+
+// acceptablePreviewPicture: the preview picture is the event's own uploaded image (our API URL, set by the
+// upload route), unchanged, or cleared. Any other address would make every link preview of the
+// event fetch it from a host the organizer controls (a tracking pixel).
+func (u *EventUseCase) acceptablePreviewPicture(eventID uuid.UUID, requested, current string) bool {
+	requested = strings.TrimSpace(requested)
+	if requested == "" || requested == current {
+		return true
+	}
+	ours, err := u.eventPreviewPictureURL(eventID, uuid.Nil)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(requested, strings.TrimSuffix(ours, uuid.Nil.String()))
 }
 
 func sameLimit(a, b *int32) bool {

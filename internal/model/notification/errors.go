@@ -24,7 +24,7 @@ var (
 				WithMessage("Inbox request is already resolved").WithDetailCode(19)
 )
 
-// Broadcast errors. NotificationObjectCode — next free detail code: 25
+// Broadcast errors. NotificationObjectCode — next free detail code: 26
 var (
 	ErrBroadcastNotFound = err.ErrObjectNotFound.WithObjectCode(model.NotificationObjectCode).
 				WithMessage("Broadcast not found").WithDetailCode(20)
@@ -41,3 +41,10 @@ var (
 	ErrBannerInvalid = err.ErrInvalidData.WithObjectCode(model.NotificationObjectCode).
 				WithMessage("Invalid banner").WithDetailCode(24)
 )
+
+// ErrTemplateLinkInvalid: an in-app template's link or action target is not an app path or an https
+// URL (javascript:, data:, http:, //host are refused).
+var ErrTemplateLinkInvalid = err.ErrInvalidData.
+	WithObjectCode(model.NotificationObjectCode).
+	WithMessage("The link must be an app path or an https URL").
+	WithDetailCode(25)

@@ -181,3 +181,24 @@ func TestInAppHandler_Handle_BrandNameNeverBreaks(t *testing.T) {
 	err := h.Handle(context.Background(), userModel.User{ID: tools.NewUUIDv7()}, notificationTypes.NotificationTypeFlagAccepted, nil, nil)
 	require.NoError(t, err)
 }
+
+// L21: what the template variables turn into is checked at send time: a value cannot make a javascript: link.
+func TestInAppHandler_Handle_DropsAnUnsafeRenderedLinkAndAction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	user := userModel.User{ID: tools.NewUUIDv7()}
+	repo.EXPECT().GetPublishedInAppTemplate(gomock.Any(), gomock.Any()).Return(
+		postgres.NotificationInAppTemplate{
+			Title: "New", Body: "Details", Surface: "inbox", Link: "{{.Target}}",
+			Actions: []byte(`[{"label":"Ok","href":"https://ctf.example.test/x"},{"label":"Evil","href":"javascript:alert(1)"}]`),
+		}, nil,
+	)
+	repo.EXPECT().CreateInApp(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.CreateInAppParams) error {
+		require.Empty(t, arg.Link, "a rendered javascript: link must not be stored")
+		require.NotContains(t, string(arg.Actions), "javascript:")
+		require.Contains(t, string(arg.Actions), "https://ctf.example.test/x")
+		return nil
+	})
+	err := inAppUseCase.NewHandler(repo).Handle(context.Background(), user, notificationTypes.NotificationTypeFlagAccepted, map[string]any{"Target": "javascript:alert(1)"}, nil)
+	require.NoError(t, err)
+}

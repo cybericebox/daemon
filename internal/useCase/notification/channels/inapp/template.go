@@ -2,6 +2,7 @@ package inAppUseCase
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 
 	"github.com/gofrs/uuid"
@@ -39,7 +40,7 @@ func (u *NotificationInAppTemplateUseCase) CreateInAppTemplate(
 	ctx context.Context,
 	in inAppModel.CreateTemplateInput,
 ) (inAppModel.InAppTemplate, error) {
-	if err := validateInAppTemplate(notificationTypes.NotificationType(in.NotificationType), in.Title, in.Body, in.Link); err != nil {
+	if err := validateInAppTemplate(notificationTypes.NotificationType(in.NotificationType), in.Title, in.Body, in.Link, in.Actions); err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
 	created, err := u.templates.CreateDraft(ctx, inAppModel.NewDraft(in))
@@ -86,7 +87,7 @@ func (u *NotificationInAppTemplateUseCase) UpdateInAppTemplate(
 	if err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
-	if err := validateInAppTemplate(notificationTypes.NotificationType(existing.NotificationType), in.Title, in.Body, in.Link); err != nil {
+	if err := validateInAppTemplate(notificationTypes.NotificationType(existing.NotificationType), in.Title, in.Body, in.Link, in.Actions); err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
 	tpl, err := u.templates.UpdateDraft(ctx, in)
@@ -165,7 +166,7 @@ func (u *NotificationInAppTemplateUseCase) PublishInAppTemplate(
 	if err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
-	if err := validateInAppTemplate(notificationTypes.NotificationType(template.NotificationType), template.Title, template.Body, template.Link); err != nil {
+	if err := validateInAppTemplate(notificationTypes.NotificationType(template.NotificationType), template.Title, template.Body, template.Link, template.Actions); err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
 	tpl, err := u.templates.Publish(ctx, id, updatedBy)
@@ -180,9 +181,12 @@ func (u *NotificationInAppTemplateUseCase) PublishInAppTemplate(
 	return tpl, nil
 }
 
-func validateInAppTemplate(typ notificationTypes.NotificationType, title, body, link string) error {
+func validateInAppTemplate(typ notificationTypes.NotificationType, title, body, link string, actions json.RawMessage) error {
 	if err := notificationTypes.ValidateTemplateVariables(typ, notificationTypes.NotificationChannelInApp, title, body, link); err != nil {
 		return notificationModel.ErrInvalidTemplateVariables.WithError(err).Err()
+	}
+	if !inAppModel.ValidLink(link, true) || !inAppModel.ValidActions(actions, true) {
+		return notificationModel.ErrTemplateLinkInvalid.Err()
 	}
 	return nil
 }

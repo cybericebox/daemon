@@ -3,6 +3,7 @@ package event_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/gif"
@@ -18,6 +19,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	event "github.com/cybericebox/daemon/internal/useCase/event"
 )
@@ -294,5 +296,25 @@ func TestEventPreviewPictureUploadRestoresReferenceOnConfigConflict(t *testing.T
 	}
 	if len(media.previewRefs) != 1 || media.previewRefs[0] != oldFileID {
 		t.Fatalf("previous reference was not restored: %+v", media.previewRefs)
+	}
+}
+
+// L21: a file the actor named like a brand draft through another upload route (any content type) must not become
+// a public logo: the draft is checked for what it is, not only for who made it and what it is called.
+func TestEventBrandDraftOfANonImageIsRefused(t *testing.T) {
+	ctx := context.Background()
+	eventID, actor, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q := newFormGateMock(gomock.NewController(t))
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID}, nil).AnyTimes()
+	media := &brandMediaFake{file: mediaModel.File{ID: fileID}}
+	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
+	// Stored by another route: right name and owner, but an HTML document.
+	media.file.Name = "event-brand-draft:" + eventID.String() + ":logo"
+	media.file.ContentType = "text/html"
+	media.file.CreatedBy = uuid.NullUUID{UUID: actor, Valid: true}
+	media.file.CreatedAt = time.Now()
+	_, err := u.SaveEventAppearance(ctx, eventID, actor, event.EventAppearanceInput{Logo: event.BrandAssetChange{Action: "replace", FileID: fileID}, Favicon: event.BrandAssetChange{Action: "keep"}})
+	if !errors.Is(err, eventModel.ErrEventBrandDraftInvalid.Err()) || len(media.refs) != 0 {
+		t.Fatalf("a non-image draft must be refused as an invalid draft: refs=%v err=%v", media.refs, err)
 	}
 }

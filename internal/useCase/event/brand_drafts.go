@@ -51,6 +51,14 @@ func brandDraftName(eventID uuid.UUID, kind string) string {
 	return fmt.Sprintf("event-brand-draft:%s:%s", eventID, kind)
 }
 
+// brandContentTypeAllowed is the image types a brand draft of the kind may be (the upload route's own rule).
+func brandContentTypeAllowed(kind, contentType string) bool {
+	if kind == "favicon" {
+		return contentType == "image/png"
+	}
+	return contentType == "image/png" || contentType == "image/jpeg" || contentType == "image/webp"
+}
+
 func brandKindLimits(kind string) (int64, error) {
 	switch kind {
 	case "logo":
@@ -85,11 +93,7 @@ func (u *EventUseCase) UploadEventBrandDraft(ctx context.Context, eventID, userI
 		return uuid.Nil, eventModel.ErrEventBrandDraftInvalid.Err()
 	}
 	contentType := http.DetectContentType(data)
-	if kind == "favicon" {
-		if contentType != "image/png" {
-			return uuid.Nil, eventModel.ErrEventBrandDraftInvalid.Err()
-		}
-	} else if contentType != "image/png" && contentType != "image/jpeg" && contentType != "image/webp" {
+	if !brandContentTypeAllowed(kind, contentType) {
 		return uuid.Nil, eventModel.ErrEventBrandDraftInvalid.Err()
 	}
 	file, err := u.brandMedia.UploadFile(ctx, brandDraftName(eventID, kind), contentType, bytes.NewReader(data), userID)
@@ -120,6 +124,12 @@ func (u *EventUseCase) validateBrandChange(ctx context.Context, eventID, userID 
 			return nil, err
 		}
 		if file.Name != brandDraftName(eventID, kind) || !file.CreatedBy.Valid || file.CreatedBy.UUID != userID || time.Since(file.CreatedAt) > brandDraftLifetime || file.CreatedAt.After(time.Now().Add(time.Minute)) {
+			return nil, eventModel.ErrEventBrandDraftInvalid.Err()
+		}
+		// The name and the owner say who made the file, not what it is: another upload route takes
+		// a caller-chosen name and any content type. Only an image the draft route itself would
+		// have accepted becomes public as a logo, preview or favicon.
+		if !brandContentTypeAllowed(kind, file.ContentType) {
 			return nil, eventModel.ErrEventBrandDraftInvalid.Err()
 		}
 		return []uuid.UUID{change.FileID}, nil

@@ -82,12 +82,16 @@ func (h *Handler) Handle(
 	if err != nil {
 		return err
 	}
+	// What the variables turned into is checked again: a value may not become a javascript: link.
+	if !inAppModel.ValidLink(link, false) {
+		link = ""
+	}
 	return h.inbox.Deliver(ctx, user.ID, inboxRepo.Delivery{
 		// The product name never breaks across lines, whatever the stored template says.
 		Title: mailModel.KeepBrandText(title), Body: mailModel.KeepBrandText(body), Link: link,
 		Icon: tmpl.Icon, Tone: tmpl.Tone, AccentColor: tmpl.AccentColor,
 		Surface: tmpl.Surface, AutoDismissMs: inboxDisplayDuration(tmpl.Surface, tmpl.AutoDismissMs),
-		Actions: tmpl.Actions, Dismissible: tmpl.Dismissible,
+		Actions: inAppModel.SafeActions(tmpl.Actions), Dismissible: tmpl.Dismissible,
 		// The dispatch scope files the item under its Event inbox (M5).
 		ScopeEventID: firstScope(scopeEventID),
 		Inbox:        inboxMeta(ctx, t),

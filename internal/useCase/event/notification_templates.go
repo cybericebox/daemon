@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -341,7 +342,7 @@ func (u *EventUseCase) CreateEventInAppTemplate(ctx context.Context, eventID uui
 	if !notificationTypes.IsEventScoped(notificationTypes.NotificationType(in.NotificationType)) {
 		return inAppModel.InAppTemplate{}, notificationModel.ErrTemplateTypeNotEventScoped.Err()
 	}
-	if err := validateEventInAppTemplate(notificationTypes.NotificationType(in.NotificationType), in.Title, in.Body, in.Link); err != nil {
+	if err := validateEventInAppTemplate(notificationTypes.NotificationType(in.NotificationType), in.Title, in.Body, in.Link, in.Actions); err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
 	in.ScopeEventID = &eventID
@@ -429,7 +430,7 @@ func (u *EventUseCase) UpdateEventInAppTemplate(ctx context.Context, eventID uui
 	if err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
-	if err := validateEventInAppTemplate(notificationTypes.NotificationType(template.NotificationType), in.Title, in.Body, in.Link); err != nil {
+	if err := validateEventInAppTemplate(notificationTypes.NotificationType(template.NotificationType), in.Title, in.Body, in.Link, in.Actions); err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
 	updated, err := u.inAppTemplates.UpdateDraft(ctx, in)
@@ -473,7 +474,7 @@ func (u *EventUseCase) PublishEventInAppTemplate(ctx context.Context, eventID, t
 	if err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
-	if err := validateEventInAppTemplate(notificationTypes.NotificationType(template.NotificationType), template.Title, template.Body, template.Link); err != nil {
+	if err := validateEventInAppTemplate(notificationTypes.NotificationType(template.NotificationType), template.Title, template.Body, template.Link, template.Actions); err != nil {
 		return inAppModel.InAppTemplate{}, err
 	}
 	published, err := u.inAppTemplates.Publish(ctx, templateID, updatedBy)
@@ -616,9 +617,12 @@ func validateEventEmailTemplate(typ notificationTypes.NotificationType, subject,
 	return render.ValidateStyling(styling)
 }
 
-func validateEventInAppTemplate(typ notificationTypes.NotificationType, title, body, link string) error {
+func validateEventInAppTemplate(typ notificationTypes.NotificationType, title, body, link string, actions json.RawMessage) error {
 	if err := notificationTypes.ValidateTemplateVariables(typ, notificationTypes.NotificationChannelInApp, title, body, link); err != nil {
 		return notificationModel.ErrInvalidTemplateVariables.WithError(err).Err()
+	}
+	if !inAppModel.ValidLink(link, true) || !inAppModel.ValidActions(actions, true) {
+		return notificationModel.ErrTemplateLinkInvalid.Err()
 	}
 	return nil
 }

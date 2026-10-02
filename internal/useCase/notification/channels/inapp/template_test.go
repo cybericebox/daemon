@@ -366,3 +366,19 @@ func platformInAppRow(id uuid.UUID) postgres.NotificationInAppTemplate {
 	row.ID = id
 	return row
 }
+
+// L21: a template's link and action targets are validated when it is saved.
+func TestCreateInAppTemplate_RefusesUnsafeLinkAndAction(t *testing.T) {
+	for name, in := range map[string]inAppModel.CreateTemplateInput{
+		"link":   {NotificationType: "flag_accepted", Title: "T", Body: "B", Link: "javascript:alert(1)"},
+		"action": {NotificationType: "flag_accepted", Title: "T", Body: "B", Actions: []byte(`[{"label":"x","href":"data:text/html,<script>"}]`)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repo := postgresMocks.NewMockQuerier(ctrl) // nothing is written
+			uc := inAppUseCase.NewNotificationInAppTemplateUseCase(repo)
+			_, err := uc.CreateInAppTemplate(context.Background(), in)
+			require.True(t, notificationModel.ErrTemplateLinkInvalid.Err().Is(err), "got %v", err)
+		})
+	}
+}
