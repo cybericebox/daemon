@@ -13,6 +13,9 @@ import (
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
+// maxPresenceKeys bounds the throttle map.
+const maxPresenceKeys = 16384
+
 // presenceInterval is how often one user's presence on one event is written.
 const presenceInterval = time.Minute
 
@@ -46,6 +49,11 @@ func (t *presenceThrottle) allow(key presenceKey, now time.Time) bool {
 			if now.Sub(at) >= presenceInterval {
 				delete(t.last, k)
 			}
+		}
+		// Presence is touched before the event is known to exist, so the keys are chosen by the
+		// caller: never let the map follow them past a fixed size.
+		if len(t.last) >= maxPresenceKeys {
+			clear(t.last)
 		}
 	}
 	t.last[key] = now

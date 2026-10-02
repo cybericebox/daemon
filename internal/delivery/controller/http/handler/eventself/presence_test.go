@@ -141,3 +141,16 @@ func TestPresenceThrottlePrunesStaleEntries(t *testing.T) {
 		t.Fatalf("stale entries are pruned, left %d", len(th.last))
 	}
 }
+
+// L17: the throttle keys come from the caller (the event id of the URL); the map must not follow them without bound.
+func TestPresenceThrottleStaysBounded(t *testing.T) {
+	var th presenceThrottle
+	now := time.Now()
+	user := uuid.Must(uuid.NewV7())
+	for i := 0; i < 5*maxPresenceKeys; i++ {
+		th.allow(presenceKey{eventID: uuid.Must(uuid.NewV7()), userID: user}, now)
+	}
+	if len(th.last) > maxPresenceKeys {
+		t.Fatalf("the throttle map grew to %d keys", len(th.last))
+	}
+}
