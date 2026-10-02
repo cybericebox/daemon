@@ -57,7 +57,7 @@ func TestAFailedRosterLockEndsTheChangeWithoutAWrite(t *testing.T) {
 	require.False(t, unit.saved)
 }
 
-// The seats are counted in the invitation's own transaction: members and pending invitations together may not pass
+// The seats are counted in the invitation's own transaction: members (and pending invitations) together may not pass
 // the maximum, however the invitations were interleaved.
 func TestAnInvitationNeedsAFreeSeatCountedUnderTheLock(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
@@ -68,8 +68,8 @@ func TestAnInvitationNeedsAFreeSeatCountedUnderTheLock(t *testing.T) {
 	uc.SetInvitationNotifier(notifier)
 	eventID, teamID, managerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true}, MaxTeamSize: 3}, nil).AnyTimes()
-	q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Name: "Blue", MemberCount: 2}, nil).AnyTimes()
-	q.EXPECT().CountPendingTeamInvitations(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes() // 2 members + 1 pending = 3 of 3
+	q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Name: "Blue", MemberCount: 3}, nil).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil).AnyTimes()
 	results, err := uc.InviteTeamMembers(context.Background(), eventID, teamID, managerID, []event.ParticipantInvitationInput{{Email: "member@example.test"}})
 	require.NoError(t, err)
 	require.NotEmpty(t, results[0].Error, "no seat is left")
