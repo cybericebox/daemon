@@ -10,3 +10,6 @@ graphify-out/
 # Local agent tooling notes
 .superpowers/
 docs/superpowers/
+
+# Test-data generator: accounts and their password (make seed)
+.seed-credentials

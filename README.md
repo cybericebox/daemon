@@ -248,7 +248,40 @@ The retention defaults are the published periods of the Privacy Policy; change t
 | `make sqlcGenerate` | Regenerate sqlc code (runs sqlc in Docker). Then run `go generate ./internal/delivery/repository/postgres/` for the mocks. |
 | `make swagger` | Regenerate the OpenAPI spec from handler annotations. |
 | `make error-catalog` | Regenerate `error-catalog/errors.en.json`. |
+| `make seed` | Fill the development database with test data for live checks, or remove it (`make seed ARGS="--delete"`). See [Test data](#test-data). |
 | `make tidy` | `go mod tidy`. |
+
+## Test data
+
+`make seed` fills the development database with data for live end-to-end checks. It drives the application's own use cases and repositories (no raw SQL), reads the same `.env` as `make run-local`, and needs the schema to be current (start the daemon once after an upgrade). It refuses to run when `ENV=production`, and when the database host is not local unless `--allow-remote` is given. It sends no mail: no signals are published.
+
+```bash
+make seed                                    # small profile, event starts in 30 minutes
+make seed ARGS="--profile load --start-in 10m --reveal as_ready"
+make seed ARGS="--delete --dry-run"          # list what cleanup would remove
+make seed ARGS="--delete"                    # remove everything the seeder created
+```
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--profile` | `small` | `small`: 3 teams of 3; `load`: 16 teams of 5. |
+| `--start-in` | `30m` | When the event starts (at least `1m`: registration closes at the start). |
+| `--duration` | `3h` | How long it lasts. |
+| `--reveal` | `all_ready` | Task reveal mode: `all_ready` or `as_ready`. |
+| `--event-tag` | `seedlive` | Event subdomain; it must start with `seed`. |
+| `--infrastructure` | `true` | Allow dynamic labs on the event and seed the lab exercises. `false` seeds the static ones only. |
+| `--credentials` | `.seed-credentials` | File for the accounts and their password. |
+| `--delete`, `--dry-run` | | Cleanup; `--dry-run` only lists. |
+
+What it creates:
+
+- **Accounts**: two organizers (platform role `admin`; `seed-org1` owns the event, `seed-org2` is its manager) and the team members `seed-tNN-mK@seed.cybericebox.test` (member 1 is the captain). All are active and verified, with one shared password. The password is written only to the gitignored `.seed-credentials` (mode 0600, with the account list); it is never printed or logged, and a re-run keeps it.
+- **Ten catalog exercises**, tagged `seed`, named `[seed] …`, published: six with a lab (one to three devices, a switch, VPN with a DHCP range, a state-persistent device, one with two per-team variants) and four static; flags are fixed (`ICE{seed_<task>}`), tags `web`, `crypto`, `forensics`, `net`, `osint`, `misc`, hints of every level. Lab devices use `nginx:alpine`, `httpd:alpine`, `redis:alpine` and `traefik/whoami`: every device must keep running by itself, so a bare `alpine` or `busybox` does not do.
+- **One event** `[seed] Live Check`: team participation, open registration, public boards, published now and starting after `--start-in`; all exercises attached and shown on the board with points, hint costs, four challenge groups and prerequisites (two chains); dynamic infrastructure allowed; the teams are built, so they form at the start. The infrastructure flag cannot change after creation: delete and re-seed to flip it.
+
+It is idempotent: a re-run finds everything by its stable name, skips what is unchanged, publishes a new version only of an exercise whose definition changed, adds missing members, and moves the start to `--start-in` from now while the event has not started. Once the event has started, the schedule and the reveal mode stay.
+
+Cleanup removes only what carries the marker: events whose tag starts with `seed` and whose name with `[seed] `, catalog exercises tagged `seed` and named `[seed] …`, and accounts on `seed.cybericebox.test`. Events go first (an exercise cannot go while an event uses it), accounts last, deleted the way the platform deletes an account (the address is freed, sessions are revoked). An exercise that an event outside the seed uses is kept and reported.
 
 ## Database and migrations
 

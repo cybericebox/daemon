@@ -6,7 +6,7 @@ HANDLER_DIR     := ./internal/delivery/controller/http/handler
 RESPONSE_DIR    := ./internal/delivery/controller/http/response
 APIDOCS_DIR     := ./internal/delivery/controller/http/handler/apidocs
 
-.PHONY: swagger build vet test tidy run sqlcGenerate error-catalog
+.PHONY: swagger build vet test tidy run sqlcGenerate error-catalog seed
 
 sqlcGenerate:
 	@docker run --rm -v ./internal/delivery/repository/postgres:/src -w /src sqlc/sqlc generate
@@ -69,3 +69,9 @@ lint-layers:
 ## lint-routes: fail on handler routes lacking a RequirePermission gate
 lint-routes:
 	@go run ./tools/checkroutes
+
+## seed: fill the development database with test data for live checks, or remove it
+## (make seed ARGS="--delete"). Dev only: refuses ENV=production. Reads ./.env like run-local;
+## accounts and their password go to the gitignored .seed-credentials. See the README.
+seed:
+	@set -a; . ./.env; set +a; go run ./cmd/seed $(ARGS)
