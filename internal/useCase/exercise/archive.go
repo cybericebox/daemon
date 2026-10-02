@@ -475,6 +475,50 @@ func BuildArchiveV1(files map[string][]byte) ([]byte, error) {
 	}
 	return out.Bytes(), nil
 }
+
+// Limits of one archive: the entries, each entry, everything unpacked together, and how far a compressed entry
+// may expand. A small archive of repeated bytes unpacks into gigabytes otherwise.
+const (
+	maxArchiveEntries      = 1000
+	maxArchiveEntryBytes   = 64 << 20
+	maxArchiveTotalBytes   = 256 << 20
+	maxArchiveRatio        = 200
+	archiveRatioFreeBytes  = 1 << 20
+	errArchiveTooLargeText = "archive is too large when unpacked"
+)
+
+// archiveBudget tracks what one archive has unpacked so far.
+type archiveBudget struct{ total int64 }
+
+// check refuses an entry the header already shows to be too large or expanding too far, before it is read.
+func (b *archiveBudget) check(entries int, uncompressed, compressed uint64) error {
+	if entries > maxArchiveEntries {
+		return fmt.Errorf("archive has more than %d entries", maxArchiveEntries)
+	}
+	if uncompressed > maxArchiveEntryBytes {
+		return fmt.Errorf("archive entry exceeds 64 MiB")
+	}
+	if uncompressed > archiveRatioFreeBytes && (compressed == 0 || uncompressed/compressed > maxArchiveRatio) {
+		return fmt.Errorf(errArchiveTooLargeText)
+	}
+	return nil
+}
+
+// read unpacks one entry within the limits; the header's sizes are not trusted, the bytes actually read count.
+func (b *archiveBudget) read(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxArchiveEntryBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxArchiveEntryBytes {
+		return nil, fmt.Errorf("archive entry exceeds 64 MiB")
+	}
+	if b.total += int64(len(body)); b.total > maxArchiveTotalBytes {
+		return nil, fmt.Errorf(errArchiveTooLargeText)
+	}
+	return body, nil
+}
+
 func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 	b, e := io.ReadAll(io.LimitReader(r, 128<<20))
 	if e != nil {
@@ -486,15 +530,19 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 	}
 	out := map[string][]byte{}
 	var m archiveManifest
+	var budget archiveBudget
 	for _, f := range zr.File {
 		if !safeArchivePath(f.Name) && f.Name != "manifest.json" {
 			return nil, fmt.Errorf("unsafe archive path")
+		}
+		if e = budget.check(len(zr.File), f.UncompressedSize64, f.CompressedSize64); e != nil {
+			return nil, e
 		}
 		rc, e := f.Open()
 		if e != nil {
 			return nil, e
 		}
-		d, e := io.ReadAll(io.LimitReader(rc, 64<<20))
+		d, e := budget.read(rc)
 		rc.Close()
 		if e != nil {
 			return nil, e
@@ -567,6 +615,7 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 		return nil, err
 	}
 	files := map[string][]byte{}
+	var budget archiveBudget
 	for _, file := range zr.File {
 		if !safeArchivePath(file.Name) && file.Name != "manifest.json" {
 			return nil, fmt.Errorf("unsafe archive path")
@@ -574,18 +623,18 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 		if !file.IsEncrypted() {
 			return nil, fmt.Errorf("protected archive contains an unencrypted entry")
 		}
+		if err = budget.check(len(zr.File), file.UncompressedSize64, file.CompressedSize64); err != nil {
+			return nil, err
+		}
 		file.SetPassword(password)
 		reader, openErr := file.Open()
 		if openErr != nil {
 			return nil, openErr
 		}
-		body, readErr := io.ReadAll(io.LimitReader(reader, (64<<20)+1))
+		body, readErr := budget.read(reader)
 		_ = reader.Close()
 		if readErr != nil {
 			return nil, readErr
-		}
-		if len(body) > 64<<20 {
-			return nil, fmt.Errorf("archive entry exceeds 64 MiB")
 		}
 		files[file.Name] = body
 	}
