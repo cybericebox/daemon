@@ -447,3 +447,13 @@ func TestAgentsThatAreNotUsedHaveNoCapacity(t *testing.T) {
 	_, err = h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
 	assert.True(t, is(err, calModel.ErrReservationConflict))
 }
+
+func TestReportedTenantQuotaLimitsTheCapacity(t *testing.T) {
+	h := newHarness(t)
+	h.agents.records[0].Features = &infraModel.AgentFeatures{TenantQuota: infraModel.TenantQuotaFeature{HasCPU: true, CPUMillicores: 4000}}
+	h.agents.records[1].CapacityCPUMillicores, h.agents.records[1].CapacityMemoryBytes = nil, nil // no quota: no limit
+	c, err := h.uc.GetResourceCalendarCapacity(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(4000), c.Agents[0].Capacity.CPUMillicores)
+	assert.True(t, c.Agents[1].CPUUnlimited)
+}

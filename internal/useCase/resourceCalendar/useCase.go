@@ -246,6 +246,14 @@ func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time
 				st.Capacity.MemoryBytes = *r.CapacityMemoryBytes
 			}
 			if r.Features != nil {
+				// The reported tenant quota and the recorded capacity both limit the agent: the smaller counts.
+				q := r.Features.TenantQuota
+				if q.HasCPU {
+					st.Capacity.CPUMillicores = min(st.Capacity.CPUMillicores, q.CPUMillicores)
+				}
+				if q.HasMemory {
+					st.Capacity.MemoryBytes = min(st.Capacity.MemoryBytes, q.MemoryBytes)
+				}
 				st.DeviceMax = Amount{CPUMillicores: r.Features.Limits.DeviceMaxCPUMillicores, MemoryBytes: r.Features.Limits.DeviceMaxMemoryBytes}
 			}
 			st.Connected = now.Sub(*r.CapacitySeenAt) <= u.cfg.AgentFresh

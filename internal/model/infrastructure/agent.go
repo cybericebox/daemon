@@ -65,6 +65,16 @@ type AgentFeatures struct {
 	Certificate CertificateFeature `json:"certificate"`
 	Proxy       ProxyFeature       `json:"proxy"`
 	Limits      LimitsFeature      `json:"limits"`
+	// TenantQuota is the cluster owner's limit for this platform; the calendar's capacity comes from it.
+	TenantQuota TenantQuotaFeature `json:"tenant_quota"`
+}
+
+// TenantQuotaFeature is the tenant quota; Has* false means no limit on that resource.
+type TenantQuotaFeature struct {
+	HasCPU        bool  `json:"has_cpu"`
+	CPUMillicores int64 `json:"cpu_millicores"`
+	HasMemory     bool  `json:"has_memory"`
+	MemoryBytes   int64 `json:"memory_bytes"`
 }
 
 // PersistenceFeature is device state persistence for the tenant.

@@ -54,6 +54,10 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 		Endpoints:   infraModel.EndpointsFeature{LabsDomain: ep.GetLabsDomain(), VPNEndpoint: ep.GetVpnEndpoint()},
 		Certificate: infraModel.CertificateFeature{NotAfterUnix: cert.GetNotAfterUnix(), IssuedTTLSeconds: cert.GetIssuedTtlSeconds()},
 		Limits:      limitsOf(r),
+		TenantQuota: infraModel.TenantQuotaFeature{
+			HasCPU: r.GetTenantQuota().GetHasCpuQuota(), CPUMillicores: r.GetTenantQuota().GetCpuQuotaMillicores(),
+			HasMemory: r.GetTenantQuota().GetHasMemoryQuota(), MemoryBytes: r.GetTenantQuota().GetMemoryQuotaBytes(),
+		},
 		Proxy: infraModel.ProxyFeature{
 			AccessTokenMaxTTLSeconds: proxy.GetAccessTokenMaxTtlSeconds(), SessionMaxTTLSeconds: proxy.GetSessionMaxTtlSeconds(), SessionIdleTTLSeconds: proxy.GetSessionIdleTtlSeconds(),
 		},
