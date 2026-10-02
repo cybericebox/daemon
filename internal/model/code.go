@@ -29,4 +29,5 @@ const (
 	EventAnalyticsObjectCode
 	PlatformAnalyticsObjectCode
 	ErrorJournalObjectCode
+	ResourceCalendarObjectCode
 )
