@@ -60,6 +60,7 @@ type Queries interface {
 	FindEventFork(ctx context.Context, arg postgres.FindEventForkParams) (postgres.Exercise, error)
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]postgres.ListExerciseCardExtrasRow, error)
 	ListFileExerciseIDs(ctx context.Context, arg postgres.ListFileExerciseIDsParams) ([]uuid.UUID, error)
+	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error)
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserEventMembershipsRow, error)
 	ArchiveEventExercises(ctx context.Context, arg postgres.ArchiveEventExercisesParams) error
 	CreateExerciseProposal(ctx context.Context, arg postgres.CreateExerciseProposalParams) (postgres.ExerciseProposal, error)
@@ -558,6 +559,20 @@ func (r *Repository) CardExtras(ctx context.Context, ids []uuid.UUID) (map[uuid.
 // FileExerciseIDs lists the exercises whose versions reference a file.
 func (r *Repository) FileExerciseIDs(ctx context.Context, fileID uuid.UUID, refType string) ([]uuid.UUID, error) {
 	return r.q.ListFileExerciseIDs(ctx, postgres.ListFileExerciseIDsParams{FileID: fileID, RefType: refType})
+}
+
+// FileOwners returns who uploaded each of the files; a file that does not exist is absent from the map, and
+// one with no recorded uploader maps to the zero value.
+func (r *Repository) FileOwners(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]uuid.NullUUID, error) {
+	rows, err := r.q.ListFileOwners(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]uuid.NullUUID, len(rows))
+	for _, row := range rows {
+		out[row.ID] = row.CreatedBy
+	}
+	return out, nil
 }
 
 // Membership is one event the user is a member of (role: 0 owner, 1 manager,

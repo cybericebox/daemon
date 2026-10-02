@@ -930,6 +930,39 @@ func (q *Queries) ListFileExerciseIDs(ctx context.Context, arg ListFileExerciseI
 	return items, nil
 }
 
+const listFileOwners = `-- name: ListFileOwners :many
+SELECT id, created_by
+FROM files
+WHERE id = ANY ($1::uuid[])
+`
+
+type ListFileOwnersRow struct {
+	ID        uuid.UUID     `json:"id"`
+	CreatedBy uuid.NullUUID `json:"created_by"`
+}
+
+// Who uploaded each of the files: an exercise draft may attach only files its author uploaded or the exercise
+// already holds.
+func (q *Queries) ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]ListFileOwnersRow, error) {
+	rows, err := q.db.Query(ctx, listFileOwners, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFileOwnersRow{}
+	for rows.Next() {
+		var i ListFileOwnersRow
+		if err := rows.Scan(&i.ID, &i.CreatedBy); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserEventMemberships = `-- name: ListUserEventMemberships :many
 SELECT member.event_id, member.role,
        COALESCE(NULLIF(ev.internal_name, ''), ev.name)::text AS name,

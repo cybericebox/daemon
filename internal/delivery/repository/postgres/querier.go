@@ -823,6 +823,9 @@ type Querier interface {
 	ListExpiredExerciseTestDeploys(ctx context.Context, expiresAt time.Time) ([]ExerciseTestDeployment, error)
 	// Exercises whose versions reference a file (attachment download policy).
 	ListFileExerciseIDs(ctx context.Context, arg ListFileExerciseIDsParams) ([]uuid.UUID, error)
+	// Who uploaded each of the files: an exercise draft may attach only files its author uploaded or the exercise
+	// already holds.
+	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]ListFileOwnersRow, error)
 	// Batch size lookup for board attachments; missing files are simply absent.
 	ListFileSizes(ctx context.Context, ids []uuid.UUID) ([]ListFileSizesRow, error)
 	// An empty event_filter lists everything; an Event id lists that Event's items and

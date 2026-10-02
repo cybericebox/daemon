@@ -6153,6 +6153,21 @@ func (mr *MockQuerierMockRecorder) ListFileExerciseIDs(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFileExerciseIDs", reflect.TypeOf((*MockQuerier)(nil).ListFileExerciseIDs), ctx, arg)
 }
 
+// ListFileOwners mocks base method.
+func (m *MockQuerier) ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListFileOwners", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListFileOwnersRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListFileOwners indicates an expected call of ListFileOwners.
+func (mr *MockQuerierMockRecorder) ListFileOwners(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFileOwners", reflect.TypeOf((*MockQuerier)(nil).ListFileOwners), ctx, ids)
+}
+
 // ListFileSizes mocks base method.
 func (m *MockQuerier) ListFileSizes(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileSizesRow, error) {
 	m.ctrl.T.Helper()

@@ -232,6 +232,13 @@ JOIN exercise_versions version ON version.id = reference.ref_id
 WHERE reference.file_id = sqlc.arg(file_id)
   AND reference.ref_type = sqlc.arg(ref_type);
 
+-- name: ListFileOwners :many
+-- Who uploaded each of the files: an exercise draft may attach only files its author uploaded or the exercise
+-- already holds.
+SELECT id, created_by
+FROM files
+WHERE id = ANY (sqlc.arg(ids)::uuid[]);
+
 -- name: ListUserEventMemberships :many
 -- The events a user is a member of, for the exercises app rights summary.
 SELECT member.event_id, member.role,
