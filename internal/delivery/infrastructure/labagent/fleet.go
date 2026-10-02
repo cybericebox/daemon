@@ -15,6 +15,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
 // Member is one agent of the fleet: its registry identity, whether new groups may be placed on it,
@@ -83,6 +84,8 @@ type Fleet struct {
 	// limitWarned remembers the agents whose proxy limits already caused a warning about the configured TTLs.
 	limitWarned sync.Map
 	members     []*Member // ordered by priority, then name
+	// policy is the platform's device resources settings (the frame an agent must meet, the presets).
+	policy resourcesModel.Policy
 }
 
 // NewFleet builds a fleet. store may be nil only while the fleet has at most one member.
@@ -90,7 +93,7 @@ func NewFleet(store PlacementStore, picker Picker, members ...*Member) *Fleet {
 	if picker == nil {
 		picker = FirstByPriority
 	}
-	f := &Fleet{store: store, picker: picker}
+	f := &Fleet{store: store, picker: picker, policy: resourcesModel.DefaultPolicy()}
 	f.Replace(members)
 	return f
 }
@@ -216,18 +219,13 @@ func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, err
 	if !errors.Is(err, errNoPlacement) {
 		return nil, err
 	}
-	var enabled []*Member
-	for _, m := range f.Members() {
-		if m.Enabled {
-			enabled = append(enabled, m)
-		}
-	}
+	// Only an agent that meets the platform requirements is used, and among them only one whose device
+	// maxima hold what the group will run: a team lives on one agent.
+	enabled := f.eligible()
 	if len(enabled) == 0 {
 		return nil, infraModel.ErrInfrastructureUnavailable.Err()
 	}
-	// Only an agent whose limits hold everything the group will run is a candidate: a team lives on one agent.
-	need := infraModel.PlacementNeedFrom(ctx)
-	if len(need.Labs) > 0 {
+	if need := infraModel.PlacementNeedFrom(ctx); need.Known() {
 		var fitting []*Member
 		var worst *infraModel.FitViolation
 		for _, m := range enabled {
@@ -281,29 +279,32 @@ func (f *Fleet) Health(ctx context.Context) error {
 }
 
 func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
-	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), infraModel.DemandOf(topo)))
+	// The agent always gets explicit resources: requests equal limits, from the preset or the custom values.
+	policy := f.Policy()
+	topo = policy.Explicitly(topo)
+	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), labNeed(policy, topo)))
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
 	}
-	// A group that lives on an agent stays there: a lab that passes its limits is refused here, with the
+	// A group that lives on an agent stays there: a lab that passes its maxima is refused here, with the
 	// same error the placement gives.
-	if v := fitOf(m, infraModel.PlacementNeed{Labs: []infraModel.Demand{infraModel.DemandOf(topo)}}); v != nil {
+	if v := fitOf(m, labNeed(policy, topo)); v != nil {
 		return noAgentFits(v)
 	}
 	// The agent says what it offers: a topology that needs more is refused here, before anything is created.
 	if feat := m.Features.Get(); feat != nil && !feat.Persistence.Available && wantsPersistence(topo) {
 		return infraModel.ErrDevicePersistenceUnavailable.Err()
 	}
-	return m.Client.DeployLab(ctx, group, lab, meta, topo)
+	return m.Client.DeployLab(f.withSizes(ctx, m), group, lab, meta, topo)
 }
 
 func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {
-	c, err := f.routeForCreate(ctx, group)
+	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
 	}
-	return c.EnsureVPNGroup(ctx, group)
+	return m.Client.EnsureVPNGroup(f.withSizes(ctx, m), group)
 }
 
 func (f *Fleet) LabStatus(ctx context.Context, group, lab string) (exerciseModel.LabDeployStatus, error) {

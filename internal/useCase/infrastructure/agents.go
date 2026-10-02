@@ -15,6 +15,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	"github.com/cybericebox/daemon/pkg/agentcrypto"
 )
 
@@ -106,6 +107,8 @@ type (
 		remote     AgentRemote
 		impacts    AgentImpacts
 		now        func() time.Time
+		// frame is the device size an agent must allow (the platform's device resources frame).
+		frame resourcesModel.Amount
 
 		capacityMu   sync.Mutex
 		lastCapacity map[uuid.UUID]capacityReading
@@ -126,7 +129,10 @@ type (
 		Remote AgentRemote
 		// Impacts reports the future reservations an agent's deletion affects; nil without a calendar.
 		Impacts AgentImpacts
-		Now     func() time.Time
+		// Frame is the platform's device frame; an agent whose device maxima are below it, or that allows fewer
+		// than 32 devices per lab, is flagged as not meeting the platform requirements. Zero: the default frame.
+		Frame resourcesModel.Amount
+		Now   func() time.Time
 	}
 
 	// AgentAdminView is one agent for the admin list.
@@ -139,6 +145,10 @@ type (
 		// RetiredKeys is how many rotated-out access keys still wait for removal at the agent.
 		RetiredKeys int
 		Probe       agentfleet.AgentProbe
+		// Unmet lists where the agent is below what the platform requires; empty means it meets the
+		// requirements. An agent that is flagged is not used for planning or placement. An agent that has not
+		// reported its limits is not flagged.
+		Unmet []infraModel.FitViolation
 	}
 
 	// AgentsView is the admin agent list.
@@ -152,7 +162,11 @@ func NewAgentsUseCase(deps AgentsDependencies) *AgentsUseCase {
 	if now == nil {
 		now = time.Now
 	}
-	return &AgentsUseCase{store: deps.Store, placements: deps.Placements, sealer: deps.Sealer, fleet: deps.Fleet, remote: deps.Remote, impacts: deps.Impacts, now: now, lastCapacity: map[uuid.UUID]capacityReading{}}
+	frame := deps.Frame
+	if frame == (resourcesModel.Amount{}) {
+		frame = resourcesModel.DefaultPolicy().Frame
+	}
+	return &AgentsUseCase{frame: frame, store: deps.Store, placements: deps.Placements, sealer: deps.Sealer, fleet: deps.Fleet, remote: deps.Remote, impacts: deps.Impacts, now: now, lastCapacity: map[uuid.UUID]capacityReading{}}
 }
 
 // ListAgents lists the agents with their live state, ordered like the placement: by priority, then by name.
@@ -172,7 +186,7 @@ func (u *AgentsUseCase) ListAgents(ctx context.Context, includeArchived bool) (A
 	view := AgentsView{Items: make([]AgentAdminView, len(records))}
 	var wg sync.WaitGroup
 	for i, r := range records {
-		item := AgentAdminView{AgentRegistration: r.AgentRegistration, Groups: counts[r.ID], RetiredKeys: len(r.RetiredAccessKeys), InUse: r.ArchivedAt == nil}
+		item := AgentAdminView{AgentRegistration: r.AgentRegistration, Groups: counts[r.ID], RetiredKeys: len(r.RetiredAccessKeys), InUse: r.ArchivedAt == nil, Unmet: u.unmet(r.Features)}
 		view.Items[i] = item
 		if item.InUse {
 			wg.Add(1)
@@ -617,8 +631,16 @@ func (u *AgentsUseCase) afterChange(ctx context.Context, id uuid.UUID) (AgentAdm
 	return view, nil
 }
 
+// unmet is where the agent's reported limits are below the platform requirements.
+func (u *AgentsUseCase) unmet(f *infraModel.AgentFeatures) []infraModel.FitViolation {
+	if f == nil {
+		return nil
+	}
+	return f.Limits.UnmetRequirements(u.frame)
+}
+
 func (u *AgentsUseCase) viewOf(ctx context.Context, r infraModel.AgentRecord) AgentAdminView {
-	view := AgentAdminView{AgentRegistration: r.AgentRegistration, InUse: true, RetiredKeys: len(r.RetiredAccessKeys)}
+	view := AgentAdminView{AgentRegistration: r.AgentRegistration, InUse: true, RetiredKeys: len(r.RetiredAccessKeys), Unmet: u.unmet(r.Features)}
 	if counts, err := u.placements.CountByAgent(ctx); err == nil {
 		view.Groups = counts[r.ID]
 	}

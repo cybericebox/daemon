@@ -94,11 +94,22 @@ func (c *Client) EnsureVPNGroup(ctx context.Context, group string) error {
 	return c.ensureGroup(ctx, group, nil)
 }
 
+// groupItem is one group to create. The sizes of its own pods (the VPN by the group's users, the gateway by
+// its internet labs; computed with this agent's formula and carried in ctx by the fleet) are passed
+// explicitly here, so the pods are created at exactly the size the backend planned and reserved.
+func groupItem(ctx context.Context, group string, labels map[string]string) *labpb.LabGroupItem {
+	item := &labpb.LabGroupItem{Name: group, Labels: labels}
+	if sizes, ok := infraModel.GroupSizesFrom(ctx); ok {
+		setGroupSizes(item, sizes)
+	}
+	return item
+}
+
 // ensureGroup creates the group when it is missing; labels it lacks are added to an existing one.
 func (c *Client) ensureGroup(ctx context.Context, group string, labels map[string]string) error {
 	res, err := c.CreateLabGroups(ctx, &labpb.CreateLabGroupsRequest{
 		Labels: c.requestLabels(),
-		Items:  []*labpb.LabGroupItem{{Name: group, Labels: labels}},
+		Items:  []*labpb.LabGroupItem{groupItem(ctx, group, labels)},
 	})
 	if err != nil {
 		return agentErr("create lab group", err)

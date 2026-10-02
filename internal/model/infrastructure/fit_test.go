@@ -4,114 +4,78 @@ import (
 	"context"
 	"testing"
 
-	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/stretchr/testify/assert"
+
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
-// The agent's defaults: a device up to 500m and 512Mi, planned at 100m and 256Mi when it sets none; a lab of
-// at most 10 devices; a group of 5 labs, 2 CPU and 2Gi together.
-var agentLimits = LimitsFeature{
-	DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 512 << 20, DeviceDefaultCPUMillicores: 100, DeviceDefaultMemoryBytes: 256 << 20,
-	LabMaxDevices: 10, GroupMaxLabs: 5, GroupMaxCPUMillicores: 2000, GroupMaxMemoryBytes: 2 << 30,
+const mi, gi = 1 << 20, 1 << 30
+
+func TestGroupPodSizingGrowsWithUnitsUpToTheMaximum(t *testing.T) {
+	vpn := GroupPodSizing{
+		Base:    resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi},
+		PerUnit: resourcesModel.Amount{CPUMillicores: 2, MemoryBytes: 4 * mi},
+		Max:     resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 64 * mi},
+	}
+	assert.True(t, vpn.Reported())
+	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi}, vpn.Size(0))
+	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 20, MemoryBytes: 36 * mi}, vpn.Size(5))
+	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 64 * mi}, vpn.Size(1000), "the maximum caps it")
+	assert.Equal(t, vpn.Size(0), vpn.Size(-3), "no negative users")
+
+	// A zero maximum is no maximum; an unreported sizing adds nothing.
+	open := GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 1, MemoryBytes: 1}, PerUnit: resourcesModel.Amount{CPUMillicores: 1, MemoryBytes: 1}}
+	assert.Equal(t, int64(101), open.Size(100).CPUMillicores)
+	assert.False(t, GroupPodSizing{}.Reported())
+	assert.Equal(t, resourcesModel.Amount{}, GroupPodSizing{}.Size(10))
 }
 
-func container(name string, r *exerciseModel.DeviceResources) exerciseModel.Device {
-	return exerciseModel.Device{Name: name, Type: exerciseModel.DeviceTypeContainer, Image: "img", Resources: r}
+func TestSizesForUsesUsersForTheVPNAndInternetLabsForTheGateway(t *testing.T) {
+	l := LimitsFeature{
+		VPN:     GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 10}, PerUnit: resourcesModel.Amount{CPUMillicores: 1}},
+		Gateway: GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 20}, PerUnit: resourcesModel.Amount{CPUMillicores: 5}},
+	}
+	sizes := l.SizesFor(GroupPlan{MaxUsers: 8, InternetLabs: 2})
+	assert.Equal(t, int64(18), sizes.VPN.CPUMillicores)
+	assert.Equal(t, int64(30), sizes.Gateway.CPUMillicores)
+	assert.Equal(t, int64(48), sizes.Total().CPUMillicores)
 }
 
-func TestDemandOfCountsContainersAndTakesTheLimitThenTheRequest(t *testing.T) {
-	topo := exerciseModel.Topology{Devices: []exerciseModel.Device{
-		container("a", &exerciseModel.DeviceResources{CPURequest: "100m", CPULimit: "250m", MemoryRequest: "64Mi"}),
-		container("b", nil),
-		{Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch},
-	}}
-	d := DemandOf(topo)
-	if len(d.Devices) != 2 {
-		t.Fatalf("a switch runs no pod: %+v", d.Devices)
-	}
-	if cpu, mem := agentLimits.Effective(d.Devices[0]); cpu != 250 || mem != 64<<20 {
-		t.Fatalf("limit wins over request, request over default: %d %d", cpu, mem)
-	}
-	if cpu, mem := agentLimits.Effective(d.Devices[1]); cpu != 100 || mem != 256<<20 {
-		t.Fatalf("a device without resources gets the agent's default profile: %d %d", cpu, mem)
-	}
+func TestFitsChecksTheDeviceMaximaAndTheLabSize(t *testing.T) {
+	l := LimitsFeature{DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 2 * gi, LabMaxDevices: 32}
+	assert.Nil(t, l.Fits(PlacementNeed{Device: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}, LabDevices: 32}))
+	v := l.Fits(PlacementNeed{Device: resourcesModel.Amount{CPUMillicores: 600, MemoryBytes: gi}})
+	assert.Equal(t, &FitViolation{Resource: FitCPU, Requested: 600, Max: 500}, v)
+	v = l.Fits(PlacementNeed{Device: resourcesModel.Amount{CPUMillicores: 100, MemoryBytes: 3 * gi}})
+	assert.Equal(t, &FitViolation{Resource: FitMemory, Requested: 3 * gi, Max: 2 * gi}, v)
+	v = l.Fits(PlacementNeed{LabDevices: 33})
+	assert.Equal(t, &FitViolation{Resource: FitDevices, Requested: 33, Max: 32}, v)
+	// 0 is no limit.
+	assert.Nil(t, LimitsFeature{}.Fits(PlacementNeed{Device: resourcesModel.Amount{CPUMillicores: 9999}, LabDevices: 64}))
 }
 
-func TestCheckMirrorsTheAgentsCaps(t *testing.T) {
-	big := func(cpu, mem string) Demand {
-		return DemandOf(exerciseModel.Topology{Devices: []exerciseModel.Device{container("web", &exerciseModel.DeviceResources{CPULimit: cpu, MemoryLimit: mem})}})
-	}
-	cases := []struct {
-		name     string
-		demand   Demand
-		resource string
-		req, max int64
-	}{
-		{"fits", big("500m", "512Mi"), "", 0, 0},
-		{"device cpu", big("1", "128Mi"), FitCPU, 1000, 500},
-		{"device memory", big("100m", "1Gi"), FitMemory, 1 << 30, 512 << 20},
-	}
-	for _, c := range cases {
-		v := agentLimits.Check(c.demand)
-		if c.resource == "" {
-			if v != nil {
-				t.Errorf("%s: %+v", c.name, v)
-			}
-			continue
-		}
-		if v == nil || v.Resource != c.resource || v.Device != "web" || v.Requested != c.req || v.Max != c.max {
-			t.Errorf("%s: %+v", c.name, v)
-		}
-	}
-	var many Demand
-	for i := 0; i < 11; i++ {
-		many.Devices = append(many.Devices, DeviceNeed{Name: "d"})
-	}
-	if v := agentLimits.Check(many); v == nil || v.Resource != FitDevices || v.Requested != 11 || v.Max != 10 {
-		t.Errorf("devices per lab: %+v", v)
-	}
-	var heavy Demand
-	for i := 0; i < 5; i++ {
-		heavy.Devices = append(heavy.Devices, DeviceNeed{Name: "d", CPUMillicores: 500, cpuSet: true})
-	}
-	if v := agentLimits.Check(heavy); v == nil || v.Resource != FitGroupCPU || v.Requested != 2500 || v.Max != 2000 {
-		t.Errorf("group cpu: %+v", v)
-	}
-	// The group adds its labs up: labs are added up: each is small, the group cap is not.
-	lab := Demand{Devices: []DeviceNeed{{Name: "d", CPUMillicores: 400, cpuSet: true}}}
-	if agentLimits.Fits(PlacementNeed{Labs: []Demand{lab, lab, lab, lab}}) != nil {
-		t.Error("four labs of 400m fit 2000m")
-	}
-	if v := agentLimits.Fits(PlacementNeed{Labs: []Demand{lab, lab, lab, lab, lab, lab}}); v == nil || v.Resource != FitGroupLabs {
-		t.Errorf("six labs pass the labs-per-group cap: %+v", v)
-	}
-	fiveHundred := Demand{Devices: []DeviceNeed{{Name: "d", CPUMillicores: 500, cpuSet: true}}}
-	if v := agentLimits.Fits(PlacementNeed{Labs: []Demand{fiveHundred, fiveHundred, fiveHundred, fiveHundred, fiveHundred}}); v == nil || v.Resource != FitGroupCPU || v.Requested != 2500 {
-		t.Errorf("five labs of 500m pass the group cpu cap: %+v", v)
-	}
-	var six []Demand
-	for i := 0; i < 6; i++ {
-		six = append(six, Demand{})
-	}
-	if v := agentLimits.Fits(PlacementNeed{Labs: six}); v == nil || v.Resource != FitGroupLabs || v.Requested != 6 || v.Max != 5 {
-		t.Errorf("labs per group: %+v", v)
-	}
-	if (LimitsFeature{}).Check(heavy) != nil || (LimitsFeature{}).Check(many) != nil {
-		t.Error("zero means no limit")
-	}
+func TestUnmetRequirementsAreTheFrameAndThirtyTwoDevices(t *testing.T) {
+	frame := resourcesModel.Amount{CPUMillicores: 250, MemoryBytes: gi}
+	assert.Empty(t, LimitsFeature{DeviceMaxCPUMillicores: 250, DeviceMaxMemoryBytes: gi, LabMaxDevices: 32}.UnmetRequirements(frame), "exactly the frame is enough")
+	assert.Empty(t, LimitsFeature{}.UnmetRequirements(frame), "no limit meets them")
+	unmet := LimitsFeature{DeviceMaxCPUMillicores: 100, DeviceMaxMemoryBytes: 512 * mi, LabMaxDevices: 16}.UnmetRequirements(frame)
+	assert.Equal(t, []FitViolation{
+		{Resource: FitDeviceCPU, Requested: 250, Max: 100},
+		{Resource: FitDeviceMemory, Requested: gi, Max: 512 * mi},
+		{Resource: FitDevices, Requested: 32, Max: 16},
+	}, unmet)
+	assert.Len(t, LimitsFeature{LabMaxDevices: 31}.UnmetRequirements(frame), 1, "fewer than 32 devices per lab")
 }
 
-func TestPlacementNeedTravelsInTheContextAndMustFitEveryLab(t *testing.T) {
-	small := Demand{Devices: []DeviceNeed{{Name: "a", CPUMillicores: 100, cpuSet: true}}}
-	huge := Demand{Devices: []DeviceNeed{{Name: "b", CPUMillicores: 4000, cpuSet: true}}}
-	ctx := WithPlacementNeed(context.Background(), PlacementNeed{Labs: []Demand{small, huge}})
-	need := PlacementNeedFrom(ctx)
-	if len(need.Labs) != 2 || len(PlacementNeedFrom(context.Background()).Labs) != 0 {
-		t.Fatal("the need rides on the context")
-	}
-	if v := agentLimits.Fits(need); v == nil || v.Device != "b" {
-		t.Fatalf("one lab that passes a cap fails the group: %+v", v)
-	}
-	if agentLimits.Fits(PlacementNeed{Labs: []Demand{small}}) != nil {
-		t.Fatal("small fits")
-	}
+func TestPlacementContextCarriesTheNeedAndTheSizes(t *testing.T) {
+	ctx := context.Background()
+	assert.False(t, PlacementNeedFrom(ctx).Known())
+	need := PlacementNeed{LabDevices: 3, Plan: GroupPlan{MaxUsers: 5}}
+	assert.Equal(t, need, PlacementNeedFrom(WithPlacementNeed(ctx, need)))
+	_, ok := GroupSizesFrom(ctx)
+	assert.False(t, ok)
+	sizes := GroupSizes{VPN: resourcesModel.Amount{CPUMillicores: 7}}
+	got, ok := GroupSizesFrom(WithGroupSizes(ctx, sizes))
+	assert.True(t, ok)
+	assert.Equal(t, sizes, got)
 }

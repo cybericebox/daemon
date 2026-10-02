@@ -738,3 +738,44 @@ func TestRecordAgentFeaturesKeepsTheLastReport(t *testing.T) {
 		t.Fatalf("stored = %+v at %v", stored.Features, stored.FeaturesAt)
 	}
 }
+
+// An agent whose device maxima are below the platform frame, or that allows fewer than 32 devices per lab,
+// is flagged; one that has not reported is not.
+func TestListAgentsFlagsAnAgentThatDoesNotMeetThePlatformRequirements(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	var ids []uuid.UUID
+	for _, name := range []string{"ok", "small", "few", "silent"} {
+		view, err := f.uc.EnrollAgent(ctx, enrollForm(name, len(ids)+1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, view.ID)
+	}
+	setLimits := func(id uuid.UUID, l infraModel.LimitsFeature) {
+		record := f.store.records[id]
+		record.Features = &infraModel.AgentFeatures{Limits: l}
+		f.store.records[id] = record
+	}
+	setLimits(ids[0], infraModel.LimitsFeature{DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 2 << 30, LabMaxDevices: 32})
+	setLimits(ids[1], infraModel.LimitsFeature{DeviceMaxCPUMillicores: 100, DeviceMaxMemoryBytes: 2 << 30, LabMaxDevices: 32})
+	setLimits(ids[2], infraModel.LimitsFeature{DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 2 << 30, LabMaxDevices: 16})
+
+	view, err := f.uc.ListAgents(ctx, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]AgentAdminView{}
+	for _, item := range view.Items {
+		byName[item.Name] = item
+	}
+	if len(byName["ok"].Unmet) != 0 || len(byName["silent"].Unmet) != 0 {
+		t.Fatalf("ok and unreported agents meet the requirements: %+v %+v", byName["ok"].Unmet, byName["silent"].Unmet)
+	}
+	if u := byName["small"].Unmet; len(u) != 1 || u[0].Resource != infraModel.FitDeviceCPU || u[0].Max != 100 || u[0].Requested != 250 {
+		t.Fatalf("small = %+v", u)
+	}
+	if u := byName["few"].Unmet; len(u) != 1 || u[0].Resource != infraModel.FitDevices || u[0].Max != 16 || u[0].Requested != 32 {
+		t.Fatalf("few = %+v", u)
+	}
+}

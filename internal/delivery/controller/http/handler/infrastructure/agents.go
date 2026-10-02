@@ -39,6 +39,12 @@ type (
 		// cache, scheduler, endpoints); null until its first report, and kept while it is offline.
 		Features   *agentFeaturesResponse `json:"Features"`
 		FeaturesAt *time.Time             `json:"FeaturesAt"`
+		// MeetsRequirements is false when the agent's device maxima are below the platform frame or it allows
+		// fewer than 32 devices per lab: it is then not used for planning or placement. Unmet says where
+		// (Resource deviceCpu, deviceMemory or devices; Required is what the platform needs, Max what the
+		// agent reports). An agent that has not reported yet meets them.
+		MeetsRequirements bool                    `json:"MeetsRequirements"`
+		Unmet             []agentUnmetRequirement `json:"Unmet"`
 		// ArchivedAt is set for a deleted agent (listed only with archived=1): its record stays for history.
 		ArchivedAt *time.Time `json:"ArchivedAt"`
 		// CertExpiresAt is the end of the client certificate's validity; it is renewed automatically
@@ -62,6 +68,12 @@ type (
 		SeenAt        *time.Time `json:"SeenAt"`
 	}
 
+	agentUnmetRequirement struct {
+		Resource string `json:"Resource"`
+		Required int64  `json:"Required"`
+		Max      int64  `json:"Max"`
+	}
+
 	agentFeaturesResponse struct {
 		PersistenceAvailable        bool     `json:"PersistenceAvailable"`
 		PersistenceDefaultDebounce  int64    `json:"PersistenceDefaultDebounceMs"`
@@ -82,6 +94,25 @@ type (
 		ProxySessionMaxTTLSeconds     int64 `json:"ProxySessionMaxTTLSeconds"`
 		// ProxySessionIdleTTLSeconds is how long a proxy session lives without use (it slides while in use).
 		ProxySessionIdleTTLSeconds int64 `json:"ProxySessionIdleTTLSeconds"`
+		// DeviceMaxCPUMillicores and DeviceMaxMemoryBytes are the most one device may get; LabMaxDevices the
+		// container devices of one lab. 0 = no limit.
+		DeviceMaxCPUMillicores int64 `json:"DeviceMaxCPUMillicores"`
+		DeviceMaxMemoryBytes   int64 `json:"DeviceMaxMemoryBytes"`
+		LabMaxDevices          int32 `json:"LabMaxDevices"`
+		// VPN and Gateway size the pods of a lab group: base plus per user (VPN) or per lab with internet
+		// (gateway), at most Max; 0 in all three = the agent did not report it.
+		VPN            groupPodSizingResponse `json:"VPN"`
+		Gateway        groupPodSizingResponse `json:"Gateway"`
+		DeviceProfiles []string               `json:"DeviceProfiles"`
+	}
+
+	groupPodSizingResponse struct {
+		BaseCPUMillicores    int64 `json:"BaseCPUMillicores"`
+		BaseMemoryBytes      int64 `json:"BaseMemoryBytes"`
+		PerUnitCPUMillicores int64 `json:"PerUnitCPUMillicores"`
+		PerUnitMemoryBytes   int64 `json:"PerUnitMemoryBytes"`
+		MaxCPUMillicores     int64 `json:"MaxCPUMillicores"`
+		MaxMemoryBytes       int64 `json:"MaxMemoryBytes"`
 	}
 
 	agentsResponse struct {
@@ -119,6 +150,23 @@ func toAgentResponse(v infrastructureUseCase.AgentAdminView) agentAdminResponse 
 		InUse: v.InUse, Tenant: v.Tenant, AccessKeyID: v.AccessKeyID, RetiredKeys: v.RetiredKeys, Groups: v.Groups, CertExpiresAt: v.CertNotAfter,
 		Connected: v.Probe.Connected, Healthy: v.Probe.Healthy, LatencyMs: v.Probe.Latency.Milliseconds(), Error: v.Probe.Error,
 		CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Features: toFeaturesResponse(v.Features), FeaturesAt: v.FeaturesAt,
+		MeetsRequirements: len(v.Unmet) == 0, Unmet: toUnmet(v.Unmet),
+	}
+}
+
+func toUnmet(in []infraModel.FitViolation) []agentUnmetRequirement {
+	out := make([]agentUnmetRequirement, 0, len(in))
+	for _, v := range in {
+		out = append(out, agentUnmetRequirement{Resource: v.Resource, Required: v.Requested, Max: v.Max})
+	}
+	return out
+}
+
+func toSizing(s infraModel.GroupPodSizing) groupPodSizingResponse {
+	return groupPodSizingResponse{
+		BaseCPUMillicores: s.Base.CPUMillicores, BaseMemoryBytes: s.Base.MemoryBytes,
+		PerUnitCPUMillicores: s.PerUnit.CPUMillicores, PerUnitMemoryBytes: s.PerUnit.MemoryBytes,
+		MaxCPUMillicores: s.Max.CPUMillicores, MaxMemoryBytes: s.Max.MemoryBytes,
 	}
 }
 
@@ -134,6 +182,9 @@ func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
 		LabsDomain: f.Endpoints.LabsDomain, VPNEndpoint: f.Endpoints.VPNEndpoint,
 		ProxyAccessTokenMaxTTLSeconds: f.Proxy.AccessTokenMaxTTLSeconds, ProxySessionMaxTTLSeconds: f.Proxy.SessionMaxTTLSeconds,
 		ProxySessionIdleTTLSeconds: f.Proxy.SessionIdleTTLSeconds,
+		DeviceMaxCPUMillicores:     f.Limits.DeviceMaxCPUMillicores, DeviceMaxMemoryBytes: f.Limits.DeviceMaxMemoryBytes,
+		LabMaxDevices: f.Limits.LabMaxDevices, VPN: toSizing(f.Limits.VPN), Gateway: toSizing(f.Limits.Gateway),
+		DeviceProfiles: append([]string{}, f.Limits.DeviceProfiles...),
 	}
 }
 

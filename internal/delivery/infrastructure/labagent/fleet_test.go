@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
@@ -351,6 +353,7 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 			Group:  &labpb.GroupLimits{MaxLabs: 5, MaxCpuMillicores: 2000, MaxMemoryBytes: 2 << 30},
 			Tenant: &labpb.TenantLimits{MaxLabs: 7},
 		},
+		DeviceProfiles: []string{"standard"},
 	})
 	want := infraModel.AgentFeatures{
 		Persistence: infraModel.PersistenceFeature{Available: true, DefaultDebounce: 5000, WriteQuotaBytes: 10, MaxFileSizeBytes: 20, ExcludedPaths: []string{"/proc"}},
@@ -360,8 +363,8 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		Certificate: infraModel.CertificateFeature{NotAfterUnix: 99, IssuedTTLSeconds: 100},
 		Proxy:       infraModel.ProxyFeature{AccessTokenMaxTTLSeconds: 300, SessionMaxTTLSeconds: 86400, SessionIdleTTLSeconds: 3600},
 		Limits: infraModel.LimitsFeature{
-			DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 512 << 20, DeviceDefaultCPUMillicores: 100, DeviceDefaultMemoryBytes: 256 << 20,
-			LabMaxDevices: 10, GroupMaxLabs: 5, GroupMaxCPUMillicores: 2000, GroupMaxMemoryBytes: 2 << 30, TenantMaxLabs: 7,
+			DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 512 << 20, LabMaxDevices: 10, TenantMaxLabs: 7,
+			DeviceProfiles: []string{"standard"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -403,22 +406,28 @@ func heavyTopology(cpu string) exerciseModel.Topology {
 	}}}
 }
 
+// limited is an agent whose device CPU maximum is maxCPU; it meets the platform requirements while that is
+// at least the frame (250m).
 func limited(maxCPU int64) *FeatureCell {
 	return NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{DeviceMaxCPUMillicores: maxCPU}})
 }
 
-func TestPlacementTakesOnlyAgentsWhoseLimitsHoldTheWholeNeed(t *testing.T) {
+func needOf(f *fleetFixture, cpu string) infraModel.PlacementNeed {
+	return labNeed(f.fleet.Policy(), heavyTopology(cpu))
+}
+
+func TestPlacementTakesOnlyAgentsWhoseMaximaHoldTheNeed(t *testing.T) {
 	f := newFleetFixture(t)
 	ctx := context.Background()
 	f.am.Features, f.bm.Features = limited(500), limited(4000) // a is first by priority but too small
-	need := infraModel.PlacementNeed{Labs: []infraModel.Demand{infraModel.DemandOf(heavyTopology("2"))}}
+	need := needOf(f, "2")
 	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-1"); err != nil {
 		t.Fatal(err)
 	}
 	if f.store.groups["e-1-t-1"] != f.bm.ID {
 		t.Fatalf("the group must go to the agent that can run the task: %v", f.store.groups)
 	}
-	// Nobody fits: a clear error, nothing is created or placed.
+	// Nobody fits: a clear error without an agent name, nothing is created or placed.
 	f.bm.Features = limited(1000)
 	err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-2")
 	if !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
@@ -431,6 +440,29 @@ func TestPlacementTakesOnlyAgentsWhoseLimitsHoldTheWholeNeed(t *testing.T) {
 	f.am.Features = nil
 	if err = f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-3"); err != nil || f.store.groups["e-1-t-3"] != f.am.ID {
 		t.Fatalf("unreported agent: %v %v", err, f.store.groups)
+	}
+}
+
+func TestAgentBelowThePlatformFrameIsNotUsed(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	f.am.Features, f.bm.Features = limited(100), limited(4000) // a: 100m < the 250m frame
+	if f.fleet.MeetsRequirements(f.am) || !f.fleet.MeetsRequirements(f.bm) {
+		t.Fatal("a is flagged, b is not")
+	}
+	// A task inside the frame still never goes to the flagged agent, though it is first by priority.
+	need := needOf(f, "100m")
+	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-1"); err != nil || f.store.groups["e-1-t-1"] != f.bm.ID {
+		t.Fatalf("flagged agent used: %v %v", err, f.store.groups)
+	}
+	few := NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{LabMaxDevices: 16}})
+	f.bm.Features = few
+	if f.fleet.MeetsRequirements(f.bm) {
+		t.Fatal("fewer than 32 devices per lab does not meet the requirements")
+	}
+	f.am.Features = nil
+	if !f.fleet.MeetsRequirements(f.am) {
+		t.Fatal("an agent that has not reported is not flagged")
 	}
 }
 
@@ -448,53 +480,100 @@ func TestDeployLabChecksItsOwnTopologyAgainstThePlacedAgent(t *testing.T) {
 	// A group stays where it is: a later lab that does not fit there is refused, not moved.
 	f.bm.Features = limited(1000)
 	if err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-2", infraModel.LabMeta{}, heavyTopology("2")); !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
-		t.Fatalf("a lab over the placed agent's limit = %v", err)
+		t.Fatalf("a lab over the placed agent's maximum = %v", err)
 	}
 }
 
-func TestTopologyFitListsTheAgentsThatCannotAndTheWidestLimits(t *testing.T) {
+func TestNeedFitNamesNoAgent(t *testing.T) {
 	f := newFleetFixture(t)
 	f.am.Features, f.bm.Features = limited(500), limited(4000)
-	fit := f.fleet.TopologyFit(heavyTopology("2"))
-	if !fit.FitsAny || len(fit.Warnings) != 1 || fit.Warnings[0].Agent != "a" || fit.Warnings[0].Resource != infraModel.FitCPU || fit.Warnings[0].Max != 500 {
-		t.Fatalf("fit = %+v", fit)
+	if v := f.fleet.NeedFit(needOf(f, "2")); v != nil {
+		t.Fatalf("b can run it: %+v", v)
 	}
 	f.bm.Features = limited(1000)
-	if fit = f.fleet.TopologyFit(heavyTopology("2")); fit.FitsAny || len(fit.Warnings) != 2 {
-		t.Fatalf("none can: %+v", fit)
+	v := f.fleet.NeedFit(needOf(f, "2"))
+	if v == nil || v.Resource != infraModel.FitCPU || v.Max != 1000 {
+		t.Fatalf("none can; the largest maximum is reported: %+v", v)
 	}
 	f.bm.Features = nil
-	if fit = f.fleet.TopologyFit(heavyTopology("2")); !fit.FitsAny {
+	if v = f.fleet.NeedFit(needOf(f, "2")); v != nil {
 		t.Fatal("an agent that has not reported counts as able")
 	}
-	f.am.Features, f.bm.Features = limited(500), limited(4000)
-	limits, known := f.fleet.DeviceLimits()
-	if !known || limits.DeviceMaxCPUMillicores != 4000 {
-		t.Fatalf("the editor shows the widest cap: %+v %v", limits, known)
+}
+
+func TestGroupSizesUseTheAgentsFormula(t *testing.T) {
+	f := newFleetFixture(t)
+	sizing := func(base, per, mx int64) infraModel.GroupPodSizing {
+		return infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: base, MemoryBytes: base << 20}, PerUnit: resourcesModel.Amount{CPUMillicores: per, MemoryBytes: per << 20}, Max: resourcesModel.Amount{CPUMillicores: mx, MemoryBytes: mx << 20}}
 	}
-	f.bm.Features = limited(0) // no limit is the widest
-	if limits, _ = f.fleet.DeviceLimits(); limits.DeviceMaxCPUMillicores != 0 {
-		t.Fatalf("an agent without a cap lifts it: %+v", limits)
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing(10, 2, 100), Gateway: sizing(20, 5, 50)}})
+	f.bm.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing(30, 1, 100), Gateway: sizing(5, 10, 200)}})
+	sizes, known := f.fleet.GroupSizes(infraModel.GroupPlan{MaxUsers: 10, InternetLabs: 3})
+	if !known {
+		t.Fatal("sizing reported")
+	}
+	// a: vpn 30, gateway 35; b: vpn 40, gateway 35. The plan holds wherever the group lands.
+	if sizes.VPN.CPUMillicores != 40 || sizes.Gateway.CPUMillicores != 35 {
+		t.Fatalf("sizes %+v", sizes)
+	}
+	// The maximum caps the growth.
+	capped, _ := f.fleet.GroupSizes(infraModel.GroupPlan{MaxUsers: 1000, InternetLabs: 1000})
+	if capped.VPN.CPUMillicores != 100 || capped.Gateway.CPUMillicores != 200 {
+		t.Fatalf("capped %+v", capped)
 	}
 	f.am.Features, f.bm.Features = nil, nil
-	if _, known = f.fleet.DeviceLimits(); known {
+	if _, known = f.fleet.GroupSizes(infraModel.GroupPlan{}); known {
 		t.Fatal("nothing reported yet")
 	}
 }
 
-func TestPlacementAddsTheLabsOfTheGroupUp(t *testing.T) {
+func TestExplicitSizesReachTheCreateCall(t *testing.T) {
 	f := newFleetFixture(t)
-	ctx := context.Background()
-	capped := func(groupCPU int64) *FeatureCell {
-		return NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{GroupMaxCPUMillicores: groupCPU}})
+	sizing := infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 1 << 20}, PerUnit: resourcesModel.Amount{CPUMillicores: 1, MemoryBytes: 1 << 20}}
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing}})
+	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 5}})
+	got, ok := infraModel.GroupSizesFrom(f.fleet.withSizes(ctx, f.am))
+	if !ok || got.VPN.CPUMillicores != 15 {
+		t.Fatalf("the member's formula for 5 users: %+v %v", got, ok)
 	}
-	f.am.Features, f.bm.Features = capped(1000), capped(4000)
-	lab := infraModel.DemandOf(heavyTopology("800m"))
-	need := infraModel.PlacementNeed{Labs: []infraModel.Demand{lab, lab, lab}} // 2400m together
-	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-1"); err != nil {
+}
+
+func TestAgentAlwaysGetsExplicitEqualRequestsAndLimits(t *testing.T) {
+	f := newFleetFixture(t)
+	topo := exerciseModel.Topology{Devices: []exerciseModel.Device{
+		{Name: "preset", Type: exerciseModel.DeviceTypeContainer, Image: "img", ResourcePreset: "medium"},
+		{Name: "bare", Type: exerciseModel.DeviceTypeContainer, Image: "img"},
+		{Name: "custom", Type: exerciseModel.DeviceTypeContainer, Image: "img", Resources: &exerciseModel.DeviceResources{CPULimit: "100m", MemoryLimit: "200Mi"}},
+	}}
+	if err := f.fleet.DeployLab(context.Background(), "e-1-t-1", "c-1", infraModel.LabMeta{}, topo); err != nil {
 		t.Fatal(err)
 	}
-	if f.store.groups["e-1-t-1"] != f.bm.ID {
-		t.Fatalf("each lab fits a (800m) but the group of three does not: %v", f.store.groups)
+	spec := string(f.a.createLabs.GetVariants()[0].GetSpecJson())
+	for _, want := range []string{
+		`"cpuRequest":"125m"`, `"cpuLimit":"125m"`, `"memoryRequest":"512Mi"`, `"memoryLimit":"512Mi"`, // preset
+		`"cpuRequest":"25m"`, `"memoryLimit":"64Mi"`, // the default preset
+		`"cpuRequest":"100m"`, `"memoryRequest":"200Mi"`, // custom values, requests mirrored
+	} {
+		if !strings.Contains(spec, want) {
+			t.Errorf("spec lacks %s: %s", want, spec)
+		}
+	}
+	if strings.Contains(spec, "resource_preset") || strings.Contains(spec, "resourcePreset") {
+		t.Errorf("the agent knows no presets: %s", spec)
+	}
+}
+
+func TestSetPolicyChangesTheFrameAnAgentMustMeet(t *testing.T) {
+	f := newFleetFixture(t)
+	f.am.Features = limited(400)
+	if !f.fleet.MeetsRequirements(f.am) {
+		t.Fatal("400m meets the default 250m frame")
+	}
+	policy := resourcesModel.DefaultPolicy()
+	policy.Frame = resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 1 << 30}
+	policy.Ceiling = resourcesModel.Amount{CPUMillicores: 1000, MemoryBytes: 4 << 30}
+	f.fleet.SetPolicy(policy)
+	if f.fleet.MeetsRequirements(f.am) || f.fleet.Policy().Frame.CPUMillicores != 500 {
+		t.Fatal("a larger frame flags the agent")
 	}
 }

@@ -532,6 +532,21 @@ func TestAgentsListExposesStateButNeverSecrets(t *testing.T) {
 	}
 }
 
+func TestAgentsListShowsTheRequirementsFlag(t *testing.T) {
+	meets, below := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUseCase{agentsView: infrastructureUseCase.AgentsView{Items: []infrastructureUseCase.AgentAdminView{
+		{AgentRegistration: infraModel.AgentRegistration{ID: meets, Name: "ok"}, InUse: true},
+		{AgentRegistration: infraModel.AgentRegistration{ID: below, Name: "small", Features: &infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{DeviceMaxCPUMillicores: 100, LabMaxDevices: 16}}}, InUse: true,
+			Unmet: []infraModel.FitViolation{{Resource: infraModel.FitDeviceCPU, Requested: 250, Max: 100}, {Resource: infraModel.FitDevices, Requested: 32, Max: 16}}},
+	}}}
+	body := do(newRouter(uc, newProtection()), http.MethodGet, "/api/infrastructure/agents").Body.String()
+	for _, want := range []string{`"MeetsRequirements":true`, `"MeetsRequirements":false`, `"Resource":"deviceCpu","Required":250,"Max":100`, `"Resource":"devices","Required":32,"Max":16`, `"DeviceMaxCPUMillicores":100`, `"LabMaxDevices":16`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("list lacks %s: %s", want, body)
+		}
+	}
+}
+
 func TestAgentWritesAreGatedMapTheFormAndAuditOnlyTheAgentID(t *testing.T) {
 	uc := &fakeUseCase{}
 	prot := newProtection()
