@@ -138,7 +138,7 @@ func TestGetEventContentStatisticsCountsChallengesAndAcceptedSolves(t *testing.T
 		}
 	}
 
-	stats, err := db.Queries.GetEventContentStatistics(ctx, event.ID)
+	stats, err := db.Queries.GetEventContentStatistics(ctx, postgres.GetEventContentStatisticsParams{EventID: event.ID})
 	if err != nil {
 		t.Fatalf("get content statistics: %v", err)
 	}
@@ -213,9 +213,26 @@ func TestHiddenTeamSolvesDoNotAffectVisibleScoring(t *testing.T) {
 	if err != nil || len(public) != 2 || public[0].TeamID != visibleID {
 		t.Fatalf("hidden team must be absent from ranking: rows=%+v err=%v", public, err)
 	}
-	stats, err := db.Queries.GetEventContentStatistics(ctx, event.ID)
+	// An unpublished task is no public news, whoever solved it.
+	stats, err := db.Queries.GetEventContentStatistics(ctx, postgres.GetEventContentStatisticsParams{EventID: event.ID})
+	if err != nil || stats.SolveCount != 0 || stats.SolvedChallengeCount != 0 {
+		t.Fatalf("an unpublished task must not count: stats=%+v err=%v", stats, err)
+	}
+	if _, err = db.Pool.Exec(ctx, `UPDATE event_challenges SET published = true`); err != nil {
+		t.Fatal(err)
+	}
+	stats, err = db.Queries.GetEventContentStatistics(ctx, postgres.GetEventContentStatisticsParams{EventID: event.ID})
 	if err != nil || stats.SolveCount != 1 {
 		t.Fatalf("hidden solve must be absent from public stats: stats=%+v err=%v", stats, err)
+	}
+	// While the results are frozen only the solves before the freeze count.
+	before := postgres.GetEventContentStatisticsParams{EventID: event.ID, Cutoff: pgtype.Timestamptz{Time: itNow.Add(-time.Hour), Valid: true}}
+	if stats, err = db.Queries.GetEventContentStatistics(ctx, before); err != nil || stats.SolveCount != 0 {
+		t.Fatalf("a solve after the freeze must not count: stats=%+v err=%v", stats, err)
+	}
+	after := postgres.GetEventContentStatisticsParams{EventID: event.ID, Cutoff: pgtype.Timestamptz{Time: itNow.Add(time.Hour), Valid: true}}
+	if stats, err = db.Queries.GetEventContentStatistics(ctx, after); err != nil || stats.SolveCount != 1 {
+		t.Fatalf("a solve before the freeze counts: stats=%+v err=%v", stats, err)
 	}
 	if _, err = db.Pool.Exec(ctx, `UPDATE events SET scoring_mode = 2 WHERE id = $1`, event.ID); err != nil {
 		t.Fatal(err)

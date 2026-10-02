@@ -117,7 +117,12 @@ func (u *EventUseCase) GetEventContent(ctx context.Context, eventID uuid.UUID) (
 	if err != nil {
 		return EventContentView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count approved event participants").Err()
 	}
-	statistics, err := u.eventChallenges.ContentStatistics(ctx, eventID)
+	// While the results are frozen the solve counters stay at the freeze (they are public numbers of the board).
+	var cutoff *time.Time
+	if freeze := freezeView(config.Results, event.Lifecycle.EffectiveFinishAt(), time.Now()); freeze.Active {
+		cutoff = freeze.FrozenAt
+	}
+	statistics, err := u.eventChallenges.ContentStatistics(ctx, eventID, cutoff)
 	if err != nil {
 		return EventContentView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event content statistics").Err()
 	}

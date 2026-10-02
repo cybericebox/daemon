@@ -4,6 +4,7 @@ package eventChallengeRepo
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -17,7 +18,7 @@ import (
 type Queries interface {
 	CreateEventChallenge(ctx context.Context, arg postgres.CreateEventChallengeParams) (postgres.EventChallenge, error)
 	ListEventChallenges(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.EventChallenge, error)
-	GetEventContentStatistics(ctx context.Context, eventID uuid.UUID) (postgres.GetEventContentStatisticsRow, error)
+	GetEventContentStatistics(ctx context.Context, arg postgres.GetEventContentStatisticsParams) (postgres.GetEventContentStatisticsRow, error)
 	GetEventChallengeByID(ctx context.Context, arg postgres.GetEventChallengeByIDParams) (postgres.EventChallenge, error)
 	GetEventChallengeForEvent(ctx context.Context, arg postgres.GetEventChallengeForEventParams) (postgres.EventChallenge, error)
 	IsEventChallengePublished(ctx context.Context, id uuid.UUID) (bool, error)
@@ -89,8 +90,14 @@ func (r *Repository) List(ctx context.Context, eventExerciseID uuid.UUID) ([]eve
 	return items, nil
 }
 
-func (r *Repository) ContentStatistics(ctx context.Context, eventID uuid.UUID) (eventContentModel.Statistics, error) {
-	row, err := r.q.GetEventContentStatistics(ctx, eventID)
+// ContentStatistics counts the published tasks and the solves of visible teams for the public page; cutoff,
+// when set (results are frozen), leaves out solves made at or after it.
+func (r *Repository) ContentStatistics(ctx context.Context, eventID uuid.UUID, cutoff *time.Time) (eventContentModel.Statistics, error) {
+	params := postgres.GetEventContentStatisticsParams{EventID: eventID}
+	if cutoff != nil {
+		params.Cutoff = pgtype.Timestamptz{Time: *cutoff, Valid: true}
+	}
+	row, err := r.q.GetEventContentStatistics(ctx, params)
 	if err != nil {
 		return eventContentModel.Statistics{}, err
 	}

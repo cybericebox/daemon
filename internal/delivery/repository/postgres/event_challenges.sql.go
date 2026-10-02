@@ -202,9 +202,11 @@ WITH challenges AS (
            count(*)::bigint AS solve_count
     FROM team_challenge_solves solved
     JOIN team_challenges tc ON tc.id = solved.team_challenge_id
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id AND ec.published
     JOIN event_teams team ON team.id = tc.event_team_id
     WHERE tc.event_id = $1
-      AND NOT team.hidden
+      AND event_team_visible(team.hidden, team.moderators, team.event_id, team.individual, team.admitted_manually, team.admission_locked, team.member_count)
+      AND ($2::timestamptz IS NULL OR solved.solved_at < $2::timestamptz)
 )
 SELECT challenges.challenge_count,
        challenges.published_challenge_count,
@@ -213,6 +215,11 @@ SELECT challenges.challenge_count,
 FROM challenges
 CROSS JOIN solves
 `
+
+type GetEventContentStatisticsParams struct {
+	EventID uuid.UUID          `json:"event_id"`
+	Cutoff  pgtype.Timestamptz `json:"cutoff"`
+}
 
 type GetEventContentStatisticsRow struct {
 	ChallengeCount          int64 `json:"challenge_count"`
@@ -223,9 +230,10 @@ type GetEventContentStatisticsRow struct {
 
 // Content counters intentionally read accepted solve projections, never raw
 // attempts. A rejected or later-reversed submission therefore cannot inflate
-// a landing-page statistic.
-func (q *Queries) GetEventContentStatistics(ctx context.Context, eventID uuid.UUID) (GetEventContentStatisticsRow, error) {
-	row := q.db.QueryRow(ctx, getEventContentStatistics, eventID)
+// a landing-page statistic. Only published tasks and visible (admitted, not hidden) teams count, and, while the
+// results are frozen, only solves before the freeze (cutoff); a hidden or unpublished one is no public news.
+func (q *Queries) GetEventContentStatistics(ctx context.Context, arg GetEventContentStatisticsParams) (GetEventContentStatisticsRow, error) {
+	row := q.db.QueryRow(ctx, getEventContentStatistics, arg.EventID, arg.Cutoff)
 	var i GetEventContentStatisticsRow
 	err := row.Scan(
 		&i.ChallengeCount,

@@ -323,8 +323,9 @@ type Querier interface {
 	GetEventContentSettings(ctx context.Context, eventID uuid.UUID) (GetEventContentSettingsRow, error)
 	// Content counters intentionally read accepted solve projections, never raw
 	// attempts. A rejected or later-reversed submission therefore cannot inflate
-	// a landing-page statistic.
-	GetEventContentStatistics(ctx context.Context, eventID uuid.UUID) (GetEventContentStatisticsRow, error)
+	// a landing-page statistic. Only published tasks and visible (admitted, not hidden) teams count, and, while the
+	// results are frozen, only solves before the freeze (cutoff); a hidden or unpublished one is no public news.
+	GetEventContentStatistics(ctx context.Context, arg GetEventContentStatisticsParams) (GetEventContentStatisticsRow, error)
 	GetEventExerciseByID(ctx context.Context, arg GetEventExerciseByIDParams) (EventExercise, error)
 	GetEventForm(ctx context.Context, arg GetEventFormParams) (GetEventFormRow, error)
 	GetEventFormAnswer(ctx context.Context, arg GetEventFormAnswerParams) (EventFormAnswer, error)

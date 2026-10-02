@@ -2812,18 +2812,18 @@ func (mr *MockQuerierMockRecorder) GetEventContentSettings(ctx, eventID any) *go
 }
 
 // GetEventContentStatistics mocks base method.
-func (m *MockQuerier) GetEventContentStatistics(ctx context.Context, eventID uuid.UUID) (postgres.GetEventContentStatisticsRow, error) {
+func (m *MockQuerier) GetEventContentStatistics(ctx context.Context, arg postgres.GetEventContentStatisticsParams) (postgres.GetEventContentStatisticsRow, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEventContentStatistics", ctx, eventID)
+	ret := m.ctrl.Call(m, "GetEventContentStatistics", ctx, arg)
 	ret0, _ := ret[0].(postgres.GetEventContentStatisticsRow)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetEventContentStatistics indicates an expected call of GetEventContentStatistics.
-func (mr *MockQuerierMockRecorder) GetEventContentStatistics(ctx, eventID any) *gomock.Call {
+func (mr *MockQuerierMockRecorder) GetEventContentStatistics(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventContentStatistics", reflect.TypeOf((*MockQuerier)(nil).GetEventContentStatistics), ctx, eventID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventContentStatistics", reflect.TypeOf((*MockQuerier)(nil).GetEventContentStatistics), ctx, arg)
 }
 
 // GetEventExerciseByID mocks base method.

@@ -71,7 +71,8 @@ WHERE id = sqlc.arg(id)
 -- name: GetEventContentStatistics :one
 -- Content counters intentionally read accepted solve projections, never raw
 -- attempts. A rejected or later-reversed submission therefore cannot inflate
--- a landing-page statistic.
+-- a landing-page statistic. Only published tasks and visible (admitted, not hidden) teams count, and, while the
+-- results are frozen, only solves before the freeze (cutoff); a hidden or unpublished one is no public news.
 WITH challenges AS (
     SELECT count(*)::bigint AS challenge_count,
            count(*) FILTER (WHERE ec.published)::bigint AS published_challenge_count
@@ -83,9 +84,11 @@ WITH challenges AS (
            count(*)::bigint AS solve_count
     FROM team_challenge_solves solved
     JOIN team_challenges tc ON tc.id = solved.team_challenge_id
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id AND ec.published
     JOIN event_teams team ON team.id = tc.event_team_id
     WHERE tc.event_id = sqlc.arg(event_id)
-      AND NOT team.hidden
+      AND event_team_visible(team.hidden, team.moderators, team.event_id, team.individual, team.admitted_manually, team.admission_locked, team.member_count)
+      AND (sqlc.narg(cutoff)::timestamptz IS NULL OR solved.solved_at < sqlc.narg(cutoff)::timestamptz)
 )
 SELECT challenges.challenge_count,
        challenges.published_challenge_count,

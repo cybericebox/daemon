@@ -46,7 +46,7 @@ func resolveContentVariables(event eventModel.Event, config eventConfigModel.Eve
 		"event.participantCount":         statistics.ParticipantCount,
 		"event.approvedParticipantCount": statistics.ApprovedParticipantCount,
 		"event.challengeCount":           statistics.ChallengeCount,
-		"event.availableChallengeCount":  statistics.ChallengeCount,
+		"event.availableChallengeCount":  statistics.PublishedChallengeCount,
 		"event.solvedChallengeCount":     statistics.SolvedChallengeCount,
 		"event.solveCount":               statistics.SolveCount,
 	}

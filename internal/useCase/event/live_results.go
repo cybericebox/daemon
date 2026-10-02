@@ -8,6 +8,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventResultRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/scoreboardRepo"
 	"github.com/cybericebox/daemon/internal/model"
 )
 
@@ -102,14 +103,91 @@ func (s *LiveResultsStream) Replay(ctx context.Context, afterRevision int64) (Li
 		}
 	}
 	replay := LiveResultsReplay{Changes: make([]LiveResultChangeView, 0, len(changes)), LastRevision: afterRevision, FreezeKey: freeze.freezeKey()}
+	shown, err := s.shownTeams(ctx, policy, shared.revision.Revision, changes)
+	if err != nil {
+		return LiveResultsReplay{}, err
+	}
+	reload := false
 	for _, change := range changes {
 		replay.LastRevision = change.Revision
 		if hiddenByFreeze(change, freeze.cutoff(), policy.ownTeam()) {
 			continue
 		}
+		switch shown.verdict(change) {
+		case changeDropped:
+			continue
+		case changeBelowTheRows:
+			// A team below the shown rows may move into them: tell the client to reload instead of
+			// handing it a row it does not display.
+			reload = true
+			continue
+		}
 		replay.Changes = append(replay.Changes, liveResultChangeView(change))
 	}
+	if reload {
+		replay.Changes = append(replay.Changes, LiveResultChangeView{
+			Revision: replay.LastRevision, Kind: string(eventResultRepo.ChangeScoreboardRecalculated), Payload: json.RawMessage(`{}`), CreatedAt: now.UTC(),
+		})
+	}
 	return replay, nil
+}
+
+// shownTeams is who a viewer's board shows: the visible teams, the top RowsLimit of them, and the viewer's own
+// team. A moderator sees every change; for anyone else a change about a team the board does not show is not
+// sent (a hidden team's solve, a verdict on it, a team below the row limit).
+type shownTeams struct {
+	all     bool
+	visible map[uuid.UUID]bool
+	shown   map[uuid.UUID]bool
+}
+
+type changeVerdict int
+
+const (
+	changeKept changeVerdict = iota
+	changeDropped
+	changeBelowTheRows
+)
+
+// verdict decides one change. A change that names no team, or whose team cannot be read, is kept.
+func (t shownTeams) verdict(change eventResultRepo.Change) changeVerdict {
+	if t.all || (change.Kind != eventResultRepo.ChangeTeamChallengeSolved && change.Kind != eventResultRepo.ChangeTeamChallengeUnsolved) {
+		return changeKept
+	}
+	var payload teamChallengeResultChange
+	if err := json.Unmarshal(change.Payload, &payload); err != nil {
+		return changeKept
+	}
+	switch {
+	case t.shown[payload.TeamID]:
+		return changeKept
+	case t.visible[payload.TeamID]:
+		return changeBelowTheRows
+	}
+	return changeDropped
+}
+
+func (s *LiveResultsStream) shownTeams(ctx context.Context, policy resultsPolicy, revision int64, changes []eventResultRepo.Change) (shownTeams, error) {
+	if policy.manager || len(changes) == 0 {
+		return shownTeams{all: true}, nil
+	}
+	own := policy.ownTeam()
+	entries, err := revisionScores{u: s.u, revision: revision}.List(ctx, s.eventID, scoreboardRepo.Cut{IncludeTeam: own})
+	if err != nil {
+		return shownTeams{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read the scoreboard").Err()
+	}
+	out := shownTeams{visible: make(map[uuid.UUID]bool, len(entries)), shown: make(map[uuid.UUID]bool, len(entries))}
+	limit := len(entries)
+	if rows := policy.cfg.Results.RowsLimit; rows != nil && int(*rows) < limit {
+		limit = int(*rows)
+	}
+	for i, entry := range entries {
+		out.visible[entry.TeamID] = true
+		if i < limit || (own != nil && entry.TeamID == *own) {
+			out.shown[entry.TeamID] = true
+		}
+	}
+	return out, nil
 }
 
 // changesAfterFromDB reads the changes after a cursor the shared window cannot

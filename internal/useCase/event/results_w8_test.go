@@ -169,8 +169,10 @@ func TestReplayLiveResultsSkipsOtherTeamsSolvesAfterFreeze(t *testing.T) {
 	now := time.Now().UTC()
 	started := startedEvent(eventID, now)
 	frozenAt := started.FinishAt.Time.Add(-90 * time.Minute)
+	team := uuid.Must(uuid.NewV7())
+	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).AnyTimes()
 	change := func(revision int64, at time.Time) postgres.EventResultChange {
-		payload, _ := json.Marshal(map[string]any{"TeamID": uuid.Must(uuid.NewV7()), "EventChallengeID": uuid.Must(uuid.NewV7()), "SolvedAt": at})
+		payload, _ := json.Marshal(map[string]any{"TeamID": team, "EventChallengeID": uuid.Must(uuid.NewV7()), "SolvedAt": at})
 		return postgres.EventResultChange{EventID: eventID, Revision: revision, Kind: "team_challenge_solved", Payload: payload, CreatedAt: at}
 	}
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil)
@@ -194,8 +196,10 @@ func TestReplayLiveResultsSkipsOtherTeamsAnnulmentsAfterFreeze(t *testing.T) {
 	now := time.Now().UTC()
 	started := startedEvent(eventID, now)
 	frozenAt := started.FinishAt.Time.Add(-90 * time.Minute)
+	team := uuid.Must(uuid.NewV7())
+	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).AnyTimes()
 	unsolved := func(revision int64, at time.Time) postgres.EventResultChange {
-		payload, _ := json.Marshal(map[string]any{"TeamID": uuid.Must(uuid.NewV7()), "EventChallengeID": uuid.Must(uuid.NewV7()), "SolvedAt": nil})
+		payload, _ := json.Marshal(map[string]any{"TeamID": team, "EventChallengeID": uuid.Must(uuid.NewV7()), "SolvedAt": nil})
 		return postgres.EventResultChange{EventID: eventID, Revision: revision, Kind: "team_challenge_unsolved", Payload: payload, CreatedAt: at}
 	}
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil)
