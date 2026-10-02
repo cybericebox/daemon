@@ -121,7 +121,7 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 	if err = u.requireInfrastructureAllowed(ctx, e, draft.Variants); err != nil {
 		return VersionView{}, err
 	}
-	if err = u.requireVariantsFit(draft.Variants); err != nil {
+	if err = u.requireResourcesAllowed(ctx, exerciseID, draft.Variants); err != nil {
 		return VersionView{}, err
 	}
 	published, err := u.exercises.Publish(ctx, exerciseID, time.Now())

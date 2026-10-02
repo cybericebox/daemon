@@ -7305,6 +7305,21 @@ func (mr *MockQuerierMockRecorder) ListPlatformUsersPeople(ctx, limitVal any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformUsersPeople", reflect.TypeOf((*MockQuerier)(nil).ListPlatformUsersPeople), ctx, limitVal)
 }
 
+// ListPublishedVariantDevices mocks base method.
+func (m *MockQuerier) ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListPublishedVariantDevicesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPublishedVariantDevices", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListPublishedVariantDevicesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPublishedVariantDevices indicates an expected call of ListPublishedVariantDevices.
+func (mr *MockQuerierMockRecorder) ListPublishedVariantDevices(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPublishedVariantDevices", reflect.TypeOf((*MockQuerier)(nil).ListPublishedVariantDevices), ctx, ids)
+}
+
 // ListSiteBanners mocks base method.
 func (m *MockQuerier) ListSiteBanners(ctx context.Context, scopeFilter string) ([]postgres.SiteBanner, error) {
 	m.ctrl.T.Helper()
@@ -7588,6 +7603,21 @@ func (m *MockQuerier) ListUsersPage(ctx context.Context, arg postgres.ListUsersP
 func (mr *MockQuerierMockRecorder) ListUsersPage(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsersPage", reflect.TypeOf((*MockQuerier)(nil).ListUsersPage), ctx, arg)
+}
+
+// ListVersionVariantDevices mocks base method.
+func (m *MockQuerier) ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListVersionVariantDevicesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVersionVariantDevices", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListVersionVariantDevicesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListVersionVariantDevices indicates an expected call of ListVersionVariantDevices.
+func (mr *MockQuerierMockRecorder) ListVersionVariantDevices(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVersionVariantDevices", reflect.TypeOf((*MockQuerier)(nil).ListVersionVariantDevices), ctx, ids)
 }
 
 // ListVisibleSiteBanners mocks base method.

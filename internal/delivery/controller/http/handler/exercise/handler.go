@@ -17,9 +17,9 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/pagination"
@@ -39,7 +39,8 @@ type (
 		InfrastructureAvailable() bool
 		MaxActiveTestDeploys() int
 		DevicePersistenceAllowed() bool
-		DeviceLimits() (infraModel.LimitsFeature, bool)
+		// Policy is the platform's device resources settings (presets, frame, ceiling).
+		Policy() resourcesModel.Policy
 		FlagPolicy() exerciseUseCase.FlagPolicy
 		// catalog
 		CreateExercise(ctx context.Context, in exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error)
@@ -93,6 +94,10 @@ type (
 		GetExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		ListExercisesFor(ctx context.Context, actor exerciseUseCase.Actor, f exerciseUseCase.ExercisesFilter) (exerciseUseCase.ExercisesListResult, error)
 		SetExerciseAccess(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.SetAccessInput) (exerciseUseCase.ExerciseView, error)
+		RequestElevation(ctx context.Context, actor exerciseUseCase.Actor, exerciseID uuid.UUID, reason string) (exerciseUseCase.ElevationView, error)
+		ListExerciseElevations(ctx context.Context, exerciseID uuid.UUID) ([]exerciseUseCase.ElevationView, error)
+		ListElevations(ctx context.Context, status string) ([]exerciseUseCase.ElevationView, error)
+		DecideElevation(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error)
 		ProposeExercise(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, note string) (exerciseUseCase.ProposalView, error)
 		ListProposals(ctx context.Context, status string) ([]exerciseUseCase.ProposalView, error)
 		ApproveProposal(ctx context.Context, actor exerciseUseCase.Actor, proposalID uuid.UUID, in exerciseUseCase.ApproveProposalInput) (exerciseUseCase.ProposalView, error)
@@ -133,6 +138,10 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("proposals/:proposalID/approve", h.prot.RequirePermission(rbac.PermExercisesPublish), h.approveProposal)
 		ex.POST("proposals/:proposalID/reject", h.prot.RequirePermission(rbac.PermExercisesPublish), h.rejectProposal)
 
+		// resource elevations: a platform admin lists and decides the requests to take devices above the frame
+		ex.GET("resource-elevations", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.listElevations)
+		ex.POST("resource-elevations/:elevationID/decide", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.decideElevation)
+
 		// deploy routes: "deploys" is a static segment sibling to ":id" and, like
 		// "files", must be registered before the ":id" param routes. Status,
 		// extend and destroy are owner-scoped in the use case; creating one
@@ -154,6 +163,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST(":id/unarchive", self, h.authorize(exerciseUseCase.ActionWrite), h.unarchive)
 		ex.PUT(":id/access", h.prot.RequirePermission(rbac.PermExercisesWrite), h.setAccess)
 		ex.POST(":id/proposals", self, h.authorize(exerciseUseCase.ActionPublish), h.propose)
+		ex.GET(":id/resource-elevations", self, h.authorize(exerciseUseCase.ActionRead), h.exerciseElevations)
+		ex.POST(":id/resource-elevations", self, h.authorize(exerciseUseCase.ActionWrite), h.requestElevation)
 
 		ex.GET(":id/versions", self, h.authorize(exerciseUseCase.ActionRead), h.listVersions)
 		ex.GET(":id/versions/:versionID", self, h.authorize(exerciseUseCase.ActionReadPublished), h.getVersion)
@@ -210,12 +221,12 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 		// DevicePersistence is false when the cluster does not let devices keep their state: the editor
 		// hides the option then.
 		DevicePersistence bool `json:"DevicePersistence"`
-		// DeviceLimits is the most any enabled laboratory allows a device and a lab (0 = no limit); null while
-		// no laboratory has reported its limits. A device with no resources set gets the default profile.
-		DeviceLimits *deviceLimitsResponse `json:"DeviceLimits"`
+		// Resources is the platform's device resources settings: the presets, the default, the frame a device may
+		// use without approval and the ceiling an approved elevation may reach.
+		Resources resourceSettingsResponse `json:"Resources"`
 	}{
 		Laboratories: h.useCase.InfrastructureAvailable(), MaxActiveTestDeploys: h.useCase.MaxActiveTestDeploys(),
-		DevicePersistence: h.useCase.DevicePersistenceAllowed(), DeviceLimits: toDeviceLimits(h.useCase.DeviceLimits()),
+		DevicePersistence: h.useCase.DevicePersistenceAllowed(), Resources: toResourceSettings(h.useCase.Policy()),
 	})
 }
 

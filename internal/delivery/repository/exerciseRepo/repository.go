@@ -60,6 +60,8 @@ type Queries interface {
 	GetEventInfrastructureAllowed(ctx context.Context, id uuid.UUID) (bool, error)
 	FindEventFork(ctx context.Context, arg postgres.FindEventForkParams) (postgres.Exercise, error)
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]postgres.ListExerciseCardExtrasRow, error)
+	ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListPublishedVariantDevicesRow, error)
+	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListVersionVariantDevicesRow, error)
 	ListFileExerciseIDs(ctx context.Context, arg postgres.ListFileExerciseIDsParams) ([]uuid.UUID, error)
 	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error)
 	ListUserNames(ctx context.Context, ids []uuid.UUID) ([]postgres.ListUserNamesRow, error)
@@ -532,6 +534,48 @@ func (r *Repository) AvailableToEvent(ctx context.Context, exerciseID, eventID u
 
 func (r *Repository) HasInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error) {
 	return r.q.GetExerciseInfrastructure(ctx, exerciseID)
+}
+
+// PublishedVariants reads, for each exercise that has a published version, its variants reduced to what the
+// resource totals need (ids and the container devices' size fields); exercises without one are absent.
+func (r *Repository) PublishedVariants(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]exerciseModel.Variant, error) {
+	out := make(map[uuid.UUID][]exerciseModel.Variant, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListPublishedVariantDevices(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		var variants []exerciseModel.Variant
+		if err = json.Unmarshal(row.Variants, &variants); err != nil {
+			return nil, err
+		}
+		out[row.ExerciseID] = variants
+	}
+	return out, nil
+}
+
+// VersionVariants reads the variants of specific versions reduced the same way (an event pins versions);
+// the result is keyed by version id.
+func (r *Repository) VersionVariants(ctx context.Context, versionIDs []uuid.UUID) (map[uuid.UUID][]exerciseModel.Variant, error) {
+	out := make(map[uuid.UUID][]exerciseModel.Variant, len(versionIDs))
+	if len(versionIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.q.ListVersionVariantDevices(ctx, versionIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		var variants []exerciseModel.Variant
+		if err = json.Unmarshal(row.Variants, &variants); err != nil {
+			return nil, err
+		}
+		out[row.VersionID] = variants
+	}
+	return out, nil
 }
 
 // CardExtras decorates a page of exercises (owner event name, fork source

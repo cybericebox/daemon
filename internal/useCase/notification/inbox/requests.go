@@ -157,6 +157,72 @@ func (r *RequestRouter) ProposalDecided(ctx context.Context, p Proposal, approve
 	return r.fanOut(ctx, []uuid.UUID{p.ProposedBy}, typ, vars, inboxModel.NewMeta(typ, inboxModel.RoleSubject, ""))
 }
 
+// Elevation is the resource elevation request snapshot the exercise use case reports.
+type Elevation struct {
+	ID           uuid.UUID
+	ExerciseID   uuid.UUID
+	ExerciseName string
+	RequestedBy  uuid.UUID
+	RequestedAt  time.Time
+	Reason       string
+	DecisionNote string
+	// Devices is the devices with their values as text ("db: 500m / 2Gi, web: 250m / 1Gi").
+	Devices string
+}
+
+// ElevationRequested asks every platform admin (but the author) to decide the request.
+func (r *RequestRouter) ElevationRequested(ctx context.Context, e Elevation) error {
+	admins, err := r.queries.ListPlatformAdminUserIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("inbox requests: list platform admins: %w", err)
+	}
+	vars, err := r.elevationVars(ctx, e)
+	if err != nil {
+		return err
+	}
+	meta := inboxModel.NewMeta(inboxModel.TypeElevationRequested, inboxModel.RoleAdmin, inboxModel.ElevationRef(e.ID)).Raised(e.RequestedAt)
+	return r.fanOut(ctx, excluding(admins, e.RequestedBy), inboxModel.TypeElevationRequested, vars, meta)
+}
+
+// ElevationDecided closes the admins' request and tells the author the outcome.
+func (r *RequestRouter) ElevationDecided(ctx context.Context, e Elevation, approved bool, by uuid.UUID) error {
+	resolution, typ := inboxModel.ResolutionRejected, inboxModel.TypeElevationRejected
+	if approved {
+		resolution, typ = inboxModel.ResolutionApproved, inboxModel.TypeElevationApproved
+	}
+	if err := r.resolve(ctx, inboxModel.ElevationRef(e.ID), resolution, by); err != nil {
+		return err
+	}
+	if e.RequestedBy == uuid.Nil {
+		return nil
+	}
+	vars, err := r.elevationVars(ctx, e)
+	if err != nil {
+		return err
+	}
+	return r.fanOut(ctx, []uuid.UUID{e.RequestedBy}, typ, vars, inboxModel.NewMeta(typ, inboxModel.RoleSubject, ""))
+}
+
+func (r *RequestRouter) elevationVars(ctx context.Context, e Elevation) (map[string]any, error) {
+	vars := map[string]any{
+		"elevation_id":   e.ID.String(),
+		"exercise_id":    e.ExerciseID.String(),
+		"exercise_name":  e.ExerciseName,
+		"reason":         e.Reason,
+		"decision_note":  e.DecisionNote,
+		"devices":        e.Devices,
+		"requester_name": "",
+	}
+	if e.RequestedBy != uuid.Nil {
+		requester, err := r.profile(ctx, e.RequestedBy)
+		if err != nil {
+			return nil, err
+		}
+		vars["requester_name"] = displayName(requester)
+	}
+	return vars, nil
+}
+
 // StandRecreated closes the failed-laboratory request of the team for every
 // recipient: a moderator re-created the stand. A later automatic recovery
 // does not close it.

@@ -23,12 +23,17 @@ import (
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	elevation             exerciseUseCase.ElevationView
+	elevationReason       string
+	elevationStatus       string
+	elevationDecision     exerciseUseCase.DecideElevationInput
 	deviceCall            string
 	flagPolicy            exerciseUseCase.FlagPolicy
 	exerciseView          exerciseUseCase.ExerciseView
@@ -162,13 +167,11 @@ func (f *fakeUC) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, med
 	}
 	return io.NopCloser(bytes.NewBufferString(f.streamedContent)), f.streamedFile, nil
 }
-func (f *fakeUC) MaxUploadBytes() int64          { return f.maxUploadBytes }
-func (f *fakeUC) InfrastructureAvailable() bool  { return f.laboratoriesAvailable }
-func (f *fakeUC) MaxActiveTestDeploys() int      { return 2 }
-func (f *fakeUC) DevicePersistenceAllowed() bool { return true }
-func (f *fakeUC) DeviceLimits() (infraModel.LimitsFeature, bool) {
-	return infraModel.LimitsFeature{}, false
-}
+func (f *fakeUC) MaxUploadBytes() int64                  { return f.maxUploadBytes }
+func (f *fakeUC) InfrastructureAvailable() bool          { return f.laboratoriesAvailable }
+func (f *fakeUC) MaxActiveTestDeploys() int              { return 2 }
+func (f *fakeUC) DevicePersistenceAllowed() bool         { return true }
+func (f *fakeUC) Policy() resourcesModel.Policy          { return resourcesModel.DefaultPolicy() }
 func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy { return f.flagPolicy }
 func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID) (exerciseModel.DeployHandle, error) {
 	return f.deployHandle, f.err
@@ -1566,6 +1569,21 @@ func (f *fakeUC) SetExerciseAccess(_ context.Context, _ exerciseUseCase.Actor, _
 	f.accessInput = in
 	return f.exerciseView, f.err
 }
+func (f *fakeUC) RequestElevation(_ context.Context, _ exerciseUseCase.Actor, _ uuid.UUID, reason string) (exerciseUseCase.ElevationView, error) {
+	f.elevationReason = reason
+	return f.elevation, f.err
+}
+func (f *fakeUC) ListExerciseElevations(_ context.Context, _ uuid.UUID) ([]exerciseUseCase.ElevationView, error) {
+	return []exerciseUseCase.ElevationView{f.elevation}, f.err
+}
+func (f *fakeUC) ListElevations(_ context.Context, status string) ([]exerciseUseCase.ElevationView, error) {
+	f.elevationStatus = status
+	return []exerciseUseCase.ElevationView{f.elevation}, f.err
+}
+func (f *fakeUC) DecideElevation(_ context.Context, _ exerciseUseCase.Actor, _ uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error) {
+	f.elevationDecision = in
+	return f.elevation, f.err
+}
 func (f *fakeUC) ProposeExercise(_ context.Context, _ exerciseUseCase.Actor, _ uuid.UUID, _ string) (exerciseUseCase.ProposalView, error) {
 	return exerciseUseCase.ProposalView{}, f.err
 }
@@ -1678,5 +1696,172 @@ func TestDeviceActions_UseTheCallerAndMapErrors(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/exercises/deploys/"+deploy+"/devices/web/reset", nil))
 	if w.Code != http.StatusConflict {
 		t.Errorf("no persistence -> %d, want 409", w.Code)
+	}
+}
+
+func TestExerciseCapabilitiesCarryThePlatformResourceSettings(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	exerciseHandler.NewExerciseAPIHandler(&fakeUC{}, roleProt{role: rbac.RoleUser}).Init(r.Group("api"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/capabilities", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("capabilities: %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Resources struct {
+				Presets []struct {
+					ID            string
+					CPUMillicores int64
+					MemoryBytes   int64
+				}
+				DefaultPreset            string
+				Frame                    struct{ CPUMillicores, MemoryBytes int64 }
+				Ceiling                  struct{ CPUMillicores, MemoryBytes int64 }
+				MaxDevicesPerLab         int
+				VariantSpreadWarnPercent int
+			}
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	res := body.Data.Resources
+	if len(res.Presets) != 4 || res.Presets[0].ID != "micro" || res.Presets[0].CPUMillicores != 25 || res.DefaultPreset != "micro" {
+		t.Fatalf("presets: %+v", res)
+	}
+	if res.Frame.CPUMillicores != 250 || res.Frame.MemoryBytes != 1<<30 || res.Ceiling.CPUMillicores != 1000 || res.Ceiling.MemoryBytes != 4<<30 {
+		t.Fatalf("frame/ceiling: %+v", res)
+	}
+	if res.MaxDevicesPerLab != 32 || res.VariantSpreadWarnPercent != 25 {
+		t.Fatalf("constants: %+v", res)
+	}
+	if strings.Contains(w.Body.String(), "DeviceLimits") {
+		t.Fatalf("the per-agent limits are gone: %s", w.Body.String())
+	}
+}
+
+// Authors file elevation requests; only the platform admin (super_admin) lists and decides them.
+func TestResourceElevationRoutes(t *testing.T) {
+	exID, elevationID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	build := func(role rbac.Role, uc *fakeUC) *gin.Engine {
+		gin.SetMode(gin.TestMode)
+		r := gin.New()
+		r.Use(response.WithErrorHandler)
+		exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: role}).Init(r.Group("api"))
+		return r
+	}
+	do := func(r *gin.Engine, method, path, body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return w
+	}
+	uc := &fakeUC{elevation: exerciseUseCase.ElevationView{ID: elevationID, ExerciseID: exID, Status: "pending", Reason: "db",
+		Requested: []exerciseUseCase.ElevationDevice{{DeviceID: uuid.Must(uuid.NewV7()), Name: "db", CPUMillicores: 500, MemoryBytes: 2 << 30}}}}
+
+	// An admin cannot list or decide; a plain user is not even asked about the exercise policy for that.
+	admin := build(rbac.RoleAdmin, uc)
+	for _, tc := range [][3]string{
+		{http.MethodGet, "/api/exercises/resource-elevations", ""},
+		{http.MethodPost, "/api/exercises/resource-elevations/" + elevationID.String() + "/decide", `{"Approve":true}`},
+	} {
+		if w := do(admin, tc[0], tc[1], tc[2]); w.Code != http.StatusForbidden {
+			t.Fatalf("%s %s as admin: %d, want 403", tc[0], tc[1], w.Code)
+		}
+	}
+
+	super := build(rbac.RoleSuperAdmin, uc)
+	if w := do(super, http.MethodGet, "/api/exercises/resource-elevations?status=pending", ""); w.Code != http.StatusOK || uc.elevationStatus != "pending" {
+		t.Fatalf("list: %d status=%q %s", w.Code, uc.elevationStatus, w.Body.String())
+	}
+	w := do(super, http.MethodPost, "/api/exercises/resource-elevations/"+elevationID.String()+"/decide",
+		`{"Approve":true,"Note":"ok","Devices":[{"DeviceID":"`+uc.elevation.Requested[0].DeviceID.String()+`","CPUMillicores":400,"MemoryBytes":1073741824}]}`)
+	if w.Code != http.StatusOK || !uc.elevationDecision.Approve || uc.elevationDecision.Note != "ok" || len(uc.elevationDecision.Devices) != 1 || uc.elevationDecision.Devices[0].CPUMillicores != 400 {
+		t.Fatalf("decide: %d %+v %s", w.Code, uc.elevationDecision, w.Body.String())
+	}
+	if w = do(super, http.MethodPost, "/api/exercises/resource-elevations/"+elevationID.String()+"/decide", `nope`); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad body: %d", w.Code)
+	}
+
+	// An author requests with a reason.
+	author := newEngine(uc, uuid.Must(uuid.NewV7()))
+	w = do(author, http.MethodPost, "/api/exercises/"+exID.String()+"/resource-elevations", `{"Reason":"the database needs memory"}`)
+	if w.Code != http.StatusOK || uc.elevationReason != "the database needs memory" {
+		t.Fatalf("request: %d reason=%q %s", w.Code, uc.elevationReason, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Status    string
+			Requested []struct {
+				Name          string
+				CPUMillicores int64
+			}
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Data.Status != "pending" || len(body.Data.Requested) != 1 || body.Data.Requested[0].CPUMillicores != 500 {
+		t.Fatalf("response: %v %+v", err, body)
+	}
+	if w = do(author, http.MethodGet, "/api/exercises/"+exID.String()+"/resource-elevations", ""); w.Code != http.StatusOK {
+		t.Fatalf("history: %d", w.Code)
+	}
+}
+
+// The editor gets the totals and the devices outside the frame; no response names a laboratory.
+func TestVersionResponseCarriesResourcesAndNeverNamesALaboratory(t *testing.T) {
+	uid, exID, versionID, deviceID, variantID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUC{versionView: exerciseUseCase.VersionView{
+		ID: versionID, ExerciseID: exID, Status: "draft",
+		Resources: exerciseUseCase.VersionResources{
+			ResourceRange: exerciseUseCase.ResourceRange{
+				Min: exerciseUseCase.ResourceTotals{Devices: 1, CPUMillicores: 100, MemoryBytes: 256 << 20},
+				Max: exerciseUseCase.ResourceTotals{Devices: 2, CPUMillicores: 600, MemoryBytes: 2 << 30},
+			},
+			Variants:      []exerciseUseCase.VariantResources{{VariantID: variantID, ResourceTotals: exerciseUseCase.ResourceTotals{Devices: 2, CPUMillicores: 600, MemoryBytes: 2 << 30}}},
+			SpreadPercent: 83,
+			Outside:       []exerciseUseCase.DeviceOutside{{VariantID: variantID, DeviceID: deviceID, Name: "db", CPUMillicores: 500, MemoryBytes: 2 << 30, Covered: true}},
+			Heavy:         true,
+		},
+		Elevation: &exerciseUseCase.ElevationView{ID: uuid.Must(uuid.NewV7()), ExerciseID: exID, Status: "approved"},
+	}}
+	r := newEngine(uc, uid)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/draft", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("draft: %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Data struct {
+			Resources struct {
+				Min, Max       struct{ Devices int }
+				Variants       []struct{ VariantID string }
+				SpreadPercent  int
+				VariantsDiffer bool
+				Outside        []struct {
+					Name         string
+					Covered      bool
+					AboveCeiling bool
+				}
+				ResourceHeavy bool
+			}
+			Elevation *struct{ Status string }
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	res := body.Data.Resources
+	if res.Min.Devices != 1 || res.Max.Devices != 2 || len(res.Variants) != 1 || res.SpreadPercent != 83 || !res.VariantsDiffer || !res.ResourceHeavy ||
+		len(res.Outside) != 1 || res.Outside[0].Name != "db" || !res.Outside[0].Covered || res.Outside[0].AboveCeiling {
+		t.Fatalf("resources: %s", w.Body.String())
+	}
+	if body.Data.Elevation == nil || body.Data.Elevation.Status != "approved" {
+		t.Fatalf("elevation: %s", w.Body.String())
+	}
+	for _, banned := range []string{`"Agent"`, `"Warnings"`, `"Fit"`, `"FitsAny"`} {
+		if strings.Contains(w.Body.String(), banned) {
+			t.Errorf("the version response names a laboratory (%s): %s", banned, w.Body.String())
+		}
 	}
 }

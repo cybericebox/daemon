@@ -14,6 +14,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 	"github.com/cybericebox/daemon/pkg/secret"
 )
@@ -45,6 +46,10 @@ type ExerciseUseCase struct {
 	flagConfig  config.ExerciseConfig
 	sessions    ITestSessions  // nil when no proxy key is configured
 	proposals   IProposalInbox // nil until wired; proposal inbox requests are then skipped
+	// resources is the platform's device resources settings (zero: the owner's defaults, see Policy).
+	resources      resourcesModel.Policy
+	elevations     IElevations     // nil in narrow constructions: no approvals exist then
+	elevationInbox IElevationInbox // nil until wired; elevation notifications are then skipped
 }
 
 // IProposalInbox turns catalog proposals into inbox requests for platform
@@ -74,6 +79,9 @@ type Dependencies struct {
 	// DeployUoW makes the "one active test lab per user" check and the reservation one
 	// serialized transaction. Nil (tests): the check and the insert are separate calls.
 	DeployUoW postgres.IUnitOfWorker[testDeployRepo.Queries]
+	// Resources are the platform's device resources settings; Elevations the store of elevation requests.
+	Resources  resourcesModel.Policy
+	Elevations IElevations
 }
 
 type FlagPolicy struct {
@@ -106,6 +114,8 @@ func NewExerciseUseCase(deps Dependencies) *ExerciseUseCase {
 		vpnStore:    deps.VPNStore,
 		sessions:    deps.Sessions,
 		flagConfig:  deps.FlagConfig,
+		resources:   deps.Resources,
+		elevations:  deps.Elevations,
 	}
 }
 

@@ -77,6 +77,12 @@ const (
 	// secrets when requested. Reading catalog details alone does not grant it.
 	PermExercisesExport Permission = "exercises.export"
 
+	// PermExercisesElevationsRead / Write allow a platform admin to list, approve and reject the authors'
+	// requests to take devices above the platform resource frame. Held by no role (super_admin via "*"): a
+	// decision spends cluster capacity, so it is a platform-operator right like infrastructure.*.
+	PermExercisesElevationsRead  Permission = "exercises.elevations.read"
+	PermExercisesElevationsWrite Permission = "exercises.elevations.write"
+
 	// PermEvents is the events.* namespace parent. Held by no role today
 	// (super_admin reaches it via "*"), mirroring exercises.
 	PermEvents Permission = "events"

@@ -287,6 +287,12 @@ func labNames(items []exerciseModel.TestDeploy, skip uuid.UUID, extra ...string)
 // Labs reuse them.
 func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseModel.TestDeploy, topo exerciseModel.Topology, existing []exerciseModel.TestDeploy, first bool) error {
 	client := testClientName(deploy.CreatedBy)
+	// The author's group has one user (the author's client); its gateway is for the labs that use the internet.
+	plan := infraModel.GroupPlan{MaxUsers: 1}
+	if topo.Internet.Enabled {
+		plan.InternetLabs = 1
+	}
+	ctx = infraModel.WithPlacementNeed(ctx, infraModel.PlacementNeed{Plan: plan})
 	if err := u.infra.DeployLab(ctx, deploy.GroupName, deploy.LabName, testLabMeta(deploy), topo); err != nil {
 		return err
 	}

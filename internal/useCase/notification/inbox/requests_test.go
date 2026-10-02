@@ -161,6 +161,38 @@ func TestRequestRouter_ProposalDecisionResolvesAndTellsProposer(t *testing.T) {
 	assert.False(t, got.options.Inbox.ActionRequired)
 }
 
+func TestRequestRouter_ElevationRequestGoesToAdminsAndTheDecisionToTheAuthor(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	notifier := &fakeNotifier{}
+	router := inboxUseCase.NewRequestRouter(repo, notifier)
+	author, admin, elevationID := tools.NewUUIDv7(), tools.NewUUIDv7(), tools.NewUUIDv7()
+	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.User, error) {
+		return postgres.User{ID: id, FirstName: "Name", Email: "x@example.org"}, nil
+	}).AnyTimes()
+	repo.EXPECT().ListPlatformAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin, author}, nil)
+
+	e := inboxUseCase.Elevation{ID: elevationID, ExerciseID: tools.NewUUIDv7(), ExerciseName: "Web", RequestedBy: author, Devices: "db: 500m / 2Gi", Reason: "big database"}
+	require.NoError(t, router.ElevationRequested(context.Background(), e))
+	require.Len(t, notifier.sent, 1, "the author never decides their own request")
+	got := notifier.sent[0]
+	assert.Equal(t, admin, got.userID)
+	assert.Equal(t, notificationTypes.NotificationType(inboxModel.TypeElevationRequested), got.typ)
+	assert.Equal(t, "db: 500m / 2Gi", got.vars["devices"])
+	assert.Equal(t, inboxModel.CategoryRequests, got.options.Inbox.Category)
+	assert.Equal(t, inboxModel.ElevationRef(elevationID), got.options.Inbox.SubjectRef)
+
+	notifier.sent = nil
+	repo.EXPECT().ResolveInboxBySubjectRef(gomock.Any(), postgres.ResolveInboxBySubjectRefParams{
+		SubjectRef: inboxModel.ElevationRef(elevationID), Resolution: "approved", ResolvedBy: uuid.NullUUID{UUID: admin, Valid: true},
+	}).Return(int64(2), nil)
+	require.NoError(t, router.ElevationDecided(context.Background(), e, true, admin))
+	require.Len(t, notifier.sent, 1)
+	assert.Equal(t, author, notifier.sent[0].userID)
+	assert.Equal(t, notificationTypes.NotificationType(inboxModel.TypeElevationApproved), notifier.sent[0].typ)
+	assert.Equal(t, inboxModel.CategoryPersonal, notifier.sent[0].options.Inbox.Category)
+}
+
 func TestRequestRouter_StandRecreatedResolvesAsFixed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
@@ -175,7 +207,8 @@ func TestRequestRouter_StandRecreatedResolvesAsFixed(t *testing.T) {
 
 // Every type the router sends must pass the dispatcher's channel gate.
 func TestRequestRouter_TypesSupportInApp(t *testing.T) {
-	for _, typ := range []string{inboxModel.TypeApplicationSubmitted, inboxModel.TypeProposalSubmitted, inboxModel.TypeProposalApproved, inboxModel.TypeProposalRejected} {
+	for _, typ := range []string{inboxModel.TypeApplicationSubmitted, inboxModel.TypeProposalSubmitted, inboxModel.TypeProposalApproved, inboxModel.TypeProposalRejected,
+		inboxModel.TypeElevationRequested, inboxModel.TypeElevationApproved, inboxModel.TypeElevationRejected} {
 		assert.True(t, notificationTypes.Supports(notificationTypes.NotificationType(typ), notificationTypes.NotificationChannelInApp), typ)
 	}
 }

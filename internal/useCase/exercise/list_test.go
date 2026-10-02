@@ -34,6 +34,7 @@ func TestListExercisesFor_AdminGetsStatusAndAccessEvents(t *testing.T) {
 		})
 	q.EXPECT().CountExercisesPage(gomock.Any(), gomock.Any()).Return(int64(3), nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return([]postgres.ListExerciseCardExtrasRow{{ID: owned.ID, OwnerEventName: "Event A"}}, nil)
+	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().ListExercisesEventAccess(gomock.Any(), []uuid.UUID{selected.ID}).Return([]postgres.ListExercisesEventAccessRow{
 		{ExerciseID: selected.ID, EventID: eventA, EventName: "Event A"}, {ExerciseID: selected.ID, EventID: eventB, EventName: "Event B"},
 	}, nil)
@@ -76,6 +77,7 @@ func TestListExercisesFor_ManagerSeesNoCatalogWorkingCopy(t *testing.T) {
 		})
 	q.EXPECT().CountExercisesPage(gomock.Any(), gomock.Any()).Return(int64(2), nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil)
+	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().ListUserEventMemberships(gomock.Any(), managerID).Return([]postgres.ListUserEventMembershipsRow{{EventID: eventID, Role: 1}}, nil)
 
 	res, err := uc.ListExercisesFor(context.Background(), exercise.Actor{UserID: managerID, Role: rbac.RoleUser}, exercise.ExercisesFilter{Page: 1})
@@ -136,5 +138,44 @@ func TestListExerciseTags_TopTagsAndViewer(t *testing.T) {
 		ViewerID: uuid.NullUUID{UUID: managerID, Valid: true}}).Return(nil, nil)
 	if _, err = uc.ListExerciseTags(context.Background(), exercise.Actor{UserID: managerID, Role: rbac.RoleUser}, "Cr", 1000); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Every list item carries the total resources of its published version (min and max over the variants).
+func TestListExercisesFor_ItemsCarryTheTotalResourcesOfThePublishedVersion(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	published := uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true}
+	with := postgres.Exercise{ID: uuid.Must(uuid.NewV7()), PublishedVersionID: published}
+	without := postgres.Exercise{ID: uuid.Must(uuid.NewV7())}
+
+	q.EXPECT().ListExercisesPage(gomock.Any(), gomock.Any()).Return([]postgres.ListExercisesPageRow{{Exercise: with, Status: "published"}, {Exercise: without, Status: "draft_only"}}, nil)
+	q.EXPECT().CountExercisesPage(gomock.Any(), gomock.Any()).Return(int64(2), nil)
+	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil)
+	small, large := uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String()
+	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return([]postgres.ListPublishedVariantDevicesRow{{
+		ExerciseID: with.ID,
+		Variants: []byte(`[{"id":"` + small + `","topology":{"devices":[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"web","type":"container","resource_preset":null,"resources":null}]}},
+			{"id":"` + large + `","topology":{"devices":[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"web","type":"container","resource_preset":"large"},
+			{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"sw","type":"unmanaged-switch"}]}}]`),
+	}}, nil)
+
+	res, err := uc.ListExercisesFor(context.Background(), exercise.Actor{UserID: uuid.Must(uuid.NewV7()), Role: rbac.RoleSuperAdmin}, exercise.ExercisesFilter{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := res.Exercises[0].Resources
+	if got.Min.Devices != 1 || got.Min.CPUMillicores != 25 || got.Min.MemoryBytes != 64<<20 {
+		t.Fatalf("min = %+v: a device with nothing is the default preset", got.Min)
+	}
+	if got.Max.Devices != 1 || got.Max.CPUMillicores != 250 || got.Max.MemoryBytes != 1<<30 {
+		t.Fatalf("max = %+v: the large preset; the switch runs no pod", got.Max)
+	}
+	if res.Exercises[0].ResourceHeavy {
+		t.Fatal("a task inside the frame is not resource-heavy")
+	}
+	if z := res.Exercises[1].Resources; z.Max.Devices != 0 || z.Min.CPUMillicores != 0 {
+		t.Fatalf("an exercise without a published version needs nothing: %+v", z)
 	}
 }

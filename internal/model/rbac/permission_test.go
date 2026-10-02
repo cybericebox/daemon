@@ -35,6 +35,10 @@ func TestHasPermission(t *testing.T) {
 		{RoleAdmin, PermExercisesPublish, true},
 		{RoleAdmin, PermExercisesDelete, true},
 		{RoleAdmin, PermExercisesExport, true},
+		{RoleAdmin, PermExercisesElevationsRead, false}, // resource elevations are decided by super_admin only
+		{RoleAdmin, PermExercisesElevationsWrite, false},
+		{RoleAdminViewer, PermExercisesElevationsRead, false},
+		{RoleSuperAdmin, PermExercisesElevationsWrite, true},
 		{RoleAdminViewer, PermExercisesRead, true},
 		{RoleAdminViewer, PermExercisesExport, false},
 		{RoleAdminViewer, PermExercisesWrite, false},

@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 65
+// ExerciseObjectCode — next free detail code: 74
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -185,4 +185,33 @@ var (
 				WithMessage("Description placeholder references a node absent from the topology").WithDetailCode(26)
 	ErrPlaceholderLinkInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("IP placeholder link needs http or https, a port from 1 to 65535 and a path starting with / and no mask").WithDetailCode(62)
+
+	// ── device resources (the platform frame, elevation requests) ──
+	// ErrDeviceResourcePresetInvalid: a device names a preset the platform does not offer; the context names
+	// the device and the preset. Publishing is refused.
+	ErrDeviceResourcePresetInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Device resource preset is not offered by the platform").WithDetailCode(65)
+	// ErrDevicesNeedElevation: publishing needs every device inside the platform frame or covered by an
+	// approved elevation; the context lists the devices (variant, device, name, cpu, memory) that are not.
+	ErrDevicesNeedElevation = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Devices above the platform frame need an approved resource elevation").WithDetailCode(66)
+	// ErrDeviceResourcesAboveCeiling: a device asks for more than the elevation ceiling, which no approval can
+	// give; the context lists the devices and the ceiling.
+	ErrDeviceResourcesAboveCeiling = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Device resources are above the platform elevation ceiling").WithDetailCode(67)
+	ErrElevationNotFound = err.ErrObjectNotFound.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Resource elevation request not found").WithDetailCode(68)
+	// ErrElevationNotNeeded: every device of the working copy is inside the frame or already covered.
+	ErrElevationNotNeeded = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("No device needs a resource elevation").WithDetailCode(69)
+	// ErrElevationPending: an exercise has one open elevation request at a time.
+	ErrElevationPending = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The exercise already has a pending resource elevation request").WithDetailCode(70)
+	ErrElevationDecided = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The resource elevation request was already decided").WithDetailCode(71)
+	// ErrElevationInvalid: approved values must name requested devices, be positive and stay within the ceiling.
+	ErrElevationInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Approved values must be positive, for the requested devices and within the ceiling").WithDetailCode(72)
+	ErrElevationReasonRequired = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("A resource elevation request needs a reason").WithDetailCode(73)
 )

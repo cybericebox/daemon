@@ -6,7 +6,6 @@ import (
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
 
 type ExerciseView struct {
@@ -64,11 +63,15 @@ type ExerciseScopeView struct {
 	AccessLevel string // all | selected | own | none
 	// AccessEventIDs/AccessEvents: the "selected events" of a catalog
 	// exercise, for platform readers only (empty otherwise).
-	AccessEventIDs    []uuid.UUID
-	AccessEvents      []EventRef
-	OriginEventID     *uuid.UUID
-	ForkedFrom        *ExerciseForkSource
-	Infrastructure    bool
+	AccessEventIDs []uuid.UUID
+	AccessEvents   []EventRef
+	OriginEventID  *uuid.UUID
+	ForkedFrom     *ExerciseForkSource
+	Infrastructure bool
+	// Resources is the total of the published version (min and max over its variants); zero without one.
+	// ResourceHeavy: an approved elevation holds a device of the published version above the platform frame.
+	Resources         ResourceRange
+	ResourceHeavy     bool
 	PendingProposalID *uuid.UUID
 	Permissions       ExercisePermissions
 }
@@ -232,16 +235,12 @@ type VersionView struct {
 	CreatedBy    *uuid.UUID
 	AuthorName   string // first and last name of CreatedBy; "" when unknown
 	PublishedAt  *time.Time
-	// Fit lists the variants some enabled agent cannot run within its resource limits, with each agent and
-	// the limit it passes; empty when every variant fits everywhere (or no agent reported limits).
-	Fit []VariantFit
-}
-
-// VariantFit is how one variant sits on the agents: FitsAny is false when no agent can run it.
-type VariantFit struct {
-	VariantID uuid.UUID
-	FitsAny   bool
-	Warnings  []infraModel.FitWarning
+	// Resources: the totals of the version (min and max over its variants, per variant), the devices outside
+	// the platform frame and whether the task is resource-heavy.
+	Resources VersionResources
+	// Elevation is the exercise's open resource elevation request, else its latest decided one; nil when it
+	// never had one.
+	Elevation *ElevationView
 }
 
 // VersionListItem is a version history row without the content payload.

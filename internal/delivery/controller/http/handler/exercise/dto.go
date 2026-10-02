@@ -7,7 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
@@ -33,16 +33,21 @@ type exerciseResponse struct {
 
 // exerciseScopeResponse is the W4 ownership block of cards and list items.
 type exerciseScopeResponse struct {
-	Scope             string                      `json:"Scope"`
-	OwnerEventID      *uuid.UUID                  `json:"OwnerEventID"`
-	OwnerEventName    string                      `json:"OwnerEventName"`
-	OwnerEvent        *eventRefResponse           `json:"OwnerEvent"`
-	AccessLevel       string                      `json:"AccessLevel"` // all | selected | own | none; "" for event exercises
-	AccessEventIDs    []uuid.UUID                 `json:"AccessEventIDs"`
-	AccessEvents      []eventRefResponse          `json:"AccessEvents"`
-	OriginEventID     *uuid.UUID                  `json:"OriginEventID"`
-	ForkedFrom        *forkSourceResponse         `json:"ForkedFrom"`
-	Infrastructure    bool                        `json:"Infrastructure"`
+	Scope          string              `json:"Scope"`
+	OwnerEventID   *uuid.UUID          `json:"OwnerEventID"`
+	OwnerEventName string              `json:"OwnerEventName"`
+	OwnerEvent     *eventRefResponse   `json:"OwnerEvent"`
+	AccessLevel    string              `json:"AccessLevel"` // all | selected | own | none; "" for event exercises
+	AccessEventIDs []uuid.UUID         `json:"AccessEventIDs"`
+	AccessEvents   []eventRefResponse  `json:"AccessEvents"`
+	OriginEventID  *uuid.UUID          `json:"OriginEventID"`
+	ForkedFrom     *forkSourceResponse `json:"ForkedFrom"`
+	Infrastructure bool                `json:"Infrastructure"`
+	// Resources is the total of the published version: min and max over its variants (equal for one variant);
+	// zeros without a published version. ResourceHeavy: an approved elevation holds a device of the published
+	// version above the platform frame (shown as a badge).
+	Resources         resourceRangeResponse       `json:"Resources"`
+	ResourceHeavy     bool                        `json:"ResourceHeavy"`
 	PendingProposalID *uuid.UUID                  `json:"PendingProposalID"`
 	Permissions       exercisePermissionsResponse `json:"Permissions"`
 }
@@ -72,6 +77,7 @@ func scopeToResponse(v exerciseUseCase.ExerciseScopeView) exerciseScopeResponse 
 	out := exerciseScopeResponse{
 		Scope: v.Scope, OwnerEventID: v.OwnerEventID, OwnerEventName: v.OwnerEventName, AccessLevel: v.AccessLevel,
 		AccessEventIDs: v.AccessEventIDs, OriginEventID: v.OriginEventID, Infrastructure: v.Infrastructure,
+		Resources: rangeToResponse(v.Resources), ResourceHeavy: v.ResourceHeavy,
 		PendingProposalID: v.PendingProposalID, Permissions: exercisePermissionsResponse(v.Permissions),
 	}
 	if out.Scope == "" {
@@ -354,11 +360,14 @@ type persistenceDTO struct {
 }
 
 type deviceDTO struct {
-	ID             *uuid.UUID     `json:"ID,omitempty"`
-	Name           string         `json:"Name"`
-	Type           string         `json:"Type"`
-	Image          string         `json:"Image,omitempty"`
-	SecurityPreset string         `json:"SecurityPreset,omitempty"`
+	ID             *uuid.UUID `json:"ID,omitempty"`
+	Name           string     `json:"Name"`
+	Type           string     `json:"Type"`
+	Image          string     `json:"Image,omitempty"`
+	SecurityPreset string     `json:"SecurityPreset,omitempty"`
+	// ResourcePreset is a platform preset id (see the capabilities Resources); when empty the device carries its
+	// own custom Resources (limits; requests always equal limits), and with neither it gets the default preset.
+	ResourcePreset string         `json:"ResourcePreset,omitempty"`
 	Resources      *resourcesDTO  `json:"Resources,omitempty"`
 	Interfaces     []interfaceDTO `json:"Interfaces,omitempty"`
 	EnvVars        []envVarDTO    `json:"EnvVars,omitempty"`
@@ -393,60 +402,183 @@ type variantDTO struct {
 	Topology topologyDTO `json:"Topology"`
 }
 
-// deviceLimitsResponse: CPU in millicores, memory in bytes, 0 = no limit. The defaults are the profile of a
-// device that sets no resources.
-type deviceLimitsResponse struct {
-	MaxCPUMillicores     int64 `json:"MaxCPUMillicores"`
-	MaxMemoryBytes       int64 `json:"MaxMemoryBytes"`
-	DefaultCPUMillicores int64 `json:"DefaultCPUMillicores"`
-	DefaultMemoryBytes   int64 `json:"DefaultMemoryBytes"`
-	MaxDevicesPerLab     int32 `json:"MaxDevicesPerLab"`
-	// MaxLabsPerGroup, MaxCPUMillicoresPerGroup and MaxMemoryBytesPerGroup cap all the labs of one team together.
-	MaxLabsPerGroup          int32 `json:"MaxLabsPerGroup"`
-	MaxCPUMillicoresPerGroup int64 `json:"MaxCPUMillicoresPerGroup"`
-	MaxMemoryBytesPerGroup   int64 `json:"MaxMemoryBytesPerGroup"`
+// resourceAmountResponse: CPU in millicores, memory in bytes.
+type resourceAmountResponse struct {
+	CPUMillicores int64 `json:"CPUMillicores"`
+	MemoryBytes   int64 `json:"MemoryBytes"`
 }
 
-func toDeviceLimits(l infraModel.LimitsFeature, known bool) *deviceLimitsResponse {
-	if !known {
-		return nil
+// resourcePresetResponse is a device size an author picks; the ids (micro, small, medium, large) are translated
+// by the frontend.
+type resourcePresetResponse struct {
+	ID            string `json:"ID"`
+	CPUMillicores int64  `json:"CPUMillicores"`
+	MemoryBytes   int64  `json:"MemoryBytes"`
+}
+
+// resourceSettingsResponse is the platform's device resources settings. A device outside the Frame needs an
+// approved elevation (up to the Ceiling) to publish; a draft always saves.
+type resourceSettingsResponse struct {
+	Presets       []resourcePresetResponse `json:"Presets"`
+	DefaultPreset string                   `json:"DefaultPreset"`
+	Frame         resourceAmountResponse   `json:"Frame"`
+	Ceiling       resourceAmountResponse   `json:"Ceiling"`
+	// MaxDevicesPerLab, MaxInterfacesPerDevice and MaxPortsPerSwitch are constants of the laboratory.
+	MaxDevicesPerLab       int `json:"MaxDevicesPerLab"`
+	MaxInterfacesPerDevice int `json:"MaxInterfacesPerDevice"`
+	MaxPortsPerSwitch      int `json:"MaxPortsPerSwitch"`
+	// VariantSpreadWarnPercent: the editor warns when the variants of one task differ by more than this.
+	VariantSpreadWarnPercent int `json:"VariantSpreadWarnPercent"`
+}
+
+func toResourceSettings(p resourcesModel.Policy) resourceSettingsResponse {
+	out := resourceSettingsResponse{
+		Presets: make([]resourcePresetResponse, 0, len(p.Presets)), DefaultPreset: p.DefaultPreset,
+		Frame:            resourceAmountResponse{CPUMillicores: p.Frame.CPUMillicores, MemoryBytes: p.Frame.MemoryBytes},
+		Ceiling:          resourceAmountResponse{CPUMillicores: p.Ceiling.CPUMillicores, MemoryBytes: p.Ceiling.MemoryBytes},
+		MaxDevicesPerLab: resourcesModel.MaxDevicesPerLab, MaxInterfacesPerDevice: resourcesModel.InterfacesPerContainerDevice,
+		MaxPortsPerSwitch: resourcesModel.PortsPerSwitch, VariantSpreadWarnPercent: exerciseUseCase.SpreadWarnPercent,
 	}
-	return &deviceLimitsResponse{
-		MaxCPUMillicores: l.DeviceMaxCPUMillicores, MaxMemoryBytes: l.DeviceMaxMemoryBytes,
-		DefaultCPUMillicores: l.DeviceDefaultCPUMillicores, DefaultMemoryBytes: l.DeviceDefaultMemoryBytes,
-		MaxDevicesPerLab: l.LabMaxDevices, MaxLabsPerGroup: l.GroupMaxLabs, MaxCPUMillicoresPerGroup: l.GroupMaxCPUMillicores,
-		MaxMemoryBytesPerGroup: l.GroupMaxMemoryBytes,
-	}
-}
-
-// variantFitResponse: a variant that some laboratory cannot run. FitsAny false means none can, and publishing
-// is refused. Each warning names the laboratory, the device (empty for a lab-wide cap), the resource
-// (cpu, memory, devices, groupLabs, groupCpu, groupMemory), what the variant asks for and the limit; CPU in millicores,
-// memory in bytes.
-type variantFitResponse struct {
-	VariantID uuid.UUID            `json:"VariantID"`
-	FitsAny   bool                 `json:"FitsAny"`
-	Warnings  []fitWarningResponse `json:"Warnings"`
-}
-
-type fitWarningResponse struct {
-	Agent     string `json:"Agent"`
-	Device    string `json:"Device"`
-	Resource  string `json:"Resource"`
-	Requested int64  `json:"Requested"`
-	Max       int64  `json:"Max"`
-}
-
-func fitToResponse(in []exerciseUseCase.VariantFit) []variantFitResponse {
-	out := make([]variantFitResponse, 0, len(in))
-	for _, f := range in {
-		item := variantFitResponse{VariantID: f.VariantID, FitsAny: f.FitsAny, Warnings: make([]fitWarningResponse, 0, len(f.Warnings))}
-		for _, w := range f.Warnings {
-			item.Warnings = append(item.Warnings, fitWarningResponse{Agent: w.Agent, Device: w.Device, Resource: w.Resource, Requested: w.Requested, Max: w.Max})
-		}
-		out = append(out, item)
+	for _, preset := range p.Presets {
+		out.Presets = append(out.Presets, resourcePresetResponse{ID: preset.ID, CPUMillicores: preset.CPUMillicores, MemoryBytes: preset.MemoryBytes})
 	}
 	return out
+}
+
+// resourceTotalsResponse is what a topology or task needs: its container devices and their CPU and memory.
+type resourceTotalsResponse struct {
+	Devices       int   `json:"Devices"`
+	CPUMillicores int64 `json:"CPUMillicores"`
+	MemoryBytes   int64 `json:"MemoryBytes"`
+}
+
+// resourceRangeResponse is the least and the most a task needs over its variants; event planning reserves the Max.
+type resourceRangeResponse struct {
+	Min resourceTotalsResponse `json:"Min"`
+	Max resourceTotalsResponse `json:"Max"`
+}
+
+func totalsToResponse(t exerciseUseCase.ResourceTotals) resourceTotalsResponse {
+	return resourceTotalsResponse{Devices: t.Devices, CPUMillicores: t.CPUMillicores, MemoryBytes: t.MemoryBytes}
+}
+
+func rangeToResponse(r exerciseUseCase.ResourceRange) resourceRangeResponse {
+	return resourceRangeResponse{Min: totalsToResponse(r.Min), Max: totalsToResponse(r.Max)}
+}
+
+type variantResourcesResponse struct {
+	VariantID uuid.UUID `json:"VariantID"`
+	resourceTotalsResponse
+}
+
+// deviceOutsideResponse is a device that passes the platform frame. Covered: an approved elevation holds it.
+// AboveCeiling: no approval can cover it.
+type deviceOutsideResponse struct {
+	VariantID     uuid.UUID `json:"VariantID"`
+	DeviceID      uuid.UUID `json:"DeviceID"`
+	Name          string    `json:"Name"`
+	CPUMillicores int64     `json:"CPUMillicores"`
+	MemoryBytes   int64     `json:"MemoryBytes"`
+	Covered       bool      `json:"Covered"`
+	AboveCeiling  bool      `json:"AboveCeiling"`
+}
+
+// versionResourcesResponse is the resources view of a version: the totals (Min and Max over the variants and
+// per variant), how far the variants differ, the devices outside the frame (a draft always saves; publishing
+// needs each one Covered) and whether the task is resource-heavy.
+type versionResourcesResponse struct {
+	Min      resourceTotalsResponse     `json:"Min"`
+	Max      resourceTotalsResponse     `json:"Max"`
+	Variants []variantResourcesResponse `json:"Variants"`
+	// SpreadPercent is the largest of (max-min)/max over CPU and memory between the variants; VariantsDiffer is
+	// SpreadPercent above the warning threshold (25).
+	SpreadPercent  int                     `json:"SpreadPercent"`
+	VariantsDiffer bool                    `json:"VariantsDiffer"`
+	Outside        []deviceOutsideResponse `json:"Outside"`
+	ResourceHeavy  bool                    `json:"ResourceHeavy"`
+}
+
+func versionResourcesToResponse(r exerciseUseCase.VersionResources) versionResourcesResponse {
+	out := versionResourcesResponse{
+		Min: totalsToResponse(r.Min), Max: totalsToResponse(r.Max), SpreadPercent: r.SpreadPercent,
+		VariantsDiffer: r.SpreadPercent > exerciseUseCase.SpreadWarnPercent, ResourceHeavy: r.Heavy,
+		Variants: make([]variantResourcesResponse, 0, len(r.Variants)), Outside: make([]deviceOutsideResponse, 0, len(r.Outside)),
+	}
+	for _, v := range r.Variants {
+		out.Variants = append(out.Variants, variantResourcesResponse{VariantID: v.VariantID, resourceTotalsResponse: totalsToResponse(v.ResourceTotals)})
+	}
+	for _, o := range r.Outside {
+		out.Outside = append(out.Outside, deviceOutsideResponse{VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes, Covered: o.Covered, AboveCeiling: o.AboveCeiling})
+	}
+	return out
+}
+
+// elevationDeviceResponse is one device of a request (what it asks for) or of an approval (what was allowed).
+type elevationDeviceResponse struct {
+	DeviceID      uuid.UUID `json:"DeviceID"`
+	Name          string    `json:"Name"`
+	CPUMillicores int64     `json:"CPUMillicores"`
+	MemoryBytes   int64     `json:"MemoryBytes"`
+}
+
+// elevationResponse is a request to take devices of a task above the platform frame. Approved holds the values
+// the admin allowed per device (empty until approved); a later version keeps the approval while every value
+// stays at or below them, and any raise needs a new request.
+type elevationResponse struct {
+	ID           uuid.UUID  `json:"ID"`
+	ExerciseID   uuid.UUID  `json:"ExerciseID"`
+	ExerciseName string     `json:"ExerciseName"`
+	VersionID    *uuid.UUID `json:"VersionID"`
+	// Status is pending, approved or rejected.
+	Status          string                    `json:"Status"`
+	Reason          string                    `json:"Reason"`
+	Requested       []elevationDeviceResponse `json:"Requested"`
+	Approved        []elevationDeviceResponse `json:"Approved"`
+	DecisionNote    string                    `json:"DecisionNote"`
+	RequestedBy     *uuid.UUID                `json:"RequestedBy"`
+	RequestedByName string                    `json:"RequestedByName"`
+	RequestedAt     time.Time                 `json:"RequestedAt"`
+	DecidedBy       *uuid.UUID                `json:"DecidedBy"`
+	DecidedByName   string                    `json:"DecidedByName"`
+	DecidedAt       *time.Time                `json:"DecidedAt"`
+}
+
+func elevationDevicesToResponse(in []exerciseUseCase.ElevationDevice) []elevationDeviceResponse {
+	out := make([]elevationDeviceResponse, 0, len(in))
+	for _, d := range in {
+		out = append(out, elevationDeviceResponse{DeviceID: d.DeviceID, Name: d.Name, CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
+	}
+	return out
+}
+
+func elevationToResponse(e exerciseUseCase.ElevationView) elevationResponse {
+	return elevationResponse{
+		ID: e.ID, ExerciseID: e.ExerciseID, ExerciseName: e.ExerciseName, VersionID: e.VersionID, Status: e.Status, Reason: e.Reason,
+		Requested: elevationDevicesToResponse(e.Requested), Approved: elevationDevicesToResponse(e.Approved), DecisionNote: e.DecisionNote,
+		RequestedBy: e.RequestedBy, RequestedByName: e.RequestedByName, RequestedAt: e.RequestedAt,
+		DecidedBy: e.DecidedBy, DecidedByName: e.DecidedByName, DecidedAt: e.DecidedAt,
+	}
+}
+
+func elevationsToResponse(in []exerciseUseCase.ElevationView) []elevationResponse {
+	out := make([]elevationResponse, 0, len(in))
+	for _, e := range in {
+		out = append(out, elevationToResponse(e))
+	}
+	return out
+}
+
+type requestElevationRequest struct {
+	// Reason says why the devices need more than the frame; required.
+	Reason string `json:"Reason"`
+}
+
+type decideElevationRequest struct {
+	// Approve true approves, false rejects. Devices are the approved values per requested device (a value may
+	// be lower than requested, never above the ceiling); empty approves exactly what was requested.
+	Approve bool                      `json:"Approve"`
+	Note    string                    `json:"Note"`
+	Devices []elevationDeviceResponse `json:"Devices"`
 }
 
 type versionResponse struct {
@@ -460,8 +592,12 @@ type versionResponse struct {
 	CreatedBy   *uuid.UUID   `json:"CreatedBy"`
 	AuthorName  string       `json:"AuthorName"`
 	PublishedAt *time.Time   `json:"PublishedAt"`
-	// Fit lists the variants some laboratory cannot run within its resource limits; empty when all fit.
-	Fit []variantFitResponse `json:"Fit"`
+	// Resources: the totals of the version (min and max over its variants, per variant), the devices outside
+	// the platform frame and whether the task is resource-heavy.
+	Resources versionResourcesResponse `json:"Resources"`
+	// Elevation is the exercise's open resource elevation request, else its latest decided one; null when it
+	// never had one.
+	Elevation *elevationResponse `json:"Elevation"`
 }
 
 type versionListItemResponse struct {
@@ -560,7 +696,7 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 		VisualRender: d.VisualRender,
 	}
 	for _, dev := range d.Devices {
-		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset)}
+		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset}
 		if dev.Resources != nil {
 			domainDev.Resources = &exerciseModel.DeviceResources{
 				CPURequest: dev.Resources.CPURequest, MemoryRequest: dev.Resources.MemoryRequest,
@@ -673,7 +809,7 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	}
 	for _, dev := range t.Devices {
 		id := dev.ID
-		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset)}
+		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset}
 		if dev.Resources != nil {
 			dtoDev.Resources = &resourcesDTO{
 				CPURequest: dev.Resources.CPURequest, MemoryRequest: dev.Resources.MemoryRequest,
@@ -727,11 +863,20 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	return out
 }
 
+func elevationPtr(e *exerciseUseCase.ElevationView) *elevationResponse {
+	if e == nil {
+		return nil
+	}
+	out := elevationToResponse(*e)
+	return &out
+}
+
 func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 	return versionResponse{
 		ID: v.ID, ExerciseID: v.ExerciseID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label,
 		Variants:  variantsToDTO(v.Variants),
-		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt, Fit: fitToResponse(v.Fit),
+		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
+		Resources: versionResourcesToResponse(v.Resources), Elevation: elevationPtr(v.Elevation),
 	}
 }
 

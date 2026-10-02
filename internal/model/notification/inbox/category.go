@@ -69,6 +69,11 @@ const (
 	TypeProposalSubmitted    = "exercise.proposal.submitted"
 	TypeProposalApproved     = "exercise.proposal.approved"
 	TypeProposalRejected     = "exercise.proposal.rejected"
+	// The resource elevation flow: an author asks to take task devices above the platform frame, the platform
+	// admins decide.
+	TypeElevationRequested = "exercise.elevation.requested"
+	TypeElevationApproved  = "exercise.elevation.approved"
+	TypeElevationRejected  = "exercise.elevation.rejected"
 	// TypeResultsPublished: a moderator opened the Event results.
 	TypeResultsPublished = "participant.event.results_published"
 )
@@ -82,6 +87,9 @@ var categoryRules = map[string]map[RecipientRole]Category{
 	TypeProposalSubmitted:                         {RoleAdmin: CategoryRequests, "": CategoryPersonal},
 	TypeProposalApproved:                          {"": CategoryPersonal},
 	TypeProposalRejected:                          {"": CategoryPersonal},
+	TypeElevationRequested:                        {RoleAdmin: CategoryRequests, "": CategoryPersonal},
+	TypeElevationApproved:                         {"": CategoryPersonal},
+	TypeElevationRejected:                         {"": CategoryPersonal},
 	"participant.event.start_reminder":            {"": CategoryActivity},
 	"participant.event.finished":                  {"": CategoryActivity},
 	TypeResultsPublished:                          {"": CategoryActivity},
@@ -123,6 +131,10 @@ func ApplicationRef(eventID, userID uuid.UUID) string {
 
 func StandRef(eventID, teamID uuid.UUID) string {
 	return "stand:" + eventID.String() + ":" + teamID.String()
+}
+
+func ElevationRef(elevationID uuid.UUID) string {
+	return "elevation:" + elevationID.String()
 }
 
 func ProposalRef(proposalID uuid.UUID) string {

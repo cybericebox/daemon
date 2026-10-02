@@ -1091,6 +1091,9 @@ type Querier interface {
 	// counted for these rows only (distinct team tasks with an effectively
 	// correct attempt of the account). Per-user data: super_admin only.
 	ListPlatformUsersPeople(ctx context.Context, limitVal int32) ([]ListPlatformUsersPeopleRow, error)
+	// What the resource totals of a page of exercises need from their published versions: per variant its id and
+	// the container-device fields that decide a device's size (never the image, env vars or secrets).
+	ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]ListPublishedVariantDevicesRow, error)
 	// scope_filter: 'platform' = platform banners, otherwise the Event id.
 	ListSiteBanners(ctx context.Context, scopeFilter string) ([]SiteBanner, error)
 	ListSolveIntegrityReviews(ctx context.Context, eventID uuid.UUID) ([]ListSolveIntegrityReviewsRow, error)
@@ -1133,6 +1136,8 @@ type Querier interface {
 	// Offset mode is used by the admin table: column sorting and a page count
 	// cannot be expressed by the legacy created_at cursor.
 	ListUsersPage(ctx context.Context, arg ListUsersPageParams) ([]User, error)
+	// The same reduced variants for specific versions (an event pins versions, not "the published one").
+	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]ListVersionVariantDevicesRow, error)
 	// Banners a viewer sees: active, inside the window, platform ones plus those
 	// of event_filter ('' = no Event site). user_id is NULL for an anonymous
 	// viewer; a participant is an approved participant or a manager of the Event.

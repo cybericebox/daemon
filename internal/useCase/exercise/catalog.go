@@ -88,7 +88,25 @@ func (u *ExerciseUseCase) decorateView(ctx context.Context, actor Actor, view Ex
 	if err = u.applyAccessEvents(ctx, actor, []*ExerciseScopeView{&view.ExerciseScopeView}, []uuid.UUID{e.ID}); err != nil {
 		return ExerciseView{}, err
 	}
+	if err = u.applyResources(ctx, []*ExerciseScopeView{&view.ExerciseScopeView}, []uuid.UUID{e.ID}); err != nil {
+		return ExerciseView{}, err
+	}
 	return view, nil
+}
+
+// applyResources fills the total resources and the resource-heavy mark of the views from the published
+// versions (one query for all of them).
+func (u *ExerciseUseCase) applyResources(ctx context.Context, views []*ExerciseScopeView, ids []uuid.UUID) error {
+	published, err := u.publishedResources(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for i, v := range views {
+		if r, ok := published[ids[i]]; ok {
+			v.Resources, v.ResourceHeavy = r.Range, r.Heavy
+		}
+	}
+	return nil
 }
 
 // applyAccessEvents fills the "selected events" of the views (one query for
@@ -163,6 +181,9 @@ func (u *ExerciseUseCase) ListExercisesFor(ctx context.Context, actor Actor, f E
 		views = append(views, &item.ExerciseScopeView)
 	}
 	if err = u.applyAccessEvents(ctx, actor, views, ids); err != nil {
+		return ExercisesListResult{}, err
+	}
+	if err = u.applyResources(ctx, views, ids); err != nil {
 		return ExercisesListResult{}, err
 	}
 	return result, nil

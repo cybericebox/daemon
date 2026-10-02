@@ -42,3 +42,34 @@ func TestSeedNotificationDefaultsIsIdempotent(t *testing.T) {
 		t.Fatalf("an edited template was overwritten: %q", tpl.Subject)
 	}
 }
+
+// The resource elevation types have no migration either: their in-app templates are created at start, once,
+// and an admin's edit survives the next start.
+func TestSeedInAppDefaultsIsIdempotent(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		if err := Seed(ctx, db.Queries); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+	}
+	for _, typ := range []string{"exercise.elevation.requested", "exercise.elevation.approved", "exercise.elevation.rejected"} {
+		var n int
+		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM notification_in_app_templates WHERE notification_type = $1`, typ).Scan(&n); err != nil || n != 1 {
+			t.Fatalf("%s: templates = %d, %v; want exactly one", typ, n, err)
+		}
+		tpl, err := db.Queries.GetPublishedInAppTemplate(ctx, postgres.GetPublishedInAppTemplateParams{NotificationType: typ})
+		if err != nil || tpl.Title == "" || tpl.Body == "" || tpl.Icon == "" {
+			t.Fatalf("%s: published template %+v, %v", typ, tpl, err)
+		}
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE notification_in_app_templates SET title = 'Мій заголовок' WHERE notification_type = 'exercise.elevation.approved'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := Seed(ctx, db.Queries); err != nil {
+		t.Fatal(err)
+	}
+	if tpl, _ := db.Queries.GetPublishedInAppTemplate(ctx, postgres.GetPublishedInAppTemplateParams{NotificationType: "exercise.elevation.approved"}); tpl.Title != "Мій заголовок" {
+		t.Fatalf("an edited template was overwritten: %q", tpl.Title)
+	}
+}

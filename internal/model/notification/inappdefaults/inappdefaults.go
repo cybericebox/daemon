@@ -22,6 +22,13 @@ type Template struct {
 	Type, Title, Body, Link string
 }
 
+// StartupSeeded are the in-app types created at daemon start from these defaults instead of by a migration
+// (see startupdefaults.Seed): the resource elevation flow. Database tests that compare the migrated rows with
+// the defaults skip them.
+var StartupSeeded = map[string]bool{
+	"exercise.elevation.requested": true, "exercise.elevation.approved": true, "exercise.elevation.rejected": true,
+}
+
 // All returns the copy of lang, one entry per type whose text is rewritten.
 func All(lang Lang) []Template {
 	if lang == EN {
@@ -46,6 +53,9 @@ var uk = []Template{
 	{"participant.event.start_reminder", "Захід скоро почнеться", "Захід «{{.event_name}}» починається {{.start_at}} (за київським часом).", "{{.event_url}}"},
 	{"participant.event.finished", "Захід завершено", "Дякуємо за участь у заході «{{.event_name}}»!", "{{.event_url}}"},
 	{"participant.event.results_published", "Підсумки відкрито", "Результати заходу «{{.event_name}}» уже доступні.", "{{.event_url}}"},
+	{"exercise.elevation.requested", "Запит на більше ресурсів", "{{.requester_name}} просить дозволити пристроям завдання «{{.exercise_name}}» більше ресурсів, ніж дає платформа: {{.devices}}.", ""},
+	{"exercise.elevation.approved", "Більше ресурсів схвалено", "Пристроям завдання «{{.exercise_name}}» дозволено більше ресурсів: {{.devices}}.", ""},
+	{"exercise.elevation.rejected", "Запит на ресурси відхилено", "Запит на більше ресурсів для завдання «{{.exercise_name}}» відхилено.", ""},
 }
 
 var en = []Template{
@@ -64,4 +74,7 @@ var en = []Template{
 	{"participant.event.start_reminder", "The event starts soon", "«{{.event_name}}» starts {{.start_at}} (Kyiv time).", "{{.event_url}}"},
 	{"participant.event.finished", "The event has ended", "Thank you for taking part in «{{.event_name}}»!", "{{.event_url}}"},
 	{"participant.event.results_published", "Results are open", "The results of «{{.event_name}}» are now available.", "{{.event_url}}"},
+	{"exercise.elevation.requested", "More resources requested", "{{.requester_name}} asks to give devices of the task «{{.exercise_name}}» more than the platform frame: {{.devices}}.", ""},
+	{"exercise.elevation.approved", "More resources approved", "Devices of the task «{{.exercise_name}}» may use more resources: {{.devices}}.", ""},
+	{"exercise.elevation.rejected", "Resource request declined", "The request for more resources for the task «{{.exercise_name}}» was declined.", ""},
 }
