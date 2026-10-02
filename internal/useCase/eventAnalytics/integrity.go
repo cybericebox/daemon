@@ -12,9 +12,20 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/model"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	labTraffic "github.com/cybericebox/daemon/internal/model/labTraffic"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 )
+
+// isPlatformAdmin reports whether the caller is platform staff who may write
+// events (admin, super_admin). A dismissal with the exercise scope outlives the
+// event: it silences the signal in EVERY event that uses the catalog exercise,
+// so it is not the business of one event's manager.
+func isPlatformAdmin(ctx context.Context) bool {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx)
+	return ok && claims.Role.HasPermission(rbac.PermEventsWrite)
+}
 
 // IntegrityStore is the statement port of «Доброчесність».
 type IntegrityStore interface {
@@ -361,6 +372,9 @@ func (u *EventAnalyticsUseCase) DismissIntegrityPattern(ctx context.Context, eve
 	if scope != eventAnalyticsModel.DismissEvent && scope != eventAnalyticsModel.DismissExercise {
 		return eventAnalyticsModel.ErrEventAnalyticsDismissalInvalid.Err()
 	}
+	if scope == eventAnalyticsModel.DismissExercise && !isPlatformAdmin(ctx) {
+		return authModel.ErrInsufficientPermission.Err()
+	}
 	if kind == eventAnalyticsModel.IntegritySharedWrong {
 		key = eventAnalyticsModel.NormalizeAnswer(key)
 		if key == "" || utf8.RuneCountInString(key) > 200 {
@@ -394,10 +408,17 @@ func (u *EventAnalyticsUseCase) ListIntegrityDismissals(ctx context.Context, eve
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to read integrity dismissals").Err()
 	}
+	admin := isPlatformAdmin(ctx)
 	out := make([]DismissalView, 0, len(stored))
 	for _, d := range stored {
-		out = append(out, DismissalView{ID: d.ID, Scope: d.Scope, Kind: d.Kind, Key: d.Key, Note: d.Note,
-			ChallengeName: d.ChallengeName, CreatedBy: d.CreatedByName, CreatedAt: d.CreatedAt})
+		view := DismissalView{ID: d.ID, Scope: d.Scope, Kind: d.Kind, Key: d.Key, Note: d.Note,
+			ChallengeName: d.ChallengeName, CreatedBy: d.CreatedByName, CreatedAt: d.CreatedAt}
+		if d.Scope == eventAnalyticsModel.DismissExercise && !admin {
+			// Written by another event's manager (or an admin): its author and
+			// note are theirs, not this event's to read.
+			view.CreatedBy, view.Note = "", ""
+		}
+		out = append(out, view)
 	}
 	return out, nil
 }
@@ -407,6 +428,19 @@ func (u *EventAnalyticsUseCase) ListIntegrityDismissals(ctx context.Context, eve
 func (u *EventAnalyticsUseCase) RemoveIntegrityDismissal(ctx context.Context, eventID, id uuid.UUID) error {
 	if _, err := u.event(ctx, eventID); err != nil {
 		return err
+	}
+	if !isPlatformAdmin(ctx) {
+		// An exercise-scope dismissal belongs to every event that uses the
+		// exercise: only platform admins take it back.
+		stored, listErr := u.store.Dismissals(ctx, eventID)
+		if listErr != nil {
+			return model.ErrPlatform.WithError(listErr).WithMessage("Failed to read integrity dismissals").Err()
+		}
+		for _, d := range stored {
+			if d.ID == id && d.Scope == eventAnalyticsModel.DismissExercise {
+				return authModel.ErrInsufficientPermission.Err()
+			}
+		}
 	}
 	deleted, err := u.store.DeleteDismissal(ctx, eventID, id)
 	if err != nil {

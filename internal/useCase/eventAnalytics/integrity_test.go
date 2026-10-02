@@ -10,8 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	labTraffic "github.com/cybericebox/daemon/internal/model/labTraffic"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 	"github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
 
@@ -238,7 +240,8 @@ func TestDismissIntegrityPattern(t *testing.T) {
 	require.ErrorIs(t, f.uc.DismissIntegrityPattern(ctx, f.eventID, f.tooFast, by, eventAnalyticsModel.DismissScope("all"), eventAnalyticsModel.IntegrityTooFast, "", ""), invalid)
 	require.ErrorIs(t, f.uc.DismissIntegrityPattern(ctx, f.eventID, f.tooFast, by, eventAnalyticsModel.DismissEvent, eventAnalyticsModel.IntegritySharedWrong, "  ", ""), invalid, "a value is needed")
 	require.ErrorIs(t, f.uc.DismissIntegrityPattern(ctx, f.eventID, uuid.UUID{15: 99}, by, eventAnalyticsModel.DismissEvent, eventAnalyticsModel.IntegrityTooFast, "", ""), eventAnalyticsModel.ErrEventAnalyticsSolveNotFound.Err())
-	require.NoError(t, f.uc.DismissIntegrityPattern(ctx, f.eventID, f.tooFast, by, eventAnalyticsModel.DismissExercise, eventAnalyticsModel.IntegritySharedWrong, "  ICE{Decoy} ", ""))
+	adminCtx := rbac.ContextWithCurrentUserSession(ctx, rbac.Claims{UserID: by, Role: rbac.RoleAdmin})
+	require.NoError(t, f.uc.DismissIntegrityPattern(adminCtx, f.eventID, f.tooFast, by, eventAnalyticsModel.DismissExercise, eventAnalyticsModel.IntegritySharedWrong, "  ICE{Decoy} ", ""))
 	list, err = f.uc.ListIntegrityDismissals(ctx, f.eventID)
 	require.NoError(t, err)
 	require.Equal(t, "ice{decoy}", list[0].Key, "the value is stored normalized")
@@ -296,4 +299,48 @@ func TestLabTrafficDecidesNoLab(t *testing.T) {
 	// Unknown or failed answers fall back on the VPN sessions (none here): still flagged.
 	require.Len(t, run(&fakeLab{answers: map[uuid.UUID]labTraffic.Verdict{team: labTraffic.Unknown}}), 1)
 	require.Len(t, run(&fakeLab{err: true}), 1)
+}
+
+// M5: an exercise-scope dismissal silences the signal in every event that uses
+// the catalog exercise. One event's manager must not create, read the author of,
+// or remove it; platform admins can.
+func TestExerciseScopeDismissalsAreForPlatformAdmins(t *testing.T) {
+	f := newIntegrityFixture(t)
+	manager := uuid.UUID{15: 5}
+	managerCtx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: manager, Role: rbac.RoleUser})
+	adminCtx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uuid.UUID{15: 6}, Role: rbac.RoleAdmin})
+	denied := authModel.ErrInsufficientPermission.Err()
+
+	// create: the manager may dismiss for THIS event only; without any identity not at all.
+	require.ErrorIs(t, f.uc.DismissIntegrityPattern(managerCtx, f.eventID, f.tooFast, manager, eventAnalyticsModel.DismissExercise, eventAnalyticsModel.IntegrityTooFast, "", ""), denied)
+	require.ErrorIs(t, f.uc.DismissIntegrityPattern(context.Background(), f.eventID, f.tooFast, manager, eventAnalyticsModel.DismissExercise, eventAnalyticsModel.IntegrityTooFast, "", ""), denied)
+	require.NoError(t, f.uc.DismissIntegrityPattern(managerCtx, f.eventID, f.tooFast, manager, eventAnalyticsModel.DismissEvent, eventAnalyticsModel.IntegrityTooFast, "", "mine"))
+
+	// an admin's exercise-scope dismissal, as seen from the event
+	require.NoError(t, f.uc.DismissIntegrityPattern(adminCtx, f.eventID, f.tooFast, uuid.UUID{15: 6}, eventAnalyticsModel.DismissExercise, eventAnalyticsModel.IntegritySharedWrong, "decoy", "secret reasoning"))
+	f.store.dismissals[len(f.store.dismissals)-1].CreatedByName = "Alice Admin"
+
+	list, err := f.uc.ListIntegrityDismissals(managerCtx, f.eventID)
+	require.NoError(t, err)
+	var exerciseID uuid.UUID
+	for _, d := range list {
+		if d.Scope == eventAnalyticsModel.DismissExercise {
+			exerciseID = d.ID
+			require.Empty(t, d.CreatedBy, "another event's author is not shown")
+			require.Empty(t, d.Note)
+		}
+	}
+	require.NotEqual(t, uuid.Nil, exerciseID)
+	adminList, err := f.uc.ListIntegrityDismissals(adminCtx, f.eventID)
+	require.NoError(t, err)
+	for _, d := range adminList {
+		if d.Scope == eventAnalyticsModel.DismissExercise {
+			require.Equal(t, "Alice Admin", d.CreatedBy)
+			require.Equal(t, "secret reasoning", d.Note)
+		}
+	}
+
+	// remove: the manager cannot take back what is not only theirs
+	require.ErrorIs(t, f.uc.RemoveIntegrityDismissal(managerCtx, f.eventID, exerciseID), denied)
+	require.NoError(t, f.uc.RemoveIntegrityDismissal(adminCtx, f.eventID, exerciseID))
 }

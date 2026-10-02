@@ -46,11 +46,23 @@ func hardenRouter(router *gin.Engine, cfg *config.HTTPControllerConfig) error {
 	return nil
 }
 
+// newRouter is gin.New with the one setting authorization depends on: handlers
+// hand their *gin.Context to use cases as the context.Context, and the identity
+// (rbac.Claims) lives in the REQUEST context. Without ContextWithFallback the
+// use cases never see it: every claims-based decision silently takes the "no
+// identity" branch (fail-closed today, fail-open the day a branch is written the
+// other way round).
+func newRouter() *gin.Engine {
+	router := gin.New()
+	router.ContextWithFallback = true
+	return router
+}
+
 func NewController(deps Dependencies) *Controller {
 	// create the router
 	// gin.New, not gin.Default: logger and recovery come from ForMode, per the
 	// gin mode config.SetupLogger set from ENV (and so does the route dump).
-	router := gin.New()
+	router := newRouter()
 	router.Use(middleware.ForMode(gin.Mode())...)
 
 	if err := hardenRouter(router, deps.Config); err != nil {
