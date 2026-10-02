@@ -228,6 +228,22 @@ func (p Policy) Explicit(d exerciseModel.Device) *exerciseModel.DeviceResources 
 	return &exerciseModel.DeviceResources{CPURequest: cpu, CPULimit: cpu, MemoryRequest: mem, MemoryLimit: mem}
 }
 
+// Explicitly returns a copy of the topology in which every container device carries explicit resources
+// (requests equal limits) and no preset: what the agent is sent.
+func (p Policy) Explicitly(t exerciseModel.Topology) exerciseModel.Topology {
+	devices := make([]exerciseModel.Device, len(t.Devices))
+	copy(devices, t.Devices)
+	for i, d := range devices {
+		if d.Type != exerciseModel.DeviceTypeContainer {
+			continue
+		}
+		devices[i].Resources = p.Explicit(d)
+		devices[i].ResourcePreset = ""
+	}
+	t.Devices = devices
+	return t
+}
+
 // DeviceUsage is one container device of a topology with what it gets.
 type DeviceUsage struct {
 	DeviceID uuid.UUID
