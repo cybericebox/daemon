@@ -552,3 +552,37 @@ func TestAudit_DefaultTargetFromRouteIDs(t *testing.T) {
 		t.Fatalf("target = %+v", entries)
 	}
 }
+
+type refusingLimiter struct{ calls int }
+
+func (l *refusingLimiter) Check(ctx *gin.Context, _ uuid.UUID, _ bool) bool {
+	l.calls++
+	ctx.AbortWithStatus(http.StatusTooManyRequests)
+	return false
+}
+
+// The permission gate asks the general limiter once the caller is known; a refusal stops the request.
+func TestRequirePermission_AsksTheLimiter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	uid, sid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	limiter := &refusingLimiter{}
+	p := protection.New(protection.Dependencies{
+		UseCase: &fakeUseCase{sessionResult: &authUseCase.SessionAuthResult{
+			Claims:  authModel.AuthClaims{SessionID: sid, UserID: uid, Role: "user"},
+			Session: &authModel.Session{ID: sid, UserID: uid, ExpiresAt: time.Now().Add(time.Hour)},
+		}},
+		Config:  config.AuthConfig{Hosts: config.HostsConfig{API: "api.example.test"}},
+		Limiter: limiter,
+	})
+	r := gin.New()
+	r.Use(response.WithErrorHandler, p.RequirePermission(rbac.PermSelf))
+	reached := false
+	r.GET("/x", func(c *gin.Context) { reached = true; c.Status(http.StatusOK) })
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "x"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests || reached || limiter.calls != 1 {
+		t.Fatalf("code %d, reached %v, limiter calls %d", w.Code, reached, limiter.calls)
+	}
+}

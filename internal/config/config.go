@@ -32,6 +32,7 @@ type (
 		Exercise       ExerciseConfig       `                                   envPrefix:"EXERCISE_"`
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
 		Limits         LimitsConfig         `                                   envPrefix:"LIMIT_"`
+		RateLimit      RateLimitConfig      `                                   envPrefix:"RATE_LIMIT_"`
 		Retention      RetentionConfig      `                                   envPrefix:"RETENTION_"`
 		LabAccess      LabAccessConfig      `                                   envPrefix:"LAB_ACCESS_"`
 		LabSession     LabSessionConfig     `                                   envPrefix:"LAB_SESSION_"`
@@ -386,8 +387,6 @@ type LimitsConfig struct {
 	// the password-change and email-change routes.
 	AccountActions       int           `env:"ACCOUNT_ACTIONS"        envDefault:"20"`
 	AccountActionsWindow time.Duration `env:"ACCOUNT_ACTIONS_WINDOW" envDefault:"10m"`
-	// PreviewPerMinute template previews per signed-in user.
-	PreviewPerMinute int `env:"PREVIEW_PER_MINUTE" envDefault:"60"`
 	// Open live streams: per signed-in account, per screen link, for all
 	// anonymous readers of one event together, and the staff journals.
 	StreamsPerUser           int `env:"STREAMS_PER_USER"            envDefault:"8"`
@@ -403,7 +402,7 @@ func (c LimitsConfig) Validate() error {
 	for name, v := range map[string]int{
 		"LIMIT_SIGN_IN_MAX_FAILURES": c.SignInMaxFailures, "LIMIT_ACCOUNT_MAIL_PER_HOUR": c.AccountMailPerHour,
 		"LIMIT_EMAIL_CHANGES_PER_HOUR": c.EmailChangesPerHour, "LIMIT_ACCOUNT_ACTIONS": c.AccountActions,
-		"LIMIT_PREVIEW_PER_MINUTE": c.PreviewPerMinute, "LIMIT_STREAMS_PER_USER": c.StreamsPerUser,
+		"LIMIT_STREAMS_PER_USER":   c.StreamsPerUser,
 		"LIMIT_STREAMS_PER_SCREEN": c.StreamsPerScreen, "LIMIT_STREAMS_ANONYMOUS_PER_EVENT": c.StreamsAnonymousPerEvent,
 		"LIMIT_ATTEMPT_STREAMS_PER_USER": c.AttemptStreamsPerUser, "LIMIT_ERROR_STREAMS_PER_USER": c.ErrorStreamsPerUser,
 		"LIMIT_LIVE_SCREEN_PER_MINUTE": c.LiveScreenPerMinute,
@@ -420,6 +419,24 @@ func (c LimitsConfig) Validate() error {
 		if v < time.Second {
 			return fmt.Errorf("limits: %s must be at least 1s", name)
 		}
+	}
+	return nil
+}
+
+// RateLimitConfig is the general request limiter, a token bucket: a steady rate per minute plus a burst.
+// Every signed-in user has a bucket of their own; all anonymous requests of the platform share ONE bucket
+// (never per client address: an on-site event sits behind one router), so its defaults are high and only a
+// real flood trips it. In memory, per replica.
+type RateLimitConfig struct {
+	UserPerMinute int `env:"USER_PER_MINUTE" envDefault:"1200"`
+	UserBurst     int `env:"USER_BURST"      envDefault:"600"`
+	AnonPerMinute int `env:"ANON_PER_MINUTE" envDefault:"12000"`
+	AnonBurst     int `env:"ANON_BURST"      envDefault:"6000"`
+}
+
+func (c RateLimitConfig) Validate() error {
+	if c.UserPerMinute < 1 || c.UserBurst < 1 || c.AnonPerMinute < 1 || c.AnonBurst < 1 {
+		return errors.New("rate limit: RATE_LIMIT_{USER,ANON}_{PER_MINUTE,BURST} must be at least 1")
 	}
 	return nil
 }
@@ -690,6 +707,9 @@ func MustGetConfig() *Config {
 	}
 	if err = instance.Limits.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid abuse limits")
+	}
+	if err = instance.RateLimit.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid rate limit configuration")
 	}
 	if err = instance.FlagRateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid flag rate limit configuration")

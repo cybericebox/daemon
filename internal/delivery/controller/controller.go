@@ -21,6 +21,7 @@ type (
 		UseCase              IUseCase
 		HTTPControllerConfig config.HTTPControllerConfig
 		AuthConfig           config.AuthConfig
+		RateLimit            config.RateLimitConfig
 		// ErrorJournal captures HTTP errors; nil captures nothing.
 		ErrorJournal errjournal.Sink
 	}
@@ -33,6 +34,7 @@ func NewController(deps Dependencies) *Controller {
 				Config:       &deps.HTTPControllerConfig,
 				UseCase:      deps.UseCase,
 				AuthConfig:   deps.AuthConfig,
+				RateLimit:    deps.RateLimit,
 				ErrorJournal: deps.ErrorJournal,
 			},
 		),

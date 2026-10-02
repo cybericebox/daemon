@@ -210,7 +210,7 @@ POST   /api/events/:id/manage/notification-templates/email/:templateID/test | ga
 GET    /api/events/:id/manage/notification-templates/email/brand/logo | gate: self | layers: event.requireRead,middleware.SameSiteResource
 GET    /api/events/:id/manage/notification-templates/email/images/:fileID | gate: self | layers: event.requireRead,middleware.SameSiteResource
 GET    /api/events/:id/manage/notification-templates/email/presets | gate: self | layers: event.requireRead
-POST   /api/events/:id/manage/notification-templates/email/preview | gate: self | layers: event.requireRead,middleware.RateLimitPerUser.func
+POST   /api/events/:id/manage/notification-templates/email/preview | gate: self | layers: event.requireRead
 DELETE /api/events/:id/manage/notification-templates/email/type/:notificationType | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/notification-templates/in-app | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/notification-templates/in-app | gate: self | layers: event.requireManage
@@ -449,7 +449,7 @@ GET    /api/notifications/templates/email/brand/logo | gate: notifications.templ
 POST   /api/notifications/templates/email/images | gate: notifications.templates.write | layers: -
 GET    /api/notifications/templates/email/images/:fileID | gate: notifications.templates.read | layers: middleware.SameSiteResource
 GET    /api/notifications/templates/email/latest | gate: notifications.templates.read | layers: -
-POST   /api/notifications/templates/email/preview | gate: notifications.templates.read | layers: middleware.RateLimitPerUser.func
+POST   /api/notifications/templates/email/preview | gate: notifications.templates.read | layers: -
 GET    /api/notifications/templates/inapp | gate: notifications.templates.read | layers: -
 POST   /api/notifications/templates/inapp | gate: notifications.templates.write | layers: -
 DELETE /api/notifications/templates/inapp/:id | gate: notifications.templates.write | layers: -

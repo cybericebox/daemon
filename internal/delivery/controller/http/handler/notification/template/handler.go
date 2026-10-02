@@ -11,7 +11,6 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	"github.com/cybericebox/daemon/internal/limits"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	emailModel "github.com/cybericebox/daemon/internal/model/notification/email"
 	inAppModel "github.com/cybericebox/daemon/internal/model/notification/inapp"
@@ -347,7 +346,6 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		emailG.POST(
 			"preview",
 			h.prot.RequirePermission(rbac.PermNotificationsTemplatesRead),
-			middleware.RateLimitPerUser(limits.Get().PreviewPerMinute, time.Minute),
 			h.previewEmail,
 		)
 		emailG.GET(":id", h.prot.RequirePermission(rbac.PermNotificationsTemplatesRead), h.getEmail)

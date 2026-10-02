@@ -176,6 +176,7 @@ func Run(cfg *config.Config) {
 			UseCase:              ucs,
 			HTTPControllerConfig: cfg.HTTPController,
 			AuthConfig:           cfg.Auth,
+			RateLimit:            cfg.RateLimit,
 			ErrorJournal:         ucs.Journal,
 		},
 	)

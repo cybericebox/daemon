@@ -15,7 +15,7 @@ func TestDefaultsAreTheDocumentedOnes(t *testing.T) {
 	if c.AccountMailGap != time.Minute || c.AccountMailPerHour != 3 || c.EmailChangesPerHour != 5 {
 		t.Fatalf("mail defaults: %+v", c)
 	}
-	if c.AccountActions != 20 || c.PreviewPerMinute != 60 || c.LiveScreenPerMinute != 120 {
+	if c.AccountActions != 20 || c.LiveScreenPerMinute != 120 {
 		t.Fatalf("request defaults: %+v", c)
 	}
 	if c.StreamsPerUser != 8 || c.StreamsPerScreen != 10 || c.StreamsAnonymousPerEvent != 500 || c.AttemptStreamsPerUser != 6 || c.ErrorStreamsPerUser != 3 {
@@ -42,9 +42,9 @@ func TestValidateRefusesZero(t *testing.T) {
 func TestSetOverridesTheDefaults(t *testing.T) {
 	t.Cleanup(func() { limits.Set(limits.Get()) })
 	c := limits.Get()
-	c.PreviewPerMinute = 7
+	c.LiveScreenPerMinute = 7
 	limits.Set(c)
-	if limits.Get().PreviewPerMinute != 7 {
+	if limits.Get().LiveScreenPerMinute != 7 {
 		t.Fatal("Set must win")
 	}
 }

@@ -412,3 +412,20 @@ func TestPublicReadRoutesMatchTheMountedRouter(t *testing.T) {
 		}
 	}
 }
+
+// The general request limiter skips these routes: every one must be mounted (a renamed stream would silently
+// become limited).
+func TestRateLimitExemptRoutesAreMounted(t *testing.T) {
+	mounted := map[string]bool{}
+	for _, s := range buildRoutePolicy(t) {
+		mounted[s.path] = true
+	}
+	for _, route := range middleware.RateLimitExemptRoutes() {
+		if route == "/api/health" {
+			continue // registered by the controller, not by the handler aggregator
+		}
+		if !mounted[route] {
+			t.Errorf("%s is exempt from the rate limiter but not mounted", route)
+		}
+	}
+}

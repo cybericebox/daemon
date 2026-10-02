@@ -36,7 +36,13 @@ type IUseCase interface {
 	RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 }
 
+// Limiter is the general request limiter; the gate asks it once the caller is known.
+type Limiter interface {
+	Check(ctx *gin.Context, userID uuid.UUID, signedIn bool) bool
+}
+
 type Protection struct {
+	limiter   Limiter
 	useCase   IUseCase
 	hosts     config.HostsConfig
 	ttl       time.Duration
@@ -49,10 +55,13 @@ type Protection struct {
 type Dependencies struct {
 	UseCase IUseCase
 	Config  config.AuthConfig
+	// Limiter counts every gated request in the caller's bucket; nil limits nothing.
+	Limiter Limiter
 }
 
 func New(deps Dependencies) *Protection {
 	return &Protection{
+		limiter:   deps.Limiter,
 		useCase:   deps.UseCase,
 		hosts:     deps.Config.Hosts,
 		ttl:       cookieLifetime(deps.Config),
@@ -96,7 +105,10 @@ func (p *Protection) RequirePermission(required rbac.Permission) gin.HandlerFunc
 			return
 		}
 
-		_, authenticated := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+		claims, authenticated := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+		if p.limiter != nil && !p.limiter.Check(ctx, claims.UserID, authenticated) {
+			return
+		}
 		if !rbac.HasPermissionInContext(ctx.Request.Context(), required) &&
 			(authenticated || !rbac.RolePublic.HasPermission(required)) {
 			// The journal records which permission refused: refusals point at wrong permissions.

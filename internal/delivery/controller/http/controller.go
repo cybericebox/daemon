@@ -33,6 +33,7 @@ type (
 		UseCase    IUseCase
 		Config     *config.HTTPControllerConfig
 		AuthConfig config.AuthConfig
+		RateLimit  config.RateLimitConfig
 		// ErrorJournal receives 5xx, panics, 403, 429 and the 404 counters; nil captures nothing.
 		ErrorJournal errjournal.Sink
 	}
@@ -80,9 +81,11 @@ func NewController(deps Dependencies) *Controller {
 	router.Use(middleware.CaptureRequestReceivedAt())
 
 	// build protection middleware and wire it into the handler aggregator
+	limiter := middleware.NewRateLimiter(deps.RateLimit)
 	prot := protection.New(protection.Dependencies{
 		UseCase: deps.UseCase,
 		Config:  deps.AuthConfig,
+		Limiter: limiter,
 	})
 
 	// This service answers on exactly one host, api.<domain> — every other
@@ -102,7 +105,10 @@ func NewController(deps Dependencies) *Controller {
 	// Every frontend calls this API cross-origin (its own subdomain) — CORS
 	// (with credentials) must run before any route handling.
 	originPolicy := newOriginPolicy(deps)
-	router.Use(middleware.HandleCORS(originPolicy), middleware.OriginGuardWith(originPolicy), middleware.ContentMiddleware)
+	router.Use(middleware.HandleCORS(originPolicy), middleware.OriginGuardWith(originPolicy),
+		// General request limiter: anonymous requests here (after CORS, so a 429 stays readable by the page),
+		// signed-in ones in the permission gate.
+		limiter.Anonymous, middleware.ContentMiddleware)
 
 	RegisterHealth(router)
 
