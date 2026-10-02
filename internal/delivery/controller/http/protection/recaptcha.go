@@ -84,9 +84,20 @@ func (p *Protection) getRecaptchaToken(ctx *gin.Context) (string, error) {
 }
 
 type siteVerifyResponse struct {
-	Success bool    `json:"success"`
-	Score   float32 `json:"score"`
-	Action  string  `json:"action"`
+	Success  bool    `json:"success"`
+	Score    float32 `json:"score"`
+	Action   string  `json:"action"`
+	Hostname string  `json:"hostname"`
+}
+
+// requireRecaptchaHost accepts a token only when it was solved on one of our
+// own frontends: a token from the same site key on someone else's page (or a
+// solver service's page) proves nothing about a visitor of ours.
+func (p *Protection) requireRecaptchaHost(hostname string) error {
+	if hostname == "" || !p.hosts.IsFrontendOrigin(strings.ToLower(strings.TrimSuffix(hostname, "."))) {
+		return authModel.ErrAuthInvalidRecaptchaToken.WithError(fmt.Errorf("recaptcha token hostname %q is not a platform frontend", hostname)).Err()
+	}
+	return nil
 }
 
 // verifyRecaptchaToken validates a classic reCAPTCHA v3 token via the siteverify API.
@@ -129,7 +140,26 @@ func (p *Protection) verifyRecaptchaToken(ctx context.Context, token, action str
 	if body.Action != action {
 		return authModel.ErrAuthInvalidRecaptchaAction.WithError(errors.New(body.Action)).Err()
 	}
-	return nil
+	return p.requireRecaptchaHost(body.Hostname)
+}
+
+// enterpriseClient returns the shared reCAPTCHA Enterprise client, dialled on
+// first use (a client per request opened a new gRPC connection on every
+// sign-in). A failed dial is not cached.
+func (p *Protection) enterpriseClient() (*recaptcha.Client, error) {
+	p.recaptchaMu.Lock()
+	defer p.recaptchaMu.Unlock()
+	if p.recaptchaClient != nil {
+		return p.recaptchaClient, nil
+	}
+	// The client outlives the request that created it: its connection must not
+	// be tied to that request's context.
+	client, err := recaptcha.NewClient(context.Background(), option.WithAPIKey(p.recaptcha.APIKey))
+	if err != nil {
+		return nil, err
+	}
+	p.recaptchaClient = client
+	return client, nil
 }
 
 // verifyRecaptchaEnterpriseToken validates a token via reCAPTCHA Enterprise.
@@ -137,17 +167,12 @@ func (p *Protection) verifyRecaptchaEnterpriseToken(
 	ctx context.Context,
 	token, action string,
 ) error {
-	client, err := recaptcha.NewClient(ctx, option.WithAPIKey(p.recaptcha.APIKey))
+	client, err := p.enterpriseClient()
 	if err != nil {
 		return model.ErrPlatform.WithError(err).
 			WithMessage("Failed to create recaptcha client").
 			Err()
 	}
-	defer func() {
-		if cerr := client.Close(); cerr != nil {
-			log.Error().Err(cerr).Msg("Failed to close recaptcha client")
-		}
-	}()
 
 	resp, err := client.CreateAssessment(
 		ctx, &recaptchaenterprisepb.CreateAssessmentRequest{
@@ -174,5 +199,5 @@ func (p *Protection) verifyRecaptchaEnterpriseToken(
 		return authModel.ErrAuthInvalidRecaptchaAction.WithError(errors.New(resp.TokenProperties.Action)).
 			Err()
 	}
-	return nil
+	return p.requireRecaptchaHost(resp.TokenProperties.Hostname)
 }

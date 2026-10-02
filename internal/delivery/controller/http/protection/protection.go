@@ -6,8 +6,10 @@ import (
 
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	recaptcha "cloud.google.com/go/recaptchaenterprise/v2/apiv1"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
@@ -38,6 +40,9 @@ type Protection struct {
 	hosts     config.HostsConfig
 	ttl       time.Duration
 	recaptcha config.RecaptchaConfig
+
+	recaptchaMu     sync.Mutex
+	recaptchaClient *recaptcha.Client
 }
 
 type Dependencies struct {
