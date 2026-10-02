@@ -52,6 +52,60 @@ type ChallengeAttemptDecision struct {
 	DecidedAt          time.Time `json:"decided_at"`
 }
 
+// Platform error journal: one row per fingerprint (kind + route template / job kind + normalized message)
+type ErrorGroup struct {
+	ID          uuid.UUID `json:"id"`
+	Fingerprint string    `json:"fingerprint"`
+	// http_5xx, panic, http_403, http_429, job, mail, lab_agent_offline, lab_deploy, lab_cert_expiry, lab_component
+	Kind string `json:"kind"`
+	// Route template, job kind or agent name; never a raw path
+	Source         string             `json:"source"`
+	Title          string             `json:"title"`
+	Status         string             `json:"status"`
+	Occurrences    int64              `json:"occurrences"`
+	FirstSeenAt    time.Time          `json:"first_seen_at"`
+	LastSeenAt     time.Time          `json:"last_seen_at"`
+	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
+	LastNotifiedAt pgtype.Timestamptz `json:"last_notified_at"`
+	// Occurrences since the last notification (rate limiting: a storm is one message with a count)
+	SuppressedSince int64 `json:"suppressed_since"`
+}
+
+// Telegram chat ids (persons or groups) that receive error notifications; failing = the bot got 403 (blocked / removed), kept visible instead of dropped
+type ErrorJournalTelegramChat struct {
+	ChatID       string             `json:"chat_id"`
+	Label        string             `json:"label"`
+	Failing      bool               `json:"failing"`
+	FailingSince pgtype.Timestamptz `json:"failing_since"`
+	LastError    string             `json:"last_error"`
+	CreatedAt    time.Time          `json:"created_at"`
+}
+
+// Daily 404 counters: route template for handler 404s, empty route = unmatched paths (paths are never stored)
+type ErrorNotFoundDaily struct {
+	Day   pgtype.Date `json:"day"`
+	Route string      `json:"route"`
+	Hits  int64       `json:"hits"`
+}
+
+// A few recent samples per error group (trimmed on insert); messages are scrubbed of secrets, tokens and e-mail addresses; user_id has no foreign key (a deleted user must not break the journal)
+type ErrorSample struct {
+	ID         uuid.UUID     `json:"id"`
+	GroupID    uuid.UUID     `json:"group_id"`
+	OccurredAt time.Time     `json:"occurred_at"`
+	Message    string        `json:"message"`
+	Stack      string        `json:"stack"`
+	Method     string        `json:"method"`
+	Route      string        `json:"route"`
+	HttpStatus pgtype.Int4   `json:"http_status"`
+	RequestID  string        `json:"request_id"`
+	UserID     uuid.NullUUID `json:"user_id"`
+	Role       string        `json:"role"`
+	Permission string        `json:"permission"`
+	Limiter    string        `json:"limiter"`
+	Details    []byte        `json:"details"`
+}
+
 type Event struct {
 	ID                    uuid.UUID          `json:"id"`
 	Tag                   string             `json:"tag"`

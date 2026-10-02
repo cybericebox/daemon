@@ -44,6 +44,20 @@ func (m *MockQuerier) EXPECT() *MockQuerierMockRecorder {
 	return m.recorder
 }
 
+// AddErrorNotFound mocks base method.
+func (m *MockQuerier) AddErrorNotFound(ctx context.Context, arg postgres.AddErrorNotFoundParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddErrorNotFound", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddErrorNotFound indicates an expected call of AddErrorNotFound.
+func (mr *MockQuerierMockRecorder) AddErrorNotFound(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddErrorNotFound", reflect.TypeOf((*MockQuerier)(nil).AddErrorNotFound), ctx, arg)
+}
+
 // AddFileReference mocks base method.
 func (m *MockQuerier) AddFileReference(ctx context.Context, arg postgres.AddFileReferenceParams) error {
 	m.ctrl.T.Helper()
@@ -414,6 +428,21 @@ func (m *MockQuerier) CountEmailDeliveredSince(ctx context.Context, arg postgres
 func (mr *MockQuerierMockRecorder) CountEmailDeliveredSince(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEmailDeliveredSince", reflect.TypeOf((*MockQuerier)(nil).CountEmailDeliveredSince), ctx, arg)
+}
+
+// CountErrorGroups mocks base method.
+func (m *MockQuerier) CountErrorGroups(ctx context.Context, arg postgres.CountErrorGroupsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountErrorGroups", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountErrorGroups indicates an expected call of CountErrorGroups.
+func (mr *MockQuerierMockRecorder) CountErrorGroups(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountErrorGroups", reflect.TypeOf((*MockQuerier)(nil).CountErrorGroups), ctx, arg)
 }
 
 // CountEventChallengeSolves mocks base method.
@@ -1668,6 +1697,20 @@ func (mr *MockQuerierMockRecorder) DeleteEmailTemplate(ctx, id any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEmailTemplate", reflect.TypeOf((*MockQuerier)(nil).DeleteEmailTemplate), ctx, id)
 }
 
+// DeleteErrorTelegramChatsNotIn mocks base method.
+func (m *MockQuerier) DeleteErrorTelegramChatsNotIn(ctx context.Context, keep []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteErrorTelegramChatsNotIn", ctx, keep)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteErrorTelegramChatsNotIn indicates an expected call of DeleteErrorTelegramChatsNotIn.
+func (mr *MockQuerierMockRecorder) DeleteErrorTelegramChatsNotIn(ctx, keep any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteErrorTelegramChatsNotIn", reflect.TypeOf((*MockQuerier)(nil).DeleteErrorTelegramChatsNotIn), ctx, keep)
+}
+
 // DeleteEvent mocks base method.
 func (m *MockQuerier) DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2659,6 +2702,36 @@ func (m *MockQuerier) GetEmailTemplate(ctx context.Context, id uuid.UUID) (postg
 func (mr *MockQuerierMockRecorder) GetEmailTemplate(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEmailTemplate", reflect.TypeOf((*MockQuerier)(nil).GetEmailTemplate), ctx, id)
+}
+
+// GetErrorGroup mocks base method.
+func (m *MockQuerier) GetErrorGroup(ctx context.Context, id uuid.UUID) (postgres.ErrorGroup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetErrorGroup", ctx, id)
+	ret0, _ := ret[0].(postgres.ErrorGroup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetErrorGroup indicates an expected call of GetErrorGroup.
+func (mr *MockQuerierMockRecorder) GetErrorGroup(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrorGroup", reflect.TypeOf((*MockQuerier)(nil).GetErrorGroup), ctx, id)
+}
+
+// GetErrorJournalSettings mocks base method.
+func (m *MockQuerier) GetErrorJournalSettings(ctx context.Context) (postgres.GetErrorJournalSettingsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetErrorJournalSettings", ctx)
+	ret0, _ := ret[0].(postgres.GetErrorJournalSettingsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetErrorJournalSettings indicates an expected call of GetErrorJournalSettings.
+func (mr *MockQuerierMockRecorder) GetErrorJournalSettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrorJournalSettings", reflect.TypeOf((*MockQuerier)(nil).GetErrorJournalSettings), ctx)
 }
 
 // GetEventAnalyticsOverview mocks base method.
@@ -4341,6 +4414,20 @@ func (mr *MockQuerierMockRecorder) HasIncompleteRequiredEventFormDelivery(ctx, a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasIncompleteRequiredEventFormDelivery", reflect.TypeOf((*MockQuerier)(nil).HasIncompleteRequiredEventFormDelivery), ctx, arg)
 }
 
+// InsertErrorSample mocks base method.
+func (m *MockQuerier) InsertErrorSample(ctx context.Context, arg postgres.InsertErrorSampleParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertErrorSample", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertErrorSample indicates an expected call of InsertErrorSample.
+func (mr *MockQuerierMockRecorder) InsertErrorSample(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertErrorSample", reflect.TypeOf((*MockQuerier)(nil).InsertErrorSample), ctx, arg)
+}
+
 // InsertEventScoringPopulation mocks base method.
 func (m *MockQuerier) InsertEventScoringPopulation(ctx context.Context, arg postgres.InsertEventScoringPopulationParams) (postgres.EventScoringPopulation, error) {
 	m.ctrl.T.Helper()
@@ -4726,6 +4813,66 @@ func (m *MockQuerier) ListEmailTemplates(ctx context.Context, arg postgres.ListE
 func (mr *MockQuerierMockRecorder) ListEmailTemplates(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEmailTemplates", reflect.TypeOf((*MockQuerier)(nil).ListEmailTemplates), ctx, arg)
+}
+
+// ListErrorGroups mocks base method.
+func (m *MockQuerier) ListErrorGroups(ctx context.Context, arg postgres.ListErrorGroupsParams) ([]postgres.ErrorGroup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListErrorGroups", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ErrorGroup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListErrorGroups indicates an expected call of ListErrorGroups.
+func (mr *MockQuerierMockRecorder) ListErrorGroups(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListErrorGroups", reflect.TypeOf((*MockQuerier)(nil).ListErrorGroups), ctx, arg)
+}
+
+// ListErrorNotFound mocks base method.
+func (m *MockQuerier) ListErrorNotFound(ctx context.Context, arg postgres.ListErrorNotFoundParams) ([]postgres.ErrorNotFoundDaily, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListErrorNotFound", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ErrorNotFoundDaily)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListErrorNotFound indicates an expected call of ListErrorNotFound.
+func (mr *MockQuerierMockRecorder) ListErrorNotFound(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListErrorNotFound", reflect.TypeOf((*MockQuerier)(nil).ListErrorNotFound), ctx, arg)
+}
+
+// ListErrorSamples mocks base method.
+func (m *MockQuerier) ListErrorSamples(ctx context.Context, arg postgres.ListErrorSamplesParams) ([]postgres.ErrorSample, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListErrorSamples", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ErrorSample)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListErrorSamples indicates an expected call of ListErrorSamples.
+func (mr *MockQuerierMockRecorder) ListErrorSamples(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListErrorSamples", reflect.TypeOf((*MockQuerier)(nil).ListErrorSamples), ctx, arg)
+}
+
+// ListErrorTelegramChats mocks base method.
+func (m *MockQuerier) ListErrorTelegramChats(ctx context.Context) ([]postgres.ErrorJournalTelegramChat, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListErrorTelegramChats", ctx)
+	ret0, _ := ret[0].([]postgres.ErrorJournalTelegramChat)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListErrorTelegramChats indicates an expected call of ListErrorTelegramChats.
+func (mr *MockQuerierMockRecorder) ListErrorTelegramChats(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListErrorTelegramChats", reflect.TypeOf((*MockQuerier)(nil).ListErrorTelegramChats), ctx)
 }
 
 // ListEventActivitySeries mocks base method.
@@ -7203,6 +7350,21 @@ func (mr *MockQuerierMockRecorder) ListStandTeams(ctx, eventID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStandTeams", reflect.TypeOf((*MockQuerier)(nil).ListStandTeams), ctx, eventID)
 }
 
+// ListSuperAdminEmails mocks base method.
+func (m *MockQuerier) ListSuperAdminEmails(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSuperAdminEmails", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSuperAdminEmails indicates an expected call of ListSuperAdminEmails.
+func (mr *MockQuerierMockRecorder) ListSuperAdminEmails(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSuperAdminEmails", reflect.TypeOf((*MockQuerier)(nil).ListSuperAdminEmails), ctx)
+}
+
 // ListTeamBoardChallenges mocks base method.
 func (m *MockQuerier) ListTeamBoardChallenges(ctx context.Context, arg postgres.ListTeamBoardChallengesParams) ([]postgres.ListTeamBoardChallengesRow, error) {
 	m.ctrl.T.Helper()
@@ -7484,6 +7646,21 @@ func (m *MockQuerier) MarkAllInAppReadByUser(ctx context.Context, arg postgres.M
 func (mr *MockQuerierMockRecorder) MarkAllInAppReadByUser(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkAllInAppReadByUser", reflect.TypeOf((*MockQuerier)(nil).MarkAllInAppReadByUser), ctx, arg)
+}
+
+// MarkErrorGroupNotified mocks base method.
+func (m *MockQuerier) MarkErrorGroupNotified(ctx context.Context, arg postgres.MarkErrorGroupNotifiedParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkErrorGroupNotified", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkErrorGroupNotified indicates an expected call of MarkErrorGroupNotified.
+func (mr *MockQuerierMockRecorder) MarkErrorGroupNotified(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkErrorGroupNotified", reflect.TypeOf((*MockQuerier)(nil).MarkErrorGroupNotified), ctx, arg)
 }
 
 // MarkEventActivityBucketsRefreshed mocks base method.
@@ -7898,6 +8075,51 @@ func (m *MockQuerier) PurgeDeletedAccountsPersonalData(ctx context.Context, arg 
 func (mr *MockQuerierMockRecorder) PurgeDeletedAccountsPersonalData(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeDeletedAccountsPersonalData", reflect.TypeOf((*MockQuerier)(nil).PurgeDeletedAccountsPersonalData), ctx, arg)
+}
+
+// PurgeErrorGroups mocks base method.
+func (m *MockQuerier) PurgeErrorGroups(ctx context.Context, lastSeenAt time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeErrorGroups", ctx, lastSeenAt)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeErrorGroups indicates an expected call of PurgeErrorGroups.
+func (mr *MockQuerierMockRecorder) PurgeErrorGroups(ctx, lastSeenAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeErrorGroups", reflect.TypeOf((*MockQuerier)(nil).PurgeErrorGroups), ctx, lastSeenAt)
+}
+
+// PurgeErrorNotFound mocks base method.
+func (m *MockQuerier) PurgeErrorNotFound(ctx context.Context, before pgtype.Date) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeErrorNotFound", ctx, before)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeErrorNotFound indicates an expected call of PurgeErrorNotFound.
+func (mr *MockQuerierMockRecorder) PurgeErrorNotFound(ctx, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeErrorNotFound", reflect.TypeOf((*MockQuerier)(nil).PurgeErrorNotFound), ctx, before)
+}
+
+// PurgeErrorSamples mocks base method.
+func (m *MockQuerier) PurgeErrorSamples(ctx context.Context, occurredAt time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeErrorSamples", ctx, occurredAt)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeErrorSamples indicates an expected call of PurgeErrorSamples.
+func (mr *MockQuerierMockRecorder) PurgeErrorSamples(ctx, occurredAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeErrorSamples", reflect.TypeOf((*MockQuerier)(nil).PurgeErrorSamples), ctx, occurredAt)
 }
 
 // PurgeEventActivity mocks base method.
@@ -8371,6 +8593,20 @@ func (mr *MockQuerierMockRecorder) ResetUnpublishedTeamChallengesForRecreate(ctx
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResetUnpublishedTeamChallengesForRecreate", reflect.TypeOf((*MockQuerier)(nil).ResetUnpublishedTeamChallengesForRecreate), ctx, eventTeamID)
 }
 
+// ResolveErrorGroupByFingerprint mocks base method.
+func (m *MockQuerier) ResolveErrorGroupByFingerprint(ctx context.Context, arg postgres.ResolveErrorGroupByFingerprintParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveErrorGroupByFingerprint", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ResolveErrorGroupByFingerprint indicates an expected call of ResolveErrorGroupByFingerprint.
+func (mr *MockQuerierMockRecorder) ResolveErrorGroupByFingerprint(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveErrorGroupByFingerprint", reflect.TypeOf((*MockQuerier)(nil).ResolveErrorGroupByFingerprint), ctx, arg)
+}
+
 // ResolveInboxBySubjectPattern mocks base method.
 func (m *MockQuerier) ResolveInboxBySubjectPattern(ctx context.Context, arg postgres.ResolveInboxBySubjectPatternParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -8563,6 +8799,35 @@ func (m *MockQuerier) SetDispatchStatus(ctx context.Context, arg postgres.SetDis
 func (mr *MockQuerierMockRecorder) SetDispatchStatus(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDispatchStatus", reflect.TypeOf((*MockQuerier)(nil).SetDispatchStatus), ctx, arg)
+}
+
+// SetErrorGroupStatus mocks base method.
+func (m *MockQuerier) SetErrorGroupStatus(ctx context.Context, arg postgres.SetErrorGroupStatusParams) (postgres.ErrorGroup, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetErrorGroupStatus", ctx, arg)
+	ret0, _ := ret[0].(postgres.ErrorGroup)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetErrorGroupStatus indicates an expected call of SetErrorGroupStatus.
+func (mr *MockQuerierMockRecorder) SetErrorGroupStatus(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetErrorGroupStatus", reflect.TypeOf((*MockQuerier)(nil).SetErrorGroupStatus), ctx, arg)
+}
+
+// SetErrorTelegramChatFailing mocks base method.
+func (m *MockQuerier) SetErrorTelegramChatFailing(ctx context.Context, arg postgres.SetErrorTelegramChatFailingParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetErrorTelegramChatFailing", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetErrorTelegramChatFailing indicates an expected call of SetErrorTelegramChatFailing.
+func (mr *MockQuerierMockRecorder) SetErrorTelegramChatFailing(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetErrorTelegramChatFailing", reflect.TypeOf((*MockQuerier)(nil).SetErrorTelegramChatFailing), ctx, arg)
 }
 
 // SetEventCapacityEstimate mocks base method.
@@ -8962,6 +9227,20 @@ func (mr *MockQuerierMockRecorder) TouchSession(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TouchSession", reflect.TypeOf((*MockQuerier)(nil).TouchSession), ctx, arg)
 }
 
+// TrimErrorSamples mocks base method.
+func (m *MockQuerier) TrimErrorSamples(ctx context.Context, arg postgres.TrimErrorSamplesParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TrimErrorSamples", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// TrimErrorSamples indicates an expected call of TrimErrorSamples.
+func (mr *MockQuerierMockRecorder) TrimErrorSamples(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrimErrorSamples", reflect.TypeOf((*MockQuerier)(nil).TrimErrorSamples), ctx, arg)
+}
+
 // TryAddEventTeamMember mocks base method.
 func (m *MockQuerier) TryAddEventTeamMember(ctx context.Context, arg postgres.TryAddEventTeamMemberParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -9034,6 +9313,20 @@ func (m *MockQuerier) UpdateEmailTemplate(ctx context.Context, arg postgres.Upda
 func (mr *MockQuerierMockRecorder) UpdateEmailTemplate(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEmailTemplate", reflect.TypeOf((*MockQuerier)(nil).UpdateEmailTemplate), ctx, arg)
+}
+
+// UpdateErrorJournalEmails mocks base method.
+func (m *MockQuerier) UpdateErrorJournalEmails(ctx context.Context, arg postgres.UpdateErrorJournalEmailsParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateErrorJournalEmails", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateErrorJournalEmails indicates an expected call of UpdateErrorJournalEmails.
+func (mr *MockQuerierMockRecorder) UpdateErrorJournalEmails(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateErrorJournalEmails", reflect.TypeOf((*MockQuerier)(nil).UpdateErrorJournalEmails), ctx, arg)
 }
 
 // UpdateEvent mocks base method.
@@ -9468,6 +9761,35 @@ func (m *MockQuerier) UpsertDispatchTarget(ctx context.Context, arg postgres.Ups
 func (mr *MockQuerierMockRecorder) UpsertDispatchTarget(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDispatchTarget", reflect.TypeOf((*MockQuerier)(nil).UpsertDispatchTarget), ctx, arg)
+}
+
+// UpsertErrorGroup mocks base method.
+func (m *MockQuerier) UpsertErrorGroup(ctx context.Context, arg postgres.UpsertErrorGroupParams) (postgres.UpsertErrorGroupRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertErrorGroup", ctx, arg)
+	ret0, _ := ret[0].(postgres.UpsertErrorGroupRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertErrorGroup indicates an expected call of UpsertErrorGroup.
+func (mr *MockQuerierMockRecorder) UpsertErrorGroup(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertErrorGroup", reflect.TypeOf((*MockQuerier)(nil).UpsertErrorGroup), ctx, arg)
+}
+
+// UpsertErrorTelegramChat mocks base method.
+func (m *MockQuerier) UpsertErrorTelegramChat(ctx context.Context, arg postgres.UpsertErrorTelegramChatParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertErrorTelegramChat", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertErrorTelegramChat indicates an expected call of UpsertErrorTelegramChat.
+func (mr *MockQuerierMockRecorder) UpsertErrorTelegramChat(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertErrorTelegramChat", reflect.TypeOf((*MockQuerier)(nil).UpsertErrorTelegramChat), ctx, arg)
 }
 
 // UpsertEventFormAnswer mocks base method.

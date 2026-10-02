@@ -13,6 +13,7 @@ import (
 )
 
 type Querier interface {
+	AddErrorNotFound(ctx context.Context, arg AddErrorNotFoundParams) error
 	// An email image is owned by its draft as soon as it is uploaded. Inserting
 	// one link avoids a read/replace race when uploads finish concurrently.
 	AddFileReference(ctx context.Context, arg AddFileReferenceParams) error
@@ -63,6 +64,7 @@ type Querier interface {
 	// platform and env transports count every dispatch that went through them,
 	// including Event mail that fell back to the platform.
 	CountEmailDeliveredSince(ctx context.Context, arg CountEmailDeliveredSinceParams) (int64, error)
+	CountErrorGroups(ctx context.Context, arg CountErrorGroupsParams) (int64, error)
 	// Accepted solves per board challenge by admitted, non-hidden teams, plus the
 	// caller's own team even when it is hidden or not admitted. A cutoff (freeze)
 	// keeps only other teams' solves before it.
@@ -205,6 +207,7 @@ type Querier interface {
 	DeleteBlob(ctx context.Context, contentHash string) (int64, error)
 	DeleteEmailBlockPreset(ctx context.Context, id uuid.UUID) error
 	DeleteEmailTemplate(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteErrorTelegramChatsNotIn(ctx context.Context, keep []string) error
 	DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteEventChallengeGroup(ctx context.Context, arg DeleteEventChallengeGroupParams) (int64, error)
 	DeleteEventChallengePrerequisites(ctx context.Context, challengeID uuid.UUID) error
@@ -304,6 +307,8 @@ type Querier interface {
 	GetEffectiveTeamChallengeSolvedAt(ctx context.Context, teamChallengeID uuid.UUID) (GetEffectiveTeamChallengeSolvedAtRow, error)
 	GetEmailBlockPreset(ctx context.Context, id uuid.UUID) (NotificationEmailBlockPreset, error)
 	GetEmailTemplate(ctx context.Context, id uuid.UUID) (NotificationEmailTemplate, error)
+	GetErrorGroup(ctx context.Context, id uuid.UUID) (ErrorGroup, error)
+	GetErrorJournalSettings(ctx context.Context) (GetErrorJournalSettingsRow, error)
 	// The overview counters (§6.1). Registered excludes pending invitations;
 	// active are the distinct participants with an attempt or a task open or
 	// download since active_since.
@@ -513,6 +518,7 @@ type Querier interface {
 	// IS NOT DISTINCT FROM matches a null scope_ref (the test scope) NULL-safely.
 	GetUserVPNConfig(ctx context.Context, arg GetUserVPNConfigParams) (UserVpnConfig, error)
 	HasIncompleteRequiredEventFormDelivery(ctx context.Context, arg HasIncompleteRequiredEventFormDeliveryParams) (bool, error)
+	InsertErrorSample(ctx context.Context, arg InsertErrorSampleParams) error
 	// The first lifecycle transition captures the population. A retry must return
 	// that original immutable snapshot instead of replacing it.
 	InsertEventScoringPopulation(ctx context.Context, arg InsertEventScoringPopulationParams) (EventScoringPopulation, error)
@@ -530,6 +536,12 @@ type Querier interface {
 	IssueEventLiveScreenLink(ctx context.Context, arg IssueEventLiveScreenLinkParams) error
 	ListActiveBannersByUser(ctx context.Context, arg ListActiveBannersByUserParams) ([]ListActiveBannersByUserRow, error)
 	ListActiveFutureTimedEventFormAssignments(ctx context.Context, eventID uuid.UUID) ([]EventFormAssignment, error)
+	// One page of the journal, newest first, keyset-paged by (created_at, id).
+	// Every filter is optional. route and target_id are "contains" matches
+	// (strpos, so no LIKE escaping); target_kind matches the "kind:" token of the
+	// space-separated target ("event:<id> team:<id>"); a status class is
+	// status_min..status_max; cursor_created_at/cursor_id continue after the
+	// last row of the previous page.
 	ListAdminAuditLog(ctx context.Context, arg ListAdminAuditLogParams) ([]AdminAuditLog, error)
 	// One row per recipient and channel target of the broadcast (recipients still
 	// waiting for their first attempt have a NULL channel).
@@ -552,6 +564,10 @@ type Querier interface {
 	ListEffectiveEventSignalNotificationSubscriptions(ctx context.Context, scopeEventID uuid.UUID) ([]ListEffectiveEventSignalNotificationSubscriptionsRow, error)
 	ListEmailBlockPresets(ctx context.Context) ([]NotificationEmailBlockPreset, error)
 	ListEmailTemplates(ctx context.Context, arg ListEmailTemplatesParams) ([]NotificationEmailTemplate, error)
+	ListErrorGroups(ctx context.Context, arg ListErrorGroupsParams) ([]ErrorGroup, error)
+	ListErrorNotFound(ctx context.Context, arg ListErrorNotFoundParams) ([]ErrorNotFoundDaily, error)
+	ListErrorSamples(ctx context.Context, arg ListErrorSamplesParams) ([]ErrorSample, error)
+	ListErrorTelegramChats(ctx context.Context) ([]ErrorJournalTelegramChat, error)
 	// The event-wide 5-minute series in [from_at, to_at).
 	ListEventActivitySeries(ctx context.Context, arg ListEventActivitySeriesParams) ([]ListEventActivitySeriesRow, error)
 	// Event analytics «Завдання» and «Прогрес» (docs/EVENT-ANALYTICS.md §6.3, §6.4).
@@ -1082,6 +1098,7 @@ type Querier interface {
 	// Stand candidates (admitted teams, the moderators team and any team that
 	// already has a stand) with their persisted stand and Lab counters.
 	ListStandTeams(ctx context.Context, eventID uuid.UUID) ([]ListStandTeamsRow, error)
+	ListSuperAdminEmails(ctx context.Context) ([]string, error)
 	// The team's board: every assignment with its current presentation metadata.
 	// published_only keeps the participant board to board-published challenges;
 	// the moderators board passes false to also see unpublished ones.
@@ -1128,6 +1145,9 @@ type Querier interface {
 	LockExerciseTestDeploysOf(ctx context.Context, owner string) error
 	// Open requests become read but stay open: only their decision closes them.
 	MarkAllInAppReadByUser(ctx context.Context, arg MarkAllInAppReadByUserParams) error
+	// Claims the message of a group: only when nobody sent one since the cutoff. Returns the number of occurrences
+	// since that last message (and resets it); no row means another replica was first.
+	MarkErrorGroupNotified(ctx context.Context, arg MarkErrorGroupNotifiedParams) (int64, error)
 	MarkEventActivityBucketsRefreshed(ctx context.Context, arg MarkEventActivityBucketsRefreshedParams) error
 	MarkEventFinishedNotified(ctx context.Context, arg MarkEventFinishedNotifiedParams) error
 	MarkEventFormAssignmentMaterialized(ctx context.Context, arg MarkEventFormAssignmentMaterializedParams) (int64, error)
@@ -1176,6 +1196,9 @@ type Querier interface {
 	// scoreboards keep referencing it, and it is presented as the generic
 	// "Учасник" (event_participant_public_name) once the pseudonym is gone.
 	PurgeDeletedAccountsPersonalData(ctx context.Context, arg PurgeDeletedAccountsPersonalDataParams) (int64, error)
+	PurgeErrorGroups(ctx context.Context, lastSeenAt time.Time) (int64, error)
+	PurgeErrorNotFound(ctx context.Context, before pgtype.Date) (int64, error)
+	PurgeErrorSamples(ctx context.Context, occurredAt time.Time) (int64, error)
 	// The event activity log of events that ended before the cutoff (the same
 	// effective finish as PurgeEventFormAnswers).
 	PurgeEventActivity(ctx context.Context, arg PurgeEventActivityParams) (int64, error)
@@ -1263,6 +1286,7 @@ type Querier interface {
 	// already published ones stay on the team's board (the ACL still requires a
 	// ready Lab, so access returns only once the new Lab is ready).
 	ResetUnpublishedTeamChallengesForRecreate(ctx context.Context, eventTeamID uuid.UUID) error
+	ResolveErrorGroupByFingerprint(ctx context.Context, arg ResolveErrorGroupByFingerprintParams) error
 	// System resolution of every open request whose subject matches the LIKE
 	// pattern (an Event's applications, a user's applications); each resolved
 	// subject is remembered like a single resolution.
@@ -1289,6 +1313,8 @@ type Querier interface {
 	// draft into its columns, so its slug stays reserved by the unique index.
 	SaveEventPageDraft(ctx context.Context, arg SaveEventPageDraftParams) (EventPage, error)
 	SetDispatchStatus(ctx context.Context, arg SetDispatchStatusParams) error
+	SetErrorGroupStatus(ctx context.Context, arg SetErrorGroupStatusParams) (ErrorGroup, error)
+	SetErrorTelegramChatFailing(ctx context.Context, arg SetErrorTelegramChatFailingParams) error
 	SetEventCapacityEstimate(ctx context.Context, arg SetEventCapacityEstimateParams) (int64, error)
 	SetEventChallengeBoardOrder(ctx context.Context, arg SetEventChallengeBoardOrderParams) (int64, error)
 	// A move to another group places the challenge after that group's ordered
@@ -1337,12 +1363,14 @@ type Querier interface {
 	// old, so a burst of requests costs one row update.
 	TouchEventParticipantPresence(ctx context.Context, arg TouchEventParticipantPresenceParams) error
 	TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error)
+	TrimErrorSamples(ctx context.Context, arg TrimErrorSamplesParams) error
 	// max_team_size is supplied by the event config inside the same transaction.
 	TryAddEventTeamMember(ctx context.Context, arg TryAddEventTeamMemberParams) (int64, error)
 	TryRemoveEventTeamMember(ctx context.Context, arg TryRemoveEventTeamMemberParams) (int64, error)
 	UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error
 	UpdateEmailBlockPreset(ctx context.Context, arg UpdateEmailBlockPresetParams) (NotificationEmailBlockPreset, error)
 	UpdateEmailTemplate(ctx context.Context, arg UpdateEmailTemplateParams) (NotificationEmailTemplate, error)
+	UpdateErrorJournalEmails(ctx context.Context, arg UpdateErrorJournalEmailsParams) error
 	// Whole-aggregate write; excludes created_at/created_by (immutable).
 	UpdateEvent(ctx context.Context, arg UpdateEventParams) (int64, error)
 	UpdateEventChallenge(ctx context.Context, arg UpdateEventChallengeParams) (EventChallenge, error)
@@ -1403,6 +1431,9 @@ type Querier interface {
 	// attempts is the real number of delivery attempts of this run (dispatcher
 	// rounds plus an SMTP fallback), added to any earlier run of the same target.
 	UpsertDispatchTarget(ctx context.Context, arg UpsertDispatchTargetParams) error
+	// Reopened is true when the group was resolved and the error came back. A brand-new group has occurrences = n.
+	UpsertErrorGroup(ctx context.Context, arg UpsertErrorGroupParams) (UpsertErrorGroupRow, error)
+	UpsertErrorTelegramChat(ctx context.Context, arg UpsertErrorTelegramChatParams) error
 	UpsertEventFormAnswer(ctx context.Context, arg UpsertEventFormAnswerParams) (EventFormAnswer, error)
 	UpsertEventListColumns(ctx context.Context, arg UpsertEventListColumnsParams) (EventListColumn, error)
 	UpsertEventMailIdentity(ctx context.Context, arg UpsertEventMailIdentityParams) (MailIdentity, error)
