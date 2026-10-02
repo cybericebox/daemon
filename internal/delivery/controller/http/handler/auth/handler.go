@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"io"
-	"time"
 
 	"github.com/cybericebox/daemon/internal/config"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
+	"github.com/cybericebox/daemon/internal/limits"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
@@ -110,36 +110,27 @@ func NewAuthAPIHandler(useCase IUseCase, prot IProtection, cfg config.AuthConfig
 	return &Handler{useCase: useCase, prot: prot, hosts: cfg.Hosts, oauthCookieMaxAge: int(cfg.OAuth.StateTTL.Seconds())}
 }
 
-// Request-rate guards of the public auth routes, per client address (a signed-in
-// user for the secured ones). Fixed windows on top of the use case's failure
-// lockouts and mail quotas: they only bound floods, so they are generous (a
-// whole computer lab shares one address at the start of an event).
-const (
-	authRateWindow    = 10 * time.Minute
-	signInRateLimit   = 300
-	signUpRateLimit   = 60
-	setupRateLimit    = 60
-	recoveryRateLimit = 30
-	oauthRateLimit    = 60
-	selfCheckLimit    = 20
-)
+// The public auth routes carry no request-rate guard: a flood is bounded by the use case's per-account
+// failure lockouts and per-address mail quotas, and a whole computer lab shares one client address, which
+// no limit is keyed on. The signed-in password and email checks are limited per user.
 
 func (h *Handler) Init(public, secured *gin.RouterGroup) {
-	rate := func(limit int) gin.HandlerFunc { return middleware.RateLimitPerUser(limit, authRateWindow) }
+	lim := limits.Get()
+	selfCheck := middleware.RateLimitPerUser(lim.AccountActions, lim.AccountActionsWindow)
 
 	pub := public.Group("auth")
-	pub.POST("sign-in", rate(signInRateLimit), h.prot.RequireRecaptcha("signIn"), h.signIn)
-	pub.POST("sign-up", rate(signUpRateLimit), h.prot.RequireRecaptcha("signUp"), h.signUp)
-	pub.GET("setup", rate(setupRateLimit), h.getSetup)
-	pub.POST("setup", rate(setupRateLimit), h.completeSetup)
+	pub.POST("sign-in", h.prot.RequireRecaptcha("signIn"), h.signIn)
+	pub.POST("sign-up", h.prot.RequireRecaptcha("signUp"), h.signUp)
+	pub.GET("setup", h.getSetup)
+	pub.POST("setup", h.completeSetup)
 
 	password := pub.Group("password")
 	password.GET("policy", h.passwordPolicy)
-	password.POST("reset-request", rate(recoveryRateLimit), h.prot.RequireRecaptcha("forgotPassword"), h.requestPasswordReset)
-	password.POST("reset", rate(recoveryRateLimit), h.resetPassword)
-	password.POST("change", h.prot.RequirePermission(rbac.PermSelf), rate(selfCheckLimit), h.changePassword)
+	password.POST("reset-request", h.prot.RequireRecaptcha("forgotPassword"), h.requestPasswordReset)
+	password.POST("reset", h.resetPassword)
+	password.POST("change", h.prot.RequirePermission(rbac.PermSelf), selfCheck, h.changePassword)
 
-	google := pub.Group("google", rate(oauthRateLimit))
+	google := pub.Group("google")
 	google.GET("", h.googleRedirect)
 	google.GET("register", h.googleRegisterRedirect)
 	google.GET("setup", h.googleSetupRedirect)
@@ -156,14 +147,14 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	sec.GET("account", self, h.getAccount)
 	sec.GET("me", self, h.getSelfProfile)
 	sec.PATCH("account/profile", self, h.updateProfile)
-	sec.POST("account/email", self, rate(selfCheckLimit), h.requestEmailChange)
+	sec.POST("account/email", self, selfCheck, h.requestEmailChange)
 	sec.DELETE("account", self, h.deleteAccount)
 	sec.POST("account/avatar", self, h.uploadAvatar)
 	sec.DELETE("account/avatar", self, h.removeAvatar)
 	sec.GET("google/link", self, h.googleLinkRedirect)
 	sec.DELETE("google/link", self, h.unlinkGoogle)
 
-	pub.POST("account/email/confirm", rate(recoveryRateLimit), h.confirmEmailChange)
+	pub.POST("account/email/confirm", h.confirmEmailChange)
 	// Public avatar proxy: streams the stored image so the bucket stays private.
 	pub.GET("avatar/:id", middleware.PublicMedia, h.getAvatar)
 }

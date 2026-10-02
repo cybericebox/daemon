@@ -15,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
+	"github.com/cybericebox/daemon/internal/limits"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
@@ -369,9 +370,6 @@ func (h *Handler) exportSolutionAttempts(ctx *gin.Context) {
 	w.Flush()
 }
 
-// maxJournalStreamsPerUser bounds the open attempts-journal streams of one account.
-const maxJournalStreamsPerUser = 6
-
 // liveSolutionAttempts godoc
 // @Summary Stream attempts journal changes (new attempts or decisions)
 // @Tags events
@@ -401,7 +399,7 @@ func (h *Handler) liveSolutionAttempts(ctx *gin.Context) {
 	}
 	// One account keeps only a few journal streams open, and the stream ends when the reader
 	// loses the right to read the event (the gate ran once, at the start).
-	release, ok := sse.Streams.Acquire("attempts:"+claims.UserID.String(), maxJournalStreamsPerUser)
+	release, ok := sse.Streams.Acquire("attempts:"+claims.UserID.String(), limits.Get().AttemptStreamsPerUser)
 	if !ok {
 		errjournal.SetLimiter(ctx, "attempt-streams")
 		response.AbortWithTooManyRequests(ctx)

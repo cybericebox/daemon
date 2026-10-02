@@ -31,6 +31,7 @@ type (
 		Media          MediaConfig          `                                   envPrefix:"MEDIA_"`
 		Exercise       ExerciseConfig       `                                   envPrefix:"EXERCISE_"`
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
+		Limits         LimitsConfig         `                                   envPrefix:"LIMIT_"`
 		Retention      RetentionConfig      `                                   envPrefix:"RETENTION_"`
 		LabAccess      LabAccessConfig      `                                   envPrefix:"LAB_ACCESS_"`
 		LabSession     LabSessionConfig     `                                   envPrefix:"LAB_SESSION_"`
@@ -362,6 +363,67 @@ type FlagRateLimitConfig struct {
 	TeamWindow        time.Duration `env:"TEAM_WINDOW"        envDefault:"1m"`
 }
 
+// LimitsConfig holds the abuse limits that are not flag submissions. No limit
+// is keyed on a client address (a whole on-site event sits behind one router):
+// they count per account, per recipient, per screen link or per event. Nothing
+// here limits what an organizer or admin sends.
+type LimitsConfig struct {
+	// SignInMaxFailures wrong passwords for one account (or one signed-in user's
+	// password checks) within SignInFailureWindow lock it for SignInLockBase,
+	// doubling up to SignInLockMax.
+	SignInMaxFailures   int           `env:"SIGN_IN_MAX_FAILURES"   envDefault:"5"`
+	SignInFailureWindow time.Duration `env:"SIGN_IN_FAILURE_WINDOW" envDefault:"15m"`
+	SignInLockBase      time.Duration `env:"SIGN_IN_LOCK_BASE"      envDefault:"1m"`
+	SignInLockMax       time.Duration `env:"SIGN_IN_LOCK_MAX"       envDefault:"15m"`
+	// AccountMailGap is the least time between two account mails of one kind
+	// (sign-up confirmation, password reset, email change) to one address;
+	// AccountMailPerHour caps them per kind and hour.
+	AccountMailGap     time.Duration `env:"ACCOUNT_MAIL_GAP"      envDefault:"1m"`
+	AccountMailPerHour int           `env:"ACCOUNT_MAIL_PER_HOUR" envDefault:"3"`
+	// EmailChangesPerHour bounds the email-change mails one account can cause.
+	EmailChangesPerHour int `env:"EMAIL_CHANGES_PER_HOUR" envDefault:"5"`
+	// AccountActions requests per AccountActionsWindow of one signed-in user on
+	// the password-change and email-change routes.
+	AccountActions       int           `env:"ACCOUNT_ACTIONS"        envDefault:"20"`
+	AccountActionsWindow time.Duration `env:"ACCOUNT_ACTIONS_WINDOW" envDefault:"10m"`
+	// PreviewPerMinute template previews per signed-in user.
+	PreviewPerMinute int `env:"PREVIEW_PER_MINUTE" envDefault:"60"`
+	// Open live streams: per signed-in account, per screen link, for all
+	// anonymous readers of one event together, and the staff journals.
+	StreamsPerUser           int `env:"STREAMS_PER_USER"            envDefault:"8"`
+	StreamsPerScreen         int `env:"STREAMS_PER_SCREEN"          envDefault:"10"`
+	StreamsAnonymousPerEvent int `env:"STREAMS_ANONYMOUS_PER_EVENT" envDefault:"500"`
+	AttemptStreamsPerUser    int `env:"ATTEMPT_STREAMS_PER_USER"    envDefault:"6"`
+	ErrorStreamsPerUser      int `env:"ERROR_STREAMS_PER_USER"      envDefault:"3"`
+	// LiveScreenPerMinute requests per minute of one screen link.
+	LiveScreenPerMinute int `env:"LIVE_SCREEN_PER_MINUTE" envDefault:"120"`
+}
+
+func (c LimitsConfig) Validate() error {
+	for name, v := range map[string]int{
+		"LIMIT_SIGN_IN_MAX_FAILURES": c.SignInMaxFailures, "LIMIT_ACCOUNT_MAIL_PER_HOUR": c.AccountMailPerHour,
+		"LIMIT_EMAIL_CHANGES_PER_HOUR": c.EmailChangesPerHour, "LIMIT_ACCOUNT_ACTIONS": c.AccountActions,
+		"LIMIT_PREVIEW_PER_MINUTE": c.PreviewPerMinute, "LIMIT_STREAMS_PER_USER": c.StreamsPerUser,
+		"LIMIT_STREAMS_PER_SCREEN": c.StreamsPerScreen, "LIMIT_STREAMS_ANONYMOUS_PER_EVENT": c.StreamsAnonymousPerEvent,
+		"LIMIT_ATTEMPT_STREAMS_PER_USER": c.AttemptStreamsPerUser, "LIMIT_ERROR_STREAMS_PER_USER": c.ErrorStreamsPerUser,
+		"LIMIT_LIVE_SCREEN_PER_MINUTE": c.LiveScreenPerMinute,
+	} {
+		if v < 1 {
+			return fmt.Errorf("limits: %s must be at least 1", name)
+		}
+	}
+	for name, v := range map[string]time.Duration{
+		"LIMIT_SIGN_IN_FAILURE_WINDOW": c.SignInFailureWindow, "LIMIT_SIGN_IN_LOCK_BASE": c.SignInLockBase,
+		"LIMIT_SIGN_IN_LOCK_MAX": c.SignInLockMax, "LIMIT_ACCOUNT_MAIL_GAP": c.AccountMailGap,
+		"LIMIT_ACCOUNT_ACTIONS_WINDOW": c.AccountActionsWindow,
+	} {
+		if v < time.Second {
+			return fmt.Errorf("limits: %s must be at least 1s", name)
+		}
+	}
+	return nil
+}
+
 // RetentionConfig holds the data retention periods of the Privacy Policy.
 // The defaults are the published periods; change them only together with the
 // policy text.
@@ -625,6 +687,9 @@ func MustGetConfig() *Config {
 	}
 	if err = instance.Exercise.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid exercise configuration")
+	}
+	if err = instance.Limits.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid abuse limits")
 	}
 	if err = instance.FlagRateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid flag rate limit configuration")

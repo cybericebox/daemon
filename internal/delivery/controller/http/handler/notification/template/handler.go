@@ -11,6 +11,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/limits"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	emailModel "github.com/cybericebox/daemon/internal/model/notification/email"
 	inAppModel "github.com/cybericebox/daemon/internal/model/notification/inapp"
@@ -346,7 +347,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		emailG.POST(
 			"preview",
 			h.prot.RequirePermission(rbac.PermNotificationsTemplatesRead),
-			middleware.RateLimitPerUser(previewRateLimit, time.Minute),
+			middleware.RateLimitPerUser(limits.Get().PreviewPerMinute, time.Minute),
 			h.previewEmail,
 		)
 		emailG.GET(":id", h.prot.RequirePermission(rbac.PermNotificationsTemplatesRead), h.getEmail)
@@ -1020,6 +1021,3 @@ func (h *Handler) deletePreset(ctx *gin.Context) {
 	}
 	response.AbortWithSuccess(ctx)
 }
-
-// previewRateLimit is how many template previews one user may request per minute.
-const previewRateLimit = 60

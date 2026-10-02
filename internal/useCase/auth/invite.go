@@ -33,11 +33,6 @@ func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rba
 	if err != nil {
 		return err
 	}
-	// One address cannot be made to receive invitations in a stream (the
-	// caller is authenticated, so saying so reveals nothing).
-	if !u.mailAllowed(mailKindInvite, emailAddr) {
-		return tooManyRequests(mailGap)
-	}
 	user, dbErr := u.users.GetByEmail(ctx, emailAddr)
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
 		return model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
@@ -129,7 +124,6 @@ const (
 	InviteCodeRoleForbidden = "role_forbidden"
 	InviteCodeUserExists    = "user_exists"
 	InviteCodeFailed        = "failed"
-	InviteCodeRateLimited   = "rate_limited"
 )
 
 // maxInviteEntries bounds one platform invitation batch.
@@ -186,11 +180,8 @@ func (u *AuthUseCase) InviteEntries(ctx context.Context, entries []InviteEntry) 
 		default:
 			if err := u.InviteUser(ctx, emailAddr, role, strings.TrimSpace(entry.FirstName), strings.TrimSpace(entry.LastName)); err != nil {
 				result.Code = InviteCodeFailed
-				switch {
-				case errors.Is(err, userModel.ErrUserExists.Err()):
+				if errors.Is(err, userModel.ErrUserExists.Err()) {
 					result.Code = InviteCodeUserExists
-				case errors.Is(err, authModel.ErrAuthTooManyRequests.Err()):
-					result.Code = InviteCodeRateLimited
 				}
 			}
 		}

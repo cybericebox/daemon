@@ -270,33 +270,28 @@ func TestInviteParticipantDoesNotRevealAccountState(t *testing.T) {
 	require.Equal(t, event.InvitationCodeFailed, results[0].Code, "blocked must look like a plain failure, not account_unavailable")
 }
 
-// M6: invitations are bounded per organizer, so a manager cannot use the
-// route to mail the world (or probe it) without limit.
-func TestInviteParticipantsAreRateLimitedPerOrganizer(t *testing.T) {
+// Organizers are never limited: a large import goes through in one go.
+func TestInviteParticipantsAreNotRateLimited(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
 	allowNonStaff(q)
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(&invitationNotifier{})
 	eventID, managerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	// Every address is invalid: no repository is touched, but each still counts.
+	// Every address is invalid: no repository is touched.
 	bad := make([]event.ParticipantInvitationInput, 200)
 	for i := range bad {
 		bad[i] = event.ParticipantInvitationInput{Email: "not-an-address-" + strings.Repeat("x", i)}
 	}
-	limited := 0
-	for batch := 0; batch < 4; batch++ {
+	for batch := 0; batch < 10; batch++ {
 		results, err := uc.InviteParticipants(context.Background(), eventID, managerID, bad)
 		require.NoError(t, err)
 		for _, r := range results {
-			if r.Code == event.InvitationCodeRateLimited {
-				limited++
-			}
+			require.Equal(t, event.InvitationCodeEmailInvalid, r.Code)
 		}
 	}
-	require.Equal(t, 800-500, limited, "500 per organizer per hour, the rest is refused")
 }
 
-func TestInviteParticipantMailToOneAddressIsThrottled(t *testing.T) {
+func TestInviteParticipantMailToOneAddressIsNotThrottled(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
 	allowNonStaff(q)
 	unit := &testUoW{}
@@ -304,17 +299,16 @@ func TestInviteParticipantMailToOneAddressIsThrottled(t *testing.T) {
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
 	uc.SetInvitationNotifier(notifier)
 	eventID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil).Times(2)
-	q.EXPECT().GetUserByEmail(gomock.Any(), "old@example.test").Return(postgres.User{ID: userID, Email: "old@example.test", Status: "active"}, nil).Times(2)
-	q.EXPECT().InviteEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).Times(2)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil).Times(5)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "old@example.test").Return(postgres.User{ID: userID, Email: "old@example.test", Status: "active"}, nil).Times(5)
+	q.EXPECT().InviteEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).Times(5)
 	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{
 		EventID: eventID, UserID: userID, Status: 1, InvitedBy: uuid.NullUUID{UUID: managerID, Valid: true}, Invited: true, CreatedAt: time.Now(),
-	}, nil).Times(2)
+	}, nil).Times(5)
 	in := []event.ParticipantInvitationInput{{Email: "old@example.test"}}
-	first, err := uc.InviteParticipants(context.Background(), eventID, managerID, in)
-	require.NoError(t, err)
-	require.Empty(t, first[0].Code)
-	second, err := uc.InviteParticipants(context.Background(), eventID, managerID, in)
-	require.NoError(t, err)
-	require.Equal(t, event.InvitationCodeRateLimited, second[0].Code)
+	for i := 0; i < 5; i++ {
+		res, err := uc.InviteParticipants(context.Background(), eventID, managerID, in)
+		require.NoError(t, err)
+		require.Empty(t, res[0].Code, "invitation %d", i)
+	}
 }

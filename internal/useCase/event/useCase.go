@@ -189,8 +189,6 @@ type EventUseCase struct {
 	taskOpens *taskOpenThrottle
 	// tagListener is told when an event is created, deleted or retagged.
 	tagListener TagListener
-	// invitationLimits bounds the mail the invitation routes can cause.
-	invitationLimits *invitationLimits
 }
 
 type Dependencies struct {
@@ -323,7 +321,6 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		mail:                     mailRepo.New(deps.Repo),
 		activity:                 eventActivityRepo.New(deps.Repo),
 		taskOpens:                newTaskOpenThrottle(eventActivityModel.TaskOpenWindow),
-		invitationLimits:         newInvitationLimits(),
 	}
 }
 

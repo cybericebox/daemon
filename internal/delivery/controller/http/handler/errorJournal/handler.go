@@ -18,14 +18,13 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
+	"github.com/cybericebox/daemon/internal/limits"
 	errorJournalModel "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
 )
 
 const (
-	// maxStreamsPerUser caps the live streams one account keeps open.
-	maxStreamsPerUser = 3
 	// defaultNotFoundDays is the 404 statistics period when the caller names none.
 	defaultNotFoundDays = 30
 )
@@ -451,7 +450,7 @@ func (h *Handler) stream(c *gin.Context) {
 		response.AbortWithUnauthenticated(c)
 		return
 	}
-	release, admitted := sse.Streams.Acquire("errors:"+claims.UserID.String(), maxStreamsPerUser)
+	release, admitted := sse.Streams.Acquire("errors:"+claims.UserID.String(), limits.Get().ErrorStreamsPerUser)
 	if !admitted {
 		errjournal.SetLimiter(c, "error-journal-streams")
 		response.AbortWithTooManyRequests(c)

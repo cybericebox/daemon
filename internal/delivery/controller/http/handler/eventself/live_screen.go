@@ -12,6 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/limits"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 )
@@ -20,7 +21,7 @@ import (
 // token in ?token= opens this event's published layout and the staff live
 // board, read-only. Nothing else is reachable with it.
 func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
-	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), liveScreenLimiter.middleware, resolveTenant)
+	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), newLiveScreenLimiter().middleware, resolveTenant)
 	screen.GET("", h.liveScreen)
 	screen.GET("results", h.liveScreenAccess, h.resultsSnapshot)
 	screen.GET("results/live", h.liveScreenAccess, h.liveResults)
@@ -103,9 +104,11 @@ func resultsAccess(ctx *gin.Context, eventID uuid.UUID) eventUseCase.ResultsAcce
 	return access
 }
 
-// liveScreenLimiter bounds screen-link requests per client address: a
-// screen polls a few times a minute, far below the limit.
-var liveScreenLimiter = newWindowLimiter(120, time.Minute)
+// liveScreenLimiter bounds requests per screen link (never per client address): a screen polls a few
+// times a minute, far below the limit. Built when the routes are, from the configured limit.
+func newLiveScreenLimiter() *windowLimiter {
+	return newWindowLimiter(limits.Get().LiveScreenPerMinute, time.Minute)
+}
 
 type windowLimiter struct {
 	mu     sync.Mutex
@@ -131,7 +134,11 @@ func (l *windowLimiter) allow(key string, now time.Time) bool {
 }
 
 func (l *windowLimiter) middleware(ctx *gin.Context) {
-	if !l.allow(ctx.ClientIP(), time.Now()) {
+	token := ctx.Query("token")
+	if len(token) > 128 {
+		token = token[:128]
+	}
+	if !l.allow(token, time.Now()) {
 		errjournal.SetLimiter(ctx, "live-screen-window")
 		response.AbortWithTooManyRequests(ctx)
 		return

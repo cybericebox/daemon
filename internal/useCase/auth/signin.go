@@ -34,7 +34,7 @@ func (u *AuthUseCase) SignIn(
 	account := normalizeEmail(emailAddr)
 	// Throttled BEFORE any lookup or hashing: a locked address costs the server
 	// nothing and answers the same whether or not the account exists.
-	if wait := u.limits.signInWait(account, meta.IP); wait > 0 {
+	if wait := u.limits.signInAccount.Locked(account); wait > 0 {
 		return "", "", tooManyRequests(wait)
 	}
 	defer func() {
@@ -42,7 +42,7 @@ func (u *AuthUseCase) SignIn(
 		case err == nil:
 			u.limits.signInAccount.Reset(account)
 		case errors.Is(err, authModel.ErrAuthInvalidUserCredentials.Err()):
-			u.limits.signInFailed(account, meta.IP)
+			u.limits.signInAccount.Fail(account)
 		}
 	}()
 

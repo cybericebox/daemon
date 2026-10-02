@@ -23,6 +23,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventResultRepo"
+	"github.com/cybericebox/daemon/internal/limits"
 	challengeAttemptModel "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
@@ -323,13 +324,6 @@ func (h *Handler) submitFormResponse(ctx *gin.Context) {
 	response.AbortWithData(ctx, gin.H{"ok": true})
 }
 
-// Stream budgets of the live results (see liveResults).
-const (
-	maxStreamsPerScreen  = 10
-	maxStreamsPerUser    = 8
-	maxStreamsPerAddress = 40
-)
-
 // liveResults godoc
 // @Summary Stream result changes after a fresh results snapshot
 // @Description Load GET /events/{id}/results first. Send its Revision in Last-Event-ID (or the lastEventId query parameter, for EventSource) when opening this stream. After any interruption, load a fresh snapshot before reconnecting. A frozen viewer does not receive other teams' solves after the freeze; a change of the viewer's freeze state ends the stream with snapshot-required.
@@ -368,12 +362,14 @@ func (h *Handler) liveResults(ctx *gin.Context) {
 	}
 	access := resultsAccess(ctx, eventID)
 	// A stream holds a connection and a polling loop: the budget is per screen link, per account, or
-	// (anonymous readers) per client address; generous for a lab behind one address.
-	key, limit := "ip:"+ctx.ClientIP(), maxStreamsPerAddress
+	// (anonymous readers) one shared budget of the event. Never per client address: an on-site event puts
+	// hundreds of people behind one.
+	lim := limits.Get()
+	key, limit := "anonymous:"+eventID.String(), lim.StreamsAnonymousPerEvent
 	if _, isScreen := ctx.Request.Context().Value(liveScreenTokenKey{}).(string); isScreen {
-		key, limit = "screen:"+eventID.String(), maxStreamsPerScreen
+		key, limit = "screen:"+eventID.String(), lim.StreamsPerScreen
 	} else if claims, found := rbac.CurrentUserSessionFromContext(ctx.Request.Context()); found {
-		key, limit = "user:"+claims.UserID.String(), maxStreamsPerUser
+		key, limit = "user:"+claims.UserID.String(), lim.StreamsPerUser
 	}
 	release, admitted := sse.Streams.Acquire("results:"+key, limit)
 	if !admitted {

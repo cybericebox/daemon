@@ -167,9 +167,29 @@ func TestWindowLimiter(t *testing.T) {
 		t.Fatal("the third request in a window must be refused")
 	}
 	if !limiter.allow("b", now) {
-		t.Fatal("limits are per client")
+		t.Fatal("limits are per key")
 	}
 	if !limiter.allow("a", now.Add(time.Minute)) {
 		t.Fatal("a new window starts over")
+	}
+}
+
+// The limiter counts per screen link, never per client address.
+func TestLiveScreenLimiterKeysOnTheLinkNotTheAddress(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/screen", newWindowLimiter(1, time.Minute).middleware, func(c *gin.Context) { c.Status(http.StatusOK) })
+	get := func(token string) int {
+		req := httptest.NewRequest(http.MethodGet, "/screen?token="+token, nil)
+		req.RemoteAddr = "203.0.113.5:1234"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if get("a") != http.StatusOK || get("b") != http.StatusOK {
+		t.Fatal("two links behind one address have separate budgets")
+	}
+	if get("a") != http.StatusTooManyRequests {
+		t.Fatal("a second request of the same link is over the limit of 1")
 	}
 }

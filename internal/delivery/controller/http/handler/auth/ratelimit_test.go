@@ -10,13 +10,15 @@ import (
 	"github.com/gofrs/uuid"
 
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
+	"github.com/cybericebox/daemon/internal/limits"
 )
 
-// M3: the unauthenticated recovery routes are flood-limited per client; the
-// limit is far above any human use.
-func TestPublicAuthRoutesAreRateLimitedPerClient(t *testing.T) {
+// No public route is limited per client address: a whole computer lab shares one
+// router at the start of an event. Floods are bounded per account and per recipient.
+func TestPublicAuthRoutesAreNotLimitedPerClientAddress(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	routes := []struct{ path, body string }{
+		{"/api/auth/sign-in", `{"Email":"a@b.test","Password":"x"}`},
 		{"/api/auth/password/reset-request", `{"Email":"a@b.test"}`},
 		{"/api/auth/password/reset", `{"Code":"x","Password":"y"}`},
 		{"/api/auth/sign-up", `{"Email":"a@b.test"}`},
@@ -27,25 +29,47 @@ func TestPublicAuthRoutesAreRateLimitedPerClient(t *testing.T) {
 			r := gin.New()
 			h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 			h.Init(r.Group("api"), r.Group("api"))
-
-			var first, last int
-			for i := 0; i < 61; i++ {
+			for i := 0; i < 500; i++ {
 				req := httptest.NewRequest(http.MethodPost, rt.path, strings.NewReader(rt.body))
 				req.RemoteAddr = "203.0.113.9:4000"
 				w := httptest.NewRecorder()
 				r.ServeHTTP(w, req)
-				if i == 0 {
-					first = w.Code
+				if w.Code == http.StatusTooManyRequests {
+					t.Fatalf("request %d from one address was limited", i)
 				}
-				last = w.Code
-			}
-			if first == http.StatusTooManyRequests {
-				t.Fatal("the first request must not be limited")
-			}
-			if last != http.StatusTooManyRequests {
-				t.Fatalf("the flood must hit 429, last status %d", last)
 			}
 		})
+	}
+}
+
+// The signed-in password check is limited per user, not per address.
+func TestPasswordChangeIsLimitedPerUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limit := limits.Get().AccountActions
+	ids := []uuid.UUID{uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())}
+	current := ids[0]
+	r := gin.New()
+	r.Use(func(c *gin.Context) { injectIdentity(current, uuid.Must(uuid.NewV7()))(c) })
+	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
+	h.Init(r.Group("api"), r.Group("api"))
+	post := func() int {
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/password/change", strings.NewReader(`{"CurrentPassword":"a","NewPassword":"b"}`))
+		req.RemoteAddr = "203.0.113.9:4000"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	for i := 0; i < limit; i++ {
+		if post() == http.StatusTooManyRequests {
+			t.Fatalf("request %d was limited", i)
+		}
+	}
+	if post() != http.StatusTooManyRequests {
+		t.Fatal("the request over the limit must be refused")
+	}
+	current = ids[1]
+	if post() == http.StatusTooManyRequests {
+		t.Fatal("another user from the same address must not be limited")
 	}
 }
 

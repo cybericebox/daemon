@@ -18,6 +18,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
+	"github.com/cybericebox/daemon/internal/limits"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
@@ -351,7 +352,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("notification-templates/email", h.requireManage, h.createEventEmailTemplate)
 		// Static preview/image/logo segments sit beside the ":templateID" param
 		// routes (as on the platform template API).
-		manage.POST("notification-templates/email/preview", h.requireRead, middleware.RateLimitPerUser(previewRateLimit, time.Minute), h.previewEventEmail)
+		manage.POST("notification-templates/email/preview", h.requireRead, middleware.RateLimitPerUser(limits.Get().PreviewPerMinute, time.Minute), h.previewEventEmail)
 		manage.GET("notification-templates/email/presets", h.requireRead, h.listEventEmailPresets)
 		manage.POST("notification-templates/email/:templateID/images", h.requireManage, h.uploadEventEmailImage)
 		manage.GET("notification-templates/email/images/:fileID", h.requireRead, middleware.SameSiteResource, h.streamEventEmailImage)
@@ -2105,7 +2106,3 @@ func (h *Handler) listHintUnlocks(ctx *gin.Context) {
 	}
 	response.AbortWithData(ctx, out)
 }
-
-// previewRateLimit is how many template previews one user may request per minute: the editor asks on edits,
-// a person types far slower than this.
-const previewRateLimit = 60

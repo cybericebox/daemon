@@ -82,19 +82,17 @@ func TestSignIn_SuccessClearsAccountFailures(t *testing.T) {
 
 // A client address that fails over and over across accounts is locked, but
 // failures are the only thing counted: a lab of successful sign-ins is free.
-func TestSignIn_ClientLockoutCountsFailuresAcrossAccounts(t *testing.T) {
+// Nothing is keyed on the client address: a whole computer lab signs in from one
+// router, so failures of many different accounts from one address never lock it.
+func TestSignIn_ClientAddressIsNeverLimited(t *testing.T) {
 	uc, repo, _ := newUC(t)
 	repo.EXPECT().GetUserByEmail(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows).AnyTimes()
 	meta := authModel.SessionMetadata{IP: "203.0.113.7"}
-	for i := 0; i < 40; i++ {
-		_, _, _ = uc.SignIn(context.Background(), fmt.Sprintf("u%d@b.test", i), "wrong", "", meta)
-	}
-	_, _, e := uc.SignIn(context.Background(), "fresh@b.test", "wrong", "", meta)
-	tooMany(t, e)
-	// another client is unaffected
-	_, _, e = uc.SignIn(context.Background(), "fresh@b.test", "wrong", "", authModel.SessionMetadata{IP: "198.51.100.1"})
-	if !errors.Is(e, authModel.ErrAuthInvalidUserCredentials.Err()) {
-		t.Fatalf("other client: want plain invalid credentials, got %v", e)
+	for i := 0; i < 200; i++ {
+		_, _, e := uc.SignIn(context.Background(), fmt.Sprintf("u%d@b.test", i), "wrong", "", meta)
+		if !errors.Is(e, authModel.ErrAuthInvalidUserCredentials.Err()) {
+			t.Fatalf("attempt %d: want plain invalid credentials, got %v", i, e)
+		}
 	}
 }
 
@@ -201,30 +199,22 @@ func TestRequestEmailChange_RecipientAndUserLimits(t *testing.T) {
 	}
 }
 
-func TestInviteUser_RecipientCooldown(t *testing.T) {
+// Invitations sent by an admin are never limited: the same address may be invited
+// again at once, and every call sends its mail.
+func TestInviteUser_IsNotRateLimited(t *testing.T) {
 	uc, repo, notifier := newInviteUC(t)
-	repo.EXPECT().GetUserByEmail(gomock.Any(), "new@b.test").Return(postgres.User{}, pgx.ErrNoRows)
-	repo.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(postgres.User{}, nil)
-	if e := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "new@b.test", rbac.RoleUser, "", ""); e != nil {
-		t.Fatalf("first: %v", e)
+	incomplete := postgres.User{ID: uuid.Must(uuid.NewV7()), Email: "new@b.test", Status: "incomplete"}
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "new@b.test").Return(incomplete, nil).AnyTimes()
+	repo.EXPECT().DeleteUserProviders(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+	repo.EXPECT().GetUserByID(gomock.Any(), incomplete.ID).Return(incomplete, nil).AnyTimes()
+	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
+	for i := 0; i < 10; i++ {
+		if e := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "NEW@b.test", rbac.RoleUser, "", ""); e != nil {
+			t.Fatalf("invite %d: %v", i, e)
+		}
 	}
-	tooMany(t, uc.InviteUser(inviteCtx(rbac.RoleAdmin), "NEW@b.test", rbac.RoleUser, "", ""))
-	if notifier.calls != 1 {
-		t.Fatalf("want 1 invitation mail, got %d", notifier.calls)
-	}
-}
-
-func TestInviteEntries_ReportsRateLimit(t *testing.T) {
-	uc, repo, _ := newInviteUC(t)
-	repo.EXPECT().GetUserByEmail(gomock.Any(), "new@b.test").Return(postgres.User{}, pgx.ErrNoRows)
-	repo.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(postgres.User{}, nil)
-	ctx := inviteCtx(rbac.RoleAdmin)
-	if _, e := uc.InviteEntries(ctx, []auth.InviteEntry{{Email: "new@b.test"}}); e != nil {
-		t.Fatal(e)
-	}
-	res, e := uc.InviteEntries(ctx, []auth.InviteEntry{{Email: "new@b.test"}})
-	if e != nil || len(res) != 1 || res[0].Code != auth.InviteCodeRateLimited {
-		t.Fatalf("want rate_limited, got %+v / %v", res, e)
+	if notifier.calls != 10 {
+		t.Fatalf("want 10 invitation mails, got %d", notifier.calls)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
 	jobsRegistry "github.com/cybericebox/daemon/internal/jobs"
 	errorjournalJob "github.com/cybericebox/daemon/internal/jobs/errorjournal"
+	"github.com/cybericebox/daemon/internal/limits"
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
@@ -60,6 +61,8 @@ func Run(cfg *config.Config) {
 	// Flag rate limits are process-wide settings read by the submit paths.
 	challengeAttempt.ChallengeRateLimit = challengeAttempt.RateLimit{Attempts: cfg.FlagRateLimit.ChallengeAttempts, Window: cfg.FlagRateLimit.ChallengeWindow}
 	challengeAttempt.TeamRateLimit = challengeAttempt.RateLimit{Attempts: cfg.FlagRateLimit.TeamAttempts, Window: cfg.FlagRateLimit.TeamWindow}
+
+	limits.Set(cfg.Limits)
 
 	// ── useCases ──
 	deps := useCase.Dependencies{
