@@ -148,7 +148,8 @@ func (h *Handler) Init(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 		teams.POST(":teamID/captain", h.transferCaptain)
 		teams.POST(":teamID/members/:userID/kick", h.kickMember)
 		teams.DELETE(":teamID", h.disbandTeam)
-		teams.POST("challenges/:challengeID/submit", h.submitChallenge)
+		// The arrival time decides first blood and the deadline: counted from the end of the body.
+		teams.POST("challenges/:challengeID/submit", middleware.ReceivedAfterBody, h.submitChallenge)
 		teams.POST("challenges/:challengeID/hints/:hintID/unlock", h.unlockHint)
 		teams.GET("challenges/mine", h.listOwnChallenges)
 		teams.GET("challenges/:challengeID/files/:fileID", h.downloadChallengeAttachment)

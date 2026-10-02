@@ -168,7 +168,7 @@ GET    /api/events/:id/manage/labs/moderators/challenges/:challengeID/files/:fil
 GET    /api/events/:id/manage/labs/moderators/challenges/:challengeID/lab | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/labs/moderators/challenges/:challengeID/lab/link | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/labs/moderators/challenges/:challengeID/solves | gate: self | layers: event.requireManage
-POST   /api/events/:id/manage/labs/moderators/challenges/:challengeID/submit | gate: self | layers: event.requireManage
+POST   /api/events/:id/manage/labs/moderators/challenges/:challengeID/submit | gate: self | layers: event.requireManage,middleware.ReceivedAfterBody
 GET    /api/events/:id/manage/labs/moderators/team | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/labs/moderators/vpn | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/labs/settings | gate: self | layers: event.requireManage
@@ -293,7 +293,7 @@ GET    /api/events/:id/teams/challenges/:challengeID/lab | gate: self | layers: 
 POST   /api/events/:id/teams/challenges/:challengeID/lab/link | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/challenges/:challengeID/open | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/challenges/:challengeID/solves | gate: self | layers: eventself.touchPresence
-POST   /api/events/:id/teams/challenges/:challengeID/submit | gate: self | layers: eventself.touchPresence
+POST   /api/events/:id/teams/challenges/:challengeID/submit | gate: self | layers: eventself.touchPresence,middleware.ReceivedAfterBody
 GET    /api/events/:id/teams/challenges/mine | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/join | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/labs/stand | gate: self | layers: eventself.touchPresence

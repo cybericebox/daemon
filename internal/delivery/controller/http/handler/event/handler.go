@@ -411,7 +411,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// on every event); owner and moderators only, like the VPN route.
 		manage.GET("labs/moderators/board", h.requireManage, h.moderatorsBoard)
 		manage.GET("labs/moderators/team", h.requireManage, h.moderatorsTeam)
-		manage.POST("labs/moderators/challenges/:challengeID/submit", h.requireManage, h.moderatorsSubmit)
+		manage.POST("labs/moderators/challenges/:challengeID/submit", h.requireManage, middleware.ReceivedAfterBody, h.moderatorsSubmit)
 		manage.GET("labs/moderators/challenges/:challengeID/solves", h.requireManage, h.moderatorsSolves)
 		manage.GET("labs/moderators/challenges/:challengeID/files/:fileID", h.requireManage, h.moderatorsChallengeFile)
 		manage.POST("labs/:teamID/recreate", h.requireManage, h.recreateStand)
