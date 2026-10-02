@@ -13,6 +13,7 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/rs/zerolog/log"
 
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 )
 
@@ -30,6 +31,7 @@ type (
 		Auth           AuthConfig           `                                   envPrefix:""`
 		Media          MediaConfig          `                                   envPrefix:"MEDIA_"`
 		Exercise       ExerciseConfig       `                                   envPrefix:"EXERCISE_"`
+		Resources      ResourcesConfig      `                                   envPrefix:"RESOURCES_"`
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
 		Limits         LimitsConfig         `                                   envPrefix:"LIMIT_"`
 		RateLimit      RateLimitConfig      `                                   envPrefix:"RATE_LIMIT_"`
@@ -331,6 +333,21 @@ type (
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 	}
 
+	// ResourcesConfig is the platform's device resources model (RESOURCES_*). Values are Kubernetes quantities as
+	// cpu/memory.
+	ResourcesConfig struct {
+		// Presets are the device sizes an author picks, as id=cpu/memory separated by commas; the ids are
+		// translated by the frontends (micro, small, medium, large). Every preset sits in the frame.
+		Presets string `env:"PRESETS" envDefault:"micro=25m/64Mi,small=50m/128Mi,medium=125m/512Mi,large=250m/1Gi"`
+		// DefaultPreset is the size of a device that picked none.
+		DefaultPreset string `env:"DEFAULT_PRESET" envDefault:"micro"`
+		// Frame is the most a device gets without approval; an agent whose device maxima are below it does not
+		// meet the platform requirements.
+		Frame string `env:"FRAME" envDefault:"250m/1Gi"`
+		// ElevationCeiling is the most an approved elevation may give a device.
+		ElevationCeiling string `env:"ELEVATION_CEILING" envDefault:"1/4Gi"`
+	}
+
 	// ExerciseConfig holds catalog secret handling and flag generation policy.
 	// Empty key disables exercise secret env vars (saving one yields a 409).
 	ExerciseConfig struct {
@@ -558,6 +575,15 @@ func (c ErrorJournalConfig) Validate() error {
 	return nil
 }
 
+// Policy parses the device resources settings.
+func (c ResourcesConfig) Policy() (resourcesModel.Policy, error) {
+	policy, err := resourcesModel.ParsePolicy(c.Presets, c.DefaultPreset, c.Frame, c.ElevationCeiling)
+	if err != nil {
+		return resourcesModel.Policy{}, fmt.Errorf("resources: RESOURCES_*: %w", err)
+	}
+	return policy, nil
+}
+
 func (c ExerciseConfig) Validate() error {
 	if c.FlagRandomBytes < 1 || c.FlagRandomBytes > 1024 {
 		return errors.New("exercise: EXERCISE_FLAG_RANDOM_BYTES must be between 1 and 1024")
@@ -704,6 +730,9 @@ func MustGetConfig() *Config {
 	}
 	if err = instance.Exercise.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid exercise configuration")
+	}
+	if _, err = instance.Resources.Policy(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid device resources settings")
 	}
 	if err = instance.Limits.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid abuse limits")

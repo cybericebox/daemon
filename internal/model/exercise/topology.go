@@ -116,11 +116,15 @@ type (
 	}
 
 	Device struct {
-		ID             uuid.UUID        `json:"id"`
-		Name           string           `json:"name"` // logical lab name; DNS label
-		Type           DeviceType       `json:"type"`
-		Image          string           `json:"image,omitempty"`
-		SecurityPreset SecurityPreset   `json:"security_preset,omitempty"` // empty = basic
+		ID             uuid.UUID      `json:"id"`
+		Name           string         `json:"name"` // logical lab name; DNS label
+		Type           DeviceType     `json:"type"`
+		Image          string         `json:"image,omitempty"`
+		SecurityPreset SecurityPreset `json:"security_preset,omitempty"` // empty = basic
+		// ResourcePreset is a platform preset id (micro, small, medium, large); when empty the device
+		// carries its own custom Resources, and with neither it gets the default preset. Requests always
+		// equal limits at the agent.
+		ResourcePreset string           `json:"resource_preset,omitempty"`
 		Resources      *DeviceResources `json:"resources,omitempty"`
 		Interfaces     []Interface      `json:"interfaces,omitempty"`
 		EnvVars        []EnvVar         `json:"env_vars,omitempty"`
@@ -231,7 +235,7 @@ func (t Topology) validateStructure() error {
 		if d.Type.IsForwarding() && strings.TrimSpace(d.Name) == "" {
 			return ErrDeviceDisplayNameInvalid.WithContext("device", d.Name).Err()
 		}
-		if !d.Type.Valid() || (d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.EnvVars) > 0 || d.External != nil || d.SecurityPreset != "" || d.Resources != nil)) {
+		if !d.Type.Valid() || (d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.EnvVars) > 0 || d.External != nil || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
 		}
 		if reason := invalidPersistence(d); reason != "" {

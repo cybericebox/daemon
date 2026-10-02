@@ -199,6 +199,10 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EXERCISE_STAND_DEPLOY_BUDGET` | `200` | Lab deploy calls to an agent per event and pass (1 to 5000). Only protects the agent API from a burst; launch pacing is done by the laboratory operator. |
 | `EXERCISE_STAND_PREWARM_LEAD` | `30m` | How long before the stand deploy time the images are prewarmed in the platform image cache; `0` turns it off (max 24h). |
 | `EXERCISE_TEST_DEPLOY_TTL` / `_MAX` | `2h` / `8h` | Lease of a catalog author's test lab, and the longest it lives from its start however often extended. |
+| `RESOURCES_PRESETS` | `micro=25m/64Mi,small=50m/128Mi,medium=125m/512Mi,large=250m/1Gi` | Device size presets an author picks (`id=cpu/memory`, Kubernetes quantities). The ids are translated by the frontends. Each preset must sit in the frame. |
+| `RESOURCES_DEFAULT_PRESET` | `micro` | The size of a device that picked none. |
+| `RESOURCES_FRAME` | `250m/1Gi` | The most a device gets without an approval. A laboratory whose device maxima are below it, or that allows fewer than 32 devices per lab, does not meet the platform requirements and is not used. |
+| `RESOURCES_ELEVATION_CEILING` | `1/4Gi` | The most an approved elevation may give a device. |
 | `EVENT_STAND_DEPLOY_TIMEOUT` | `20m` | A Lab the agent accepted but never reported ready fails after this. |
 | `EVENT_DEFAULT_MAX_TEAM_SIZE` | `5` | Team size limit of a new event. |
 | `VPN_SECRETS_KEY` | none | See above. |
