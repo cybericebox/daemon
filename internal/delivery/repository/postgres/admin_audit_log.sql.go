@@ -48,23 +48,57 @@ SELECT id, actor_id, permission, method, route, response_status, created_at, tar
 FROM admin_audit_log
 WHERE ($1::uuid IS NULL OR actor_id = $1::uuid)
   AND ($2::text IS NULL OR permission = $2::text)
-  AND ($3::text IS NULL OR route = $3::text)
+  AND ($3::text IS NULL OR strpos(route, $3::text) > 0)
+  AND ($4::text IS NULL OR method = $4::text)
+  AND ($5::int IS NULL OR response_status >= $5::int)
+  AND ($6::int IS NULL OR response_status <= $6::int)
+  AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR created_at <= $8::timestamptz)
+  AND ($9::text IS NULL
+       OR strpos(' ' || target, ' ' || $9::text || ':') > 0)
+  AND ($10::text IS NULL OR strpos(target, $10::text) > 0)
+  AND ($11::timestamptz IS NULL
+       OR (created_at, id) < ($11::timestamptz, $12::uuid))
 ORDER BY created_at DESC, id DESC
-LIMIT $4
+LIMIT $13
 `
 
 type ListAdminAuditLogParams struct {
-	ActorID    uuid.NullUUID `json:"actor_id"`
-	Permission pgtype.Text   `json:"permission"`
-	Route      pgtype.Text   `json:"route"`
-	LimitVal   int32         `json:"limit_val"`
+	ActorID         uuid.NullUUID      `json:"actor_id"`
+	Permission      pgtype.Text        `json:"permission"`
+	Route           pgtype.Text        `json:"route"`
+	Method          pgtype.Text        `json:"method"`
+	StatusMin       pgtype.Int4        `json:"status_min"`
+	StatusMax       pgtype.Int4        `json:"status_max"`
+	FromAt          pgtype.Timestamptz `json:"from_at"`
+	ToAt            pgtype.Timestamptz `json:"to_at"`
+	TargetKind      pgtype.Text        `json:"target_kind"`
+	TargetID        pgtype.Text        `json:"target_id"`
+	CursorCreatedAt pgtype.Timestamptz `json:"cursor_created_at"`
+	CursorID        uuid.NullUUID      `json:"cursor_id"`
+	LimitVal        int32              `json:"limit_val"`
 }
 
+// One page of the journal, newest first, keyset-paged by (created_at, id).
+// Every filter is optional. route and target_id are "contains" matches
+// (strpos, so no LIKE escaping); target_kind matches the "kind:" token of the
+// space-separated target ("event:<id> team:<id>"); a status class is
+// status_min..status_max; cursor_created_at/cursor_id continue after the
+// last row of the previous page.
 func (q *Queries) ListAdminAuditLog(ctx context.Context, arg ListAdminAuditLogParams) ([]AdminAuditLog, error) {
 	rows, err := q.db.Query(ctx, listAdminAuditLog,
 		arg.ActorID,
 		arg.Permission,
 		arg.Route,
+		arg.Method,
+		arg.StatusMin,
+		arg.StatusMax,
+		arg.FromAt,
+		arg.ToAt,
+		arg.TargetKind,
+		arg.TargetID,
+		arg.CursorCreatedAt,
+		arg.CursorID,
 		arg.LimitVal,
 	)
 	if err != nil {

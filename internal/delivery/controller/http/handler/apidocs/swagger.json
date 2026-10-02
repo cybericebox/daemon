@@ -8,6 +8,111 @@
     },
     "basePath": "/api",
     "paths": {
+        "/admin/audit-log": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Admin audit journal (filtered, keyset-paged, newest first)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "actor user ID (exact)",
+                        "name": "actorID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "gating permission (exact), e.g. users.delete",
+                        "name": "permission",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "route template contains this text",
+                        "name": "route",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "HTTP method (exact): POST PUT PATCH DELETE, GET for exports",
+                        "name": "method",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "final response status: exact (409) or a class (2xx, 4xx, 5xx)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "not before (RFC3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "not after (RFC3339)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "kind token of the target: event, team, agent, test-lab, exercise, userID, id...",
+                        "name": "targetKind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "an id contained in the target",
+                        "name": "targetID",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "NextCursor of the previous page",
+                        "name": "cursor",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size 1-200 (default 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/adminAudit.auditPage"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/errors": {
             "get": {
                 "produces": [
@@ -19494,6 +19599,50 @@
         }
     },
     "definitions": {
+        "adminAudit.auditItem": {
+            "type": "object",
+            "properties": {
+                "ActorID": {
+                    "type": "string"
+                },
+                "CreatedAt": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Method": {
+                    "type": "string"
+                },
+                "Permission": {
+                    "type": "string"
+                },
+                "ResponseStatus": {
+                    "type": "integer"
+                },
+                "Route": {
+                    "type": "string"
+                },
+                "Target": {
+                    "type": "string"
+                }
+            }
+        },
+        "adminAudit.auditPage": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/adminAudit.auditItem"
+                    }
+                },
+                "NextCursor": {
+                    "description": "NextCursor continues the list after the last item; empty on the last page.",
+                    "type": "string"
+                }
+            }
+        },
         "auth.accountResponse": {
             "type": "object",
             "properties": {

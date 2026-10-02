@@ -1,5 +1,35 @@
 basePath: /api
 definitions:
+  adminAudit.auditItem:
+    properties:
+      ActorID:
+        type: string
+      CreatedAt:
+        type: string
+      ID:
+        type: string
+      Method:
+        type: string
+      Permission:
+        type: string
+      ResponseStatus:
+        type: integer
+      Route:
+        type: string
+      Target:
+        type: string
+    type: object
+  adminAudit.auditPage:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/adminAudit.auditItem'
+        type: array
+      NextCursor:
+        description: NextCursor continues the list after the last item; empty on the
+          last page.
+        type: string
+    type: object
   auth.accountResponse:
     properties:
       CreatedAt:
@@ -8349,6 +8379,73 @@ info:
   title: CyberICEBox API
   version: "1.0"
 paths:
+  /admin/audit-log:
+    get:
+      parameters:
+      - description: actor user ID (exact)
+        in: query
+        name: actorID
+        type: string
+      - description: gating permission (exact), e.g. users.delete
+        in: query
+        name: permission
+        type: string
+      - description: route template contains this text
+        in: query
+        name: route
+        type: string
+      - description: 'HTTP method (exact): POST PUT PATCH DELETE, GET for exports'
+        in: query
+        name: method
+        type: string
+      - description: 'final response status: exact (409) or a class (2xx, 4xx, 5xx)'
+        in: query
+        name: status
+        type: string
+      - description: not before (RFC3339)
+        in: query
+        name: from
+        type: string
+      - description: not after (RFC3339)
+        in: query
+        name: to
+        type: string
+      - description: 'kind token of the target: event, team, agent, test-lab, exercise,
+          userID, id...'
+        in: query
+        name: targetKind
+        type: string
+      - description: an id contained in the target
+        in: query
+        name: targetID
+        type: string
+      - description: NextCursor of the previous page
+        in: query
+        name: cursor
+        type: string
+      - description: page size 1-200 (default 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/adminAudit.auditPage'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Admin audit journal (filtered, keyset-paged, newest first)
+      tags:
+      - admin
   /admin/errors:
     get:
       parameters:
