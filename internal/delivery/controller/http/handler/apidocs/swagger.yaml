@@ -8072,6 +8072,530 @@ definitions:
     - RoleAdminViewer
     - RoleUser
     - RolePublic
+  resourceCalendar.agentCapacityDTO:
+    properties:
+      CPUUnlimited:
+        type: boolean
+      Capacity:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Connected:
+        type: boolean
+      DeviceMax:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      ID:
+        type: string
+      MemoryUnlimited:
+        type: boolean
+      Name:
+        type: string
+      Priority:
+        type: integer
+      Used:
+        type: boolean
+      Why:
+        description: 'Why says why the agent is not used: disabled, below_requirements,
+          no_capacity.'
+        type: string
+    type: object
+  resourceCalendar.agentStatDTO:
+    properties:
+      Allocated:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Capacity:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Connected:
+        type: boolean
+      Free:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      ID:
+        type: string
+      InUse:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Name:
+        type: string
+      Priority:
+        type: integer
+      Used:
+        type: boolean
+    type: object
+  resourceCalendar.alarmDTO:
+    properties:
+      AckedAt:
+        type: string
+      AckedBy:
+        type: string
+      AgentID:
+        type: string
+      AgentName:
+        type: string
+      EventID:
+        type: string
+      EventName:
+        type: string
+      EventTag:
+        type: string
+      ID:
+        type: string
+      Kind:
+        enum:
+        - not_placed
+        - agent_lost
+        - agent_shrunk
+        - not_connected
+        type: string
+      RaisedAt:
+        type: string
+      ReservationID:
+        type: string
+      ResolvedAt:
+        type: string
+      Shortage:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Stage:
+        description: Stage is how far the escalation went (0 first sight, 1 a day
+          before the deploy lead, 2 two hours before, 3 at the lead).
+        type: integer
+      Units:
+        type: integer
+      UpdatedAt:
+        type: string
+    type: object
+  resourceCalendar.amountDTO:
+    properties:
+      CPUMillicores:
+        type: integer
+      MemoryBytes:
+        type: integer
+    type: object
+  resourceCalendar.bookRequest:
+    properties:
+      DurationMinutes:
+        description: DurationMinutes is 15 to 480.
+        type: integer
+      LargestDevice:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Size:
+        allOf:
+        - $ref: '#/definitions/resourceCalendar.amountDTO'
+        description: Size is the laboratory's total (the exercise totals the catalog
+          shows); LargestDevice its largest device.
+      Start:
+        description: Start is the wanted start (aligned down to a 15-minute slot).
+        type: string
+    type: object
+  resourceCalendar.bookingDTO:
+    properties:
+      From:
+        type: string
+      ID:
+        type: string
+      Size:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      To:
+        type: string
+    type: object
+  resourceCalendar.capacityDTO:
+    properties:
+      Agents:
+        items:
+          $ref: '#/definitions/resourceCalendar.agentCapacityDTO'
+        type: array
+      CPUUnlimited:
+        type: boolean
+      MemoryUnlimited:
+        type: boolean
+      PerNodeRoomReported:
+        type: boolean
+      TestPool:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Total:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+    type: object
+  resourceCalendar.changeRequestDTO:
+    properties:
+      CurrentFrom:
+        type: string
+      CurrentSize:
+        allOf:
+        - $ref: '#/definitions/resourceCalendar.amountDTO'
+        description: Current is what the reservation holds now; the admin decides
+          against it.
+      CurrentTo:
+        type: string
+      DecidedAt:
+        type: string
+      DecidedBy:
+        type: string
+      DecisionNote:
+        type: string
+      Dynamic:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      EventID:
+        type: string
+      EventName:
+        type: string
+      EventTag:
+        type: string
+      ID:
+        type: string
+      Reason:
+        type: string
+      RequestedAt:
+        type: string
+      RequestedBy:
+        type: string
+      ReservationID:
+        type: string
+      Size:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Status:
+        enum:
+        - pending
+        - approved
+        - rejected
+        type: string
+      WindowEnd:
+        type: string
+      WindowStart:
+        type: string
+    type: object
+  resourceCalendar.conflictDTO:
+    properties:
+      From:
+        type: string
+      PoolShort:
+        type: boolean
+      ReservationIDs:
+        items:
+          type: string
+        type: array
+      Short:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      To:
+        type: string
+      Unplaced:
+        type: integer
+    type: object
+  resourceCalendar.decideRequest:
+    properties:
+      AllowConflicts:
+        description: AllowConflicts keeps an approved change that no longer fits by
+          packing (the reservation is then not covered).
+        type: boolean
+      Approve:
+        type: boolean
+      Note:
+        type: string
+    type: object
+  resourceCalendar.eventResourcesDTO:
+    properties:
+      Allocated:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      BufferPercent:
+        description: 'BufferPercent and Dynamic are part of Allocated: the buffer
+          and the estimate for future dynamic tasks.'
+        type: integer
+      Changes:
+        items:
+          $ref: '#/definitions/resourceCalendar.organizerChangeDTO'
+        type: array
+      Covered:
+        description: 'Covered: the reservation is placed in full. False means the
+          platform admin has been alerted.'
+        type: boolean
+      Dynamic:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Free:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      From:
+        type: string
+      InUse:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Reserved:
+        description: Reserved is false when the event has no reservation (nothing
+          else is set then).
+        type: boolean
+      Teams:
+        type: integer
+      To:
+        type: string
+    type: object
+  resourceCalendar.eventStatDTO:
+    properties:
+      Allocated:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Covered:
+        type: boolean
+      EventID:
+        type: string
+      EventName:
+        type: string
+      EventTag:
+        type: string
+      Free:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      From:
+        type: string
+      InUse:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      ReservationID:
+        type: string
+      To:
+        type: string
+    type: object
+  resourceCalendar.organizerChangeDTO:
+    properties:
+      DecidedAt:
+        type: string
+      DecisionNote:
+        type: string
+      Dynamic:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      ID:
+        type: string
+      Reason:
+        type: string
+      RequestedAt:
+        type: string
+      Size:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Status:
+        enum:
+        - pending
+        - approved
+        - rejected
+        type: string
+      WindowEnd:
+        type: string
+      WindowStart:
+        type: string
+    type: object
+  resourceCalendar.replanRequest:
+    properties:
+      AllowConflicts:
+        type: boolean
+    type: object
+  resourceCalendar.requestChangeRequest:
+    properties:
+      Dynamic:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Reason:
+        type: string
+      Size:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      WindowEnd:
+        type: string
+      WindowStart:
+        type: string
+    type: object
+  resourceCalendar.reservationDTO:
+    properties:
+      Alarms:
+        items:
+          $ref: '#/definitions/resourceCalendar.alarmDTO'
+        type: array
+      BufferPercent:
+        type: integer
+      Covered:
+        description: 'Covered: every team has an agent and no slot of the window is
+          over capacity.'
+        type: boolean
+      Dynamic:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      EventID:
+        type: string
+      EventName:
+        type: string
+      EventTag:
+        type: string
+      From:
+        type: string
+      ID:
+        type: string
+      Kind:
+        enum:
+        - event
+        - test_booking
+        type: string
+      LargestDevice:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      OwnerID:
+        type: string
+      PerTeam:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      Placement:
+        items:
+          $ref: '#/definitions/resourceCalendar.shareDTO'
+        type: array
+      Size:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      TailGapMinutes:
+        type: integer
+      Teams:
+        type: integer
+      To:
+        type: string
+      Unplaced:
+        type: integer
+      Used:
+        allOf:
+        - $ref: '#/definitions/resourceCalendar.amountDTO'
+        description: Used is what the event's running objects request now.
+    type: object
+  resourceCalendar.reservationResultDTO:
+    properties:
+      Conflicts:
+        items:
+          $ref: '#/definitions/resourceCalendar.conflictDTO'
+        type: array
+      Reservation:
+        $ref: '#/definitions/resourceCalendar.reservationDTO'
+      Saved:
+        description: Saved is false for a dry run.
+        type: boolean
+    type: object
+  resourceCalendar.segmentDTO:
+    properties:
+      From:
+        type: string
+      Reserved:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      To:
+        type: string
+    type: object
+  resourceCalendar.setReservationRequest:
+    properties:
+      AllowConflicts:
+        description: AllowConflicts keeps a reservation that does not fit by packing
+          (it is then not covered).
+        type: boolean
+      BufferPercent:
+        description: BufferPercent overrides the default buffer (15).
+        type: integer
+      DryRun:
+        description: DryRun only reports what would happen.
+        type: boolean
+      Dynamic:
+        allOf:
+        - $ref: '#/definitions/resourceCalendar.amountDTO'
+        description: Dynamic is the estimate for tasks that appear later.
+      PerTeam:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      TailGapMinutes:
+        description: TailGapMinutes is the gap after the event end; never shorter
+          than the default (60), may be more.
+        type: integer
+      Teams:
+        type: integer
+      WindowEnd:
+        type: string
+      WindowStart:
+        description: WindowStart and WindowEnd override the window; WindowEnd is the
+          event end (the gap is added).
+        type: string
+    type: object
+  resourceCalendar.setSettingsRequest:
+    properties:
+      AllowConflicts:
+        description: AllowConflicts keeps a pool that the reservations of the next
+          month no longer leave room for.
+        type: boolean
+      TestPool:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+    type: object
+  resourceCalendar.setSettingsResponse:
+    properties:
+      Conflicts:
+        items:
+          $ref: '#/definitions/resourceCalendar.conflictDTO'
+        type: array
+      Settings:
+        $ref: '#/definitions/resourceCalendar.settingsDTO'
+    type: object
+  resourceCalendar.settingsDTO:
+    properties:
+      TestPool:
+        allOf:
+        - $ref: '#/definitions/resourceCalendar.amountDTO'
+        description: 'TestPool is the guaranteed minimum for test laboratories: always
+          on, never reserved by events.'
+      UpdatedAt:
+        type: string
+    type: object
+  resourceCalendar.shareDTO:
+    properties:
+      AgentID:
+        type: string
+      AgentName:
+        type: string
+      Units:
+        type: integer
+    type: object
+  resourceCalendar.statsDTO:
+    properties:
+      Agents:
+        items:
+          $ref: '#/definitions/resourceCalendar.agentStatDTO'
+        type: array
+      At:
+        type: string
+      Events:
+        items:
+          $ref: '#/definitions/resourceCalendar.eventStatDTO'
+        type: array
+      OpenAlarms:
+        type: integer
+      PendingChangeRequests:
+        type: integer
+      TestLabsHeld:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      TestPool:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+    type: object
+  resourceCalendar.testLabRoomDTO:
+    properties:
+      Available:
+        type: boolean
+      NearestFrom:
+        description: 'NearestFrom is the start of the nearest free window when not
+          available (null: none within the horizon).'
+        type: string
+      Via:
+        description: 'Via says how it is admitted: booking, pool or free.'
+        enum:
+        - booking
+        - pool
+        - free
+        - ""
+        type: string
+    type: object
+  resourceCalendar.timelineDTO:
+    properties:
+      Capacity:
+        $ref: '#/definitions/resourceCalendar.capacityDTO'
+      Conflicts:
+        items:
+          $ref: '#/definitions/resourceCalendar.conflictDTO'
+        type: array
+      From:
+        type: string
+      MaintenanceReported:
+        description: 'MaintenanceReported is false: the agents do not report maintenance
+          windows yet.'
+        type: boolean
+      Reservations:
+        items:
+          $ref: '#/definitions/resourceCalendar.reservationDTO'
+        type: array
+      Reserved:
+        items:
+          $ref: '#/definitions/resourceCalendar.segmentDTO'
+        type: array
+      SlotMinutes:
+        type: integer
+      To:
+        type: string
+    type: object
   response.Response:
     properties:
       data: {}
@@ -14904,6 +15428,74 @@ paths:
       summary: 'Resource plan of the event: tasks, group overhead and total'
       tags:
       - events
+  /events/{id}/manage/resources:
+    get:
+      description: 'What the organizer sees: the allocated size of the event''s reservation,
+        what its running objects use, what is free, the window, the buffer and the
+        estimate for future dynamic tasks, whether the reservation is covered, and
+        the change requests with their status. Never names a laboratory. Reserved
+        is false when the platform admin set no reservation for the event. A new task
+        of a running event deploys only if the reservation holds it for all teams;
+        otherwise it is refused (code 72508, "not enough reserved resources, request
+        an extension").'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.eventResourcesDTO'
+              type: object
+      summary: Resources of the event (organizer)
+      tags:
+      - events
+  /events/{id}/manage/resources/change-requests:
+    post:
+      consumes:
+      - application/json
+      description: 'Sends the platform admin a request to change the event''s reservation:
+        the size, the window (the tail gap still applies on top of a later end) and/or
+        the estimate for future dynamic tasks, with a reason. One request waits at
+        a time (409 while one is pending); extending the existing reservation is the
+        way. 404 when the event has no reservation. The admin approves or rejects
+        it; the organizer is told the outcome.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: change
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceCalendar.requestChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.organizerChangeDTO'
+              type: object
+      summary: Ask for a change of the event's resources (organizer)
+      tags:
+      - events
   /events/{id}/manage/results:
     get:
       parameters:
@@ -18386,6 +18978,120 @@ paths:
       summary: Existing exercise tags by use (autocomplete and tag filter)
       tags:
       - exercises
+  /exercises/test-labs/bookings:
+    get:
+      description: The author's booked windows that have not ended.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/resourceCalendar.bookingDTO'
+                  type: array
+              type: object
+      summary: My test laboratory bookings
+      tags:
+      - exercises
+    post:
+      consumes:
+      - application/json
+      description: Reserves room in the calendar for the author's test laboratory
+        (for example 2 hours from HH:MM, 15 minutes to 8 hours, at most 14 days ahead,
+        3 bookings at once). The laboratory started inside the window uses the booking.
+        When the window does not fit, 409 with the nearest window that does ("nearest_from"
+        in the error context).
+      parameters:
+      - description: booking
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceCalendar.bookRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.bookingDTO'
+              type: object
+      summary: Book a window for a test laboratory
+      tags:
+      - exercises
+  /exercises/test-labs/bookings/{bookingID}:
+    delete:
+      description: The author's own booking; its room is free at once.
+      parameters:
+      - description: booking ID
+        in: path
+        name: bookingID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Cancel a test laboratory booking
+      tags:
+      - exercises
+  /exercises/test-labs/room:
+    get:
+      description: 'For a catalog author: whether a test laboratory of this size starts
+        now and how (inside the author''s booked window, the guaranteed pool, or room
+        no event has reserved), or, when there is none, the start of the nearest free
+        window the author can book. Nothing is held. Size is the laboratory''s total
+        (the catalog shows it per exercise).'
+      parameters:
+      - description: laboratory CPU, millicores
+        in: query
+        name: cpu
+        required: true
+        type: integer
+      - description: laboratory memory, bytes
+        in: query
+        name: memory
+        required: true
+        type: integer
+      - description: largest device CPU, millicores
+        in: query
+        name: deviceCpu
+        type: integer
+      - description: largest device memory, bytes
+        in: query
+        name: deviceMemory
+        type: integer
+      - description: how long it will run (default 120)
+        in: query
+        name: leaseMinutes
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.testLabRoomDTO'
+              type: object
+      summary: Does a test laboratory fit now
+      tags:
+      - exercises
   /infrastructure/agents:
     get:
       description: 'The enrolled agents (Source admin: added in the admin; env: bootstrapped
@@ -18641,6 +19347,394 @@ paths:
                   $ref: '#/definitions/infrastructure.agentAdminResponse'
               type: object
       summary: Rotate an agent's lab access signing key
+      tags:
+      - infrastructure
+  /infrastructure/calendar/alarms:
+    get:
+      description: 'Reservations that cannot be served as promised: not_placed (a
+        team fits no agent), agent_lost (an agent they are placed on is gone, disabled,
+        below the requirements or without capacity), agent_shrunk (its capacity fell
+        below what is placed on it), not_connected (the connected capacity at the
+        deploy lead is below the reservation; escalates at 24 h, 2 h and the lead).
+        Open alarms first. Super admins are also notified through the notification
+        system and the error journal (kind lab_readiness). Requires infrastructure.read.'
+      parameters:
+      - description: 1 lists only open alarms
+        in: query
+        name: open
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/resourceCalendar.alarmDTO'
+                  type: array
+              type: object
+      summary: Readiness alarms
+      tags:
+      - infrastructure
+  /infrastructure/calendar/alarms/{alarmID}/acknowledge:
+    post:
+      description: Records that an admin saw the alarm and closes its inbox request;
+        the alarm stays open while its cause lasts. Requires infrastructure.write.
+      parameters:
+      - description: alarm ID
+        in: path
+        name: alarmID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.alarmDTO'
+              type: object
+      summary: Acknowledge a readiness alarm
+      tags:
+      - infrastructure
+  /infrastructure/calendar/capacity:
+    get:
+      description: 'The capacity of every agent as the calendar uses it: the recorded
+        tenant quota (no quota is no limit on that resource), the device maximum,
+        whether the agent is connected (its capacity was read recently) and, for an
+        agent that is not used, why (disabled, below_requirements, no_capacity). PerNodeRoomReported
+        is false while agents do not report per-node room: an agent then counts as
+        one node. Requires infrastructure.read.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.capacityDTO'
+              type: object
+      summary: Resource calendar capacity
+      tags:
+      - infrastructure
+  /infrastructure/calendar/change-requests:
+    get:
+      description: The organizers' requests to change an event's reservation (size,
+        window, estimate for future dynamic tasks) with their reason, newest first,
+        with what the reservation holds now. Requires infrastructure.read.
+      parameters:
+      - description: pending, approved or rejected
+        in: query
+        name: status
+        type: string
+      - description: only this event
+        in: query
+        name: eventID
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/resourceCalendar.changeRequestDTO'
+                  type: array
+              type: object
+      summary: Resource change requests
+      tags:
+      - infrastructure
+  /infrastructure/calendar/change-requests/{requestID}/decision:
+    post:
+      consumes:
+      - application/json
+      description: Approving extends the existing reservation (size, estimate, window;
+        the tail gap still applies on top of a later end) and places it again keeping
+        every team that still fits. If it no longer fits by packing it is refused
+        with 409 unless AllowConflicts is set (the reservation is then not covered
+        and an alarm is raised). Nothing is moved automatically. Requires infrastructure.write.
+      parameters:
+      - description: change request ID
+        in: path
+        name: requestID
+        required: true
+        type: string
+      - description: decision
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceCalendar.decideRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.changeRequestDTO'
+              type: object
+      summary: Approve or reject a resource change request
+      tags:
+      - infrastructure
+  /infrastructure/calendar/events/{eventID}/reservation:
+    delete:
+      description: The room is free at once and the event's alarms close. Requires
+        infrastructure.write.
+      parameters:
+      - description: event ID
+        in: path
+        name: eventID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Cancel the reservation of an event
+      tags:
+      - infrastructure
+    get:
+      description: 'The event''s reservation: size, window, where it is placed, whether
+        it is covered, its conflicts and open alarms. 404 when the event has none.
+        Requires infrastructure.read.'
+      parameters:
+      - description: event ID
+        in: path
+        name: eventID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.reservationResultDTO'
+              type: object
+      summary: The reservation of an event
+      tags:
+      - infrastructure
+    put:
+      consumes:
+      - application/json
+      description: 'Creates or updates the reservation (platform admin only). Size
+        = the resource plan of the event per team x teams + the buffer (default 15%)
+        + the organizer''s estimate for future dynamic tasks; the window runs from
+        the stand deploy lead (plus a readiness margin) to the event end + the tail
+        gap (default and minimum 1 h, the admin may set more). The reservation is
+        placed over the agents by packing: a team stays whole on one agent, the fewest
+        agents are used, then agent priority, and elevated tasks only go to agents
+        whose maxima fit. A changed reservation keeps every team that still fits where
+        it is. One that does not fit is refused with 409 (the context names the first
+        conflicting slot) unless AllowConflicts is set; it is then kept, marked not
+        covered, and an alarm is raised. DryRun reports the placement and conflicts
+        without saving. Requires infrastructure.write.'
+      parameters:
+      - description: event ID
+        in: path
+        name: eventID
+        required: true
+        type: string
+      - description: reservation
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceCalendar.setReservationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.reservationResultDTO'
+              type: object
+      summary: Set the reservation of an event
+      tags:
+      - infrastructure
+  /infrastructure/calendar/recheck:
+    post:
+      description: Completes the teams that had no agent when capacity appeared (it
+        only adds, nothing placed is moved), raises, escalates and resolves the readiness
+        alarms. The same check runs periodically. Requires infrastructure.write.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Run the readiness check now
+      tags:
+      - infrastructure
+  /infrastructure/calendar/reservations/{reservationID}/replan:
+    post:
+      consumes:
+      - application/json
+      description: 'The admin''s manual answer to an alarm (an agent is back or a
+        new one was added): the reservation is placed again over the agents that are
+        used, keeping every team that still fits where it is. Refused with 409 when
+        it still does not fit, unless AllowConflicts is set. Requires infrastructure.write.'
+      parameters:
+      - description: reservation ID
+        in: path
+        name: reservationID
+        required: true
+        type: string
+      - description: options
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/resourceCalendar.replanRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.reservationResultDTO'
+              type: object
+      summary: Place a reservation again
+      tags:
+      - infrastructure
+  /infrastructure/calendar/settings:
+    get:
+      description: The guaranteed minimum pool for test laboratories. Requires infrastructure.read.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.settingsDTO'
+              type: object
+      summary: Resource calendar settings
+      tags:
+      - infrastructure
+    put:
+      consumes:
+      - application/json
+      description: The minimum room test laboratories always have (always on, never
+        reserved by events). A pool that the reservations of the next 30 days no longer
+        leave room for is refused with 409 unless AllowConflicts is set; the conflicts
+        are returned. Requires infrastructure.write.
+      parameters:
+      - description: pool
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/resourceCalendar.setSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.setSettingsResponse'
+              type: object
+      summary: Set the guaranteed test pool
+      tags:
+      - infrastructure
+  /infrastructure/calendar/stats:
+    get:
+      description: Allocated, used and free room now, per agent (allocated = the teams
+        placed there by the reservations active now, used = what the running objects
+        request) and per event (allocated = the reservation, used = its running objects),
+        with the guaranteed test pool, what test laboratories hold, the pending change
+        requests and the open alarms. Requires infrastructure.read.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.statsDTO'
+              type: object
+      summary: Resource calendar statistics
+      tags:
+      - infrastructure
+  /infrastructure/calendar/timeline:
+    get:
+      description: 'The calendar over a range of 15-minute slots (at most 31 days):
+        the reservations (events, test bookings) as rectangles with where they are
+        placed, the total reserved over time, the capacity of the agents that are
+        used (enabled, meeting the platform requirements, with a recorded capacity),
+        the conflicts (an agent over capacity, a team without an agent, the guaranteed
+        test pool that does not fit) and the open readiness alarms. Feasibility is
+        checked by packing, never by adding free room across agents. MaintenanceReported
+        is false: agents do not report maintenance windows yet. Requires infrastructure.read
+        (super_admin only).'
+      parameters:
+      - description: range start, RFC3339 (aligned down to a slot)
+        in: query
+        name: from
+        required: true
+        type: string
+      - description: range end, RFC3339 (aligned up to a slot)
+        in: query
+        name: to
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/resourceCalendar.timelineDTO'
+              type: object
+      summary: Resource calendar timeline
       tags:
       - infrastructure
   /infrastructure/monitoring/capacity/current:

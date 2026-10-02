@@ -207,6 +207,26 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EVENT_DEFAULT_MAX_TEAM_SIZE` | `5` | Team size limit of a new event. |
 | `VPN_SECRETS_KEY` | none | See above. |
 
+### Resource calendar
+
+The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar`, `internal/model/resourceCalendar`). Reservations live only here; the agents hold none, only the tenant quota the capacity comes from.
+
+- Time is cut into 15-minute slots. The capacity is the recorded capacity of the agents that are used (enabled, meeting the platform requirements, with a recorded capacity; no tenant quota means no limit on that resource). Feasibility is checked by packing, never by adding free room: a team (its lab group) stays whole on one agent, the fewest agents are used first, then agent priority, elevated tasks only go to agents whose device maxima fit them. Agents do not report per-node room yet, so an agent counts as one node (`PerNodeRoomReported: false`); they do not report maintenance windows either, so the calendar shows none.
+- An event reservation is set by a platform admin only: size = the event's resource plan per team x teams + the buffer + the organizer's estimate for future dynamic tasks; window = from the stand deploy lead (plus `CALENDAR_LEAD_MARGIN`) to the event end + the tail gap (`CALENDAR_TAIL_GAP`, never shorter, the admin may set more). A reservation that does not fit by packing is refused (409) unless the admin allows the conflict; it is then kept, shown as not covered, and an alarm is raised. Conflicts are resolved by hand: a changed reservation keeps every team that still fits where it is, and nothing is moved automatically.
+- An organizer sees allocated vs used (never an agent) and sends change requests (size, window, estimate, with a reason) that the admin approves or rejects; approving extends the existing reservation. A new task of a running event deploys only if its reservation holds it for all teams, otherwise it is refused with "not enough reserved resources, request an extension" (72508).
+- Readiness alarms are real entities (`not_placed`, `agent_lost`, `agent_shrunk`, `not_connected`; the last escalates 24 h and 2 h before the deploy lead and at it). Raising one notifies the super admins through the inbox and writes the error journal (`lab_readiness`). A periodic job (`resource_calendar_check`, every minute) re-evaluates them and only adds the teams that had no agent when capacity appears.
+- Test labs: a guaranteed minimum pool (an admin setting, always on, never reserved by events); above it any room no event has reserved; otherwise the author gets the nearest free window ("no free resources now, the nearest window is from HH:MM") and can book it (15 minutes to 8 hours, at most 14 days ahead, 3 at once). The booking reserves room in the calendar and covers the lab started inside it.
+- Admin API (super admin, `infrastructure.read` / `infrastructure.write`): `/api/infrastructure/calendar/*` (timeline, capacity, stats, settings, alarms, change requests, event reservation). Organizer: `/api/events/:id/manage/resources`. Author: `/api/exercises/test-labs/*`. See the swagger.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `CALENDAR_BUFFER_PERCENT` | `15` | Buffer added to the size of an event reservation (0 to 200). |
+| `CALENDAR_TAIL_GAP` | `1h` | Gap kept after the event end (15m to 168h); the admin may set more per event, never less. |
+| `CALENDAR_LEAD_MARGIN` | `30m` | Added before the stand deploy lead: the capacity must be connected that much earlier (0 to 24h). |
+| `CALENDAR_SEARCH_HORIZON` | `168h` | How far ahead the nearest free window of a test lab is looked for (1h to 2160h). |
+| `CALENDAR_AGENT_FRESH` | `15m` | How recent an agent's capacity read must be for it to count as connected (6m to 24h). |
+| `CALENDAR_TEST_LAB_LEASE` | `2h` | The lease a test lab is admitted for when its caller names none (15m to 24h). |
+
 ### Outgoing mail security
 
 - An event SMTP (set by an organizer) can only name a public host: an IP literal or a name in a loopback, private, link-local (cloud metadata), carrier-grade NAT or other special range is refused when saved, and again at connect time after the name is resolved (a name that later resolves inside is never connected). Ports are limited to `SMTP_ALLOWED_PORTS` (default `25,465,587,2525`).

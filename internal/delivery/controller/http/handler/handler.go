@@ -20,6 +20,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/notification"
 	platformAnalyticsHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/platformAnalytics"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/platformSettings"
+	resourceCalendarHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/resourceCalendar"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/user"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -47,6 +48,7 @@ type (
 		eventAnalyticsHandler.IUseCase
 		platformAnalyticsHandler.IUseCase
 		infrastructureHandler.IUseCase
+		resourceCalendarHandler.IUseCase
 		adminAuditHandler.IUseCase
 		errorJournalHandler.IUseCase
 		mailHandler.IUseCase
@@ -99,6 +101,7 @@ func (h *Handler) Init(router *gin.Engine) {
 		mailHandler.NewMailAPIHandler(h.useCase, h.prot).Init(baseAPI)
 
 		infrastructureHandler.NewInfrastructureAPIHandler(h.useCase, h.prot).Init(baseAPI)
+		resourceCalendarHandler.NewResourceCalendarAPIHandler(h.useCase, h.prot).Init(baseAPI)
 
 		// Participant routes live on the event's own tenant subdomain, so
 		// they need the Origin-resolved tenant on top of the PermSelf gate;

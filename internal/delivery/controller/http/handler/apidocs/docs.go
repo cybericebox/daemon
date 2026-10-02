@@ -10354,6 +10354,100 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/resources": {
+            "get": {
+                "description": "What the organizer sees: the allocated size of the event's reservation, what its running objects use, what is free, the window, the buffer and the estimate for future dynamic tasks, whether the reservation is covered, and the change requests with their status. Never names a laboratory. Reserved is false when the platform admin set no reservation for the event. A new task of a running event deploys only if the reservation holds it for all teams; otherwise it is refused (code 72508, \"not enough reserved resources, request an extension\").",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Resources of the event (organizer)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.eventResourcesDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/resources/change-requests": {
+            "post": {
+                "description": "Sends the platform admin a request to change the event's reservation: the size, the window (the tail gap still applies on top of a later end) and/or the estimate for future dynamic tasks, with a reason. One request waits at a time (409 while one is pending); extending the existing reservation is the way. 404 when the event has no reservation. The admin approves or rejects it; the organizer is told the outcome.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Ask for a change of the event's resources (organizer)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "change",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceCalendar.requestChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.organizerChangeDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/results": {
             "get": {
                 "produces": [
@@ -14477,6 +14571,180 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/test-labs/bookings": {
+            "get": {
+                "description": "The author's booked windows that have not ended.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "My test laboratory bookings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/resourceCalendar.bookingDTO"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Reserves room in the calendar for the author's test laboratory (for example 2 hours from HH:MM, 15 minutes to 8 hours, at most 14 days ahead, 3 bookings at once). The laboratory started inside the window uses the booking. When the window does not fit, 409 with the nearest window that does (\"nearest_from\" in the error context).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Book a window for a test laboratory",
+                "parameters": [
+                    {
+                        "description": "booking",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceCalendar.bookRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.bookingDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/test-labs/bookings/{bookingID}": {
+            "delete": {
+                "description": "The author's own booking; its room is free at once.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Cancel a test laboratory booking",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "booking ID",
+                        "name": "bookingID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/test-labs/room": {
+            "get": {
+                "description": "For a catalog author: whether a test laboratory of this size starts now and how (inside the author's booked window, the guaranteed pool, or room no event has reserved), or, when there is none, the start of the nearest free window the author can book. Nothing is held. Size is the laboratory's total (the catalog shows it per exercise).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Does a test laboratory fit now",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "laboratory CPU, millicores",
+                        "name": "cpu",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "laboratory memory, bytes",
+                        "name": "memory",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "largest device CPU, millicores",
+                        "name": "deviceCpu",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "largest device memory, bytes",
+                        "name": "deviceMemory",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "how long it will run (default 120)",
+                        "name": "leaseMinutes",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.testLabRoomDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}": {
             "get": {
                 "produces": [
@@ -15838,6 +16106,571 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/infrastructure.agentAdminResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/alarms": {
+            "get": {
+                "description": "Reservations that cannot be served as promised: not_placed (a team fits no agent), agent_lost (an agent they are placed on is gone, disabled, below the requirements or without capacity), agent_shrunk (its capacity fell below what is placed on it), not_connected (the connected capacity at the deploy lead is below the reservation; escalates at 24 h, 2 h and the lead). Open alarms first. Super admins are also notified through the notification system and the error journal (kind lab_readiness). Requires infrastructure.read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Readiness alarms",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "1 lists only open alarms",
+                        "name": "open",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/resourceCalendar.alarmDTO"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/alarms/{alarmID}/acknowledge": {
+            "post": {
+                "description": "Records that an admin saw the alarm and closes its inbox request; the alarm stays open while its cause lasts. Requires infrastructure.write.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Acknowledge a readiness alarm",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "alarm ID",
+                        "name": "alarmID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.alarmDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/capacity": {
+            "get": {
+                "description": "The capacity of every agent as the calendar uses it: the recorded tenant quota (no quota is no limit on that resource), the device maximum, whether the agent is connected (its capacity was read recently) and, for an agent that is not used, why (disabled, below_requirements, no_capacity). PerNodeRoomReported is false while agents do not report per-node room: an agent then counts as one node. Requires infrastructure.read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Resource calendar capacity",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.capacityDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/change-requests": {
+            "get": {
+                "description": "The organizers' requests to change an event's reservation (size, window, estimate for future dynamic tasks) with their reason, newest first, with what the reservation holds now. Requires infrastructure.read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Resource change requests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "pending, approved or rejected",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "only this event",
+                        "name": "eventID",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/resourceCalendar.changeRequestDTO"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/change-requests/{requestID}/decision": {
+            "post": {
+                "description": "Approving extends the existing reservation (size, estimate, window; the tail gap still applies on top of a later end) and places it again keeping every team that still fits. If it no longer fits by packing it is refused with 409 unless AllowConflicts is set (the reservation is then not covered and an alarm is raised). Nothing is moved automatically. Requires infrastructure.write.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Approve or reject a resource change request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "change request ID",
+                        "name": "requestID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "decision",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceCalendar.decideRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.changeRequestDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/events/{eventID}/reservation": {
+            "get": {
+                "description": "The event's reservation: size, window, where it is placed, whether it is covered, its conflicts and open alarms. 404 when the event has none. Requires infrastructure.read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "The reservation of an event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "eventID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.reservationResultDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Creates or updates the reservation (platform admin only). Size = the resource plan of the event per team x teams + the buffer (default 15%) + the organizer's estimate for future dynamic tasks; the window runs from the stand deploy lead (plus a readiness margin) to the event end + the tail gap (default and minimum 1 h, the admin may set more). The reservation is placed over the agents by packing: a team stays whole on one agent, the fewest agents are used, then agent priority, and elevated tasks only go to agents whose maxima fit. A changed reservation keeps every team that still fits where it is. One that does not fit is refused with 409 (the context names the first conflicting slot) unless AllowConflicts is set; it is then kept, marked not covered, and an alarm is raised. DryRun reports the placement and conflicts without saving. Requires infrastructure.write.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Set the reservation of an event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "eventID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reservation",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceCalendar.setReservationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.reservationResultDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "The room is free at once and the event's alarms close. Requires infrastructure.write.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Cancel the reservation of an event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "eventID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/recheck": {
+            "post": {
+                "description": "Completes the teams that had no agent when capacity appeared (it only adds, nothing placed is moved), raises, escalates and resolves the readiness alarms. The same check runs periodically. Requires infrastructure.write.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Run the readiness check now",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/reservations/{reservationID}/replan": {
+            "post": {
+                "description": "The admin's manual answer to an alarm (an agent is back or a new one was added): the reservation is placed again over the agents that are used, keeping every team that still fits where it is. Refused with 409 when it still does not fit, unless AllowConflicts is set. Requires infrastructure.write.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Place a reservation again",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "reservation ID",
+                        "name": "reservationID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "options",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/resourceCalendar.replanRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.reservationResultDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/settings": {
+            "get": {
+                "description": "The guaranteed minimum pool for test laboratories. Requires infrastructure.read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Resource calendar settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.settingsDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "The minimum room test laboratories always have (always on, never reserved by events). A pool that the reservations of the next 30 days no longer leave room for is refused with 409 unless AllowConflicts is set; the conflicts are returned. Requires infrastructure.write.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Set the guaranteed test pool",
+                "parameters": [
+                    {
+                        "description": "pool",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/resourceCalendar.setSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.setSettingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/stats": {
+            "get": {
+                "description": "Allocated, used and free room now, per agent (allocated = the teams placed there by the reservations active now, used = what the running objects request) and per event (allocated = the reservation, used = its running objects), with the guaranteed test pool, what test laboratories hold, the pending change requests and the open alarms. Requires infrastructure.read.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Resource calendar statistics",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.statsDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/infrastructure/calendar/timeline": {
+            "get": {
+                "description": "The calendar over a range of 15-minute slots (at most 31 days): the reservations (events, test bookings) as rectangles with where they are placed, the total reserved over time, the capacity of the agents that are used (enabled, meeting the platform requirements, with a recorded capacity), the conflicts (an agent over capacity, a team without an agent, the guaranteed test pool that does not fit) and the open readiness alarms. Feasibility is checked by packing, never by adding free room across agents. MaintenanceReported is false: agents do not report maintenance windows yet. Requires infrastructure.read (super_admin only).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "infrastructure"
+                ],
+                "summary": "Resource calendar timeline",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "range start, RFC3339 (aligned down to a slot)",
+                        "name": "from",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "range end, RFC3339 (aligned up to a slot)",
+                        "name": "to",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/resourceCalendar.timelineDTO"
                                         }
                                     }
                                 }
@@ -31915,6 +32748,776 @@ const docTemplate = `{
                 "RoleUser",
                 "RolePublic"
             ]
+        },
+        "resourceCalendar.agentCapacityDTO": {
+            "type": "object",
+            "properties": {
+                "CPUUnlimited": {
+                    "type": "boolean"
+                },
+                "Capacity": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Connected": {
+                    "type": "boolean"
+                },
+                "DeviceMax": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "MemoryUnlimited": {
+                    "type": "boolean"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Priority": {
+                    "type": "integer"
+                },
+                "Used": {
+                    "type": "boolean"
+                },
+                "Why": {
+                    "description": "Why says why the agent is not used: disabled, below_requirements, no_capacity.",
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.agentStatDTO": {
+            "type": "object",
+            "properties": {
+                "Allocated": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Capacity": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Connected": {
+                    "type": "boolean"
+                },
+                "Free": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "InUse": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Priority": {
+                    "type": "integer"
+                },
+                "Used": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "resourceCalendar.alarmDTO": {
+            "type": "object",
+            "properties": {
+                "AckedAt": {
+                    "type": "string"
+                },
+                "AckedBy": {
+                    "type": "string"
+                },
+                "AgentID": {
+                    "type": "string"
+                },
+                "AgentName": {
+                    "type": "string"
+                },
+                "EventID": {
+                    "type": "string"
+                },
+                "EventName": {
+                    "type": "string"
+                },
+                "EventTag": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Kind": {
+                    "type": "string",
+                    "enum": [
+                        "not_placed",
+                        "agent_lost",
+                        "agent_shrunk",
+                        "not_connected"
+                    ]
+                },
+                "RaisedAt": {
+                    "type": "string"
+                },
+                "ReservationID": {
+                    "type": "string"
+                },
+                "ResolvedAt": {
+                    "type": "string"
+                },
+                "Shortage": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Stage": {
+                    "description": "Stage is how far the escalation went (0 first sight, 1 a day before the deploy lead, 2 two hours before, 3 at the lead).",
+                    "type": "integer"
+                },
+                "Units": {
+                    "type": "integer"
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.amountDTO": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
+                }
+            }
+        },
+        "resourceCalendar.bookRequest": {
+            "type": "object",
+            "properties": {
+                "DurationMinutes": {
+                    "description": "DurationMinutes is 15 to 480.",
+                    "type": "integer"
+                },
+                "LargestDevice": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Size": {
+                    "description": "Size is the laboratory's total (the exercise totals the catalog shows); LargestDevice its largest device.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                },
+                "Start": {
+                    "description": "Start is the wanted start (aligned down to a 15-minute slot).",
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.bookingDTO": {
+            "type": "object",
+            "properties": {
+                "From": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Size": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "To": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.capacityDTO": {
+            "type": "object",
+            "properties": {
+                "Agents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.agentCapacityDTO"
+                    }
+                },
+                "CPUUnlimited": {
+                    "type": "boolean"
+                },
+                "MemoryUnlimited": {
+                    "type": "boolean"
+                },
+                "PerNodeRoomReported": {
+                    "type": "boolean"
+                },
+                "TestPool": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Total": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                }
+            }
+        },
+        "resourceCalendar.changeRequestDTO": {
+            "type": "object",
+            "properties": {
+                "CurrentFrom": {
+                    "type": "string"
+                },
+                "CurrentSize": {
+                    "description": "Current is what the reservation holds now; the admin decides against it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                },
+                "CurrentTo": {
+                    "type": "string"
+                },
+                "DecidedAt": {
+                    "type": "string"
+                },
+                "DecidedBy": {
+                    "type": "string"
+                },
+                "DecisionNote": {
+                    "type": "string"
+                },
+                "Dynamic": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "EventID": {
+                    "type": "string"
+                },
+                "EventName": {
+                    "type": "string"
+                },
+                "EventTag": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "RequestedAt": {
+                    "type": "string"
+                },
+                "RequestedBy": {
+                    "type": "string"
+                },
+                "ReservationID": {
+                    "type": "string"
+                },
+                "Size": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Status": {
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "approved",
+                        "rejected"
+                    ]
+                },
+                "WindowEnd": {
+                    "type": "string"
+                },
+                "WindowStart": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.conflictDTO": {
+            "type": "object",
+            "properties": {
+                "From": {
+                    "type": "string"
+                },
+                "PoolShort": {
+                    "type": "boolean"
+                },
+                "ReservationIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Short": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "To": {
+                    "type": "string"
+                },
+                "Unplaced": {
+                    "type": "integer"
+                }
+            }
+        },
+        "resourceCalendar.decideRequest": {
+            "type": "object",
+            "properties": {
+                "AllowConflicts": {
+                    "description": "AllowConflicts keeps an approved change that no longer fits by packing (the reservation is then not covered).",
+                    "type": "boolean"
+                },
+                "Approve": {
+                    "type": "boolean"
+                },
+                "Note": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.eventResourcesDTO": {
+            "type": "object",
+            "properties": {
+                "Allocated": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "BufferPercent": {
+                    "description": "BufferPercent and Dynamic are part of Allocated: the buffer and the estimate for future dynamic tasks.",
+                    "type": "integer"
+                },
+                "Changes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.organizerChangeDTO"
+                    }
+                },
+                "Covered": {
+                    "description": "Covered: the reservation is placed in full. False means the platform admin has been alerted.",
+                    "type": "boolean"
+                },
+                "Dynamic": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Free": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "From": {
+                    "type": "string"
+                },
+                "InUse": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Reserved": {
+                    "description": "Reserved is false when the event has no reservation (nothing else is set then).",
+                    "type": "boolean"
+                },
+                "Teams": {
+                    "type": "integer"
+                },
+                "To": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.eventStatDTO": {
+            "type": "object",
+            "properties": {
+                "Allocated": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Covered": {
+                    "type": "boolean"
+                },
+                "EventID": {
+                    "type": "string"
+                },
+                "EventName": {
+                    "type": "string"
+                },
+                "EventTag": {
+                    "type": "string"
+                },
+                "Free": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "From": {
+                    "type": "string"
+                },
+                "InUse": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "ReservationID": {
+                    "type": "string"
+                },
+                "To": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.organizerChangeDTO": {
+            "type": "object",
+            "properties": {
+                "DecidedAt": {
+                    "type": "string"
+                },
+                "DecisionNote": {
+                    "type": "string"
+                },
+                "Dynamic": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "RequestedAt": {
+                    "type": "string"
+                },
+                "Size": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Status": {
+                    "type": "string",
+                    "enum": [
+                        "pending",
+                        "approved",
+                        "rejected"
+                    ]
+                },
+                "WindowEnd": {
+                    "type": "string"
+                },
+                "WindowStart": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.replanRequest": {
+            "type": "object",
+            "properties": {
+                "AllowConflicts": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "resourceCalendar.requestChangeRequest": {
+            "type": "object",
+            "properties": {
+                "Dynamic": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "Size": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "WindowEnd": {
+                    "type": "string"
+                },
+                "WindowStart": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.reservationDTO": {
+            "type": "object",
+            "properties": {
+                "Alarms": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.alarmDTO"
+                    }
+                },
+                "BufferPercent": {
+                    "type": "integer"
+                },
+                "Covered": {
+                    "description": "Covered: every team has an agent and no slot of the window is over capacity.",
+                    "type": "boolean"
+                },
+                "Dynamic": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "EventID": {
+                    "type": "string"
+                },
+                "EventName": {
+                    "type": "string"
+                },
+                "EventTag": {
+                    "type": "string"
+                },
+                "From": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Kind": {
+                    "type": "string",
+                    "enum": [
+                        "event",
+                        "test_booking"
+                    ]
+                },
+                "LargestDevice": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "OwnerID": {
+                    "type": "string"
+                },
+                "PerTeam": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "Placement": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.shareDTO"
+                    }
+                },
+                "Size": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "TailGapMinutes": {
+                    "type": "integer"
+                },
+                "Teams": {
+                    "type": "integer"
+                },
+                "To": {
+                    "type": "string"
+                },
+                "Unplaced": {
+                    "type": "integer"
+                },
+                "Used": {
+                    "description": "Used is what the event's running objects request now.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                }
+            }
+        },
+        "resourceCalendar.reservationResultDTO": {
+            "type": "object",
+            "properties": {
+                "Conflicts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.conflictDTO"
+                    }
+                },
+                "Reservation": {
+                    "$ref": "#/definitions/resourceCalendar.reservationDTO"
+                },
+                "Saved": {
+                    "description": "Saved is false for a dry run.",
+                    "type": "boolean"
+                }
+            }
+        },
+        "resourceCalendar.segmentDTO": {
+            "type": "object",
+            "properties": {
+                "From": {
+                    "type": "string"
+                },
+                "Reserved": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "To": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.setReservationRequest": {
+            "type": "object",
+            "properties": {
+                "AllowConflicts": {
+                    "description": "AllowConflicts keeps a reservation that does not fit by packing (it is then not covered).",
+                    "type": "boolean"
+                },
+                "BufferPercent": {
+                    "description": "BufferPercent overrides the default buffer (15).",
+                    "type": "integer"
+                },
+                "DryRun": {
+                    "description": "DryRun only reports what would happen.",
+                    "type": "boolean"
+                },
+                "Dynamic": {
+                    "description": "Dynamic is the estimate for tasks that appear later.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                },
+                "PerTeam": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "TailGapMinutes": {
+                    "description": "TailGapMinutes is the gap after the event end; never shorter than the default (60), may be more.",
+                    "type": "integer"
+                },
+                "Teams": {
+                    "type": "integer"
+                },
+                "WindowEnd": {
+                    "type": "string"
+                },
+                "WindowStart": {
+                    "description": "WindowStart and WindowEnd override the window; WindowEnd is the event end (the gap is added).",
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.setSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "AllowConflicts": {
+                    "description": "AllowConflicts keeps a pool that the reservations of the next month no longer leave room for.",
+                    "type": "boolean"
+                },
+                "TestPool": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                }
+            }
+        },
+        "resourceCalendar.setSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "Conflicts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.conflictDTO"
+                    }
+                },
+                "Settings": {
+                    "$ref": "#/definitions/resourceCalendar.settingsDTO"
+                }
+            }
+        },
+        "resourceCalendar.settingsDTO": {
+            "type": "object",
+            "properties": {
+                "TestPool": {
+                    "description": "TestPool is the guaranteed minimum for test laboratories: always on, never reserved by events.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendar.shareDTO": {
+            "type": "object",
+            "properties": {
+                "AgentID": {
+                    "type": "string"
+                },
+                "AgentName": {
+                    "type": "string"
+                },
+                "Units": {
+                    "type": "integer"
+                }
+            }
+        },
+        "resourceCalendar.statsDTO": {
+            "type": "object",
+            "properties": {
+                "Agents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.agentStatDTO"
+                    }
+                },
+                "At": {
+                    "type": "string"
+                },
+                "Events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.eventStatDTO"
+                    }
+                },
+                "OpenAlarms": {
+                    "type": "integer"
+                },
+                "PendingChangeRequests": {
+                    "type": "integer"
+                },
+                "TestLabsHeld": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "TestPool": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                }
+            }
+        },
+        "resourceCalendar.testLabRoomDTO": {
+            "type": "object",
+            "properties": {
+                "Available": {
+                    "type": "boolean"
+                },
+                "NearestFrom": {
+                    "description": "NearestFrom is the start of the nearest free window when not available (null: none within the horizon).",
+                    "type": "string"
+                },
+                "Via": {
+                    "description": "Via says how it is admitted: booking, pool or free.",
+                    "type": "string",
+                    "enum": [
+                        "booking",
+                        "pool",
+                        "free",
+                        ""
+                    ]
+                }
+            }
+        },
+        "resourceCalendar.timelineDTO": {
+            "type": "object",
+            "properties": {
+                "Capacity": {
+                    "$ref": "#/definitions/resourceCalendar.capacityDTO"
+                },
+                "Conflicts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.conflictDTO"
+                    }
+                },
+                "From": {
+                    "type": "string"
+                },
+                "MaintenanceReported": {
+                    "description": "MaintenanceReported is false: the agents do not report maintenance windows yet.",
+                    "type": "boolean"
+                },
+                "Reservations": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.reservationDTO"
+                    }
+                },
+                "Reserved": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.segmentDTO"
+                    }
+                },
+                "SlotMinutes": {
+                    "type": "integer"
+                },
+                "To": {
+                    "type": "string"
+                }
+            }
         },
         "response.Response": {
             "type": "object",
