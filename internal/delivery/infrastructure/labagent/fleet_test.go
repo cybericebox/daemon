@@ -604,3 +604,28 @@ func TestFeaturesOfReadsTheGroupPodSizingAndSendsExplicitSizes(t *testing.T) {
 		t.Fatalf("CreateLabGroups carries the sizes explicitly, rounded up to a preset size (20m and 25m are the 128Mi size, 31m): %+v", item)
 	}
 }
+
+// A group whose pod, rounded up to a preset size, passes the largest preset is a planning error: it is refused
+// with the no-agent-fits error and never sent unrounded or oversized.
+func TestGroupPodAboveTheLargestPresetIsRefused(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	vpn := infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 2 << 30}, PerUnit: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 1 << 30}, MaxUnits: 20}
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: vpn}})
+	f.bm.Features = f.am.Features
+	small := infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 2}}
+	if v := f.fleet.NeedFit(small); v != nil {
+		t.Fatalf("2 users make 4Gi, the largest preset: %+v", v)
+	}
+	big := infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 5}}
+	v := f.fleet.NeedFit(big)
+	if v == nil || v.Resource != infraModel.FitMemory || v.Requested != 7<<30 || v.Max != 4<<30 {
+		t.Fatalf("7Gi passes the 4Gi largest preset: %+v", v)
+	}
+	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, big), "e-1-t-9"); !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
+		t.Fatalf("an oversized group is refused: %v", err)
+	}
+	if _, placed := f.store.groups["e-1-t-9"]; placed {
+		t.Fatal("a refused group is not placed")
+	}
+}

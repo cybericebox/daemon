@@ -208,6 +208,23 @@ func (p Policy) RoundUp(a Amount) Amount {
 	return a
 }
 
+// RoundUpWithin is RoundUp that says false when the amount passes the largest preset (an empty amount is within).
+func (p Policy) RoundUpWithin(a Amount) (Amount, bool) {
+	if a == (Amount{}) {
+		return a, true
+	}
+	preset, ok := p.fit(a)
+	return preset.Amount, ok
+}
+
+// LargestPreset is the largest size the platform offers.
+func (p Policy) LargestPreset() Amount {
+	if len(p.Presets) == 0 {
+		return Amount{}
+	}
+	return p.Presets[len(p.Presets)-1].Amount
+}
+
 // Validate checks the settings agree: presets exist and every size divides the next larger one, the default is
 // one of them, and the ceiling is not below the frame.
 func (p Policy) Validate() error {

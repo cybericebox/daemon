@@ -229,7 +229,7 @@ func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, err
 		var fitting []*Member
 		var worst *infraModel.FitViolation
 		for _, m := range enabled {
-			v := fitOf(m, need)
+			v := f.fitOf(m, need)
 			if v == nil {
 				fitting = append(fitting, m)
 			} else if worst == nil || v.Max > worst.Max {
@@ -291,7 +291,7 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	}
 	// A group that lives on an agent stays there: a lab that passes its maxima is refused here, with the
 	// same error the placement gives.
-	if v := fitOf(m, need); v != nil {
+	if v := f.fitOf(m, need); v != nil {
 		return noAgentFits(v)
 	}
 	// The agent says what it offers: a topology that needs more is refused here, before anything is created.

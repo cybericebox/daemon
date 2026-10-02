@@ -121,12 +121,41 @@ func (f *Fleet) PersistenceAvailable() bool {
 
 // fitOf is the first limit of the member that the need passes; nil when it fits or the agent has not
 // reported its limits (it refuses on its own if it must).
-func fitOf(m *Member, need infraModel.PlacementNeed) *infraModel.FitViolation {
+func (f *Fleet) fitOf(m *Member, need infraModel.PlacementNeed) *infraModel.FitViolation {
 	feat := m.Features.Get()
 	if feat == nil {
 		return nil
 	}
-	return feat.Limits.Fits(need)
+	if v := feat.Limits.Fits(need); v != nil {
+		return v
+	}
+	return f.groupPodsFit(feat.Limits, need.Plan)
+}
+
+// groupPodsFit refuses a plan whose group pods, rounded up to a preset size, would pass the largest preset or the
+// agent's per-pod maximum (its sizing at the most units, rounded the same way): never an oversized group, never an
+// unrounded one. The violation names the memory.
+func (f *Fleet) groupPodsFit(l infraModel.LimitsFeature, plan infraModel.GroupPlan) *infraModel.FitViolation {
+	policy := f.Policy()
+	for _, pod := range []struct {
+		sizing infraModel.GroupPodSizing
+		units  int
+	}{{l.VPN, plan.MaxUsers}, {l.Gateway, plan.InternetLabs}} {
+		if !pod.sizing.Reported() {
+			continue
+		}
+		size := pod.sizing.Size(pod.units)
+		rounded, ok := policy.RoundUpWithin(size)
+		if !ok {
+			return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: size.MemoryBytes, Max: policy.LargestPreset().MemoryBytes}
+		}
+		if pod.sizing.MaxUnits > 0 {
+			if podMax, fits := policy.RoundUpWithin(pod.sizing.Size(int(pod.sizing.MaxUnits))); fits && !rounded.Within(podMax) {
+				return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: rounded.MemoryBytes, Max: podMax.MemoryBytes}
+			}
+		}
+	}
+	return nil
 }
 
 func noAgentFits(v *infraModel.FitViolation) error {
@@ -176,7 +205,7 @@ func (f *Fleet) eligible() []*Member {
 func (f *Fleet) NeedFit(need infraModel.PlacementNeed) *infraModel.FitViolation {
 	var worst *infraModel.FitViolation
 	for _, m := range f.eligible() {
-		v := fitOf(m, need)
+		v := f.fitOf(m, need)
 		if v == nil {
 			return nil
 		}

@@ -189,3 +189,13 @@ func TestApproveTakesARequestedOrSmallerOfferedBlock(t *testing.T) {
 		}
 	}
 }
+
+func TestRoundUpWithinSaysFalseAbovetheLargestPreset(t *testing.T) {
+	p := DefaultPolicy()
+	got, ok := p.RoundUpWithin(Amount{20, 40 * mi})
+	assert.True(t, ok)
+	assert.Equal(t, Amount{31, 128 * mi}, got)
+	_, ok = p.RoundUpWithin(Amount{100, 5 * gi})
+	assert.False(t, ok)
+	assert.Equal(t, Amount{1000, 4 * gi}, p.LargestPreset())
+}
