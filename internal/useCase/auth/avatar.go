@@ -117,8 +117,15 @@ func (u *AuthUseCase) UploadAvatar(
 	if err != nil {
 		return err
 	}
-	full := io.MultiReader(bytes.NewReader(head), io.LimitReader(r, MaxAvatarBytes))
-	file, err := u.avatar.UploadFile(ctx, "avatar", sniffed, full, userID)
+	rest, err := io.ReadAll(io.LimitReader(r, MaxAvatarBytes))
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read image").Err()
+	}
+	data := append(head, rest...)
+	if err = mediaModel.CheckImagePixels(data); err != nil {
+		return err
+	}
+	file, err := u.avatar.UploadFile(ctx, "avatar", sniffed, bytes.NewReader(data), userID)
 	if err != nil {
 		return err
 	}
@@ -234,8 +241,15 @@ func (u *AuthUseCase) syncProviderAvatar(ctx context.Context, userID uuid.UUID, 
 	if err != nil {
 		return ""
 	}
-	full := io.MultiReader(bytes.NewReader(head), body)
-	file, err := u.avatar.UploadFile(ctx, "avatar", sniffed, full, userID)
+	rest, err := io.ReadAll(body)
+	if err != nil {
+		return ""
+	}
+	data := append(head, rest...)
+	if mediaModel.CheckImagePixels(data) != nil {
+		return ""
+	}
+	file, err := u.avatar.UploadFile(ctx, "avatar", sniffed, bytes.NewReader(data), userID)
 	if err != nil {
 		return ""
 	}

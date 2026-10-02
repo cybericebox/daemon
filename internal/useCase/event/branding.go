@@ -71,6 +71,9 @@ func (u *EventUseCase) UploadEventLogo(ctx context.Context, eventID, userID uuid
 	if contentType != "image/png" && contentType != "image/jpeg" && contentType != "image/webp" {
 		return "", eventModel.ErrEventLogoTypeInvalid.Err()
 	}
+	if err = mediaModel.CheckImagePixels(data); err != nil {
+		return "", err
+	}
 	file, err := u.brandMedia.UploadFile(ctx, "event-logo", contentType, bytes.NewReader(data), userID)
 	if err != nil {
 		return "", err
@@ -136,6 +139,9 @@ func (u *EventUseCase) UploadEventPreviewPicture(ctx context.Context, eventID, u
 	contentType := http.DetectContentType(data)
 	if contentType != "image/png" && contentType != "image/jpeg" && contentType != "image/webp" {
 		return "", eventModel.ErrEventPreviewPictureTypeInvalid.Err()
+	}
+	if err = mediaModel.CheckImagePixels(data); err != nil {
+		return "", err
 	}
 	file, err := u.brandMedia.UploadFile(ctx, "event-preview-picture", contentType, bytes.NewReader(data), userID)
 	if err != nil {

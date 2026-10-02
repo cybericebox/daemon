@@ -6,7 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// MediaObjectCode — next free detail code: 4
+// MediaObjectCode — next free detail code: 6
 var (
 	// multi-site (category A): the media use case (no such file row) and the
 	// email template image route (a file that is not a template image) — the
@@ -23,4 +23,11 @@ var (
 			WithMessage("File exceeds the maximum upload size").WithDetailCode(2)
 	ErrMediaStorageNotConfigured = err.ErrConflict.WithObjectCode(model.MediaObjectCode).
 					WithMessage("File storage is not configured").WithDetailCode(3)
+	// ErrImageTooLarge: the picture has more pixels than IMAGE_MAX_PIXELS: a small file can hold a huge canvas
+	// that stops the tab of everyone who views it, and costs memory to scale for mail.
+	ErrImageTooLarge = err.ErrInvalidData.WithObjectCode(model.MediaObjectCode).
+				WithMessage("The picture has too many pixels").WithDetailCode(4)
+	// ErrImageInvalid: the picture's header cannot be read.
+	ErrImageInvalid = err.ErrInvalidData.WithObjectCode(model.MediaObjectCode).
+			WithMessage("The picture cannot be read").WithDetailCode(5)
 )

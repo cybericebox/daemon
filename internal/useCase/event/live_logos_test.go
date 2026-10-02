@@ -1,6 +1,7 @@
 package event
 
 import (
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -9,11 +10,11 @@ import (
 )
 
 func TestLiveLogoTypeSniffsContent(t *testing.T) {
-	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	png := realPNG("")
 	if kind, _, err := liveLogoType(png); err != nil || kind != "image/png" {
 		t.Fatalf("png = %q, %v", kind, err)
 	}
-	webp := []byte("RIFF\x00\x00\x00\x00WEBPVP8 ")
+	webp, _ := base64.StdEncoding.DecodeString("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==") // a real 1x1 lossless picture
 	if kind, _, err := liveLogoType(webp); err != nil || kind != "image/webp" {
 		t.Fatalf("webp = %q, %v", kind, err)
 	}

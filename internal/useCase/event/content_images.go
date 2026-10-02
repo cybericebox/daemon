@@ -41,6 +41,9 @@ func (u *EventUseCase) UploadEventContentImage(ctx context.Context, eventID, use
 	if contentType != "image/png" && contentType != "image/jpeg" && contentType != "image/webp" && contentType != "image/gif" {
 		return "", eventModel.ErrEventPreviewPictureTypeInvalid.Err()
 	}
+	if err = mediaModel.CheckImagePixels(data); err != nil {
+		return "", err
+	}
 	file, err := u.brandMedia.UploadFile(ctx, "event-content-image", contentType, bytes.NewReader(data), userID)
 	if err != nil {
 		return "", err

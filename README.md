@@ -220,6 +220,7 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `MAIL_QUOTA_WINDOW` | `24h` | Window of the daily quota. |
 | `MAIL_MAX_PER_SECOND_LIMIT` / `MAIL_DAILY_QUOTA_LIMIT` | `10000` / `1000000000` | Upper bounds an admin may set for a provider limit. |
 | `AVATAR_MAX_BYTES` | `5242880` | Avatar size. |
+| `IMAGE_MAX_PIXELS` | `16000000` | Most pixels (width times height) of an uploaded picture; a larger one is refused at upload. |
 | `FLAG_ANSWER_MAX_BYTES` | `512` | Longest answer to a task that is accepted; a longer one is refused before it is stored. |
 | `EVENT_LOGO_MAX_BYTES` | `2097152` | Event logo. |
 | `EVENT_PREVIEW_PICTURE_MAX_BYTES` | `5242880` | Event preview picture. |

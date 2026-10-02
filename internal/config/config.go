@@ -110,6 +110,9 @@ type (
 		// FlagAnswerMaxBytes is the longest answer to a task that is accepted; a longer one is refused before it is stored.
 		FlagAnswerMaxBytes int `env:"FLAG_ANSWER_MAX_BYTES" envDefault:"512"`
 
+		// ImageMaxPixels is the most pixels (width times height) an uploaded picture may have.
+		ImageMaxPixels int64 `env:"IMAGE_MAX_PIXELS" envDefault:"16000000"`
+
 		// Upload limits, bytes.
 		AvatarMaxBytes              int64 `env:"AVATAR_MAX_BYTES"                envDefault:"5242880"`
 		EventLogoMaxBytes           int   `env:"EVENT_LOGO_MAX_BYTES"            envDefault:"2097152"`
@@ -376,6 +379,7 @@ func (c TunablesConfig) Validate() error {
 		}
 	}
 	sizes := map[string]int64{
+		"IMAGE_MAX_PIXELS":            c.ImageMaxPixels,
 		"FLAG_ANSWER_MAX_BYTES":       int64(c.FlagAnswerMaxBytes),
 		"EVENT_DEFAULT_MAX_TEAM_SIZE": int64(c.EventDefaultMaxTeamSize), "MAIL_DAILY_QUOTA_LIMIT": int64(c.MailDailyQuotaLimit),
 		"AVATAR_MAX_BYTES": c.AvatarMaxBytes, "EVENT_LOGO_MAX_BYTES": int64(c.EventLogoMaxBytes),

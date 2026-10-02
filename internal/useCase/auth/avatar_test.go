@@ -1,9 +1,12 @@
 package auth_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	stdpng "image/png"
 	"io"
 	"strings"
 	"testing"
@@ -102,11 +105,11 @@ func (f *fakeLegacyStorage) Remove(_ context.Context, key string) error {
 	return f.removeErr
 }
 
-// pngBytes is a minimal valid PNG signature plus padding: enough for
-// http.DetectContentType to sniff "image/png".
+// pngBytes is a real 1x1 PNG followed by n bytes of padding (readers stop at the end of the picture).
 func pngBytes(n int) []byte {
-	sig := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
-	return append(sig, strings.Repeat("x", n)...)
+	var png bytes.Buffer
+	_ = stdpng.Encode(&png, image.NewGray(image.Rect(0, 0, 1, 1)))
+	return append(png.Bytes(), strings.Repeat("x", n)...) // a real 1x1 picture, then padding after its end
 }
 
 func newAvatarUC(t *testing.T, storage auth.IStorageClient, avatar auth.IAvatarStorage) (*auth.AuthUseCase, *postgresMocks.MockQuerier) {

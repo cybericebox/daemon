@@ -8,6 +8,7 @@ import (
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
+	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	mailUseCase "github.com/cybericebox/daemon/internal/useCase/mail"
@@ -30,6 +31,7 @@ func applyTunables(t config.TunablesConfig) {
 
 	authUseCase.MaxAvatarBytes = t.AvatarMaxBytes
 	challengeAttempt.MaxAnswerBytes = t.FlagAnswerMaxBytes
+	mediaModel.MaxImagePixels = t.ImageMaxPixels
 	eventUseCase.ConfigureUploadLimits(eventUseCase.UploadLimits{
 		Logo: int64(t.EventLogoMaxBytes), PreviewPicture: int64(t.EventPreviewPictureMaxBytes),
 		ContentImage: int64(t.EventContentImageMaxBytes), LiveLogo: int64(t.LiveLogoMaxBytes),

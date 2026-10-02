@@ -131,7 +131,7 @@ func TestEventContentImageIsIndependentAndEventScoped(t *testing.T) {
 	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.Event, error) { return postgres.Event{ID: id}, nil }).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID}, previewRefs: []uuid.UUID{uuid.Must(uuid.NewV7())}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
-	png := []byte("\x89PNG\r\n\x1a\ncontent")
+	png := realPNG("content")
 	url, err := u.UploadEventContentImage(ctx, eventID, actor, bytes.NewReader(png), int64(len(png)))
 	require.NoError(t, err)
 	require.Equal(t, "/api/events/"+eventID.String()+"/content-images/"+fileID.String(), url)
@@ -183,7 +183,7 @@ func TestEventLogoUploadReadAndReset(t *testing.T) {
 	if _, err := u.UploadEventLogo(ctx, eventID, actor, bytes.NewReader(make([]byte, (2<<20)+1)), (2<<20)+1); err == nil {
 		t.Fatal("accepted oversized logo")
 	}
-	png := []byte("\x89PNG\r\n\x1a\nminimal")
+	png := realPNG("minimal")
 	url, err := u.UploadEventLogo(ctx, eventID, actor, bytes.NewReader(png), int64(len(png)))
 	want := "/api/events/" + eventID.String() + "/logo/" + fileID.String()
 	if err != nil || url != want || media.mime != "image/png" {
@@ -215,7 +215,7 @@ func TestEventBrandDraftDoesNotPublishAndRejectsOtherActor(t *testing.T) {
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID}, nil).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
-	png := []byte("\x89PNG\r\n\x1a\nminimal")
+	png := realPNG("minimal")
 	gotID, err := u.UploadEventBrandDraft(ctx, eventID, actor, "logo", bytes.NewReader(png), int64(len(png)))
 	if err != nil || gotID != fileID || media.file.Name != "event-brand-draft:"+eventID.String()+":logo" {
 		t.Fatalf("draft: id=%s name=%q err=%v", gotID, media.file.Name, err)
@@ -252,7 +252,7 @@ func TestEventPreviewPictureUploadReadAndReset(t *testing.T) {
 		}
 		return 1, nil
 	})
-	png := []byte("\x89PNG\r\n\x1a\nminimal")
+	png := realPNG("minimal")
 	gotURL, err := u.UploadEventPreviewPicture(ctx, eventID, actor, bytes.NewReader(png), int64(len(png)))
 	if err != nil || gotURL != wantURL || len(media.previewRefs) != 1 || media.previewRefs[0] != fileID {
 		t.Fatalf("upload: %q, refs %+v, %v", gotURL, media.previewRefs, err)
@@ -290,7 +290,7 @@ func TestEventPreviewPictureUploadRestoresReferenceOnConfigConflict(t *testing.T
 	q.EXPECT().UpdateEventConfig(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	media := &brandMediaFake{file: mediaModel.File{ID: newFileID, ContentType: "image/png"}, previewRefs: []uuid.UUID{oldFileID}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media, PublicAPIBaseURL: "https://api.example.test"})
-	png := []byte("\x89PNG\r\n\x1a\nminimal")
+	png := realPNG("minimal")
 	if _, err := u.UploadEventPreviewPicture(ctx, eventID, actor, bytes.NewReader(png), int64(len(png))); err == nil {
 		t.Fatal("expected config conflict")
 	}

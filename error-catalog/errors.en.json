@@ -70,6 +70,8 @@
   "20962": "IP placeholder link needs http or https, a port from 1 to 65535 and a path starting with / and no mask",
   "20964": "Device state persistence is allowed only on container devices, with a debounce between 1s and 24h",
   "21002": "File exceeds the maximum upload size",
+  "21004": "The picture has too many pixels",
+  "21005": "The picture cannot be read",
   "21104": "Event tag is invalid",
   "21105": "Event archive time must be after availability time",
   "21106": "Event name is too long",

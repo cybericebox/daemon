@@ -96,6 +96,11 @@ func (u *EventUseCase) UploadEventBrandDraft(ctx context.Context, eventID, userI
 	if !brandContentTypeAllowed(kind, contentType) {
 		return uuid.Nil, eventModel.ErrEventBrandDraftInvalid.Err()
 	}
+	if mediaModel.IsRasterType(contentType) {
+		if err = mediaModel.CheckImagePixels(data); err != nil {
+			return uuid.Nil, err
+		}
+	}
 	file, err := u.brandMedia.UploadFile(ctx, brandDraftName(eventID, kind), contentType, bytes.NewReader(data), userID)
 	if err != nil {
 		return uuid.Nil, err

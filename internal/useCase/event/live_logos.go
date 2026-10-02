@@ -17,9 +17,9 @@ import (
 func liveLogoType(data []byte) (string, []byte, error) {
 	switch http.DetectContentType(data) {
 	case "image/png":
-		return "image/png", data, nil
+		return "image/png", data, mediaModel.CheckImagePixels(data)
 	case "image/webp":
-		return "image/webp", data, nil
+		return "image/webp", data, mediaModel.CheckImagePixels(data)
 	}
 	if mediaModel.LooksLikeSVG(data) {
 		clean, err := mediaModel.SanitizeSVG(data)

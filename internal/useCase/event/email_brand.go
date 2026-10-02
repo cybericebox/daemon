@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"sync"
 
 	_ "golang.org/x/image/webp"
 	_ "image/jpeg"
@@ -45,6 +46,14 @@ func (u *EventUseCase) ResolveEventEmailBrand(ctx context.Context, eventID uuid.
 	if len(ids) == 0 {
 		return brand, nil
 	}
+	// The scaled logo is the same for every mail of the event: it is made once per file, not for each message.
+	if png, ok := scaledLogos.get(ids[0]); ok {
+		if e, err := u.events.GetByID(ctx, eventID); err == nil {
+			brand.LogoAlt = e.Name
+		}
+		brand.Logo, brand.LogoContentType = png, branding.LogoContentType
+		return brand, nil
+	}
 	reader, _, err := u.brandMedia.StreamFile(ctx, ids[0])
 	if err != nil {
 		return emailUseCase.Brand{}, err
@@ -64,6 +73,7 @@ func (u *EventUseCase) ResolveEventEmailBrand(ctx context.Context, eventID uuid.
 	if err != nil {
 		return emailUseCase.Brand{}, err
 	}
+	scaledLogos.put(ids[0], brand.Logo)
 	brand.LogoContentType = branding.LogoContentType
 	return brand, nil
 }
@@ -100,4 +110,34 @@ func emailLogoPNG(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return encoded.Bytes(), nil
+}
+
+// scaledLogos keeps the scaled email logos by file id (a file never changes under its id). It is bounded: when
+// full, an arbitrary entry makes room.
+var scaledLogos = &logoCache{items: map[uuid.UUID][]byte{}}
+
+const maxScaledLogos = 128
+
+type logoCache struct {
+	mu    sync.Mutex
+	items map[uuid.UUID][]byte
+}
+
+func (c *logoCache) get(id uuid.UUID) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	png, ok := c.items[id]
+	return png, ok
+}
+
+func (c *logoCache) put(id uuid.UUID, png []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.items) >= maxScaledLogos {
+		for key := range c.items {
+			delete(c.items, key)
+			break
+		}
+	}
+	c.items[id] = png
 }
