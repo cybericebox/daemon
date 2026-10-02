@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -99,14 +100,39 @@ func (u *AuthUseCase) ConfirmEmailChange(ctx context.Context, bsCode string) err
 	}
 
 	// One aggregate write replaces the old email+confirmed statement pair.
+	var oldEmail, name string
 	if err = u.mutateUser(ctx, data.UserID, func(user *userModel.User) error {
+		oldEmail, name = user.Email, user.FirstName
 		user.ChangeEmail(data.Email, time.Now())
 		user.ConfirmEmail(time.Now())
 		return nil
 	}); err != nil {
 		return err
 	}
+	// A Google identity vouched for the OLD address: it no longer proves anything about the account,
+	// so the link goes (the account has a password: the request needed it).
+	if _, err = u.users.DeleteProviders(ctx, data.UserID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to unlink the providers").Err()
+	}
 	// The address is the recovery channel of the account: every session ends,
 	// the owner signs in again (this link works without a session).
-	return u.revokeSessions(ctx, data.UserID, uuid.Nil)
+	if err = u.revokeSessions(ctx, data.UserID, uuid.Nil); err != nil {
+		return err
+	}
+	u.noticeOldEmail(ctx, data.UserID, oldEmail, name, data.Email)
+	return nil
+}
+
+// noticeOldEmail tells the address the account just left what happened (the owner who did not make
+// the change still gets a way back: a password reset). The change is done; a failed mail is logged.
+func (u *AuthUseCase) noticeOldEmail(ctx context.Context, userID uuid.UUID, oldEmail, name, newEmail string) {
+	if oldEmail == "" || oldEmail == newEmail {
+		return
+	}
+	override := userModel.User{ID: userID, Email: oldEmail, FirstName: name}
+	if err := u.notifier.Notify(ctx, userID, notificationPayloads.EmailChangedPayload{
+		Name: name, NewEmail: newEmail, ResetURL: u.cfg.Hosts.IDURL("/forgot-password"),
+	}, dispatchModel.WithRecipient(override)); err != nil {
+		log.Error().Err(err).Str("user_id", userID.String()).Msg("Failed to notify the old address of an email change")
+	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	payloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/useCase/auth"
@@ -100,7 +101,7 @@ func TestRequestEmailChange_PasswordlessAccountMustSetOne(t *testing.T) {
 }
 
 func TestConfirmEmailChange_Success(t *testing.T) {
-	uc, repo, _ := newEmailUC(t)
+	uc, repo, notifier := newEmailUC(t)
 	uid := uuid.Must(uuid.NewV7())
 	data, _ := json.Marshal(temporalCodeModel.TemporalEmailChangeCodeData{UserID: uid, Email: "new@b.test"})
 	bsCode := strings.ReplaceAll(base64.StdEncoding.EncodeToString([]byte(rawCode)), "=", "")
@@ -109,7 +110,7 @@ func TestConfirmEmailChange_Success(t *testing.T) {
 	}, nil)
 	repo.EXPECT().DeleteTemporalCode(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().GetUserByEmail(gomock.Any(), "new@b.test").Return(postgres.User{}, pgx.ErrNoRows)
-	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).Return(postgres.User{Status: "active"}, nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).Return(postgres.User{ID: uid, Email: "old@b.test", FirstName: "Jane", Status: "active"}, nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, arg postgres.UpdateUserParams) (int64, error) {
 			if arg.Email != "new@b.test" || !arg.EmailConfirmed {
@@ -117,10 +118,17 @@ func TestConfirmEmailChange_Success(t *testing.T) {
 			}
 			return 1, nil
 		})
+	// The Google identity vouched for the old address: it is unlinked.
+	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
 	// M1: the recovery address changed — every session ends.
 	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
 
 	if err := uc.ConfirmEmailChange(context.Background(), bsCode); err != nil {
 		t.Fatalf("confirm: %v", err)
+	}
+	// The OLD address is told, with the new one and a way back.
+	p, ok := notifier.lastPayload.(payloads.EmailChangedPayload)
+	if !ok || notifier.calls != 1 || notifier.lastRecipientEmail != "old@b.test" || p.NewEmail != "new@b.test" || p.Name != "Jane" || !strings.HasSuffix(p.ResetURL, "/forgot-password") {
+		t.Fatalf("old-address notice: calls=%d to=%q payload=%+v", notifier.calls, notifier.lastRecipientEmail, notifier.lastPayload)
 	}
 }
