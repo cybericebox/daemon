@@ -3,8 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/mail"
 	"net/netip"
+	"net/url"
 	"regexp"
 	"time"
 
@@ -160,12 +162,16 @@ type (
 	}
 
 	PostgresConfig struct {
-		Host           string `env:"HOST"     envDefault:"localhost"`
-		Port           string `env:"PORT"     envDefault:"5432"`
-		User           string `env:"USER"     envDefault:"postgres"`
-		Password       string `env:"PASSWORD" envDefault:"postgres"`
-		Database       string `env:"DB"       envDefault:"cybericebox_dev"`
-		SSLMode        string `env:"SSL_MODE" envDefault:"disable"`
+		Host string `env:"HOST"     envDefault:"localhost"`
+		Port string `env:"PORT"     envDefault:"5432"`
+		User string `env:"USER"     envDefault:"postgres"`
+		// Password has no default: a database with a well-known password is not a default to ship.
+		Password string `env:"PASSWORD,required"`
+		Database string `env:"DB"       envDefault:"cybericebox_dev"`
+		// SSLMode defaults to verify-full: the connection is encrypted and the server's certificate and name are
+		// checked. An operator that talks to a database on a trusted local network sets another mode (disable
+		// for a development database).
+		SSLMode        string `env:"SSL_MODE" envDefault:"verify-full"`
 		MigrationsPath string // derived in populateForAllConfig
 	}
 
@@ -502,7 +508,14 @@ func (c RetentionConfig) Policy() retentionModel.Policy {
 
 // DSN builds a pgx connection string.
 func (p PostgresConfig) DSN() string {
-	return "postgres://" + p.User + ":" + p.Password + "@" + p.Host + ":" + p.Port + "/" + p.Database + "?sslmode=" + p.SSLMode
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(p.User, p.Password),
+		Host:     net.JoinHostPort(p.Host, p.Port),
+		Path:     "/" + p.Database,
+		RawQuery: url.Values{"sslmode": {p.SSLMode}}.Encode(),
+	}
+	return u.String()
 }
 
 func MustGetConfig() *Config {

@@ -96,9 +96,9 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `POSTGRES_HOST` | `localhost` | Host. |
 | `POSTGRES_PORT` | `5432` | Port. |
 | `POSTGRES_USER` | `postgres` | User. |
-| `POSTGRES_PASSWORD` | `postgres` | Password. Always set your own outside development. |
+| `POSTGRES_PASSWORD` | required | Password; there is no default and the daemon does not start without it. |
 | `POSTGRES_DB` | `cybericebox_dev` | Database name. |
-| `POSTGRES_SSL_MODE` | `disable` | pgx `sslmode`. |
+| `POSTGRES_SSL_MODE` | `verify-full` | pgx `sslmode`. The default encrypts and checks the server certificate and name; set another mode (for example `disable` for a local development database) only for a trusted network. |
 
 ### Authentication and secrets
 

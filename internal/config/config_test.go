@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/url"
 	"os"
 	"testing"
 	"time"
@@ -11,7 +12,7 @@ import (
 // testHosts is the host set every test config starts with: the hosts are required, so MustGetConfig
 // stops without them.
 var testHosts = map[string]string{
-	"SUPPORT_EMAIL": "support@example.test", "MAIN_HOST": "example.test", "API_HOST": "api.example.test", "ID_HOST": "id.example.test",
+	"POSTGRES_PASSWORD": "test-password", "SUPPORT_EMAIL": "support@example.test", "MAIN_HOST": "example.test", "API_HOST": "api.example.test", "ID_HOST": "id.example.test",
 	"ADMIN_HOST": "admin.example.test", "EXERCISES_HOST": "exercises.example.test", "EVENT_DOMAIN": "example.test",
 }
 
@@ -340,5 +341,34 @@ func TestSessionAndDocsDefaults(t *testing.T) {
 		if MustGetConfig().HTTPController.EnableSwaggerDocs {
 			t.Fatalf("docs must be off in %s", env)
 		}
+	}
+}
+
+func TestPostgresDSNEscapesWhatNeedsEscaping(t *testing.T) {
+	dsn := PostgresConfig{Host: "db.example.test", Port: "5432", User: "app user", Password: "p@ss:w/rd?#%", Database: "cyber ice", SSLMode: "verify-full"}.DSN()
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("the DSN must parse: %v (%s)", err, dsn)
+	}
+	password, _ := parsed.User.Password()
+	if parsed.User.Username() != "app user" || password != "p@ss:w/rd?#%" || parsed.Host != "db.example.test:5432" ||
+		parsed.Path != "/cyber ice" || parsed.Query().Get("sslmode") != "verify-full" {
+		t.Fatalf("parsed back wrongly: %s", dsn)
+	}
+	ipv6 := PostgresConfig{Host: "::1", Port: "5432", User: "u", Password: "p", Database: "d", SSLMode: "disable"}.DSN()
+	if parsed, err = url.Parse(ipv6); err != nil || parsed.Host != "[::1]:5432" {
+		t.Fatalf("IPv6 host: %s %v", ipv6, err)
+	}
+}
+
+func TestPostgresDefaultsAreSafe(t *testing.T) {
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	cfg := MustGetConfig()
+	if cfg.Infrastructure.Postgres.SSLMode != "verify-full" {
+		t.Fatalf("sslmode default = %q", cfg.Infrastructure.Postgres.SSLMode)
+	}
+	t.Setenv("POSTGRES_SSL_MODE", "disable")
+	if got := MustGetConfig().Infrastructure.Postgres.SSLMode; got != "disable" {
+		t.Fatalf("an operator may override it: %q", got)
 	}
 }
