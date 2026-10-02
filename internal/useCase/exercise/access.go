@@ -260,15 +260,21 @@ func (u *ExerciseUseCase) AuthorizeFileUpload(ctx context.Context, actor Actor) 
 	return exerciseModel.ErrExerciseForbidden.Err()
 }
 
-// AuthorizeFileDownload: admins, the uploader, and readers of any exercise
-// whose versions reference the file.
+// AuthorizeFileDownload: the uploader, and readers of an exercise whose
+// versions reference the file (admins read every exercise). The media table is
+// shared by every kind of file (answer files, avatars, event images), so an
+// exercises.read role is NOT a licence for any media id: a file no exercise
+// version references is not an exercise file, whoever asks.
 func (u *ExerciseUseCase) AuthorizeFileDownload(ctx context.Context, actor Actor, file mediaModel.File) error {
-	if actor.has(rbac.PermExercisesRead) || (file.CreatedBy.Valid && file.CreatedBy.UUID == actor.UserID) {
+	if file.CreatedBy.Valid && file.CreatedBy.UUID == actor.UserID {
 		return nil
 	}
 	ids, err := u.exercises.FileExerciseIDs(ctx, file.ID, mediaModel.RefTypeExerciseVersion)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get file references").Err()
+	}
+	if len(ids) > 0 && actor.has(rbac.PermExercisesRead) {
+		return nil
 	}
 	for _, id := range ids {
 		if _, authErr := u.AuthorizeExercise(ctx, actor, id, ActionReadPublished); authErr == nil {

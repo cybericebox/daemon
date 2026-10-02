@@ -11,6 +11,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
@@ -99,4 +100,48 @@ func TestSetExerciseAccess_NoneClearsSelection(t *testing.T) {
 	if err != nil || view.AccessLevel != "none" || len(view.AccessEvents) != 0 {
 		t.Fatalf("view=%+v err=%v", view.ExerciseScopeView, err)
 	}
+}
+
+// M10: exercises.read (admin, admin_viewer) is not a licence for any media
+// id. The media table also holds participants' answer files and avatars.
+func TestAuthorizeFileDownload_AdminsReadOnlyExerciseFiles(t *testing.T) {
+	ctx := context.Background()
+	fileID, uploader := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	file := mediaModel.File{ID: fileID, CreatedBy: uuid.NullUUID{UUID: uploader, Valid: true}}
+	referenced := func(q *postgresMocks.MockQuerier, ids ...uuid.UUID) {
+		q.EXPECT().ListFileExerciseIDs(gomock.Any(), postgres.ListFileExerciseIDsParams{FileID: fileID, RefType: mediaModel.RefTypeExerciseVersion}).Return(ids, nil).AnyTimes()
+	}
+	newUCFor := func(t *testing.T) (*exercise.ExerciseUseCase, *postgresMocks.MockQuerier) {
+		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+		return exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()}), q
+	}
+
+	t.Run("admin_viewer: an answer file no exercise references", func(t *testing.T) {
+		uc, q := newUCFor(t)
+		referenced(q) // no exercise version references it
+		err := uc.AuthorizeFileDownload(ctx, exercise.Actor{UserID: uuid.Must(uuid.NewV7()), Role: rbac.RoleAdminViewer}, file)
+		if !errors.Is(err, mediaModel.ErrFileNotFound.Err()) {
+			t.Fatalf("an unreferenced media file must not be served to a read-only admin: %v", err)
+		}
+	})
+	t.Run("admin: the same", func(t *testing.T) {
+		uc, q := newUCFor(t)
+		referenced(q)
+		if err := uc.AuthorizeFileDownload(ctx, exercise.Actor{UserID: uuid.Must(uuid.NewV7()), Role: rbac.RoleAdmin}, file); !errors.Is(err, mediaModel.ErrFileNotFound.Err()) {
+			t.Fatalf("err = %v", err)
+		}
+	})
+	t.Run("an exercise's file is readable by admins", func(t *testing.T) {
+		uc, q := newUCFor(t)
+		referenced(q, uuid.Must(uuid.NewV7()))
+		if err := uc.AuthorizeFileDownload(ctx, exercise.Actor{UserID: uuid.Must(uuid.NewV7()), Role: rbac.RoleAdminViewer}, file); err != nil {
+			t.Fatalf("an exercise file must stay readable: %v", err)
+		}
+	})
+	t.Run("the uploader reads their pending upload", func(t *testing.T) {
+		uc, _ := newUCFor(t)
+		if err := uc.AuthorizeFileDownload(ctx, exercise.Actor{UserID: uploader, Role: rbac.RoleUser}, file); err != nil {
+			t.Fatalf("uploader: %v", err)
+		}
+	})
 }
