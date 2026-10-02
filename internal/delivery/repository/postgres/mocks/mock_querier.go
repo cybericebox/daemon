@@ -8050,6 +8050,21 @@ func (mr *MockQuerierMockRecorder) PurgeExpiredSessions(ctx, arg any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeExpiredSessions", reflect.TypeOf((*MockQuerier)(nil).PurgeExpiredSessions), ctx, arg)
 }
 
+// PurgeExpiredTemporalCodes mocks base method.
+func (m *MockQuerier) PurgeExpiredTemporalCodes(ctx context.Context, arg postgres.PurgeExpiredTemporalCodesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PurgeExpiredTemporalCodes", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PurgeExpiredTemporalCodes indicates an expected call of PurgeExpiredTemporalCodes.
+func (mr *MockQuerierMockRecorder) PurgeExpiredTemporalCodes(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeExpiredTemporalCodes", reflect.TypeOf((*MockQuerier)(nil).PurgeExpiredTemporalCodes), ctx, arg)
+}
+
 // PurgeFinishedSignals mocks base method.
 func (m *MockQuerier) PurgeFinishedSignals(ctx context.Context, arg postgres.PurgeFinishedSignalsParams) (int64, error) {
 	m.ctrl.T.Helper()

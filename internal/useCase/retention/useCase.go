@@ -39,6 +39,7 @@ type (
 		ListInactiveAccountsToDelete(ctx context.Context, warnedBefore time.Time, batchSize int32) ([]retentionModel.WarnedAccount, error)
 		PurgeExpiredEventInvitations(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error)
 		PurgeUnconfirmedAccounts(ctx context.Context, createdBefore, now time.Time, batchSize int32) (int64, error)
+		PurgeExpiredTemporalCodes(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error)
 	}
 
 	// Notifier is the dispatch port (satisfied by the aggregate *NotificationDispatcher).
@@ -139,6 +140,11 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return u.store.PurgeUnconfirmedAccounts(ctx, cut.PendingAccountsCreatedBefore, started, batch)
 	})
 
+	// One-time codes are useless after their expiry (an email change code holds an address).
+	temporalCodes := step(func(ctx context.Context) (int64, error) {
+		return u.store.PurgeExpiredTemporalCodes(ctx, started, batch)
+	})
+
 	err := errors.Join(errs...)
 	log.Info().Err(err).
 		Int64("sessions", sessions).
@@ -152,6 +158,7 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		Int64("deleted_accounts_purged", deletedAccounts).
 		Int64("expired_invitations", invitations).
 		Int64("unconfirmed_accounts", unconfirmedAccounts).
+		Int64("expired_temporal_codes", temporalCodes).
 		Dur("took", u.now().Sub(started)).
 		Msg("data retention: purge run")
 	if err != nil {

@@ -34,6 +34,7 @@ type Queries interface {
 	MarkInactivityWarned(context.Context, postgres.MarkInactivityWarnedParams) (int64, error)
 	ListInactiveAccountsToDelete(context.Context, postgres.ListInactiveAccountsToDeleteParams) ([]postgres.ListInactiveAccountsToDeleteRow, error)
 	PurgeExpiredEventInvitations(context.Context, postgres.PurgeExpiredEventInvitationsParams) (int64, error)
+	PurgeExpiredTemporalCodes(context.Context, postgres.PurgeExpiredTemporalCodesParams) (int64, error)
 	PurgeUnconfirmedAccounts(context.Context, postgres.PurgeUnconfirmedAccountsParams) (int64, error)
 }
 
@@ -144,6 +145,12 @@ func (r *Repository) ListInactiveAccountsToDelete(ctx context.Context, warnedBef
 // be accepted since before expiredBefore.
 func (r *Repository) PurgeExpiredEventInvitations(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error) {
 	return r.q.PurgeExpiredEventInvitations(ctx, postgres.PurgeExpiredEventInvitationsParams{ExpiredBefore: expiredBefore, BatchSize: batchSize})
+}
+
+// PurgeExpiredTemporalCodes removes up to batchSize one-time codes (reset, confirmation, email change, setup
+// links) that expired before expiredBefore.
+func (r *Repository) PurgeExpiredTemporalCodes(ctx context.Context, expiredBefore time.Time, batchSize int32) (int64, error) {
+	return r.q.PurgeExpiredTemporalCodes(ctx, postgres.PurgeExpiredTemporalCodesParams{ExpiredBefore: expiredBefore, BatchSize: batchSize})
 }
 
 // PurgeUnconfirmedAccounts removes up to batchSize accounts whose

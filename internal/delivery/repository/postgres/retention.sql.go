@@ -202,6 +202,11 @@ WITH batch AS (
     SET pseudonym = NULL
     WHERE user_id IN (SELECT id FROM batch)
       AND pseudonym IS NOT NULL
+), temporal AS (
+    -- Reset and confirmation links still in the mailbox; an email change code holds the new address.
+    DELETE FROM temporal_codes WHERE data ->> 'UserID' IN (SELECT id::text FROM batch)
+), presence AS (
+    DELETE FROM event_participant_presence WHERE user_id IN (SELECT id FROM batch)
 )
 UPDATE users
 SET personal_data_purged_at = $1::timestamptz,
@@ -445,6 +450,30 @@ type PurgeExpiredSessionsParams struct {
 // Each statement is idempotent: a re-run matches nothing already purged.
 func (q *Queries) PurgeExpiredSessions(ctx context.Context, arg PurgeExpiredSessionsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, purgeExpiredSessions, arg.ExpiredBefore, arg.BatchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const purgeExpiredTemporalCodes = `-- name: PurgeExpiredTemporalCodes :execrows
+DELETE FROM temporal_codes doomed
+WHERE doomed.id IN (SELECT code.id
+                    FROM temporal_codes code
+                    WHERE code.expires_at < $1
+                    ORDER BY code.expires_at, code.id
+                    LIMIT $2)
+`
+
+type PurgeExpiredTemporalCodesParams struct {
+	ExpiredBefore time.Time `json:"expired_before"`
+	BatchSize     int32     `json:"batch_size"`
+}
+
+// One-time codes (reset, confirmation, email change, setup links) are useless after their expiry; an email
+// change code holds an address, so none stays longer than needed.
+func (q *Queries) PurgeExpiredTemporalCodes(ctx context.Context, arg PurgeExpiredTemporalCodesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeExpiredTemporalCodes, arg.ExpiredBefore, arg.BatchSize)
 	if err != nil {
 		return 0, err
 	}

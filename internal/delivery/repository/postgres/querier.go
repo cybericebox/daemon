@@ -1207,6 +1207,9 @@ type Querier interface {
 	// concurrent writer (or a second pass) keep its rows; the next run gets them.
 	// Each statement is idempotent: a re-run matches nothing already purged.
 	PurgeExpiredSessions(ctx context.Context, arg PurgeExpiredSessionsParams) (int64, error)
+	// One-time codes (reset, confirmation, email change, setup links) are useless after their expiry; an email
+	// change code holds an address, so none stays longer than needed.
+	PurgeExpiredTemporalCodes(ctx context.Context, arg PurgeExpiredTemporalCodesParams) (int64, error)
 	// Signals finished (delivered to every hook, or given up) before the cutoff;
 	// their hook executions go with them (cascade).
 	PurgeFinishedSignals(ctx context.Context, arg PurgeFinishedSignalsParams) (int64, error)

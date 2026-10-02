@@ -224,6 +224,9 @@ VALUES ($1, $2, 1, $3, $4, 1, $5)`, event, userID, rtNow, team.ID, pseudonyms[us
 		rtExec(t, db, `INSERT INTO user_vpn_configs (id, user_id, scope, config, created_at, updated_at) VALUES ($1, $2, 'platform', 'wg', $3, $3)`, uuid.Must(uuid.NewV7()), userID, rtNow)
 		rtExec(t, db, `INSERT INTO notification_user_settings (user_id, notification_type, channel, enabled) VALUES ($1, 'flag_accepted', 'email', false)`, userID)
 		rtExec(t, db, `INSERT INTO event_managers (event_id, user_id, role, created_at) VALUES ($1, $2, 1, $3)`, event, userID, rtNow)
+		rtExec(t, db, `INSERT INTO event_participant_presence (event_id, user_id, last_seen_at) VALUES ($1, $2, $3)`, event, userID, rtNow)
+		rtExec(t, db, `INSERT INTO temporal_codes (id, code, type, data, expires_at) VALUES ($1, $2, 1, $3, $4)`,
+			uuid.Must(uuid.NewV7()), "code-"+userID.String(), `{"UserID":"`+userID.String()+`","Email":"new@test.test"}`, rtNow.Add(time.Hour))
 	}
 	publicName := func(teamID, captain uuid.UUID) string {
 		var name string
@@ -252,13 +255,20 @@ VALUES ($1, $2, 1, $3, $4, 1, $5)`, event, userID, rtNow, team.ID, pseudonyms[us
 	if n, err := repo.PurgeDeletedAccounts(ctx, rtNow, 10); err != nil || n != 1 {
 		t.Fatalf("PurgeDeletedAccounts: n=%d err=%v, want the one deleted account", n, err)
 	}
-	for _, table := range []string{"event_form_answers", "in_app_notifications", "user_vpn_configs", "notification_user_settings", "event_managers"} {
+	for _, table := range []string{"event_form_answers", "in_app_notifications", "user_vpn_configs", "notification_user_settings", "event_managers", "event_participant_presence"} {
 		if left := rtCount(t, db, `SELECT count(*) FROM `+table+` WHERE user_id = $1`, gone); left != 0 {
 			t.Errorf("%s: %d rows of the deleted account left", table, left)
 		}
 		if left := rtCount(t, db, `SELECT count(*) FROM `+table+` WHERE user_id = $1`, kept); left != 1 {
 			t.Errorf("%s: the active account's row must stay, got %d", table, left)
 		}
+	}
+	// A one-time code of the deleted account (an email change code holds the new address) goes with it.
+	if left := rtCount(t, db, `SELECT count(*) FROM temporal_codes WHERE data ->> 'UserID' = $1`, gone.String()); left != 0 {
+		t.Errorf("temporal codes of the deleted account left: %d", left)
+	}
+	if left := rtCount(t, db, `SELECT count(*) FROM temporal_codes WHERE data ->> 'UserID' = $1`, kept.String()); left != 1 {
+		t.Errorf("the active account's code must stay, got %d", left)
 	}
 	if left := rtCount(t, db, `SELECT count(*) FROM notification_dispatches WHERE recipient_user_id = $1`, gone); left != 0 {
 		t.Errorf("delivery journal of the deleted account left: %d", left)
@@ -361,5 +371,22 @@ func TestRetentionInactivityQueries(t *testing.T) {
 	// Not due yet: warned inside the grace period.
 	if early, _ := repo.ListInactiveAccountsToDelete(ctx, warnedAt, 10); len(early) != 0 {
 		t.Fatalf("an account inside its grace period is not deleted: %+v", early)
+	}
+}
+
+func TestRetentionPurgeExpiredTemporalCodes(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := retentionRepo.New(db.Queries)
+	user := mustSeedUser(t, db, "retention-codes@test.test")
+	for name, expires := range map[string]time.Time{"old": rtNow.Add(-time.Hour), "older": rtNow.Add(-48 * time.Hour), "live": rtNow.Add(time.Hour)} {
+		rtExec(t, db, `INSERT INTO temporal_codes (id, code, type, data, expires_at) VALUES ($1, $2, 1, $3, $4)`,
+			uuid.Must(uuid.NewV7()), name, `{"UserID":"`+user.String()+`"}`, expires)
+	}
+	if n := rtDrain(t, 1, func() (int64, error) { return repo.PurgeExpiredTemporalCodes(ctx, rtNow, 1) }); n != 2 {
+		t.Fatalf("purged %d, want the two expired codes", n)
+	}
+	if left := rtCount(t, db, `SELECT count(*) FROM temporal_codes WHERE code = 'live'`); left != 1 {
+		t.Fatal("a code that has not expired must stay")
 	}
 }

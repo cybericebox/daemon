@@ -211,6 +211,7 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `JOB_COMPLETED_RETENTION` / `JOB_FAILED_RETENTION` | `1h` / `24h` | How long the job queue keeps finished jobs (succeeded; cancelled or discarded). Notification job arguments hold addresses, names and links. |
 | `SMTP_ALLOWED_PORTS` | `25,465,587,2525` | Ports an organizer may use for an event SMTP. |
 | `SSE_MAX_LIFETIME` | `30m` | Longest life of one event stream; the client reconnects. |
 | `LIVE_SCREEN_LINK_MAX_TTL` | `1440h` | Cap of «until the event ends» for a live screen link. |

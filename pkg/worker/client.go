@@ -14,8 +14,19 @@ import (
 
 type (
 	workerClient struct {
-		client *river.Client[pgx.Tx]
-		pool   *pgxpool.Pool
+		client    *river.Client[pgx.Tx]
+		pool      *pgxpool.Pool
+		retention Retention
+	}
+
+	// Retention is how long River keeps finished jobs. The arguments of a job carry what the job needs
+	// (an address, a name, a link), so a finished job is not kept longer than its failure can be looked at;
+	// zero keeps River's own default.
+	Retention struct {
+		// Completed is how long a job that succeeded stays.
+		Completed time.Duration
+		// Failed is how long a cancelled or discarded job stays.
+		Failed time.Duration
 	}
 
 	IEnqueuerFactory interface {
@@ -28,9 +39,10 @@ type (
 	}
 )
 
-func NewWorkerClient(pool *pgxpool.Pool) *workerClient {
+func NewWorkerClient(pool *pgxpool.Pool, retention Retention) *workerClient {
 	return &workerClient{
-		pool: pool,
+		pool:      pool,
+		retention: retention,
 	}
 }
 
@@ -49,9 +61,12 @@ func (wc *workerClient) Initialize(ctx context.Context, registry iWorkerRegistry
 
 	client, err := river.NewClient[pgx.Tx](
 		driver, &river.Config{
-			Queues:       map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}},
-			Workers:      workers,
-			PeriodicJobs: registry.PeriodicJobs(),
+			Queues:                      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}},
+			Workers:                     workers,
+			PeriodicJobs:                registry.PeriodicJobs(),
+			CompletedJobRetentionPeriod: wc.retention.Completed,
+			CancelledJobRetentionPeriod: wc.retention.Failed,
+			DiscardedJobRetentionPeriod: wc.retention.Failed,
 		},
 	)
 	if err != nil {

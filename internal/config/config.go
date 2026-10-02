@@ -94,6 +94,10 @@ type (
 		// EventDefaultMaxTeamSize is the team size limit of a new event.
 		EventDefaultMaxTeamSize int32 `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
 
+		// JobCompletedRetention and JobFailedRetention are how long the job queue keeps finished jobs: the
+		// arguments of a notification job hold an address, a name and a link, so they do not stay for days.
+		JobCompletedRetention time.Duration `env:"JOB_COMPLETED_RETENTION" envDefault:"1h"`
+		JobFailedRetention    time.Duration `env:"JOB_FAILED_RETENTION"    envDefault:"24h"`
 		// SMTPAllowedPorts are the ports an organizer may use for an event SMTP server.
 		SMTPAllowedPorts []int `env:"SMTP_ALLOWED_PORTS" envDefault:"25,465,587,2525"`
 
@@ -371,7 +375,7 @@ func (c TunablesConfig) Validate() error {
 		"EVENT_STAND_DEPLOY_TIMEOUT": c.EventStandDeployTimeout, "SSE_MAX_LIFETIME": c.SSEMaxLifetime,
 		"LIVE_SCREEN_LINK_MAX_TTL": c.LiveScreenLinkMaxTTL, "MAIL_MAX_RATE_WAIT": c.MailMaxRateWait,
 		"MAIL_QUOTA_RETRY_AFTER": c.MailQuotaRetryAfter, "MAIL_QUOTA_RECHECK": c.MailQuotaRecheck,
-		"MAIL_QUOTA_WINDOW": c.MailQuotaWindow,
+		"MAIL_QUOTA_WINDOW": c.MailQuotaWindow, "JOB_COMPLETED_RETENTION": c.JobCompletedRetention, "JOB_FAILED_RETENTION": c.JobFailedRetention,
 	}
 	for name, v := range durations {
 		if v <= 0 {

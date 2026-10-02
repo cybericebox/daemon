@@ -190,11 +190,26 @@ WITH batch AS (
     SET pseudonym = NULL
     WHERE user_id IN (SELECT id FROM batch)
       AND pseudonym IS NOT NULL
+), temporal AS (
+    -- Reset and confirmation links still in the mailbox; an email change code holds the new address.
+    DELETE FROM temporal_codes WHERE data ->> 'UserID' IN (SELECT id::text FROM batch)
+), presence AS (
+    DELETE FROM event_participant_presence WHERE user_id IN (SELECT id FROM batch)
 )
 UPDATE users
 SET personal_data_purged_at = sqlc.arg(purged_at)::timestamptz,
     inactivity_warned_at    = NULL
 WHERE id IN (SELECT id FROM batch);
+
+-- name: PurgeExpiredTemporalCodes :execrows
+-- One-time codes (reset, confirmation, email change, setup links) are useless after their expiry; an email
+-- change code holds an address, so none stays longer than needed.
+DELETE FROM temporal_codes doomed
+WHERE doomed.id IN (SELECT code.id
+                    FROM temporal_codes code
+                    WHERE code.expires_at < sqlc.arg(expired_before)
+                    ORDER BY code.expires_at, code.id
+                    LIMIT sqlc.arg(batch_size));
 
 -- name: ClearReturnedInactivityWarnings :execrows
 -- A warned user who signed in again is active: forget the warning so the

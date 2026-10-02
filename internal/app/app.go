@@ -49,7 +49,9 @@ func Run(cfg *config.Config) {
 	cls := setupClients(cfg)
 
 	// job worker client
-	wc := worker.NewWorkerClient(repo.Pool())
+	wc := worker.NewWorkerClient(repo.Pool(), worker.Retention{
+		Completed: cfg.Tunables.JobCompletedRetention, Failed: cfg.Tunables.JobFailedRetention,
+	})
 
 	// Flag rate limits are process-wide settings read by the submit paths.
 	challengeAttempt.ChallengeRateLimit = challengeAttempt.RateLimit{Attempts: cfg.FlagRateLimit.ChallengeAttempts, Window: cfg.FlagRateLimit.ChallengeWindow}

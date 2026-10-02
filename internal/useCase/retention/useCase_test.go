@@ -82,6 +82,9 @@ func (s *fakeStore) PurgeExpiredEventInvitations(_ context.Context, before time.
 func (s *fakeStore) PurgeUnconfirmedAccounts(_ context.Context, before, _ time.Time, _ int32) (int64, error) {
 	return s.purge("pending", before)
 }
+func (s *fakeStore) PurgeExpiredTemporalCodes(_ context.Context, before time.Time, _ int32) (int64, error) {
+	return s.purge("temporal_codes", before)
+}
 func (s *fakeStore) ClearReturnedInactivityWarnings(context.Context) (int64, error) {
 	s.clearCall++
 	return s.cleared, nil
