@@ -236,9 +236,9 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 				return pErr
 			}
 			if !covered && !allowConflicts {
-				ce := calModel.ErrReservationConflict.WithContext("unplaced", r.Unplaced)
+				ce := calModel.ErrReservationConflict.WithPublicContext("unplaced", r.Unplaced)
 				if len(conflicts) > 0 {
-					ce = ce.WithContext("from", conflicts[0].From.Format(time.RFC3339))
+					ce = ce.WithPublicContext("from", conflicts[0].From.Format(time.RFC3339))
 				}
 				return ce.Err()
 			}

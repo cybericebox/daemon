@@ -310,7 +310,7 @@ func (u *ResourceCalendarUseCase) SetResourceTestPool(ctx context.Context, pool 
 			}
 		}
 		if len(conflicts) > 0 && !allowConflicts {
-			return calModel.ErrReservationConflict.WithContext("from", conflicts[0].Window.Start.Format(time.RFC3339)).Err()
+			return calModel.ErrReservationConflict.WithPublicContext("from", conflicts[0].Window.Start.Format(time.RFC3339)).Err()
 		}
 		settings = calModel.Settings{TestPool: pool, UpdatedAt: now}
 		if sErr := s.SetSettings(ctx, settings); sErr != nil {

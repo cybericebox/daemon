@@ -136,7 +136,7 @@ func noAgentFits(v *infraModel.FitViolation) error {
 	if v == nil {
 		return e.Err()
 	}
-	return e.WithContext("resource", v.Resource).WithContext("requested", v.Requested).WithContext("max", v.Max).Err()
+	return e.WithPublicContext("resource", v.Resource).WithPublicContext("requested", v.Requested).WithPublicContext("max", v.Max).Err()
 }
 
 // SetPolicy installs the platform's device resources settings: the frame an agent must meet and the

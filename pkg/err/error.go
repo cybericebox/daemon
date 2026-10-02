@@ -10,7 +10,9 @@ import (
 
 type (
 	appError struct {
-		context      map[string]any
+		context map[string]any
+		// public is the part of the context that may reach the client (see WithPublicContext).
+		public       map[string]any
 		statusCode   StatusCode
 		filePosition string
 
@@ -24,6 +26,8 @@ type (
 		Is(err error) bool
 		Equal(err error) bool
 		UnwrapNotInternalError() Error
+		// PublicContext is the context the error marked as safe for the client (WithPublicContext); never the rest.
+		PublicContext() map[string]any
 	}
 
 	ErrorCreator interface {
@@ -37,6 +41,7 @@ type (
 		WithError(err error) ErrorCreator
 		WithWrappedError(errCreator ErrorCreator) ErrorCreator
 		WithContext(key string, value any) ErrorCreator
+		WithPublicContext(key string, value any) ErrorCreator
 		WithStatusCode(statusCode StatusCode) ErrorCreator
 		WithHTTPCode(httpCode int) ErrorCreator
 		Err(skip ...int) Error
@@ -142,11 +147,40 @@ func (e appError) WithHTTPCode(httpCode int) ErrorCreator {
 
 // WithContext sets the context of the error
 func (e appError) WithContext(key string, value any) ErrorCreator {
-	if e.context == nil {
-		e.context = make(map[string]any)
+	ctx := make(map[string]any, len(e.context)+1)
+	for k, v := range e.context {
+		ctx[k] = v
 	}
-	e.context[key] = value
+	ctx[key] = value
+	e.context = ctx
 	return e
+}
+
+// WithPublicContext sets a context value that is also sent to the client in the response status (Status.Context), so a
+// frontend can act on it (the nearest free window, the frame a device exceeds). It is the only way a context value
+// leaves the server: WithContext stays internal, for logs. Use it only for values that are safe to show to whoever
+// triggered the error: never an agent name, an address, a secret or any internal detail.
+func (e appError) WithPublicContext(key string, value any) ErrorCreator {
+	e = e.WithContext(key, value).(appError)
+	public := make(map[string]any, len(e.public)+1)
+	for k, v := range e.public {
+		public[k] = v
+	}
+	public[key] = value
+	e.public = public
+	return e
+}
+
+// PublicContext returns a copy of the context marked public; nil when there is none.
+func (e appError) PublicContext() map[string]any {
+	if len(e.public) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(e.public))
+	for k, v := range e.public {
+		out[k] = v
+	}
+	return out
 }
 
 // WithDetail sets a detail of the error

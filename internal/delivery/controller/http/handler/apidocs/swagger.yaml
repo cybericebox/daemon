@@ -8641,6 +8641,12 @@ definitions:
     properties:
       code:
         type: integer
+      context:
+        additionalProperties: {}
+        description: |-
+          Context is what the error marked public (err.WithPublicContext), e.g. nearest_from; omitted when none. Nothing
+          else of an error's context is ever sent.
+        type: object
       details:
         additionalProperties: {}
         type: object

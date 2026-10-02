@@ -123,9 +123,9 @@ func (u *ResourceCalendarUseCase) leaseOf(l time.Duration) time.Duration {
 }
 
 func noRoom(a admission, lease time.Duration) error {
-	e := calModel.ErrNoTestLabRoom.WithContext("window_minutes", int(lease/time.Minute))
+	e := calModel.ErrNoTestLabRoom.WithPublicContext("window_minutes", int(lease/time.Minute))
 	if a.nearest != nil {
-		e = e.WithContext("nearest_from", a.nearest.UTC().Format(time.RFC3339))
+		e = e.WithPublicContext("nearest_from", a.nearest.UTC().Format(time.RFC3339))
 	}
 	return e.Err()
 }

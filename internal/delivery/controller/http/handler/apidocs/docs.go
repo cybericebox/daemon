@@ -33583,6 +33583,11 @@ const docTemplate = `{
                 "code": {
                     "type": "integer"
                 },
+                "context": {
+                    "description": "Context is what the error marked public (err.WithPublicContext), e.g. nearest_from; omitted when none. Nothing\nelse of an error's context is ever sent.",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
                 "details": {
                     "type": "object",
                     "additionalProperties": {}

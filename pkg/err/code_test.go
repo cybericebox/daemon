@@ -2,6 +2,7 @@ package err_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	liberr "github.com/cybericebox/daemon/pkg/err"
@@ -54,5 +55,24 @@ func TestErrorsIs_ObjectAndInformLevels(t *testing.T) {
 	}
 	if !errors.Is(actual, liberr.ErrInvalidData.Err()) {
 		t.Fatal("inform-level target must match by inform code")
+	}
+}
+
+func TestPublicContextIsOnlyWhatWasMarkedAndNeverShared(t *testing.T) {
+	base := liberr.ErrConflict
+	e := base.WithContext("agent", "eu").WithPublicContext("from", "x").Err()
+	if got := e.PublicContext(); len(got) != 1 || got["from"] != "x" {
+		t.Fatalf("public = %v", got)
+	}
+	got := e.PublicContext()
+	got["agent"] = "leak"
+	if _, leaked := e.PublicContext()["agent"]; leaked {
+		t.Fatal("the returned map must be a copy")
+	}
+	if other := base.Err().PublicContext(); other != nil {
+		t.Fatalf("the shared base error gained context: %v", other)
+	}
+	if !strings.Contains(e.Error(), "AGENT:=eu") || !strings.Contains(e.Error(), "FROM:=x") {
+		t.Fatalf("both stay in the log line: %s", e.Error())
 	}
 }

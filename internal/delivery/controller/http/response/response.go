@@ -21,6 +21,9 @@ type (
 		Code    int
 		Message string
 		Details map[string]any
+		// Context is what the error marked public (err.WithPublicContext), e.g. nearest_from; omitted when none. Nothing
+		// else of an error's context is ever sent.
+		Context map[string]any `json:",omitempty"`
 	}
 
 	Response struct {
@@ -61,6 +64,7 @@ func AbortWithStatus(ctx *gin.Context, code err.Error) {
 			Status: Status{
 				Code:    code.StatusCode().FullCode(),
 				Message: code.StatusCode().Message(),
+				Context: code.PublicContext(),
 			},
 		},
 	)

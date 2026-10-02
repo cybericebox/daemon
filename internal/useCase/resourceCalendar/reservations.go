@@ -144,9 +144,9 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 		}
 		result = ReservationResult{Reservation: view, Conflicts: conflicts}
 		if !covered && !in.AllowConflicts {
-			ce := calModel.ErrReservationConflict.WithContext("unplaced", r.Unplaced)
+			ce := calModel.ErrReservationConflict.WithPublicContext("unplaced", r.Unplaced)
 			if len(conflicts) > 0 {
-				ce = ce.WithContext("from", conflicts[0].From.Format(time.RFC3339))
+				ce = ce.WithPublicContext("from", conflicts[0].From.Format(time.RFC3339))
 			}
 			return ce.Err()
 		}
@@ -283,7 +283,7 @@ func (u *ResourceCalendarUseCase) ReplanResourceReservation(ctx context.Context,
 		}
 		result = ReservationResult{Reservation: view, Conflicts: conflicts}
 		if !covered && !allowConflicts {
-			return calModel.ErrReservationConflict.WithContext("unplaced", r.Unplaced).Err()
+			return calModel.ErrReservationConflict.WithPublicContext("unplaced", r.Unplaced).Err()
 		}
 		r.UpdatedAt = now
 		if _, err = s.UpdateReservation(ctx, r); err != nil {

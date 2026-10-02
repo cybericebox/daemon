@@ -129,8 +129,8 @@ func (u *ExerciseUseCase) RequestElevation(ctx context.Context, actor Actor, exe
 	policy := u.Policy()
 	for _, o := range policy.OutsideFrame(working.Variants) {
 		if o.AboveCeiling {
-			return ElevationView{}, exerciseModel.ErrDeviceResourcesAboveCeiling.WithContext("devices", describeOutside([]DeviceOutside{{Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes}})).
-				WithContext("ceilingCpuMillicores", policy.Ceiling.CPUMillicores).WithContext("ceilingMemoryBytes", policy.Ceiling.MemoryBytes).Err()
+			return ElevationView{}, exerciseModel.ErrDeviceResourcesAboveCeiling.WithPublicContext("devices", describeOutside([]DeviceOutside{{Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes}})).
+				WithPublicContext("ceilingCpuMillicores", policy.Ceiling.CPUMillicores).WithPublicContext("ceilingMemoryBytes", policy.Ceiling.MemoryBytes).Err()
 		}
 	}
 	approved, err := u.approvals(ctx, exerciseID)

@@ -169,8 +169,8 @@ func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseI
 	for _, v := range variants {
 		for _, d := range v.Topology.Devices {
 			if d.Type == exerciseModel.DeviceTypeContainer && policy.InvalidPreset(d) {
-				return exerciseModel.ErrDeviceResourcePresetInvalid.WithContext("variant", v.ID.String()).
-					WithContext("device", d.Name).WithContext("preset", d.ResourcePreset).Err()
+				return exerciseModel.ErrDeviceResourcePresetInvalid.WithPublicContext("variant", v.ID.String()).
+					WithPublicContext("device", d.Name).WithPublicContext("preset", d.ResourcePreset).Err()
 			}
 		}
 	}
@@ -185,8 +185,8 @@ func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseI
 		}
 	}
 	if len(above) > 0 {
-		return exerciseModel.ErrDeviceResourcesAboveCeiling.WithContext("devices", describeOutside(above)).
-			WithContext("ceilingCpuMillicores", policy.Ceiling.CPUMillicores).WithContext("ceilingMemoryBytes", policy.Ceiling.MemoryBytes).Err()
+		return exerciseModel.ErrDeviceResourcesAboveCeiling.WithPublicContext("devices", describeOutside(above)).
+			WithPublicContext("ceilingCpuMillicores", policy.Ceiling.CPUMillicores).WithPublicContext("ceilingMemoryBytes", policy.Ceiling.MemoryBytes).Err()
 	}
 	approved, err := u.approvals(ctx, exerciseID)
 	if err != nil {
@@ -199,8 +199,8 @@ func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseI
 		}
 	}
 	if len(uncovered) > 0 {
-		return exerciseModel.ErrDevicesNeedElevation.WithContext("devices", describeOutside(uncovered)).
-			WithContext("frameCpuMillicores", policy.Frame.CPUMillicores).WithContext("frameMemoryBytes", policy.Frame.MemoryBytes).Err()
+		return exerciseModel.ErrDevicesNeedElevation.WithPublicContext("devices", describeOutside(uncovered)).
+			WithPublicContext("frameCpuMillicores", policy.Frame.CPUMillicores).WithPublicContext("frameMemoryBytes", policy.Frame.MemoryBytes).Err()
 	}
 	return nil
 }
