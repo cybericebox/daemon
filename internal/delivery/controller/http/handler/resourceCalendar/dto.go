@@ -209,7 +209,7 @@ func reservationResult(v calUseCase.ReservationResult) reservationResultDTO {
 type setReservationRequest struct {
 	Teams   *int       `json:"Teams"`
 	PerTeam *amountDTO `json:"PerTeam"`
-	// BufferPercent overrides the default buffer (15).
+	// BufferPercent overrides the default buffer (0).
 	BufferPercent *int `json:"BufferPercent"`
 	// Dynamic is the estimate for tasks that appear later.
 	Dynamic *amountDTO `json:"Dynamic"`

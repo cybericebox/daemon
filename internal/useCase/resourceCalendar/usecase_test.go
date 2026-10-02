@@ -74,13 +74,14 @@ func TestEventReservationSizeWindowAndPlacement(t *testing.T) {
 	assert.True(t, res.Saved)
 	assert.True(t, res.Reservation.Covered)
 
-	// size = 8 teams x (1 CPU, 2Gi) + 15% buffer.
-	assert.Equal(t, int64(8*1000*115/100), res.Reservation.Size.CPUMillicores)
-	assert.Equal(t, int64((8*(2<<30)*115+99)/100), res.Reservation.Size.MemoryBytes)
+	// size = 8 teams x (1 CPU, 2Gi): no backend buffer (the agent keeps its own hidden packing reserve).
+	assert.Equal(t, int64(8*1000), res.Reservation.Size.CPUMillicores)
+	assert.Equal(t, int64(8*(2<<30)), res.Reservation.Size.MemoryBytes)
+	assert.Zero(t, res.Reservation.BufferPercent)
 	// window = deploy lead (30m) + readiness margin (30m) before the start .. finish + 1h tail gap.
 	assert.Equal(t, time.Date(2026, 10, 5, 7, 0, 0, 0, time.UTC), res.Reservation.From)
 	assert.Equal(t, time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC), res.Reservation.To)
-	// 8 teams of 1.15 CPU: the fewest agents - all on the first by priority (9.2 of 10 CPU).
+	// 8 teams of 1 CPU: the fewest agents - all on the first by priority (8 of 10 CPU).
 	require.Len(t, res.Reservation.Placement, 1)
 	assert.Equal(t, 8, res.Reservation.Placement[0].Units)
 	assert.Equal(t, "a", res.Reservation.Placement[0].AgentName)
@@ -244,9 +245,9 @@ func TestTaskOfARunningEventNeedsTheReservationForAllTeams(t *testing.T) {
 	assert.NoError(t, h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 50000}, 8, Amount{}), "no reservation, no check")
 	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
-	// Per-team room is 1.15 CPU / 2.3Gi.
-	assert.NoError(t, h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 1100, MemoryBytes: 2 << 30}, 8, Amount{CPUMillicores: 250}))
-	err = h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 1400, MemoryBytes: 2 << 30}, 8, Amount{})
+	// Per-team room is 1 CPU / 2Gi.
+	assert.NoError(t, h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 1000, MemoryBytes: 2 << 30}, 8, Amount{CPUMillicores: 250}))
+	err = h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 1100, MemoryBytes: 2 << 30}, 8, Amount{})
 	assert.True(t, is(err, calModel.ErrNotEnoughReserved), "does not fit for all teams: %v", err)
 	err = h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 1000, MemoryBytes: 2 << 30}, 9, Amount{})
 	assert.True(t, is(err, calModel.ErrNotEnoughReserved), "more teams than reserved")
@@ -421,8 +422,8 @@ func TestStatsAndCapacityShowAllocatedUsedFree(t *testing.T) {
 	st, err := h.uc.GetResourceCalendarStats(ctx)
 	require.NoError(t, err)
 	require.Len(t, st.Agents, 2)
-	assert.Equal(t, int64(9200), st.Agents[0].Allocated.CPUMillicores)
-	assert.Equal(t, int64(800), st.Agents[0].Free.CPUMillicores)
+	assert.Equal(t, int64(8000), st.Agents[0].Allocated.CPUMillicores)
+	assert.Equal(t, int64(2000), st.Agents[0].Free.CPUMillicores)
 	assert.Equal(t, int64(2000), st.Agents[0].InUse.CPUMillicores)
 	assert.Equal(t, int64(10000), st.Agents[1].Free.CPUMillicores)
 	require.Len(t, st.Events, 1)
@@ -562,4 +563,18 @@ func TestNewReservationAvoidsAnAgentInMaintenance(t *testing.T) {
 	require.Len(t, res.Reservation.Placement, 1)
 	assert.Equal(t, "b", res.Reservation.Placement[0].AgentName)
 	assert.True(t, res.Reservation.Covered)
+}
+
+// There is no backend buffer by default; an admin may still set one on a reservation, and the plan x teams is then grown by it.
+func TestReservationHasNoBufferUnlessTheAdminSetsOne(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	res, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(8000), res.Reservation.Size.CPUMillicores, "the plan x teams, nothing more")
+	assert.Equal(t, 0, DefaultConfig().BufferPercent)
+	res, err = h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{BufferPercent: ptr(15)}, uuid.Nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(9200), res.Reservation.Size.CPUMillicores)
+	assert.Equal(t, 15, res.Reservation.BufferPercent)
 }

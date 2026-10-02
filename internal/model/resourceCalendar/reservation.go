@@ -13,7 +13,7 @@ type Amount = resourcesModel.Amount
 
 // Defaults of the calendar settings (the environment overrides them).
 const (
-	DefaultBufferPercent = 15
+	DefaultBufferPercent = 0
 	DefaultTailGap       = time.Hour
 	// MaxBufferPercent bounds the buffer a reservation may carry.
 	MaxBufferPercent = 200

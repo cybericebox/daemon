@@ -220,7 +220,7 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CALENDAR_BUFFER_PERCENT` | `15` | Buffer added to the size of an event reservation (0 to 200). |
+| `CALENDAR_BUFFER_PERCENT` | `0` | Optional buffer added to the size of an event reservation (0 to 200). Off by default: the agent keeps its own hidden 15% packing reserve, so a reservation is the plan x teams plus the dynamic estimate. |
 | `CALENDAR_TAIL_GAP` | `1h` | Gap kept after the event end (15m to 168h); the admin may set more per event, never less. |
 | `CALENDAR_LEAD_MARGIN` | `30m` | Added before the stand deploy lead: the capacity must be connected that much earlier (0 to 24h). |
 | `CALENDAR_SEARCH_HORIZON` | `168h` | How far ahead the nearest free window of a test lab is looked for (1h to 2160h). |

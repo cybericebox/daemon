@@ -352,8 +352,9 @@ type (
 	// CalendarConfig is the resource calendar (CALENDAR_*): how an event reservation is sized and windowed, and
 	// when an agent counts as connected.
 	CalendarConfig struct {
-		// BufferPercent is the buffer added to the size of an event reservation (the plan x teams).
-		BufferPercent int `env:"BUFFER_PERCENT" envDefault:"15"`
+		// BufferPercent is an optional buffer added to the size of an event reservation (the plan x teams). It is 0 by default:
+		// the 15% packing reserve belongs to the agent, which hides it from the platform.
+		BufferPercent int `env:"BUFFER_PERCENT" envDefault:"0"`
 		// TailGap is the gap kept after the event end, so events never run back to back on the same
 		// resources; the platform admin may set more for one event, never less.
 		TailGap time.Duration `env:"TAIL_GAP" envDefault:"1h"`

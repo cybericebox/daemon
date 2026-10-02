@@ -17,7 +17,7 @@ type EventReservationInput struct {
 	// Teams and PerTeam override the plan of the event.
 	Teams   *int
 	PerTeam *Amount
-	// BufferPercent overrides the default buffer (15%).
+	// BufferPercent overrides the default buffer (0%).
 	BufferPercent *int
 	// Dynamic is the organizer's estimate for tasks that appear later.
 	Dynamic *Amount

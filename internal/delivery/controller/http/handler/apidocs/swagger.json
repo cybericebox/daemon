@@ -16370,7 +16370,7 @@
                 }
             },
             "put": {
-                "description": "Creates or updates the reservation (platform admin only). Size = the resource plan of the event per team x teams + the buffer (default 15%) + the organizer's estimate for future dynamic tasks; the window runs from the stand deploy lead (plus a readiness margin) to the event end + the tail gap (default and minimum 1 h, the admin may set more). The reservation is placed over the agents by packing: a team stays whole on one agent, the fewest agents are used, then agent priority, and elevated tasks only go to agents whose maxima fit. A changed reservation keeps every team that still fits where it is. One that does not fit is refused with 409 (the context names the first conflicting slot) unless AllowConflicts is set; it is then kept, marked not covered, and an alarm is raised. DryRun reports the placement and conflicts without saving. Requires infrastructure.write.",
+                "description": "Creates or updates the reservation (platform admin only). Size = the resource plan of the event per team x teams + the buffer (default 0: the agent keeps its own hidden packing reserve) + the organizer's estimate for future dynamic tasks; the window runs from the stand deploy lead (plus a readiness margin) to the event end + the tail gap (default and minimum 1 h, the admin may set more). The reservation is placed over the agents by packing: a team stays whole on one agent, the fewest agents are used, then agent priority, and elevated tasks only go to agents whose maxima fit. A changed reservation keeps every team that still fits where it is. One that does not fit is refused with 409 (the context names the first conflicting slot) unless AllowConflicts is set; it is then kept, marked not covered, and an alarm is raised. DryRun reports the placement and conflicts without saving. Requires infrastructure.write.",
                 "consumes": [
                     "application/json"
                 ],
@@ -33361,7 +33361,7 @@
                     "type": "boolean"
                 },
                 "BufferPercent": {
-                    "description": "BufferPercent overrides the default buffer (15).",
+                    "description": "BufferPercent overrides the default buffer (0).",
                     "type": "integer"
                 },
                 "DryRun": {

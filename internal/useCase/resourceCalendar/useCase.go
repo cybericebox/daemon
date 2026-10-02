@@ -111,7 +111,7 @@ type (
 
 	// Config is the calendar's tunables (the environment).
 	Config struct {
-		// BufferPercent is the default buffer added to an event reservation (15).
+		// BufferPercent is the default buffer added to an event reservation (0: no backend buffer).
 		BufferPercent int
 		// TailGap is the gap kept after the event end, never shorter (1h).
 		TailGap time.Duration
