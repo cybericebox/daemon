@@ -36,20 +36,22 @@ func (u *NotificationDispatcher) Notify(
 		override = append(override, string(ch))
 	}
 
+	// Names, addresses and links go into a sealed row; the job carries ids only.
+	if err = u.payloads.put(ctx, dispatchID, userID, dispatchModel.Payload{Vars: vars, Recipient: o.Recipient, Inbox: o.Inbox}); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to store notification payload").Err()
+	}
 	if err = u.enqueuer.Enqueue(
 		ctx, jobsModel.NotifyArgs{
 			DispatchID:       dispatchID,
 			UserID:           userID,
 			Type:             string(n.NotificationType()),
-			Vars:             vars,
 			OverrideChannels: override,
-			Recipient:        o.Recipient,
 			TemplateID:       o.TemplateID,
 			ScopeEventID:     o.ScopeEventID,
-			Inbox:            o.Inbox,
 			BroadcastID:      o.BroadcastID,
 		},
 	); err != nil {
+		_ = u.payloads.drop(ctx, dispatchID)
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to enqueue notification").Err()
 	}
 	return nil

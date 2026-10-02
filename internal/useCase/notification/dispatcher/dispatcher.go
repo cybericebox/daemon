@@ -10,9 +10,11 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/broadcastRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/dispatchRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/temporalCodeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	"github.com/cybericebox/daemon/internal/model/notification/types"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/daemon/pkg/secret"
 	"github.com/cybericebox/daemon/pkg/worker"
 
 	// Driver-registration: payload init() self-registers into the type registry,
@@ -33,6 +35,7 @@ type (
 		dispatchRepo.Queries
 		userRepo.Queries
 		broadcastRepo.Queries
+		temporalCodeRepo.Queries
 	}
 
 	// Handler is the uniform channel interface. Channel handlers satisfy it structurally.
@@ -49,9 +52,12 @@ type (
 	}
 
 	Dependencies struct {
-		Repo       repoPort
-		Enqueuer   worker.IEnqueuer
-		Handlers   []Handler
+		Repo     repoPort
+		Enqueuer worker.IEnqueuer
+		Handlers []Handler
+		// Cipher seals the payload of a queued notification (names, addresses, links) so it stays out of
+		// the job arguments; the platform secrets cipher. Nil: notifications cannot be queued.
+		Cipher     *secret.Cipher
 		RetryDelay time.Duration // 0 → defaultRetryDelay (5s); set to time.Millisecond in tests
 	}
 
@@ -59,6 +65,7 @@ type (
 		dispatches *dispatchRepo.Repository
 		broadcasts *broadcastRepo.Repository
 		users      *userRepo.Repository
+		payloads   *payloadStore
 		enqueuer   worker.IEnqueuer
 		handlers   map[notificationTypes.NotificationChannel]Handler
 		retryDelay time.Duration
@@ -80,6 +87,7 @@ func NewNotificationDispatcher(deps Dependencies) *NotificationDispatcher {
 		dispatches: dispatchRepo.New(deps.Repo),
 		broadcasts: broadcastRepo.New(deps.Repo),
 		users:      userRepo.New(deps.Repo),
+		payloads:   &payloadStore{codes: temporalCodeRepo.New(deps.Repo), cipher: deps.Cipher},
 		enqueuer:   deps.Enqueuer,
 		handlers:   hs,
 		retryDelay: retryDelay,

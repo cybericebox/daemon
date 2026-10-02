@@ -9,21 +9,25 @@ import (
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
-// NotifyArgs is the River job envelope, declared beside the worker that
-// consumes it. Vars            are JSON here (transport form). The id fields are gofrs
-// uuid.UUID, which round-trip to JSON as strings and pass straight into
-// dispatcher.ProcessInput.
+// NotifyArgs is the River job envelope. It carries ids and non-personal routing only: the variables,
+// the recipient override and the inbox metadata (names, addresses, links) are sealed in a temporal
+// code row keyed by DispatchID and read when the notification is sent.
+//
+// Vars, Recipient and Inbox are the legacy form (jobs queued before the sealed payload). They are
+// read for such jobs and never written.
 type NotifyArgs struct {
-	DispatchID       uuid.UUID        `json:"dispatch_id"`
-	UserID           uuid.UUID        `json:"user_id"`
-	Type             string           `json:"type"`
-	Vars             json.RawMessage  `json:"vars"`
-	OverrideChannels []string         `json:"override_channels,omitempty"`
-	Recipient        *userModel.User  `json:"recipient,omitempty"`
-	TemplateID       *uuid.UUID       `json:"template_id,omitempty"`
-	ScopeEventID     *uuid.UUID       `json:"scope_event_id,omitempty"`
-	Inbox            *inboxModel.Meta `json:"inbox,omitempty"`
-	BroadcastID      *uuid.UUID       `json:"broadcast_id,omitempty"`
+	DispatchID       uuid.UUID  `json:"dispatch_id"`
+	UserID           uuid.UUID  `json:"user_id"`
+	Type             string     `json:"type"`
+	OverrideChannels []string   `json:"override_channels,omitempty"`
+	TemplateID       *uuid.UUID `json:"template_id,omitempty"`
+	ScopeEventID     *uuid.UUID `json:"scope_event_id,omitempty"`
+	BroadcastID      *uuid.UUID `json:"broadcast_id,omitempty"`
+
+	// Deprecated: legacy jobs only.
+	Vars      json.RawMessage  `json:"vars,omitempty"`
+	Recipient *userModel.User  `json:"recipient,omitempty"`
+	Inbox     *inboxModel.Meta `json:"inbox,omitempty"`
 }
 
 func (NotifyArgs) Kind() string { return "notify" }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +23,21 @@ type fakeProcessor struct {
 	called bool
 	last   dispatchModel.ProcessInput
 	err    error
+
+	payload   dispatchModel.Payload
+	loadErr   error
+	loaded    bool
+	discarded bool
+}
+
+func (f *fakeProcessor) LoadNotificationPayload(context.Context, uuid.UUID) (dispatchModel.Payload, error) {
+	f.loaded = true
+	return f.payload, f.loadErr
+}
+
+func (f *fakeProcessor) DiscardNotificationPayload(context.Context, uuid.UUID) error {
+	f.discarded = true
+	return nil
 }
 
 func (f *fakeProcessor) ProcessNotification(_ context.Context, in dispatchModel.ProcessInput) error {
@@ -112,4 +128,37 @@ func TestNotifyWorker_Work_DeferralSnoozesTheJob(t *testing.T) {
 	var snooze *river.JobSnoozeError
 	require.ErrorAs(t, err, &snooze)
 	assert.Equal(t, 10*time.Minute, snooze.Duration)
+}
+
+func TestNotifyWorker_Work_ReadsTheSealedPayload(t *testing.T) {
+	fake := &fakeProcessor{payload: dispatchModel.Payload{Vars: json.RawMessage(`{"Name":"Ira"}`)}}
+	w := &notifyWorker{uc: fake}
+
+	err := w.Work(context.Background(), &river.Job[jobsModel.NotifyArgs]{Args: jobsModel.NotifyArgs{DispatchID: tools.NewUUIDv7(), Type: "x"}})
+
+	require.NoError(t, err)
+	assert.Equal(t, "Ira", fake.last.Vars["Name"])
+	assert.True(t, fake.discarded, "a sent notification drops its payload")
+}
+
+func TestNotifyWorker_Work_LegacyJobRunsFromItsArguments(t *testing.T) {
+	fake := &fakeProcessor{}
+	w := &notifyWorker{uc: fake}
+
+	err := w.Work(context.Background(), &river.Job[jobsModel.NotifyArgs]{Args: jobsModel.NotifyArgs{Type: "x", Vars: json.RawMessage(`{"A":"b"}`)}})
+
+	require.NoError(t, err)
+	assert.False(t, fake.loaded, "a legacy job never reads a stored payload")
+	assert.Equal(t, "b", fake.last.Vars["A"])
+}
+
+func TestNotifyWorker_Work_MissingPayloadCancelsOnce(t *testing.T) {
+	fake := &fakeProcessor{loadErr: dispatchModel.ErrPayloadGone}
+	w := &notifyWorker{uc: fake}
+
+	err := w.Work(context.Background(), &river.Job[jobsModel.NotifyArgs]{Args: jobsModel.NotifyArgs{Type: "x"}})
+
+	var cancel *river.JobCancelError
+	require.ErrorAs(t, err, &cancel)
+	assert.False(t, fake.called)
 }

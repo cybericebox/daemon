@@ -117,7 +117,7 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `TEMPORAL_CODE_TTL` | `1h` | Lifetime of one-time codes (confirmation, reset). |
 | `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH` | `8`, `72` | Password length bounds (bcrypt ignores bytes past 72). |
 | `PASSWORD_MIN_CAPITAL_LETTERS`, `PASSWORD_MIN_SMALL_LETTERS`, `PASSWORD_MIN_DIGITS`, `PASSWORD_MIN_SPECIAL_CHARACTERS` | `1`, `1`, `1`, `0` | Complexity policy, published at `GET /api/auth/password/policy`. |
-| `PLATFORM_SECRETS_KEY` | none | One 64-hex-character key (AES-256), or a keyring `id:hex,id:hex` (see below). Seals platform secrets: SMTP provider passwords and the private keys of enrolled agents. Empty disables them; an invalid value is fatal. |
+| `PLATFORM_SECRETS_KEY` | none | One 64-hex-character key (AES-256), or a keyring `id:hex,id:hex` (see below). Seals platform secrets: SMTP provider passwords, the private keys of enrolled agents and the variables of queued notifications (River job arguments carry ids only; the names, addresses and links wait in sealed rows until the mail is sent). Empty disables them and notifications cannot be queued; an invalid value is fatal. |
 | `EXERCISE_SECRETS_KEY` | none | One 64-hex-character key or a keyring. Seals exercise secret env vars. Empty disables them (saving one answers 409). |
 | `VPN_SECRETS_KEY` | none | One 64-hex-character key or a keyring. Seals stored VPN client configs. Empty disables their storage. |
 

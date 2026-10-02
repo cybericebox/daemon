@@ -43,6 +43,14 @@ type TemporalSetupLinkCodeData struct {
 	UserID uuid.UUID
 }
 
+// TemporalNotificationPayloadCodeData is the stored form of a queued notification's payload. UserID is
+// plain (an account deletion removes the row by it); Sealed holds the variables, recipient override and
+// inbox metadata, encrypted and bound to the dispatch id.
+type TemporalNotificationPayloadCodeData struct {
+	UserID uuid.UUID
+	Sealed string
+}
+
 // temporal code types
 const (
 	PasswordResettingCodeType = int32(iota)
@@ -51,6 +59,9 @@ const (
 	// while its row exists, a new link for the same user replaces the old one, finishing the
 	// setup deletes it.
 	SetupLinkCodeType
+	// NotificationPayloadCodeType keeps the sealed variables of one queued notification (the River job
+	// carries only ids): the row is read when the notification is sent and goes with the job or its expiry.
+	NotificationPayloadCodeType
 )
 
 // Error-code convention: see internal/model/auth/errors.go. Enforced by

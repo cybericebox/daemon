@@ -225,6 +225,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Repo:     deps.Repo,
 			Enqueuer: deps.EnqueuerFactory.NewEnqueuer(),
 			Handlers: handlers,
+			Cipher:   deps.PlatformCipher,
 		},
 	)
 	eventUC.SetInvitationNotifier(notificationDispatcher)
