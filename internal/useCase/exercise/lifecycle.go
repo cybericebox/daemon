@@ -73,7 +73,7 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, saved.ID, exerciseModel.CollectFileIDs(saved.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return u.versionView(saved), nil
+	return u.versionView(ctx, saved), nil
 }
 
 // secretMergeSource resolves which stored version's secrets a blank "keep"
@@ -132,7 +132,7 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 		}
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to publish draft").Err()
 	}
-	return u.versionView(published), nil
+	return u.versionView(ctx, published), nil
 }
 
 // DiscardDraft deletes the draft slot; the exercise's draft pointer clears via
@@ -175,7 +175,7 @@ func (u *ExerciseUseCase) RollbackToVersion(ctx context.Context, exerciseID, ver
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, draft.ID, exerciseModel.CollectFileIDs(draft.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return u.versionView(draft), nil
+	return u.versionView(ctx, draft), nil
 }
 
 // CreateCheckpoint records one explicit, immutable snapshot of the working
@@ -198,7 +198,7 @@ func (u *ExerciseUseCase) CreateCheckpoint(ctx context.Context, exerciseID, by u
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, checkpoint.ID, exerciseModel.CollectFileIDs(checkpoint.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return u.versionView(checkpoint), nil
+	return u.versionView(ctx, checkpoint), nil
 }
 
 // RestoreToVersion preserves an existing draft as a checkpoint atomically with
@@ -230,7 +230,7 @@ func (u *ExerciseUseCase) RestoreToVersion(ctx context.Context, exerciseID, vers
 		if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, restored.ID, exerciseModel.CollectFileIDs(restored.Variants)); err != nil {
 			return VersionView{}, err
 		}
-		return u.versionView(restored), nil
+		return u.versionView(ctx, restored), nil
 	}
 	checkpointID := uuid.Must(uuid.NewV7())
 	restored, err := u.exercises.RestoreVersionPreservingDraft(ctx, exerciseID, versionID, checkpointID, now, byNull)
@@ -249,7 +249,7 @@ func (u *ExerciseUseCase) RestoreToVersion(ctx context.Context, exerciseID, vers
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, restored.ID, exerciseModel.CollectFileIDs(restored.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return u.versionView(restored), nil
+	return u.versionView(ctx, restored), nil
 }
 
 // GetVersion returns one version's content with secrets masked. Route gate:
@@ -262,7 +262,7 @@ func (u *ExerciseUseCase) GetVersion(ctx context.Context, exerciseID, versionID 
 		}
 		return VersionView{}, exerciseModel.ErrExerciseVersionNotFound.Err()
 	}
-	return u.versionView(v), nil
+	return u.versionView(ctx, v), nil
 }
 
 // GetWorkingCopy returns the editable working copy. It always exists while
@@ -280,7 +280,7 @@ func (u *ExerciseUseCase) GetWorkingCopy(ctx context.Context, exerciseID uuid.UU
 	}
 	draft, err := u.exercises.GetDraft(ctx, exerciseID)
 	if err == nil {
-		return u.versionView(draft), nil
+		return u.versionView(ctx, draft), nil
 	}
 	if !repositoryTools.IsObjectNotFoundError(err) {
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get draft").Err()
@@ -288,7 +288,7 @@ func (u *ExerciseUseCase) GetWorkingCopy(ctx context.Context, exerciseID uuid.UU
 	if e.PublishedVersionID.Valid {
 		published, pubErr := u.exercises.GetVersion(ctx, e.PublishedVersionID.UUID)
 		if pubErr == nil {
-			return u.versionView(published), nil
+			return u.versionView(ctx, published), nil
 		}
 		if !repositoryTools.IsObjectNotFoundError(pubErr) {
 			return VersionView{}, model.ErrPlatform.WithError(pubErr).WithMessage("Failed to get published version").Err()
@@ -301,6 +301,7 @@ func (u *ExerciseUseCase) GetWorkingCopy(ctx context.Context, exerciseID uuid.UU
 		Variants:   []exerciseModel.Variant{},
 		CreatedAt:  e.CreatedAt,
 		CreatedBy:  uuidPtr(e.CreatedBy),
+		AuthorName: u.authorNames(ctx, e.CreatedBy)[e.CreatedBy.UUID],
 	}, nil
 }
 
@@ -311,12 +312,17 @@ func (u *ExerciseUseCase) ListVersions(ctx context.Context, exerciseID uuid.UUID
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list versions").Err()
 	}
+	authors := make([]uuid.NullUUID, 0, len(versions))
+	for _, v := range versions {
+		authors = append(authors, v.CreatedBy)
+	}
+	names := u.authorNames(ctx, authors...)
 	out := make([]VersionListItem, 0, len(versions))
 	for _, v := range versions {
 		out = append(out, VersionListItem{
 			ID: v.ID, Status: string(v.Status), AdminNote: v.AdminNote, Label: v.Label,
 			VariantCount: len(v.Variants), CreatedAt: v.CreatedAt,
-			CreatedBy: uuidPtr(v.CreatedBy), PublishedAt: v.PublishedAt,
+			CreatedBy: uuidPtr(v.CreatedBy), AuthorName: names[v.CreatedBy.UUID], PublishedAt: v.PublishedAt,
 		})
 	}
 	return out, nil

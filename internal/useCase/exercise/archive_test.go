@@ -59,6 +59,7 @@ func TestExpandExerciseArchiveBundle_RestoresFolderArchives(t *testing.T) {
 func TestImportExerciseArchive_ReassignsIdentityAndVersionIDs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
+	expectUserNames(q)
 	owner := uuid.Must(uuid.NewV7())
 	sourceExercise := exerciseModel.Exercise{Name: "portable task", Description: "d", Tags: []string{"web"}}
 	sourceVersion := exerciseModel.ExerciseVersion{Status: exerciseModel.VersionStatusDraft, Variants: []exerciseModel.Variant{{

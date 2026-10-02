@@ -1,13 +1,20 @@
 package response
 
 import (
+	"math"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/pkg/err"
 )
+
+// StreamRetryAfter is the wait a refused live-stream connection is told: a slot frees when the reader's
+// other stream closes, which has no known time.
+const StreamRetryAfter = 5 * time.Second
 
 type (
 	Status struct {
@@ -119,8 +126,11 @@ func AbortWithSuccess(ctx *gin.Context) {
 	)
 }
 
-func AbortWithTooManyRequests(ctx *gin.Context) {
-	ctx.AbortWithStatus(http.StatusTooManyRequests)
+// AbortWithTooManyRequests is the one 429 every limiter answers with: the ErrAuthTooManyRequests code in the
+// normal error envelope, and Retry-After with the wait rounded up to whole seconds (at least one).
+func AbortWithTooManyRequests(ctx *gin.Context, wait time.Duration) {
+	seconds := max(1, int64(math.Ceil(wait.Seconds())))
+	AbortWithStatus(ctx, authModel.ErrAuthTooManyRequests.WithDetail(err.DetailRetryAfterSeconds, seconds).Err())
 }
 
 func AbortWithError(ctx *gin.Context, err error) {

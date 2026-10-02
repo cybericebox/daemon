@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"math"
-	"strconv"
 	"sync"
 	"time"
 
@@ -40,10 +38,11 @@ func RateLimitPerUser(limit int, window time.Duration) gin.HandlerFunc {
 		}
 		counts[key]++
 		allowed := counts[key] <= limit
+		wait := window - now.Sub(start)
 		mu.Unlock()
 		if !allowed {
 			errjournal.SetLimiter(ctx, "per-user")
-			response.AbortWithTooManyRequests(ctx)
+			response.AbortWithTooManyRequests(ctx, wait)
 			return
 		}
 		ctx.Next()
@@ -132,9 +131,8 @@ func RateLimitExemptRoutes() []string {
 const rateLimitCountedKey = "rateLimitCounted"
 
 func (l *RateLimiter) refuse(ctx *gin.Context, name string, wait time.Duration) {
-	ctx.Header("Retry-After", strconv.FormatInt(max(1, int64(math.Ceil(wait.Seconds()))), 10))
 	errjournal.SetLimiter(ctx, name)
-	response.AbortWithTooManyRequests(ctx)
+	response.AbortWithTooManyRequests(ctx, wait)
 }
 
 // Anonymous is the global middleware: a request without a session cookie is anonymous for sure and is

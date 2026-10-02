@@ -1008,6 +1008,39 @@ func (q *Queries) ListUserEventMemberships(ctx context.Context, userID uuid.UUID
 	return items, nil
 }
 
+const listUserNames = `-- name: ListUserNames :many
+SELECT id, first_name, last_name
+FROM users
+WHERE id = ANY ($1::uuid[])
+`
+
+type ListUserNamesRow struct {
+	ID        uuid.UUID `json:"id"`
+	FirstName string    `json:"first_name"`
+	LastName  string    `json:"last_name"`
+}
+
+// First and last name of the authors an exercise response shows (never the email).
+func (q *Queries) ListUserNames(ctx context.Context, ids []uuid.UUID) ([]ListUserNamesRow, error) {
+	rows, err := q.db.Query(ctx, listUserNames, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUserNamesRow{}
+	for rows.Next() {
+		var i ListUserNamesRow
+		if err := rows.Scan(&i.ID, &i.FirstName, &i.LastName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateExercise = `-- name: UpdateExercise :execrows
 UPDATE exercises
 SET name        = $1,

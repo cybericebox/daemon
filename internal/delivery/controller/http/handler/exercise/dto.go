@@ -24,8 +24,10 @@ type exerciseResponse struct {
 	HasChanges         bool       `json:"HasChanges"`
 	CreatedAt          time.Time  `json:"CreatedAt"`
 	CreatedBy          *uuid.UUID `json:"CreatedBy"`
+	AuthorName         string     `json:"AuthorName"`
 	UpdatedAt          time.Time  `json:"UpdatedAt"`
 	UpdatedBy          *uuid.UUID `json:"UpdatedBy"`
+	UpdatedByName      string     `json:"UpdatedByName"`
 	exerciseScopeResponse
 }
 
@@ -456,6 +458,7 @@ type versionResponse struct {
 	Variants    []variantDTO `json:"Variants"`
 	CreatedAt   time.Time    `json:"CreatedAt"`
 	CreatedBy   *uuid.UUID   `json:"CreatedBy"`
+	AuthorName  string       `json:"AuthorName"`
 	PublishedAt *time.Time   `json:"PublishedAt"`
 	// Fit lists the variants some laboratory cannot run within its resource limits; empty when all fit.
 	Fit []variantFitResponse `json:"Fit"`
@@ -469,6 +472,7 @@ type versionListItemResponse struct {
 	VariantCount int        `json:"VariantCount"`
 	CreatedAt    time.Time  `json:"CreatedAt"`
 	CreatedBy    *uuid.UUID `json:"CreatedBy"`
+	AuthorName   string     `json:"AuthorName"`
 	PublishedAt  *time.Time `json:"PublishedAt"`
 }
 
@@ -727,7 +731,7 @@ func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 	return versionResponse{
 		ID: v.ID, ExerciseID: v.ExerciseID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label,
 		Variants:  variantsToDTO(v.Variants),
-		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, PublishedAt: v.PublishedAt, Fit: fitToResponse(v.Fit),
+		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt, Fit: fitToResponse(v.Fit),
 	}
 }
 
@@ -736,7 +740,7 @@ func exerciseToResponse(e exerciseUseCase.ExerciseView) exerciseResponse {
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		DraftVersionID: e.DraftVersionID, PublishedVersionID: e.PublishedVersionID,
 		ArchivedAt: e.ArchivedAt, HasChanges: e.HasChanges,
-		CreatedAt: e.CreatedAt, CreatedBy: e.CreatedBy, UpdatedAt: e.UpdatedAt, UpdatedBy: e.UpdatedBy,
+		CreatedAt: e.CreatedAt, CreatedBy: e.CreatedBy, AuthorName: e.AuthorName, UpdatedAt: e.UpdatedAt, UpdatedBy: e.UpdatedBy, UpdatedByName: e.UpdatedByName,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }

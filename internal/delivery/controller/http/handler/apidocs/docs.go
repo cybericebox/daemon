@@ -27239,6 +27239,9 @@ const docTemplate = `{
                 "ArchivedAt": {
                     "type": "string"
                 },
+                "AuthorName": {
+                    "type": "string"
+                },
                 "CreatedAt": {
                     "type": "string"
                 },
@@ -27300,6 +27303,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "UpdatedBy": {
+                    "type": "string"
+                },
+                "UpdatedByName": {
                     "type": "string"
                 }
             }
@@ -27831,6 +27837,9 @@ const docTemplate = `{
                 "AdminNote": {
                     "type": "string"
                 },
+                "AuthorName": {
+                    "type": "string"
+                },
                 "CreatedAt": {
                     "type": "string"
                 },
@@ -27858,6 +27867,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "AdminNote": {
+                    "type": "string"
+                },
+                "AuthorName": {
                     "type": "string"
                 },
                 "CreatedAt": {
@@ -31345,6 +31357,9 @@ const docTemplate = `{
         "stats.dispatchDetailResponse": {
             "type": "object",
             "properties": {
+                "BroadcastID": {
+                    "type": "string"
+                },
                 "CreatedAt": {
                     "type": "string"
                 },

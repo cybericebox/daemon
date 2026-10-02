@@ -42,6 +42,7 @@ type (
 		RecipientName    string     `json:"RecipientName"`
 		ScopeEventID     *uuid.UUID `json:"ScopeEventID"`
 		EventName        string     `json:"EventName"`
+		BroadcastID      *uuid.UUID `json:"BroadcastID"`
 		Status           string     `json:"Status"`
 		CreatedAt        time.Time  `json:"CreatedAt"`
 		UpdatedAt        time.Time  `json:"UpdatedAt"`
@@ -106,7 +107,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 func toDispatchResponse(d dispatchModel.DispatchInfo) dispatchResponse {
 	return dispatchResponse{
 		ID: d.ID, NotificationType: d.NotificationType, RecipientUserID: d.RecipientUserID,
-		RecipientEmail: d.RecipientEmail, RecipientName: d.RecipientName, ScopeEventID: d.ScopeEventID, EventName: d.EventName,
+		RecipientEmail: d.RecipientEmail, RecipientName: d.RecipientName, ScopeEventID: d.ScopeEventID, EventName: d.EventName, BroadcastID: d.BroadcastID,
 		Status: d.Status, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 	}
 }

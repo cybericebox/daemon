@@ -453,7 +453,7 @@ func (h *Handler) stream(c *gin.Context) {
 	release, admitted := sse.Streams.Acquire("errors:"+claims.UserID.String(), limits.Get().ErrorStreamsPerUser)
 	if !admitted {
 		errjournal.SetLimiter(c, "error-journal-streams")
-		response.AbortWithTooManyRequests(c)
+		response.AbortWithTooManyRequests(c, response.StreamRetryAfter)
 		return
 	}
 	defer release()

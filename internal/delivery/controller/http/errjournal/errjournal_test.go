@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -106,8 +107,8 @@ func TestForbiddenCarriesRoleUserAndThePermission(t *testing.T) {
 func TestTooManyRequestsCarriesTheLimiter(t *testing.T) {
 	sink := &fakeSink{}
 	r := newRouter(sink)
-	r.GET("/named", func(c *gin.Context) { SetLimiter(c, "per-user"); response.AbortWithTooManyRequests(c) })
-	r.GET("/anon", func(c *gin.Context) { response.AbortWithTooManyRequests(c) })
+	r.GET("/named", func(c *gin.Context) { SetLimiter(c, "per-user"); response.AbortWithTooManyRequests(c, time.Second) })
+	r.GET("/anon", func(c *gin.Context) { response.AbortWithTooManyRequests(c, time.Second) })
 
 	do(r, http.MethodGet, "/named")
 	do(r, http.MethodGet, "/anon")

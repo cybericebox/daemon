@@ -175,6 +175,8 @@ func (u *ExerciseUseCase) exerciseView(ctx context.Context, e exerciseModel.Exer
 	}
 	v := toExerciseView(e)
 	v.HasChanges = hasChanges
+	names := u.authorNames(ctx, e.CreatedBy, e.UpdatedBy)
+	v.AuthorName, v.UpdatedByName = names[e.CreatedBy.UUID], names[e.UpdatedBy.UUID]
 	return v, nil
 }
 

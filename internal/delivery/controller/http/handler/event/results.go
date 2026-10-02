@@ -402,7 +402,7 @@ func (h *Handler) liveSolutionAttempts(ctx *gin.Context) {
 	release, ok := sse.Streams.Acquire("attempts:"+claims.UserID.String(), limits.Get().AttemptStreamsPerUser)
 	if !ok {
 		errjournal.SetLimiter(ctx, "attempt-streams")
-		response.AbortWithTooManyRequests(ctx)
+		response.AbortWithTooManyRequests(ctx, response.StreamRetryAfter)
 		return
 	}
 	defer release()

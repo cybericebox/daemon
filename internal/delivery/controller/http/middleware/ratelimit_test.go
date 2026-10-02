@@ -1,8 +1,10 @@
 package middleware_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -188,4 +190,45 @@ func TestRateLimiterRecordsTheLimiterName(t *testing.T) {
 	if len(names) != 1 || names[0] != "anonymous" {
 		t.Fatalf("journal limiter names = %v", names)
 	}
+}
+
+// Both limiters answer with the same 429: Retry-After (whole seconds, at least one) and the error envelope
+// carrying the ErrAuthTooManyRequests code.
+func TestLimitersShareOne429Format(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wantCode := authModel.ErrAuthTooManyRequests.WithDetail("x", 1).Err().StatusCode().FullCode()
+	check := func(name string, w *httptest.ResponseRecorder) {
+		t.Helper()
+		if w.Code != http.StatusTooManyRequests {
+			t.Fatalf("%s: status %d", name, w.Code)
+		}
+		if secs, err := strconv.Atoi(w.Header().Get("Retry-After")); err != nil || secs < 1 {
+			t.Fatalf("%s: Retry-After %q", name, w.Header().Get("Retry-After"))
+		}
+		var body struct{ Status struct{ Code int } }
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Status.Code != wantCode {
+			t.Fatalf("%s: body %q (code %d, want %d)", name, w.Body.String(), body.Status.Code, wantCode)
+		}
+	}
+
+	r := gin.New()
+	r.Use(signedIn)
+	r.POST("/preview", middleware.RateLimitPerUser(1, 30*time.Second), func(c *gin.Context) { c.Status(http.StatusOK) })
+	var w *httptest.ResponseRecorder
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/preview", nil)
+		req.Header.Set("X-User", "00000000-0000-7000-8000-000000000001")
+		w = httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+	}
+	check("per-user", w)
+	if ra, _ := strconv.Atoi(w.Header().Get("Retry-After")); ra > 30 {
+		t.Fatalf("per-user Retry-After %d exceeds the window", ra)
+	}
+
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	l := newLimiter(config.RateLimitConfig{UserPerMinute: 60, UserBurst: 1, AnonPerMinute: 60, AnonBurst: 1}, &now)
+	lr := limiterRouter(l, false)
+	limGet(lr, "/api/x", "203.0.113.1:1", "", false)
+	check("bucket", limGet(lr, "/api/x", "203.0.113.1:1", "", false))
 }

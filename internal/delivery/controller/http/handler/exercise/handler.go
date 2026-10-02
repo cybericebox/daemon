@@ -497,7 +497,7 @@ func (h *Handler) listVersions(ctx *gin.Context) {
 	for _, v := range items {
 		out = append(out, versionListItemResponse{
 			ID: v.ID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label, VariantCount: v.VariantCount,
-			CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, PublishedAt: v.PublishedAt,
+			CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
 		})
 	}
 	response.AbortWithData(ctx, out)

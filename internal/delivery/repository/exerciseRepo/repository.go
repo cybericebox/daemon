@@ -9,6 +9,7 @@ package exerciseRepo
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -61,6 +62,7 @@ type Queries interface {
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]postgres.ListExerciseCardExtrasRow, error)
 	ListFileExerciseIDs(ctx context.Context, arg postgres.ListFileExerciseIDsParams) ([]uuid.UUID, error)
 	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error)
+	ListUserNames(ctx context.Context, ids []uuid.UUID) ([]postgres.ListUserNamesRow, error)
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserEventMembershipsRow, error)
 	ArchiveEventExercises(ctx context.Context, arg postgres.ArchiveEventExercisesParams) error
 	CreateExerciseProposal(ctx context.Context, arg postgres.CreateExerciseProposalParams) (postgres.ExerciseProposal, error)
@@ -571,6 +573,22 @@ func (r *Repository) FileOwners(ctx context.Context, ids []uuid.UUID) (map[uuid.
 	out := make(map[uuid.UUID]uuid.NullUUID, len(rows))
 	for _, row := range rows {
 		out[row.ID] = row.CreatedBy
+	}
+	return out, nil
+}
+
+// UserNames maps each user id to "First Last" (never the email); a user that does not exist, or has no name,
+// is absent from the map.
+func (r *Repository) UserNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	rows, err := r.q.ListUserNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]string, len(rows))
+	for _, row := range rows {
+		if name := strings.TrimSpace(row.FirstName + " " + row.LastName); name != "" {
+			out[row.ID] = name
+		}
 	}
 	return out, nil
 }

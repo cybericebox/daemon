@@ -21,6 +21,7 @@ var archiveLoadedAt = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 func TestArchiveExercise_WritesArchivedAtInWholeRow(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
+	expectUserNames(q)
 	uc := newUC(q, newFakeMedia())
 	exID, adminID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{

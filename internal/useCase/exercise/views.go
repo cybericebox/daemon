@@ -27,8 +27,11 @@ type ExerciseView struct {
 
 	CreatedAt time.Time
 	CreatedBy *uuid.UUID
-	UpdatedAt time.Time
-	UpdatedBy *uuid.UUID
+	// AuthorName and UpdatedByName are the first and last name of CreatedBy and UpdatedBy ("" when unknown).
+	AuthorName    string
+	UpdatedAt     time.Time
+	UpdatedBy     *uuid.UUID
+	UpdatedByName string
 }
 
 type ExerciseListItem struct {
@@ -227,6 +230,7 @@ type VersionView struct {
 	VariantCount int
 	CreatedAt    time.Time
 	CreatedBy    *uuid.UUID
+	AuthorName   string // first and last name of CreatedBy; "" when unknown
 	PublishedAt  *time.Time
 	// Fit lists the variants some enabled agent cannot run within its resource limits, with each agent and
 	// the limit it passes; empty when every variant fits everywhere (or no agent reported limits).
@@ -249,6 +253,7 @@ type VersionListItem struct {
 	VariantCount int
 	CreatedAt    time.Time
 	CreatedBy    *uuid.UUID
+	AuthorName   string // first and last name of CreatedBy; "" when unknown
 	PublishedAt  *time.Time
 }
 

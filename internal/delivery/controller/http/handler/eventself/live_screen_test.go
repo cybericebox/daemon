@@ -163,13 +163,17 @@ func TestLiveScreenReturnsTheEventAndLayout(t *testing.T) {
 func TestWindowLimiter(t *testing.T) {
 	limiter := newWindowLimiter(2, time.Minute)
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
-	if !limiter.allow("a", now) || !limiter.allow("a", now) || limiter.allow("a", now) {
+	allow := func(key string, at time.Time) bool {
+		ok, _ := limiter.allow(key, at)
+		return ok
+	}
+	if !allow("a", now) || !allow("a", now) || allow("a", now) {
 		t.Fatal("the third request in a window must be refused")
 	}
-	if !limiter.allow("b", now) {
+	if !allow("b", now) {
 		t.Fatal("limits are per key")
 	}
-	if !limiter.allow("a", now.Add(time.Minute)) {
+	if !allow("a", now.Add(time.Minute)) {
 		t.Fatal("a new window starts over")
 	}
 }

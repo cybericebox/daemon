@@ -1125,6 +1125,8 @@ type Querier interface {
 	ListTeamScoreTimeline(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamScoreTimelineRow, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
+	// First and last name of the authors an exercise response shows (never the email).
+	ListUserNames(ctx context.Context, ids []uuid.UUID) ([]ListUserNamesRow, error)
 	ListUserSettings(ctx context.Context, userID uuid.UUID) ([]NotificationUserSetting, error)
 	ListUserVPNConfigs(ctx context.Context, userID uuid.UUID) ([]UserVpnConfig, error)
 	ListUsersCursor(ctx context.Context, arg ListUsersCursorParams) ([]User, error)

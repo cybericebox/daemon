@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // informByBase maps the base error var (pkg/err) to its informCode.
@@ -67,21 +68,29 @@ var objectByName = map[string]int{
 // declRe captures one builder chain: var name, base error, object constant, and
 // the terminating detail code. (?sU) = dotall + ungreedy so it spans line breaks
 // and stops at the first WithDetailCode.
-var declRe = regexp.MustCompile(`(?sU)(\w+)\s*=\s*err\.(\w+)\.WithObjectCode\(model\.(\w+)\).*WithDetailCode\((\d+)\)`)
+var declRe = regexp.MustCompile(`(?sU)(\w+)\s*=\s*err\.(\w+)\.\s*WithObjectCode\(model\.(\w+)\).*WithDetailCode\((\d+)\)`)
 
 // msgRe pulls the English message out of a matched declaration block.
 var msgRe = regexp.MustCompile(`WithMessage\(\s*"((?:[^"\\]|\\.)*)"`)
 
 func main() {
-	roots := []string{"internal/model"}
-	catalog := map[string]string{}
+	out, err := generate("internal/model", "pkg/ipam")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "errorcatalog:", err)
+		os.Exit(1)
+	}
+	fmt.Print(out)
+}
 
+// generate scans every non-test .go file under the roots and renders the catalog.
+func generate(roots ...string) (string, error) {
+	catalog := map[string]string{}
 	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
-			if d.IsDir() || filepath.Base(path) != "errors.go" {
+			if d.IsDir() || filepath.Ext(path) != ".go" || strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
 			data, err := os.ReadFile(path)
@@ -117,8 +126,7 @@ func main() {
 			return nil
 		})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "errorcatalog:", err)
-			os.Exit(1)
+			return "", err
 		}
 	}
 
@@ -141,7 +149,5 @@ func main() {
 		out = append(out, fmt.Sprintf("  %q: %s%s", strconv.Itoa(k), val, comma))
 	}
 	out = append(out, "}")
-	for _, line := range out {
-		fmt.Println(line)
-	}
+	return strings.Join(out, "\n") + "\n", nil
 }

@@ -239,6 +239,12 @@ SELECT id, created_by
 FROM files
 WHERE id = ANY (sqlc.arg(ids)::uuid[]);
 
+-- name: ListUserNames :many
+-- First and last name of the authors an exercise response shows (never the email).
+SELECT id, first_name, last_name
+FROM users
+WHERE id = ANY (sqlc.arg(ids)::uuid[]);
+
 -- name: ListUserEventMemberships :many
 -- The events a user is a member of, for the exercises app rights summary.
 SELECT member.event_id, member.role,

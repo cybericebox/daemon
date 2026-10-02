@@ -1,6 +1,11 @@
 package exercise
 
 import (
+	"context"
+
+	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
+
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
@@ -12,10 +17,31 @@ type fitChecker interface {
 }
 
 // versionView is the version for the editor: secrets masked, and which variants some agent cannot run.
-func (u *ExerciseUseCase) versionView(v exerciseModel.ExerciseVersion) VersionView {
+func (u *ExerciseUseCase) versionView(ctx context.Context, v exerciseModel.ExerciseVersion) VersionView {
 	view := toVersionView(v)
 	view.Fit = u.variantFits(v.Variants)
+	view.AuthorName = u.authorNames(ctx, v.CreatedBy)[v.CreatedBy.UUID]
 	return view
+}
+
+// authorNames resolves the first and last names of the given authors (never an email). Best effort: a failed
+// lookup leaves the names empty rather than failing the read they decorate.
+func (u *ExerciseUseCase) authorNames(ctx context.Context, authors ...uuid.NullUUID) map[uuid.UUID]string {
+	ids := make([]uuid.UUID, 0, len(authors))
+	for _, author := range authors {
+		if author.Valid {
+			ids = append(ids, author.UUID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	names, err := u.exercises.UserNames(ctx, ids)
+	if err != nil {
+		log.Warn().Err(err).Msg("exercise author names unavailable")
+		return nil
+	}
+	return names
 }
 
 // variantFits returns the variants that do not fit every enabled agent that reported its limits.

@@ -58,9 +58,15 @@ func expectEditableExercise(q *postgresMocks.MockQuerier, exID uuid.UUID) {
 	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil)
 }
 
+// expectUserNames lets a test that does not care about author names pass the name lookup through.
+func expectUserNames(q *postgresMocks.MockQuerier) {
+	q.EXPECT().ListUserNames(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+}
+
 func TestCreateExercise_WritesDomainRow(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
+	expectUserNames(q)
 	uc := newUC(q, newFakeMedia())
 	adminID := uuid.Must(uuid.NewV7())
 

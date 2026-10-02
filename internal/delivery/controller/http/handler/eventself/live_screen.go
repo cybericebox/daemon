@@ -123,14 +123,14 @@ func newWindowLimiter(limit int, window time.Duration) *windowLimiter {
 }
 
 // allow counts one request of key in the current fixed window.
-func (l *windowLimiter) allow(key string, now time.Time) bool {
+func (l *windowLimiter) allow(key string, now time.Time) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if now.Sub(l.start) >= l.window {
 		l.start, l.counts = now, map[string]int{}
 	}
 	l.counts[key]++
-	return l.counts[key] <= l.limit
+	return l.counts[key] <= l.limit, l.window - now.Sub(l.start)
 }
 
 func (l *windowLimiter) middleware(ctx *gin.Context) {
@@ -138,9 +138,9 @@ func (l *windowLimiter) middleware(ctx *gin.Context) {
 	if len(token) > 128 {
 		token = token[:128]
 	}
-	if !l.allow(token, time.Now()) {
+	if ok, wait := l.allow(token, time.Now()); !ok {
 		errjournal.SetLimiter(ctx, "live-screen-window")
-		response.AbortWithTooManyRequests(ctx)
+		response.AbortWithTooManyRequests(ctx, wait)
 		return
 	}
 	ctx.Next()

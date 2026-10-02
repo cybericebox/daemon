@@ -7515,6 +7515,21 @@ func (mr *MockQuerierMockRecorder) ListUserEventMemberships(ctx, userID any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUserEventMemberships", reflect.TypeOf((*MockQuerier)(nil).ListUserEventMemberships), ctx, userID)
 }
 
+// ListUserNames mocks base method.
+func (m *MockQuerier) ListUserNames(ctx context.Context, ids []uuid.UUID) ([]postgres.ListUserNamesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUserNames", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListUserNamesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUserNames indicates an expected call of ListUserNames.
+func (mr *MockQuerierMockRecorder) ListUserNames(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUserNames", reflect.TypeOf((*MockQuerier)(nil).ListUserNames), ctx, ids)
+}
+
 // ListUserSettings mocks base method.
 func (m *MockQuerier) ListUserSettings(ctx context.Context, userID uuid.UUID) ([]postgres.NotificationUserSetting, error) {
 	m.ctrl.T.Helper()

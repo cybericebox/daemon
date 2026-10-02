@@ -374,7 +374,7 @@ func (h *Handler) liveResults(ctx *gin.Context) {
 	release, admitted := sse.Streams.Acquire("results:"+key, limit)
 	if !admitted {
 		errjournal.SetLimiter(ctx, "results-streams")
-		response.AbortWithTooManyRequests(ctx)
+		response.AbortWithTooManyRequests(ctx, response.StreamRetryAfter)
 		return
 	}
 	defer release()

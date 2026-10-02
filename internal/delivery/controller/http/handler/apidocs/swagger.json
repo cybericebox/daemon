@@ -27232,6 +27232,9 @@
                 "ArchivedAt": {
                     "type": "string"
                 },
+                "AuthorName": {
+                    "type": "string"
+                },
                 "CreatedAt": {
                     "type": "string"
                 },
@@ -27293,6 +27296,9 @@
                     "type": "string"
                 },
                 "UpdatedBy": {
+                    "type": "string"
+                },
+                "UpdatedByName": {
                     "type": "string"
                 }
             }
@@ -27824,6 +27830,9 @@
                 "AdminNote": {
                     "type": "string"
                 },
+                "AuthorName": {
+                    "type": "string"
+                },
                 "CreatedAt": {
                     "type": "string"
                 },
@@ -27851,6 +27860,9 @@
             "type": "object",
             "properties": {
                 "AdminNote": {
+                    "type": "string"
+                },
+                "AuthorName": {
                     "type": "string"
                 },
                 "CreatedAt": {
@@ -31338,6 +31350,9 @@
         "stats.dispatchDetailResponse": {
             "type": "object",
             "properties": {
+                "BroadcastID": {
+                    "type": "string"
+                },
                 "CreatedAt": {
                     "type": "string"
                 },

@@ -5133,6 +5133,8 @@ definitions:
         type: string
       ArchivedAt:
         type: string
+      AuthorName:
+        type: string
       CreatedAt:
         type: string
       CreatedBy:
@@ -5174,6 +5176,8 @@ definitions:
       UpdatedAt:
         type: string
       UpdatedBy:
+        type: string
+      UpdatedByName:
         type: string
     type: object
   exercise.exerciseUsageEventResponse:
@@ -5527,6 +5531,8 @@ definitions:
     properties:
       AdminNote:
         type: string
+      AuthorName:
+        type: string
       CreatedAt:
         type: string
       CreatedBy:
@@ -5545,6 +5551,8 @@ definitions:
   exercise.versionResponse:
     properties:
       AdminNote:
+        type: string
+      AuthorName:
         type: string
       CreatedAt:
         type: string
@@ -7885,6 +7893,8 @@ definitions:
     type: object
   stats.dispatchDetailResponse:
     properties:
+      BroadcastID:
+        type: string
       CreatedAt:
         type: string
       EventName:

@@ -32,6 +32,7 @@ func TestSaveDraftRefusesAFileThatIsNotTheCallersAndNotTheExercises(t *testing.T
 
 	setup := func(t *testing.T) (*exercise.ExerciseUseCase, *postgresMocks.MockQuerier) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+		expectUserNames(q)
 		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
 		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil).AnyTimes()
 		q.EXPECT().ListFileOwners(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error) {
@@ -78,6 +79,7 @@ func TestSaveDraftRefusesAFileThatIsNotTheCallersAndNotTheExercises(t *testing.T
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 		q.EXPECT().GetDraftVersion(gomock.Any(), exID).Return(postgres.ExerciseVersion{}, errNoRows())
 		q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID}, nil)
+		expectUserNames(q)
 		var captured postgres.UpsertExerciseDraftParams
 		expectUpsertCapture(t, q, &captured)
 		if _, err := newUC(q, newFakeMedia()).SaveDraft(ctx, exID, exercise.SaveDraftInput{SavedBy: me, Variants: variantsWithFiles()}); err != nil {
