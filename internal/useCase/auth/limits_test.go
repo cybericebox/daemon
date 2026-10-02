@@ -12,11 +12,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/mock/gomock"
 
+	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	"github.com/cybericebox/daemon/internal/useCase/auth"
 	"github.com/cybericebox/daemon/pkg/err"
+	"github.com/cybericebox/daemon/pkg/password"
+	"github.com/cybericebox/daemon/pkg/token"
 )
 
 func tooMany(t *testing.T, got error) {
@@ -221,5 +225,39 @@ func TestInviteEntries_ReportsRateLimit(t *testing.T) {
 	res, e := uc.InviteEntries(ctx, []auth.InviteEntry{{Email: "new@b.test"}})
 	if e != nil || len(res) != 1 || res[0].Code != auth.InviteCodeRateLimited {
 		t.Fatalf("want rate_limited, got %+v / %v", res, e)
+	}
+}
+
+// The oldest sessions beyond SESSION_MAX_PER_USER are ended when a new one is created.
+func TestSignIn_EvictsTheOldestSessionsOverTheCap(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	pw := password.New(password.Config{HashCost: 4})
+	uc := auth.NewAuthUseCase(auth.Dependencies{
+		Repo: repo, Token: token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}), Password: pw,
+		Config: config.AuthConfig{SessionIdleTTL: time.Hour, SessionMaxPerUser: 2, Hosts: testHosts("test")},
+	})
+	hashed, _ := pw.Hash("Secret!1")
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(postgres.User{ID: uid, Role: "user", HashedPassword: pgtype.Text{String: hashed, Valid: true}}, nil)
+	now := time.Now()
+	fresh, mid, old1, old2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	repo.EXPECT().CreateSession(gomock.Any(), gomock.Any()).Return(postgres.Session{ID: fresh, UserID: uid, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, nil)
+	repo.EXPECT().GetSessionsByUser(gomock.Any(), uid).Return([]postgres.Session{
+		{ID: fresh, UserID: uid, CreatedAt: now},
+		{ID: old1, UserID: uid, CreatedAt: now.Add(-3 * time.Hour)},
+		{ID: mid, UserID: uid, CreatedAt: now.Add(-time.Hour)},
+		{ID: old2, UserID: uid, CreatedAt: now.Add(-5 * time.Hour)},
+	}, nil)
+	var evicted []uuid.UUID
+	repo.EXPECT().DeleteUserSession(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(func(_ context.Context, p postgres.DeleteUserSessionParams) (int64, error) {
+		evicted = append(evicted, p.ID)
+		return 1, nil
+	})
+	if _, _, err := uc.SignIn(context.Background(), "a@b.test", "Secret!1", "", authModel.SessionMetadata{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(evicted) != 2 || evicted[0] != old2 || evicted[1] != old1 {
+		t.Fatalf("the two oldest sessions must go, oldest first: %v", evicted)
 	}
 }

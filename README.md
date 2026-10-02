@@ -112,6 +112,7 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `GOOGLE_CLIENT_ID`, `GOOGLE_SECRET` | none | Google OAuth client. |
 | `SUPER_ADMIN_EMAIL` | none | Email of the account that is promoted to super admin (at sign-up and at start-up; compared case-insensitively). Every start sets the role back, so a demotion made in the admin lasts only until the next restart: unset the variable to demote for good. |
 | `SESSION_IDLE_TTL` | `336h` | A session unused for this long ends (slides on every use). |
+| `SESSION_MAX_PER_USER` | `10` | Sessions one account keeps at once; signing in over the cap ends the oldest (0 = no cap). |
 | `SESSION_ABSOLUTE_TTL` | `720h` | A session ends this long after sign-in however busy it is (also the cookie lifetime). |
 | `TEMPORAL_CODE_TTL` | `1h` | Lifetime of one-time codes (confirmation, reset). |
 | `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH` | `8`, `72` | Password length bounds (bcrypt ignores bytes past 72). |

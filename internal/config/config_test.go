@@ -328,6 +328,9 @@ func TestSessionAndDocsDefaults(t *testing.T) {
 	if cfg.Auth.SessionIdleTTL != 336*time.Hour || cfg.Auth.SessionAbsoluteTTL != 720*time.Hour || cfg.Auth.SignupSetupTokenTTL != 24*time.Hour {
 		t.Fatalf("session defaults: idle %v absolute %v signup setup %v", cfg.Auth.SessionIdleTTL, cfg.Auth.SessionAbsoluteTTL, cfg.Auth.SignupSetupTokenTTL)
 	}
+	if cfg.Auth.SessionMaxPerUser != 10 {
+		t.Fatalf("SESSION_MAX_PER_USER default: %d", cfg.Auth.SessionMaxPerUser)
+	}
 	if !cfg.HTTPController.EnableSwaggerDocs {
 		t.Fatal("docs are on in development")
 	}

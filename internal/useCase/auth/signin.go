@@ -3,9 +3,11 @@ package auth
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -92,6 +94,7 @@ func (u *AuthUseCase) createSession(
 	if u.cfg.SessionAbsoluteTTL > 0 {
 		cookieExpires = session.CreatedAt.Add(u.cfg.SessionAbsoluteTTL)
 	}
+	u.evictOldestSessions(ctx, userID, session.ID)
 	cookie, err := u.token.GenerateSessionCookie(session.ID, cookieExpires)
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate session cookie").Err()
@@ -171,4 +174,31 @@ func (u *AuthUseCase) resolveSession(ctx context.Context, sessionID uuid.UUID) (
 		},
 		Session: &session,
 	}, nil
+}
+
+// evictOldestSessions keeps the account within SESSION_MAX_PER_USER: the sessions beyond the cap,
+// oldest first, are ended (never the one just created). Best effort: a failure here must not fail
+// the sign-in, and the next sign-in trims again.
+func (u *AuthUseCase) evictOldestSessions(ctx context.Context, userID, keep uuid.UUID) {
+	limit := u.cfg.SessionMaxPerUser
+	if limit <= 0 {
+		return
+	}
+	sessions, err := u.sessions.ListByUser(ctx, userID)
+	if err != nil {
+		log.Warn().Err(err).Str("user_id", userID.String()).Msg("Failed to list sessions for the cap")
+		return
+	}
+	if len(sessions) <= limit {
+		return
+	}
+	sort.Slice(sessions, func(i, j int) bool { return sessions[i].CreatedAt.Before(sessions[j].CreatedAt) })
+	for _, s := range sessions[:len(sessions)-limit] {
+		if s.ID == keep {
+			continue
+		}
+		if _, err = u.sessions.DeleteForUser(ctx, s.ID, userID); err != nil {
+			log.Warn().Err(err).Str("user_id", userID.String()).Msg("Failed to evict a session over the cap")
+		}
+	}
 }

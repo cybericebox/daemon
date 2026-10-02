@@ -171,6 +171,9 @@ type (
 		// lifetime). A stolen cookie therefore cannot be kept alive for ever by using it.
 		SessionIdleTTL     time.Duration `env:"SESSION_IDLE_TTL"     envDefault:"336h"`
 		SessionAbsoluteTTL time.Duration `env:"SESSION_ABSOLUTE_TTL" envDefault:"720h"`
+		// SessionMaxPerUser is how many sessions one account keeps at once; signing in over the cap
+		// ends the oldest. 0 means no cap.
+		SessionMaxPerUser int `env:"SESSION_MAX_PER_USER" envDefault:"10"`
 		// SignupSetupTokenTTL is the life of the setup link mailed to someone who signed up (or came
 		// through Google) by themselves; invitations keep SetupTokenTTL.
 		SignupSetupTokenTTL time.Duration   `env:"SIGNUP_SETUP_TOKEN_TTL" envDefault:"24h"`
