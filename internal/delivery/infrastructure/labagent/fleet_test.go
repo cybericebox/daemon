@@ -361,3 +361,28 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		t.Fatal("an empty report offers nothing")
 	}
 }
+
+func TestPrewarmSkipsAnAgentWhoseImageCacheIsOff(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	f.a.prewarmOut = &labpb.PrewarmImagesResult{Images: []*labpb.PrewarmImageStatus{{Image: "nginx", State: labpb.PrewarmState_PREWARM_STATE_DONE}}}
+	f.b.prewarmOut = f.a.prewarmOut
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{})
+	f.bm.Features = NewFeatureCell(&infraModel.AgentFeatures{})
+	got, err := f.fleet.PrewarmImages(ctx, []string{"nginx"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.a.prewarm != nil || f.b.prewarm != nil {
+		t.Fatal("an agent without an image cache is not asked to warm anything")
+	}
+	if len(got) != 1 || got[0].Image != "nginx" || got[0].State != infraModel.PrewarmSkipped {
+		t.Fatalf("every image reads as skipped: %+v", got)
+	}
+	// One agent with a cache is asked, and its answer stands; the other is left out.
+	f.bm.Features.Set(infraModel.AgentFeatures{ImageCache: infraModel.ImageCacheFeature{Enabled: true}})
+	got, err = f.fleet.PrewarmImages(ctx, []string{"nginx"})
+	if err != nil || f.a.prewarm != nil || f.b.prewarm == nil || len(got) != 1 || got[0].State != infraModel.PrewarmDone {
+		t.Fatalf("got %+v err %v", got, err)
+	}
+}

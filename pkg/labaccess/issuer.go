@@ -124,6 +124,12 @@ func New(cfg Config) (*Issuer, error) {
 	return &Issuer{ttl: cfg.TokenTTL, sessionTTL: cfg.SessionTTL}, nil
 }
 
+// TokenTTL is how long a link can be opened.
+func (i *Issuer) TokenTTL() time.Duration { return i.ttl }
+
+// SessionTTL is the session length when the caller names no end.
+func (i *Issuer) SessionTTL() time.Duration { return i.sessionTTL }
+
 // Issue signs an access link for one device with the tenant's key, valid for the token TTL from now.
 func (i *Issuer) Issue(sk SigningKey, s Session, now time.Time) (Link, error) {
 	if sk.Tenant == "" || sk.KeyID == "" || len(sk.Key) != ed25519.PrivateKeySize {

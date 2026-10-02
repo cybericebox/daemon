@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
@@ -14,6 +16,22 @@ import (
 type SessionIssuer struct {
 	Fleet  *Fleet
 	Issuer *labaccess.Issuer
+}
+
+// warnLimits says once per agent that a configured TTL is above what its proxy accepts; links are capped.
+func (s SessionIssuer) warnLimits(member *Member, sk labaccess.SigningKey) {
+	if sk.MaxTokenTTL > 0 && s.Issuer.TokenTTL() > sk.MaxTokenTTL {
+		if _, warned := s.Fleet.limitWarned.LoadOrStore(member.ID.String()+"/token", true); !warned {
+			log.Warn().Str("agent", member.Name).Dur("configured", s.Issuer.TokenTTL()).Dur("proxyMax", sk.MaxTokenTTL).
+				Msg("LAB_ACCESS_TOKEN_TTL is above what the agent's proxy accepts: its links are capped")
+		}
+	}
+	if sk.MaxSessionTTL > 0 && s.Issuer.SessionTTL() > sk.MaxSessionTTL {
+		if _, warned := s.Fleet.limitWarned.LoadOrStore(member.ID.String()+"/session", true); !warned {
+			log.Warn().Str("agent", member.Name).Dur("configured", s.Issuer.SessionTTL()).Dur("proxyMax", sk.MaxSessionTTL).
+				Msg("LAB_SESSION_TTL is above what the agent's proxy keeps a session: sessions of this agent are capped")
+		}
+	}
 }
 
 // Issue signs an access link for one device of a lab group.
@@ -29,6 +47,7 @@ func (s SessionIssuer) Issue(ctx context.Context, session labaccess.Session, now
 	if f := member.Features.Get(); f != nil {
 		sk.MaxTokenTTL = time.Duration(f.Proxy.AccessTokenMaxTTLSeconds) * time.Second
 		sk.MaxSessionTTL = time.Duration(f.Proxy.SessionMaxTTLSeconds) * time.Second
+		s.warnLimits(member, sk)
 	}
 	return s.Issuer.Issue(sk, session, now)
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
@@ -76,8 +77,12 @@ type Fleet struct {
 	store  PlacementStore
 	picker Picker
 
-	mu      sync.RWMutex
-	members []*Member // ordered by priority, then name
+	mu sync.RWMutex
+	// prewarmSkipLogged remembers the agents whose cache-off skip was logged already.
+	prewarmSkipLogged sync.Map
+	// limitWarned remembers the agents whose proxy limits already caused a warning about the configured TTLs.
+	limitWarned sync.Map
+	members     []*Member // ordered by priority, then name
 }
 
 // NewFleet builds a fleet. store may be nil only while the fleet has at most one member.
@@ -412,9 +417,17 @@ func (f *Fleet) RescueDevice(ctx context.Context, group, lab, device string, ena
 func (f *Fleet) PrewarmImages(ctx context.Context, images []string) ([]infraModel.ImagePrewarm, error) {
 	var merged []infraModel.ImagePrewarm
 	var firstErr error
-	answered := 0
+	answered, skipped := 0, 0
 	for _, m := range f.Members() {
 		if !m.Enabled {
+			continue
+		}
+		// The agent says its image cache is off: nodes pull directly, so there is nothing to warm.
+		if feat := m.Features.Get(); feat != nil && !feat.ImageCache.Enabled {
+			skipped++
+			if _, logged := f.prewarmSkipLogged.LoadOrStore(m.ID, true); !logged {
+				log.Info().Str("agent", m.Name).Msg("Image prewarm skipped: the agent reports its image cache is off")
+			}
 			continue
 		}
 		got, err := m.Client.PrewarmImages(ctx, images)
@@ -429,6 +442,11 @@ func (f *Fleet) PrewarmImages(ctx context.Context, images []string) ([]infraMode
 	}
 	if answered == 0 && firstErr != nil {
 		return nil, firstErr
+	}
+	if answered == 0 && skipped > 0 {
+		for _, image := range images {
+			merged = append(merged, infraModel.ImagePrewarm{Image: image, State: infraModel.PrewarmSkipped})
+		}
 	}
 	return merged, nil
 }
