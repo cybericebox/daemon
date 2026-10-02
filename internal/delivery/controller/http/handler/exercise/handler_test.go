@@ -1736,10 +1736,10 @@ func TestExerciseCapabilitiesCarryThePlatformResourceSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := body.Data.Resources
-	if len(res.Presets) != 6 || res.Presets[0].ID != "micro" || res.Presets[0].Blocks != 1 || res.Presets[0].CPUMillicores != 16 || res.Presets[3].Blocks != 16 || res.Presets[5].Blocks != 64 || res.DefaultPreset != "micro" {
+	if len(res.Presets) != 8 || res.Presets[0].ID != "nano" || res.Presets[0].Blocks != 1 || res.Presets[1].ID != "micro" || res.Presets[1].CPUMillicores != 15 || res.Presets[5].Blocks != 32 || res.Presets[7].Blocks != 128 || res.DefaultPreset != "micro" {
 		t.Fatalf("presets: %+v", res)
 	}
-	if res.Block.MemoryBytes != 64<<20 || res.FrameBlocks != 16 || res.CeilingBlocks != 64 {
+	if res.Block.MemoryBytes != 32<<20 || res.FrameBlocks != 32 || res.CeilingBlocks != 128 {
 		t.Fatalf("block/frame/ceiling blocks: %+v", res)
 	}
 	if res.Frame.CPUMillicores != 250 || res.Frame.MemoryBytes != 1<<30 || res.Ceiling.CPUMillicores != 1000 || res.Ceiling.MemoryBytes != 4<<30 {
@@ -1787,8 +1787,8 @@ func TestResourceElevationRoutes(t *testing.T) {
 		t.Fatalf("list: %d status=%q %s", w.Code, uc.elevationStatus, w.Body.String())
 	}
 	w := do(super, http.MethodPost, "/api/exercises/elevations/"+elevationID.String()+"/approve",
-		`{"Note":"ok","Devices":[{"DeviceID":"`+uc.elevation.Requested[0].DeviceID.String()+`","Blocks":16}]}`)
-	if w.Code != http.StatusOK || !uc.elevationDecision.Approve || uc.elevationDecision.Note != "ok" || len(uc.elevationDecision.Devices) != 1 || uc.elevationDecision.Devices[0].Blocks != 16 {
+		`{"Note":"ok","Devices":[{"DeviceID":"`+uc.elevation.Requested[0].DeviceID.String()+`","Blocks":64}]}`)
+	if w.Code != http.StatusOK || !uc.elevationDecision.Approve || uc.elevationDecision.Note != "ok" || len(uc.elevationDecision.Devices) != 1 || uc.elevationDecision.Devices[0].Blocks != 64 {
 		t.Fatalf("decide: %d %+v %s", w.Code, uc.elevationDecision, w.Body.String())
 	}
 	if w = do(super, http.MethodPost, "/api/exercises/elevations/"+elevationID.String()+"/approve", `nope`); w.Code != http.StatusBadRequest {

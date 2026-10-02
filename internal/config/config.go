@@ -334,22 +334,20 @@ type (
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 	}
 
-	// ResourcesConfig is the platform's device resources model (RESOURCES_*): a device is a whole number of
-	// blocks, there is no custom size.
+	// ResourcesConfig is the platform's device resources model (RESOURCES_*): a device is one of the preset sizes,
+	// there is no custom size.
 	ResourcesConfig struct {
-		// Block is one unit of a device size as cpu/memory (Kubernetes quantities). CPU is tied to memory at
-		// 1 core : 4 GiB, so a 64Mi block is 15625u (about 16m) and 16 blocks are exactly 250m / 1Gi.
-		Block string `env:"BLOCK" envDefault:"15625u/64Mi"`
-		// Presets are the allowed device sizes as id=blocks separated by commas; the ids are translated by the
-		// frontends. Every count divides the next larger one, so packing leaves no hole.
-		Presets string `env:"PRESETS" envDefault:"micro=1,small=2,medium=8,large=16,xlarge=32,huge=64"`
+		// Presets are the allowed device sizes as id=memory (Kubernetes quantities) separated by commas; the ids are
+		// translated by the frontends. Memory is binary and is the packing dimension, every size divides the next
+		// larger one. The CPU of a size follows from its memory (1000m per 4Gi, rounded down); it is not configured.
+		Presets string `env:"PRESETS" envDefault:"nano=32Mi,micro=64Mi,small=128Mi,standard=256Mi,medium=512Mi,large=1Gi,xlarge=2Gi,max=4Gi"`
 		// DefaultPreset is the size of a device that picked none.
 		DefaultPreset string `env:"DEFAULT_PRESET" envDefault:"micro"`
-		// FrameBlocks is the most a device gets without approval; an agent whose device maximum is below it
-		// does not meet the platform requirements.
-		FrameBlocks int `env:"FRAME_BLOCKS" envDefault:"16"`
-		// CeilingBlocks is the most an approved elevation may give a device.
-		CeilingBlocks int `env:"CEILING_BLOCKS" envDefault:"64"`
+		// FramePreset is the largest size a device gets without approval; an agent whose device maximum is below
+		// it does not meet the platform requirements.
+		FramePreset string `env:"FRAME_PRESET" envDefault:"large"`
+		// CeilingPreset is the largest size an approved elevation may give a device.
+		CeilingPreset string `env:"CEILING_PRESET" envDefault:"max"`
 	}
 
 	// CalendarConfig is the resource calendar (CALENDAR_*): how an event reservation is sized and windowed, and
@@ -601,7 +599,7 @@ func (c ErrorJournalConfig) Validate() error {
 
 // Policy parses the device resources settings.
 func (c ResourcesConfig) Policy() (resourcesModel.Policy, error) {
-	policy, err := resourcesModel.ParsePolicy(c.Block, c.Presets, c.DefaultPreset, c.FrameBlocks, c.CeilingBlocks)
+	policy, err := resourcesModel.ParsePolicy(c.Presets, c.DefaultPreset, c.FramePreset, c.CeilingPreset)
 	if err != nil {
 		return resourcesModel.Policy{}, fmt.Errorf("resources: RESOURCES_*: %w", err)
 	}

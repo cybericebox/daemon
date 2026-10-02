@@ -52,7 +52,7 @@ func TestPublishedAndPinnedVariantsCarryOnlyWhatTheTotalsNeed(t *testing.T) {
 
 	policy := resourcesModel.DefaultPolicy()
 	total := policy.Total(got[ex.ID][0].Topology)
-	require.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 40, Amount: resourcesModel.Amount{CPUMillicores: 625, MemoryBytes: 512<<20 + 2<<30}}, total)
+	require.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 80, Amount: resourcesModel.Amount{CPUMillicores: 625, MemoryBytes: 512<<20 + 2<<30}}, total)
 
 	byVersion, err := repo.VersionVariants(ctx, []uuid.UUID{published.ID})
 	require.NoError(t, err)

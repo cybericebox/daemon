@@ -420,7 +420,7 @@ func TestPlacementTakesOnlyAgentsWhoseMaximaHoldTheNeed(t *testing.T) {
 	f := newFleetFixture(t)
 	ctx := context.Background()
 	f.am.Features, f.bm.Features = limited(500), limited(4000) // a is first by priority but too small
-	need := needOf(f, "huge")                                  // 1 CPU / 4Gi
+	need := needOf(f, "max")                                   // 1 CPU / 4Gi
 	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-1"); err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestDeployLabChecksItsOwnTopologyAgainstThePlacedAgent(t *testing.T) {
 	ctx := context.Background()
 	f.am.Features, f.bm.Features = limited(500), limited(4000)
 	// A new group is placed by the lab it is created for.
-	if err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, heavyTopology("huge")); err != nil {
+	if err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, heavyTopology("max")); err != nil {
 		t.Fatal(err)
 	}
 	if f.store.groups["e-1-t-1"] != f.bm.ID {
@@ -479,7 +479,7 @@ func TestDeployLabChecksItsOwnTopologyAgainstThePlacedAgent(t *testing.T) {
 	}
 	// A group stays where it is: a later lab that does not fit there is refused, not moved.
 	f.bm.Features = limited(900)
-	if err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-2", infraModel.LabMeta{}, heavyTopology("huge")); !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
+	if err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-2", infraModel.LabMeta{}, heavyTopology("max")); !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
 		t.Fatalf("a lab over the placed agent's maximum = %v", err)
 	}
 }
@@ -487,16 +487,16 @@ func TestDeployLabChecksItsOwnTopologyAgainstThePlacedAgent(t *testing.T) {
 func TestNeedFitNamesNoAgent(t *testing.T) {
 	f := newFleetFixture(t)
 	f.am.Features, f.bm.Features = limited(500), limited(4000)
-	if v := f.fleet.NeedFit(needOf(f, "huge")); v != nil {
+	if v := f.fleet.NeedFit(needOf(f, "max")); v != nil {
 		t.Fatalf("b can run it: %+v", v)
 	}
 	f.bm.Features = limited(900)
-	v := f.fleet.NeedFit(needOf(f, "huge"))
+	v := f.fleet.NeedFit(needOf(f, "max"))
 	if v == nil || v.Resource != infraModel.FitCPU || v.Max != 900 {
 		t.Fatalf("none can; the largest maximum is reported: %+v", v)
 	}
 	f.bm.Features = nil
-	if v = f.fleet.NeedFit(needOf(f, "huge")); v != nil {
+	if v = f.fleet.NeedFit(needOf(f, "max")); v != nil {
 		t.Fatal("an agent that has not reported counts as able")
 	}
 }
@@ -513,13 +513,13 @@ func TestGroupSizesUseTheAgentsFormula(t *testing.T) {
 		t.Fatal("sizing reported")
 	}
 	// a: vpn 30, gateway 35; b: vpn 40, gateway 35. The plan holds wherever the group lands, rounded up to whole
-	// blocks (16m / 64Mi, three of them are 47m / 192Mi).
-	if sizes.VPN.CPUMillicores != 47 || sizes.Gateway.CPUMillicores != 47 || sizes.VPN.MemoryBytes != 192<<20 {
+	// sizes (CPU follows memory at 250m per Gi, so 40m needs 256Mi / 62m).
+	if sizes.VPN.CPUMillicores != 62 || sizes.Gateway.CPUMillicores != 62 || sizes.VPN.MemoryBytes != 256<<20 {
 		t.Fatalf("sizes %+v", sizes)
 	}
 	// The maximum caps the growth.
 	capped, _ := f.fleet.GroupSizes(infraModel.GroupPlan{MaxUsers: 1000, InternetLabs: 1000})
-	if capped.VPN.CPUMillicores != 47 || capped.Gateway.CPUMillicores != 110 {
+	if capped.VPN.CPUMillicores != 62 || capped.Gateway.CPUMillicores != 125 {
 		t.Fatalf("capped %+v", capped)
 	}
 	f.am.Features, f.bm.Features = nil, nil
@@ -534,7 +534,7 @@ func TestExplicitSizesReachTheCreateCall(t *testing.T) {
 	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing}})
 	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 5}})
 	got, ok := infraModel.GroupSizesFrom(f.fleet.withSizes(ctx, f.am))
-	if !ok || got.VPN.CPUMillicores != 16 {
+	if !ok || got.VPN.CPUMillicores != 15 {
 		t.Fatalf("the member's formula for 5 users (15m), rounded up to one block: %+v %v", got, ok)
 	}
 }
@@ -552,7 +552,7 @@ func TestAgentAlwaysGetsExplicitEqualRequestsAndLimits(t *testing.T) {
 	spec := string(f.a.createLabs.GetVariants()[0].GetSpecJson())
 	for _, want := range []string{
 		`"cpuRequest":"125m"`, `"cpuLimit":"125m"`, `"memoryRequest":"512Mi"`, `"memoryLimit":"512Mi"`, // preset
-		`"cpuRequest":"16m"`, `"memoryLimit":"64Mi"`, // the default preset, one block
+		`"cpuRequest":"15m"`, `"memoryLimit":"64Mi"`, // the default preset, one block
 		`"cpuRequest":"250m"`, `"memoryRequest":"1Gi"`, // sixteen blocks, requests mirrored
 	} {
 		if !strings.Contains(spec, want) {
@@ -570,7 +570,7 @@ func TestSetPolicyChangesTheFrameAnAgentMustMeet(t *testing.T) {
 	if !f.fleet.MeetsRequirements(f.am) {
 		t.Fatal("400m meets the default 250m frame")
 	}
-	policy, err := resourcesModel.ParsePolicy("15625u/64Mi", "micro=1,small=2,medium=8,large=16,xlarge=32,huge=64", "micro", 32, 64)
+	policy, err := resourcesModel.ParsePolicy("nano=32Mi,micro=64Mi,small=128Mi,standard=256Mi,medium=512Mi,large=1Gi,xlarge=2Gi,max=4Gi", "micro", "xlarge", "max")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +600,7 @@ func TestFeaturesOfReadsTheGroupPodSizingAndSendsExplicitSizes(t *testing.T) {
 	if err := f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"); err != nil {
 		t.Fatal(err)
 	}
-	if item := f.a.createGroup.GetItems()[0]; item.GetVpnSize().GetCpuMillicores() != 32 || item.GetGatewaySize().GetCpuMillicores() != 32 {
-		t.Fatalf("CreateLabGroups carries the sizes explicitly, rounded up to whole blocks (20m and 25m are two blocks): %+v", item)
+	if item := f.a.createGroup.GetItems()[0]; item.GetVpnSize().GetCpuMillicores() != 31 || item.GetGatewaySize().GetCpuMillicores() != 31 {
+		t.Fatalf("CreateLabGroups carries the sizes explicitly, rounded up to a preset size (20m and 25m are the 128Mi size, 31m): %+v", item)
 	}
 }

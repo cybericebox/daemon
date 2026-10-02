@@ -6,7 +6,6 @@ package resourcesModel
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -81,15 +80,22 @@ type Preset struct {
 	Amount
 }
 
-// Policy is the platform settings of device resources. A device is a whole number of blocks, one block being
-// Block (CPU tied to memory, so packing is one-dimensional). There is no custom size.
+// MilliCPUPerGiB is the CPU tied to memory: 1000m per 4Gi, so a size has memory/4Gi x 1000m of CPU, rounded DOWN
+// to whole millicores. CPU is not configured on its own. With nodes of 1 core per 2-4 GiB or more, memory always
+// binds first, so packing stays one-dimensional and memory (binary, halving) leaves no hole.
+const milliCPUPerGiB = 250
+
+// cpuFor is the CPU of a memory size by the rule above.
+func cpuFor(memoryBytes int64) int64 {
+	return memoryBytes * milliCPUPerGiB / (1 << 30)
+}
+
+// Policy is the platform settings of device resources. A device is one of the preset sizes (a block being the
+// smallest of them); there is no custom size.
 type Policy struct {
-	// Block is one unit of a device size (its CPU rounded up to whole millicores; the exact value is blockMicro).
+	// Block is the smallest preset: the unit Blocks count in.
 	Block Amount
-	// blockMicro is the CPU of one block in millionths of a core: CPU is tied to memory (1 core : 4 GiB), so a
-	// 64Mi block is 15625 and 16 blocks make exactly 250m.
-	blockMicro int64
-	// Presets in ascending order of blocks; every count divides the next, so largest-first packing leaves no hole.
+	// Presets in ascending order of memory; every size divides the next, so largest-first packing leaves no hole.
 	Presets       []Preset
 	DefaultPreset string
 	// FrameBlocks is the most a device gets without an approval; CeilingBlocks the most any approval may give.
@@ -99,24 +105,22 @@ type Policy struct {
 	Ceiling Amount
 }
 
-// DefaultPolicy is the owner's default settings: block 64Mi / ~16m (15625u, so 16 blocks are exactly 250m); Micro 1 (default), Small 2, Medium 8, Large 16
-// (the frame); with an approved elevation 32 and 64 (the ceiling, 1 CPU / 4Gi).
+// DefaultPolicy is the owner's default settings: nano 32Mi/7m, micro 64Mi/15m (default), small 128Mi/31m,
+// standard 256Mi/62m, medium 512Mi/125m, large 1Gi/250m (the frame); with an approved elevation xlarge
+// 2Gi/500m and max 4Gi/1000m (the ceiling).
 func DefaultPolicy() Policy {
-	p, err := ParsePolicy("15625u/64Mi", "micro=1,small=2,medium=8,large=16,xlarge=32,huge=64", "micro", 16, 64)
+	p, err := ParsePolicy("nano=32Mi,micro=64Mi,small=128Mi,standard=256Mi,medium=512Mi,large=1Gi,xlarge=2Gi,max=4Gi", "micro", "large", "max")
 	if err != nil {
 		panic(err)
 	}
 	return p
 }
 
-// ParsePolicy reads the settings in the form they are configured: the block as "cpu/memory" (Kubernetes
-// quantities: 16m, 64Mi), the presets as "id=blocks" separated by commas, and the frame and the ceiling in blocks.
-func ParsePolicy(block, presets, defaultPreset string, frameBlocks, ceilingBlocks int) (Policy, error) {
-	p := Policy{FrameBlocks: frameBlocks, CeilingBlocks: ceilingBlocks, DefaultPreset: strings.TrimSpace(defaultPreset)}
-	var err error
-	if p.Block, p.blockMicro, err = parseBlock(block); err != nil {
-		return Policy{}, fmt.Errorf("block: %w", err)
-	}
+// ParsePolicy reads the settings in the form they are configured: the presets as "id=memory" (Kubernetes
+// quantities, e.g. 64Mi) separated by commas, and the ids of the default, frame and ceiling presets. The CPU of
+// every size follows from its memory.
+func ParsePolicy(presets, defaultPreset, framePreset, ceilingPreset string) (Policy, error) {
+	p := Policy{DefaultPreset: strings.TrimSpace(defaultPreset)}
 	seen := map[string]bool{}
 	for _, item := range strings.Split(presets, ",") {
 		item = strings.TrimSpace(item)
@@ -125,81 +129,88 @@ func ParsePolicy(block, presets, defaultPreset string, frameBlocks, ceilingBlock
 		}
 		id, value, ok := strings.Cut(item, "=")
 		id = strings.TrimSpace(id)
-		count, convErr := strconv.Atoi(strings.TrimSpace(value))
-		if !ok || id == "" || seen[id] || convErr != nil || count < 1 {
-			return Policy{}, fmt.Errorf("preset %q: want a unique id=blocks with blocks of at least 1", item)
+		q, err := resource.ParseQuantity(strings.TrimSpace(value))
+		if !ok || id == "" || seen[id] || err != nil || q.Sign() <= 0 {
+			return Policy{}, fmt.Errorf("preset %q: want a unique id=memory with a positive memory", item)
 		}
 		seen[id] = true
-		p.Presets = append(p.Presets, Preset{ID: id, Blocks: count})
+		mem := q.Value()
+		p.Presets = append(p.Presets, Preset{ID: id, Amount: Amount{CPUMillicores: cpuFor(mem), MemoryBytes: mem}})
 	}
-	sort.SliceStable(p.Presets, func(i, j int) bool { return p.Presets[i].Blocks < p.Presets[j].Blocks })
+	sort.SliceStable(p.Presets, func(i, j int) bool { return p.Presets[i].MemoryBytes < p.Presets[j].MemoryBytes })
+	if len(p.Presets) == 0 {
+		return Policy{}, fmt.Errorf("at least one preset is required")
+	}
+	p.Block = p.Presets[0].Amount
 	for i := range p.Presets {
-		p.Presets[i].Amount = p.Amount(p.Presets[i].Blocks)
+		p.Presets[i].Blocks = int(p.Presets[i].MemoryBytes / p.Block.MemoryBytes)
 	}
-	p.Frame, p.Ceiling = p.Amount(frameBlocks), p.Amount(ceilingBlocks)
+	frame, ok := p.Preset(strings.TrimSpace(framePreset))
+	if !ok {
+		return Policy{}, fmt.Errorf("the frame preset %q is not among the presets", framePreset)
+	}
+	ceiling, ok := p.Preset(strings.TrimSpace(ceilingPreset))
+	if !ok {
+		return Policy{}, fmt.Errorf("the ceiling preset %q is not among the presets", ceilingPreset)
+	}
+	p.FrameBlocks, p.Frame, p.CeilingBlocks, p.Ceiling = frame.Blocks, frame.Amount, ceiling.Blocks, ceiling.Amount
 	return p, p.Validate()
 }
 
-// Amount is the size of a whole number of blocks: memory exactly, CPU rounded up to whole millicores.
+// Amount is the size of a whole number of blocks: memory exactly, CPU by the rule.
 func (p Policy) Amount(blocks int) Amount {
-	return Amount{CPUMillicores: (p.blockMicro*int64(blocks) + 999) / 1000, MemoryBytes: p.Block.MemoryBytes * int64(blocks)}
+	mem := p.Block.MemoryBytes * int64(blocks)
+	return Amount{CPUMillicores: cpuFor(mem), MemoryBytes: mem}
 }
 
-// BlocksOf is the whole blocks an amount takes (rounded up, over both resources): the fewest blocks whose size
-// holds it.
+// fit is the smallest preset that holds the amount in both resources.
+func (p Policy) fit(a Amount) (Preset, bool) {
+	for _, preset := range p.Presets {
+		if a.Within(preset.Amount) {
+			return preset, true
+		}
+	}
+	return Preset{}, false
+}
+
+// offers reports whether the amount is exactly one of the preset sizes.
+func (p Policy) offers(a Amount) bool {
+	for _, preset := range p.Presets {
+		if preset.Amount == a {
+			return true
+		}
+	}
+	return false
+}
+
+// BlocksOf is the blocks of the smallest preset that holds the amount; above the largest preset, the blocks of its
+// memory rounded up.
 func (p Policy) BlocksOf(a Amount) int {
-	if p.blockMicro <= 0 || p.Block.MemoryBytes <= 0 {
+	if p.Block.MemoryBytes <= 0 || a == (Amount{}) {
 		return 0
 	}
-	n := max(a.CPUMillicores*1000/p.blockMicro, (a.MemoryBytes+p.Block.MemoryBytes-1)/p.Block.MemoryBytes)
-	for p.Amount(int(n)).CPUMillicores < a.CPUMillicores {
-		n++
+	if preset, ok := p.fit(a); ok {
+		return preset.Blocks
 	}
-	return int(n)
+	return int((a.MemoryBytes + p.Block.MemoryBytes - 1) / p.Block.MemoryBytes)
 }
 
-// RoundUp is the amount rounded up to whole blocks (what a group's own pods are sent and reserved with).
+// RoundUp is the amount rounded up to the next preset memory size, with its CPU by the rule; when that CPU is
+// below what the amount needs the next size up is taken. This is what a group's own pods are sent and reserved with.
+// Above the largest preset the amount is left as it is.
 func (p Policy) RoundUp(a Amount) Amount {
-	if a == (Amount{}) || p.blockMicro <= 0 {
+	if a == (Amount{}) {
 		return a
 	}
-	return p.Amount(p.BlocksOf(a))
+	if preset, ok := p.fit(a); ok {
+		return preset.Amount
+	}
+	return a
 }
 
-// ParseAmount reads "cpu/memory".
-func ParseAmount(s string) (Amount, error) {
-	cpu, mem, ok := strings.Cut(strings.TrimSpace(s), "/")
-	if !ok {
-		return Amount{}, fmt.Errorf("%q: want cpu/memory", s)
-	}
-	cpuQ, err := resource.ParseQuantity(strings.TrimSpace(cpu))
-	if err != nil || cpuQ.Sign() <= 0 {
-		return Amount{}, fmt.Errorf("%q: cpu must be a positive quantity", cpu)
-	}
-	memQ, err := resource.ParseQuantity(strings.TrimSpace(mem))
-	if err != nil || memQ.Sign() <= 0 {
-		return Amount{}, fmt.Errorf("%q: memory must be a positive quantity", mem)
-	}
-	return Amount{CPUMillicores: cpuQ.MilliValue(), MemoryBytes: memQ.Value()}, nil
-}
-
-// parseBlock reads the block "cpu/memory", keeping the CPU in millionths of a core.
-func parseBlock(s string) (Amount, int64, error) {
-	amount, err := ParseAmount(s)
-	if err != nil {
-		return Amount{}, 0, err
-	}
-	cpu, _, _ := strings.Cut(s, "/")
-	q, _ := resource.ParseQuantity(strings.TrimSpace(cpu))
-	return amount, q.ScaledValue(resource.Micro), nil
-}
-
-// Validate checks the settings agree: the block is set, presets exist and every count divides the next larger one,
-// the default is one of them, the frame and the ceiling are presets and the ceiling is not below the frame.
+// Validate checks the settings agree: presets exist and every size divides the next larger one, the default is
+// one of them, and the ceiling is not below the frame.
 func (p Policy) Validate() error {
-	if p.blockMicro <= 0 || p.Block.MemoryBytes <= 0 {
-		return fmt.Errorf("the block must be a positive cpu/memory")
-	}
 	if len(p.Presets) == 0 {
 		return fmt.Errorf("at least one preset is required")
 	}
@@ -208,18 +219,12 @@ func (p Policy) Validate() error {
 	}
 	for i := 1; i < len(p.Presets); i++ {
 		prev, cur := p.Presets[i-1], p.Presets[i]
-		if prev.Blocks == cur.Blocks {
-			return fmt.Errorf("presets %q and %q have the same blocks", prev.ID, cur.ID)
+		if prev.MemoryBytes == cur.MemoryBytes {
+			return fmt.Errorf("presets %q and %q have the same memory", prev.ID, cur.ID)
 		}
-		if cur.Blocks%prev.Blocks != 0 {
-			return fmt.Errorf("preset %q (%d blocks) is not a multiple of %q (%d blocks)", cur.ID, cur.Blocks, prev.ID, prev.Blocks)
+		if cur.MemoryBytes%prev.MemoryBytes != 0 {
+			return fmt.Errorf("preset %q is not a multiple of %q", cur.ID, prev.ID)
 		}
-	}
-	if _, ok := p.PresetByBlocks(p.FrameBlocks); !ok {
-		return fmt.Errorf("the frame of %d blocks is not a preset", p.FrameBlocks)
-	}
-	if _, ok := p.PresetByBlocks(p.CeilingBlocks); !ok {
-		return fmt.Errorf("the ceiling of %d blocks is not a preset", p.CeilingBlocks)
 	}
 	if p.CeilingBlocks < p.FrameBlocks {
 		return fmt.Errorf("the ceiling is below the frame")

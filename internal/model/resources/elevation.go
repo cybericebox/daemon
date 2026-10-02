@@ -113,7 +113,7 @@ func (e *Elevation) validApproval(values []Approval, policy Policy) bool {
 		if !ok || seen[v.DeviceID] || !v.Amount.Within(asked) || !v.Amount.Within(policy.Ceiling) {
 			return false
 		}
-		if _, offered := policy.PresetByBlocks(policy.BlocksOf(v.Amount)); !offered || policy.Amount(policy.BlocksOf(v.Amount)) != v.Amount {
+		if !policy.offers(v.Amount) {
 			return false
 		}
 		seen[v.DeviceID] = true

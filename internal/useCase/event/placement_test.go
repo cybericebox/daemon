@@ -63,8 +63,8 @@ func TestPlanTaskReservesTheLargestVariantOrThePinnedOne(t *testing.T) {
 
 	perTeam := eventExerciseModel.EventExercise{ExerciseID: exerciseID, VariantMode: eventExerciseModel.VariantModePerTeam}
 	task := planTask(policy, perTeam, []exerciseModel.Variant{small, large}, nil)
-	assert.Equal(t, resourcesModel.Totals{Devices: 1, Blocks: 1, Amount: resourcesModel.Amount{CPUMillicores: 16, MemoryBytes: 64 * mi}}, task.Range.Min)
-	assert.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 17, Amount: resourcesModel.Amount{CPUMillicores: 266, MemoryBytes: 64*mi + gi}}, task.Reserved, "the largest variant is reserved")
+	assert.Equal(t, resourcesModel.Totals{Devices: 1, Blocks: 2, Amount: resourcesModel.Amount{CPUMillicores: 15, MemoryBytes: 64 * mi}}, task.Range.Min)
+	assert.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 34, Amount: resourcesModel.Amount{CPUMillicores: 265, MemoryBytes: 64*mi + gi}}, task.Reserved, "the largest variant is reserved")
 	assert.True(t, task.InternetLab)
 	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 250, MemoryBytes: gi}, task.deviceMax)
 	assert.Equal(t, 2, task.labDevices)
@@ -81,7 +81,7 @@ func TestPlanTaskIsHeavyOnlyWhenAnApprovalHoldsADeviceAboveTheFrame(t *testing.T
 	vs := []exerciseModel.Variant{variant(false, heavy)}
 	link := eventExerciseModel.EventExercise{ExerciseID: uuid.Must(uuid.NewV7())}
 	assert.False(t, planTask(policy, link, vs, nil).Heavy)
-	approved := []resourcesModel.Approval{{DeviceID: heavy.ID, Amount: blocksOf(32)}}
+	approved := []resourcesModel.Approval{{DeviceID: heavy.ID, Amount: blocksOf(64)}}
 	assert.True(t, planTask(policy, link, vs, approved).Heavy)
 }
 
@@ -120,7 +120,7 @@ func TestResourcePlanCountsDevicesPlusGroupOverheadForTheTeams(t *testing.T) {
 		gateway: infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 20, MemoryBytes: 32 * mi}, PerUnit: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi}},
 		maxCPU:  4000,
 	}
-	u := NewEventUseCase(Dependencies{Repo: q, Infra: infra, Elevations: fakeApprovals{exerciseID: {{DeviceID: heavy.ID, Amount: blocksOf(32)}}}})
+	u := NewEventUseCase(Dependencies{Repo: q, Infra: infra, Elevations: fakeApprovals{exerciseID: {{DeviceID: heavy.ID, Amount: blocksOf(64)}}}})
 	plan, err := u.GetResourcePlan(context.Background(), eventID)
 	require.NoError(t, err)
 
@@ -128,19 +128,19 @@ func TestResourcePlanCountsDevicesPlusGroupOverheadForTheTeams(t *testing.T) {
 	assert.Equal(t, "Web", plan.Tasks[0].ExerciseName)
 	assert.True(t, plan.Tasks[0].Heavy)
 	assert.True(t, plan.Tasks[0].InternetLab)
-	assert.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 33, Amount: resourcesModel.Amount{CPUMillicores: 516, MemoryBytes: 64*mi + 2*gi}}, plan.TeamTasks)
+	assert.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 66, Amount: resourcesModel.Amount{CPUMillicores: 515, MemoryBytes: 64*mi + 2*gi}}, plan.TeamTasks)
 
 	// The VPN is sized by the maximum team size (4 users), the gateway by the internet labs (1); both are
-	// rounded up to whole blocks (30m / 48Mi is two blocks).
-	assert.Equal(t, GroupOverhead{MaxUsers: 4, InternetLabs: 1, Known: true, VPNBlocks: 2, GatewayBlocks: 2,
-		VPN:     resourcesModel.Amount{CPUMillicores: 32, MemoryBytes: 128 * mi},
-		Gateway: resourcesModel.Amount{CPUMillicores: 32, MemoryBytes: 128 * mi}}, plan.Group)
-	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 580, MemoryBytes: 64*mi + 2*gi + 256*mi}, plan.PerTeam.Amount)
-	assert.Equal(t, 37, plan.PerTeam.Blocks, "the devices' blocks plus the group pods' blocks")
+	// rounded up to whole blocks (30m / 48Mi is the 128Mi size, 31m).
+	assert.Equal(t, GroupOverhead{MaxUsers: 4, InternetLabs: 1, Known: true, VPNBlocks: 4, GatewayBlocks: 4,
+		VPN:     resourcesModel.Amount{CPUMillicores: 31, MemoryBytes: 128 * mi},
+		Gateway: resourcesModel.Amount{CPUMillicores: 31, MemoryBytes: 128 * mi}}, plan.Group)
+	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 577, MemoryBytes: 64*mi + 2*gi + 256*mi}, plan.PerTeam.Amount)
+	assert.Equal(t, 74, plan.PerTeam.Blocks, "the devices' blocks plus the group pods' blocks")
 	assert.Equal(t, 2, plan.PerTeam.Devices, "the group pods are a separate line, not devices")
 	assert.Equal(t, 10, plan.Teams)
 	assert.Equal(t, "max_teams", plan.TeamsBasis)
-	assert.Equal(t, int64(5800), plan.Total.CPUMillicores)
+	assert.Equal(t, int64(5770), plan.Total.CPUMillicores)
 	assert.False(t, plan.NoAgentFits)
 }
 
@@ -148,7 +148,7 @@ func TestResourcePlanFlagsATaskNoAgentCanRunAndNeverNamesOne(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	eventID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	body, err := json.Marshal([]exerciseModel.Variant{variant(false, container("big", "huge"))})
+	body, err := json.Marshal([]exerciseModel.Variant{variant(false, container("big", "max"))})
 	require.NoError(t, err)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID}, nil)
 	q.EXPECT().ListEventExercises(gomock.Any(), eventID).Return([]postgres.EventExercise{{ID: uuid.Must(uuid.NewV7()), EventID: eventID, ExerciseID: exerciseID, ExerciseVersionID: versionID}}, nil)

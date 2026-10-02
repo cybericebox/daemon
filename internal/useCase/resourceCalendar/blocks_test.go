@@ -17,10 +17,10 @@ func TestLargestPlaceableDeviceIsMappedDownToTheLargestAllowedBlock(t *testing.T
 		"no limit stays unlimited":          {Amount{}, Amount{}},
 		"between two blocks goes down":      {Amount{CPUMillicores: 3000, MemoryBytes: 3 * gi}, Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}},
 		"memory limits the block":           {Amount{CPUMillicores: 8000, MemoryBytes: 600 * mi}, Amount{CPUMillicores: 125, MemoryBytes: 512 * mi}},
-		"cpu limits the block":              {Amount{CPUMillicores: 40, MemoryBytes: 8 * gi}, Amount{CPUMillicores: 32, MemoryBytes: 128 * mi}},
+		"cpu limits the block":              {Amount{CPUMillicores: 40, MemoryBytes: 8 * gi}, Amount{CPUMillicores: 31, MemoryBytes: 128 * mi}},
 		"above the ceiling is the ceiling":  {Amount{CPUMillicores: 16000, MemoryBytes: 64 * gi}, Amount{CPUMillicores: 1000, MemoryBytes: 4 * gi}},
 		"an unlimited cpu is not a limit":   {Amount{MemoryBytes: gi}, Amount{CPUMillicores: 250, MemoryBytes: gi}},
-		"below the smallest block is as is": {Amount{CPUMillicores: 8, MemoryBytes: 32 * mi}, Amount{CPUMillicores: 8, MemoryBytes: 32 * mi}},
+		"below the smallest block is as is": {Amount{CPUMillicores: 4, MemoryBytes: 16 * mi}, Amount{CPUMillicores: 4, MemoryBytes: 16 * mi}},
 	} {
 		assert.Equal(t, tc.want, u.largestBlock(tc.limit), name)
 	}
