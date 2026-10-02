@@ -1,6 +1,8 @@
 package authModel
 
 import (
+	"net/http"
+
 	"github.com/cybericebox/daemon/pkg/err"
 
 	"github.com/cybericebox/daemon/internal/model"
@@ -16,7 +18,7 @@ import (
 //     ErrObjectNotFound→404, ...), so "the same fact" needing two statuses is
 //     two different error vars by definition.
 //
-// AuthObjectCode — next free detail code: 28
+// AuthObjectCode — next free detail code: 29
 var (
 	// 401
 	// multi-site (category A): sign-in must be timing- and error-
@@ -105,6 +107,12 @@ var (
 	// this account has none (Google-only): set one first.
 	ErrAuthPasswordRequired = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Set a password first").WithDetailCode(27)
+	// ErrAuthTooManyRequests: a sign-in / credential-check lockout or a mail
+	// quota was hit (HTTP 429); the Retry-After header carries the wait.
+	// multi-site: every throttled auth action returns it.
+	ErrAuthTooManyRequests = err.ErrConflict.WithObjectCode(model.AuthObjectCode).
+				WithMessage("Too many attempts, try again later").WithDetailCode(28).
+				WithHTTPCode(http.StatusTooManyRequests)
 	ErrAuthInvalidEmail = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Invalid email address").WithDetailCode(26)
 )

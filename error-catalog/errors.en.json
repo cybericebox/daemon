@@ -230,6 +230,7 @@
   "62202": "Only the event owner, write moderators and platform admins can view answers and integrity signals",
   "70219": "Inbox request is already resolved",
   "70303": "User was modified concurrently",
+  "70428": "Too many attempts, try again later",
   "70904": "Exercise was modified concurrently",
   "70905": "Exercise has no draft version",
   "70906": "Exercise already has a draft version",

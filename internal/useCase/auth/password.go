@@ -32,7 +32,12 @@ func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) erro
 	// Registration not finished: there is no password to reset — re-send the
 	// continue-registration link instead (same neutral response).
 	if user.IsIncomplete() {
-		return u.sendContinueRegistration(ctx, user.ID, user.FirstName, "")
+		return u.sendContinueRegistration(ctx, user.ID, user.Email, user.FirstName, "")
+	}
+	// Mail-bombing guard. Over the quota the answer stays the same neutral
+	// success: nothing tells the caller whether the address has an account.
+	if !u.mailAllowed(mailKindReset, user.Email) {
+		return nil
 	}
 
 	code, err := u.createTemporalCode(ctx, temporalCodeModel.PasswordResettingCodeType,
@@ -83,12 +88,8 @@ func (u *AuthUseCase) SetAccountPassword(ctx context.Context, userID uuid.UUID, 
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
 	}
 	if user.HasPassword() {
-		matches, mErr := u.password.Matches(oldPassword, user.HashedPassword)
-		if mErr != nil {
-			return model.ErrPlatform.WithError(mErr).WithMessage("Failed to check password").Err()
-		}
-		if !matches {
-			return authModel.ErrAuthInvalidOldPassword.Err()
+		if err = u.checkCurrentPassword(userID, oldPassword, user.HashedPassword); err != nil {
+			return err
 		}
 	}
 	if err = u.applyNewPassword(ctx, userID, newPassword); err != nil {
@@ -100,6 +101,26 @@ func (u *AuthUseCase) SetAccountPassword(ctx context.Context, userID uuid.UUID, 
 		keep = claims.SessionID
 	}
 	return u.revokeSessions(ctx, userID, keep)
+}
+
+// checkCurrentPassword re-checks the password of a signed-in user for a
+// sensitive action. Wrong guesses lock the user's checks (a stolen session
+// must not be a free oracle for the password), a right one clears them.
+func (u *AuthUseCase) checkCurrentPassword(userID uuid.UUID, plain, hashed string) error {
+	key := userID.String()
+	if wait := u.limits.passwordGuess.Locked(key); wait > 0 {
+		return tooManyRequests(wait)
+	}
+	matches, err := u.password.Matches(plain, hashed)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to check password").Err()
+	}
+	if !matches {
+		u.limits.passwordGuess.Fail(key)
+		return authModel.ErrAuthInvalidOldPassword.Err()
+	}
+	u.limits.passwordGuess.Reset(key)
+	return nil
 }
 
 // revokeSessions ends the user's sessions after a credential change: all of

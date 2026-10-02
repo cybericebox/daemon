@@ -29,7 +29,22 @@ func (u *AuthUseCase) SignIn(
 ) (sessionCookie, safeRedirect string, err error) {
 	safeRedirect = u.resolveRedirect(redirect)
 
-	user, dbErr := u.users.GetByEmail(ctx, normalizeEmail(emailAddr))
+	account := normalizeEmail(emailAddr)
+	// Throttled BEFORE any lookup or hashing: a locked address costs the server
+	// nothing and answers the same whether or not the account exists.
+	if wait := u.limits.signInWait(account, meta.IP); wait > 0 {
+		return "", "", tooManyRequests(wait)
+	}
+	defer func() {
+		switch {
+		case err == nil:
+			u.limits.signInAccount.Reset(account)
+		case errors.Is(err, authModel.ErrAuthInvalidUserCredentials.Err()):
+			u.limits.signInFailed(account, meta.IP)
+		}
+	}()
+
+	user, dbErr := u.users.GetByEmail(ctx, account)
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
 		return "", "", model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
 	}

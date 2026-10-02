@@ -36,12 +36,16 @@ func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, 
 	if !current.HasPassword() {
 		return authModel.ErrAuthPasswordRequired.Err()
 	}
-	matches, err := u.password.Matches(currentPassword, current.HashedPassword)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to check password").Err()
+	if err = u.checkCurrentPassword(userID, currentPassword, current.HashedPassword); err != nil {
+		return err
 	}
-	if !matches {
-		return authModel.ErrAuthInvalidOldPassword.Err()
+	// Mail-bombing guard: one account can only trigger so many confirmation
+	// mails, and one address only so many of them.
+	if ok, wait := u.limits.emailChangeUsers.Allow(userID.String()); !ok {
+		return tooManyRequests(wait)
+	}
+	if !u.mailAllowed(mailKindEmailChange, newEmail) {
+		return tooManyRequests(mailGap)
 	}
 
 	// Reject if a (non-deleted) account already uses the new address.

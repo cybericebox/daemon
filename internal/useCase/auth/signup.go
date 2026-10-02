@@ -42,6 +42,9 @@ func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, rawEmail, redi
 		}
 	case user.Status == userModel.UserStatusActive:
 		// Do not reveal existence. Warn the real owner via a security email.
+		if !u.mailAllowed(mailKindSignUp, emailAddr) {
+			return nil
+		}
 		override := userModel.User{ID: user.ID, Email: emailAddr, FirstName: user.FirstName}
 		if err := u.notifier.Notify(ctx, user.ID, notificationPayloads.AccountExistsPayload{Name: user.FirstName},
 			dispatchModel.WithRecipient(override)); err != nil {
@@ -52,12 +55,17 @@ func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, rawEmail, redi
 		// Incomplete account already exists — reuse it, re-issue the setup link.
 	}
 
-	return u.sendContinueRegistration(ctx, userID, user.FirstName, u.trustedReturnTo(redirect))
+	return u.sendContinueRegistration(ctx, userID, emailAddr, user.FirstName, u.trustedReturnTo(redirect))
 }
 
 // sendContinueRegistration issues a setup token for an incomplete account and
 // emails the setup link (with return_to when returnTo is non-empty).
-func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.UUID, name, returnTo string) error {
+func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.UUID, emailAddr, name, returnTo string) error {
+	// Over the per-recipient quota the answer stays the neutral success of the
+	// callers (sign-up and forgot-password never reveal an account).
+	if !u.mailAllowed(mailKindSignUp, emailAddr) {
+		return nil
+	}
 	setupToken, err := u.token.GenerateSetupToken(userID)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()

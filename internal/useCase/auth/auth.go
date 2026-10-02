@@ -96,6 +96,7 @@ type AuthUseCase struct {
 	avatar            IAvatarStorage
 	cfg               config.AuthConfig
 	inboxRequests     IInboxRequests // nil until wired
+	limits            *authLimits
 }
 
 // IInboxRequests withdraws a removed account's undecided applications for
@@ -149,6 +150,7 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		storageConfigured: isStorageConfigured(deps.Storage),
 		avatar:            deps.Avatar,
 		cfg:               deps.Config,
+		limits:            newAuthLimits(),
 	}
 }
 

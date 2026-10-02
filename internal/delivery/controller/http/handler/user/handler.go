@@ -8,12 +8,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
+
+// inviteRequestsPerMinute caps platform invitation requests per signed-in admin.
+const inviteRequestsPerMinute = 10
 
 type (
 	IUseCase interface {
@@ -133,7 +137,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		h.updateStatus,
 	)
 	usersAPI.DELETE(":userID", h.prot.RequirePermission(rbac.PermUsersDelete), h.deleteUser)
-	usersAPI.POST("invite", h.prot.RequirePermission(rbac.PermUsersInvite), h.invite)
+	// Each request can mail up to 200 addresses: bound the requests per admin.
+	usersAPI.POST("invite", h.prot.RequirePermission(rbac.PermUsersInvite), middleware.RateLimitPerUser(inviteRequestsPerMinute, time.Minute), h.invite)
 }
 
 // listUsers godoc
