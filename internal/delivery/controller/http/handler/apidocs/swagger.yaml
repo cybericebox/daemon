@@ -67,8 +67,17 @@ definitions:
       SpecialCharacters:
         type: string
     type: object
+  auth.reauthRequest:
+    properties:
+      CurrentPassword:
+        type: string
+    type: object
   auth.requestEmailChangeRequest:
     properties:
+      CurrentPassword:
+        description: CurrentPassword re-authenticates the change (the stolen-session
+          guard).
+        type: string
       Email:
         type: string
     type: object
@@ -8555,6 +8564,15 @@ paths:
       - platform-analytics
   /auth/account:
     delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: current password (accounts without a password need a recent sign-in
+          instead)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.reauthRequest'
       produces:
       - application/json
       responses:
@@ -8774,6 +8792,15 @@ paths:
       - auth
   /auth/google/link:
     delete:
+      consumes:
+      - application/json
+      parameters:
+      - description: current password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/auth.reauthRequest'
       produces:
       - application/json
       responses:
@@ -15587,10 +15614,12 @@ paths:
       consumes:
       - application/json
       description: 'Returns https://<device>-<code>.<base>/_auth?t=..., signed for
-        the caller''s team lab group and client. The link lives about two minutes
-        and is single use: the page fetches it on every click and opens it. The laboratory
-        proxy turns it into its own session cookie; the platform sets no cookie. expires_at
-        is the end of the session the link grants.'
+        the caller''s team lab group and client. The link lives about two minutes.
+        It is a stateless signed token (no jti, by the proxy protocol), so it is NOT
+        single use within that time: treat it like a password and do not share it.
+        The page fetches it on every click and opens it. The laboratory proxy turns
+        it into its own session cookie; the platform sets no cookie. expires_at is
+        the end of the session the link grants.'
       parameters:
       - description: event ID
         in: path

@@ -679,6 +679,9 @@ const docTemplate = `{
                 }
             },
             "delete": {
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -686,6 +689,16 @@ const docTemplate = `{
                     "auth"
                 ],
                 "summary": "Delete (soft-delete) the authenticated user's account",
+                "parameters": [
+                    {
+                        "description": "current password (accounts without a password need a recent sign-in instead)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/auth.reauthRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK"
@@ -1009,6 +1022,9 @@ const docTemplate = `{
                 }
             },
             "delete": {
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -1016,6 +1032,17 @@ const docTemplate = `{
                     "auth"
                 ],
                 "summary": "Unlink Google from the authenticated user's account",
+                "parameters": [
+                    {
+                        "description": "current password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.reauthRequest"
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK"
@@ -12049,7 +12076,7 @@ const docTemplate = `{
         },
         "/events/{id}/teams/challenges/{challengeID}/lab/link": {
             "post": {
-                "description": "Returns https://\u003cdevice\u003e-\u003ccode\u003e.\u003cbase\u003e/_auth?t=..., signed for the caller's team lab group and client. The link lives about two minutes and is single use: the page fetches it on every click and opens it. The laboratory proxy turns it into its own session cookie; the platform sets no cookie. expires_at is the end of the session the link grants.",
+                "description": "Returns https://\u003cdevice\u003e-\u003ccode\u003e.\u003cbase\u003e/_auth?t=..., signed for the caller's team lab group and client. The link lives about two minutes. It is a stateless signed token (no jti, by the proxy protocol), so it is NOT single use within that time: treat it like a password and do not share it. The page fetches it on every click and opens it. The laboratory proxy turns it into its own session cookie; the platform sets no cookie. expires_at is the end of the session the link grants.",
                 "consumes": [
                     "application/json"
                 ],
@@ -19209,9 +19236,21 @@ const docTemplate = `{
                 }
             }
         },
+        "auth.reauthRequest": {
+            "type": "object",
+            "properties": {
+                "CurrentPassword": {
+                    "type": "string"
+                }
+            }
+        },
         "auth.requestEmailChangeRequest": {
             "type": "object",
             "properties": {
+                "CurrentPassword": {
+                    "description": "CurrentPassword re-authenticates the change (the stolen-session guard).",
+                    "type": "string"
+                },
                 "Email": {
                     "type": "string"
                 }

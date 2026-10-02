@@ -322,6 +322,13 @@ func (h *Handler) submitFormResponse(ctx *gin.Context) {
 	response.AbortWithData(ctx, gin.H{"ok": true})
 }
 
+// Stream budgets of the live results (see liveResults).
+const (
+	maxStreamsPerScreen  = 10
+	maxStreamsPerUser    = 8
+	maxStreamsPerAddress = 40
+)
+
 // liveResults godoc
 // @Summary Stream result changes after a fresh results snapshot
 // @Description Load GET /events/{id}/results first. Send its Revision in Last-Event-ID (or the lastEventId query parameter, for EventSource) when opening this stream. After any interruption, load a fresh snapshot before reconnecting. A frozen viewer does not receive other teams' solves after the freeze; a change of the viewer's freeze state ends the stream with snapshot-required.
@@ -334,13 +341,6 @@ func (h *Handler) submitFormResponse(ctx *gin.Context) {
 // @Param pollInterval query integer false "Database polling interval in seconds (2-30, default 2)"
 // @Success 200 {string} string "SSE result-change and snapshot-required events"
 // @Router /events/{id}/results/live [get]
-// Stream budgets of the live results (see liveResults).
-const (
-	maxStreamsPerScreen  = 10
-	maxStreamsPerUser    = 8
-	maxStreamsPerAddress = 40
-)
-
 func (h *Handler) liveResults(ctx *gin.Context) {
 	eventID, ok := eventIDFromPath(ctx)
 	if !ok {
