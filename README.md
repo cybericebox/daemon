@@ -139,6 +139,7 @@ Sender and transport settings live in the database: SMTP providers are managed i
 | --- | --- | --- |
 | `SMTP_HOST` | none | SMTP server. |
 | `SMTP_PORT` | `587` | SMTP port. |
+| `SMTP_INSECURE` | `false` | Let the env transport continue without TLS when the server does not offer STARTTLS (development mail catcher only). |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | none | SMTP credentials. |
 | `SMTP_SENDER_NAME`, `SMTP_SENDER_EMAIL` | none | Default sender. |
 | `SMTP_REPLY_TO_NAME`, `SMTP_REPLY_TO_EMAIL` | none | Default reply-to. |
@@ -195,10 +196,17 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EVENT_DEFAULT_MAX_TEAM_SIZE` | `5` | Team size limit of a new event. |
 | `VPN_SECRETS_KEY` | none | See above. |
 
+### Outgoing mail security
+
+- An event SMTP (set by an organizer) can only name a public host: an IP literal or a name in a loopback, private, link-local (cloud metadata), carrier-grade NAT or other special range is refused when saved, and again at connect time after the name is resolved (a name that later resolves inside is never connected). Ports are limited to `SMTP_ALLOWED_PORTS` (default `25,465,587,2525`).
+- The stored SMTP password is used only for the stored connection: when the host, port, username or TLS mode changes, the password has to be entered again (error 22109); a test never sends the stored password to a changed host.
+- STARTTLS is required: a server that does not offer it is refused before any credential is sent. `SMTP_INSECURE=true` lifts this for the env transport only (a development mail catcher). Every send has connection and conversation deadlines. Send errors are reported as one fixed line per kind (connection failed, TLS failed, a reply code); the raw error is logged, never returned.
+
 ### Limits and timings
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `SMTP_ALLOWED_PORTS` | `25,465,587,2525` | Ports an organizer may use for an event SMTP. |
 | `SSE_MAX_LIFETIME` | `30m` | Longest life of one event stream; the client reconnects. |
 | `LIVE_SCREEN_LINK_MAX_TTL` | `1440h` | Cap of «until the event ends» for a live screen link. |
 | `MAIL_MAX_RATE_WAIT` | `20s` | Longest a mail worker waits for its turn before the message is deferred. |

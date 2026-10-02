@@ -22,6 +22,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
+	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
@@ -92,6 +93,8 @@ type (
 		AuthConfig     config.AuthConfig
 		MediaConfig    config.MediaConfig
 		ExerciseConfig config.ExerciseConfig
+		// SMTPAllowedPorts are the ports an organizer may use for an event SMTP server.
+		SMTPAllowedPorts []int
 		// RetentionPolicy is the Privacy Policy's retention periods.
 		RetentionPolicy retentionModel.Policy
 		// One cipher per secret family (separate keys); each nil when its key is unset.
@@ -210,7 +213,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	)
 
 	mailUC := mailUseCase.NewMailUseCase(mailUseCase.Dependencies{
-		Repo: deps.Repo, Cipher: deps.PlatformCipher, Env: deps.SMTPEnv, Domain: deps.AuthConfig.Hosts.Main, SupportEmail: deps.AuthConfig.SupportEmail,
+		Repo: deps.Repo, Cipher: deps.PlatformCipher, Env: deps.SMTPEnv, SMTPPolicy: mailModel.SMTPPolicy{AllowedPorts: deps.SMTPAllowedPorts}, Domain: deps.AuthConfig.Hosts.Main, SupportEmail: deps.AuthConfig.SupportEmail,
 	})
 	handlers := buildNotificationHandlers(deps.Repo, mailUC, mediaUC, eventUC)
 	notificationDispatcher := dispatcherUseCase.NewNotificationDispatcher(

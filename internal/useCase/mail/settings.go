@@ -482,7 +482,7 @@ func (u *MailUseCase) testPlatformProvider(ctx context.Context, id *uuid.UUID, i
 		if err != nil {
 			return TestResult{}, err
 		}
-		if t, err = u.formTransport(stored, found, normalized); err != nil {
+		if t, err = u.formTransport(stored, found, normalized, false); err != nil {
 			return TestResult{}, err
 		}
 		t.identity = mailModel.Overlay(sender.identity, stored.Identity)
@@ -592,7 +592,7 @@ func (u *MailUseCase) UpdateEventIdentity(ctx context.Context, eventID uuid.UUID
 }
 
 func (u *MailUseCase) UpdateEventSMTP(ctx context.Context, eventID uuid.UUID, in mailModel.SMTPInput, by uuid.UUID) (EventSettingsView, error) {
-	in, err := in.Normalize()
+	in, err := u.normalizeEventSMTP(in)
 	if err != nil {
 		return EventSettingsView{}, err
 	}
@@ -646,7 +646,7 @@ func (u *MailUseCase) testEventSMTP(ctx context.Context, eventID uuid.UUID, in *
 	}
 	t := stored
 	if in != nil {
-		normalized, err := in.Normalize()
+		normalized, err := u.normalizeEventSMTP(*in)
 		if err != nil {
 			return TestResult{}, err
 		}
@@ -654,7 +654,7 @@ func (u *MailUseCase) testEventSMTP(ctx context.Context, eventID uuid.UUID, in *
 		if err != nil {
 			return TestResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load event SMTP settings").Err()
 		}
-		if t, err = u.formTransport(existing, ok, normalized); err != nil {
+		if t, err = u.formTransport(existing, ok, normalized, true); err != nil {
 			return TestResult{}, err
 		}
 	} else if !route {
@@ -689,17 +689,46 @@ func (u *MailUseCase) ListEventMailJournal(ctx context.Context, eventID uuid.UUI
 
 // --- helpers ---
 
+// normalizeEventSMTP validates the connection fields of an event SMTP, which an organizer controls: besides
+// the shape, the destination must be a public one on a mail submission port.
+func (u *MailUseCase) normalizeEventSMTP(in mailModel.SMTPInput) (mailModel.SMTPInput, error) {
+	in, err := in.Normalize()
+	if err != nil {
+		return in, err
+	}
+	return in, in.CheckEventTarget(u.smtpPolicy)
+}
+
+// keptPassword is the stored password ciphertext a saved or tested connection may use. The stored password
+// belongs to the stored host: it is used only while the host, port, username and TLS mode are the stored
+// ones. When the connection changed and no new password is given (or cleared), the request is refused: the
+// stored secret would otherwise be sent to a destination the caller chose.
+func keptPassword(existing mailModel.SMTPConfig, ok bool, in mailModel.SMTPInput) (string, error) {
+	if !ok || in.ClearPassword || existing.PasswordCiphertext == "" {
+		return "", nil
+	}
+	if in.SameConnection(existing) {
+		return existing.PasswordCiphertext, nil
+	}
+	if in.Password == "" {
+		return "", mailModel.ErrSMTPPasswordRequired.Err()
+	}
+	return "", nil
+}
+
 // applyInput builds the row to save: the id of an existing row is kept (the
-// password ciphertext is bound to it), the stored password is kept unless a
-// new one is given or it is cleared.
+// password ciphertext is bound to it), the stored password is kept while the
+// connection is the stored one, unless a new one is given or it is cleared.
 func (u *MailUseCase) applyInput(existing mailModel.SMTPConfig, ok bool, eventID *uuid.UUID, in mailModel.SMTPInput, by uuid.UUID) (mailModel.SMTPConfig, error) {
 	cfg := mailModel.SMTPConfig{ID: tools.NewUUIDv7()}
 	if ok {
-		cfg.ID, cfg.PasswordCiphertext = existing.ID, existing.PasswordCiphertext
+		cfg.ID = existing.ID
 	}
-	if in.ClearPassword {
-		cfg.PasswordCiphertext = ""
+	kept, err := keptPassword(existing, ok, in)
+	if err != nil {
+		return mailModel.SMTPConfig{}, err
 	}
+	cfg.PasswordCiphertext = kept
 	if in.Password != "" {
 		sealed, err := u.seal(cfg.ID, in.Password)
 		if err != nil {
@@ -744,11 +773,22 @@ func providerWriteError(err error, message string) error {
 }
 
 // formTransport is the connection described by unsaved form values; an empty
-// password falls back to the stored one unless it is being cleared.
-func (u *MailUseCase) formTransport(existing mailModel.SMTPConfig, ok bool, in mailModel.SMTPInput) (transport, error) {
+// password falls back to the stored one only while the form points at the
+// stored connection (never at another host), and not when it is being cleared.
+// forEvent marks an organizer-controlled connection: it never reaches an
+// internal address.
+func (u *MailUseCase) formTransport(existing mailModel.SMTPConfig, ok bool, in mailModel.SMTPInput, forEvent bool) (transport, error) {
 	cfg := mailModel.SMTPConfig{Host: in.Host, Port: in.Port, TLSMode: in.TLSMode, Username: in.Username}
-	if ok && !in.ClearPassword {
-		cfg.ID, cfg.PasswordCiphertext = existing.ID, existing.PasswordCiphertext
+	kept, err := keptPassword(existing, ok, in)
+	if err != nil {
+		return transport{}, err
+	}
+	if kept != "" {
+		cfg.ID, cfg.PasswordCiphertext = existing.ID, kept
+	}
+	if forEvent {
+		scope := uuid.Nil
+		cfg.ScopeEventID = &scope
 	}
 	conn, err := u.connection(cfg, in.Password)
 	if err != nil {

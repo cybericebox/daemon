@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// MailObjectCode — next free detail code: 9
+// MailObjectCode — next free detail code: 10
 var (
 	ErrSMTPSettingsInvalid = err.ErrInvalidData.WithObjectCode(model.MailObjectCode).
 				WithMessage("SMTP settings are invalid").WithDetailCode(1)
@@ -23,4 +23,8 @@ var (
 				WithMessage("An SMTP provider with this name already exists").WithDetailCode(7)
 	ErrProviderNotFound = err.ErrObjectNotFound.WithObjectCode(model.MailObjectCode).
 				WithMessage("SMTP provider not found").WithDetailCode(8)
+	// ErrSMTPPasswordRequired: the host, port, username or TLS mode changed, so the stored password is not
+	// reused: it would be sent to the new destination. Enter the password again (or clear it).
+	ErrSMTPPasswordRequired = err.ErrInvalidData.WithObjectCode(model.MailObjectCode).
+				WithMessage("The SMTP connection changed: enter the password again").WithDetailCode(9)
 )

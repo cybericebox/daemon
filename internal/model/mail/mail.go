@@ -5,12 +5,16 @@ package mailModel
 import (
 	"fmt"
 	"net/mail"
+	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/gofrs/uuid"
+
+	"github.com/cybericebox/daemon/pkg/email"
 )
 
 type TLSMode string
@@ -86,6 +90,56 @@ func (in SMTPInput) Normalize() (SMTPInput, error) {
 		return in, err
 	}
 	return in, nil
+}
+
+// SMTPPolicy limits what an organizer may point an event SMTP at.
+type SMTPPolicy struct {
+	// AllowedPorts is the ports an event SMTP may use; empty = the usual mail submission ports.
+	AllowedPorts []int
+}
+
+// DefaultSMTPPorts are the mail submission ports.
+var DefaultSMTPPorts = []int{25, 465, 587, 2525}
+
+// internalHostSuffixes mark names that only resolve inside a network.
+var internalHostSuffixes = []string{".local", ".localdomain", ".internal", ".lan", ".home.arpa", ".svc", ".cluster", ".intranet", ".corp"}
+
+// CheckEventTarget refuses a destination an organizer must not reach: an IP literal in a loopback, private,
+// link-local, carrier-grade NAT or other special range, a name that is not a public domain (no dot, an
+// internal suffix, localhost), and a port outside the allowed list. A name that looks public is checked
+// again when it is resolved, at connect time (the dial guard).
+func (in SMTPInput) CheckEventTarget(policy SMTPPolicy) error {
+	bad := func(msg string) error { return ErrSMTPSettingsInvalid.WithMessage(msg).Err() }
+	ports := policy.AllowedPorts
+	if len(ports) == 0 {
+		ports = DefaultSMTPPorts
+	}
+	if !slices.Contains(ports, in.Port) {
+		return bad("SMTP port is not allowed")
+	}
+	host := strings.ToLower(strings.TrimSuffix(in.Host, "."))
+	if ip, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		if email.AddressBlocked(ip) {
+			return bad("SMTP host is not allowed")
+		}
+		return nil
+	}
+	if host == "localhost" || !strings.Contains(host, ".") {
+		return bad("SMTP host is not allowed")
+	}
+	for _, suffix := range internalHostSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return bad("SMTP host is not allowed")
+		}
+	}
+	return nil
+}
+
+// SameConnection reports whether the input points at the stored connection: the same host, port, username
+// and TLS mode. Only then the stored password may be used with it.
+func (in SMTPInput) SameConnection(stored SMTPConfig) bool {
+	return strings.EqualFold(strings.TrimSuffix(in.Host, "."), strings.TrimSuffix(stored.Host, ".")) &&
+		in.Port == stored.Port && in.Username == stored.Username && in.TLSMode == stored.TLSMode
 }
 
 // MaxNameLength bounds the sender and Reply-To display names.

@@ -1,6 +1,7 @@
 package email
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -38,7 +39,14 @@ type Config struct {
 	Username string
 	Password string
 	// TLS defaults to implicit TLS on port 465 and STARTTLS otherwise.
-	TLS          TLSMode
+	TLS TLSMode
+	// GuardDial refuses to connect to a loopback, private, link-local (cloud metadata), carrier-grade NAT,
+	// multicast or other special address, however the host name resolves. Set it for every transport an
+	// organizer controls.
+	GuardDial bool
+	// Insecure lets a STARTTLS transport go on, credentials included, when the server does not offer
+	// STARTTLS. Without it such a server is refused. Only for a development mail catcher.
+	Insecure     bool
 	SenderName   string
 	SenderEmail  string
 	ReplyToName  string
@@ -47,9 +55,17 @@ type Config struct {
 
 // Client sends HTML emails via SMTP.
 type Client struct {
-	dialer  *gomail.Dialer
-	sender  Address
-	replyTo Address
+	host        string
+	port        int
+	username    string
+	password    string
+	implicitTLS bool
+	// guard refuses a destination that resolves to a loopback, private, link-local or other special address.
+	guard bool
+	// insecure accepts a server that does not offer STARTTLS (a development mail catcher).
+	insecure bool
+	sender   Address
+	replyTo  Address
 }
 
 // New creates a new email Client from cfg. Returns ErrEmptyHost if Host is
@@ -65,15 +81,11 @@ func New(cfg Config) (*Client, error) {
 	if port == 0 {
 		port = 587
 	}
-	dialer := gomail.NewDialer(cfg.Host, port, cfg.Username, cfg.Password)
-	switch cfg.TLS {
-	case TLSModeImplicit:
-		dialer.SSL = true
-	case TLSModeStartTLS:
-		dialer.SSL = false
-	}
+	// Implicit TLS is the default on 465 and STARTTLS elsewhere.
+	implicit := cfg.TLS == TLSModeImplicit || (cfg.TLS == "" && port == 465)
 	return &Client{
-		dialer:  dialer,
+		host: cfg.Host, port: port, username: cfg.Username, password: cfg.Password,
+		implicitTLS: implicit, guard: cfg.GuardDial, insecure: cfg.Insecure,
 		sender:  Address{Name: cfg.SenderName, Email: cfg.SenderEmail},
 		replyTo: Address{Name: cfg.ReplyToName, Email: cfg.ReplyToEmail},
 	}, nil
@@ -101,7 +113,7 @@ type Message struct {
 }
 
 // SendMessage delivers msg to its recipient.
-func (c *Client) SendMessage(_ context.Context, msg Message) error {
+func (c *Client) SendMessage(ctx context.Context, msg Message) error {
 	from, replyTo := c.sender, c.replyTo
 	if msg.From.Email != "" {
 		from = msg.From
@@ -109,10 +121,11 @@ func (c *Client) SendMessage(_ context.Context, msg Message) error {
 	if msg.ReplyTo.Email != "" {
 		replyTo = msg.ReplyTo
 	}
-	if err := c.dialer.DialAndSend(BuildMessage(from, replyTo, msg)); err != nil {
-		return fmt.Errorf("%w: %w", ErrSendFailed, err)
+	var body bytes.Buffer
+	if _, err := BuildMessage(from, replyTo, msg).WriteTo(&body); err != nil {
+		return fmt.Errorf("%w: build message: %w", ErrSendFailed, err)
 	}
-	return nil
+	return c.deliver(ctx, from.Email, msg.To, body.Bytes())
 }
 
 // BuildMessage composes the MIME message. Inline parts make it

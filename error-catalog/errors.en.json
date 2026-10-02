@@ -147,6 +147,7 @@
   "22104": "Mail sender settings are invalid",
   "22105": "Email footer is invalid",
   "22106": "Sending domain is invalid",
+  "22109": "The SMTP connection changed: enter the password again",
   "22203": "The analytics period is invalid",
   "22206": "The review note is too long",
   "22207": "This integrity pattern cannot be dismissed",

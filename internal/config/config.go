@@ -93,6 +93,9 @@ type (
 		// EventDefaultMaxTeamSize is the team size limit of a new event.
 		EventDefaultMaxTeamSize int32 `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
 
+		// SMTPAllowedPorts are the ports an organizer may use for an event SMTP server.
+		SMTPAllowedPorts []int `env:"SMTP_ALLOWED_PORTS" envDefault:"25,465,587,2525"`
+
 		// The mail send limiter: the longest a worker waits for its turn, how long a message waits
 		// when the daily quota is used, how often the delivered count is re-read, the quota window,
 		// and the upper bounds an admin may set for the provider limits.
@@ -139,7 +142,10 @@ type (
 		// MaxPerSecond and DailyQuota are the provider send limits of the env
 		// transport (Amazon SES: Sending quota); 0 = no limit.
 		MaxPerSecond float64 `env:"MAX_PER_SECOND"`
-		DailyQuota   int     `env:"DAILY_QUOTA"`
+		// Insecure lets the env transport go on without TLS when the server does not offer STARTTLS (a
+		// development mail catcher). Never set it for a real provider: credentials would travel in the clear.
+		Insecure   bool `env:"INSECURE"`
+		DailyQuota int  `env:"DAILY_QUOTA"`
 	}
 
 	PostgresConfig struct {
@@ -344,6 +350,11 @@ func (c TunablesConfig) Validate() error {
 	for name, v := range sizes {
 		if v < 1 {
 			return fmt.Errorf("%s must be at least 1", name)
+		}
+	}
+	for _, port := range c.SMTPAllowedPorts {
+		if port < 1 || port > 65535 {
+			return errors.New("SMTP_ALLOWED_PORTS must list ports between 1 and 65535")
 		}
 	}
 	if c.MailMaxPerSecondLimit <= 0 {

@@ -53,6 +53,8 @@ type (
 		Domain string
 		// SupportEmail is SUPPORT_EMAIL: the default Reply-To and the footer contact.
 		SupportEmail string
+		// SMTPPolicy limits what an organizer may point an event SMTP at (SMTP_ALLOWED_PORTS).
+		SMTPPolicy mailModel.SMTPPolicy
 		// NewSender defaults to pkg/email.
 		NewSender func(email.Config) (sender, error)
 	}
@@ -66,6 +68,7 @@ type (
 		env        config.SMTPConfig
 		domain     string
 		support    string
+		smtpPolicy mailModel.SMTPPolicy
 		newSender  func(email.Config) (sender, error)
 		now        func() time.Time
 		limiter    *sendLimiter
@@ -86,6 +89,7 @@ func NewMailUseCase(deps Dependencies) *MailUseCase {
 		env:        deps.Env,
 		domain:     deps.Domain,
 		support:    deps.SupportEmail,
+		smtpPolicy: deps.SMTPPolicy,
 		newSender:  newSender,
 		now:        time.Now,
 	}
@@ -151,7 +155,7 @@ func (u *MailUseCase) platformRoute(ctx context.Context) (platformRoute, error) 
 		route.transports = []transport{{
 			source: dispatchModel.TransportEnv,
 			conn: withSender(email.Config{
-				Host: u.env.Host, Port: u.env.Port, Username: u.env.Username, Password: u.env.Password,
+				Host: u.env.Host, Port: u.env.Port, Username: u.env.Username, Password: u.env.Password, Insecure: u.env.Insecure,
 			}, sender.identity),
 			identity: sender.identity,
 			domain:   sender.domain,
@@ -274,6 +278,8 @@ func (u *MailUseCase) connection(cfg mailModel.SMTPConfig, plainPassword string)
 	return email.Config{
 		Host: cfg.Host, Port: cfg.Port, Username: cfg.Username, Password: password,
 		TLS: email.TLSMode(cfg.TLSMode), SenderEmail: "notifications@" + cfg.Host,
+		// An organizer controls an event SMTP: it never connects to an internal address.
+		GuardDial: cfg.ScopeEventID != nil,
 	}, nil
 }
 

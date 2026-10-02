@@ -56,20 +56,21 @@ func Run(cfg *config.Config) {
 
 	// ── useCases ──
 	deps := useCase.Dependencies{
-		Repo:            repo,
-		EnqueuerFactory: wc,
-		SMTPEnv:         cfg.Infrastructure.SMTP,
-		OAuth:           cls.oauthClient,
-		Storage:         cls.storageClient,
-		Token:           cls.tokenClient,
-		Password:        cls.passwordClient,
-		AuthConfig:      cfg.Auth,
-		MediaConfig:     cfg.Media,
-		ExerciseConfig:  cfg.Exercise,
-		RetentionPolicy: cfg.Retention.Policy(),
-		ExerciseCipher:  cls.exerciseCipher,
-		VPNCipher:       cls.vpnCipher,
-		PlatformCipher:  cls.platformCipher,
+		Repo:             repo,
+		EnqueuerFactory:  wc,
+		SMTPEnv:          cfg.Infrastructure.SMTP,
+		OAuth:            cls.oauthClient,
+		Storage:          cls.storageClient,
+		Token:            cls.tokenClient,
+		Password:         cls.passwordClient,
+		AuthConfig:       cfg.Auth,
+		MediaConfig:      cfg.Media,
+		ExerciseConfig:   cfg.Exercise,
+		SMTPAllowedPorts: cfg.Tunables.SMTPAllowedPorts,
+		RetentionPolicy:  cfg.Retention.Policy(),
+		ExerciseCipher:   cls.exerciseCipher,
+		VPNCipher:        cls.vpnCipher,
+		PlatformCipher:   cls.platformCipher,
 	}
 	applyTunables(cfg.Tunables)
 	labIssuer, err := labaccess.New(labaccess.Config{
