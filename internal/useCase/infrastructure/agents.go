@@ -282,7 +282,8 @@ func (u *AgentsUseCase) enroll(ctx context.Context, in infraModel.AgentEnrollmen
 	return id, nil
 }
 
-// UpdateAgent changes the label, order, switch and server CA of an admin agent.
+// UpdateAgent changes the label, order, switch and server CA of an admin agent; what the update leaves
+// out stays as it is, the stored server CA included.
 func (u *AgentsUseCase) UpdateAgent(ctx context.Context, id uuid.UUID, in infraModel.AgentUpdate) (AgentAdminView, error) {
 	existing, err := u.loadAdmin(ctx, id)
 	if err != nil {
@@ -292,7 +293,22 @@ func (u *AgentsUseCase) UpdateAgent(ctx context.Context, id uuid.UUID, in infraM
 	if err != nil {
 		return AgentAdminView{}, err
 	}
-	existing.Name, existing.CAPEM, existing.Enabled, existing.Priority, existing.UpdatedAt = in.Name, in.CAPEM, in.Enabled, in.Priority, u.now().UTC()
+	if in.Name != nil {
+		existing.Name = *in.Name
+	}
+	if in.Enabled != nil {
+		existing.Enabled = *in.Enabled
+	}
+	if in.Priority != nil {
+		existing.Priority = *in.Priority
+	}
+	switch {
+	case in.ClearCA:
+		existing.CAPEM = ""
+	case in.CAPEM != nil:
+		existing.CAPEM = *in.CAPEM
+	}
+	existing.UpdatedAt = u.now().UTC()
 	ok, err := u.store.Update(ctx, existing)
 	if err != nil {
 		return AgentAdminView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save the infrastructure agent").Err()

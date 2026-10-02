@@ -417,7 +417,8 @@ func TestUpdateAgentChangesOnlyLabelOrderSwitchAndCA(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := f.store.records[view.ID]
-	if _, err = f.uc.UpdateAgent(ctx, view.ID, infraModel.AgentUpdate{Name: "eu-renamed", Priority: 3, CAPEM: "ca"}); err != nil {
+	name, ca, prio, off := "eu-renamed", "ca", 3, false
+	if _, err = f.uc.UpdateAgent(ctx, view.ID, infraModel.AgentUpdate{Name: &name, Priority: &prio, CAPEM: &ca, Enabled: &off}); err != nil {
 		t.Fatal(err)
 	}
 	after := f.store.records[view.ID]
@@ -427,8 +428,41 @@ func TestUpdateAgentChangesOnlyLabelOrderSwitchAndCA(t *testing.T) {
 	if after.Endpoint != before.Endpoint || after.CertPEM != before.CertPEM || after.KeyCiphertext != before.KeyCiphertext || after.AccessKeyID != before.AccessKeyID {
 		t.Fatal("the endpoint, certificate and keys must not change")
 	}
-	if _, err = f.uc.UpdateAgent(ctx, uuid.Must(uuid.NewV7()), infraModel.AgentUpdate{Name: "x"}); !errors.Is(err, infraModel.ErrAgentNotFound.Err()) {
+	if _, err = f.uc.UpdateAgent(ctx, uuid.Must(uuid.NewV7()), infraModel.AgentUpdate{Name: &name}); !errors.Is(err, infraModel.ErrAgentNotFound.Err()) {
 		t.Fatalf("unknown agent: %v", err)
+	}
+}
+
+func TestUpdateAgentIsPartialAndKeepsTheStoredCAUnlessCleared(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	view, err := f.uc.EnrollAgent(ctx, enrollForm("eu", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := "dev-ca"
+	if _, err = f.uc.UpdateAgent(ctx, view.ID, infraModel.AgentUpdate{CAPEM: &ca}); err != nil {
+		t.Fatal(err)
+	}
+	// An instant switch from the UI sends only the field it changes: nothing else moves, the CA included.
+	off, empty := false, ""
+	for _, in := range []infraModel.AgentUpdate{{Enabled: &off}, {CAPEM: &empty}, {}} {
+		if _, err = f.uc.UpdateAgent(ctx, view.ID, in); err != nil {
+			t.Fatal(err)
+		}
+		got := f.store.records[view.ID]
+		if got.CAPEM != "dev-ca" || got.Name != "eu" || got.Priority != 10 {
+			t.Fatalf("a partial update changed more than it was told: %+v", got.AgentRegistration)
+		}
+	}
+	if f.store.records[view.ID].Enabled {
+		t.Fatal("the switch was applied")
+	}
+	if _, err = f.uc.UpdateAgent(ctx, view.ID, infraModel.AgentUpdate{ClearCA: true}); err != nil {
+		t.Fatal(err)
+	}
+	if f.store.records[view.ID].CAPEM != "" {
+		t.Fatal("ClearCA removes the stored CA")
 	}
 }
 

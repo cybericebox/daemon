@@ -60,7 +60,7 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 			TenantMaxLabs:       r.GetLimits().GetTenant().GetMaxLabs(),
 		},
 		Proxy: infraModel.ProxyFeature{
-			AccessTokenMaxTTLSeconds: proxy.GetAccessTokenMaxTtlSeconds(), SessionMaxTTLSeconds: proxy.GetSessionMaxTtlSeconds(),
+			AccessTokenMaxTTLSeconds: proxy.GetAccessTokenMaxTtlSeconds(), SessionMaxTTLSeconds: proxy.GetSessionMaxTtlSeconds(), SessionIdleTTLSeconds: proxy.GetSessionIdleTtlSeconds(),
 		},
 	}
 }

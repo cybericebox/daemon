@@ -80,6 +80,8 @@ type (
 		// longest a proxy session lives (a longer event window means a new link is opened).
 		ProxyAccessTokenMaxTTLSeconds int64 `json:"ProxyAccessTokenMaxTTLSeconds"`
 		ProxySessionMaxTTLSeconds     int64 `json:"ProxySessionMaxTTLSeconds"`
+		// ProxySessionIdleTTLSeconds is how long a proxy session lives without use (it slides while in use).
+		ProxySessionIdleTTLSeconds int64 `json:"ProxySessionIdleTTLSeconds"`
 	}
 
 	agentsResponse struct {
@@ -98,13 +100,15 @@ type (
 		Priority        int    `json:"Priority"`
 	}
 
-	// updateAgentRequest changes what an admin may change after enrollment. The endpoint, certificate and
-	// keys stay.
+	// updateAgentRequest changes what an admin may change after enrollment. It is a partial update: a field
+	// that is left out stays as it is. CAPEM empty or omitted keeps the stored server CA; ClearCA true removes
+	// it. The endpoint, certificate and keys stay.
 	updateAgentRequest struct {
-		Name     string `json:"Name"`
-		CAPEM    string `json:"CAPEM"`
-		Enabled  bool   `json:"Enabled"`
-		Priority int    `json:"Priority"`
+		Name     *string `json:"Name"`
+		CAPEM    *string `json:"CAPEM"`
+		ClearCA  bool    `json:"ClearCA"`
+		Enabled  *bool   `json:"Enabled"`
+		Priority *int    `json:"Priority"`
 	}
 )
 
@@ -129,6 +133,7 @@ func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
 		ImageCacheRegistries: f.ImageCache.Registries, SchedulerEnabled: f.Scheduler.Enabled, SchedulerMaxPods: f.Scheduler.MaxPods,
 		LabsDomain: f.Endpoints.LabsDomain, VPNEndpoint: f.Endpoints.VPNEndpoint,
 		ProxyAccessTokenMaxTTLSeconds: f.Proxy.AccessTokenMaxTTLSeconds, ProxySessionMaxTTLSeconds: f.Proxy.SessionMaxTTLSeconds,
+		ProxySessionIdleTTLSeconds: f.Proxy.SessionIdleTTLSeconds,
 	}
 }
 
@@ -211,7 +216,7 @@ func (h *Handler) updateAgent(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	v, err := h.useCase.UpdateAgent(ctx, id, infraModel.AgentUpdate{Name: req.Name, CAPEM: req.CAPEM, Enabled: req.Enabled, Priority: req.Priority})
+	v, err := h.useCase.UpdateAgent(ctx, id, infraModel.AgentUpdate{Name: req.Name, CAPEM: req.CAPEM, ClearCA: req.ClearCA, Enabled: req.Enabled, Priority: req.Priority})
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

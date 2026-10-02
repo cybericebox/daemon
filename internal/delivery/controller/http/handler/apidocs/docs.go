@@ -27337,6 +27337,10 @@ const docTemplate = `{
                     "description": "ProxyAccessTokenMaxTTLSeconds is the longest a web link can be opened; ProxySessionMaxTTLSeconds the\nlongest a proxy session lives (a longer event window means a new link is opened).",
                     "type": "integer"
                 },
+                "ProxySessionIdleTTLSeconds": {
+                    "description": "ProxySessionIdleTTLSeconds is how long a proxy session lives without use (it slides while in use).",
+                    "type": "integer"
+                },
                 "ProxySessionMaxTTLSeconds": {
                     "type": "integer"
                 },
@@ -27911,6 +27915,9 @@ const docTemplate = `{
             "properties": {
                 "CAPEM": {
                     "type": "string"
+                },
+                "ClearCA": {
+                    "type": "boolean"
                 },
                 "Enabled": {
                     "type": "boolean"

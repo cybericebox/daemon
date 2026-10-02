@@ -101,6 +101,9 @@ type EndpointsFeature struct {
 type ProxyFeature struct {
 	AccessTokenMaxTTLSeconds int64 `json:"access_token_max_ttl_seconds"`
 	SessionMaxTTLSeconds     int64 `json:"session_max_ttl_seconds"`
+	// SessionIdleTTLSeconds is how long a proxy session lives without use; the proxy extends it by itself, never
+	// past the session end the link states.
+	SessionIdleTTLSeconds int64 `json:"session_idle_ttl_seconds"`
 }
 
 // CertificateFeature is the client certificate of the platform's connection and the lifetime of the ones

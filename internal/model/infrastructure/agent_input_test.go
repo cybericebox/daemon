@@ -29,10 +29,21 @@ func TestAgentEnrollmentNormalize(t *testing.T) {
 }
 
 func TestAgentUpdateNormalize(t *testing.T) {
-	if got, err := (AgentUpdate{Name: " a ", Priority: 3}).Normalize(); err != nil || got.Name != "a" {
+	str := func(s string) *string { return &s }
+	num := func(n int) *int { return &n }
+	if got, err := (AgentUpdate{Name: str(" a "), Priority: num(3)}).Normalize(); err != nil || *got.Name != "a" {
 		t.Fatalf("valid = %+v, %v", got, err)
 	}
-	for name, in := range map[string]AgentUpdate{"no name": {}, "huge prio": {Name: "a", Priority: 10001}} {
+	if got, err := (AgentUpdate{}).Normalize(); err != nil || got.Name != nil || got.Priority != nil || got.Enabled != nil {
+		t.Fatalf("an empty update is valid and changes nothing: %+v, %v", got, err)
+	}
+	if got, err := (AgentUpdate{CAPEM: str("  ")}).Normalize(); err != nil || got.CAPEM != nil {
+		t.Fatalf("a blank CA means keep: %+v, %v", got, err)
+	}
+	for name, in := range map[string]AgentUpdate{
+		"blank name": {Name: str(" ")}, "huge prio": {Priority: num(10001)}, "negative prio": {Priority: num(-1)},
+		"set and clear the CA": {CAPEM: str("ca"), ClearCA: true},
+	} {
 		if _, err := in.Normalize(); !errors.Is(err, ErrAgentInvalid.Err()) {
 			t.Errorf("%s: err = %v", name, err)
 		}

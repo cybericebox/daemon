@@ -65,7 +65,7 @@ func (f *fakeUseCase) EnrollAgent(_ context.Context, in infraModel.AgentEnrollme
 }
 func (f *fakeUseCase) UpdateAgent(_ context.Context, id uuid.UUID, in infraModel.AgentUpdate) (infrastructureUseCase.AgentAdminView, error) {
 	f.agentID, f.updateInput = id, in
-	return infrastructureUseCase.AgentAdminView{AgentRegistration: infraModel.AgentRegistration{ID: id, Name: in.Name}}, f.agentErr
+	return infrastructureUseCase.AgentAdminView{AgentRegistration: infraModel.AgentRegistration{ID: id}}, f.agentErr
 }
 func (f *fakeUseCase) RenewAgentCertificate(_ context.Context, id uuid.UUID) (infrastructureUseCase.AgentAdminView, error) {
 	f.agentID, f.deviceCall = id, "renew"
@@ -556,11 +556,19 @@ func TestAgentWritesAreGatedMapTheFormAndAuditOnlyTheAgentID(t *testing.T) {
 		t.Fatalf("audit target = %q", target)
 	}
 	id := uuid.Must(uuid.NewV7())
-	if code := send(http.MethodPut, "/api/infrastructure/agents/"+id.String(), `{"Name":"eu2","CAPEM":"","Enabled":false,"Priority":1}`).Code; code != http.StatusOK || uc.agentID != id || uc.updateInput.Name != "eu2" || uc.updateInput.Priority != 1 {
+	if code := send(http.MethodPut, "/api/infrastructure/agents/"+id.String(), `{"Name":"eu2","CAPEM":"","Enabled":false,"Priority":1}`).Code; code != http.StatusOK || uc.agentID != id || uc.updateInput.Name == nil || *uc.updateInput.Name != "eu2" || uc.updateInput.Priority == nil || *uc.updateInput.Priority != 1 || uc.updateInput.Enabled == nil || *uc.updateInput.Enabled {
 		t.Fatalf("update: %d id=%v input=%+v", code, uc.agentID, uc.updateInput)
 	}
 	if target != "agent:"+id.String() {
 		t.Fatalf("audit target = %q", target)
+	}
+	// A body with one field is a partial update: the others reach the use case as nil.
+	if code := send(http.MethodPut, "/api/infrastructure/agents/"+id.String(), `{"Enabled":true}`).Code; code != http.StatusOK ||
+		uc.updateInput.Name != nil || uc.updateInput.CAPEM != nil || uc.updateInput.Priority != nil || uc.updateInput.Enabled == nil || !*uc.updateInput.Enabled || uc.updateInput.ClearCA {
+		t.Fatalf("partial update: %d input=%+v", code, uc.updateInput)
+	}
+	if code := send(http.MethodPut, "/api/infrastructure/agents/"+id.String(), `{"ClearCA":true}`).Code; code != http.StatusOK || !uc.updateInput.ClearCA {
+		t.Fatalf("clear CA: %d input=%+v", code, uc.updateInput)
 	}
 	if code := send(http.MethodDelete, "/api/infrastructure/agents/"+id.String(), "").Code; code != http.StatusOK {
 		t.Fatalf("delete: %d", code)

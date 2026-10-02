@@ -344,7 +344,7 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		Scheduler:        &labpb.SchedulerFeature{Enabled: true, MaxPods: 4},
 		Endpoints:        &labpb.EndpointsFeature{LabsDomain: "labs.example.test", VpnEndpoint: "vpn.example.test:51820"},
 		Certificate:      &labpb.CertificateFeature{NotAfterUnix: 99, IssuedTtlSeconds: 100},
-		Proxy:            &labpb.ProxyFeature{AccessTokenMaxTtlSeconds: 300, SessionMaxTtlSeconds: 86400},
+		Proxy:            &labpb.ProxyFeature{AccessTokenMaxTtlSeconds: 300, SessionMaxTtlSeconds: 86400, SessionIdleTtlSeconds: 3600},
 		Limits: &labpb.LimitsFeature{
 			Device: &labpb.DeviceLimits{MaxCpuMillicores: 500, MaxMemoryBytes: 512 << 20, DefaultCpuMillicores: 100, DefaultMemoryBytes: 256 << 20},
 			Lab:    &labpb.LabLimits{MaxDevices: 10},
@@ -358,7 +358,7 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		Scheduler:   infraModel.SchedulerFeature{Enabled: true, MaxPods: 4},
 		Endpoints:   infraModel.EndpointsFeature{LabsDomain: "labs.example.test", VPNEndpoint: "vpn.example.test:51820"},
 		Certificate: infraModel.CertificateFeature{NotAfterUnix: 99, IssuedTTLSeconds: 100},
-		Proxy:       infraModel.ProxyFeature{AccessTokenMaxTTLSeconds: 300, SessionMaxTTLSeconds: 86400},
+		Proxy:       infraModel.ProxyFeature{AccessTokenMaxTTLSeconds: 300, SessionMaxTTLSeconds: 86400, SessionIdleTTLSeconds: 3600},
 		Limits: infraModel.LimitsFeature{
 			DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 512 << 20, DeviceDefaultCPUMillicores: 100, DeviceDefaultMemoryBytes: 256 << 20,
 			LabMaxDevices: 10, GroupMaxLabs: 5, GroupMaxCPUMillicores: 2000, GroupMaxMemoryBytes: 2 << 30, TenantMaxLabs: 7,

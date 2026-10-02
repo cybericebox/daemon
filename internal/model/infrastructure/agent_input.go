@@ -48,27 +48,43 @@ func (in AgentEnrollment) Normalize() (AgentEnrollment, error) {
 	return in, nil
 }
 
-// AgentUpdate is what an admin may change after enrollment. The endpoint identifies the agent and its
-// certificate, so it stays.
+// AgentUpdate is what an admin may change after enrollment; a nil field stays as it is. The endpoint
+// identifies the agent and its certificate, so it never changes. CAPEM nil or empty keeps the stored server
+// CA; ClearCA removes it.
 type AgentUpdate struct {
-	Name     string
-	CAPEM    string
-	Enabled  bool
-	Priority int
+	Name     *string
+	CAPEM    *string
+	ClearCA  bool
+	Enabled  *bool
+	Priority *int
 }
 
-// Normalize trims and validates the form.
+// Normalize trims and validates the fields that are set.
 func (in AgentUpdate) Normalize() (AgentUpdate, error) {
-	in.Name = strings.TrimSpace(in.Name)
-	in.CAPEM = strings.TrimSpace(in.CAPEM)
 	bad := func(msg string) (AgentUpdate, error) { return in, ErrAgentInvalid.WithMessage(msg).Err() }
-	switch {
-	case in.Name == "" || len([]rune(in.Name)) > maxAgentNameLength:
-		return bad("Agent name must be 1-64 characters")
-	case in.Priority < 0 || in.Priority > maxAgentPriority:
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" || len([]rune(name)) > maxAgentNameLength {
+			return bad("Agent name must be 1-64 characters")
+		}
+		in.Name = &name
+	}
+	if in.Priority != nil && (*in.Priority < 0 || *in.Priority > maxAgentPriority) {
 		return bad("Agent priority must be 0-10000")
-	case len(in.CAPEM) > maxPEMLength:
-		return bad("The CA certificate is too long")
+	}
+	if in.CAPEM != nil {
+		ca := strings.TrimSpace(*in.CAPEM)
+		if len(ca) > maxPEMLength {
+			return bad("The CA certificate is too long")
+		}
+		if ca == "" {
+			in.CAPEM = nil
+		} else {
+			in.CAPEM = &ca
+		}
+	}
+	if in.ClearCA && in.CAPEM != nil {
+		return bad("Set a CA certificate or clear it, not both")
 	}
 	return in, nil
 }
