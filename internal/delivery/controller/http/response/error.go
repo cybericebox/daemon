@@ -40,6 +40,30 @@ func getErrorFromContext(ctx context.Context) err.Error {
 	return parsedError
 }
 
+// FinalStatus is the HTTP status the request will end with. A handler that
+// aborted with an error has only stored it: WithErrorHandler writes the
+// response after every inner middleware returned, so until then the writer
+// still says 200. Code that runs after the handler (the audit log) must use
+// this, not ctx.Writer.Status().
+func FinalStatus(ctx *gin.Context) int {
+	if errFromContext := getErrorFromContext(ctx); errFromContext != nil {
+		return errorToWrite(errFromContext).StatusCode().HTTPCode()
+	}
+	return ctx.Writer.Status()
+}
+
+// errorToWrite is the client-facing error: the stored one, with an internal
+// error's detail replaced by a generic message.
+func errorToWrite(errFromContext err.Error) err.Error {
+	errUnwrapped := errFromContext.UnwrapNotInternalError()
+	if errUnwrapped.StatusCode().IsInternal() {
+		errUnwrapped = err.ErrInternal.WithStatusCode(errUnwrapped.StatusCode()).
+			WithMessage("Internal server error").
+			Err()
+	}
+	return errUnwrapped
+}
+
 func WithErrorHandler(ctx *gin.Context) {
 	ctx.Next()
 
@@ -68,10 +92,7 @@ func WithErrorHandler(ctx *gin.Context) {
 			"context",
 			ctxKeys,
 		).Msg("Internal server error")
-		errUnwrapped = err.ErrInternal.WithStatusCode(errUnwrapped.StatusCode()).
-			WithMessage("Internal server error").
-			Err()
 	}
 
-	AbortWithStatus(ctx, errUnwrapped)
+	AbortWithStatus(ctx, errorToWrite(errFromContext))
 }

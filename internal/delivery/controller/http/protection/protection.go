@@ -85,30 +85,75 @@ func (p *Protection) RequirePermission(required rbac.Permission) gin.HandlerFunc
 		if !rbac.HasPermissionInContext(ctx.Request.Context(), required) &&
 			(authenticated || !rbac.RolePublic.HasPermission(required)) {
 			response.AbortWithForbidden(ctx)
+			// A refused administrative action by a signed-in user is worth a
+			// line too (probing shows up as a run of 403s).
+			p.recordAudit(ctx, required, http.StatusForbidden)
 			return
 		}
 		ctx.Next()
-		if !isAdministrativeAction(required, ctx) || ctx.Writer.Status() >= http.StatusBadRequest {
-			return
-		}
-		claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-		if !ok {
-			return
-		}
-		if err := p.useCase.RecordAdminAction(ctx.Request.Context(), adminAuditUseCase.Entry{
-			ActorID: claims.UserID, Permission: string(required), Method: ctx.Request.Method,
-			Route: ctx.FullPath(), ResponseStatus: ctx.Writer.Status(), Target: audit.Target(ctx),
-		}); err != nil {
-			log.Warn().Err(err).Str("route", ctx.FullPath()).Msg("Failed to record admin audit action")
-		}
+		p.recordAudit(ctx, required, response.FinalStatus(ctx))
 	}
 }
 
-func isAdministrativeAction(required rbac.Permission, ctx *gin.Context) bool {
-	if ctx.Request.Method == http.MethodGet || ctx.Request.Method == http.MethodHead || ctx.Request.Method == http.MethodOptions {
+// recordAudit writes the audit entry of an administrative action with the
+// status the client actually gets (a handler's error is only written by the
+// outer error handler, after this middleware returns).
+func (p *Protection) recordAudit(ctx *gin.Context, required rbac.Permission, status int) {
+	if !isAuditedAction(required, ctx) {
+		return
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		return
+	}
+	target := audit.Target(ctx)
+	if target == "" {
+		target = routeTarget(ctx)
+	}
+	if err := p.useCase.RecordAdminAction(ctx.Request.Context(), adminAuditUseCase.Entry{
+		ActorID: claims.UserID, Permission: string(required), Method: ctx.Request.Method,
+		Route: ctx.FullPath(), ResponseStatus: status, Target: target,
+	}); err != nil {
+		log.Warn().Err(err).Str("route", ctx.FullPath()).Msg("Failed to record admin audit action")
+	}
+}
+
+// isAuditedAction decides what the admin audit log records:
+//   - every write (not GET/HEAD/OPTIONS) under a real permission, except a
+//     user's own inbox settings (notifications.self);
+//   - PermSelf writes only where PermSelf stands for staff work: the event
+//     manage area and the exercise catalog (the plain self-service writes —
+//     profile, sessions, flag submissions — are not administration);
+//   - GET exports (CSV/ZIP of people and results), which move PII out.
+func isAuditedAction(required rbac.Permission, ctx *gin.Context) bool {
+	path := ctx.FullPath()
+	switch ctx.Request.Method {
+	case http.MethodGet, http.MethodHead:
+		return strings.Contains(path, "/export")
+	case http.MethodOptions:
 		return false
 	}
-	return required != rbac.PermSelf || strings.Contains(ctx.FullPath(), "/manage/")
+	if required == rbac.PermNotificationsSelf {
+		return false
+	}
+	return required != rbac.PermSelf || strings.Contains(path, "/manage/") || strings.Contains(path, "/exercises")
+}
+
+// routeTarget names the objects a request addressed from its route ids
+// (UUID-valued params named like ids), for handlers that did not say.
+// Never request bodies or query strings.
+func routeTarget(ctx *gin.Context) string {
+	var parts []string
+	for _, param := range ctx.Params {
+		if !strings.HasSuffix(strings.ToLower(param.Key), "id") {
+			continue
+		}
+		if _, err := uuid.FromString(param.Value); err != nil {
+			continue
+		}
+		parts = append(parts, param.Key+":"+param.Value)
+	}
+	return strings.Join(parts, " ")
 }
 
 // signInURL is the identity app's sign-in page URL (ID_HOST/sign-in).

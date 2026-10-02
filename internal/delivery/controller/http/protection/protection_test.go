@@ -2,6 +2,7 @@ package protection_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -450,5 +451,104 @@ func TestDeAuthenticate_ClearsOnlySessionCookie(t *testing.T) {
 	}
 	if cookies[0].MaxAge >= 0 {
 		t.Errorf("cleared cookie MaxAge: want <0 (clear), got %d", cookies[0].MaxAge)
+	}
+}
+
+// auditRun serves one request through RequirePermission and returns the audit
+// entries and the status the client received. The error handler is the outer
+// middleware, as in the real router.
+func auditRun(t *testing.T, role rbac.Role, perm rbac.Permission, method, route, url string, handler gin.HandlerFunc) ([]adminAuditUseCase.Entry, int) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	uid, sid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUseCase{sessionResult: &authUseCase.SessionAuthResult{Claims: authModel.AuthClaims{SessionID: sid, UserID: uid, Role: role}}}
+	p := newProt(uc)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	r.Handle(method, route, p.RequirePermission(perm), handler)
+	req := httptest.NewRequest(method, url, nil)
+	req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "session"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return uc.auditEntries, w.Code
+}
+
+// M4 PoC: the client got 409 while the audit log said 200, because a handler
+// error is written by the outer error handler AFTER the audit middleware ran.
+func TestAudit_RecordsTheStatusTheClientGets(t *testing.T) {
+	entries, code := auditRun(t, rbac.RoleAdmin, rbac.PermUsersStatusWrite, http.MethodPost, "/users/:id/status", "/users/abc/status",
+		func(c *gin.Context) { response.AbortWithError(c, authModel.ErrLastSuperAdmin.Err()) })
+	if code != http.StatusBadRequest {
+		t.Fatalf("setup: client status %d", code)
+	}
+	if len(entries) != 1 || entries[0].ResponseStatus != code {
+		t.Fatalf("audit must record the final status %d, got %+v", code, entries)
+	}
+}
+
+func TestAudit_InternalErrorIsRecordedAs500(t *testing.T) {
+	entries, code := auditRun(t, rbac.RoleAdmin, rbac.PermUsersStatusWrite, http.MethodPost, "/users/:id/status", "/users/abc/status",
+		func(c *gin.Context) { response.AbortWithError(c, errors.New("boom")) })
+	if code != http.StatusInternalServerError || len(entries) != 1 || entries[0].ResponseStatus != http.StatusInternalServerError {
+		t.Fatalf("client %d, audit %+v", code, entries)
+	}
+}
+
+// A refused administrative action is recorded too.
+func TestAudit_RecordsForbiddenAdministrativeAttempt(t *testing.T) {
+	entries, code := auditRun(t, rbac.RoleUser, rbac.PermUsersDelete, http.MethodDelete, "/users/:userID", "/users/abc",
+		func(c *gin.Context) { c.Status(http.StatusOK) })
+	if code != http.StatusForbidden {
+		t.Fatalf("setup: want 403, got %d", code)
+	}
+	if len(entries) != 1 || entries[0].ResponseStatus != http.StatusForbidden || entries[0].Permission != string(rbac.PermUsersDelete) {
+		t.Fatalf("want one 403 entry, got %+v", entries)
+	}
+}
+
+// The exercise catalog is written under PermSelf: staff work, so audited.
+func TestAudit_RecordsPermSelfExerciseWrites(t *testing.T) {
+	id := uuid.Must(uuid.NewV7()).String()
+	entries, _ := auditRun(t, rbac.RoleUser, rbac.PermSelf, http.MethodPost, "/exercises/:id/publish", "/exercises/"+id+"/publish",
+		func(c *gin.Context) { c.Status(http.StatusOK) })
+	if len(entries) != 1 || entries[0].Target != "id:"+id {
+		t.Fatalf("want an audited exercise write with its target, got %+v", entries)
+	}
+}
+
+func TestAudit_PlainSelfServiceIsNotAudited(t *testing.T) {
+	for name, tc := range map[string]struct {
+		perm          rbac.Permission
+		method, route string
+	}{
+		"profile":       {rbac.PermSelf, http.MethodPatch, "/auth/account/profile"},
+		"inbox read":    {rbac.PermNotificationsSelf, http.MethodPatch, "/inbox/:id/read"},
+		"admin read":    {rbac.PermUsersRead, http.MethodGet, "/users"},
+		"exercise read": {rbac.PermSelf, http.MethodGet, "/exercises/:id"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			entries, _ := auditRun(t, rbac.RoleSuperAdmin, tc.perm, tc.method, tc.route, tc.route, func(c *gin.Context) { c.Status(http.StatusOK) })
+			if len(entries) != 0 {
+				t.Fatalf("must not be audited: %+v", entries)
+			}
+		})
+	}
+}
+
+func TestAudit_ExportsAreAudited(t *testing.T) {
+	entries, _ := auditRun(t, rbac.RoleSuperAdmin, rbac.PermAnalyticsRead, http.MethodGet, "/analytics/users/export.csv", "/analytics/users/export.csv",
+		func(c *gin.Context) { c.Status(http.StatusOK) })
+	if len(entries) != 1 {
+		t.Fatalf("a PII export must be audited, got %+v", entries)
+	}
+}
+
+// Without a handler-set target the UUID route params name the object.
+func TestAudit_DefaultTargetFromRouteIDs(t *testing.T) {
+	user := uuid.Must(uuid.NewV7()).String()
+	entries, _ := auditRun(t, rbac.RoleAdmin, rbac.PermUsersDelete, http.MethodDelete, "/users/:userID", "/users/"+user,
+		func(c *gin.Context) { c.Status(http.StatusOK) })
+	if len(entries) != 1 || entries[0].Target != "userID:"+user {
+		t.Fatalf("target = %+v", entries)
 	}
 }

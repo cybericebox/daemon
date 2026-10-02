@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -321,6 +322,7 @@ func (h *Handler) create(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	audit.SetTarget(ctx, "exercise:"+v.ID.String())
 	response.AbortWithData(ctx, exerciseToResponse(v))
 }
 
