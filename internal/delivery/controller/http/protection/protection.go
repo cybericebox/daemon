@@ -54,9 +54,18 @@ func New(deps Dependencies) *Protection {
 	return &Protection{
 		useCase:   deps.UseCase,
 		hosts:     deps.Config.Hosts,
-		ttl:       deps.Config.SessionIdleTTL,
+		ttl:       cookieLifetime(deps.Config),
 		recaptcha: deps.Config.Recaptcha,
 	}
+}
+
+// cookieLifetime is how long the browser keeps the session cookie: the absolute
+// session lifetime (the idle deadline is enforced server-side).
+func cookieLifetime(cfg config.AuthConfig) time.Duration {
+	if cfg.SessionAbsoluteTTL > 0 {
+		return cfg.SessionAbsoluteTTL
+	}
+	return cfg.SessionIdleTTL
 }
 
 // RequireAPIHost rejects any request whose Host is not exactly API_HOST.

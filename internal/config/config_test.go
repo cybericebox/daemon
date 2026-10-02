@@ -43,8 +43,8 @@ func TestAuthConfig_ParsedFromEnv(t *testing.T) {
 	if cfg.Auth.TokenSignature != "sig" {
 		t.Fatalf("TokenSignature: got %q", cfg.Auth.TokenSignature)
 	}
-	if cfg.Auth.SessionIdleTTL != 720*time.Hour {
-		t.Fatalf("SessionIdleTTL default: got %v want 720h", cfg.Auth.SessionIdleTTL)
+	if cfg.Auth.SessionIdleTTL != 336*time.Hour {
+		t.Fatalf("SessionIdleTTL default: got %v want 336h", cfg.Auth.SessionIdleTTL)
 	}
 	if cfg.Auth.TemporalCodeTTL != time.Hour {
 		t.Fatalf("TemporalCodeTTL default: got %v want 1h", cfg.Auth.TemporalCodeTTL)
@@ -289,5 +289,53 @@ func TestTunablesDefaultsAndOverrides(t *testing.T) {
 	bad.AvatarMaxBytes = 0
 	if bad.Validate() == nil {
 		t.Fatal("a zero upload limit must be rejected")
+	}
+}
+
+func TestAuthWeaknesses(t *testing.T) {
+	strong := "0123456789abcdef0123456789abcdef"
+	other := "fedcba9876543210fedcba9876543210"
+	ok := AuthConfig{TokenSignature: strong, OAuth: OAuthConfig{StateSignature: other}, Recaptcha: RecaptchaConfig{Score: 0.5}}
+	if w := ok.Weaknesses(); len(w) != 0 {
+		t.Fatalf("a strong configuration reported %v", w)
+	}
+	for name, mutate := range map[string]func(*AuthConfig){
+		"short jwt secret":        func(c *AuthConfig) { c.TokenSignature = "short" },
+		"empty jwt secret":        func(c *AuthConfig) { c.TokenSignature = "" },
+		"short oauth secret":      func(c *AuthConfig) { c.OAuth.StateSignature = "short" },
+		"google without state":    func(c *AuthConfig) { c.OAuth.StateSignature = ""; c.OAuth.Google.ClientID = "id" },
+		"secrets reused":          func(c *AuthConfig) { c.OAuth.StateSignature = strong },
+		"recaptcha score zero":    func(c *AuthConfig) { c.Recaptcha.Score = 0 },
+		"recaptcha score too low": func(c *AuthConfig) { c.Recaptcha.Score = 0.1 },
+	} {
+		c := ok
+		mutate(&c)
+		if len(c.Weaknesses()) == 0 {
+			t.Errorf("%s was not reported", name)
+		}
+	}
+	// No Google client: an empty OAuth secret is just "Google off".
+	c := ok
+	c.OAuth.StateSignature = ""
+	if w := c.Weaknesses(); len(w) != 0 {
+		t.Errorf("Google not configured must not be a weakness: %v", w)
+	}
+}
+
+func TestSessionAndDocsDefaults(t *testing.T) {
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	cfg := MustGetConfig()
+	if cfg.Auth.SessionIdleTTL != 336*time.Hour || cfg.Auth.SessionAbsoluteTTL != 720*time.Hour || cfg.Auth.SignupSetupTokenTTL != 24*time.Hour {
+		t.Fatalf("session defaults: idle %v absolute %v signup setup %v", cfg.Auth.SessionIdleTTL, cfg.Auth.SessionAbsoluteTTL, cfg.Auth.SignupSetupTokenTTL)
+	}
+	if !cfg.HTTPController.EnableSwaggerDocs {
+		t.Fatal("docs are on in development")
+	}
+	for _, env := range []string{Production, "stage"} {
+		t.Setenv("ENV", env)
+		t.Setenv("JWT_TOKEN_SIGNATURE", "0123456789abcdef0123456789abcdef")
+		if MustGetConfig().HTTPController.EnableSwaggerDocs {
+			t.Fatalf("docs must be off in %s", env)
+		}
 	}
 }

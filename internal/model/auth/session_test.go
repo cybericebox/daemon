@@ -70,3 +70,19 @@ func TestSession_BelongsTo(t *testing.T) {
 		t.Fatal("stranger must not match")
 	}
 }
+
+// L6: a session ends a fixed time after sign-in however busy it is.
+func TestSession_ExceedsAbsoluteLifetime(t *testing.T) {
+	created := sessionNow
+	s := authModel.Session{CreatedAt: created, ExpiresAt: created.Add(1000 * time.Hour)}
+	abs := 720 * time.Hour
+	if s.ExceedsAbsoluteLifetime(abs, created.Add(abs-time.Second)) {
+		t.Fatal("inside the absolute lifetime")
+	}
+	if !s.ExceedsAbsoluteLifetime(abs, created.Add(abs)) {
+		t.Fatal("at the absolute lifetime the session is over, idle deadline or not")
+	}
+	if s.ExceedsAbsoluteLifetime(0, created.Add(10*abs)) {
+		t.Fatal("zero means no absolute limit")
+	}
+}

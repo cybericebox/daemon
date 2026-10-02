@@ -41,6 +41,12 @@ func (s *Session) IsExpired(now time.Time) bool {
 	return now.After(s.ExpiresAt)
 }
 
+// ExceedsAbsoluteLifetime reports whether the session is older than absolute (a
+// session ends that long after sign-in however busy it is); zero means no limit.
+func (s *Session) ExceedsAbsoluteLifetime(absolute time.Duration, now time.Time) bool {
+	return absolute > 0 && !now.Before(s.CreatedAt.Add(absolute))
+}
+
 // Touch records activity: it extends the idle deadline and moves LastSeen.
 func (s *Session) Touch(idleTTL time.Duration, now time.Time) {
 	s.ExpiresAt = now.Add(idleTTL)

@@ -38,6 +38,7 @@ type ITokenClient interface {
 	GenerateSessionCookie(sessionID uuid.UUID, expiresAt time.Time) (string, error)
 	ParseSessionCookie(tokenStr string) (uuid.UUID, error)
 	GenerateSetupToken(userID uuid.UUID) (string, error)
+	GenerateSetupTokenFor(userID uuid.UUID, ttl time.Duration) (string, error)
 	ParseSetupToken(tokenStr string) (uuid.UUID, error)
 }
 

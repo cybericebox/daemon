@@ -87,7 +87,12 @@ func (u *AuthUseCase) createSession(
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to create session").Err()
 	}
 
-	cookie, err := u.token.GenerateSessionCookie(session.ID, session.ExpiresAt)
+	// The cookie lives for the absolute lifetime; the idle deadline slides in the database.
+	cookieExpires := session.ExpiresAt
+	if u.cfg.SessionAbsoluteTTL > 0 {
+		cookieExpires = session.CreatedAt.Add(u.cfg.SessionAbsoluteTTL)
+	}
+	cookie, err := u.token.GenerateSessionCookie(session.ID, cookieExpires)
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate session cookie").Err()
 	}
@@ -147,7 +152,7 @@ func (u *AuthUseCase) resolveSession(ctx context.Context, sessionID uuid.UUID) (
 		}
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get session").Err()
 	}
-	if session.IsExpired(time.Now()) {
+	if session.IsExpired(time.Now()) || session.ExceedsAbsoluteLifetime(u.cfg.SessionAbsoluteTTL, time.Now()) {
 		return nil, authModel.ErrAuthSessionExpired.Err()
 	}
 	user, err := u.users.GetByID(ctx, session.UserID)

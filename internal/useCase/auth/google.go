@@ -276,7 +276,8 @@ func (u *AuthUseCase) setupResult(userID uuid.UUID, returnTo string) (GoogleRegi
 }
 
 func (u *AuthUseCase) issueSetupToken(userID uuid.UUID) (string, error) {
-	setupToken, err := u.token.GenerateSetupToken(userID)
+	// Someone who came through Google signs up themselves: the short lifetime.
+	setupToken, err := u.token.GenerateSetupTokenFor(userID, u.cfg.SignupSetupTokenTTL)
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()
 	}

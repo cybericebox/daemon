@@ -1,6 +1,9 @@
 package token_test
 
 import (
+	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,5 +116,31 @@ func TestSetupTokenUsesConfiguredTTL(t *testing.T) {
 	exp, _ := parsed.Claims.GetExpirationTime()
 	if d := time.Until(exp.Time); d > time.Minute || d < 50*time.Second {
 		t.Fatalf("setup token lives %v, want about the configured minute", d)
+	}
+}
+
+func TestGenerateSetupTokenFor_OwnLifetime(t *testing.T) {
+	c := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough", SetupTokenTTL: 168 * time.Hour})
+	uid := uuid.Must(uuid.NewV7())
+	exp := func(tok string) time.Time {
+		parts := strings.Split(tok, ".")
+		payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+		var claims struct{ Exp int64 }
+		_ = json.Unmarshal(payload, &claims)
+		return time.Unix(claims.Exp, 0)
+	}
+	short, err := c.GenerateSetupTokenFor(uid, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Until(exp(short)); d > 24*time.Hour || d < 23*time.Hour {
+		t.Fatalf("own lifetime ignored: %v", d)
+	}
+	if got, err := c.ParseSetupToken(short); err != nil || got != uid {
+		t.Fatalf("a short setup token must still parse: %v %v", got, err)
+	}
+	def, _ := c.GenerateSetupTokenFor(uid, 0)
+	if d := time.Until(exp(def)); d < 167*time.Hour {
+		t.Fatalf("zero must mean the default lifetime: %v", d)
 	}
 }

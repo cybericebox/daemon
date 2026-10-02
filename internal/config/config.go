@@ -165,13 +165,20 @@ type (
 		SupportEmail   string `env:"SUPPORT_EMAIL,required"`
 		TokenSignature string `env:"JWT_TOKEN_SIGNATURE"`
 		// SetupTokenTTL is the life of a setup link (account setup and invitations).
-		SetupTokenTTL   time.Duration   `env:"SETUP_TOKEN_TTL" envDefault:"168h"`
-		SessionIdleTTL  time.Duration   `env:"SESSION_IDLE_TTL"    envDefault:"720h"`
-		TemporalCodeTTL time.Duration   `env:"TEMPORAL_CODE_TTL"   envDefault:"1h"`
-		SuperAdminEmail string          `env:"SUPER_ADMIN_EMAIL"`
-		OAuth           OAuthConfig     `                                            envPrefix:""`
-		Recaptcha       RecaptchaConfig `                                            envPrefix:"RECAPTCHA_"`
-		Password        PasswordConfig  `                                            envPrefix:"PASSWORD_"`
+		SetupTokenTTL time.Duration `env:"SETUP_TOKEN_TTL" envDefault:"168h"`
+		// SessionIdleTTL ends a session that was not used for this long (it slides on every use);
+		// SessionAbsoluteTTL ends it this long after sign-in however busy it is (the cookie's own
+		// lifetime). A stolen cookie therefore cannot be kept alive for ever by using it.
+		SessionIdleTTL     time.Duration `env:"SESSION_IDLE_TTL"     envDefault:"336h"`
+		SessionAbsoluteTTL time.Duration `env:"SESSION_ABSOLUTE_TTL" envDefault:"720h"`
+		// SignupSetupTokenTTL is the life of the setup link mailed to someone who signed up (or came
+		// through Google) by themselves; invitations keep SetupTokenTTL.
+		SignupSetupTokenTTL time.Duration   `env:"SIGNUP_SETUP_TOKEN_TTL" envDefault:"24h"`
+		TemporalCodeTTL     time.Duration   `env:"TEMPORAL_CODE_TTL"   envDefault:"1h"`
+		SuperAdminEmail     string          `env:"SUPER_ADMIN_EMAIL"`
+		OAuth               OAuthConfig     `                                            envPrefix:""`
+		Recaptcha           RecaptchaConfig `                                            envPrefix:"RECAPTCHA_"`
+		Password            PasswordConfig  `                                            envPrefix:"PASSWORD_"`
 	}
 
 	// PasswordConfig is the password complexity policy enforced on
@@ -428,6 +435,38 @@ func (c RecaptchaConfig) Validate() error {
 	return nil
 }
 
+// MinSigningSecretBytes is the least a signing secret (JWT_TOKEN_SIGNATURE,
+// OAUTH_STATE_SIGNATURE) may be: an HMAC-SHA256 key shorter than its hash is
+// brute-forceable offline from one issued token.
+const MinSigningSecretBytes = 32
+
+// MinRecaptchaScore is the lowest accepted RECAPTCHA_SCORE: below it (0 accepts
+// every bot) the check no longer separates anyone.
+const MinRecaptchaScore = 0.3
+
+// Weaknesses lists the settings that make the authentication weaker than it
+// should be. In production every one of them stops the start; elsewhere they are
+// logged, so a throw-away development key keeps working.
+func (c AuthConfig) Weaknesses() []string {
+	var out []string
+	if len(c.TokenSignature) < MinSigningSecretBytes {
+		out = append(out, fmt.Sprintf("JWT_TOKEN_SIGNATURE must be random and at least %d bytes", MinSigningSecretBytes))
+	}
+	switch {
+	case c.OAuth.Google.ClientID != "" && c.OAuth.StateSignature == "":
+		out = append(out, "GOOGLE_CLIENT_ID is set but OAUTH_STATE_SIGNATURE is empty: Google sign-in would be silently disabled")
+	case c.OAuth.StateSignature != "" && len(c.OAuth.StateSignature) < MinSigningSecretBytes:
+		out = append(out, fmt.Sprintf("OAUTH_STATE_SIGNATURE must be random and at least %d bytes", MinSigningSecretBytes))
+	}
+	if c.OAuth.StateSignature != "" && c.OAuth.StateSignature == c.TokenSignature {
+		out = append(out, "OAUTH_STATE_SIGNATURE must differ from JWT_TOKEN_SIGNATURE")
+	}
+	if c.Recaptcha.Score < MinRecaptchaScore {
+		out = append(out, fmt.Sprintf("RECAPTCHA_SCORE must be at least %.1f", MinRecaptchaScore))
+	}
+	return out
+}
+
 // Policy is the configured retention policy.
 func (c RetentionConfig) Policy() retentionModel.Policy {
 	return retentionModel.Policy{
@@ -476,6 +515,12 @@ func MustGetConfig() *Config {
 	if err = instance.Auth.Recaptcha.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid reCAPTCHA configuration")
 	}
+	for _, weakness := range instance.Auth.Weaknesses() {
+		if instance.Environment == Production {
+			log.Fatal().Msg("Config: weak authentication setting: " + weakness)
+		}
+		log.Warn().Msg("Config: weak authentication setting (fatal in production): " + weakness)
+	}
 	if err = instance.HTTPController.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid HTTP controller configuration")
 	}
@@ -499,7 +544,8 @@ func MustGetConfig() *Config {
 }
 
 func (c *Config) populateForAllConfig() {
-	c.HTTPController.EnableSwaggerDocs = c.Environment != Production
+	// The API docs describe every route, internal ones included: development only (not stage either).
+	c.HTTPController.EnableSwaggerDocs = c.Environment == Development
 
 	if c.Environment == Development {
 		c.Infrastructure.Postgres.MigrationsPath = "internal/delivery/repository/postgres/migrations"

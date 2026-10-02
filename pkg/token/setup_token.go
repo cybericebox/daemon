@@ -33,13 +33,22 @@ type setupClaims struct {
 // The token is scoped to the "setup" audience so it cannot be accepted by
 // ParseToken (subdomain tokens) or ParseSessionCookie (no-audience session cookies).
 func (c *Client) GenerateSetupToken(userID uuid.UUID) (string, error) {
+	return c.GenerateSetupTokenFor(userID, c.setupTTL)
+}
+
+// GenerateSetupTokenFor is GenerateSetupToken with its own lifetime: the link mailed to someone who
+// signed up by themselves needs hours, an invitation days. ttl <= 0 means the client's default.
+func (c *Client) GenerateSetupTokenFor(userID uuid.UUID, ttl time.Duration) (string, error) {
+	if ttl <= 0 {
+		ttl = c.setupTTL
+	}
 	now := time.Now()
 	claims := setupClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   userID.String(),
 			Audience:  jwt.ClaimStrings{setupAudience},
-			ExpiresAt: jwt.NewNumericDate(now.Add(c.setupTTL)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ID:        uuid.Must(uuid.NewV7()).String(),
 		},

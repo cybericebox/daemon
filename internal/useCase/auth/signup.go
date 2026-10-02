@@ -66,7 +66,7 @@ func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.
 	if !u.mailAllowed(mailKindSignUp, emailAddr) {
 		return nil
 	}
-	setupToken, err := u.token.GenerateSetupToken(userID)
+	setupToken, err := u.token.GenerateSetupTokenFor(userID, u.cfg.SignupSetupTokenTTL)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()
 	}

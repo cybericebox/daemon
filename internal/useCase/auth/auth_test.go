@@ -2,7 +2,10 @@ package auth_test
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,5 +211,54 @@ func TestValidateSessionCookie_DeletedSession_IndistinguishableInvalidSession(t 
 	}
 	if errors.Is(err, authModel.ErrAuthSessionNotFound.Err()) {
 		t.Fatal("must not be the 404 ErrAuthSessionNotFound")
+	}
+}
+
+// L6: a busy session (the idle deadline keeps sliding) still ends at the absolute lifetime.
+func TestValidateSessionCookie_AbsoluteLifetime(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
+	uc := auth.NewAuthUseCase(auth.Dependencies{
+		Repo: repo, Token: tk, Password: password.New(password.Config{HashCost: 4}),
+		Config: config.AuthConfig{SessionIdleTTL: time.Hour, SessionAbsoluteTTL: 24 * time.Hour, Hosts: testHosts("test")},
+	})
+	sid, uid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	cookie, _ := tk.GenerateSessionCookie(sid, time.Now().Add(time.Hour))
+	repo.EXPECT().GetSessionByID(gomock.Any(), sid).Return(postgres.Session{
+		ID: sid, UserID: uid, CreatedAt: time.Now().Add(-25 * time.Hour), ExpiresAt: time.Now().Add(time.Hour), // used a minute ago
+	}, nil)
+	if _, err := uc.ValidateSessionCookie(context.Background(), cookie); !errors.Is(err, authModel.ErrAuthSessionExpired.Err()) {
+		t.Fatalf("want ErrAuthSessionExpired past the absolute lifetime, got %v", err)
+	}
+}
+
+// The cookie is issued for the absolute lifetime, the database row for the idle one.
+func TestSignIn_CookieLivesForTheAbsoluteLifetime(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	pw := password.New(password.Config{HashCost: 4})
+	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
+	uc := auth.NewAuthUseCase(auth.Dependencies{
+		Repo: repo, Token: tk, Password: pw,
+		Config: config.AuthConfig{SessionIdleTTL: time.Hour, SessionAbsoluteTTL: 48 * time.Hour, Hosts: testHosts("test")},
+	})
+	hashed, _ := pw.Hash("Secret!1")
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(postgres.User{ID: uid, Role: "user", HashedPassword: pgtype.Text{String: hashed, Valid: true}}, nil)
+	created := time.Now()
+	repo.EXPECT().CreateSession(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateSessionParams) (postgres.Session, error) {
+		return postgres.Session{ID: p.ID, UserID: uid, CreatedAt: created, ExpiresAt: created.Add(time.Hour)}, nil
+	})
+	cookie, _, err := uc.SignIn(context.Background(), "a@b.test", "Secret!1", "", authModel.SessionMetadata{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(cookie, ".")
+	payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+	var claims struct{ Exp int64 }
+	_ = json.Unmarshal(payload, &claims)
+	if want := created.Add(48 * time.Hour).Unix(); claims.Exp != want {
+		t.Fatalf("cookie exp = %d, want created+absolute = %d", claims.Exp, want)
 	}
 }
