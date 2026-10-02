@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/model"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
@@ -65,6 +66,41 @@ func (u *AuthUseCase) DeleteInactiveAccount(ctx context.Context, userID uuid.UUI
 
 // DeleteAccount soft-deletes the user (kept for stats), then cuts their sessions
 // and provider links so the freed email + identities can be reused.
-func (u *AuthUseCase) DeleteAccount(ctx context.Context, userID uuid.UUID) error {
+//
+// It is the end of the account, so the person proves they are the owner now, not only that
+// somebody holds a session: the account password, or for an account without one (Google only)
+// a sign-in from the last minutes.
+func (u *AuthUseCase) DeleteAccount(ctx context.Context, userID uuid.UUID, currentPassword string) error {
+	if err := u.reauthenticate(ctx, userID, currentPassword); err != nil {
+		return err
+	}
 	return u.deleteUserCascade(ctx, userID, nil)
+}
+
+// recentSignInWindow is how recent the sign-in must be for an account without a password to
+// confirm a sensitive action.
+const recentSignInWindow = 15 * time.Minute
+
+// reauthenticate re-confirms the owner before an action that cannot be undone or that gives the
+// account away. A stolen session alone must not be enough.
+func (u *AuthUseCase) reauthenticate(ctx context.Context, userID uuid.UUID, currentPassword string) error {
+	user, err := u.users.GetByID(ctx, userID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
+	}
+	if user.HasPassword() {
+		return u.checkCurrentPassword(userID, currentPassword, user.HashedPassword)
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx)
+	if !ok || claims.SessionID == uuid.Nil {
+		return authModel.ErrAuthReauthRequired.Err()
+	}
+	session, err := u.sessions.GetByID(ctx, claims.SessionID)
+	if err != nil {
+		return authModel.ErrAuthReauthRequired.WithError(err).Err()
+	}
+	if time.Since(session.CreatedAt) > recentSignInWindow {
+		return authModel.ErrAuthReauthRequired.Err()
+	}
+	return nil
 }

@@ -212,6 +212,7 @@
   "50422": "Session cookie is missing",
   "60413": "Insufficient permission",
   "60414": "Cannot assign role",
+  "60429": "Sign in again to confirm this action",
   "60957": "Not allowed to access this exercise",
   "61136": "The live screen link is invalid or expired",
   "61213": "Results are hidden by the organizer",

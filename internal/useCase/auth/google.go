@@ -251,7 +251,10 @@ func (u *AuthUseCase) LinkGoogleToAccountFromOAuth(ctx context.Context, sessionC
 
 // UnlinkGoogle removes the user's Google link, refusing if it is the last login
 // method (lockout guard). affected==0 (already unlinked) is a no-op.
-func (u *AuthUseCase) UnlinkGoogle(ctx context.Context, userID uuid.UUID) error {
+func (u *AuthUseCase) UnlinkGoogle(ctx context.Context, userID uuid.UUID, currentPassword string) error {
+	if err := u.reauthenticate(ctx, userID, currentPassword); err != nil {
+		return err
+	}
 	methods, err := u.users.CountLoginMethods(ctx, userID)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to count login methods").Err()

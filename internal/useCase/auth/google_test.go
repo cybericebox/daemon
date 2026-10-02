@@ -327,8 +327,9 @@ func TestGetGoogleLoginURL_Unconfigured(t *testing.T) {
 func TestUnlinkGoogle_LastMethodBlocked(t *testing.T) {
 	uc, repo := newGoogleUC(t, nil)
 	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: hashedPassword(t, "Correct!1")}, nil)
 	repo.EXPECT().CountUserLoginMethods(gomock.Any(), uid).Return(int64(1), nil)
-	if err := uc.UnlinkGoogle(context.Background(), uid); !errors.Is(err, authModel.ErrNoLoginMethod.Err()) {
+	if err := uc.UnlinkGoogle(context.Background(), uid, "Correct!1"); !errors.Is(err, authModel.ErrNoLoginMethod.Err()) {
 		t.Fatalf("want ErrNoLoginMethod, got %v", err)
 	}
 }
@@ -336,9 +337,10 @@ func TestUnlinkGoogle_LastMethodBlocked(t *testing.T) {
 func TestUnlinkGoogle_Success(t *testing.T) {
 	uc, repo := newGoogleUC(t, nil)
 	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: hashedPassword(t, "Correct!1")}, nil)
 	repo.EXPECT().CountUserLoginMethods(gomock.Any(), uid).Return(int64(2), nil)
 	repo.EXPECT().DeleteUserProvider(gomock.Any(), postgres.DeleteUserProviderParams{UserID: uid, Provider: "google"}).Return(int64(1), nil)
-	if err := uc.UnlinkGoogle(context.Background(), uid); err != nil {
+	if err := uc.UnlinkGoogle(context.Background(), uid, "Correct!1"); err != nil {
 		t.Fatalf("UnlinkGoogle: %v", err)
 	}
 }
@@ -429,5 +431,15 @@ func TestBeginGoogleRegistration_EmailIsNormalized(t *testing.T) {
 		Return(postgres.User{ID: uuid.Must(uuid.NewV7()), Status: string(userModel.UserStatusActive)}, nil)
 	if _, err := uc.BeginGoogleRegistration(context.Background(), "code", "state", authModel.SessionMetadata{}); !errors.Is(err, authModel.ErrAuthAccountExistsSignIn.Err()) {
 		t.Fatalf("want ErrAuthAccountExistsSignIn, got %v", err)
+	}
+}
+
+// L7: giving away the Google login needs the password too.
+func TestUnlinkGoogle_WrongPasswordRefused(t *testing.T) {
+	uc, repo := newGoogleUC(t, nil)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: hashedPassword(t, "Correct!1")}, nil)
+	if err := uc.UnlinkGoogle(context.Background(), uid, "Wrong!1"); !errors.Is(err, authModel.ErrAuthInvalidOldPassword.Err()) {
+		t.Fatalf("want ErrAuthInvalidOldPassword, got %v", err)
 	}
 }

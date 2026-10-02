@@ -78,8 +78,8 @@ type (
 		) error
 		RequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail, currentPassword string) error
 		ConfirmEmailChange(ctx context.Context, code string) error
-		UnlinkGoogle(ctx context.Context, userID uuid.UUID) error
-		DeleteAccount(ctx context.Context, userID uuid.UUID) error
+		UnlinkGoogle(ctx context.Context, userID uuid.UUID, currentPassword string) error
+		DeleteAccount(ctx context.Context, userID uuid.UUID, currentPassword string) error
 		LinkGoogleToAccountFromOAuth(
 			ctx context.Context,
 			sessionCookieValue, code, state string,

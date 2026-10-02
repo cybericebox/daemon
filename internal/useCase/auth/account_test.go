@@ -61,7 +61,7 @@ func TestDeleteAccount_SoftDeletesAndCutsLinks(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	// Single aggregate load: the lockout guard reads the role from it.
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
-		Return(postgres.User{ID: uid, Status: "active"}, nil)
+		Return(postgres.User{ID: uid, Status: "active", HashedPassword: hashedPassword(t, "Correct!1")}, nil).Times(2) // re-auth, then the aggregate
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, arg postgres.UpdateUserParams) (int64, error) {
 			if arg.Status != "deleted" || !arg.DeletedAt.Valid || arg.FirstName != "" {
@@ -72,7 +72,7 @@ func TestDeleteAccount_SoftDeletesAndCutsLinks(t *testing.T) {
 	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(2), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
 
-	if err := uc.DeleteAccount(context.Background(), uid); err != nil {
+	if err := uc.DeleteAccount(context.Background(), uid, "Correct!1"); err != nil {
 		t.Fatalf("DeleteAccount: %v", err)
 	}
 }
@@ -111,11 +111,11 @@ func TestDeleteAccount_LastSuperAdmin_Blocked(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
-		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active"}, nil)
+		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active", HashedPassword: hashedPassword(t, "Correct!1")}, nil).Times(2)
 	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(1), nil)
 	// no UpdateUser / DeleteUserSessions expectations: the cascade must not run
 
-	err := uc.DeleteAccount(context.Background(), uid)
+	err := uc.DeleteAccount(context.Background(), uid, "Correct!1")
 	if !errors.Is(err, authModel.ErrLastSuperAdmin.Err()) {
 		t.Fatalf("want ErrLastSuperAdmin, got %v", err)
 	}
@@ -127,13 +127,13 @@ func TestDeleteAccount_SuperAdminWithPeer_Allowed(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
-		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active"}, nil)
+		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active", HashedPassword: hashedPassword(t, "Correct!1")}, nil).Times(2)
 	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(2), nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
 
-	if err := uc.DeleteAccount(context.Background(), uid); err != nil {
+	if err := uc.DeleteAccount(context.Background(), uid, "Correct!1"); err != nil {
 		t.Fatalf("DeleteAccount: %v", err)
 	}
 }
@@ -173,5 +173,51 @@ func TestDeleteInactiveAccount_SeenAfterWarning_Keeps(t *testing.T) {
 	deleted, err := uc.DeleteInactiveAccount(context.Background(), uid, warnedAt)
 	if err != nil || deleted {
 		t.Fatalf("DeleteInactiveAccount: deleted=%v err=%v", deleted, err)
+	}
+}
+
+func hashedPassword(t *testing.T, plain string) pgtype.Text {
+	t.Helper()
+	hashed, err := password.New(password.Config{HashCost: 4}).Hash(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pgtype.Text{String: hashed, Valid: true}
+}
+
+// L7: ending the account needs the owner, not only a session.
+func TestDeleteAccount_WrongPasswordDeletesNothing(t *testing.T) {
+	uc, repo := newAccountUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active", HashedPassword: hashedPassword(t, "Correct!1")}, nil)
+	// no UpdateUser, no session or provider removal
+
+	if err := uc.DeleteAccount(context.Background(), uid, "Wrong!1"); !errors.Is(err, authModel.ErrAuthInvalidOldPassword.Err()) {
+		t.Fatalf("want ErrAuthInvalidOldPassword, got %v", err)
+	}
+}
+
+// An account without a password (Google only) re-confirms with a sign-in from the last minutes.
+func TestDeleteAccount_GoogleOnlyNeedsARecentSignIn(t *testing.T) {
+	for name, age := range map[string]time.Duration{"recent": 2 * time.Minute, "old": 3 * time.Hour} {
+		t.Run(name, func(t *testing.T) {
+			uc, repo := newAccountUC(t)
+			uid, sid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: sid, Role: rbac.RoleUser})
+			repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active"}, nil).AnyTimes()
+			repo.EXPECT().GetSessionByID(gomock.Any(), sid).Return(postgres.Session{ID: sid, UserID: uid, CreatedAt: time.Now().Add(-age), ExpiresAt: time.Now().Add(time.Hour)}, nil)
+			if name == "recent" {
+				repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+				repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
+				repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
+				if err := uc.DeleteAccount(ctx, uid, ""); err != nil {
+					t.Fatalf("a recent sign-in must be enough: %v", err)
+				}
+				return
+			}
+			if err := uc.DeleteAccount(ctx, uid, ""); !errors.Is(err, authModel.ErrAuthReauthRequired.Err()) {
+				t.Fatalf("an old session of a Google-only account must be refused, got %v", err)
+			}
+		})
 	}
 }

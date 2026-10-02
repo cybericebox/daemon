@@ -268,6 +268,8 @@ func (h *Handler) googleLinkRedirect(ctx *gin.Context) {
 // unlinkGoogle godoc
 // @Summary  Unlink Google from the authenticated user's account
 // @Tags     auth
+// @Accept   json
+// @Param    body  body  reauthRequest  true  "current password"
 // @Produce  json
 // @Success  200
 // @Failure  400  {object}  response.Response
@@ -277,7 +279,11 @@ func (h *Handler) unlinkGoogle(ctx *gin.Context) {
 	// RequirePermission(rbac.PermSelf) on this route guarantees userID is present.
 	claims, _ := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 	userID := claims.UserID
-	if err := h.useCase.UnlinkGoogle(ctx.Request.Context(), userID); err != nil {
+	req, ok := bindReauth(ctx)
+	if !ok {
+		return
+	}
+	if err := h.useCase.UnlinkGoogle(ctx.Request.Context(), userID, req.CurrentPassword); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

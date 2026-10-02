@@ -26,6 +26,7 @@ type fakeUC struct {
 	sessions          []authUseCase.SessionInfo
 	revokeErr         error
 	capturedRedirect  string
+	reauthPassword    string
 	beginErr          error
 	changeErr         error
 	trustedRedirect   bool
@@ -154,14 +155,18 @@ func (f *fakeUC) ConfirmEmailChange(
 func (f *fakeUC) UnlinkGoogle(
 	_ context.Context,
 	_ uuid.UUID,
+	password string,
 ) error {
+	f.reauthPassword = password
 	return nil
 }
 
 func (f *fakeUC) DeleteAccount(
 	_ context.Context,
 	_ uuid.UUID,
+	password string,
 ) error {
+	f.reauthPassword = password
 	return nil
 }
 func (f *fakeUC) LinkGoogleToAccountFromOAuth(_ context.Context, _, _, _ string) error {

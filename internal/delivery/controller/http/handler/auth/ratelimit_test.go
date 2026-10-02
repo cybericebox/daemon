@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
 )
@@ -45,5 +46,30 @@ func TestPublicAuthRoutesAreRateLimitedPerClient(t *testing.T) {
 				t.Fatalf("the flood must hit 429, last status %d", last)
 			}
 		})
+	}
+}
+
+// L7: the end of the account and giving away its Google login carry the owner's password in the body.
+func TestDeleteAccountAndUnlinkGoogleReadTheCurrentPassword(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct{ path, body, want string }{
+		{"/api/auth/account", `{"CurrentPassword":"Secret!1"}`, "Secret!1"},
+		{"/api/auth/account", ``, ""}, // an account without a password sends none
+		{"/api/auth/google/link", `{"CurrentPassword":"Secret!1"}`, "Secret!1"},
+	} {
+		uc := &fakeUC{}
+		r := gin.New()
+		r.Use(injectIdentity(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())))
+		h := authHandler.NewAuthAPIHandler(uc, &fakeProt{}, testAuthConfig)
+		h.Init(r.Group("api"), r.Group("api"))
+		req := httptest.NewRequest(http.MethodDelete, tc.path, strings.NewReader(tc.body))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s %q: status %d: %s", tc.path, tc.body, w.Code, w.Body.String())
+		}
+		if uc.reauthPassword != tc.want {
+			t.Fatalf("%s %q: password %q, want %q", tc.path, tc.body, uc.reauthPassword, tc.want)
+		}
 	}
 }

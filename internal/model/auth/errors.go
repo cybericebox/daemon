@@ -18,7 +18,7 @@ import (
 //     ErrObjectNotFound→404, ...), so "the same fact" needing two statuses is
 //     two different error vars by definition.
 //
-// AuthObjectCode — next free detail code: 29
+// AuthObjectCode — next free detail code: 30
 var (
 	// 401
 	// multi-site (category A): sign-in must be timing- and error-
@@ -113,6 +113,10 @@ var (
 	ErrAuthTooManyRequests = err.ErrConflict.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Too many attempts, try again later").WithDetailCode(28).
 				WithHTTPCode(http.StatusTooManyRequests)
+	// ErrAuthReauthRequired: a sensitive action of an account without a password (Google only) needs a
+	// sign-in from the last minutes; the client sends the person through sign-in again.
+	ErrAuthReauthRequired = err.ErrForbidden.WithObjectCode(model.AuthObjectCode).
+				WithMessage("Sign in again to confirm this action").WithDetailCode(29)
 	ErrAuthInvalidEmail = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Invalid email address").WithDetailCode(26)
 )

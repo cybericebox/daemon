@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"errors"
+	"io"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -176,9 +178,27 @@ func (h *Handler) confirmEmailChange(ctx *gin.Context) {
 	response.AbortWithSuccess(ctx)
 }
 
+// reauthRequest re-confirms the owner before an action that cannot be undone: the account password
+// (an account without one, Google only, needs a sign-in from the last minutes instead and sends none).
+type reauthRequest struct {
+	CurrentPassword string `json:"CurrentPassword"`
+}
+
+// bindReauth reads the optional re-authentication body of a DELETE (no body is an empty password).
+func bindReauth(ctx *gin.Context) (reauthRequest, bool) {
+	var req reauthRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.AbortWithBadRequest(ctx, err)
+		return reauthRequest{}, false
+	}
+	return req, true
+}
+
 // deleteAccount godoc
 // @Summary  Delete (soft-delete) the authenticated user's account
 // @Tags     auth
+// @Accept   json
+// @Param    body  body  reauthRequest  false  "current password (accounts without a password need a recent sign-in instead)"
 // @Produce  json
 // @Success  200
 // @Failure  401  {object}  response.Response
@@ -187,7 +207,11 @@ func (h *Handler) deleteAccount(ctx *gin.Context) {
 	// RequirePermission(rbac.PermSelf) on this route guarantees userID is present.
 	claims, _ := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 	userID := claims.UserID
-	if err := h.useCase.DeleteAccount(ctx.Request.Context(), userID); err != nil {
+	req, ok := bindReauth(ctx)
+	if !ok {
+		return
+	}
+	if err := h.useCase.DeleteAccount(ctx.Request.Context(), userID, req.CurrentPassword); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
