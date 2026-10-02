@@ -119,17 +119,8 @@ func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, b
 		}
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
 	}
-	if err = team.CanAcceptMember(config.MaxTeamSize); err != nil {
-		return nil, err
-	}
-	pending, err := u.participants.CountPendingTeamInvitations(ctx, eventID, teamID)
-	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count pending team invitations").Err()
-	}
-	// Pending invitations reserve seats: the team cannot be over-invited.
-	if int64(team.MemberCount)+pending+int64(len(uniqueInvitationEmails(entries))) > int64(config.MaxTeamSize) {
-		return nil, eventTeamModel.ErrEventTeamFull.Err()
-	}
+	// The seats are checked for each invitation in its own transaction, under the event's roster lock
+	// (requireTeamSeat): a count made here would be stale by then.
 	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{UUID: teamID, Valid: true}, team.Name, by, entries)
 }
 
@@ -214,6 +205,16 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 		return uuid.Nil, err
 	}
 	defer unit.Restore()
+	if targetTeamID.Valid {
+		// The seats are counted under the event's roster lock, in the transaction that takes one: two
+		// invitations cannot both pass a check made earlier and over-invite the team.
+		if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+			return uuid.Nil, err
+		}
+		if err = u.requireTeamSeat(txCtx, txRepo, eventID, targetTeamID.UUID); err != nil {
+			return uuid.Nil, err
+		}
+	}
 	e, err := eventRepo.New(txRepo).GetByID(txCtx, eventID)
 	if err != nil {
 		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
@@ -423,6 +424,9 @@ func (u *EventUseCase) AcceptParticipantInvitation(ctx context.Context, eventID,
 		return JoinInfoView{}, err
 	}
 	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return JoinInfoView{}, err
+	}
 	participants := participantRepo.New(txRepo)
 	p, err := participants.Get(txCtx, eventID, userID)
 	if err != nil {
@@ -554,6 +558,30 @@ func handOverPendingCaptaincy(ctx context.Context, repo IRepository, eventID, te
 		if _, err = participants.SetTeamRole(ctx, eventID, successor, teamID, participantModel.TeamRoleCaptain); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to promote new team captain").Err()
 		}
+	}
+	return nil
+}
+
+// requireTeamSeat checks, inside a transaction, that the team has a seat for one more invitee: its members plus the
+// pending team invitations (which reserve seats) stay within the event's maximum.
+func (u *EventUseCase) requireTeamSeat(ctx context.Context, repo IRepository, eventID, teamID uuid.UUID) error {
+	config, err := eventConfigRepo.New(repo).Get(ctx, eventID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
+	}
+	team, err := eventTeamRepo.New(repo).GetByID(ctx, eventID, teamID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return eventTeamModel.ErrEventTeamNotFound.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
+	}
+	pending, err := participantRepo.New(repo).CountPendingTeamInvitations(ctx, eventID, teamID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to count pending team invitations").Err()
+	}
+	if config.MaxTeamSize > 0 && int64(team.MemberCount)+pending+1 > int64(config.MaxTeamSize) {
+		return eventTeamModel.ErrEventTeamFull.Err()
 	}
 	return nil
 }

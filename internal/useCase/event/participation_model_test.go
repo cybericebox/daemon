@@ -147,7 +147,6 @@ func TestIndividualApprovalIgnoresMaxTeams(t *testing.T) {
 	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: int16(participantModel.StatusPending), CreatedAt: now}, nil)
 	q.EXPECT().UpdateEventParticipant(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(config, nil).AnyTimes()
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), CreatedAt: now}, nil)
 	q.EXPECT().CreateEventTeam(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.CreateEventTeamParams) (postgres.EventTeam, error) {
 		if !arg.Individual {

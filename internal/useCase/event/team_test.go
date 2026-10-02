@@ -110,7 +110,6 @@ func TestCreateManagedTeam_BypassesSelfServiceRosterButKeepsCaptainInvariant(t *
 	captainID := uuid.Must(uuid.NewV7())
 	now := time.Now().UTC()
 
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
 		EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true},
 		MaxTeamSize: 5, CreatedAt: now, UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
@@ -168,7 +167,6 @@ func TestCreateTeam_LocksEventAndAssignsCreatorAsCaptain(t *testing.T) {
 	userID := uuid.Must(uuid.NewV7())
 	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
 
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
 		EventID:       eventID,
 		Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true},

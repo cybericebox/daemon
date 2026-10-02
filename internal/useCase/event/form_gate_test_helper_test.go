@@ -2,6 +2,7 @@ package event_test
 
 import (
 	"context"
+	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"go.uber.org/mock/gomock"
@@ -24,6 +25,8 @@ func newFormGateMock(ctrl *gomock.Controller) *postgresMocks.MockQuerier {
 			return false, nil
 		}).
 		AnyTimes()
+	// Every roster change starts with the event's team lock.
+	q.EXPECT().LockEventForTeamChange(gomock.Any(), gomock.Any()).Return(uuid.Nil, nil).AnyTimes()
 	stubParticipationModelReads(q)
 	return q
 }

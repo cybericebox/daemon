@@ -26,7 +26,6 @@ func batchUC(q *postgresMocks.MockQuerier, unit *testUoW, notifier *invitationNo
 }
 
 func expectBatchEvent(q *postgresMocks.MockQuerier, eventID uuid.UUID, maxTeamSize int32, maxTeams pgtype.Int4) {
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
 		EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true},
 		MaxTeamSize: maxTeamSize, MaxTeams: maxTeams,

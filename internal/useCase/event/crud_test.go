@@ -36,7 +36,6 @@ func TestCaptureDueScoringPopulationsCapturesApprovedTeamCount(t *testing.T) {
 	q.EXPECT().ListEventsDueForScoringPopulation(gomock.Any(), gomock.Any()).Return([]postgres.ListEventsDueForScoringPopulationRow{{
 		EventID: eventID, Participation: pgtype.Int2{Int16: 1, Valid: true},
 	}}, nil)
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().CountApprovedEventTeams(gomock.Any(), eventID).Return(int64(7), nil)
 	q.EXPECT().InsertEventScoringPopulation(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertEventScoringPopulationParams) (postgres.EventScoringPopulation, error) {
@@ -62,7 +61,6 @@ func TestCaptureDueScoringPopulationsCountsPersonalTeams(t *testing.T) {
 	q.EXPECT().ListEventsDueForScoringPopulation(gomock.Any(), gomock.Any()).Return([]postgres.ListEventsDueForScoringPopulationRow{{
 		EventID: eventID, Participation: pgtype.Int2{Int16: 0, Valid: true},
 	}}, nil)
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().CountApprovedEventTeams(gomock.Any(), eventID).Return(int64(3), nil)
 	q.EXPECT().InsertEventScoringPopulation(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertEventScoringPopulationParams) (postgres.EventScoringPopulation, error) {

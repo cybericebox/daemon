@@ -58,7 +58,6 @@ func TestJoinEventOpenRegistrationPublishesCompletionAndEnrollmentInUoW(t *testi
 	q.EXPECT().UpsertEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{
 		EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), CreatedAt: now,
 	}, nil)
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{
 		EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), CreatedAt: now,
 	}, nil)
@@ -101,7 +100,6 @@ func TestApproveParticipantPublishesApprovalAndEnrollmentInUoW(t *testing.T) {
 		EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationIndividual), Valid: true},
 		MaxTeamSize: 1, CreatedAt: now, UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
 	}, nil).Times(2)
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{
 		EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), CreatedAt: now,
 	}, nil)

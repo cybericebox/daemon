@@ -38,6 +38,9 @@ func (u *EventUseCase) JoinTeam(ctx context.Context, eventID, userID uuid.UUID, 
 		return err
 	}
 	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return err
+	}
 
 	configs := eventConfigRepo.New(txRepo)
 	teams := eventTeamRepo.New(txRepo)
@@ -111,6 +114,9 @@ func (u *EventUseCase) AssignParticipantToTeam(ctx context.Context, eventID, tea
 		return err
 	}
 	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return err
+	}
 	config, err := eventConfigRepo.New(txRepo).Get(txCtx, eventID)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
@@ -373,6 +379,9 @@ func (u *EventUseCase) RemoveParticipantFromTeam(ctx context.Context, eventID, t
 		return err
 	}
 	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return err
+	}
 	teams, participants := eventTeamRepo.New(txRepo), participantRepo.New(txRepo)
 	team, err := teams.GetByID(txCtx, eventID, teamID)
 	if err != nil {
@@ -1243,6 +1252,9 @@ func (u *EventUseCase) removeTeamMember(ctx context.Context, eventID, actorID, t
 		return err
 	}
 	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return err
+	}
 	rosterEvent, err := openRosterEvent(txCtx, txRepo, eventID, time.Now())
 	if err != nil {
 		return err
@@ -1458,6 +1470,9 @@ func (u *EventUseCase) formTeam(ctx context.Context, eventID, teamID, by uuid.UU
 		return err
 	}
 	defer unit.Restore()
+	if err = lockTeamRoster(txCtx, txRepo, eventID); err != nil {
+		return err
+	}
 	config, err := eventConfigRepo.New(txRepo).Get(txCtx, eventID)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
@@ -1534,4 +1549,14 @@ func autoFormedFrom(event eventModel.Event, err error) (*time.Time, error) {
 	}
 	start := event.Lifecycle.StartAt
 	return &start, nil
+}
+
+// lockTeamRoster serializes the changes of team rosters inside one event: join, assign, leave, kick, form and
+// accepting a team invitation all start with it, so a join cannot slip into a team that is being formed, and a
+// leave cannot be decided on a formation that is changing under it. The lock lasts until the transaction ends.
+func lockTeamRoster(ctx context.Context, repo IRepository, eventID uuid.UUID) error {
+	if _, err := repo.LockEventForTeamChange(ctx, eventID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to lock event team rosters").Err()
+	}
+	return nil
 }

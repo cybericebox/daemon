@@ -200,7 +200,6 @@ func TestJoinEvent_IndividualOpenRegistration_CreatesSoloTeam(t *testing.T) {
 		func(_ context.Context, arg postgres.UpsertEventParticipantParams) (postgres.EventParticipant, error) {
 			return postgres.EventParticipant{EventID: arg.EventID, UserID: arg.UserID, Status: arg.Status, CreatedAt: arg.CreatedAt, DecidedAt: arg.DecidedAt}, nil
 		})
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
 		EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationIndividual), Valid: true},
 		Registration: int16(eventConfigModel.RegistrationOpen), MaxTeamSize: 1,
@@ -500,7 +499,6 @@ func TestApproveParticipant_IndividualAfterStart_CreatesSoloTeam(t *testing.T) {
 	}, nil)
 	q.EXPECT().UpdateEventParticipant(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(config, nil)
-	q.EXPECT().LockEventForTeamChange(gomock.Any(), eventID).Return(eventID, nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(config, nil)
 	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{
 		EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), CreatedAt: now.Add(-time.Hour),
