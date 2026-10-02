@@ -18,6 +18,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	"github.com/cybericebox/daemon/pkg/pagination"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 type resultsFreezeStateResponse struct {
@@ -476,12 +477,7 @@ func startCSV(ctx *gin.Context, name string) *csv.Writer {
 }
 
 // csvText neutralizes spreadsheet formulas in user-controlled text.
-func csvText(value string) string {
-	if value != "" && (value[0] == '=' || value[0] == '+' || value[0] == '-' || value[0] == '@' || value[0] == '\t' || value[0] == '\r') {
-		return "'" + value
-	}
-	return value
-}
+func csvText(value string) string { return tools.CSVText(value) }
 
 func csvTime(value *time.Time) string {
 	if value == nil {

@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 // startCSV opens a CSV download (UTF-8 with BOM, so spreadsheets read the
@@ -27,12 +27,7 @@ func startCSV(ctx *gin.Context, name string) *csv.Writer {
 
 // csvText neutralizes spreadsheet formulas in user-controlled text (event
 // and task names, error messages).
-func csvText(value string) string {
-	if value != "" && strings.ContainsRune("=+-@\t\r", rune(value[0])) {
-		return "'" + value
-	}
-	return value
-}
+func csvText(value string) string { return tools.CSVText(value) }
 
 func csvTime(value time.Time) string { return value.UTC().Format(time.RFC3339) }
 

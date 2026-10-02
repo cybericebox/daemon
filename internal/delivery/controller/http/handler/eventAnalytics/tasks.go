@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
+	"github.com/cybericebox/daemon/pkg/tools"
 )
 
 // TasksUseCase is the «Завдання» part of IUseCase.
@@ -309,12 +309,7 @@ func startAnalyticsCSV(ctx *gin.Context, name string) *csv.Writer {
 }
 
 // csvCellText neutralizes spreadsheet formulas in user-controlled text.
-func csvCellText(value string) string {
-	if value != "" && strings.ContainsRune("=+-@\t\r", rune(value[0])) {
-		return "'" + value
-	}
-	return value
-}
+func csvCellText(value string) string { return tools.CSVText(value) }
 
 func csvTimePtr(value *time.Time) string {
 	if value == nil {
