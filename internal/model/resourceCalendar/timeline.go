@@ -67,7 +67,9 @@ func FindConflicts(w Window, agents []Agent, rs []*Reservation, pool Amount) []C
 		var st slotState
 		over := map[uuid.UUID]bool{}
 		var free Amount
-		for _, a := range agents {
+		for _, ag := range agents {
+			// In a maintenance window the agent has what the window leaves.
+			a := ag.at(w.At(i))
 			var l Amount
 			if series := loads[a.ID]; series != nil {
 				l = series[i]
@@ -194,7 +196,7 @@ func NearestFree(from time.Time, length, horizon time.Duration, agents []Agent, 
 	loads := slotLoads(span, rs)
 	run := 0
 	for i := 0; i < span.Slots(); i++ {
-		if slotHolds(i, agents, loads, pool, size, device) {
+		if slotHolds(span.At(i), i, agents, loads, pool, size, device) {
 			run++
 			if run == need {
 				return span.At(i - need + 1), true
@@ -210,17 +212,18 @@ func NearestFree(from time.Time, length, horizon time.Duration, agents []Agent, 
 func FitsWindow(w Window, agents []Agent, rs []*Reservation, pool, size, device Amount) bool {
 	loads := slotLoads(w, rs)
 	for i := 0; i < w.Slots(); i++ {
-		if !slotHolds(i, agents, loads, pool, size, device) {
+		if !slotHolds(w.At(i), i, agents, loads, pool, size, device) {
 			return false
 		}
 	}
 	return true
 }
 
-func slotHolds(i int, agents []Agent, loads map[uuid.UUID][]Amount, pool, size, device Amount) bool {
+func slotHolds(t time.Time, i int, agents []Agent, loads map[uuid.UUID][]Amount, pool, size, device Amount) bool {
 	var free Amount
 	fits := false
-	for _, a := range agents {
+	for _, ag := range agents {
+		a := ag.at(t)
 		var l Amount
 		if series := loads[a.ID]; series != nil {
 			l = series[i]
@@ -238,7 +241,7 @@ func slotHolds(i int, agents []Agent, loads map[uuid.UUID][]Amount, pool, size, 
 // Slack is the room left in every slot of w on one agent, at the least: capacity minus the peak load.
 func Slack(w Window, a Agent, rs []*Reservation) Amount {
 	peak := PeakLoad(w, rs)
-	return a.Free(peak[a.ID])
+	return a.during(w).Free(peak[a.ID])
 }
 
 // addSat adds two amounts without passing Unlimited, so a few unlimited agents never overflow.

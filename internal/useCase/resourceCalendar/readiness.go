@@ -72,8 +72,10 @@ func (u *ResourceCalendarUseCase) causes(ctx context.Context, s Store, r *calMod
 			continue
 		}
 		p := peak[id]
-		if p.CPUMillicores > a.Capacity.CPUMillicores || p.MemoryBytes > a.Capacity.MemoryBytes {
-			short := Amount{CPUMillicores: max(p.CPUMillicores-a.Capacity.CPUMillicores, 0), MemoryBytes: max(p.MemoryBytes-a.Capacity.MemoryBytes, 0)}
+		// The capacity the agent has over the whole window: a maintenance window that touches it takes the room.
+		have := a.CapacityOver(r.Window)
+		if p.CPUMillicores > have.CPUMillicores || p.MemoryBytes > have.MemoryBytes {
+			short := Amount{CPUMillicores: max(p.CPUMillicores-have.CPUMillicores, 0), MemoryBytes: max(p.MemoryBytes-have.MemoryBytes, 0)}
 			out = append(out, cause{kind: calModel.AlarmAgentShrunk, agent: &id, units: sh.Units, short: short})
 		}
 	}

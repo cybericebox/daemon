@@ -52,6 +52,11 @@ type AgentRegistration struct {
 	// its whole capacity then counts as one node.
 	Nodes         []AgentNode
 	NodesReported bool
+	// Maintenance is the windows the cluster operator announced on the agent, as it last reported them (the ones that
+	// apply to the platform's tenant). MaintenanceReported is false for an agent that has not reported them (an older
+	// agent, or the CRD is not installed).
+	Maintenance         []AgentMaintenanceWindow
+	MaintenanceReported bool
 	// Features is what the agent last reported the tenant can use (persistence, image cache, scheduler,
 	// endpoints, certificate); nil until the first report. FeaturesAt is when it was read.
 	Features   *AgentFeatures
@@ -65,6 +70,22 @@ type AgentNode struct {
 	Name          string `json:"name"`
 	CPUMillicores int64  `json:"cpu_millicores"`
 	MemoryBytes   int64  `json:"memory_bytes"`
+}
+
+// AgentMaintenanceWindow is a maintenance window announced on an agent by the cluster operator (never by the platform
+// admin). In it the agent gives the platform no capacity, or the capacity the window leaves.
+type AgentMaintenanceWindow struct {
+	Name   string    `json:"name"`
+	Reason string    `json:"reason,omitempty"`
+	From   time.Time `json:"from"`
+	// To is nil for a window without an end.
+	To         *time.Time `json:"to,omitempty"`
+	AllTenants bool       `json:"all_tenants"`
+	// HasCapacity is false when the window leaves nothing; otherwise the capacity it leaves (a resource it does not
+	// name is zero).
+	HasCapacity   bool  `json:"has_capacity"`
+	CPUMillicores int64 `json:"cpu_millicores"`
+	MemoryBytes   int64 `json:"memory_bytes"`
 }
 
 // AgentFeatures is what a laboratory agent offers the platform's tenant. The platform keeps no copy of

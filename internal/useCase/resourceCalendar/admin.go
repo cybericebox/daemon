@@ -2,6 +2,7 @@ package resourceCalendarUseCase
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -43,6 +44,49 @@ func capacityView(states []agentState, pool Amount) CapacityView {
 	}
 	view.PerNodeRoomReported = used > 0 && reported == used
 	return view
+}
+
+// maintenanceViews lists the maintenance windows of the agents that are used which touch w, soonest first.
+func maintenanceViews(states []agentState, w calModel.Window) []MaintenanceView {
+	out := []MaintenanceView{}
+	for _, st := range states {
+		if !st.Used {
+			continue
+		}
+		for _, o := range st.Outages {
+			if !o.Window.Overlaps(w) {
+				continue
+			}
+			v := MaintenanceView{AgentID: st.ID, AgentName: st.Name, Name: o.Name, Reason: o.Reason, From: o.Window.Start, Left: o.Left}
+			if !o.OpenEnded {
+				end := o.Window.End
+				v.To = &end
+			}
+			out = append(out, v)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].From.Equal(out[j].From) {
+			return out[i].From.Before(out[j].From)
+		}
+		return out[i].AgentName < out[j].AgentName
+	})
+	return out
+}
+
+// maintenanceReported is true when every agent that is used has reported its maintenance windows.
+func maintenanceReported(states []agentState) bool {
+	used := 0
+	for _, st := range states {
+		if !st.Used {
+			continue
+		}
+		if !st.MaintenanceReported {
+			return false
+		}
+		used++
+	}
+	return used > 0
 }
 
 // GetCapacity is the capacity of the agents as the calendar uses it (admin).
@@ -105,6 +149,7 @@ func (u *ResourceCalendarUseCase) GetResourceCalendarTimeline(ctx context.Contex
 	view := TimelineView{
 		From: w.Start, To: w.End, SlotMinutes: int(calModel.SlotDuration / time.Minute), Capacity: capacityView(states, settings.TestPool),
 		Reservations: make([]ReservationView, 0, len(rs)), Reserved: []SegmentView{}, Conflicts: conflictViews(conflicts),
+		Maintenance: maintenanceViews(states, w), MaintenanceReported: maintenanceReported(states),
 	}
 	for _, seg := range calModel.ReservedSegments(w, rs) {
 		view.Reserved = append(view.Reserved, SegmentView{From: seg.Window.Start, To: seg.Window.End, Reserved: seg.Reserved})

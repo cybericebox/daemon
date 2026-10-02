@@ -26,6 +26,7 @@ type Queries interface {
 	SetInfrastructureAgentRetiredKeys(context.Context, postgres.SetInfrastructureAgentRetiredKeysParams) (int64, error)
 	SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error)
 	SetInfrastructureAgentCapacityNodes(context.Context, postgres.SetInfrastructureAgentCapacityNodesParams) (int64, error)
+	SetInfrastructureAgentMaintenance(context.Context, postgres.SetInfrastructureAgentMaintenanceParams) (int64, error)
 	SetInfrastructureAgentFeatures(context.Context, postgres.SetInfrastructureAgentFeaturesParams) (int64, error)
 	ArchiveInfrastructureAgent(context.Context, postgres.ArchiveInfrastructureAgentParams) (int64, error)
 	ReplaceInfrastructureAgentCredentials(context.Context, postgres.ReplaceInfrastructureAgentCredentialsParams) (int64, error)
@@ -76,6 +77,9 @@ func toDomain(row postgres.InfrastructureAgent) infraModel.AgentRegistration {
 	// A malformed list reads as not reported: the agent's next report rewrites it.
 	if len(row.CapacityNodes) > 0 && json.Unmarshal(row.CapacityNodes, &reg.Nodes) == nil {
 		reg.NodesReported = true
+	}
+	if len(row.MaintenanceWindows) > 0 && json.Unmarshal(row.MaintenanceWindows, &reg.Maintenance) == nil {
+		reg.MaintenanceReported = true
 	}
 	reg.CapacityCPUMillicores = int8Ptr(row.CapacityCpuMillicores)
 	reg.CapacityMemoryBytes = int8Ptr(row.CapacityMemoryBytes)
@@ -226,6 +230,19 @@ func (r *Repository) SetNodes(ctx context.Context, id uuid.UUID, nodes []infraMo
 		return err
 	}
 	_, err = r.q.SetInfrastructureAgentCapacityNodes(ctx, postgres.SetInfrastructureAgentCapacityNodesParams{ID: id, CapacityNodes: encoded})
+	return err
+}
+
+// SetMaintenance records the maintenance windows the agent last reported.
+func (r *Repository) SetMaintenance(ctx context.Context, id uuid.UUID, windows []infraModel.AgentMaintenanceWindow) error {
+	if windows == nil {
+		windows = []infraModel.AgentMaintenanceWindow{}
+	}
+	encoded, err := json.Marshal(windows)
+	if err != nil {
+		return err
+	}
+	_, err = r.q.SetInfrastructureAgentMaintenance(ctx, postgres.SetInfrastructureAgentMaintenanceParams{ID: id, MaintenanceWindows: encoded})
 	return err
 }
 

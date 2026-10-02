@@ -99,6 +99,13 @@ SET capacity_nodes = sqlc.arg(capacity_nodes)
 WHERE id = sqlc.arg(id)
   AND archived_at IS NULL;
 
+-- name: SetInfrastructureAgentMaintenance :execrows
+-- The maintenance windows the agent last reported (JSON).
+UPDATE infrastructure_agents
+SET maintenance_windows = sqlc.arg(maintenance_windows)
+WHERE id = sqlc.arg(id)
+  AND archived_at IS NULL;
+
 -- name: SetInfrastructureAgentFeatures :execrows
 -- The last laboratory features the agent reported (JSON) and when they were read.
 UPDATE infrastructure_agents

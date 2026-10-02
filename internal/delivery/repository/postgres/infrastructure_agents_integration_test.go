@@ -186,6 +186,26 @@ func TestInfrastructureAgents_RecordedCapacityArchiveAndReconnect(t *testing.T) 
 	if got, _ = repo.Get(ctx, a.ID); !got.NodesReported || len(got.Nodes) != 2 || got.Nodes[1] != nodes[1] {
 		t.Fatalf("nodes = %+v", got.AgentRegistration)
 	}
+	// The maintenance windows: none reported until the agent says so; an empty report is a report of none.
+	if got.MaintenanceReported {
+		t.Fatalf("an agent that reported no windows: %+v", got.AgentRegistration)
+	}
+	if err := repo.SetMaintenance(ctx, a.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = repo.Get(ctx, a.ID); !got.MaintenanceReported || len(got.Maintenance) != 0 {
+		t.Fatalf("an empty report is a report of none: %+v", got.AgentRegistration)
+	}
+	end := now.Add(2 * time.Hour)
+	windows := []infraModel.AgentMaintenanceWindow{{Name: "kernel", Reason: "upgrade", From: now, To: &end, AllTenants: true}, {Name: "open", From: end, HasCapacity: true, CPUMillicores: 500}}
+	if err := repo.SetMaintenance(ctx, a.ID, windows); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = repo.Get(ctx, a.ID)
+	if len(got.Maintenance) != 2 || !got.Maintenance[0].From.Equal(now) || got.Maintenance[0].To == nil || !got.Maintenance[0].To.Equal(end) ||
+		got.Maintenance[1].To != nil || !got.Maintenance[1].HasCapacity || got.Maintenance[1].CPUMillicores != 500 {
+		t.Fatalf("windows = %+v", got.Maintenance)
+	}
 
 	// Reconnect replaces every key and clears the retired ones, keeping record, name and priority.
 	re := a

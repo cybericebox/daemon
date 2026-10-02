@@ -16117,7 +16117,7 @@ const docTemplate = `{
         },
         "/infrastructure/calendar/alarms": {
             "get": {
-                "description": "Reservations that cannot be served as promised: not_placed (a team fits no agent), agent_lost (an agent they are placed on is gone, disabled, below the requirements or without capacity), agent_shrunk (its capacity fell below what is placed on it), not_connected (the connected capacity at the deploy lead is below the reservation; escalates at 24 h, 2 h and the lead). Open alarms first. Super admins are also notified through the notification system and the error journal (kind lab_readiness). Requires infrastructure.read.",
+                "description": "Reservations that cannot be served as promised: not_placed (a team fits no agent), agent_lost (an agent they are placed on is gone, disabled, below the requirements or without capacity), agent_shrunk (its capacity fell below what is placed on it, a maintenance window of the agent included), not_connected (the connected capacity at the deploy lead is below the reservation; escalates at 24 h, 2 h and the lead). Open alarms first. Super admins are also notified through the notification system and the error journal (kind lab_readiness). Requires infrastructure.read.",
                 "produces": [
                     "application/json"
                 ],
@@ -16634,7 +16634,7 @@ const docTemplate = `{
         },
         "/infrastructure/calendar/timeline": {
             "get": {
-                "description": "The calendar over a range of 15-minute slots (at most 31 days): the reservations (events, test bookings) as rectangles with where they are placed, the total reserved over time, the capacity of the agents that are used (enabled, meeting the platform requirements, with a recorded capacity), the conflicts (an agent over capacity, a team without an agent, the guaranteed test pool that does not fit) and the open readiness alarms. Feasibility is checked by packing, never by adding free room across agents. MaintenanceReported is false: agents do not report maintenance windows yet. Requires infrastructure.read (super_admin only).",
+                "description": "The calendar over a range of 15-minute slots (at most 31 days): the reservations (events, test bookings) as rectangles with where they are placed, the total reserved over time, the capacity of the agents that are used (enabled, meeting the platform requirements, with a recorded capacity), the conflicts (an agent over capacity, a team without an agent, the guaranteed test pool that does not fit) and the open readiness alarms. Feasibility is checked by packing, never by adding free room across agents. Maintenance lists the maintenance windows the cluster operators announced on the agents (set on the cluster, never by the platform admin): in one the agent gives the platform no capacity, or what the window leaves, so reservations placed on it in the window are conflicts and raise agent_shrunk alarms, and new ones are placed elsewhere. MaintenanceReported is true when every agent that is used has reported its windows. Requires infrastructure.read (super_admin only).",
                 "produces": [
                     "application/json"
                 ],
@@ -33154,6 +33154,38 @@ const docTemplate = `{
                 }
             }
         },
+        "resourceCalendar.maintenanceDTO": {
+            "type": "object",
+            "properties": {
+                "AgentID": {
+                    "type": "string"
+                },
+                "AgentName": {
+                    "type": "string"
+                },
+                "From": {
+                    "type": "string"
+                },
+                "Left": {
+                    "description": "Left is the capacity the window leaves; zero unless the cluster operator named some.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "To": {
+                    "description": "To is null for a window without an end.",
+                    "type": "string"
+                }
+            }
+        },
         "resourceCalendar.organizerChangeDTO": {
             "type": "object",
             "properties": {
@@ -33502,8 +33534,15 @@ const docTemplate = `{
                 "From": {
                     "type": "string"
                 },
+                "Maintenance": {
+                    "description": "Maintenance are the windows the cluster operators announced on the agents that are used which touch the range,\nsoonest first. In one the agent gives the platform no capacity (or Left).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.maintenanceDTO"
+                    }
+                },
                 "MaintenanceReported": {
-                    "description": "MaintenanceReported is false: the agents do not report maintenance windows yet.",
+                    "description": "MaintenanceReported is true when every agent that is used has reported its windows; false means some agent may\nhave windows the calendar does not know.",
                     "type": "boolean"
                 },
                 "Reservations": {

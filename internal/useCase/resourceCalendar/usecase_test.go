@@ -494,3 +494,76 @@ func TestPerNodeRoomPacksDevicesOnOneNode(t *testing.T) {
 	_, err = h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{DryRun: true}, uuid.Nil)
 	assert.True(t, is(err, calModel.ErrReservationConflict), "%v", err)
 }
+
+func withWindow(r *infraModel.AgentRecord, name string, from time.Time, to *time.Time) {
+	r.Maintenance = append(r.Maintenance, infraModel.AgentMaintenanceWindow{Name: name, Reason: "kernel upgrade", From: from, To: to})
+	r.MaintenanceReported = true
+}
+
+// A window the cluster operator announced on an agent: the timeline shows it, new reservations avoid the agent for the
+// window, one already placed there is a conflict and raises the readiness alarm, and the windows are reported only when
+// every agent has reported them.
+func TestMaintenanceWindowsReachTheCalendar(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	from := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	to := from.Add(2 * time.Hour)
+	tl, err := h.uc.GetResourceCalendarTimeline(ctx, now0, now0.Add(24*time.Hour))
+	require.NoError(t, err)
+	assert.False(t, tl.MaintenanceReported, "no agent has reported yet")
+	assert.Empty(t, tl.Maintenance)
+
+	// The event is placed first, on agent a (first by priority).
+	res, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	require.NoError(t, err)
+	require.Equal(t, "a", res.Reservation.Placement[0].AgentName)
+
+	// Then the operator of agent a announces a window in the middle of the event; agent b has reported none.
+	withWindow(&h.agents.records[0], "kernel", from, &to)
+	h.agents.records[1].MaintenanceReported = true
+	tl, err = h.uc.GetResourceCalendarTimeline(ctx, now0, now0.Add(24*time.Hour))
+	require.NoError(t, err)
+	assert.True(t, tl.MaintenanceReported)
+	require.Len(t, tl.Maintenance, 1)
+	m := tl.Maintenance[0]
+	assert.Equal(t, "a", m.AgentName)
+	assert.Equal(t, from, m.From)
+	require.NotNil(t, m.To)
+	assert.Equal(t, to, *m.To)
+	assert.Equal(t, "kernel upgrade", m.Reason)
+	assert.Zero(t, m.Left)
+	// The reservation placed there is in conflict in the slots of the window only.
+	require.Len(t, tl.Conflicts, 1)
+	assert.Equal(t, from, tl.Conflicts[0].From)
+	assert.Equal(t, to, tl.Conflicts[0].To)
+	assert.False(t, tl.Reservations[0].Covered)
+
+	// The readiness check raises the alarm of a capacity that fell below what is placed.
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
+	alarms, err := h.uc.ListResourceAlarms(ctx, true)
+	require.NoError(t, err)
+	require.Len(t, alarms, 1)
+	assert.Equal(t, calModel.AlarmAgentShrunk, alarms[0].Kind)
+	assert.Equal(t, "a", alarms[0].AgentName)
+
+	// A window outside the range is not in the timeline; one without an end is, with no end.
+	tl, _ = h.uc.GetResourceCalendarTimeline(ctx, now0.Add(48*time.Hour), now0.Add(72*time.Hour))
+	assert.Empty(t, tl.Maintenance)
+	withWindow(&h.agents.records[1], "open", now0.Add(50*time.Hour), nil)
+	tl, _ = h.uc.GetResourceCalendarTimeline(ctx, now0.Add(48*time.Hour), now0.Add(72*time.Hour))
+	require.Len(t, tl.Maintenance, 1)
+	assert.Nil(t, tl.Maintenance[0].To)
+}
+
+// Setting a reservation while an agent is in maintenance places it on the other one.
+func TestNewReservationAvoidsAnAgentInMaintenance(t *testing.T) {
+	h := newHarness(t)
+	from := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour)
+	withWindow(&h.agents.records[0], "kernel", from, &to)
+	res, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
+	require.NoError(t, err)
+	require.Len(t, res.Reservation.Placement, 1)
+	assert.Equal(t, "b", res.Reservation.Placement[0].AgentName)
+	assert.True(t, res.Reservation.Covered)
+}

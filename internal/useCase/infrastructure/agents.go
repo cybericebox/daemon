@@ -3,9 +3,9 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
-	"slices"
 	"sync"
 	"time"
 
@@ -46,6 +46,7 @@ type (
 		Delete(ctx context.Context, id uuid.UUID) (bool, error)
 		SetCapacity(ctx context.Context, id uuid.UUID, cpuMillicores, memoryBytes *int64, seenAt time.Time) error
 		SetNodes(ctx context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error
+		SetMaintenance(ctx context.Context, id uuid.UUID, windows []infraModel.AgentMaintenanceWindow) error
 		SetFeatures(ctx context.Context, id uuid.UUID, features infraModel.AgentFeatures, seenAt time.Time) error
 		Archive(ctx context.Context, id uuid.UUID, name string, at time.Time) (bool, error)
 		ReplaceCredentials(ctx context.Context, a infraModel.AgentRecord) (bool, error)
@@ -115,6 +116,7 @@ type (
 		capacityMu   sync.Mutex
 		lastCapacity map[uuid.UUID]capacityReading
 		lastNodes    map[uuid.UUID][]infraModel.AgentNode
+		lastWindows  map[uuid.UUID][]infraModel.AgentMaintenanceWindow
 	}
 
 	// capacityReading is the last capacity written for an agent, to skip repeated writes.
@@ -620,6 +622,34 @@ func (u *AgentsUseCase) RecordAgentNodes(ctx context.Context, id uuid.UUID, node
 	u.lastNodes[id] = slices.Clone(nodes)
 	u.capacityMu.Unlock()
 	return nil
+}
+
+// RecordAgentMaintenance keeps the maintenance windows an agent last reported (an empty list is a report of none), for the
+// resource calendar, which gives the agent no capacity inside them. It is called with every successful poll of the agent
+// and writes only when the windows change; a failed poll is never recorded, so the last known windows stay.
+func (u *AgentsUseCase) RecordAgentMaintenance(ctx context.Context, id uuid.UUID, windows []infraModel.AgentMaintenanceWindow) error {
+	u.capacityMu.Lock()
+	last, known := u.lastWindows[id]
+	u.capacityMu.Unlock()
+	if known && slices.EqualFunc(last, windows, sameWindow) {
+		return nil
+	}
+	if err := u.store.SetMaintenance(ctx, id, windows); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the agent maintenance windows").Err()
+	}
+	u.capacityMu.Lock()
+	if u.lastWindows == nil {
+		u.lastWindows = map[uuid.UUID][]infraModel.AgentMaintenanceWindow{}
+	}
+	u.lastWindows[id] = slices.Clone(windows)
+	u.capacityMu.Unlock()
+	return nil
+}
+
+func sameWindow(a, b infraModel.AgentMaintenanceWindow) bool {
+	sameEnd := a.To == nil && b.To == nil || a.To != nil && b.To != nil && a.To.Equal(*b.To)
+	return sameEnd && a.Name == b.Name && a.Reason == b.Reason && a.From.Equal(b.From) && a.AllTenants == b.AllTenants &&
+		a.HasCapacity == b.HasCapacity && a.CPUMillicores == b.CPUMillicores && a.MemoryBytes == b.MemoryBytes
 }
 
 // capacityRewriteAfter is how often an unchanged capacity is stored again, so "last seen" stays fresh.

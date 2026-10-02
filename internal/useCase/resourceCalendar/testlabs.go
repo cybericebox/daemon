@@ -101,6 +101,8 @@ func (u *ResourceCalendarUseCase) fitsAbovePool(agents []calModel.Agent, rs []*c
 	var free Amount
 	fits := false
 	for _, a := range agents {
+		// A maintenance window inside the lease takes the agent's room for all of it.
+		a.Capacity = a.CapacityOver(w)
 		f := a.Free(peak[a.ID])
 		free.CPUMillicores = min(free.CPUMillicores+f.CPUMillicores, calModel.Unlimited)
 		free.MemoryBytes = min(free.MemoryBytes+f.MemoryBytes, calModel.Unlimited)

@@ -78,6 +78,20 @@ type CapacityView struct {
 	PerNodeRoomReported bool
 }
 
+// MaintenanceView is a maintenance window the cluster operator announced on an agent: in it the agent gives the
+// platform no capacity (or Left).
+type MaintenanceView struct {
+	AgentID   uuid.UUID
+	AgentName string
+	Name      string
+	Reason    string
+	From      time.Time
+	// To is nil for a window without an end.
+	To *time.Time
+	// Left is the capacity the window leaves; zero unless the operator named some.
+	Left Amount
+}
+
 // SegmentView is a range of slots with one total reserved.
 type SegmentView struct {
 	From, To time.Time
@@ -101,7 +115,10 @@ type TimelineView struct {
 	Reserved     []SegmentView
 	Conflicts    []ConflictView
 	Capacity     CapacityView
-	// MaintenanceReported is false: the agents do not report maintenance windows yet, so the calendar shows none.
+	// Maintenance are the windows of the agents that are used which touch the range, soonest first.
+	Maintenance []MaintenanceView
+	// MaintenanceReported is true when every agent that is used has reported its maintenance windows (and there is
+	// one); an agent that has not (an older one) may have windows the calendar does not know.
 	MaintenanceReported bool
 }
 

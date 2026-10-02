@@ -1404,6 +1404,8 @@ type Querier interface {
 	SetInfrastructureAgentCertificate(ctx context.Context, arg SetInfrastructureAgentCertificateParams) (int64, error)
 	// The last laboratory features the agent reported (JSON) and when they were read.
 	SetInfrastructureAgentFeatures(ctx context.Context, arg SetInfrastructureAgentFeaturesParams) (int64, error)
+	// The maintenance windows the agent last reported (JSON).
+	SetInfrastructureAgentMaintenance(ctx context.Context, arg SetInfrastructureAgentMaintenanceParams) (int64, error)
 	// The retired keys that are still waiting for RemoveAccessKey.
 	SetInfrastructureAgentRetiredKeys(ctx context.Context, arg SetInfrastructureAgentRetiredKeysParams) (int64, error)
 	// The platform footer (a Lexical document; NULL = the built-in default) lives

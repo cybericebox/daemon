@@ -218,6 +218,9 @@ type agentState struct {
 	Why string
 	// NodesReported: the agent reports the room of each node (Nodes is set from it).
 	NodesReported bool
+	// MaintenanceReported: the agent has reported its maintenance windows (Outages is set from them; none is a report
+	// of none).
+	MaintenanceReported bool
 }
 
 // agentStates reads every agent of the registry; the ones that are used are the enabled ones that meet the
@@ -259,6 +262,20 @@ func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time
 				st.DeviceMax = Amount{CPUMillicores: r.Features.Limits.DeviceMaxCPUMillicores, MemoryBytes: r.Features.Limits.DeviceMaxMemoryBytes}
 			}
 			st.Connected = now.Sub(*r.CapacitySeenAt) <= u.cfg.AgentFresh
+			if r.MaintenanceReported {
+				st.MaintenanceReported = true
+				for _, w := range r.Maintenance {
+					var left Amount
+					if w.HasCapacity {
+						left = Amount{CPUMillicores: w.CPUMillicores, MemoryBytes: w.MemoryBytes}
+					}
+					o, oErr := calModel.NewOutage(r.ID, w.Name, w.Reason, w.From, w.To, left)
+					if oErr != nil {
+						continue // a window the agent reported that has no length is no window
+					}
+					st.Outages = append(st.Outages, o)
+				}
+			}
 			if r.NodesReported {
 				st.NodesReported = true
 				for _, n := range r.Nodes {

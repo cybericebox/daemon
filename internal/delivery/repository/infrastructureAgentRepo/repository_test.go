@@ -48,6 +48,9 @@ func (q *queryStub) SetInfrastructureAgentCapacity(context.Context, postgres.Set
 func (q *queryStub) SetInfrastructureAgentCapacityNodes(context.Context, postgres.SetInfrastructureAgentCapacityNodesParams) (int64, error) {
 	return 1, nil
 }
+func (q *queryStub) SetInfrastructureAgentMaintenance(context.Context, postgres.SetInfrastructureAgentMaintenanceParams) (int64, error) {
+	return 1, nil
+}
 func (q *queryStub) SetInfrastructureAgentFeatures(context.Context, postgres.SetInfrastructureAgentFeaturesParams) (int64, error) {
 	return 1, nil
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/cybericebox/daemon/internal/limits"
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
 	"github.com/cybericebox/daemon/internal/useCase"
 	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
@@ -146,6 +147,17 @@ func Run(cfg *config.Config) {
 				member.Features.Set(f)
 				return ucs.AgentsUseCase.RecordAgentFeatures(ctx, member.ID, f, observedAt)
 			})
+			// The maintenance windows the cluster operator announces are read once a minute (the agent has no change
+			// feed) while the agent is monitored; the calendar gives the agent no capacity inside them.
+			pollCtx, stopPolling := context.WithCancel(ctx)
+			defer stopPolling()
+			go labagent.PollMaintenance(pollCtx, member.Name, labagent.MaintenanceInterval,
+				func(ctx context.Context) (*labpb.MaintenanceWindowList, error) {
+					return member.Client.ListMaintenanceWindows(ctx, &labpb.ListMaintenanceWindowsRequest{})
+				},
+				func(ctx context.Context, windows []infraModel.AgentMaintenanceWindow) error {
+					return ucs.AgentsUseCase.RecordAgentMaintenance(ctx, member.ID, windows)
+				})
 			// Everything stored carries the registry id of the agent.
 			runner = runner.WithErrorsSink(func(ctx context.Context, report *labpb.ErrorJournal) {
 				ucs.Journal.ReportAgentErrors(ctx, member.Name, agentErrors(report))

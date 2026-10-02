@@ -24,6 +24,9 @@ type Agent struct {
 	// Nodes is the allocatable room of each node, when the agent reports it. Empty: the agent's per-node room
 	// is not known and its whole capacity is treated as one node.
 	Nodes []Amount
+	// Outages are the maintenance windows the cluster operator announced on the agent: in each the capacity is what the
+	// window leaves (zero by default). Placing a reservation counts the least capacity of its whole window.
+	Outages []Outage
 }
 
 // Load is what is placed on each agent.
@@ -131,6 +134,7 @@ func placeUnits(agents []Agent, load Load, slot, device Amount, units int) (shar
 // team stays where it is while its agent still has room for it, and only the rest (new teams, teams that no
 // longer fit) is placed over the agents. Nothing that fits is moved.
 func PlaceKeeping(agents []Agent, others []*Reservation, r *Reservation) {
+	agents = duringAll(agents, r.Window)
 	load := PeakLoad(r.Window, others)
 	slot := r.TeamSlot()
 	byID := map[uuid.UUID]Agent{}
@@ -162,6 +166,7 @@ func CompleteUnplaced(agents []Agent, others []*Reservation, r *Reservation) boo
 	if r.Unplaced == 0 {
 		return false
 	}
+	agents = duringAll(agents, r.Window)
 	load := PeakLoad(r.Window, others)
 	slot := r.TeamSlot()
 	for _, s := range r.Placement {
@@ -227,7 +232,7 @@ func PeakLoad(w Window, others []*Reservation) Load {
 // PlaceReservation places one reservation against the others placed in its window and stores the split.
 func PlaceReservation(agents []Agent, others []*Reservation, r *Reservation) {
 	load := PeakLoad(r.Window, others)
-	shares, unplaced := Place(agents, load, r)
+	shares, unplaced := Place(duringAll(agents, r.Window), load, r)
 	r.Placement, r.Unplaced = shares, unplaced
 }
 

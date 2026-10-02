@@ -27,6 +27,7 @@ type memAgents struct {
 	order          []uuid.UUID
 	capacityWrites int
 	nodeWrites     int
+	windowWrites   int
 }
 
 func newMemAgents() *memAgents { return &memAgents{records: map[uuid.UUID]infraModel.AgentRecord{}} }
@@ -62,6 +63,13 @@ func (m *memAgents) SetNodes(_ context.Context, id uuid.UUID, nodes []infraModel
 	r.Nodes, r.NodesReported = nodes, true
 	m.records[id] = r
 	m.nodeWrites++
+	return nil
+}
+func (m *memAgents) SetMaintenance(_ context.Context, id uuid.UUID, w []infraModel.AgentMaintenanceWindow) error {
+	r := m.records[id]
+	r.Maintenance, r.MaintenanceReported = w, true
+	m.records[id] = r
+	m.windowWrites++
 	return nil
 }
 func (m *memAgents) SetFeatures(_ context.Context, id uuid.UUID, f infraModel.AgentFeatures, seen time.Time) error {
@@ -697,6 +705,30 @@ func TestRecordAgentNodesWritesOnChangeAndKeepsThemThroughABlink(t *testing.T) {
 	nodes[1].CPUMillicores = 2500
 	if err := f.uc.RecordAgentNodes(ctx, view.ID, nodes); err != nil || f.store.nodeWrites != 2 || f.store.records[view.ID].Nodes[1].CPUMillicores != 2500 {
 		t.Fatalf("a changed node is written: %v %d", err, f.store.nodeWrites)
+	}
+}
+
+func TestRecordAgentMaintenanceWritesOnChangeAndKeepsAnEmptyReport(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	view, _ := f.uc.EnrollAgent(ctx, enrollForm("eu", 1))
+	from := time.Date(2026, 10, 12, 22, 0, 0, 0, time.UTC)
+	to := from.Add(4 * time.Hour)
+	w := []infraModel.AgentMaintenanceWindow{{Name: "kernel", Reason: "upgrade", From: from, To: &to, AllTenants: true}}
+	for range 2 {
+		if err := f.uc.RecordAgentMaintenance(ctx, view.ID, w); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The same instant read back from the agent is no change, even as a different value.
+	to2 := time.UnixMilli(to.UnixMilli()).UTC()
+	again := []infraModel.AgentMaintenanceWindow{{Name: "kernel", Reason: "upgrade", From: time.UnixMilli(from.UnixMilli()), To: &to2, AllTenants: true}}
+	if err := f.uc.RecordAgentMaintenance(ctx, view.ID, again); err != nil || f.store.windowWrites != 1 {
+		t.Fatalf("unchanged windows are written once: %v %d", err, f.store.windowWrites)
+	}
+	// The window is over and gone from the agent's list: an empty report is a report of none, and it is stored.
+	if err := f.uc.RecordAgentMaintenance(ctx, view.ID, nil); err != nil || f.store.windowWrites != 2 || len(f.store.records[view.ID].Maintenance) != 0 || !f.store.records[view.ID].MaintenanceReported {
+		t.Fatalf("no windows: %v %d %+v", err, f.store.windowWrites, f.store.records[view.ID])
 	}
 }
 

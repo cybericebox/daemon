@@ -146,7 +146,7 @@ func caller(ctx *gin.Context) (uuid.UUID, bool) {
 // getTimeline godoc
 //
 //	@Summary		Resource calendar timeline
-//	@Description	The calendar over a range of 15-minute slots (at most 31 days): the reservations (events, test bookings) as rectangles with where they are placed, the total reserved over time, the capacity of the agents that are used (enabled, meeting the platform requirements, with a recorded capacity), the conflicts (an agent over capacity, a team without an agent, the guaranteed test pool that does not fit) and the open readiness alarms. Feasibility is checked by packing, never by adding free room across agents. MaintenanceReported is false: agents do not report maintenance windows yet. Requires infrastructure.read (super_admin only).
+//	@Description	The calendar over a range of 15-minute slots (at most 31 days): the reservations (events, test bookings) as rectangles with where they are placed, the total reserved over time, the capacity of the agents that are used (enabled, meeting the platform requirements, with a recorded capacity), the conflicts (an agent over capacity, a team without an agent, the guaranteed test pool that does not fit) and the open readiness alarms. Feasibility is checked by packing, never by adding free room across agents. Maintenance lists the maintenance windows the cluster operators announced on the agents (set on the cluster, never by the platform admin): in one the agent gives the platform no capacity, or what the window leaves, so reservations placed on it in the window are conflicts and raise agent_shrunk alarms, and new ones are placed elsewhere. MaintenanceReported is true when every agent that is used has reported its windows. Requires infrastructure.read (super_admin only).
 //	@Tags			infrastructure
 //	@Produce		json
 //	@Param			from	query		string	true	"range start, RFC3339 (aligned down to a slot)"
@@ -269,7 +269,7 @@ func (h *Handler) recheck(ctx *gin.Context) {
 // listAlarms godoc
 //
 //	@Summary		Readiness alarms
-//	@Description	Reservations that cannot be served as promised: not_placed (a team fits no agent), agent_lost (an agent they are placed on is gone, disabled, below the requirements or without capacity), agent_shrunk (its capacity fell below what is placed on it), not_connected (the connected capacity at the deploy lead is below the reservation; escalates at 24 h, 2 h and the lead). Open alarms first. Super admins are also notified through the notification system and the error journal (kind lab_readiness). Requires infrastructure.read.
+//	@Description	Reservations that cannot be served as promised: not_placed (a team fits no agent), agent_lost (an agent they are placed on is gone, disabled, below the requirements or without capacity), agent_shrunk (its capacity fell below what is placed on it, a maintenance window of the agent included), not_connected (the connected capacity at the deploy lead is below the reservation; escalates at 24 h, 2 h and the lead). Open alarms first. Super admins are also notified through the notification system and the error journal (kind lab_readiness). Requires infrastructure.read.
 //	@Tags			infrastructure
 //	@Produce		json
 //	@Param			open	query		string	false	"1 lists only open alarms"

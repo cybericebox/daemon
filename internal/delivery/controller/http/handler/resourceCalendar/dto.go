@@ -158,14 +158,35 @@ type timelineDTO struct {
 	Reserved     []segmentDTO     `json:"Reserved"`
 	Conflicts    []conflictDTO    `json:"Conflicts"`
 	Capacity     capacityDTO      `json:"Capacity"`
-	// MaintenanceReported is false: the agents do not report maintenance windows yet.
+	// Maintenance are the windows the cluster operators announced on the agents that are used which touch the range,
+	// soonest first. In one the agent gives the platform no capacity (or Left).
+	Maintenance []maintenanceDTO `json:"Maintenance"`
+	// MaintenanceReported is true when every agent that is used has reported its windows; false means some agent may
+	// have windows the calendar does not know.
 	MaintenanceReported bool `json:"MaintenanceReported"`
+}
+
+// maintenanceDTO is a maintenance window of an agent.
+type maintenanceDTO struct {
+	AgentID   uuid.UUID `json:"AgentID"`
+	AgentName string    `json:"AgentName"`
+	Name      string    `json:"Name"`
+	Reason    string    `json:"Reason"`
+	From      time.Time `json:"From"`
+	// To is null for a window without an end.
+	To *time.Time `json:"To"`
+	// Left is the capacity the window leaves; zero unless the cluster operator named some.
+	Left amountDTO `json:"Left"`
 }
 
 func timeline(v calUseCase.TimelineView) timelineDTO {
 	out := timelineDTO{
 		From: v.From, To: v.To, SlotMinutes: v.SlotMinutes, Reservations: make([]reservationDTO, 0, len(v.Reservations)),
 		Reserved: make([]segmentDTO, 0, len(v.Reserved)), Conflicts: conflicts(v.Conflicts), Capacity: capacity(v.Capacity), MaintenanceReported: v.MaintenanceReported,
+		Maintenance: make([]maintenanceDTO, 0, len(v.Maintenance)),
+	}
+	for _, m := range v.Maintenance {
+		out.Maintenance = append(out.Maintenance, maintenanceDTO{AgentID: m.AgentID, AgentName: m.AgentName, Name: m.Name, Reason: m.Reason, From: m.From, To: m.To, Left: amount(m.Left)})
 	}
 	for _, r := range v.Reservations {
 		out.Reservations = append(out.Reservations, reservation(r))
