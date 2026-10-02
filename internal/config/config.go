@@ -37,6 +37,46 @@ type (
 		Tunables       TunablesConfig       `                                   envPrefix:""`
 		VPN            VPNConfig            `                                   envPrefix:"VPN_"`
 		Platform       PlatformConfig       `                                   envPrefix:"PLATFORM_"`
+		ErrorJournal   ErrorJournalConfig   `                                   envPrefix:"ERROR_JOURNAL_"`
+		Telegram       TelegramConfig       `                                   envPrefix:"TELEGRAM_"`
+	}
+
+	// TelegramConfig is the one bot of the platform's operator notifications (the error journal).
+	TelegramConfig struct {
+		// BotToken is a secret (TELEGRAM_BOT_TOKEN). Empty disables the Telegram channel: chat ids are kept in
+		// the settings but nothing is sent. It is never logged.
+		BotToken string `env:"BOT_TOKEN"`
+	}
+
+	// ErrorJournalConfig tunes the platform error journal (ERROR_JOURNAL_*): what is kept, for how long, and when
+	// a message goes to the operators. The chat ids and addresses are not here: super admins edit them in the
+	// admin settings.
+	ErrorJournalConfig struct {
+		// SamplesPerGroup is how many recent samples each error group keeps.
+		SamplesPerGroup int `env:"SAMPLES_PER_GROUP" envDefault:"5"`
+		// Retention is how long groups, samples and 404 counters are kept before the purge deletes them.
+		Retention time.Duration `env:"RETENTION" envDefault:"720h"`
+		// NotifyCooldown is the least time between two messages about one fingerprint: a storm becomes one
+		// message with a count.
+		NotifyCooldown time.Duration `env:"NOTIFY_COOLDOWN" envDefault:"15m"`
+		// SpikeThreshold occurrences of one fingerprint within SpikeWindow are a spike (told for 5xx and 429).
+		SpikeThreshold int           `env:"SPIKE_THRESHOLD" envDefault:"20"`
+		SpikeWindow    time.Duration `env:"SPIKE_WINDOW"    envDefault:"5m"`
+		// BufferSize is the capture queue; events beyond it are dropped (counted in the log) rather than
+		// slowing a request down.
+		BufferSize int `env:"BUFFER_SIZE" envDefault:"1024"`
+		// NotFoundFlushInterval is how often the in-memory 404 counters are written.
+		NotFoundFlushInterval time.Duration `env:"NOT_FOUND_FLUSH_INTERVAL" envDefault:"10s"`
+		// QueueStallAfter: a job ready to run that waits longer than this means the workers stalled.
+		// QueueBacklogLimit: more waiting jobs than this is a growing queue.
+		QueueStallAfter   time.Duration `env:"QUEUE_STALL_AFTER"   envDefault:"5m"`
+		QueueBacklogLimit int           `env:"QUEUE_BACKLOG_LIMIT" envDefault:"1000"`
+		// CertExpiryWarn: a laboratory agent certificate that ends within this is reported.
+		CertExpiryWarn time.Duration `env:"CERT_EXPIRY_WARN" envDefault:"336h"`
+		// AgentOfflineAfter: a laboratory agent unreachable this long is reported offline.
+		AgentOfflineAfter time.Duration `env:"AGENT_OFFLINE_AFTER" envDefault:"2m"`
+		// WatchInterval is how often the queue and certificate checks run.
+		WatchInterval time.Duration `env:"WATCH_INTERVAL" envDefault:"1m"`
 	}
 
 	// LabAccessConfig sets how long the lab access tokens (the /_auth links) of the laboratory L7
@@ -414,6 +454,31 @@ func (c TunablesConfig) Validate() error {
 	return nil
 }
 
+// Validate rejects values that would switch the journal's limits off by accident.
+func (c ErrorJournalConfig) Validate() error {
+	durations := map[string]time.Duration{
+		"ERROR_JOURNAL_RETENTION": c.Retention, "ERROR_JOURNAL_NOTIFY_COOLDOWN": c.NotifyCooldown,
+		"ERROR_JOURNAL_SPIKE_WINDOW": c.SpikeWindow, "ERROR_JOURNAL_NOT_FOUND_FLUSH_INTERVAL": c.NotFoundFlushInterval,
+		"ERROR_JOURNAL_QUEUE_STALL_AFTER": c.QueueStallAfter, "ERROR_JOURNAL_CERT_EXPIRY_WARN": c.CertExpiryWarn,
+		"ERROR_JOURNAL_AGENT_OFFLINE_AFTER": c.AgentOfflineAfter, "ERROR_JOURNAL_WATCH_INTERVAL": c.WatchInterval,
+	}
+	for name, v := range durations {
+		if v <= 0 {
+			return fmt.Errorf("%s must be positive", name)
+		}
+	}
+	counts := map[string]int{
+		"ERROR_JOURNAL_SAMPLES_PER_GROUP": c.SamplesPerGroup, "ERROR_JOURNAL_SPIKE_THRESHOLD": c.SpikeThreshold,
+		"ERROR_JOURNAL_BUFFER_SIZE": c.BufferSize, "ERROR_JOURNAL_QUEUE_BACKLOG_LIMIT": c.QueueBacklogLimit,
+	}
+	for name, v := range counts {
+		if v < 1 {
+			return fmt.Errorf("%s must be at least 1", name)
+		}
+	}
+	return nil
+}
+
 func (c ExerciseConfig) Validate() error {
 	if c.FlagRandomBytes < 1 || c.FlagRandomBytes > 1024 {
 		return errors.New("exercise: EXERCISE_FLAG_RANDOM_BYTES must be between 1 and 1024")
@@ -554,6 +619,9 @@ func MustGetConfig() *Config {
 	}
 	if err = instance.Tunables.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid limits and timings")
+	}
+	if err = instance.ErrorJournal.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid error journal configuration")
 	}
 	if err = instance.Exercise.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid exercise configuration")

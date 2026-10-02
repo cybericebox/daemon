@@ -234,6 +234,29 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EMAIL_IMAGE_MAX_BYTES` | `307200` | Email template image after processing. |
 | `EMAIL_IMAGE_MAX_WIDTH` / `EMAIL_IMAGE_MAX_PIXELS` | `1200` / `24000000` | Width after downscale, and the decoded pixel cap. |
 
+### Error journal
+
+The platform error journal records what broke: 5xx, panics, 403 (with the permission that refused), 429 (with the limiter), failed job attempts and discards, a stalled or growing job queue, mail that failed after its retries, and the laboratory (an agent offline, a failed lab deploy, a certificate close to its end, component errors reported by the agent). Errors are grouped by fingerprint (kind + route template or job kind + normalized message) with a count, first and last time and a few recent samples. 404s are only counted per day: per route template for a handler 404, one counter for every unmatched path (paths are never stored). 401 is not recorded. No IP address is ever read or stored; secrets, passwords, tokens and e-mail addresses are scrubbed from messages. Only super admins see it (`platform.errors.read` / `platform.errors.write`, routes under `/api/admin/errors`).
+
+Notifications go to the Telegram chat ids and the e-mail list that super admins keep in the journal settings (the e-mail list defaults to every super admin). A chat id the bot may not write to (it answers 403) is marked failing in the settings, never dropped. One message per fingerprint per `ERROR_JOURNAL_NOTIFY_COOLDOWN`: a storm is one message with a count.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | none | Secret. The one Telegram bot; empty switches the Telegram channel off (chat ids are kept, nothing is sent). Never logged. |
+| `ERROR_JOURNAL_SAMPLES_PER_GROUP` | `5` | Recent samples kept per error group. |
+| `ERROR_JOURNAL_RETENTION` | `720h` | How long groups, samples and 404 counters are kept; a daily job deletes older ones. |
+| `ERROR_JOURNAL_NOTIFY_COOLDOWN` | `15m` | Least time between two messages about one fingerprint. |
+| `ERROR_JOURNAL_SPIKE_THRESHOLD` / `ERROR_JOURNAL_SPIKE_WINDOW` | `20` / `5m` | Occurrences of a known fingerprint within the window that count as a spike (messaged for 5xx and 429). |
+| `ERROR_JOURNAL_BUFFER_SIZE` | `1024` | Capture queue; events beyond it are dropped (counted in the log) instead of slowing a request down. |
+| `ERROR_JOURNAL_NOT_FOUND_FLUSH_INTERVAL` | `10s` | How often the in-memory 404 counters are written. |
+| `ERROR_JOURNAL_QUEUE_STALL_AFTER` | `5m` | A job ready to run that waits longer than this means the workers stalled. |
+| `ERROR_JOURNAL_QUEUE_BACKLOG_LIMIT` | `1000` | More waiting jobs than this is a growing queue. |
+| `ERROR_JOURNAL_CERT_EXPIRY_WARN` | `336h` | A laboratory agent certificate that ends within this is reported. |
+| `ERROR_JOURNAL_AGENT_OFFLINE_AFTER` | `2m` | A laboratory agent unreachable this long is reported offline. |
+| `ERROR_JOURNAL_WATCH_INTERVAL` | `1m` | How often the queue and certificate checks run. |
+
+Every request and response carries an `X-Request-ID` header (a client's own id is kept when it is 8-64 letters, digits, `.`, `_` or `-`); the journal stores it with the sample.
+
 ### Rate limits and retention
 
 | Variable | Default | Purpose |

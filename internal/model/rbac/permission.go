@@ -27,6 +27,11 @@ const (
 	PermPlatformSettingsReadValue Permission = "platform.settings.read.value"
 	PermPlatformSettingsWrite     Permission = "platform.settings.write"
 	PermPlatformAuditRead         Permission = "platform.audit.read"
+	// PermPlatformErrors is the platform error journal parent. Held by no role: the journal (errors, 404
+	// statistics, notification settings) is for super admins, who reach it via "*".
+	PermPlatformErrors      Permission = "platform.errors"
+	PermPlatformErrorsRead  Permission = "platform.errors.read"
+	PermPlatformErrorsWrite Permission = "platform.errors.write"
 
 	// PermNotifications is the notifications.* namespace parent. Held by no role today
 	// (super_admin reaches notification management via "*"); kept for the hierarchy.

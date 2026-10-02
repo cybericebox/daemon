@@ -372,3 +372,50 @@ func TestPostgresDefaultsAreSafe(t *testing.T) {
 		t.Fatalf("an operator may override it: %q", got)
 	}
 }
+
+func TestErrorJournalConfig_DefaultsAndEnv(t *testing.T) {
+	setTestHosts(t)
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	cfg := MustGetConfig()
+	ej := cfg.ErrorJournal
+	if ej.SamplesPerGroup != 5 || ej.Retention != 720*time.Hour || ej.NotifyCooldown != 15*time.Minute ||
+		ej.SpikeThreshold != 20 || ej.SpikeWindow != 5*time.Minute || ej.BufferSize != 1024 ||
+		ej.QueueStallAfter != 5*time.Minute || ej.QueueBacklogLimit != 1000 || ej.CertExpiryWarn != 336*time.Hour ||
+		ej.AgentOfflineAfter != 2*time.Minute || ej.WatchInterval != time.Minute || ej.NotFoundFlushInterval != 10*time.Second {
+		t.Fatalf("error journal defaults: got %+v", ej)
+	}
+	if cfg.Telegram.BotToken != "" {
+		t.Fatal("the Telegram channel must be off without TELEGRAM_BOT_TOKEN")
+	}
+
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("ERROR_JOURNAL_RETENTION", "48h")
+	t.Setenv("ERROR_JOURNAL_SAMPLES_PER_GROUP", "9")
+	cfg = MustGetConfig()
+	if cfg.Telegram.BotToken != "123:abc" || cfg.ErrorJournal.Retention != 48*time.Hour || cfg.ErrorJournal.SamplesPerGroup != 9 {
+		t.Fatalf("error journal env: got %+v / token set %v", cfg.ErrorJournal, cfg.Telegram.BotToken != "")
+	}
+}
+
+func TestErrorJournalConfig_ValidateRejectsZero(t *testing.T) {
+	good := ErrorJournalConfig{
+		SamplesPerGroup: 1, Retention: time.Hour, NotifyCooldown: time.Minute, SpikeThreshold: 1, SpikeWindow: time.Minute,
+		BufferSize: 1, NotFoundFlushInterval: time.Second, QueueStallAfter: time.Minute, QueueBacklogLimit: 1,
+		CertExpiryWarn: time.Hour, AgentOfflineAfter: time.Minute, WatchInterval: time.Minute,
+	}
+	if err := good.Validate(); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*ErrorJournalConfig){
+		"retention": func(c *ErrorJournalConfig) { c.Retention = 0 },
+		"samples":   func(c *ErrorJournalConfig) { c.SamplesPerGroup = 0 },
+		"buffer":    func(c *ErrorJournalConfig) { c.BufferSize = 0 },
+		"cooldown":  func(c *ErrorJournalConfig) { c.NotifyCooldown = -time.Second },
+	} {
+		c := good
+		mutate(&c)
+		if c.Validate() == nil {
+			t.Errorf("%s: zero must be rejected", name)
+		}
+	}
+}
