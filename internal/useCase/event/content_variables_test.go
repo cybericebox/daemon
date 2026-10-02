@@ -92,7 +92,7 @@ func TestResolveContentVariablesBuildsTypedEventSettingsAndStatistics(t *testing
 		"event.approvedParticipantCount": int64(30),
 		"event.registrationUnitCount":    int64(12),
 		"event.challengeCount":           int64(18),
-		"event.availableChallengeCount":  int64(18),
+		"event.availableChallengeCount":  int64(15),
 		"event.solvedChallengeCount":     int64(9),
 		"event.solveCount":               int64(43),
 	} {
@@ -241,7 +241,7 @@ func TestParticipantPageCountsOnlyOwnAccessibleChallenges(t *testing.T) {
 			q.EXPECT().CountEventTeams(gomock.Any(), eventID).Return(int64(2), nil)
 			q.EXPECT().CountApprovedEventTeams(gomock.Any(), eventID).Return(int64(2), nil)
 			q.EXPECT().CountEventParticipants(gomock.Any(), gomock.Any()).Return(int64(3), nil).Times(2)
-			q.EXPECT().GetEventContentStatistics(gomock.Any(), eventID).Return(postgres.GetEventContentStatisticsRow{ChallengeCount: 12, PublishedChallengeCount: 10}, nil)
+			q.EXPECT().GetEventContentStatistics(gomock.Any(), postgres.GetEventContentStatisticsParams{EventID: eventID}).Return(postgres.GetEventContentStatisticsRow{ChallengeCount: 12, PublishedChallengeCount: 10}, nil)
 			q.EXPECT().GetEventContentSettings(gomock.Any(), eventID).Return(postgres.GetEventContentSettingsRow{
 				ID: eventID, LandingDocument: []byte(`{"blocks":[]}`), LiveLayout: testLiveLayoutJSON(t),
 			}, nil)
@@ -363,7 +363,7 @@ func TestGetEventContentCombinesStoredDocumentsAndLiveValues(t *testing.T) {
 	q.EXPECT().CountEventTeams(gomock.Any(), eventID).Return(int64(4), nil)
 	q.EXPECT().CountApprovedEventTeams(gomock.Any(), eventID).Return(int64(3), nil)
 	q.EXPECT().CountEventParticipants(gomock.Any(), gomock.Any()).Return(int64(7), nil).Times(2)
-	q.EXPECT().GetEventContentStatistics(gomock.Any(), eventID).Return(postgres.GetEventContentStatisticsRow{
+	q.EXPECT().GetEventContentStatistics(gomock.Any(), postgres.GetEventContentStatisticsParams{EventID: eventID}).Return(postgres.GetEventContentStatisticsRow{
 		ChallengeCount: 5, PublishedChallengeCount: 4, SolvedChallengeCount: 2, SolveCount: 6,
 	}, nil)
 	q.EXPECT().GetEventContentSettings(gomock.Any(), eventID).Return(postgres.GetEventContentSettingsRow{

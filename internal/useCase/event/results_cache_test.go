@@ -74,12 +74,14 @@ func TestLiveResultsStreamsShareOneReadPerTick(t *testing.T) {
 	now := time.Now().UTC()
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(publicConfig(eventID, now), nil).Times(2)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil).Times(2)
+	team := uuid.Must(uuid.NewV7())
+	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).AnyTimes()
 	gomock.InOrder(
 		q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 6, UpdatedAt: now}, nil),
 		q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 7, UpdatedAt: now}, nil),
 	)
 	q.EXPECT().ListEventResultChangesAfter(gomock.Any(), postgres.ListEventResultChangesAfterParams{EventID: eventID, AfterRevision: 6, LimitVal: 500}).
-		Return([]postgres.EventResultChange{solveChange(eventID, 7, uuid.Must(uuid.NewV7()), now)}, nil).Times(1)
+		Return([]postgres.EventResultChange{solveChange(eventID, 7, team, now)}, nil).Times(1)
 
 	streams := make([]event.LiveResultsSubscription, viewers)
 	for i := range streams {
@@ -136,6 +138,8 @@ func TestLiveResultsSharedWindowKeepsFreeze(t *testing.T) {
 	now := time.Now().UTC()
 	started := startedEvent(eventID, now)
 	frozenAt := started.FinishAt.Time.Add(-90 * time.Minute)
+	team := uuid.Must(uuid.NewV7())
+	q.EXPECT().ListEventScoreboard(gomock.Any(), gomock.Any()).Return([]postgres.ListEventScoreboardRow{{TeamID: team, TeamName: "Blue"}}, nil).AnyTimes()
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 10), nil).Times(2)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(started, nil).Times(2)
 	gomock.InOrder(
@@ -143,7 +147,7 @@ func TestLiveResultsSharedWindowKeepsFreeze(t *testing.T) {
 		q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 6, UpdatedAt: now}, nil),
 	)
 	q.EXPECT().ListEventResultChangesAfter(gomock.Any(), postgres.ListEventResultChangesAfterParams{EventID: eventID, AfterRevision: 4, LimitVal: 500}).
-		Return([]postgres.EventResultChange{solveChange(eventID, 5, uuid.Must(uuid.NewV7()), frozenAt.Add(-time.Minute)), solveChange(eventID, 6, uuid.Must(uuid.NewV7()), frozenAt.Add(time.Minute))}, nil)
+		Return([]postgres.EventResultChange{solveChange(eventID, 5, team, frozenAt.Add(-time.Minute)), solveChange(eventID, 6, team, frozenAt.Add(time.Minute))}, nil)
 
 	stream := uc.OpenLiveResults(eventID, event.ResultsAccess{}, false)
 	if _, err := stream.Replay(context.Background(), 4); err != nil {
