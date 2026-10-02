@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
@@ -37,6 +38,7 @@ type (
 		InfrastructureAvailable() bool
 		MaxActiveTestDeploys() int
 		DevicePersistenceAllowed() bool
+		DeviceLimits() (infraModel.LimitsFeature, bool)
 		FlagPolicy() exerciseUseCase.FlagPolicy
 		// catalog
 		CreateExercise(ctx context.Context, in exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error)
@@ -206,7 +208,13 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 		// DevicePersistence is false when the cluster does not let devices keep their state: the editor
 		// hides the option then.
 		DevicePersistence bool `json:"DevicePersistence"`
-	}{Laboratories: h.useCase.InfrastructureAvailable(), MaxActiveTestDeploys: h.useCase.MaxActiveTestDeploys(), DevicePersistence: h.useCase.DevicePersistenceAllowed()})
+		// DeviceLimits is the most any enabled laboratory allows a device and a lab (0 = no limit); null while
+		// no laboratory has reported its limits. A device with no resources set gets the default profile.
+		DeviceLimits *deviceLimitsResponse `json:"DeviceLimits"`
+	}{
+		Laboratories: h.useCase.InfrastructureAvailable(), MaxActiveTestDeploys: h.useCase.MaxActiveTestDeploys(),
+		DevicePersistence: h.useCase.DevicePersistenceAllowed(), DeviceLimits: toDeviceLimits(h.useCase.DeviceLimits()),
+	})
 }
 
 // list godoc

@@ -225,6 +225,24 @@ func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, err
 	if len(enabled) == 0 {
 		return nil, infraModel.ErrInfrastructureUnavailable.Err()
 	}
+	// Only an agent whose limits hold everything the group will run is a candidate: a team lives on one agent.
+	need := infraModel.PlacementNeedFrom(ctx)
+	if len(need.Labs) > 0 {
+		var fitting []*Member
+		var worst *infraModel.FitViolation
+		for _, m := range enabled {
+			v := fitOf(m, need)
+			if v == nil {
+				fitting = append(fitting, m)
+			} else if worst == nil || v.Max > worst.Max {
+				worst = v
+			}
+		}
+		if len(fitting) == 0 {
+			return nil, noAgentFits(worst)
+		}
+		enabled = fitting
+	}
 	picked, err := f.picker(ctx, group, enabled)
 	if err != nil {
 		return nil, err
@@ -263,9 +281,15 @@ func (f *Fleet) Health(ctx context.Context) error {
 }
 
 func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
+	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), infraModel.DemandOf(topo)))
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
+	}
+	// A group that lives on an agent stays there: a lab that passes its limits is refused here, with the
+	// same error the placement gives.
+	if v := fitOf(m, infraModel.PlacementNeed{Labs: []infraModel.Demand{infraModel.DemandOf(topo)}}); v != nil {
+		return noAgentFits(v)
 	}
 	// The agent says what it offers: a topology that needs more is refused here, before anything is created.
 	if feat := m.Features.Get(); feat != nil && !feat.Persistence.Available && wantsPersistence(topo) {

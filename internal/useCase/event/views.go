@@ -472,6 +472,8 @@ type EventExerciseView struct {
 	ChallengeCount      int32
 	PublishedCount      int32
 	HasAttempts         bool
+	// Fit lists the variants some laboratory cannot run within its resource limits (set when attaching).
+	Fit []VariantFit
 }
 
 // EventExerciseForkView describes the catalog source of an event fork.

@@ -20192,6 +20192,13 @@ const docTemplate = `{
                 "ExerciseVersionID": {
                     "type": "string"
                 },
+                "Fit": {
+                    "description": "Fit lists the variants some laboratory cannot run within its resource limits (set when attaching the\nexercise); each entry gives the variant index, whether any laboratory can run it, and per laboratory the\ndevice (empty for a lab-wide cap), the resource (cpu, memory, devices, groupLabs, groupCpu, groupMemory), what it asks\nfor and the limit. CPU in millicores, memory in bytes.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.eventVariantFitResponse"
+                    }
+                },
                 "FixedVariantIndex": {
                     "type": "integer"
                 },
@@ -20243,6 +20250,26 @@ const docTemplate = `{
                 },
                 "VersionNumber": {
                     "type": "integer"
+                }
+            }
+        },
+        "event.eventFitWarningResponse": {
+            "type": "object",
+            "properties": {
+                "Agent": {
+                    "type": "string"
+                },
+                "Device": {
+                    "type": "string"
+                },
+                "Max": {
+                    "type": "integer"
+                },
+                "Requested": {
+                    "type": "integer"
+                },
+                "Resource": {
+                    "type": "string"
                 }
             }
         },
@@ -20496,6 +20523,23 @@ const docTemplate = `{
                 },
                 "UpdatedAt": {
                     "type": "string"
+                }
+            }
+        },
+        "event.eventVariantFitResponse": {
+            "type": "object",
+            "properties": {
+                "FitsAny": {
+                    "type": "boolean"
+                },
+                "VariantIndex": {
+                    "type": "integer"
+                },
+                "Warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.eventFitWarningResponse"
+                    }
                 }
             }
         },
@@ -26461,6 +26505,26 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.fitWarningResponse": {
+            "type": "object",
+            "properties": {
+                "Agent": {
+                    "type": "string"
+                },
+                "Device": {
+                    "type": "string"
+                },
+                "Max": {
+                    "type": "integer"
+                },
+                "Requested": {
+                    "type": "integer"
+                },
+                "Resource": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.forkSourceResponse": {
             "type": "object",
             "properties": {
@@ -26873,6 +26937,23 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.variantFitResponse": {
+            "type": "object",
+            "properties": {
+                "FitsAny": {
+                    "type": "boolean"
+                },
+                "VariantID": {
+                    "type": "string"
+                },
+                "Warnings": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.fitWarningResponse"
+                    }
+                }
+            }
+        },
         "exercise.versionListItemResponse": {
             "type": "object",
             "properties": {
@@ -26916,6 +26997,13 @@ const docTemplate = `{
                 },
                 "ExerciseID": {
                     "type": "string"
+                },
+                "Fit": {
+                    "description": "Fit lists the variants some laboratory cannot run within its resource limits; empty when all fit.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.variantFitResponse"
+                    }
                 },
                 "ID": {
                     "type": "string"

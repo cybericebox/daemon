@@ -345,6 +345,12 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		Endpoints:        &labpb.EndpointsFeature{LabsDomain: "labs.example.test", VpnEndpoint: "vpn.example.test:51820"},
 		Certificate:      &labpb.CertificateFeature{NotAfterUnix: 99, IssuedTtlSeconds: 100},
 		Proxy:            &labpb.ProxyFeature{AccessTokenMaxTtlSeconds: 300, SessionMaxTtlSeconds: 86400},
+		Limits: &labpb.LimitsFeature{
+			Device: &labpb.DeviceLimits{MaxCpuMillicores: 500, MaxMemoryBytes: 512 << 20, DefaultCpuMillicores: 100, DefaultMemoryBytes: 256 << 20},
+			Lab:    &labpb.LabLimits{MaxDevices: 10},
+			Group:  &labpb.GroupLimits{MaxLabs: 5, MaxCpuMillicores: 2000, MaxMemoryBytes: 2 << 30},
+			Tenant: &labpb.TenantLimits{MaxLabs: 7},
+		},
 	})
 	want := infraModel.AgentFeatures{
 		Persistence: infraModel.PersistenceFeature{Available: true, DefaultDebounce: 5000, WriteQuotaBytes: 10, MaxFileSizeBytes: 20, ExcludedPaths: []string{"/proc"}},
@@ -353,6 +359,10 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		Endpoints:   infraModel.EndpointsFeature{LabsDomain: "labs.example.test", VPNEndpoint: "vpn.example.test:51820"},
 		Certificate: infraModel.CertificateFeature{NotAfterUnix: 99, IssuedTTLSeconds: 100},
 		Proxy:       infraModel.ProxyFeature{AccessTokenMaxTTLSeconds: 300, SessionMaxTTLSeconds: 86400},
+		Limits: infraModel.LimitsFeature{
+			DeviceMaxCPUMillicores: 500, DeviceMaxMemoryBytes: 512 << 20, DeviceDefaultCPUMillicores: 100, DeviceDefaultMemoryBytes: 256 << 20,
+			LabMaxDevices: 10, GroupMaxLabs: 5, GroupMaxCPUMillicores: 2000, GroupMaxMemoryBytes: 2 << 30, TenantMaxLabs: 7,
+		},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v want %+v", got, want)
@@ -384,5 +394,107 @@ func TestPrewarmSkipsAnAgentWhoseImageCacheIsOff(t *testing.T) {
 	got, err = f.fleet.PrewarmImages(ctx, []string{"nginx"})
 	if err != nil || f.a.prewarm != nil || f.b.prewarm == nil || len(got) != 1 || got[0].State != infraModel.PrewarmDone {
 		t.Fatalf("got %+v err %v", got, err)
+	}
+}
+
+func heavyTopology(cpu string) exerciseModel.Topology {
+	return exerciseModel.Topology{Devices: []exerciseModel.Device{{
+		Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "img", Resources: &exerciseModel.DeviceResources{CPULimit: cpu},
+	}}}
+}
+
+func limited(maxCPU int64) *FeatureCell {
+	return NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{DeviceMaxCPUMillicores: maxCPU}})
+}
+
+func TestPlacementTakesOnlyAgentsWhoseLimitsHoldTheWholeNeed(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	f.am.Features, f.bm.Features = limited(500), limited(4000) // a is first by priority but too small
+	need := infraModel.PlacementNeed{Labs: []infraModel.Demand{infraModel.DemandOf(heavyTopology("2"))}}
+	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-1"); err != nil {
+		t.Fatal(err)
+	}
+	if f.store.groups["e-1-t-1"] != f.bm.ID {
+		t.Fatalf("the group must go to the agent that can run the task: %v", f.store.groups)
+	}
+	// Nobody fits: a clear error, nothing is created or placed.
+	f.bm.Features = limited(1000)
+	err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-2")
+	if !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
+		t.Fatalf("no agent fits = %v", err)
+	}
+	if _, placed := f.store.groups["e-1-t-2"]; placed {
+		t.Fatal("a refused group is not placed")
+	}
+	// An agent that has not reported is never filtered out.
+	f.am.Features = nil
+	if err = f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-3"); err != nil || f.store.groups["e-1-t-3"] != f.am.ID {
+		t.Fatalf("unreported agent: %v %v", err, f.store.groups)
+	}
+}
+
+func TestDeployLabChecksItsOwnTopologyAgainstThePlacedAgent(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	f.am.Features, f.bm.Features = limited(500), limited(4000)
+	// A new group is placed by the lab it is created for.
+	if err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, heavyTopology("2")); err != nil {
+		t.Fatal(err)
+	}
+	if f.store.groups["e-1-t-1"] != f.bm.ID {
+		t.Fatalf("placed on %v", f.store.groups["e-1-t-1"])
+	}
+	// A group stays where it is: a later lab that does not fit there is refused, not moved.
+	f.bm.Features = limited(1000)
+	if err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-2", infraModel.LabMeta{}, heavyTopology("2")); !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
+		t.Fatalf("a lab over the placed agent's limit = %v", err)
+	}
+}
+
+func TestTopologyFitListsTheAgentsThatCannotAndTheWidestLimits(t *testing.T) {
+	f := newFleetFixture(t)
+	f.am.Features, f.bm.Features = limited(500), limited(4000)
+	fit := f.fleet.TopologyFit(heavyTopology("2"))
+	if !fit.FitsAny || len(fit.Warnings) != 1 || fit.Warnings[0].Agent != "a" || fit.Warnings[0].Resource != infraModel.FitCPU || fit.Warnings[0].Max != 500 {
+		t.Fatalf("fit = %+v", fit)
+	}
+	f.bm.Features = limited(1000)
+	if fit = f.fleet.TopologyFit(heavyTopology("2")); fit.FitsAny || len(fit.Warnings) != 2 {
+		t.Fatalf("none can: %+v", fit)
+	}
+	f.bm.Features = nil
+	if fit = f.fleet.TopologyFit(heavyTopology("2")); !fit.FitsAny {
+		t.Fatal("an agent that has not reported counts as able")
+	}
+	f.am.Features, f.bm.Features = limited(500), limited(4000)
+	limits, known := f.fleet.DeviceLimits()
+	if !known || limits.DeviceMaxCPUMillicores != 4000 {
+		t.Fatalf("the editor shows the widest cap: %+v %v", limits, known)
+	}
+	f.bm.Features = limited(0) // no limit is the widest
+	if limits, _ = f.fleet.DeviceLimits(); limits.DeviceMaxCPUMillicores != 0 {
+		t.Fatalf("an agent without a cap lifts it: %+v", limits)
+	}
+	f.am.Features, f.bm.Features = nil, nil
+	if _, known = f.fleet.DeviceLimits(); known {
+		t.Fatal("nothing reported yet")
+	}
+}
+
+func TestPlacementAddsTheLabsOfTheGroupUp(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	capped := func(groupCPU int64) *FeatureCell {
+		return NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{GroupMaxCPUMillicores: groupCPU}})
+	}
+	f.am.Features, f.bm.Features = capped(1000), capped(4000)
+	lab := infraModel.DemandOf(heavyTopology("800m"))
+	need := infraModel.PlacementNeed{Labs: []infraModel.Demand{lab, lab, lab}} // 2400m together
+	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, need), "e-1-t-1"); err != nil {
+		t.Fatal(err)
+	}
+	if f.store.groups["e-1-t-1"] != f.bm.ID {
+		t.Fatalf("each lab fits a (800m) but the group of three does not: %v", f.store.groups)
 	}
 }

@@ -547,6 +547,25 @@ type eventExerciseResponse struct {
 	ChallengeCount      int32                      `json:"ChallengeCount"`
 	PublishedCount      int32                      `json:"PublishedCount"`
 	HasAttempts         bool                       `json:"HasAttempts"`
+	// Fit lists the variants some laboratory cannot run within its resource limits (set when attaching the
+	// exercise); each entry gives the variant index, whether any laboratory can run it, and per laboratory the
+	// device (empty for a lab-wide cap), the resource (cpu, memory, devices, groupLabs, groupCpu, groupMemory), what it asks
+	// for and the limit. CPU in millicores, memory in bytes.
+	Fit []eventVariantFitResponse `json:"Fit"`
+}
+
+type eventVariantFitResponse struct {
+	VariantIndex int                       `json:"VariantIndex"`
+	FitsAny      bool                      `json:"FitsAny"`
+	Warnings     []eventFitWarningResponse `json:"Warnings"`
+}
+
+type eventFitWarningResponse struct {
+	Agent     string `json:"Agent"`
+	Device    string `json:"Device"`
+	Resource  string `json:"Resource"`
+	Requested int64  `json:"Requested"`
+	Max       int64  `json:"Max"`
 }
 
 type eventExerciseForkResponse struct {
@@ -882,6 +901,14 @@ func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResp
 	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt,
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
 		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts}
+	out.Fit = make([]eventVariantFitResponse, 0, len(v.Fit))
+	for _, f := range v.Fit {
+		item := eventVariantFitResponse{VariantIndex: f.VariantIndex, FitsAny: f.FitsAny, Warnings: make([]eventFitWarningResponse, 0, len(f.Warnings))}
+		for _, w := range f.Warnings {
+			item.Warnings = append(item.Warnings, eventFitWarningResponse{Agent: w.Agent, Device: w.Device, Resource: w.Resource, Requested: w.Requested, Max: w.Max})
+		}
+		out.Fit = append(out.Fit, item)
+	}
 	if out.Scope == "" {
 		out.Scope = "catalog"
 	}

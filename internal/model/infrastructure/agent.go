@@ -64,6 +64,7 @@ type AgentFeatures struct {
 	Endpoints   EndpointsFeature   `json:"endpoints"`
 	Certificate CertificateFeature `json:"certificate"`
 	Proxy       ProxyFeature       `json:"proxy"`
+	Limits      LimitsFeature      `json:"limits"`
 }
 
 // PersistenceFeature is device state persistence for the tenant.

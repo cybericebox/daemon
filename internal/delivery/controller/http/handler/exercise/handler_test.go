@@ -156,10 +156,13 @@ func (f *fakeUC) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, med
 	}
 	return io.NopCloser(bytes.NewBufferString(f.streamedContent)), f.streamedFile, nil
 }
-func (f *fakeUC) MaxUploadBytes() int64                  { return f.maxUploadBytes }
-func (f *fakeUC) InfrastructureAvailable() bool          { return f.laboratoriesAvailable }
-func (f *fakeUC) MaxActiveTestDeploys() int              { return 2 }
-func (f *fakeUC) DevicePersistenceAllowed() bool         { return true }
+func (f *fakeUC) MaxUploadBytes() int64          { return f.maxUploadBytes }
+func (f *fakeUC) InfrastructureAvailable() bool  { return f.laboratoriesAvailable }
+func (f *fakeUC) MaxActiveTestDeploys() int      { return 2 }
+func (f *fakeUC) DevicePersistenceAllowed() bool { return true }
+func (f *fakeUC) DeviceLimits() (infraModel.LimitsFeature, bool) {
+	return infraModel.LimitsFeature{}, false
+}
 func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy { return f.flagPolicy }
 func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID) (exerciseModel.DeployHandle, error) {
 	return f.deployHandle, f.err

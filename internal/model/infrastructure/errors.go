@@ -98,6 +98,20 @@ var (
 
 	// ErrDevicePersistenceUnavailable: the topology asks a device to keep its state, but the agent that
 	// holds the team's group does not offer state persistence to this platform.
+	// ErrTopologyExceedsAgents: no enabled agent that reported its limits can run a variant of the exercise
+	// (device cpu or memory, devices per lab, lab totals); the context names the variant, the device, the
+	// resource, what it asks for and the largest limit among the agents. Publishing is refused.
+	ErrTopologyExceedsAgents = err.ErrInvalidData.WithObjectCode(model.InfrastructureObjectCode).
+					WithMessage("No laboratory can run a variant of this exercise within its resource limits").
+					WithDetailCode(18)
+
+	// ErrNoAgentFitsTask: no enabled agent can hold the labs of the team's group within its limits (device
+	// cpu and memory, devices per lab, lab totals); the context names the device, the resource and the
+	// largest limit among the agents.
+	ErrNoAgentFitsTask = err.ErrConflict.WithObjectCode(model.InfrastructureObjectCode).
+				WithMessage("No laboratory can run this task within its resource limits").
+				WithDetailCode(19)
+
 	ErrDevicePersistenceUnavailable = err.ErrConflict.WithObjectCode(model.InfrastructureObjectCode).
 					WithMessage("The laboratory does not offer device state persistence").
 					WithDetailCode(17)

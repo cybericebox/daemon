@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"time"
 
@@ -339,7 +340,10 @@ func (u *EventUseCase) GetModeratorsVPNConfig(ctx context.Context, eventID, user
 	if err != nil {
 		return "", err
 	}
-	if err = u.infra.EnsureVPNGroup(ctx, group); err != nil {
+	if err = u.infra.EnsureVPNGroup(u.withPlacementNeed(ctx, eventID), group); err != nil {
+		if errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
+			return "", err
+		}
 		if _, terminating := infraModel.AsTerminating(err); terminating {
 			return "", infraModel.ErrLabAccessRetry.WithError(err).Err()
 		}

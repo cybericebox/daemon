@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
@@ -390,6 +391,62 @@ type variantDTO struct {
 	Topology topologyDTO `json:"Topology"`
 }
 
+// deviceLimitsResponse: CPU in millicores, memory in bytes, 0 = no limit. The defaults are the profile of a
+// device that sets no resources.
+type deviceLimitsResponse struct {
+	MaxCPUMillicores     int64 `json:"MaxCPUMillicores"`
+	MaxMemoryBytes       int64 `json:"MaxMemoryBytes"`
+	DefaultCPUMillicores int64 `json:"DefaultCPUMillicores"`
+	DefaultMemoryBytes   int64 `json:"DefaultMemoryBytes"`
+	MaxDevicesPerLab     int32 `json:"MaxDevicesPerLab"`
+	// MaxLabsPerGroup, MaxCPUMillicoresPerGroup and MaxMemoryBytesPerGroup cap all the labs of one team together.
+	MaxLabsPerGroup          int32 `json:"MaxLabsPerGroup"`
+	MaxCPUMillicoresPerGroup int64 `json:"MaxCPUMillicoresPerGroup"`
+	MaxMemoryBytesPerGroup   int64 `json:"MaxMemoryBytesPerGroup"`
+}
+
+func toDeviceLimits(l infraModel.LimitsFeature, known bool) *deviceLimitsResponse {
+	if !known {
+		return nil
+	}
+	return &deviceLimitsResponse{
+		MaxCPUMillicores: l.DeviceMaxCPUMillicores, MaxMemoryBytes: l.DeviceMaxMemoryBytes,
+		DefaultCPUMillicores: l.DeviceDefaultCPUMillicores, DefaultMemoryBytes: l.DeviceDefaultMemoryBytes,
+		MaxDevicesPerLab: l.LabMaxDevices, MaxLabsPerGroup: l.GroupMaxLabs, MaxCPUMillicoresPerGroup: l.GroupMaxCPUMillicores,
+		MaxMemoryBytesPerGroup: l.GroupMaxMemoryBytes,
+	}
+}
+
+// variantFitResponse: a variant that some laboratory cannot run. FitsAny false means none can, and publishing
+// is refused. Each warning names the laboratory, the device (empty for a lab-wide cap), the resource
+// (cpu, memory, devices, groupLabs, groupCpu, groupMemory), what the variant asks for and the limit; CPU in millicores,
+// memory in bytes.
+type variantFitResponse struct {
+	VariantID uuid.UUID            `json:"VariantID"`
+	FitsAny   bool                 `json:"FitsAny"`
+	Warnings  []fitWarningResponse `json:"Warnings"`
+}
+
+type fitWarningResponse struct {
+	Agent     string `json:"Agent"`
+	Device    string `json:"Device"`
+	Resource  string `json:"Resource"`
+	Requested int64  `json:"Requested"`
+	Max       int64  `json:"Max"`
+}
+
+func fitToResponse(in []exerciseUseCase.VariantFit) []variantFitResponse {
+	out := make([]variantFitResponse, 0, len(in))
+	for _, f := range in {
+		item := variantFitResponse{VariantID: f.VariantID, FitsAny: f.FitsAny, Warnings: make([]fitWarningResponse, 0, len(f.Warnings))}
+		for _, w := range f.Warnings {
+			item.Warnings = append(item.Warnings, fitWarningResponse{Agent: w.Agent, Device: w.Device, Resource: w.Resource, Requested: w.Requested, Max: w.Max})
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 type versionResponse struct {
 	ID          uuid.UUID    `json:"ID"`
 	ExerciseID  uuid.UUID    `json:"ExerciseID"`
@@ -400,6 +457,8 @@ type versionResponse struct {
 	CreatedAt   time.Time    `json:"CreatedAt"`
 	CreatedBy   *uuid.UUID   `json:"CreatedBy"`
 	PublishedAt *time.Time   `json:"PublishedAt"`
+	// Fit lists the variants some laboratory cannot run within its resource limits; empty when all fit.
+	Fit []variantFitResponse `json:"Fit"`
 }
 
 type versionListItemResponse struct {
@@ -668,7 +727,7 @@ func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 	return versionResponse{
 		ID: v.ID, ExerciseID: v.ExerciseID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label,
 		Variants:  variantsToDTO(v.Variants),
-		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, PublishedAt: v.PublishedAt,
+		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, PublishedAt: v.PublishedAt, Fit: fitToResponse(v.Fit),
 	}
 }
 

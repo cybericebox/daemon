@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	labAccessSyncModel "github.com/cybericebox/daemon/internal/delivery/repository/labAccessSyncRepo"
 	"github.com/cybericebox/daemon/internal/model"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 )
@@ -100,7 +102,10 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to derive team VPN group").Err()
 	}
 	if sync.VPNEnabled {
-		if err = u.infra.EnsureVPNGroup(ctx, group); err != nil {
+		if err = u.infra.EnsureVPNGroup(u.withPlacementNeed(ctx, sync.EventID), group); err != nil {
+			if errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
+				return err
+			}
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to ensure team VPN group").Err()
 		}
 	}

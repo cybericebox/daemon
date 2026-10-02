@@ -68,7 +68,7 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, saved.ID, exerciseModel.CollectFileIDs(saved.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return toVersionView(saved), nil
+	return u.versionView(saved), nil
 }
 
 // secretMergeSource resolves which stored version's secrets a blank "keep"
@@ -116,6 +116,9 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 	if err = u.requireInfrastructureAllowed(ctx, e, draft.Variants); err != nil {
 		return VersionView{}, err
 	}
+	if err = u.requireVariantsFit(draft.Variants); err != nil {
+		return VersionView{}, err
+	}
 	published, err := u.exercises.Publish(ctx, exerciseID, time.Now())
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -124,7 +127,7 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 		}
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to publish draft").Err()
 	}
-	return toVersionView(published), nil
+	return u.versionView(published), nil
 }
 
 // DiscardDraft deletes the draft slot; the exercise's draft pointer clears via
@@ -167,7 +170,7 @@ func (u *ExerciseUseCase) RollbackToVersion(ctx context.Context, exerciseID, ver
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, draft.ID, exerciseModel.CollectFileIDs(draft.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return toVersionView(draft), nil
+	return u.versionView(draft), nil
 }
 
 // CreateCheckpoint records one explicit, immutable snapshot of the working
@@ -190,7 +193,7 @@ func (u *ExerciseUseCase) CreateCheckpoint(ctx context.Context, exerciseID, by u
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, checkpoint.ID, exerciseModel.CollectFileIDs(checkpoint.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return toVersionView(checkpoint), nil
+	return u.versionView(checkpoint), nil
 }
 
 // RestoreToVersion preserves an existing draft as a checkpoint atomically with
@@ -222,7 +225,7 @@ func (u *ExerciseUseCase) RestoreToVersion(ctx context.Context, exerciseID, vers
 		if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, restored.ID, exerciseModel.CollectFileIDs(restored.Variants)); err != nil {
 			return VersionView{}, err
 		}
-		return toVersionView(restored), nil
+		return u.versionView(restored), nil
 	}
 	checkpointID := uuid.Must(uuid.NewV7())
 	restored, err := u.exercises.RestoreVersionPreservingDraft(ctx, exerciseID, versionID, checkpointID, now, byNull)
@@ -241,7 +244,7 @@ func (u *ExerciseUseCase) RestoreToVersion(ctx context.Context, exerciseID, vers
 	if err = u.media.ReplaceReferences(ctx, mediaModel.RefTypeExerciseVersion, restored.ID, exerciseModel.CollectFileIDs(restored.Variants)); err != nil {
 		return VersionView{}, err
 	}
-	return toVersionView(restored), nil
+	return u.versionView(restored), nil
 }
 
 // GetVersion returns one version's content with secrets masked. Route gate:
@@ -254,7 +257,7 @@ func (u *ExerciseUseCase) GetVersion(ctx context.Context, exerciseID, versionID 
 		}
 		return VersionView{}, exerciseModel.ErrExerciseVersionNotFound.Err()
 	}
-	return toVersionView(v), nil
+	return u.versionView(v), nil
 }
 
 // GetWorkingCopy returns the editable working copy. It always exists while
@@ -272,7 +275,7 @@ func (u *ExerciseUseCase) GetWorkingCopy(ctx context.Context, exerciseID uuid.UU
 	}
 	draft, err := u.exercises.GetDraft(ctx, exerciseID)
 	if err == nil {
-		return toVersionView(draft), nil
+		return u.versionView(draft), nil
 	}
 	if !repositoryTools.IsObjectNotFoundError(err) {
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get draft").Err()
@@ -280,7 +283,7 @@ func (u *ExerciseUseCase) GetWorkingCopy(ctx context.Context, exerciseID uuid.UU
 	if e.PublishedVersionID.Valid {
 		published, pubErr := u.exercises.GetVersion(ctx, e.PublishedVersionID.UUID)
 		if pubErr == nil {
-			return toVersionView(published), nil
+			return u.versionView(published), nil
 		}
 		if !repositoryTools.IsObjectNotFoundError(pubErr) {
 			return VersionView{}, model.ErrPlatform.WithError(pubErr).WithMessage("Failed to get published version").Err()

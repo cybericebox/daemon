@@ -726,6 +726,15 @@ definitions:
         type: string
       ExerciseVersionID:
         type: string
+      Fit:
+        description: |-
+          Fit lists the variants some laboratory cannot run within its resource limits (set when attaching the
+          exercise); each entry gives the variant index, whether any laboratory can run it, and per laboratory the
+          device (empty for a lab-wide cap), the resource (cpu, memory, devices, groupLabs, groupCpu, groupMemory), what it asks
+          for and the limit. CPU in millicores, memory in bytes.
+        items:
+          $ref: '#/definitions/event.eventVariantFitResponse'
+        type: array
       FixedVariantIndex:
         type: integer
       Fork:
@@ -762,6 +771,19 @@ definitions:
         type: integer
       VersionNumber:
         type: integer
+    type: object
+  event.eventFitWarningResponse:
+    properties:
+      Agent:
+        type: string
+      Device:
+        type: string
+      Max:
+        type: integer
+      Requested:
+        type: integer
+      Resource:
+        type: string
     type: object
   event.eventFormAssignmentSwaggerRequest:
     properties:
@@ -933,6 +955,17 @@ definitions:
         type: string
       UpdatedAt:
         type: string
+    type: object
+  event.eventVariantFitResponse:
+    properties:
+      FitsAny:
+        type: boolean
+      VariantIndex:
+        type: integer
+      Warnings:
+        items:
+          $ref: '#/definitions/event.eventFitWarningResponse'
+        type: array
     type: object
   event.hintCostRequest:
     properties:
@@ -4938,6 +4971,19 @@ definitions:
       Size:
         type: integer
     type: object
+  exercise.fitWarningResponse:
+    properties:
+      Agent:
+        type: string
+      Device:
+        type: string
+      Max:
+        type: integer
+      Requested:
+        type: integer
+      Resource:
+        type: string
+    type: object
   exercise.forkSourceResponse:
     properties:
       ExerciseID:
@@ -5214,6 +5260,17 @@ definitions:
       Topology:
         $ref: '#/definitions/exercise.topologyDTO'
     type: object
+  exercise.variantFitResponse:
+    properties:
+      FitsAny:
+        type: boolean
+      VariantID:
+        type: string
+      Warnings:
+        items:
+          $ref: '#/definitions/exercise.fitWarningResponse'
+        type: array
+    type: object
   exercise.versionListItemResponse:
     properties:
       AdminNote:
@@ -5243,6 +5300,12 @@ definitions:
         type: string
       ExerciseID:
         type: string
+      Fit:
+        description: Fit lists the variants some laboratory cannot run within its
+          resource limits; empty when all fit.
+        items:
+          $ref: '#/definitions/exercise.variantFitResponse'
+        type: array
       ID:
         type: string
       Label:

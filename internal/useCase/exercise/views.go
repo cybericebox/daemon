@@ -6,6 +6,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
 
 type ExerciseView struct {
@@ -227,6 +228,16 @@ type VersionView struct {
 	CreatedAt    time.Time
 	CreatedBy    *uuid.UUID
 	PublishedAt  *time.Time
+	// Fit lists the variants some enabled agent cannot run within its resource limits, with each agent and
+	// the limit it passes; empty when every variant fits everywhere (or no agent reported limits).
+	Fit []VariantFit
+}
+
+// VariantFit is how one variant sits on the agents: FitsAny is false when no agent can run it.
+type VariantFit struct {
+	VariantID uuid.UUID
+	FitsAny   bool
+	Warnings  []infraModel.FitWarning
 }
 
 // VersionListItem is a version history row without the content payload.
