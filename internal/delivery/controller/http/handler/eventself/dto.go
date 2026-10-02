@@ -73,9 +73,11 @@ type challengeFileResponse struct {
 	Size   int64     `json:"Size"`
 }
 type challengeSolveResponse struct {
-	TeamName string    `json:"TeamName"`
-	SolvedAt time.Time `json:"SolvedAt"`
-	Own      bool      `json:"Own"`
+	TeamName string `json:"TeamName"`
+	// NameHidden: the participant's real name is withheld by the event's participants visibility (TeamName is empty).
+	NameHidden bool      `json:"NameHidden"`
+	SolvedAt   time.Time `json:"SolvedAt"`
+	Own        bool      `json:"Own"`
 	// FirstBlood marks the earliest solve among the visible teams.
 	FirstBlood bool `json:"FirstBlood"`
 }
@@ -110,9 +112,11 @@ func toParticipantAnswersResponse(v eventUseCase.OwnParticipantAnswersView) part
 }
 
 type scoreboardEntryResponse struct {
-	Rank        int32      `json:"Rank"`
-	TeamID      uuid.UUID  `json:"TeamID"`
-	TeamName    string     `json:"TeamName"`
+	Rank     int32     `json:"Rank"`
+	TeamID   uuid.UUID `json:"TeamID"`
+	TeamName string    `json:"TeamName"`
+	// NameHidden: the participant's real name is withheld by the event's participants visibility (TeamName is empty).
+	NameHidden  bool       `json:"NameHidden"`
 	Points      int64      `json:"Points"`
 	Solved      int64      `json:"Solved"`
 	LastSolveAt *time.Time `json:"LastSolveAt"`
@@ -270,7 +274,7 @@ func toOwnChallengeResponse(v eventUseCase.OwnChallengeView) ownChallengeRespons
 	return out
 }
 func toScoreboardEntryResponse(v eventUseCase.ScoreboardEntryView) scoreboardEntryResponse {
-	return scoreboardEntryResponse{Rank: v.Rank, TeamID: v.TeamID, TeamName: v.TeamName, Points: v.Points, Solved: v.Solved, LastSolveAt: v.LastSolveAt}
+	return scoreboardEntryResponse{Rank: v.Rank, TeamID: v.TeamID, TeamName: v.TeamName, NameHidden: v.NameHidden, Points: v.Points, Solved: v.Solved, LastSolveAt: v.LastSolveAt}
 }
 func toOwnScoreTimelineEntryResponse(v eventUseCase.OwnScoreTimelineEntryView) ownScoreTimelineEntryResponse {
 	return ownScoreTimelineEntryResponse{EventChallengeID: v.EventChallengeID, Points: v.Points, SolvedAt: v.SolvedAt}

@@ -97,6 +97,11 @@ GROUP BY tc.event_challenge_id;
 -- visible teams.
 SELECT team.id AS event_team_id,
        event_team_public_name(team.individual, team.event_id, team.captain_id, team.name)::text AS team_name,
+       (team.individual AND NOT EXISTS (SELECT 1
+                                    FROM event_participants named
+                                    JOIN event_configs named_config ON named_config.event_id = named.event_id
+                                    WHERE named.event_id = team.event_id AND named.user_id = team.captain_id
+                                      AND named_config.allow_pseudonyms AND NULLIF(btrim(named.pseudonym), '') IS NOT NULL))::boolean AS name_is_real,
        solved.solved_at,
        tc.id AS team_challenge_id,
        (visible.is_visible

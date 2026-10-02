@@ -71,8 +71,10 @@ type Prerequisite struct {
 
 // Solve is one team's accepted solve of a board challenge.
 type Solve struct {
-	TeamID          uuid.UUID
-	TeamName        string
+	TeamID   uuid.UUID
+	TeamName string
+	// NameIsReal: TeamName is a participant's real name (individual team, no pseudonym shown).
+	NameIsReal      bool
 	SolvedAt        time.Time
 	TeamChallengeID uuid.UUID
 	FirstBlood      bool
@@ -197,7 +199,7 @@ func (r *Repository) Solves(ctx context.Context, eventID, challengeID, ownTeamID
 	}
 	out := make([]Solve, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Solve{TeamID: row.EventTeamID, TeamName: row.TeamName, SolvedAt: row.SolvedAt, TeamChallengeID: row.TeamChallengeID, FirstBlood: row.FirstBlood})
+		out = append(out, Solve{TeamID: row.EventTeamID, TeamName: row.TeamName, NameIsReal: row.NameIsReal, SolvedAt: row.SolvedAt, TeamChallengeID: row.TeamChallengeID, FirstBlood: row.FirstBlood})
 	}
 	return out, nil
 }

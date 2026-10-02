@@ -74,6 +74,22 @@ func TestSetOwnPseudonym(t *testing.T) {
 	}
 }
 
+// A pseudonym spelling another participant's real name is refused by the
+// write (no row), so it cannot pass for that person.
+func TestSetOwnPseudonymRefusesAnotherRealName(t *testing.T) {
+	eventID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	name := "Ivan Petrenko"
+	q := newFormGateMock(gomock.NewController(t))
+	uc := newUC(q)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved)}, nil).Times(2)
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(pseudonymConfig(eventID, true), nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rosterOpenEventRow(eventID, time.Now()), nil)
+	q.EXPECT().SetEventParticipantPseudonym(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	if _, err := uc.SetOwnPseudonym(context.Background(), eventID, userID, &name); !errors.Is(err, participantModel.ErrPseudonymTaken.Err()) {
+		t.Fatalf("err = %v, want pseudonym taken", err)
+	}
+}
+
 func TestListOwnChallengesRejectsTeamBelowMinimum(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	uc := newUC(q)

@@ -70,6 +70,22 @@ func (p resultsPolicy) approved() bool {
 	return p.participant != nil && p.participant.Status == participantModel.StatusApproved
 }
 
+// mayShowRealNames tells whether the reader may see other participants' real
+// names (individual events with no pseudonym): the ParticipantsVisibility
+// setting decides, staff always may. Hidden shows no one's name to
+// participants, Private shows it to approved participants only.
+func (p resultsPolicy) mayShowRealNames() bool {
+	switch {
+	case p.manager:
+		return true
+	case p.cfg.ParticipantsVisibility == eventConfigModel.VisibilityPublic:
+		return true
+	case p.cfg.ParticipantsVisibility == eventConfigModel.VisibilityPrivate:
+		return p.approved()
+	}
+	return false
+}
+
 // ownTeam is the approved reader's team, nil for guests and moderators.
 func (p resultsPolicy) ownTeam() *uuid.UUID {
 	if !p.approved() {

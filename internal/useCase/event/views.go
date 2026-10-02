@@ -624,8 +624,10 @@ type ChallengeFileView struct {
 // the public scoreboard name.
 type ChallengeSolveView struct {
 	TeamName string
-	SolvedAt time.Time
-	Own      bool
+	// NameHidden: the participant's real name was withheld from this viewer (TeamName is empty).
+	NameHidden bool
+	SolvedAt   time.Time
+	Own        bool
 	// FirstBlood marks the earliest solve among the visible teams.
 	FirstBlood bool
 }
@@ -665,9 +667,12 @@ type OwnParticipantAnswersView struct {
 }
 
 type ScoreboardEntryView struct {
-	Rank        int32
-	TeamID      uuid.UUID
-	TeamName    string
+	Rank     int32
+	TeamID   uuid.UUID
+	TeamName string
+	// NameIsReal: TeamName is a participant's real name; NameHidden: it was withheld from this viewer (TeamName is empty).
+	NameIsReal  bool
+	NameHidden  bool
 	Points      int64
 	Solved      int64
 	LastSolveAt *time.Time

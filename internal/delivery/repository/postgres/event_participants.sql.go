@@ -954,8 +954,16 @@ func (q *Queries) SetEventParticipantInvitedTeam(ctx context.Context, arg SetEve
 const setEventParticipantPseudonym = `-- name: SetEventParticipantPseudonym :execrows
 UPDATE event_participants
 SET pseudonym = $1
-WHERE event_id = $2
-  AND user_id = $3
+WHERE event_participants.event_id = $2
+  AND event_participants.user_id = $3
+  AND ($1::text IS NULL
+    OR NOT EXISTS (SELECT 1
+                   FROM event_participants other
+                   JOIN users person ON person.id = other.user_id
+                   WHERE other.event_id = $2
+                     AND other.user_id <> $3
+                     AND lower(regexp_replace(btrim(concat_ws(' ', person.first_name, person.last_name)), '\s+', ' ', 'g'))
+                         = lower(regexp_replace(btrim($1::text), '\s+', ' ', 'g'))))
 `
 
 type SetEventParticipantPseudonymParams struct {
@@ -964,6 +972,9 @@ type SetEventParticipantPseudonymParams struct {
 	UserID    uuid.UUID   `json:"user_id"`
 }
 
+// A pseudonym that spells another participant's real name (case and spacing
+// aside) is refused (0 rows), so it cannot pass for that person. Clearing
+// always works.
 func (q *Queries) SetEventParticipantPseudonym(ctx context.Context, arg SetEventParticipantPseudonymParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setEventParticipantPseudonym, arg.Pseudonym, arg.EventID, arg.UserID)
 	if err != nil {

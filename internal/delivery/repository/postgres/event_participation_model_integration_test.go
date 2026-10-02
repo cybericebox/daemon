@@ -75,6 +75,14 @@ func TestParticipationModel_NamesAdmissionAndTabs(t *testing.T) {
 	} else if _, ok := repositoryTools.UniqueViolationError(err, participantModel.ErrPseudonymTaken); !ok {
 		t.Fatalf("duplicate pseudonym must be a unique violation: %v", err)
 	}
+	// A pseudonym cannot spell another participant's real name (case and spacing aside).
+	realName := "  олена   КОВАЛЬ "
+	if affected, setErr := participants.SetPseudonym(ctx, event.ID, memberID, &realName); setErr != nil || affected != 0 {
+		t.Fatalf("a pseudonym equal to another real name must be refused: affected=%d err=%v", affected, setErr)
+	}
+	if affected, setErr := participants.SetPseudonym(ctx, event.ID, memberID, nil); setErr != nil || affected != 1 {
+		t.Fatalf("clearing must always work: affected=%d err=%v", affected, setErr)
+	}
 	if profile, _ = participants.Profile(ctx, event.ID, memberID); profile.DisplayName != "Учасник" {
 		t.Fatalf("a nameless profile falls back to «Учасник»: %+v", profile)
 	}

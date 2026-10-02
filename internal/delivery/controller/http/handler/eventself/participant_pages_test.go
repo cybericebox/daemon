@@ -83,7 +83,7 @@ func TestChallengeSolvesAndTeamMembersRoutes(t *testing.T) {
 	router := participantPagesRouter(h, userID, eventID)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/teams/challenges/"+challengeID.String()+"/solves", nil))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `{"TeamName":"Red","SolvedAt":"2026-09-29T10:00:00Z","Own":true,"FirstBlood":true}`) || !strings.Contains(w.Body.String(), `"Total":1`) {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `{"TeamName":"Red","NameHidden":false,"SolvedAt":"2026-09-29T10:00:00Z","Own":true,"FirstBlood":true}`) || !strings.Contains(w.Body.String(), `"Total":1`) {
 		t.Fatalf("solves: %d %s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()

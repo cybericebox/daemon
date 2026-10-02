@@ -1301,6 +1301,9 @@ type Querier interface {
 	SetEventExerciseChallengesPublished(ctx context.Context, arg SetEventExerciseChallengesPublishedParams) error
 	// Moves a still pending event invitation to a team (moderator team builder).
 	SetEventParticipantInvitedTeam(ctx context.Context, arg SetEventParticipantInvitedTeamParams) (int64, error)
+	// A pseudonym that spells another participant's real name (case and spacing
+	// aside) is refused (0 rows), so it cannot pass for that person. Clearing
+	// always works.
 	SetEventParticipantPseudonym(ctx context.Context, arg SetEventParticipantPseudonymParams) (int64, error)
 	SetEventParticipantTeamRole(ctx context.Context, arg SetEventParticipantTeamRoleParams) (int64, error)
 	SetEventParticipantsFieldsMissing(ctx context.Context, arg SetEventParticipantsFieldsMissingParams) error

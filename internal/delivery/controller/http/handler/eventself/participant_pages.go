@@ -144,7 +144,7 @@ func (h *Handler) updateParticipantAnswers(ctx *gin.Context) {
 func solvesPageResponse(page eventUseCase.ChallengeSolvesPage) pagination.CursorPage[challengeSolveResponse] {
 	items := make([]challengeSolveResponse, 0, len(page.Items))
 	for _, item := range page.Items {
-		items = append(items, challengeSolveResponse{TeamName: item.TeamName, SolvedAt: item.SolvedAt, Own: item.Own, FirstBlood: item.FirstBlood})
+		items = append(items, challengeSolveResponse{TeamName: item.TeamName, NameHidden: item.NameHidden, SolvedAt: item.SolvedAt, Own: item.Own, FirstBlood: item.FirstBlood})
 	}
 	return pagination.NewCursorPage(items, page.HasMore, page.Next, page.Total)
 }

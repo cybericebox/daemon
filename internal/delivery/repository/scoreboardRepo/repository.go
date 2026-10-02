@@ -11,8 +11,10 @@ import (
 )
 
 type Entry struct {
-	TeamID      uuid.UUID
-	TeamName    string
+	TeamID   uuid.UUID
+	TeamName string
+	// NameIsReal: TeamName is a participant's real name (individual team, no pseudonym shown).
+	NameIsReal  bool
 	Points      int64
 	Solved      int64
 	LastSolveAt *time.Time
@@ -126,7 +128,7 @@ func (r *Repository) List(ctx context.Context, eventID uuid.UUID, cut Cut) ([]En
 	}
 	out := make([]Entry, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Entry{TeamID: row.TeamID, TeamName: row.TeamName, Points: row.Points, Solved: row.Solved, LastSolveAt: lastSolve(row.LastSolveAt)})
+		out = append(out, Entry{TeamID: row.TeamID, TeamName: row.TeamName, NameIsReal: row.NameIsReal, Points: row.Points, Solved: row.Solved, LastSolveAt: lastSolve(row.LastSolveAt)})
 	}
 	return out, nil
 }

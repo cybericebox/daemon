@@ -68,7 +68,7 @@ func (u *EventUseCase) ListChallengeSolves(ctx context.Context, eventID, userID,
 	if _, found := boardChallenge(views, challengeID); !found {
 		return ChallengeSolvesPage{}, eventChallengeModel.ErrEventChallengeNotFound.Err()
 	}
-	return u.challengeSolvesPage(ctx, eventID, teamID, challengeID, policy.freeze(now, false).cutoff(), cursor, pageSize)
+	return u.challengeSolvesPage(ctx, eventID, teamID, challengeID, policy.freeze(now, false).cutoff(), cursor, pageSize, !policy.mayShowRealNames())
 }
 
 // ListModeratorsChallengeSolves is the solvers list on the moderators board:
@@ -85,10 +85,10 @@ func (u *EventUseCase) ListModeratorsChallengeSolves(ctx context.Context, eventI
 	if _, found := boardChallenge(views, challengeID); !found {
 		return ChallengeSolvesPage{}, eventChallengeModel.ErrEventChallengeNotFound.Err()
 	}
-	return u.challengeSolvesPage(ctx, eventID, teamID, challengeID, nil, cursor, pageSize)
+	return u.challengeSolvesPage(ctx, eventID, teamID, challengeID, nil, cursor, pageSize, false)
 }
 
-func (u *EventUseCase) challengeSolvesPage(ctx context.Context, eventID, ownTeamID, challengeID uuid.UUID, cutoff *time.Time, cursor uuid.UUID, pageSize int) (ChallengeSolvesPage, error) {
+func (u *EventUseCase) challengeSolvesPage(ctx context.Context, eventID, ownTeamID, challengeID uuid.UUID, cutoff *time.Time, cursor uuid.UUID, pageSize int, maskRealNames bool) (ChallengeSolvesPage, error) {
 	rows, err := u.teamChallenges.Solves(ctx, eventID, challengeID, ownTeamID, cutoff, cursor, int32(pageSize+1))
 	if err != nil {
 		return ChallengeSolvesPage{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list challenge solves").Err()
@@ -108,7 +108,11 @@ func (u *EventUseCase) challengeSolvesPage(ctx context.Context, eventID, ownTeam
 	for _, row := range rows {
 		// A first blood after the freeze cut-off is never disclosed.
 		firstBlood := row.FirstBlood && (cutoff == nil || row.SolvedAt.Before(*cutoff))
-		page.Items = append(page.Items, ChallengeSolveView{TeamName: row.TeamName, SolvedAt: row.SolvedAt, Own: row.TeamID == ownTeamID, FirstBlood: firstBlood})
+		item := ChallengeSolveView{TeamName: row.TeamName, SolvedAt: row.SolvedAt, Own: row.TeamID == ownTeamID, FirstBlood: firstBlood}
+		if maskRealNames && row.NameIsReal && !item.Own {
+			item.TeamName, item.NameHidden = "", true
+		}
+		page.Items = append(page.Items, item)
 	}
 	return page, nil
 }

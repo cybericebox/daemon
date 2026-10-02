@@ -54,6 +54,13 @@ func (u *EventUseCase) SetOwnPseudonym(ctx context.Context, eventID, userID uuid
 		return ParticipantNameView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save pseudonym").Err()
 	}
 	if affected == 0 {
+		// The participant was read above, so a refused write with a value is a
+		// pseudonym that spells another participant's real name.
+		if p.Pseudonym != nil {
+			if _, getErr := u.participants.Get(ctx, eventID, userID); getErr == nil {
+				return ParticipantNameView{}, participantModel.ErrPseudonymTaken.Err()
+			}
+		}
 		return ParticipantNameView{}, participantModel.ErrParticipantNotFound.Err()
 	}
 	return u.ownParticipantName(ctx, eventID, userID)

@@ -329,6 +329,11 @@ func (q *Queries) ListEventChallengeAvailability(ctx context.Context, eventExerc
 const listEventChallengeSolves = `-- name: ListEventChallengeSolves :many
 SELECT team.id AS event_team_id,
        event_team_public_name(team.individual, team.event_id, team.captain_id, team.name)::text AS team_name,
+       (team.individual AND NOT EXISTS (SELECT 1
+                                    FROM event_participants named
+                                    JOIN event_configs named_config ON named_config.event_id = named.event_id
+                                    WHERE named.event_id = team.event_id AND named.user_id = team.captain_id
+                                      AND named_config.allow_pseudonyms AND NULLIF(btrim(named.pseudonym), '') IS NOT NULL))::boolean AS name_is_real,
        solved.solved_at,
        tc.id AS team_challenge_id,
        (visible.is_visible
@@ -370,6 +375,7 @@ type ListEventChallengeSolvesParams struct {
 type ListEventChallengeSolvesRow struct {
 	EventTeamID     uuid.UUID `json:"event_team_id"`
 	TeamName        string    `json:"team_name"`
+	NameIsReal      bool      `json:"name_is_real"`
 	SolvedAt        time.Time `json:"solved_at"`
 	TeamChallengeID uuid.UUID `json:"team_challenge_id"`
 	FirstBlood      bool      `json:"first_blood"`
@@ -399,6 +405,7 @@ func (q *Queries) ListEventChallengeSolves(ctx context.Context, arg ListEventCha
 		if err := rows.Scan(
 			&i.EventTeamID,
 			&i.TeamName,
+			&i.NameIsReal,
 			&i.SolvedAt,
 			&i.TeamChallengeID,
 			&i.FirstBlood,

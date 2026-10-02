@@ -135,10 +135,21 @@ FROM event_participants
 WHERE event_id = sqlc.arg(event_id)::uuid;
 
 -- name: SetEventParticipantPseudonym :execrows
+-- A pseudonym that spells another participant's real name (case and spacing
+-- aside) is refused (0 rows), so it cannot pass for that person. Clearing
+-- always works.
 UPDATE event_participants
 SET pseudonym = sqlc.narg(pseudonym)
-WHERE event_id = sqlc.arg(event_id)
-  AND user_id = sqlc.arg(user_id);
+WHERE event_participants.event_id = sqlc.arg(event_id)
+  AND event_participants.user_id = sqlc.arg(user_id)
+  AND (sqlc.narg(pseudonym)::text IS NULL
+    OR NOT EXISTS (SELECT 1
+                   FROM event_participants other
+                   JOIN users person ON person.id = other.user_id
+                   WHERE other.event_id = sqlc.arg(event_id)
+                     AND other.user_id <> sqlc.arg(user_id)
+                     AND lower(regexp_replace(btrim(concat_ws(' ', person.first_name, person.last_name)), '\s+', ' ', 'g'))
+                         = lower(regexp_replace(btrim(sqlc.narg(pseudonym)::text), '\s+', ' ', 'g'))));
 
 -- name: DeleteEventParticipantInvitation :execrows
 -- Revoke/decline: only a still pending invitation disappears.

@@ -53,6 +53,7 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 	freeze := policy.freeze(now, liveScreen)
 	cutoff := freeze.cutoff()
 	own := policy.ownTeam()
+	showRealNames := policy.mayShowRealNames()
 	scores := revisionScores{u: u, revision: revision.Revision}
 	entries, err := u.rankedScoreboard(ctx, scores, eventID, cutoff, own)
 	if err != nil {
@@ -72,7 +73,21 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 	if !liveScreen {
 		view.Scoreboard, view.Timeline = presentResults(entries, timeline, settings, own)
 	}
+	if !showRealNames {
+		maskRealNames(view.Scoreboard, own)
+	}
 	return view, nil
+}
+
+// maskRealNames withholds the real names of individual participants (no
+// pseudonym) from a viewer the participants visibility does not allow to see
+// them; the viewer's own row keeps its name.
+func maskRealNames(entries []ScoreboardEntryView, own *uuid.UUID) {
+	for i := range entries {
+		if entries[i].NameIsReal && (own == nil || *own != entries[i].TeamID) {
+			entries[i].TeamName, entries[i].NameHidden = "", true
+		}
+	}
 }
 
 // presentResults applies the public page settings: the top RowsLimit rows
@@ -168,7 +183,7 @@ func (u *EventUseCase) rankedScoreboard(ctx context.Context, scores scoreReader,
 	}
 	out := make([]ScoreboardEntryView, 0, len(rows))
 	for i, row := range rows {
-		out = append(out, ScoreboardEntryView{Rank: int32(i + 1), TeamID: row.TeamID, TeamName: row.TeamName, Points: row.Points, Solved: row.Solved, LastSolveAt: row.LastSolveAt})
+		out = append(out, ScoreboardEntryView{Rank: int32(i + 1), TeamID: row.TeamID, TeamName: row.TeamName, NameIsReal: row.NameIsReal, Points: row.Points, Solved: row.Solved, LastSolveAt: row.LastSolveAt})
 	}
 	if cutoff == nil || own == nil {
 		return out, nil

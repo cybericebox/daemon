@@ -3,6 +3,12 @@
 -- table as of that moment (freeze), plus every solve of include_team.
 SELECT t.id AS team_id,
        event_team_public_name(t.individual, t.event_id, t.captain_id, t.name)::text AS team_name,
+       -- true when team_name is a participant's real name (an individual team with no pseudonym shown)
+       (t.individual AND NOT EXISTS (SELECT 1
+                                    FROM event_participants named
+                                    JOIN event_configs named_config ON named_config.event_id = named.event_id
+                                    WHERE named.event_id = t.event_id AND named.user_id = t.captain_id
+                                      AND named_config.allow_pseudonyms AND NULLIF(btrim(named.pseudonym), '') IS NOT NULL))::boolean AS name_is_real,
        COALESCE(SUM(score.points), 0)::bigint AS points,
        count(score.team_challenge_id) FILTER (WHERE score.solve)::bigint AS solved,
        MAX(score.solved_at) FILTER (WHERE score.solve) AS last_solve_at
