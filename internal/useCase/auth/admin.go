@@ -221,13 +221,15 @@ func (u *AuthUseCase) UpdateUserRole(ctx context.Context, userID uuid.UUID, role
 		return authModel.ErrCannotAssignRole.Err()
 	}
 
+	u.superAdminMu.Lock()
+	defer u.superAdminMu.Unlock()
 	return u.mutateUser(ctx, userID, func(target *userModel.User) error {
 		if err := requireManageableTarget(caller.Role, rbac.Role(target.Role)); err != nil {
 			return err
 		}
 		// Guard: demoting the last super_admin is forbidden.
 		if target.Role == rbac.RoleSuperAdmin && role != rbac.RoleSuperAdmin {
-			if err := u.guardLastSuperAdmin(ctx); err != nil {
+			if err := u.guardLastSuperAdmin(ctx, target); err != nil {
 				return err
 			}
 		}
@@ -247,11 +249,19 @@ func (u *AuthUseCase) UpdateUserStatus(ctx context.Context, userID uuid.UUID, st
 	if !ok {
 		return authModel.ErrAuthInvalidSession.Err()
 	}
+	u.superAdminMu.Lock()
+	defer u.superAdminMu.Unlock()
 	if err := u.mutateUser(ctx, userID, func(target *userModel.User) error {
 		if err := requireManageableTarget(caller.Role, rbac.Role(target.Role)); err != nil {
 			return err
 		}
 		if status == userModel.UserStatusBlocked {
+			// Blocking the last active super_admin locks the platform just like deleting them.
+			if target.Role == rbac.RoleSuperAdmin {
+				if err := u.guardLastSuperAdmin(ctx, target); err != nil {
+					return err
+				}
+			}
 			return target.Block(time.Now())
 		}
 		return target.Activate(time.Now())
@@ -291,10 +301,17 @@ func requireManageableTarget(caller, target rbac.Role) error {
 	return nil
 }
 
-// guardLastSuperAdmin returns ErrLastSuperAdmin when there is only one (or
-// zero) super_admin left, preventing accidental lockout.
-func (u *AuthUseCase) guardLastSuperAdmin(ctx context.Context) error {
-	count, err := u.users.CountByRole(ctx, string(rbac.RoleSuperAdmin))
+// guardLastSuperAdmin returns ErrLastSuperAdmin when taking target out of
+// service (demote, block, delete) would leave no active super_admin: the
+// platform could not be administered, and the only way back would be a database
+// edit. A target that is already blocked is not counted on, so removing it
+// changes nothing. Callers hold u.superAdminMu: the count and the write that
+// follows are one decision, and two concurrent demotions must not both pass.
+func (u *AuthUseCase) guardLastSuperAdmin(ctx context.Context, target *userModel.User) error {
+	if target.IsBlocked() {
+		return nil
+	}
+	count, err := u.users.Count(ctx, "", []string{string(rbac.RoleSuperAdmin)}, string(userModel.UserStatusActive))
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to count super admins").Err()
 	}

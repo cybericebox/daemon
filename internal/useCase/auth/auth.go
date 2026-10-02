@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -98,6 +99,10 @@ type AuthUseCase struct {
 	cfg               config.AuthConfig
 	inboxRequests     IInboxRequests // nil until wired
 	limits            *authLimits
+	// superAdminMu serializes the operations that can take a super_admin out of
+	// service (demote, block, delete): the "last one" check and its write are one decision.
+	// In process: with several replicas the window is the length of one request.
+	superAdminMu sync.Mutex
 }
 
 // IInboxRequests withdraws a removed account's undecided applications for
@@ -222,6 +227,8 @@ func (u *AuthUseCase) mutateUserReturning(
 // invariant of account removal itself, enforced no matter who calls.
 // Permission checks stay with the callers.
 func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, authorize func(*userModel.User) error) error {
+	u.superAdminMu.Lock()
+	defer u.superAdminMu.Unlock()
 	if err := u.mutateUser(ctx, userID, func(user *userModel.User) error {
 		if authorize != nil {
 			if err := authorize(user); err != nil {
@@ -229,7 +236,7 @@ func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, a
 			}
 		}
 		if user.Role == rbac.RoleSuperAdmin {
-			if err := u.guardLastSuperAdmin(ctx); err != nil {
+			if err := u.guardLastSuperAdmin(ctx, user); err != nil {
 				return err
 			}
 		}

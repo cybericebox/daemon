@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -237,7 +238,7 @@ func TestAdminUpdateUserRole_DemoteSuperAdmin_LastOne(t *testing.T) {
 	// target user IS a super_admin and demoting to admin
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin)}, nil)
 	// only 1 super_admin exists
-	repo.EXPECT().CountUsersByRole(gomock.Any(), string(rbac.RoleSuperAdmin)).Return(int64(1), nil)
+	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(1), nil)
 
 	err := uc.UpdateUserRole(ctx, uid, rbac.RoleAdmin)
 	if !errors.Is(err, authModel.ErrLastSuperAdmin.Err()) {
@@ -283,7 +284,7 @@ func TestAdminDeleteUser_LastSuperAdminBlocked(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin)}, nil)
-	repo.EXPECT().CountUsersByRole(gomock.Any(), string(rbac.RoleSuperAdmin)).Return(int64(1), nil)
+	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(1), nil)
 
 	err := uc.DeleteUser(ctx, uid)
 	if !errors.Is(err, authModel.ErrLastSuperAdmin.Err()) {
@@ -454,5 +455,78 @@ func TestGetUser_ReturnsDetailWithSignInMethods(t *testing.T) {
 	}
 	if len(got.SignInMethods) != 2 || got.SignInMethods[0] != "email" || got.SignInMethods[1] != userModel.GoogleProvider {
 		t.Fatalf("unexpected sign-in methods: %v", got.SignInMethods)
+	}
+}
+
+// L10: blocking is a way out of service just like demoting or deleting.
+func TestAdminUpdateUserStatus_BlockLastActiveSuperAdminRefused(t *testing.T) {
+	uc, repo := newAdminUC(t)
+	ctx := adminCtx(rbac.RoleSuperAdmin)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active"}, nil)
+	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(1), nil)
+	// no UpdateUser, no session revocation
+
+	if err := uc.UpdateUserStatus(ctx, uid, userModel.UserStatusBlocked); !errors.Is(err, authModel.ErrLastSuperAdmin.Err()) {
+		t.Fatalf("want ErrLastSuperAdmin, got %v", err)
+	}
+}
+
+// A super_admin who is already blocked is not counted on: demoting or
+// deleting it cannot lock the platform.
+func TestAdminDemoteBlockedSuperAdminIsAllowed(t *testing.T) {
+	uc, repo := newAdminUC(t)
+	ctx := adminCtx(rbac.RoleSuperAdmin)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "blocked"}, nil)
+	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+	if err := uc.UpdateUserRole(ctx, uid, rbac.RoleAdmin); err != nil {
+		t.Fatalf("demote blocked super_admin: %v", err)
+	}
+}
+
+// L10 TOCTOU PoC: two super_admins demoted at the same moment each saw "two left" and both passed,
+// leaving none. The check and its write are one decision now.
+func TestAdminConcurrentDemotionsLeaveOneSuperAdmin(t *testing.T) {
+	uc, repo := newAdminUC(t)
+	a, b := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	active := int64(2)
+	var mu sync.Mutex
+	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.User, error) {
+		return postgres.User{ID: id, Role: string(rbac.RoleSuperAdmin), Status: "active"}, nil
+	}).AnyTimes()
+	repo.EXPECT().CountUsers(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, postgres.CountUsersParams) (int64, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return active, nil
+	}).AnyTimes()
+	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, postgres.UpdateUserParams) (int64, error) {
+		time.Sleep(30 * time.Millisecond) // the window between the check and the write
+		mu.Lock()
+		active--
+		mu.Unlock()
+		return 1, nil
+	}).AnyTimes()
+
+	var wg sync.WaitGroup
+	results := make([]error, 2)
+	for i, id := range []uuid.UUID{a, b} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i] = uc.UpdateUserRole(adminCtx(rbac.RoleSuperAdmin), id, rbac.RoleAdmin)
+		}()
+	}
+	wg.Wait()
+	ok := 0
+	for _, err := range results {
+		if err == nil {
+			ok++
+		} else if !errors.Is(err, authModel.ErrLastSuperAdmin.Err()) {
+			t.Fatalf("unexpected error %v", err)
+		}
+	}
+	if ok != 1 || active != 1 {
+		t.Fatalf("exactly one demotion may succeed: ok=%d active=%d", ok, active)
 	}
 }

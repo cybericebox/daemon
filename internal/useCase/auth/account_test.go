@@ -112,7 +112,7 @@ func TestDeleteAccount_LastSuperAdmin_Blocked(t *testing.T) {
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active"}, nil)
-	repo.EXPECT().CountUsersByRole(gomock.Any(), string(rbac.RoleSuperAdmin)).Return(int64(1), nil)
+	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(1), nil)
 	// no UpdateUser / DeleteUserSessions expectations: the cascade must not run
 
 	err := uc.DeleteAccount(context.Background(), uid)
@@ -128,7 +128,7 @@ func TestDeleteAccount_SuperAdminWithPeer_Allowed(t *testing.T) {
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active"}, nil)
-	repo.EXPECT().CountUsersByRole(gomock.Any(), string(rbac.RoleSuperAdmin)).Return(int64(2), nil)
+	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(2), nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
