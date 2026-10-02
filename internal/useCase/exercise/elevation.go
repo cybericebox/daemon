@@ -42,10 +42,12 @@ func (u *ExerciseUseCase) SetElevationInbox(inbox IElevationInbox) {
 	u.elevationInbox = inbox
 }
 
-// ElevationDevice is one device of a request: what it asks for, or what was approved.
+// ElevationDevice is one device of a request: the block it asks for, or the block that was approved. Blocks
+// is what a decision names; the sizes follow from it.
 type ElevationDevice struct {
 	DeviceID      uuid.UUID
 	Name          string
+	Blocks        int
 	CPUMillicores int64
 	MemoryBytes   int64
 }
@@ -71,10 +73,10 @@ type ElevationView struct {
 	DecidedAt       *time.Time
 }
 
-func toElevationDevices(in []resourcesModel.Approval) []ElevationDevice {
+func toElevationDevices(policy resourcesModel.Policy, in []resourcesModel.Approval) []ElevationDevice {
 	out := make([]ElevationDevice, 0, len(in))
 	for _, a := range in {
-		out = append(out, ElevationDevice{DeviceID: a.DeviceID, Name: a.Name, CPUMillicores: a.CPUMillicores, MemoryBytes: a.MemoryBytes})
+		out = append(out, ElevationDevice{DeviceID: a.DeviceID, Name: a.Name, Blocks: policy.BlocksOf(a.Amount), CPUMillicores: a.CPUMillicores, MemoryBytes: a.MemoryBytes})
 	}
 	return out
 }
@@ -83,17 +85,17 @@ func (u *ExerciseUseCase) toElevationView(ctx context.Context, e resourcesModel.
 	names := u.authorNames(ctx, e.RequestedBy, e.DecidedBy)
 	return ElevationView{
 		ID: e.ID, ExerciseID: e.ExerciseID, ExerciseName: exerciseName, VersionID: uuidPtr(e.VersionID), Status: e.Status.String(), Reason: e.Reason,
-		Requested: toElevationDevices(e.Requested), Approved: toElevationDevices(e.Approved), DecisionNote: e.DecisionNote,
+		Requested: toElevationDevices(u.Policy(), e.Requested), Approved: toElevationDevices(u.Policy(), e.Approved), DecisionNote: e.DecisionNote,
 		RequestedBy: uuidPtr(e.RequestedBy), RequestedByName: names[e.RequestedBy.UUID], RequestedAt: e.RequestedAt,
 		DecidedBy: uuidPtr(e.DecidedBy), DecidedByName: names[e.DecidedBy.UUID], DecidedAt: e.DecidedAt,
 	}
 }
 
-// describeApprovals is the devices as text for a notification: "db: 500m / 2Gi, web: 250m / 1Gi".
-func describeApprovals(devices []resourcesModel.Approval) string {
+// describeApprovals is the devices as text for a notification: "db: 32 blocks (500m / 2Gi), web: 16 blocks (250m / 1Gi)".
+func describeApprovals(policy resourcesModel.Policy, devices []resourcesModel.Approval) string {
 	parts := make([]string, 0, len(devices))
 	for _, d := range devices {
-		parts = append(parts, d.Name+": "+strconv.FormatInt(d.CPUMillicores, 10)+"m / "+formatBytes(d.MemoryBytes))
+		parts = append(parts, d.Name+": "+strconv.Itoa(policy.BlocksOf(d.Amount))+" blocks ("+strconv.FormatInt(d.CPUMillicores, 10)+"m / "+formatBytes(d.MemoryBytes)+")")
 	}
 	return strings.Join(parts, ", ")
 }
@@ -129,7 +131,7 @@ func (u *ExerciseUseCase) RequestElevation(ctx context.Context, actor Actor, exe
 	policy := u.Policy()
 	for _, o := range policy.OutsideFrame(working.Variants) {
 		if o.AboveCeiling {
-			return ElevationView{}, exerciseModel.ErrDeviceResourcesAboveCeiling.WithPublicContext("devices", describeOutside([]DeviceOutside{{Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes}})).
+			return ElevationView{}, exerciseModel.ErrDeviceResourcesAboveCeiling.WithPublicContext("devices", describeOutside([]DeviceOutside{{Name: o.Name, Blocks: o.Blocks, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes}})).
 				WithPublicContext("ceilingCpuMillicores", policy.Ceiling.CPUMillicores).WithPublicContext("ceilingMemoryBytes", policy.Ceiling.MemoryBytes).Err()
 		}
 	}
@@ -231,11 +233,12 @@ func (u *ExerciseUseCase) elevationViews(ctx context.Context, rows []resourcesMo
 		people = append(people, r.RequestedBy, r.DecidedBy)
 	}
 	names := u.authorNames(ctx, people...)
+	policy := u.Policy()
 	out := make([]ElevationView, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, ElevationView{
 			ID: r.ID, ExerciseID: r.ExerciseID, ExerciseName: r.ExerciseName, VersionID: uuidPtr(r.VersionID), Status: r.Status.String(), Reason: r.Reason,
-			Requested: toElevationDevices(r.Requested), Approved: toElevationDevices(r.Approved), DecisionNote: r.DecisionNote,
+			Requested: toElevationDevices(policy, r.Requested), Approved: toElevationDevices(policy, r.Approved), DecisionNote: r.DecisionNote,
 			RequestedBy: uuidPtr(r.RequestedBy), RequestedByName: names[r.RequestedBy.UUID], RequestedAt: r.RequestedAt,
 			DecidedBy: uuidPtr(r.DecidedBy), DecidedByName: names[r.DecidedBy.UUID], DecidedAt: r.DecidedAt,
 		})
@@ -243,15 +246,17 @@ func (u *ExerciseUseCase) elevationViews(ctx context.Context, rows []resourcesMo
 	return out
 }
 
-// DecideElevationInput is the admin's decision. Devices are the approved values per requested device; empty
-// approves exactly what was requested. Ignored when rejecting.
+// DecideElevationInput is the admin's decision. Devices name the approved block per requested device (only
+// DeviceID and Blocks count): the requested block or a smaller allowed one; empty approves exactly what was
+// requested. Ignored when rejecting.
 type DecideElevationInput struct {
 	Approve bool
 	Note    string
 	Devices []ElevationDevice
 }
 
-// DecideElevation approves or rejects a pending request. The approval stores the approved values per device.
+// DecideElevation approves or rejects a pending request. The approval stores the approved block per device; a
+// block count the platform does not offer, or one larger than requested, is refused as invalid.
 // Route gate: exercises.elevations.write.
 func (u *ExerciseUseCase) DecideElevation(ctx context.Context, actor Actor, id uuid.UUID, in DecideElevationInput) (ElevationView, error) {
 	if u.elevations == nil {
@@ -266,11 +271,16 @@ func (u *ExerciseUseCase) DecideElevation(ctx context.Context, actor Actor, id u
 	}
 	now := time.Now()
 	if in.Approve {
+		policy := u.Policy()
 		var values []resourcesModel.Approval
 		for _, d := range in.Devices {
-			values = append(values, resourcesModel.Approval{DeviceID: d.DeviceID, Name: nameOf(elevation.Requested, d.DeviceID, d.Name), Amount: resourcesModel.Amount{CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes}})
+			preset, offered := policy.PresetByBlocks(d.Blocks)
+			if !offered {
+				return ElevationView{}, exerciseModel.ErrElevationInvalid.Err()
+			}
+			values = append(values, resourcesModel.Approval{DeviceID: d.DeviceID, Name: nameOf(elevation.Requested, d.DeviceID, d.Name), Amount: preset.Amount})
 		}
-		err = elevation.Approve(values, u.Policy().Ceiling, actor.UserID, in.Note, now)
+		err = elevation.Approve(values, policy, actor.UserID, in.Note, now)
 	} else {
 		err = elevation.Reject(actor.UserID, in.Note, now)
 	}
@@ -315,7 +325,7 @@ func (u *ExerciseUseCase) notifyElevation(ctx context.Context, e resourcesModel.
 	}
 	notice := inboxUseCase.Elevation{
 		ID: e.ID, ExerciseID: e.ExerciseID, ExerciseName: exerciseName, RequestedBy: e.RequestedBy.UUID, RequestedAt: e.RequestedAt,
-		Reason: e.Reason, DecisionNote: e.DecisionNote, Devices: describeApprovals(devices),
+		Reason: e.Reason, DecisionNote: e.DecisionNote, Devices: describeApprovals(u.Policy(), devices),
 	}
 	if err := send(notice); err != nil {
 		log.Error().Err(err).Str("elevation_id", e.ID.String()).Msg("Failed to update the resource elevation inbox")

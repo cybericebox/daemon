@@ -235,7 +235,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Store: resourceCalendarRepo.New(deps.Repo), Tx: calendarTx{uow: postgres.NewUnitOfWorker[resourceCalendarRepo.Queries](deps.Repo.UoWFactory())},
 		Agents: infrastructureAgentRepo.New(deps.Repo), Events: eventRepo.New(deps.Repo), Configs: eventConfigRepo.New(deps.Repo),
 		Planner: calendarNeeds{events: eventUC}, Usage: calendarUsage{observations: eventLabObservationRepo.New(deps.Repo)},
-		Config: deps.Calendar, Frame: deps.ResourcesPolicy.Frame, Overhead: groupOverhead(deps.LabAgent),
+		Config: deps.Calendar, Frame: deps.ResourcesPolicy.Frame, Policy: deps.ResourcesPolicy, Overhead: groupOverhead(deps.LabAgent),
 	})
 	eventUC.SetResourceGate(calendarUC)
 	exerciseUC.SetTestLabGate(calendarUC)

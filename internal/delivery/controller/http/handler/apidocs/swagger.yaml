@@ -1201,6 +1201,8 @@ definitions:
     type: object
   event.eventResourceTotalsResponse:
     properties:
+      Blocks:
+        type: integer
       CPUMillicores:
         type: integer
       Devices:
@@ -1799,17 +1801,10 @@ definitions:
           latest snapshot), false returns it to normal.
         type: boolean
     type: object
-  event.resourceAmountResponse:
-    properties:
-      CPUMillicores:
-        type: integer
-      MemoryBytes:
-        type: integer
-    type: object
   event.resourcePlanGroupResponse:
     properties:
       Gateway:
-        $ref: '#/definitions/event.resourceAmountResponse'
+        $ref: '#/definitions/event.resourcePodResponse'
       InternetLabs:
         type: integer
       Known:
@@ -1821,7 +1816,7 @@ definitions:
           what every used laboratory can size a group for.'
         type: boolean
       VPN:
-        $ref: '#/definitions/event.resourceAmountResponse'
+        $ref: '#/definitions/event.resourcePodResponse'
     type: object
   event.resourcePlanTaskResponse:
     properties:
@@ -1844,6 +1839,15 @@ definitions:
           (the pinned one for a fixed variant).'
       ResourceHeavy:
         type: boolean
+    type: object
+  event.resourcePodResponse:
+    properties:
+      Blocks:
+        type: integer
+      CPUMillicores:
+        type: integer
+      MemoryBytes:
+        type: integer
     type: object
   event.resultsFreezeStateResponse:
     properties:
@@ -4856,6 +4860,13 @@ definitions:
       Note:
         type: string
     type: object
+  exercise.approvedDeviceRequest:
+    properties:
+      Blocks:
+        type: integer
+      DeviceID:
+        type: string
+    type: object
   exercise.attachmentDTO:
     properties:
       FileID:
@@ -4895,13 +4906,13 @@ definitions:
   exercise.decideElevationRequest:
     properties:
       Devices:
+        description: |-
+          Devices (approve only) are the approved block per requested device: the requested block or a smaller block
+          the platform offers (400, 20972 otherwise); empty approves exactly what was requested.
         items:
-          $ref: '#/definitions/exercise.elevationDeviceResponse'
+          $ref: '#/definitions/exercise.approvedDeviceRequest'
         type: array
       Note:
-        description: |-
-          Devices (approve only) are the approved values per requested device (a value may be lower than
-          requested, never above the ceiling); empty approves exactly what was requested.
         type: string
     type: object
   exercise.deployAccessResponse:
@@ -5085,11 +5096,14 @@ definitions:
         description: Persistence is absent when the device keeps no state.
       ResourcePreset:
         description: |-
-          ResourcePreset is a platform preset id (see the capabilities Resources); when empty the device carries its
-          own custom Resources (limits; requests always equal limits), and with neither it gets the default preset.
+          ResourcePreset is a platform preset id (a whole number of blocks, see the capabilities Resources); when empty
+          the device gets the default preset. There is no custom size.
         type: string
       Resources:
-        $ref: '#/definitions/exercise.resourcesDTO'
+        allOf:
+        - $ref: '#/definitions/exercise.resourcesDTO'
+        description: 'Resources is refused (400, 20974): a device size is a preset.
+          It is never returned.'
       SecurityPreset:
         type: string
       Type:
@@ -5099,6 +5113,8 @@ definitions:
     properties:
       AboveCeiling:
         type: boolean
+      Blocks:
+        type: integer
       CPUMillicores:
         type: integer
       Covered:
@@ -5121,6 +5137,8 @@ definitions:
     type: object
   exercise.elevationDeviceResponse:
     properties:
+      Blocks:
+        type: integer
       CPUMillicores:
         type: integer
       DeviceID:
@@ -5569,6 +5587,8 @@ definitions:
     type: object
   exercise.resourceTotalsResponse:
     properties:
+      Blocks:
+        type: integer
       CPUMillicores:
         type: integer
       Devices:
@@ -5704,6 +5724,8 @@ definitions:
     type: object
   exercise.variantResourcesResponse:
     properties:
+      Blocks:
+        type: integer
       CPUMillicores:
         type: integer
       Devices:
@@ -18733,19 +18755,19 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'The approval stores the approved values per device (default: exactly
-        what was requested; lower values are allowed, never above the ceiling): a
-        later version of the exercise keeps it while every value stays at or below
-        them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid
-        approved values. Notifies the author and closes the admins'' request. Requires
-        exercises.elevations.write (super_admin only).'
+      description: 'The approval stores the approved block per device (default: exactly
+        what was requested; a smaller block the platform offers is allowed, a larger
+        one is not): a later version of the exercise keeps it while every device stays
+        at or below that block. 404 (30968), 409 (70971) when already decided, 400
+        (20972) for an invalid approved block. Notifies the author and closes the
+        admins'' request. Requires exercises.elevations.write (super_admin only).'
       parameters:
       - description: request ID
         in: path
         name: elevationID
         required: true
         type: string
-      - description: note and optional approved values
+      - description: note and optional approved blocks
         in: body
         name: body
         schema:
@@ -19595,17 +19617,17 @@ paths:
       consumes:
       - application/json
       description: 'Creates or updates the reservation (platform admin only). Size
-        = the resource plan of the event per team x teams + the buffer (default 0: the agent keeps its own hidden packing reserve)
-        + the organizer''s estimate for future dynamic tasks; the window runs from
-        the stand deploy lead (plus a readiness margin) to the event end + the tail
-        gap (default and minimum 1 h, the admin may set more). The reservation is
-        placed over the agents by packing: a team stays whole on one agent, the fewest
-        agents are used, then agent priority, and elevated tasks only go to agents
-        whose maxima fit. A changed reservation keeps every team that still fits where
-        it is. One that does not fit is refused with 409 (the context names the first
-        conflicting slot) unless AllowConflicts is set; it is then kept, marked not
-        covered, and an alarm is raised. DryRun reports the placement and conflicts
-        without saving. Requires infrastructure.write.'
+        = the resource plan of the event per team x teams + the buffer (default 0:
+        the agent keeps its own hidden packing reserve) + the organizer''s estimate
+        for future dynamic tasks; the window runs from the stand deploy lead (plus
+        a readiness margin) to the event end + the tail gap (default and minimum 1
+        h, the admin may set more). The reservation is placed over the agents by packing:
+        a team stays whole on one agent, the fewest agents are used, then agent priority,
+        and elevated tasks only go to agents whose maxima fit. A changed reservation
+        keeps every team that still fits where it is. One that does not fit is refused
+        with 409 (the context names the first conflicting slot) unless AllowConflicts
+        is set; it is then kept, marked not covered, and an alarm is raised. DryRun
+        reports the placement and conflicts without saving. Requires infrastructure.write.'
       parameters:
       - description: event ID
         in: path

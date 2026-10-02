@@ -136,6 +136,9 @@ type (
 		Notifier Notifier
 		Config   Config
 		Frame    resourcesModel.Amount
+		// Policy is the platform's device sizes: the agent's largest placeable device is mapped down to the largest
+		// allowed block. Empty: the owner's defaults.
+		Policy resourcesModel.Policy
 		// Overhead is the group's own pods a test laboratory adds (the VPN and gateway of its group); nil adds none.
 		Overhead func() Amount
 		Now      func() time.Time
@@ -153,6 +156,7 @@ type (
 		notifier Notifier
 		cfg      Config
 		frame    resourcesModel.Amount
+		policy   resourcesModel.Policy
 		overhead func() Amount
 		now      func() time.Time
 	}
@@ -201,8 +205,12 @@ func New(deps Dependencies) *ResourceCalendarUseCase {
 	if frame == (resourcesModel.Amount{}) {
 		frame = resourcesModel.DefaultPolicy().Frame
 	}
+	policy := deps.Policy
+	if len(policy.Presets) == 0 {
+		policy = resourcesModel.DefaultPolicy()
+	}
 	return &ResourceCalendarUseCase{
-		store: deps.Store, tx: deps.Tx, agents: deps.Agents, events: deps.Events, configs: deps.Configs, planner: deps.Planner,
+		policy: policy, store: deps.Store, tx: deps.Tx, agents: deps.Agents, events: deps.Events, configs: deps.Configs, planner: deps.Planner,
 		usage: deps.Usage, notifier: deps.Notifier, cfg: deps.Config.withDefaults(), frame: frame, overhead: deps.Overhead, now: now,
 	}
 }
@@ -277,6 +285,7 @@ func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time
 			if d := r.MaxDevice; d != nil {
 				st.DeviceMax = tighter(st.DeviceMax, Amount{CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
 			}
+			st.DeviceMax = u.largestBlock(st.DeviceMax)
 		}
 		out = append(out, st)
 	}
@@ -302,6 +311,28 @@ func connectedAgents(states []agentState) []calModel.Agent {
 		}
 	}
 	return calModel.Ordered(out)
+}
+
+// largestBlock maps the largest device an agent can place down to the largest allowed block: devices are whole
+// blocks, so a device above that block does not fit the agent. A resource without a limit (zero) is not
+// constraining; with no limit at all, or none that holds the smallest block, the maximum is left as it is.
+func (u *ResourceCalendarUseCase) largestBlock(limit Amount) Amount {
+	if limit.CPUMillicores <= 0 && limit.MemoryBytes <= 0 {
+		return limit
+	}
+	ceiling := u.policy.Ceiling
+	probe := limit
+	if probe.CPUMillicores <= 0 {
+		probe.CPUMillicores = ceiling.CPUMillicores
+	}
+	if probe.MemoryBytes <= 0 {
+		probe.MemoryBytes = ceiling.MemoryBytes
+	}
+	preset, ok := u.policy.Largest(probe)
+	if !ok {
+		return limit
+	}
+	return Amount{CPUMillicores: preset.CPUMillicores, MemoryBytes: preset.MemoryBytes}
 }
 
 // tighter is the smaller of two device maxima per resource, where zero means no limit.

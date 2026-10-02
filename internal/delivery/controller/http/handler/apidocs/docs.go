@@ -14093,7 +14093,7 @@ const docTemplate = `{
         },
         "/exercises/elevations/{elevationID}/approve": {
             "post": {
-                "description": "The approval stores the approved values per device (default: exactly what was requested; lower values are allowed, never above the ceiling): a later version of the exercise keeps it while every value stays at or below them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid approved values. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).",
+                "description": "The approval stores the approved block per device (default: exactly what was requested; a smaller block the platform offers is allowed, a larger one is not): a later version of the exercise keeps it while every device stays at or below that block. 404 (30968), 409 (70971) when already decided, 400 (20972) for an invalid approved block. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).",
                 "consumes": [
                     "application/json"
                 ],
@@ -14113,7 +14113,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "note and optional approved values",
+                        "description": "note and optional approved blocks",
                         "name": "body",
                         "in": "body",
                         "schema": {
@@ -22548,6 +22548,9 @@ const docTemplate = `{
         "event.eventResourceTotalsResponse": {
             "type": "object",
             "properties": {
+                "Blocks": {
+                    "type": "integer"
+                },
                 "CPUMillicores": {
                     "type": "integer"
                 },
@@ -23447,22 +23450,11 @@ const docTemplate = `{
                 }
             }
         },
-        "event.resourceAmountResponse": {
-            "type": "object",
-            "properties": {
-                "CPUMillicores": {
-                    "type": "integer"
-                },
-                "MemoryBytes": {
-                    "type": "integer"
-                }
-            }
-        },
         "event.resourcePlanGroupResponse": {
             "type": "object",
             "properties": {
                 "Gateway": {
-                    "$ref": "#/definitions/event.resourceAmountResponse"
+                    "$ref": "#/definitions/event.resourcePodResponse"
                 },
                 "InternetLabs": {
                     "type": "integer"
@@ -23478,7 +23470,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "VPN": {
-                    "$ref": "#/definitions/event.resourceAmountResponse"
+                    "$ref": "#/definitions/event.resourcePodResponse"
                 }
             }
         },
@@ -23513,6 +23505,20 @@ const docTemplate = `{
                 },
                 "ResourceHeavy": {
                     "type": "boolean"
+                }
+            }
+        },
+        "event.resourcePodResponse": {
+            "type": "object",
+            "properties": {
+                "Blocks": {
+                    "type": "integer"
+                },
+                "CPUMillicores": {
+                    "type": "integer"
+                },
+                "MemoryBytes": {
+                    "type": "integer"
                 }
             }
         },
@@ -27989,6 +27995,17 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.approvedDeviceRequest": {
+            "type": "object",
+            "properties": {
+                "Blocks": {
+                    "type": "integer"
+                },
+                "DeviceID": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.attachmentDTO": {
             "type": "object",
             "properties": {
@@ -28045,13 +28062,13 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Devices": {
+                    "description": "Devices (approve only) are the approved block per requested device: the requested block or a smaller block\nthe platform offers (400, 20972 otherwise); empty approves exactly what was requested.",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/exercise.elevationDeviceResponse"
+                        "$ref": "#/definitions/exercise.approvedDeviceRequest"
                     }
                 },
                 "Note": {
-                    "description": "Devices (approve only) are the approved values per requested device (a value may be lower than\nrequested, never above the ceiling); empty approves exactly what was requested.",
                     "type": "string"
                 }
             }
@@ -28321,11 +28338,16 @@ const docTemplate = `{
                     ]
                 },
                 "ResourcePreset": {
-                    "description": "ResourcePreset is a platform preset id (see the capabilities Resources); when empty the device carries its\nown custom Resources (limits; requests always equal limits), and with neither it gets the default preset.",
+                    "description": "ResourcePreset is a platform preset id (a whole number of blocks, see the capabilities Resources); when empty\nthe device gets the default preset. There is no custom size.",
                     "type": "string"
                 },
                 "Resources": {
-                    "$ref": "#/definitions/exercise.resourcesDTO"
+                    "description": "Resources is refused (400, 20974): a device size is a preset. It is never returned.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.resourcesDTO"
+                        }
+                    ]
                 },
                 "SecurityPreset": {
                     "type": "string"
@@ -28340,6 +28362,9 @@ const docTemplate = `{
             "properties": {
                 "AboveCeiling": {
                     "type": "boolean"
+                },
+                "Blocks": {
+                    "type": "integer"
                 },
                 "CPUMillicores": {
                     "type": "integer"
@@ -28375,6 +28400,9 @@ const docTemplate = `{
         "exercise.elevationDeviceResponse": {
             "type": "object",
             "properties": {
+                "Blocks": {
+                    "type": "integer"
+                },
                 "CPUMillicores": {
                     "type": "integer"
                 },
@@ -29044,6 +29072,9 @@ const docTemplate = `{
         "exercise.resourceTotalsResponse": {
             "type": "object",
             "properties": {
+                "Blocks": {
+                    "type": "integer"
+                },
                 "CPUMillicores": {
                     "type": "integer"
                 },
@@ -29241,6 +29272,9 @@ const docTemplate = `{
         "exercise.variantResourcesResponse": {
             "type": "object",
             "properties": {
+                "Blocks": {
+                    "type": "integer"
+                },
                 "CPUMillicores": {
                     "type": "integer"
                 },

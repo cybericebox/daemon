@@ -334,19 +334,22 @@ type (
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 	}
 
-	// ResourcesConfig is the platform's device resources model (RESOURCES_*). Values are Kubernetes quantities as
-	// cpu/memory.
+	// ResourcesConfig is the platform's device resources model (RESOURCES_*): a device is a whole number of
+	// blocks, there is no custom size.
 	ResourcesConfig struct {
-		// Presets are the device sizes an author picks, as id=cpu/memory separated by commas; the ids are
-		// translated by the frontends (micro, small, medium, large). Every preset sits in the frame.
-		Presets string `env:"PRESETS" envDefault:"micro=25m/64Mi,small=50m/128Mi,medium=125m/512Mi,large=250m/1Gi"`
+		// Block is one unit of a device size as cpu/memory (Kubernetes quantities). CPU is tied to memory at
+		// 1 core : 4 GiB, so a 64Mi block is 15625u (about 16m) and 16 blocks are exactly 250m / 1Gi.
+		Block string `env:"BLOCK" envDefault:"15625u/64Mi"`
+		// Presets are the allowed device sizes as id=blocks separated by commas; the ids are translated by the
+		// frontends. Every count divides the next larger one, so packing leaves no hole.
+		Presets string `env:"PRESETS" envDefault:"micro=1,small=2,medium=8,large=16,xlarge=32,huge=64"`
 		// DefaultPreset is the size of a device that picked none.
 		DefaultPreset string `env:"DEFAULT_PRESET" envDefault:"micro"`
-		// Frame is the most a device gets without approval; an agent whose device maxima are below it does not
-		// meet the platform requirements.
-		Frame string `env:"FRAME" envDefault:"250m/1Gi"`
-		// ElevationCeiling is the most an approved elevation may give a device.
-		ElevationCeiling string `env:"ELEVATION_CEILING" envDefault:"1/4Gi"`
+		// FrameBlocks is the most a device gets without approval; an agent whose device maximum is below it
+		// does not meet the platform requirements.
+		FrameBlocks int `env:"FRAME_BLOCKS" envDefault:"16"`
+		// CeilingBlocks is the most an approved elevation may give a device.
+		CeilingBlocks int `env:"CEILING_BLOCKS" envDefault:"64"`
 	}
 
 	// CalendarConfig is the resource calendar (CALENDAR_*): how an event reservation is sized and windowed, and
@@ -598,7 +601,7 @@ func (c ErrorJournalConfig) Validate() error {
 
 // Policy parses the device resources settings.
 func (c ResourcesConfig) Policy() (resourcesModel.Policy, error) {
-	policy, err := resourcesModel.ParsePolicy(c.Presets, c.DefaultPreset, c.Frame, c.ElevationCeiling)
+	policy, err := resourcesModel.ParsePolicy(c.Block, c.Presets, c.DefaultPreset, c.FrameBlocks, c.CeilingBlocks)
 	if err != nil {
 		return resourcesModel.Policy{}, fmt.Errorf("resources: RESOURCES_*: %w", err)
 	}

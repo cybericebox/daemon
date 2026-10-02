@@ -166,7 +166,7 @@ func TestListExercisesFor_ItemsCarryTheTotalResourcesOfThePublishedVersion(t *te
 		t.Fatal(err)
 	}
 	got := res.Exercises[0].Resources
-	if got.Min.Devices != 1 || got.Min.CPUMillicores != 25 || got.Min.MemoryBytes != 64<<20 {
+	if got.Min.Devices != 1 || got.Min.CPUMillicores != 16 || got.Min.MemoryBytes != 64<<20 {
 		t.Fatalf("min = %+v: a device with nothing is the default preset", got.Min)
 	}
 	if got.Max.Devices != 1 || got.Max.CPUMillicores != 250 || got.Max.MemoryBytes != 1<<30 {

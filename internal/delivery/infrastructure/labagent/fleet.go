@@ -279,17 +279,19 @@ func (f *Fleet) Health(ctx context.Context) error {
 }
 
 func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
-	// The agent always gets explicit resources: requests equal limits, from the preset or the custom values.
+	// The need is read from the presets; then the agent gets explicit resources: requests equal limits, the
+	// size of the preset.
 	policy := f.Policy()
+	need := labNeed(policy, topo)
 	topo = policy.Explicitly(topo)
-	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), labNeed(policy, topo)))
+	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), need))
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
 	}
 	// A group that lives on an agent stays there: a lab that passes its maxima is refused here, with the
 	// same error the placement gives.
-	if v := fitOf(m, labNeed(policy, topo)); v != nil {
+	if v := fitOf(m, need); v != nil {
 		return noAgentFits(v)
 	}
 	// The agent says what it offers: a topology that needs more is refused here, before anything is created.

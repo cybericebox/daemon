@@ -103,12 +103,12 @@ func (h *Handler) getElevation(ctx *gin.Context) {
 
 // approveElevation godoc
 // @Summary  Approve a resource elevation request
-// @Description  The approval stores the approved values per device (default: exactly what was requested; lower values are allowed, never above the ceiling): a later version of the exercise keeps it while every value stays at or below them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid approved values. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).
+// @Description  The approval stores the approved block per device (default: exactly what was requested; a smaller block the platform offers is allowed, a larger one is not): a later version of the exercise keeps it while every device stays at or below that block. 404 (30968), 409 (70971) when already decided, 400 (20972) for an invalid approved block. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).
 // @Tags     exercises
 // @Accept   json
 // @Produce  json
 // @Param    elevationID  path  string                  true  "request ID"
-// @Param    body         body  decideElevationRequest  false "note and optional approved values"
+// @Param    body         body  decideElevationRequest  false "note and optional approved blocks"
 // @Success  200  {object}  response.Response{data=elevationResponse}
 // @Router   /exercises/elevations/{elevationID}/approve [post]
 func (h *Handler) approveElevation(ctx *gin.Context) { h.decideElevation(ctx, true) }
@@ -145,7 +145,7 @@ func (h *Handler) decideElevation(ctx *gin.Context, approve bool) {
 	in := exerciseUseCase.DecideElevationInput{Approve: approve, Note: req.Note}
 	if approve {
 		for _, d := range req.Devices {
-			in.Devices = append(in.Devices, exerciseUseCase.ElevationDevice{DeviceID: d.DeviceID, Name: d.Name, CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
+			in.Devices = append(in.Devices, exerciseUseCase.ElevationDevice{DeviceID: d.DeviceID, Blocks: d.Blocks})
 		}
 	}
 	e, err := h.useCase.DecideElevation(ctx, actor, id, in)

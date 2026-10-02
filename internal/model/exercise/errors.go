@@ -103,8 +103,6 @@ var (
 				WithMessage("Device type is invalid").WithDetailCode(17)
 	ErrDeviceInterfaceInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Device interface is invalid").WithDetailCode(18)
-	ErrDeviceResourcesInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-					WithMessage("Device resource quantity is invalid or request exceeds limit").WithDetailCode(39)
 	ErrDeviceRouteInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("Device static route requires a CIDR destination and same-family next-hop IP").WithDetailCode(40)
 	ErrDeviceStaticAddressCountInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
@@ -209,9 +207,13 @@ var (
 				WithMessage("The exercise already has a pending resource elevation request").WithDetailCode(70)
 	ErrElevationDecided = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("The resource elevation request was already decided").WithDetailCode(71)
-	// ErrElevationInvalid: approved values must name requested devices, be positive and stay within the ceiling.
+	// ErrElevationInvalid: approved blocks must name requested devices, be sizes the platform offers and be no
+	// larger than requested.
 	ErrElevationInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-				WithMessage("Approved values must be positive, for the requested devices and within the ceiling").WithDetailCode(72)
+				WithMessage("Approved blocks must be sizes the platform offers, for the requested devices and no larger than requested").WithDetailCode(72)
 	ErrElevationReasonRequired = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("A resource elevation request needs a reason").WithDetailCode(73)
+	// ErrDeviceCustomResources: a device size is a preset (a whole number of blocks); custom values are not accepted.
+	ErrDeviceCustomResources = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("A device size is a preset: custom resources are not accepted").WithDetailCode(74)
 )

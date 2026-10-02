@@ -27,7 +27,7 @@ func TestPublishedAndPinnedVariantsCarryOnlyWhatTheTotalsNeed(t *testing.T) {
 	variants[0].Topology.Devices = []exerciseModel.Device{
 		{ID: deviceA, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "secret-registry/img", ResourcePreset: "medium",
 			EnvVars: []exerciseModel.EnvVar{{Name: "PASS", Value: "ciphertext", Secret: true}}},
-		{ID: deviceB, Name: "db", Type: exerciseModel.DeviceTypeContainer, Resources: &exerciseModel.DeviceResources{CPULimit: "500m", MemoryLimit: "2Gi"}},
+		{ID: deviceB, Name: "db", Type: exerciseModel.DeviceTypeContainer, ResourcePreset: "xlarge"},
 		{ID: uuid.Must(uuid.NewV7()), Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch},
 	}
 	_, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
@@ -48,12 +48,11 @@ func TestPublishedAndPinnedVariantsCarryOnlyWhatTheTotalsNeed(t *testing.T) {
 	require.Equal(t, "medium", devices[0].ResourcePreset)
 	require.Empty(t, devices[0].Image, "images are not read")
 	require.Empty(t, devices[0].EnvVars, "secrets are not read")
-	require.NotNil(t, devices[1].Resources)
-	require.Equal(t, "500m", devices[1].Resources.CPULimit)
+	require.Equal(t, "xlarge", devices[1].ResourcePreset)
 
 	policy := resourcesModel.DefaultPolicy()
 	total := policy.Total(got[ex.ID][0].Topology)
-	require.Equal(t, resourcesModel.Totals{Devices: 2, Amount: resourcesModel.Amount{CPUMillicores: 625, MemoryBytes: 512<<20 + 2<<30}}, total)
+	require.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 40, Amount: resourcesModel.Amount{CPUMillicores: 625, MemoryBytes: 512<<20 + 2<<30}}, total)
 
 	byVersion, err := repo.VersionVariants(ctx, []uuid.UUID{published.ID})
 	require.NoError(t, err)

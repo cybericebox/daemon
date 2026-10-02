@@ -365,13 +365,14 @@ type deviceDTO struct {
 	Type           string     `json:"Type"`
 	Image          string     `json:"Image,omitempty"`
 	SecurityPreset string     `json:"SecurityPreset,omitempty"`
-	// ResourcePreset is a platform preset id (see the capabilities Resources); when empty the device carries its
-	// own custom Resources (limits; requests always equal limits), and with neither it gets the default preset.
-	ResourcePreset string         `json:"ResourcePreset,omitempty"`
-	Resources      *resourcesDTO  `json:"Resources,omitempty"`
-	Interfaces     []interfaceDTO `json:"Interfaces,omitempty"`
-	EnvVars        []envVarDTO    `json:"EnvVars,omitempty"`
-	External       *externalDTO   `json:"External,omitempty"`
+	// ResourcePreset is a platform preset id (a whole number of blocks, see the capabilities Resources); when empty
+	// the device gets the default preset. There is no custom size.
+	ResourcePreset string `json:"ResourcePreset,omitempty"`
+	// Resources is refused (400, 20974): a device size is a preset. It is never returned.
+	Resources  *resourcesDTO  `json:"Resources,omitempty"`
+	Interfaces []interfaceDTO `json:"Interfaces,omitempty"`
+	EnvVars    []envVarDTO    `json:"EnvVars,omitempty"`
+	External   *externalDTO   `json:"External,omitempty"`
 	// Persistence is absent when the device keeps no state.
 	Persistence *persistenceDTO `json:"Persistence,omitempty"`
 }
@@ -408,19 +409,24 @@ type resourceAmountResponse struct {
 	MemoryBytes   int64 `json:"MemoryBytes"`
 }
 
-// resourcePresetResponse is a device size an author picks; the ids (micro, small, medium, large) are translated
-// by the frontend.
+// resourcePresetResponse is a device size an author picks, a whole number of blocks; the ids (micro, small,
+// medium, large, xlarge, huge) are translated by the frontend.
 type resourcePresetResponse struct {
 	ID            string `json:"ID"`
+	Blocks        int    `json:"Blocks"`
 	CPUMillicores int64  `json:"CPUMillicores"`
 	MemoryBytes   int64  `json:"MemoryBytes"`
 }
 
-// resourceSettingsResponse is the platform's device resources settings. A device outside the Frame needs an
-// approved elevation (up to the Ceiling) to publish; a draft always saves.
+// resourceSettingsResponse is the platform's device resources settings. A device size is a whole number of
+// blocks (Block is one block); there is no custom size. A device above the Frame (FrameBlocks) needs an approved
+// elevation (up to the Ceiling, CeilingBlocks) to publish; a draft always saves.
 type resourceSettingsResponse struct {
+	Block         resourceAmountResponse   `json:"Block"`
 	Presets       []resourcePresetResponse `json:"Presets"`
 	DefaultPreset string                   `json:"DefaultPreset"`
+	FrameBlocks   int                      `json:"FrameBlocks"`
+	CeilingBlocks int                      `json:"CeilingBlocks"`
 	Frame         resourceAmountResponse   `json:"Frame"`
 	Ceiling       resourceAmountResponse   `json:"Ceiling"`
 	// MaxDevicesPerLab, MaxInterfacesPerDevice and MaxPortsPerSwitch are constants of the laboratory.
@@ -433,21 +439,24 @@ type resourceSettingsResponse struct {
 
 func toResourceSettings(p resourcesModel.Policy) resourceSettingsResponse {
 	out := resourceSettingsResponse{
-		Presets: make([]resourcePresetResponse, 0, len(p.Presets)), DefaultPreset: p.DefaultPreset,
+		Block:   resourceAmountResponse{CPUMillicores: p.Block.CPUMillicores, MemoryBytes: p.Block.MemoryBytes},
+		Presets: make([]resourcePresetResponse, 0, len(p.Presets)), DefaultPreset: p.DefaultPreset, FrameBlocks: p.FrameBlocks, CeilingBlocks: p.CeilingBlocks,
 		Frame:            resourceAmountResponse{CPUMillicores: p.Frame.CPUMillicores, MemoryBytes: p.Frame.MemoryBytes},
 		Ceiling:          resourceAmountResponse{CPUMillicores: p.Ceiling.CPUMillicores, MemoryBytes: p.Ceiling.MemoryBytes},
 		MaxDevicesPerLab: resourcesModel.MaxDevicesPerLab, MaxInterfacesPerDevice: resourcesModel.InterfacesPerContainerDevice,
 		MaxPortsPerSwitch: resourcesModel.PortsPerSwitch, VariantSpreadWarnPercent: exerciseUseCase.SpreadWarnPercent,
 	}
 	for _, preset := range p.Presets {
-		out.Presets = append(out.Presets, resourcePresetResponse{ID: preset.ID, CPUMillicores: preset.CPUMillicores, MemoryBytes: preset.MemoryBytes})
+		out.Presets = append(out.Presets, resourcePresetResponse{ID: preset.ID, Blocks: preset.Blocks, CPUMillicores: preset.CPUMillicores, MemoryBytes: preset.MemoryBytes})
 	}
 	return out
 }
 
-// resourceTotalsResponse is what a topology or task needs: its container devices and their CPU and memory.
+// resourceTotalsResponse is what a topology or task needs: its container devices, their blocks and the CPU
+// and memory of those blocks.
 type resourceTotalsResponse struct {
 	Devices       int   `json:"Devices"`
+	Blocks        int   `json:"Blocks"`
 	CPUMillicores int64 `json:"CPUMillicores"`
 	MemoryBytes   int64 `json:"MemoryBytes"`
 }
@@ -459,7 +468,7 @@ type resourceRangeResponse struct {
 }
 
 func totalsToResponse(t exerciseUseCase.ResourceTotals) resourceTotalsResponse {
-	return resourceTotalsResponse{Devices: t.Devices, CPUMillicores: t.CPUMillicores, MemoryBytes: t.MemoryBytes}
+	return resourceTotalsResponse{Devices: t.Devices, Blocks: t.Blocks, CPUMillicores: t.CPUMillicores, MemoryBytes: t.MemoryBytes}
 }
 
 func rangeToResponse(r exerciseUseCase.ResourceRange) resourceRangeResponse {
@@ -477,6 +486,7 @@ type deviceOutsideResponse struct {
 	VariantID     uuid.UUID `json:"VariantID"`
 	DeviceID      uuid.UUID `json:"DeviceID"`
 	Name          string    `json:"Name"`
+	Blocks        int       `json:"Blocks"`
 	CPUMillicores int64     `json:"CPUMillicores"`
 	MemoryBytes   int64     `json:"MemoryBytes"`
 	Covered       bool      `json:"Covered"`
@@ -508,22 +518,24 @@ func versionResourcesToResponse(r exerciseUseCase.VersionResources) versionResou
 		out.Variants = append(out.Variants, variantResourcesResponse{VariantID: v.VariantID, resourceTotalsResponse: totalsToResponse(v.ResourceTotals)})
 	}
 	for _, o := range r.Outside {
-		out.Outside = append(out.Outside, deviceOutsideResponse{VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes, Covered: o.Covered, AboveCeiling: o.AboveCeiling})
+		out.Outside = append(out.Outside, deviceOutsideResponse{VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, Blocks: o.Blocks, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes, Covered: o.Covered, AboveCeiling: o.AboveCeiling})
 	}
 	return out
 }
 
-// elevationDeviceResponse is one device of a request (what it asks for) or of an approval (what was allowed).
+// elevationDeviceResponse is one device of a request (the block it asks for) or of an approval (the block that
+// was allowed).
 type elevationDeviceResponse struct {
 	DeviceID      uuid.UUID `json:"DeviceID"`
 	Name          string    `json:"Name"`
+	Blocks        int       `json:"Blocks"`
 	CPUMillicores int64     `json:"CPUMillicores"`
 	MemoryBytes   int64     `json:"MemoryBytes"`
 }
 
-// elevationResponse is a request to take devices of a task above the platform frame. Approved holds the values
-// the admin allowed per device (empty until approved); a later version keeps the approval while every value
-// stays at or below them, and any raise needs a new request.
+// elevationResponse is a request to take devices of a task above the platform frame (a larger block per device).
+// Approved holds the block the admin allowed per device (empty until approved); a later version keeps the
+// approval while every device stays at or below that block, and any raise needs a new request.
 type elevationResponse struct {
 	ID           uuid.UUID  `json:"ID"`
 	ExerciseID   uuid.UUID  `json:"ExerciseID"`
@@ -546,7 +558,7 @@ type elevationResponse struct {
 func elevationDevicesToResponse(in []exerciseUseCase.ElevationDevice) []elevationDeviceResponse {
 	out := make([]elevationDeviceResponse, 0, len(in))
 	for _, d := range in {
-		out = append(out, elevationDeviceResponse{DeviceID: d.DeviceID, Name: d.Name, CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
+		out = append(out, elevationDeviceResponse{DeviceID: d.DeviceID, Name: d.Name, Blocks: d.Blocks, CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
 	}
 	return out
 }
@@ -573,11 +585,17 @@ type requestElevationRequest struct {
 	Reason string `json:"Reason"`
 }
 
+// approvedDeviceRequest is the block approved for one requested device.
+type approvedDeviceRequest struct {
+	DeviceID uuid.UUID `json:"DeviceID"`
+	Blocks   int       `json:"Blocks"`
+}
+
 type decideElevationRequest struct {
-	// Devices (approve only) are the approved values per requested device (a value may be lower than
-	// requested, never above the ceiling); empty approves exactly what was requested.
-	Note    string                    `json:"Note"`
-	Devices []elevationDeviceResponse `json:"Devices"`
+	Note string `json:"Note"`
+	// Devices (approve only) are the approved block per requested device: the requested block or a smaller block
+	// the platform offers (400, 20972 otherwise); empty approves exactly what was requested.
+	Devices []approvedDeviceRequest `json:"Devices"`
 }
 
 type versionResponse struct {
@@ -809,12 +827,6 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	for _, dev := range t.Devices {
 		id := dev.ID
 		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset}
-		if dev.Resources != nil {
-			dtoDev.Resources = &resourcesDTO{
-				CPURequest: dev.Resources.CPURequest, MemoryRequest: dev.Resources.MemoryRequest,
-				CPULimit: dev.Resources.CPULimit, MemoryLimit: dev.Resources.MemoryLimit,
-			}
-		}
 		for _, iface := range dev.Interfaces {
 			dtoIface := interfaceDTO{
 				Name: iface.Name, MAC: iface.MAC,

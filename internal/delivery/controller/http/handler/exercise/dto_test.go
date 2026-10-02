@@ -12,7 +12,7 @@ import (
 func TestTopologyDTORoundtripResourcesRoutes(t *testing.T) {
 	input := exerciseModel.Topology{Devices: []exerciseModel.Device{{
 		Name: "web", Type: exerciseModel.DeviceTypeContainer,
-		Resources: &exerciseModel.DeviceResources{CPURequest: "250m", MemoryLimit: "512Mi"},
+		ResourcePreset: "medium",
 		Interfaces: []exerciseModel.Interface{{Name: "eth0", IP: exerciseModel.IPConfig{
 			Type: exerciseModel.IPConfigTypeStatic, Addresses: []string{"10.0.0.2/24"},
 			Routes: []exerciseModel.Route{{Dst: "10.1.0.0/16", Via: "10.0.0.1"}},
@@ -20,8 +20,8 @@ func TestTopologyDTORoundtripResourcesRoutes(t *testing.T) {
 	}}}
 	dto := topologyToDTO(input)
 	got := dto.toDomain()
-	if !reflect.DeepEqual(got.Devices[0].Resources, input.Devices[0].Resources) {
-		t.Fatalf("resources lost: %#v", got.Devices[0].Resources)
+	if got.Devices[0].ResourcePreset != "medium" || got.Devices[0].Resources != nil {
+		t.Fatalf("preset lost: %#v", got.Devices[0])
 	}
 	if !reflect.DeepEqual(got.Devices[0].Interfaces[0].IP.Routes, input.Devices[0].Interfaces[0].IP.Routes) {
 		t.Fatalf("routes lost: %#v", got.Devices[0].Interfaces[0].IP.Routes)
@@ -30,7 +30,7 @@ func TestTopologyDTORoundtripResourcesRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{`"Resources"`, `"CPURequest":"250m"`, `"MemoryLimit":"512Mi"`, `"Routes"`, `"Dst":"10.1.0.0/16"`, `"Via":"10.0.0.1"`} {
+	for _, field := range []string{`"ResourcePreset":"medium"`, `"Routes"`, `"Dst":"10.1.0.0/16"`, `"Via":"10.0.0.1"`} {
 		if !strings.Contains(string(encoded), field) {
 			t.Errorf("response JSON missing %s: %s", field, encoded)
 		}
@@ -39,11 +39,13 @@ func TestTopologyDTORoundtripResourcesRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(legacy), `"Resources"`) || strings.Contains(string(legacy), `"Routes"`) {
+	if strings.Contains(string(legacy), `"Resources"`) || strings.Contains(string(legacy), `"ResourcePreset"`) || strings.Contains(string(legacy), `"Routes"`) {
 		t.Errorf("legacy device gained optional settings: %s", legacy)
 	}
 }
 
+// A custom Resources value still reaches the domain, where the topology validation refuses it (there is no
+// custom size); it is never returned.
 func TestTopologyDTOAcceptsResourcesRoutes(t *testing.T) {
 	var dto topologyDTO
 	raw := `{"Devices":[{"Name":"web","Type":"container","Resources":{"CPURequest":"250m"},"Interfaces":[{"Name":"eth0","IP":{"Type":"static","Addresses":["10.0.0.2/24"],"Routes":[{"Dst":"10.1.0.0/16","Via":"10.0.0.1"}]}}]}]}`
@@ -53,6 +55,10 @@ func TestTopologyDTOAcceptsResourcesRoutes(t *testing.T) {
 	device := dto.toDomain().Devices[0]
 	if device.Resources == nil || device.Resources.CPURequest != "250m" || len(device.Interfaces[0].IP.Routes) != 1 {
 		t.Fatalf("request settings lost: %+v", device)
+	}
+	back, err := json.Marshal(topologyToDTO(dto.toDomain()))
+	if err != nil || strings.Contains(string(back), `"Resources"`) {
+		t.Fatalf("custom resources are never returned: %v %s", err, back)
 	}
 }
 

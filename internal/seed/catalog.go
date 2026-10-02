@@ -178,9 +178,9 @@ func (v variantSpec) topology(exerciseKey, variantKey string) (exerciseModel.Top
 		}
 		built := exerciseModel.Device{
 			ID: id, Name: spec.Name, Type: exerciseModel.DeviceTypeContainer, Image: spec.Image, SecurityPreset: spec.Preset,
-			Resources:  &exerciseModel.DeviceResources{CPURequest: "25m", MemoryRequest: "32Mi", CPULimit: "250m", MemoryLimit: "128Mi"},
-			Interfaces: []exerciseModel.Interface{{Name: "eth0", IP: ip}},
-			EnvVars:    []exerciseModel.EnvVar{{Name: "SEED", Value: "1"}},
+			ResourcePreset: "small",
+			Interfaces:     []exerciseModel.Interface{{Name: "eth0", IP: ip}},
+			EnvVars:        []exerciseModel.EnvVar{{Name: "SEED", Value: "1"}},
 		}
 		if spec.Web {
 			built.External = &exerciseModel.ExternalAccess{Port: 80, Protocol: "http"}

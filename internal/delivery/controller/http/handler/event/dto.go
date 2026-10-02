@@ -556,9 +556,10 @@ type eventExerciseResponse struct {
 	NoAgentFits   bool                       `json:"NoAgentFits"`
 }
 
-// eventResourceTotalsResponse: container devices, CPU in millicores, memory in bytes.
+// eventResourceTotalsResponse: container devices, their blocks, CPU in millicores, memory in bytes.
 type eventResourceTotalsResponse struct {
 	Devices       int   `json:"Devices"`
+	Blocks        int   `json:"Blocks"`
 	CPUMillicores int64 `json:"CPUMillicores"`
 	MemoryBytes   int64 `json:"MemoryBytes"`
 }
@@ -569,7 +570,7 @@ type eventResourceRangeResponse struct {
 }
 
 func totalsResponse(t resourcesModel.Totals) eventResourceTotalsResponse {
-	return eventResourceTotalsResponse{Devices: t.Devices, CPUMillicores: t.CPUMillicores, MemoryBytes: t.MemoryBytes}
+	return eventResourceTotalsResponse{Devices: t.Devices, Blocks: t.Blocks, CPUMillicores: t.CPUMillicores, MemoryBytes: t.MemoryBytes}
 }
 
 func rangeResponse(r resourcesModel.Range) eventResourceRangeResponse {
@@ -965,15 +966,22 @@ type resourceAmountResponse struct {
 	MemoryBytes   int64 `json:"MemoryBytes"`
 }
 
+// resourcePodResponse is a group pod rounded up to whole blocks.
+type resourcePodResponse struct {
+	Blocks        int   `json:"Blocks"`
+	CPUMillicores int64 `json:"CPUMillicores"`
+	MemoryBytes   int64 `json:"MemoryBytes"`
+}
+
 // resourcePlanGroupResponse is a team's lab group's own pods, computed with the agents' formula: the VPN grows
 // with the event's maximum team size, the gateway with the group's labs that use the internet. Known is false
 // while no laboratory reported its sizing (the pods add nothing then).
 type resourcePlanGroupResponse struct {
-	MaxUsers     int                    `json:"MaxUsers"`
-	InternetLabs int                    `json:"InternetLabs"`
-	VPN          resourceAmountResponse `json:"VPN"`
-	Gateway      resourceAmountResponse `json:"Gateway"`
-	Known        bool                   `json:"Known"`
+	MaxUsers     int                 `json:"MaxUsers"`
+	InternetLabs int                 `json:"InternetLabs"`
+	VPN          resourcePodResponse `json:"VPN"`
+	Gateway      resourcePodResponse `json:"Gateway"`
+	Known        bool                `json:"Known"`
 	// TooLarge: the maximum team size (or the internet labs) is above what every used laboratory can size a group for.
 	TooLarge bool `json:"TooLarge"`
 }
@@ -1000,8 +1008,8 @@ func toResourcePlanResponse(p eventUseCase.EventResourcePlan) eventResourcePlanR
 		Teams: p.Teams, TeamsBasis: p.TeamsBasis, NoAgentFits: p.NoAgentFits,
 		Group: resourcePlanGroupResponse{
 			MaxUsers: p.Group.MaxUsers, InternetLabs: p.Group.InternetLabs, Known: p.Group.Known, TooLarge: p.Group.TooLarge,
-			VPN:     resourceAmountResponse{CPUMillicores: p.Group.VPN.CPUMillicores, MemoryBytes: p.Group.VPN.MemoryBytes},
-			Gateway: resourceAmountResponse{CPUMillicores: p.Group.Gateway.CPUMillicores, MemoryBytes: p.Group.Gateway.MemoryBytes},
+			VPN:     resourcePodResponse{Blocks: p.Group.VPNBlocks, CPUMillicores: p.Group.VPN.CPUMillicores, MemoryBytes: p.Group.VPN.MemoryBytes},
+			Gateway: resourcePodResponse{Blocks: p.Group.GatewayBlocks, CPUMillicores: p.Group.Gateway.CPUMillicores, MemoryBytes: p.Group.Gateway.MemoryBytes},
 		},
 	}
 	for _, t := range p.Tasks {

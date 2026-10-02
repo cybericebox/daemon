@@ -109,10 +109,12 @@ func (f *fakeElevationInbox) ElevationDecided(_ context.Context, e inboxUseCase.
 	return nil
 }
 
-func deviceOf(name string, cpu, mem string) exerciseModel.Device {
-	return exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: name, Type: exerciseModel.DeviceTypeContainer, Image: "img",
-		Resources: &exerciseModel.DeviceResources{CPULimit: cpu, MemoryLimit: mem}}
+func deviceOf(name, preset string) exerciseModel.Device {
+	return exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: name, Type: exerciseModel.DeviceTypeContainer, Image: "img", ResourcePreset: preset}
 }
+
+// blocksOf is the amount of a whole number of blocks, as the default policy gives it.
+func blocksOf(n int) resourcesModel.Amount { return resourcesModel.DefaultPolicy().Amount(n) }
 
 func variantOf(devices ...exerciseModel.Device) exerciseModel.Variant {
 	return exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), Topology: exerciseModel.Topology{Devices: devices}}
@@ -123,8 +125,8 @@ func TestPublishGateNeedsFrameOrApprovedElevation(t *testing.T) {
 	store := &fakeElevations{}
 	u := &ExerciseUseCase{elevations: store}
 	exerciseID := uuid.Must(uuid.NewV7())
-	small := deviceOf("web", "100m", "256Mi")
-	heavy := deviceOf("db", "500m", "2Gi")
+	small := deviceOf("web", "small")
+	heavy := deviceOf("db", "xlarge") // 32 blocks: 500m / 2Gi
 
 	// Inside the frame: no agent, no approval needed.
 	require.NoError(t, u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(small)}))
@@ -133,37 +135,35 @@ func TestPublishGateNeedsFrameOrApprovedElevation(t *testing.T) {
 	err := u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(small, heavy)})
 	require.True(t, errors.Is(err, exerciseModel.ErrDevicesNeedElevation.Err()), "%v", err)
 
-	// An approved elevation covers exactly the approved values.
+	// An approved elevation covers exactly the approved block.
 	store.items = []resourcesModel.Elevation{{ID: uuid.Must(uuid.NewV7()), ExerciseID: exerciseID, Status: resourcesModel.ElevationApproved,
-		Approved: []resourcesModel.Approval{{DeviceID: heavy.ID, Name: "db", Amount: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}}}}}
+		Approved: []resourcesModel.Approval{{DeviceID: heavy.ID, Name: "db", Amount: blocksOf(32)}}}}
 	require.NoError(t, u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(small, heavy)}))
 
-	// Lowering a value keeps the approval ...
+	// Lowering the block keeps the approval ...
 	lower := heavy
-	lower.Resources = &exerciseModel.DeviceResources{CPULimit: "300m", MemoryLimit: "1536Mi"}
+	lower.ResourcePreset = "large"
 	require.NoError(t, u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(lower)}))
-	// ... raising any value needs a new approval.
+	// ... asking for a larger block needs a new approval.
 	raised := heavy
-	raised.Resources = &exerciseModel.DeviceResources{CPULimit: "600m", MemoryLimit: "2Gi"}
-	err = u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(raised)})
-	require.True(t, errors.Is(err, exerciseModel.ErrDevicesNeedElevation.Err()), "%v", err)
-	raised.Resources = &exerciseModel.DeviceResources{CPULimit: "500m", MemoryLimit: "3Gi"}
+	raised.ResourcePreset = "huge"
 	err = u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(raised)})
 	require.True(t, errors.Is(err, exerciseModel.ErrDevicesNeedElevation.Err()), "%v", err)
 }
 
-func TestPublishGateRefusesAboveTheCeilingAndUnknownPresets(t *testing.T) {
+func TestPublishGateRefusesUnknownPresets(t *testing.T) {
 	ctx := context.Background()
 	u := &ExerciseUseCase{elevations: &fakeElevations{}}
 	exerciseID := uuid.Must(uuid.NewV7())
-	err := u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(deviceOf("huge", "2", "1Gi"))})
-	require.True(t, errors.Is(err, exerciseModel.ErrDeviceResourcesAboveCeiling.Err()), "%v", err)
+	// The ceiling block itself needs an approval but is allowed; no block is above it.
+	err := u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(deviceOf("huge", "huge"))})
+	require.True(t, errors.Is(err, exerciseModel.ErrDevicesNeedElevation.Err()), "%v", err)
 
 	unknown := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "x", Type: exerciseModel.DeviceTypeContainer, ResourcePreset: "gigantic"}
 	err = u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(unknown)})
 	require.True(t, errors.Is(err, exerciseModel.ErrDeviceResourcePresetInvalid.Err()), "%v", err)
 
-	// A device without any resources is the default preset: inside the frame.
+	// A device that picked nothing is the default preset: inside the frame.
 	plain := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "p", Type: exerciseModel.DeviceTypeContainer}
 	require.NoError(t, u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(plain)}))
 }
@@ -173,22 +173,22 @@ func TestVersionResourcesTotalsRangeAndOutside(t *testing.T) {
 	store := &fakeElevations{}
 	u := &ExerciseUseCase{elevations: store}
 	exerciseID := uuid.Must(uuid.NewV7())
-	heavy := deviceOf("db", "500m", "2Gi")
-	small := variantOf(deviceOf("web", "100m", "256Mi"))
-	large := variantOf(deviceOf("web", "100m", "256Mi"), heavy)
+	heavy := deviceOf("db", "xlarge")
+	small := variantOf(deviceOf("web", "small"))
+	large := variantOf(deviceOf("web", "small"), heavy)
 
 	res := u.versionResources(ctx, exerciseID, []exerciseModel.Variant{small, large})
-	assert.Equal(t, ResourceTotals{Devices: 1, CPUMillicores: 100, MemoryBytes: 256 * mi}, res.Min)
-	assert.Equal(t, ResourceTotals{Devices: 2, CPUMillicores: 600, MemoryBytes: 256*mi + 2*gi}, res.Max)
+	assert.Equal(t, ResourceTotals{Devices: 1, Blocks: 2, CPUMillicores: 32, MemoryBytes: 128 * mi}, res.Min)
+	assert.Equal(t, ResourceTotals{Devices: 2, Blocks: 34, CPUMillicores: 532, MemoryBytes: 128*mi + 2*gi}, res.Max)
 	require.Len(t, res.Variants, 2)
-	assert.Equal(t, 88, res.SpreadPercent, "memory: (2304Mi-256Mi)/2304Mi is larger than the cpu spread")
+	assert.Equal(t, 94, res.SpreadPercent, "memory: (2176Mi-128Mi)/2176Mi")
 	require.Len(t, res.Outside, 1)
 	assert.Equal(t, "db", res.Outside[0].Name)
 	assert.False(t, res.Outside[0].Covered)
 	assert.False(t, res.Heavy)
 
 	store.items = []resourcesModel.Elevation{{ExerciseID: exerciseID, Status: resourcesModel.ElevationApproved,
-		Approved: []resourcesModel.Approval{{DeviceID: heavy.ID, Amount: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}}}}}
+		Approved: []resourcesModel.Approval{{DeviceID: heavy.ID, Amount: blocksOf(32)}}}}
 	res = u.versionResources(ctx, exerciseID, []exerciseModel.Variant{small, large})
 	assert.True(t, res.Outside[0].Covered)
 	assert.True(t, res.Heavy, "an approved elevation holds a device above the frame")
@@ -213,8 +213,8 @@ func elevationUC(t *testing.T, working []exerciseModel.Variant) (*ExerciseUseCas
 
 func TestElevationRequestApproveFlow(t *testing.T) {
 	ctx := context.Background()
-	heavy := deviceOf("db", "500m", "2Gi")
-	u, store, inbox, exerciseID := elevationUC(t, []exerciseModel.Variant{variantOf(deviceOf("web", "100m", "256Mi"), heavy)})
+	heavy := deviceOf("db", "huge")
+	u, store, inbox, exerciseID := elevationUC(t, []exerciseModel.Variant{variantOf(deviceOf("web", "small"), heavy)})
 	author, admin := Actor{UserID: uuid.Must(uuid.NewV7())}, Actor{UserID: uuid.Must(uuid.NewV7())}
 
 	_, err := u.RequestElevation(ctx, author, exerciseID, "  ")
@@ -226,32 +226,35 @@ func TestElevationRequestApproveFlow(t *testing.T) {
 	require.Len(t, view.Requested, 1, "only the device above the frame is asked for")
 	assert.Equal(t, "db", view.Requested[0].Name)
 	require.Len(t, inbox.requested, 1)
-	assert.Equal(t, "db: 500m / 2Gi", inbox.requested[0].Devices)
+	assert.Equal(t, "db: 64 blocks (1000m / 4Gi)", inbox.requested[0].Devices)
+	assert.Equal(t, 64, view.Requested[0].Blocks)
 	assert.Equal(t, author.UserID, inbox.requested[0].RequestedBy)
 
 	_, err = u.RequestElevation(ctx, author, exerciseID, "again")
 	require.True(t, errors.Is(err, exerciseModel.ErrElevationPending.Err()), "%v", err)
 
-	// The admin may approve lower values, never above the ceiling or for another device.
-	_, err = u.DecideElevation(ctx, admin, view.ID, DecideElevationInput{Approve: true, Devices: []ElevationDevice{{DeviceID: heavy.ID, CPUMillicores: 2000, MemoryBytes: 2 * gi}}})
+	// The admin may approve a smaller offered block, never a block that is not offered, one larger than asked, or
+	// one for another device.
+	_, err = u.DecideElevation(ctx, admin, view.ID, DecideElevationInput{Approve: true, Devices: []ElevationDevice{{DeviceID: heavy.ID, Blocks: 24}}})
 	require.True(t, errors.Is(err, exerciseModel.ErrElevationInvalid.Err()), "%v", err)
-	_, err = u.DecideElevation(ctx, admin, view.ID, DecideElevationInput{Approve: true, Devices: []ElevationDevice{{DeviceID: uuid.Must(uuid.NewV7()), CPUMillicores: 1, MemoryBytes: 1}}})
+	_, err = u.DecideElevation(ctx, admin, view.ID, DecideElevationInput{Approve: true, Devices: []ElevationDevice{{DeviceID: uuid.Must(uuid.NewV7()), Blocks: 32}}})
 	require.True(t, errors.Is(err, exerciseModel.ErrElevationInvalid.Err()), "%v", err)
 
-	decided, err := u.DecideElevation(ctx, admin, view.ID, DecideElevationInput{Approve: true, Note: "ok", Devices: []ElevationDevice{{DeviceID: heavy.ID, CPUMillicores: 400, MemoryBytes: gi + gi/2}}})
+	decided, err := u.DecideElevation(ctx, admin, view.ID, DecideElevationInput{Approve: true, Note: "ok", Devices: []ElevationDevice{{DeviceID: heavy.ID, Blocks: 32}}})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", decided.Status)
 	require.Len(t, decided.Approved, 1)
-	assert.Equal(t, int64(400), decided.Approved[0].CPUMillicores)
+	assert.Equal(t, 32, decided.Approved[0].Blocks)
+	assert.Equal(t, int64(500), decided.Approved[0].CPUMillicores)
 	assert.Equal(t, "db", decided.Approved[0].Name, "the name comes from the request")
 	require.Len(t, inbox.decided, 1)
 	assert.True(t, inbox.approved[0])
-	assert.Equal(t, "db: 400m / 1536Mi", inbox.decided[0].Devices, "the author hears what was approved")
+	assert.Equal(t, "db: 32 blocks (500m / 2Gi)", inbox.decided[0].Devices, "the author hears what was approved")
 
 	_, err = u.DecideElevation(ctx, admin, view.ID, DecideElevationInput{Approve: false})
 	require.True(t, errors.Is(err, exerciseModel.ErrElevationDecided.Err()), "%v", err)
 
-	// The approved values (400m / 1.5Gi) are below what the draft still asks: it is not covered yet.
+	// The approved block (32) is below what the draft still asks (64): it is not covered yet.
 	err = u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(heavy)})
 	require.True(t, errors.Is(err, exerciseModel.ErrDevicesNeedElevation.Err()), "%v", err)
 	assert.Len(t, store.items, 1)
@@ -259,7 +262,7 @@ func TestElevationRequestApproveFlow(t *testing.T) {
 
 func TestElevationRejectAndNotNeeded(t *testing.T) {
 	ctx := context.Background()
-	u, _, inbox, exerciseID := elevationUC(t, []exerciseModel.Variant{variantOf(deviceOf("db", "500m", "2Gi"))})
+	u, _, inbox, exerciseID := elevationUC(t, []exerciseModel.Variant{variantOf(deviceOf("db", "xlarge"))})
 	author, admin := Actor{UserID: uuid.Must(uuid.NewV7())}, Actor{UserID: uuid.Must(uuid.NewV7())}
 	view, err := u.RequestElevation(ctx, author, exerciseID, "why not")
 	require.NoError(t, err)
@@ -270,23 +273,20 @@ func TestElevationRejectAndNotNeeded(t *testing.T) {
 	assert.Equal(t, []bool{false}, inbox.approved)
 
 	// A rejection is not an approval: the draft is still not allowed, and a new request may be filed.
-	err = u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(deviceOf("db", "500m", "2Gi"))})
+	err = u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(deviceOf("db", "xlarge"))})
 	require.True(t, errors.Is(err, exerciseModel.ErrDevicesNeedElevation.Err()), "%v", err)
 	_, err = u.RequestElevation(ctx, author, exerciseID, "second try")
 	require.NoError(t, err)
 
-	inside, _, _, insideID := elevationUC(t, []exerciseModel.Variant{variantOf(deviceOf("web", "100m", "256Mi"))})
+	inside, _, _, insideID := elevationUC(t, []exerciseModel.Variant{variantOf(deviceOf("web", "small"))})
 	_, err = inside.RequestElevation(ctx, author, insideID, "unneeded")
 	require.True(t, errors.Is(err, exerciseModel.ErrElevationNotNeeded.Err()), "%v", err)
 
-	above, _, _, aboveID := elevationUC(t, []exerciseModel.Variant{variantOf(deviceOf("huge", "2", "1Gi"))})
-	_, err = above.RequestElevation(ctx, author, aboveID, "too much")
-	require.True(t, errors.Is(err, exerciseModel.ErrDeviceResourcesAboveCeiling.Err()), "%v", err)
 }
 
-func TestElevationApprovalIsKeptByALaterVersionAtOrBelowTheValues(t *testing.T) {
+func TestElevationApprovalIsKeptByALaterVersionAtOrBelowTheBlock(t *testing.T) {
 	ctx := context.Background()
-	heavy := deviceOf("db", "500m", "2Gi")
+	heavy := deviceOf("db", "xlarge")
 	u, _, _, exerciseID := elevationUC(t, []exerciseModel.Variant{variantOf(heavy)})
 	author, admin := Actor{UserID: uuid.Must(uuid.NewV7())}, Actor{UserID: uuid.Must(uuid.NewV7())}
 	view, err := u.RequestElevation(ctx, author, exerciseID, "db")
@@ -295,7 +295,7 @@ func TestElevationApprovalIsKeptByALaterVersionAtOrBelowTheValues(t *testing.T) 
 	require.NoError(t, err)
 
 	require.NoError(t, u.requireResourcesAllowed(ctx, exerciseID, []exerciseModel.Variant{variantOf(heavy)}))
-	// Another request is not needed while the values are covered.
+	// Another request is not needed while the block is covered.
 	_, err = u.RequestElevation(ctx, author, exerciseID, "again")
 	require.True(t, errors.Is(err, exerciseModel.ErrElevationNotNeeded.Err()), "%v", err)
 }

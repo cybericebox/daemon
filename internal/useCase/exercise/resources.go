@@ -15,7 +15,9 @@ import (
 
 // ResourceTotals is what a topology or a task version needs: its container devices and their CPU and memory.
 type ResourceTotals struct {
-	Devices       int
+	Devices int
+	// Blocks is the sum of the devices' blocks, the platform's unit of a device size.
+	Blocks        int
 	CPUMillicores int64
 	MemoryBytes   int64
 }
@@ -38,6 +40,7 @@ type DeviceOutside struct {
 	VariantID     uuid.UUID
 	DeviceID      uuid.UUID
 	Name          string
+	Blocks        int
 	CPUMillicores int64
 	MemoryBytes   int64
 	Covered       bool
@@ -93,7 +96,7 @@ func (u *ExerciseUseCase) authorNames(ctx context.Context, authors ...uuid.NullU
 const SpreadWarnPercent = 25
 
 func totalsOf(t resourcesModel.Totals) ResourceTotals {
-	return ResourceTotals{Devices: t.Devices, CPUMillicores: t.CPUMillicores, MemoryBytes: t.MemoryBytes}
+	return ResourceTotals{Devices: t.Devices, Blocks: t.Blocks, CPUMillicores: t.CPUMillicores, MemoryBytes: t.MemoryBytes}
 }
 
 func rangeOf(r resourcesModel.Range) ResourceRange {
@@ -154,7 +157,7 @@ func (u *ExerciseUseCase) versionResources(ctx context.Context, exerciseID uuid.
 		covered := !o.AboveCeiling && resourcesModel.Covered(o, approved)
 		out.Heavy = out.Heavy || covered
 		out.Outside = append(out.Outside, DeviceOutside{
-			VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes,
+			VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, Blocks: o.Blocks, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes,
 			Covered: covered, AboveCeiling: o.AboveCeiling,
 		})
 	}
@@ -181,7 +184,7 @@ func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseI
 	var above []DeviceOutside
 	for _, o := range outside {
 		if o.AboveCeiling {
-			above = append(above, DeviceOutside{VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes, AboveCeiling: true})
+			above = append(above, DeviceOutside{VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, Blocks: o.Blocks, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes, AboveCeiling: true})
 		}
 	}
 	if len(above) > 0 {
@@ -195,7 +198,7 @@ func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseI
 	var uncovered []DeviceOutside
 	for _, o := range outside {
 		if !resourcesModel.Covered(o, approved) {
-			uncovered = append(uncovered, DeviceOutside{VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes})
+			uncovered = append(uncovered, DeviceOutside{VariantID: o.VariantID, DeviceID: o.DeviceID, Name: o.Name, Blocks: o.Blocks, CPUMillicores: o.CPUMillicores, MemoryBytes: o.MemoryBytes})
 		}
 	}
 	if len(uncovered) > 0 {
@@ -205,11 +208,11 @@ func (u *ExerciseUseCase) requireResourcesAllowed(ctx context.Context, exerciseI
 	return nil
 }
 
-// describeOutside lists devices as "name: cpu m / memory bytes" for an error context.
+// describeOutside lists devices as "name: blocks (cpu m / memory bytes)" for an error context.
 func describeOutside(devices []DeviceOutside) string {
 	parts := make([]string, 0, len(devices))
 	for _, d := range devices {
-		parts = append(parts, d.Name+": "+strconv.FormatInt(d.CPUMillicores, 10)+"m / "+strconv.FormatInt(d.MemoryBytes, 10))
+		parts = append(parts, d.Name+": "+strconv.Itoa(d.Blocks)+" blocks ("+strconv.FormatInt(d.CPUMillicores, 10)+"m / "+strconv.FormatInt(d.MemoryBytes, 10)+")")
 	}
 	return strings.Join(parts, ", ")
 }

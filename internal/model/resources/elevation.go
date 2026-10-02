@@ -62,17 +62,18 @@ func NewElevation(exerciseID uuid.UUID, versionID uuid.NullUUID, reason string, 
 	}, nil
 }
 
-// Approve closes a pending request with the approved values. nil values approve exactly what was requested;
-// otherwise they must be for requested devices, positive and within the ceiling (they may be lower than
-// requested). Another decision on the same request is refused.
-func (e *Elevation) Approve(values []Approval, ceiling Amount, by uuid.UUID, note string, now time.Time) error {
+// Approve closes a pending request with the approved blocks. nil values approve exactly what was requested;
+// otherwise they must be for requested devices, each a block size the platform offers, no larger than
+// requested (the admin may approve a smaller block than asked). Another decision on the same request is
+// refused.
+func (e *Elevation) Approve(values []Approval, policy Policy, by uuid.UUID, note string, now time.Time) error {
 	if e.Status != ElevationPending {
 		return exerciseModel.ErrElevationDecided.Err()
 	}
 	if values == nil {
 		values = e.Requested
 	}
-	if !e.validApproval(values, ceiling) {
+	if !e.validApproval(values, policy) {
 		return exerciseModel.ErrElevationInvalid.Err()
 	}
 	e.Status, e.Approved = ElevationApproved, values
@@ -96,18 +97,23 @@ func (e *Elevation) decide(by uuid.UUID, note string, now time.Time) {
 	e.DecidedAt = &now
 }
 
-// validApproval: each value is for a requested device (once), positive, and within the ceiling.
-func (e *Elevation) validApproval(values []Approval, ceiling Amount) bool {
+// validApproval: each value is for a requested device (once), a preset size within the ceiling, and no larger
+// than requested.
+func (e *Elevation) validApproval(values []Approval, policy Policy) bool {
 	if len(values) == 0 {
 		return false
 	}
-	requested := map[uuid.UUID]bool{}
+	requested := map[uuid.UUID]Amount{}
 	for _, r := range e.Requested {
-		requested[r.DeviceID] = true
+		requested[r.DeviceID] = r.Amount
 	}
 	seen := map[uuid.UUID]bool{}
 	for _, v := range values {
-		if !requested[v.DeviceID] || seen[v.DeviceID] || v.CPUMillicores <= 0 || v.MemoryBytes <= 0 || !v.Amount.Within(ceiling) {
+		asked, ok := requested[v.DeviceID]
+		if !ok || seen[v.DeviceID] || !v.Amount.Within(asked) || !v.Amount.Within(policy.Ceiling) {
+			return false
+		}
+		if _, offered := policy.PresetByBlocks(policy.BlocksOf(v.Amount)); !offered || policy.Amount(policy.BlocksOf(v.Amount)) != v.Amount {
 			return false
 		}
 		seen[v.DeviceID] = true

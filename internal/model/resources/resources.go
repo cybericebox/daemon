@@ -5,6 +5,8 @@ package resourcesModel
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -48,65 +50,73 @@ func (a Amount) Within(limit Amount) bool {
 	return a.CPUMillicores <= limit.CPUMillicores && a.MemoryBytes <= limit.MemoryBytes
 }
 
-// Totals is what a topology (or a task version) needs: its container devices and their sum.
+// Totals is what a topology (or a task version) needs: its container devices, their sum and the same sum in
+// whole blocks.
 type Totals struct {
 	Devices int
+	// Blocks is the sum of the devices' blocks (a block is the platform's unit of one device size).
+	Blocks int
 	Amount
 }
 
 // Add returns the sum.
 func (t Totals) Add(o Totals) Totals {
-	return Totals{Devices: t.Devices + o.Devices, Amount: t.Amount.Add(o.Amount)}
+	return Totals{Devices: t.Devices + o.Devices, Blocks: t.Blocks + o.Blocks, Amount: t.Amount.Add(o.Amount)}
 }
 
 // Max is the larger of each field.
 func (t Totals) Max(o Totals) Totals {
-	return Totals{Devices: max(t.Devices, o.Devices), Amount: t.Amount.Max(o.Amount)}
+	return Totals{Devices: max(t.Devices, o.Devices), Blocks: max(t.Blocks, o.Blocks), Amount: t.Amount.Max(o.Amount)}
 }
 
 // Min is the smaller of each field.
 func (t Totals) Min(o Totals) Totals {
-	return Totals{Devices: min(t.Devices, o.Devices), Amount: t.Amount.Min(o.Amount)}
+	return Totals{Devices: min(t.Devices, o.Devices), Blocks: min(t.Blocks, o.Blocks), Amount: t.Amount.Min(o.Amount)}
 }
 
-// Preset is a named device size an author picks.
+// Preset is a named device size an author picks: a whole number of blocks.
 type Preset struct {
-	ID string
+	ID     string
+	Blocks int
 	Amount
 }
 
-// Policy is the platform settings of device resources.
+// Policy is the platform settings of device resources. A device is a whole number of blocks, one block being
+// Block (CPU tied to memory, so packing is one-dimensional). There is no custom size.
 type Policy struct {
-	// Presets in the order they are offered; the last one is the frame in the default settings.
+	// Block is one unit of a device size (its CPU rounded up to whole millicores; the exact value is blockMicro).
+	Block Amount
+	// blockMicro is the CPU of one block in millionths of a core: CPU is tied to memory (1 core : 4 GiB), so a
+	// 64Mi block is 15625 and 16 blocks make exactly 250m.
+	blockMicro int64
+	// Presets in ascending order of blocks; every count divides the next, so largest-first packing leaves no hole.
 	Presets       []Preset
 	DefaultPreset string
-	// Frame is the most a device gets without an approval.
-	Frame Amount
-	// Ceiling is the most any approval may give a device.
+	// FrameBlocks is the most a device gets without an approval; CeilingBlocks the most any approval may give.
+	FrameBlocks, CeilingBlocks int
+	// Frame and Ceiling are the same limits as amounts.
+	Frame   Amount
 	Ceiling Amount
 }
 
-// DefaultPolicy is the owner's default settings: Micro 25m/64Mi (default), Small 50m/128Mi, Medium
-// 125m/512Mi, Large 250m/1Gi (the frame), elevation ceiling 1 CPU / 4Gi.
+// DefaultPolicy is the owner's default settings: block 64Mi / ~16m (15625u, so 16 blocks are exactly 250m); Micro 1 (default), Small 2, Medium 8, Large 16
+// (the frame); with an approved elevation 32 and 64 (the ceiling, 1 CPU / 4Gi).
 func DefaultPolicy() Policy {
-	const mi, gi = 1 << 20, 1 << 30
-	return Policy{
-		Presets: []Preset{
-			{ID: "micro", Amount: Amount{25, 64 * mi}},
-			{ID: "small", Amount: Amount{50, 128 * mi}},
-			{ID: "medium", Amount: Amount{125, 512 * mi}},
-			{ID: "large", Amount: Amount{250, gi}},
-		},
-		DefaultPreset: "micro",
-		Frame:         Amount{250, gi},
-		Ceiling:       Amount{1000, 4 * gi},
+	p, err := ParsePolicy("15625u/64Mi", "micro=1,small=2,medium=8,large=16,xlarge=32,huge=64", "micro", 16, 64)
+	if err != nil {
+		panic(err)
 	}
+	return p
 }
 
-// ParsePolicy reads the settings in the form they are configured: presets as "id=cpu/memory" separated by
-// commas, the frame and the ceiling as "cpu/memory" (Kubernetes quantities: 25m, 1, 64Mi, 4Gi).
-func ParsePolicy(presets, defaultPreset, frame, ceiling string) (Policy, error) {
-	var p Policy
+// ParsePolicy reads the settings in the form they are configured: the block as "cpu/memory" (Kubernetes
+// quantities: 16m, 64Mi), the presets as "id=blocks" separated by commas, and the frame and the ceiling in blocks.
+func ParsePolicy(block, presets, defaultPreset string, frameBlocks, ceilingBlocks int) (Policy, error) {
+	p := Policy{FrameBlocks: frameBlocks, CeilingBlocks: ceilingBlocks, DefaultPreset: strings.TrimSpace(defaultPreset)}
+	var err error
+	if p.Block, p.blockMicro, err = parseBlock(block); err != nil {
+		return Policy{}, fmt.Errorf("block: %w", err)
+	}
 	seen := map[string]bool{}
 	for _, item := range strings.Split(presets, ",") {
 		item = strings.TrimSpace(item)
@@ -115,25 +125,45 @@ func ParsePolicy(presets, defaultPreset, frame, ceiling string) (Policy, error) 
 		}
 		id, value, ok := strings.Cut(item, "=")
 		id = strings.TrimSpace(id)
-		if !ok || id == "" || seen[id] {
-			return Policy{}, fmt.Errorf("preset %q: want a unique id=cpu/memory", item)
-		}
-		amount, err := ParseAmount(value)
-		if err != nil {
-			return Policy{}, fmt.Errorf("preset %q: %w", id, err)
+		count, convErr := strconv.Atoi(strings.TrimSpace(value))
+		if !ok || id == "" || seen[id] || convErr != nil || count < 1 {
+			return Policy{}, fmt.Errorf("preset %q: want a unique id=blocks with blocks of at least 1", item)
 		}
 		seen[id] = true
-		p.Presets = append(p.Presets, Preset{ID: id, Amount: amount})
+		p.Presets = append(p.Presets, Preset{ID: id, Blocks: count})
 	}
-	var err error
-	if p.Frame, err = ParseAmount(frame); err != nil {
-		return Policy{}, fmt.Errorf("frame: %w", err)
+	sort.SliceStable(p.Presets, func(i, j int) bool { return p.Presets[i].Blocks < p.Presets[j].Blocks })
+	for i := range p.Presets {
+		p.Presets[i].Amount = p.Amount(p.Presets[i].Blocks)
 	}
-	if p.Ceiling, err = ParseAmount(ceiling); err != nil {
-		return Policy{}, fmt.Errorf("ceiling: %w", err)
-	}
-	p.DefaultPreset = strings.TrimSpace(defaultPreset)
+	p.Frame, p.Ceiling = p.Amount(frameBlocks), p.Amount(ceilingBlocks)
 	return p, p.Validate()
+}
+
+// Amount is the size of a whole number of blocks: memory exactly, CPU rounded up to whole millicores.
+func (p Policy) Amount(blocks int) Amount {
+	return Amount{CPUMillicores: (p.blockMicro*int64(blocks) + 999) / 1000, MemoryBytes: p.Block.MemoryBytes * int64(blocks)}
+}
+
+// BlocksOf is the whole blocks an amount takes (rounded up, over both resources): the fewest blocks whose size
+// holds it.
+func (p Policy) BlocksOf(a Amount) int {
+	if p.blockMicro <= 0 || p.Block.MemoryBytes <= 0 {
+		return 0
+	}
+	n := max(a.CPUMillicores*1000/p.blockMicro, (a.MemoryBytes+p.Block.MemoryBytes-1)/p.Block.MemoryBytes)
+	for p.Amount(int(n)).CPUMillicores < a.CPUMillicores {
+		n++
+	}
+	return int(n)
+}
+
+// RoundUp is the amount rounded up to whole blocks (what a group's own pods are sent and reserved with).
+func (p Policy) RoundUp(a Amount) Amount {
+	if a == (Amount{}) || p.blockMicro <= 0 {
+		return a
+	}
+	return p.Amount(p.BlocksOf(a))
 }
 
 // ParseAmount reads "cpu/memory".
@@ -153,22 +183,49 @@ func ParseAmount(s string) (Amount, error) {
 	return Amount{CPUMillicores: cpuQ.MilliValue(), MemoryBytes: memQ.Value()}, nil
 }
 
-// Validate checks the settings agree: presets exist, the default is one of them, every preset sits in the
-// frame, the frame sits in the ceiling.
+// parseBlock reads the block "cpu/memory", keeping the CPU in millionths of a core.
+func parseBlock(s string) (Amount, int64, error) {
+	amount, err := ParseAmount(s)
+	if err != nil {
+		return Amount{}, 0, err
+	}
+	cpu, _, _ := strings.Cut(s, "/")
+	q, _ := resource.ParseQuantity(strings.TrimSpace(cpu))
+	return amount, q.ScaledValue(resource.Micro), nil
+}
+
+// Validate checks the settings agree: the block is set, presets exist and every count divides the next larger one,
+// the default is one of them, the frame and the ceiling are presets and the ceiling is not below the frame.
 func (p Policy) Validate() error {
+	if p.blockMicro <= 0 || p.Block.MemoryBytes <= 0 {
+		return fmt.Errorf("the block must be a positive cpu/memory")
+	}
 	if len(p.Presets) == 0 {
 		return fmt.Errorf("at least one preset is required")
 	}
 	if _, ok := p.Preset(p.DefaultPreset); !ok {
 		return fmt.Errorf("the default preset %q is not among the presets", p.DefaultPreset)
 	}
-	for _, preset := range p.Presets {
-		if !preset.Within(p.Frame) {
-			return fmt.Errorf("preset %q is above the frame", preset.ID)
+	for i := 1; i < len(p.Presets); i++ {
+		prev, cur := p.Presets[i-1], p.Presets[i]
+		if prev.Blocks == cur.Blocks {
+			return fmt.Errorf("presets %q and %q have the same blocks", prev.ID, cur.ID)
+		}
+		if cur.Blocks%prev.Blocks != 0 {
+			return fmt.Errorf("preset %q (%d blocks) is not a multiple of %q (%d blocks)", cur.ID, cur.Blocks, prev.ID, prev.Blocks)
 		}
 	}
-	if !p.Frame.Within(p.Ceiling) {
-		return fmt.Errorf("the frame is above the elevation ceiling")
+	if _, ok := p.PresetByBlocks(p.FrameBlocks); !ok {
+		return fmt.Errorf("the frame of %d blocks is not a preset", p.FrameBlocks)
+	}
+	if _, ok := p.PresetByBlocks(p.CeilingBlocks); !ok {
+		return fmt.Errorf("the ceiling of %d blocks is not a preset", p.CeilingBlocks)
+	}
+	if p.CeilingBlocks < p.FrameBlocks {
+		return fmt.Errorf("the ceiling is below the frame")
+	}
+	if last := p.Presets[len(p.Presets)-1]; last.Blocks > p.CeilingBlocks {
+		return fmt.Errorf("preset %q is above the ceiling", last.ID)
 	}
 	return nil
 }
@@ -183,32 +240,47 @@ func (p Policy) Preset(id string) (Preset, bool) {
 	return Preset{}, false
 }
 
+// PresetByBlocks finds the preset of a block count.
+func (p Policy) PresetByBlocks(blocks int) (Preset, bool) {
+	for _, preset := range p.Presets {
+		if preset.Blocks == blocks {
+			return preset, true
+		}
+	}
+	return Preset{}, false
+}
+
+// Largest is the largest preset whose size fits within the limit (what an agent that can place at most that
+// big a device allows); false when even the smallest does not.
+func (p Policy) Largest(limit Amount) (Preset, bool) {
+	var found Preset
+	ok := false
+	for _, preset := range p.Presets {
+		if preset.Amount.Within(limit) {
+			found, ok = preset, true
+		}
+	}
+	return found, ok
+}
+
 // Default is the device size of a device that picked nothing.
 func (p Policy) Default() Amount {
 	preset, _ := p.Preset(p.DefaultPreset)
 	return preset.Amount
 }
 
-// Resolve is what a device gets: its preset; else its custom values (the limit, else the request, per
-// resource; requests always equal limits); else the default preset. An unknown preset id resolves to the
-// default (publishing refuses it, see InvalidPreset).
+func (p Policy) resolvePreset(d exerciseModel.Device) Preset {
+	if preset, ok := p.Preset(d.ResourcePreset); ok {
+		return preset
+	}
+	preset, _ := p.Preset(p.DefaultPreset)
+	return preset
+}
+
+// Resolve is what a device gets: its preset; an empty or unknown preset id resolves to the default (publishing
+// refuses an unknown one, see InvalidPreset). There is no custom size.
 func (p Policy) Resolve(d exerciseModel.Device) Amount {
-	if d.ResourcePreset != "" {
-		if preset, ok := p.Preset(d.ResourcePreset); ok {
-			return preset.Amount
-		}
-		return p.Default()
-	}
-	out := p.Default()
-	if r := d.Resources; r != nil {
-		if v, ok := quantity(first(r.CPULimit, r.CPURequest), true); ok {
-			out.CPUMillicores = v
-		}
-		if v, ok := quantity(first(r.MemoryLimit, r.MemoryRequest), false); ok {
-			out.MemoryBytes = v
-		}
-	}
-	return out
+	return p.resolvePreset(d).Amount
 }
 
 // InvalidPreset reports a preset id the platform does not offer.
@@ -248,6 +320,7 @@ func (p Policy) Explicitly(t exerciseModel.Topology) exerciseModel.Topology {
 type DeviceUsage struct {
 	DeviceID uuid.UUID
 	Name     string
+	Blocks   int
 	Amount
 }
 
@@ -258,7 +331,8 @@ func (p Policy) Devices(t exerciseModel.Topology) []DeviceUsage {
 		if d.Type != exerciseModel.DeviceTypeContainer {
 			continue
 		}
-		out = append(out, DeviceUsage{DeviceID: d.ID, Name: d.Name, Amount: p.Resolve(d)})
+		preset := p.resolvePreset(d)
+		out = append(out, DeviceUsage{DeviceID: d.ID, Name: d.Name, Blocks: preset.Blocks, Amount: preset.Amount})
 	}
 	return out
 }
@@ -268,6 +342,7 @@ func (p Policy) Total(t exerciseModel.Topology) Totals {
 	var total Totals
 	for _, d := range p.Devices(t) {
 		total.Devices++
+		total.Blocks += d.Blocks
 		total.Amount = total.Amount.Add(d.Amount)
 	}
 	return total
@@ -297,6 +372,7 @@ type Outside struct {
 	VariantID uuid.UUID
 	DeviceID  uuid.UUID
 	Name      string
+	Blocks    int
 	Amount
 	// AboveCeiling: no approval can cover it.
 	AboveCeiling bool
@@ -307,8 +383,8 @@ func (p Policy) OutsideFrame(variants []exerciseModel.Variant) []Outside {
 	var out []Outside
 	for _, v := range variants {
 		for _, d := range p.Devices(v.Topology) {
-			if !d.Amount.Within(p.Frame) {
-				out = append(out, Outside{VariantID: v.ID, DeviceID: d.DeviceID, Name: d.Name, Amount: d.Amount, AboveCeiling: !d.Amount.Within(p.Ceiling)})
+			if d.Blocks > p.FrameBlocks {
+				out = append(out, Outside{VariantID: v.ID, DeviceID: d.DeviceID, Name: d.Name, Blocks: d.Blocks, Amount: d.Amount, AboveCeiling: d.Blocks > p.CeilingBlocks})
 			}
 		}
 	}
@@ -330,27 +406,4 @@ func Covered(o Outside, approved []Approval) bool {
 		}
 	}
 	return false
-}
-
-func first(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func quantity(s string, cpu bool) (int64, bool) {
-	if s == "" {
-		return 0, false
-	}
-	q, err := resource.ParseQuantity(s)
-	if err != nil || q.Sign() <= 0 {
-		return 0, false
-	}
-	if cpu {
-		return q.MilliValue(), true
-	}
-	return q.Value(), true
 }

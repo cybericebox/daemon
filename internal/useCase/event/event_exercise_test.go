@@ -601,8 +601,8 @@ func TestListPublishedExercisesForEvent_ScopesToEventAndFilters(t *testing.T) {
 	if len(items) != 1 || items[0].PublishedVersionID != versionID || items[0].Scope != "event" || !items[0].Infrastructure {
 		t.Fatalf("items = %+v", items)
 	}
-	// The picker shows the task's total resources: one small device (50m / 128Mi); not resource-heavy.
-	if r := items[0].Resources; r.Min != r.Max || r.Max.Devices != 1 || r.Max.CPUMillicores != 50 || r.Max.MemoryBytes != 128<<20 || items[0].ResourceHeavy {
+	// The picker shows the task's total resources: one small device (2 blocks, 32m / 128Mi); not resource-heavy.
+	if r := items[0].Resources; r.Min != r.Max || r.Max.Devices != 1 || r.Max.CPUMillicores != 32 || r.Max.Blocks != 2 || r.Max.MemoryBytes != 128<<20 || items[0].ResourceHeavy {
 		t.Fatalf("resources = %+v heavy=%v", items[0].Resources, items[0].ResourceHeavy)
 	}
 }

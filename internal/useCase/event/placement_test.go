@@ -34,20 +34,22 @@ type planInfra struct {
 }
 
 func (p planInfra) GroupSizes(plan infraModel.GroupPlan) (infraModel.GroupSizes, bool) {
-	return infraModel.LimitsFeature{VPN: p.vpn, Gateway: p.gateway}.SizesFor(plan), true
+	// The fleet rounds the sizes up to whole blocks.
+	sizes := infraModel.LimitsFeature{VPN: p.vpn, Gateway: p.gateway}.SizesFor(plan)
+	policy := resourcesModel.DefaultPolicy()
+	return infraModel.GroupSizes{VPN: policy.RoundUp(sizes.VPN), Gateway: policy.RoundUp(sizes.Gateway)}, true
 }
 
 func (p planInfra) NeedFit(need infraModel.PlacementNeed) *infraModel.FitViolation {
 	return infraModel.LimitsFeature{DeviceMaxCPUMillicores: p.maxCPU, VPN: infraModel.GroupPodSizing{MaxUnits: p.vpnMaxUsers}}.Fits(need)
 }
 
-func container(name, cpu, mem string) exerciseModel.Device {
-	d := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: name, Type: exerciseModel.DeviceTypeContainer, Image: "img"}
-	if cpu != "" {
-		d.Resources = &exerciseModel.DeviceResources{CPULimit: cpu, MemoryLimit: mem}
-	}
-	return d
+func container(name, preset string) exerciseModel.Device {
+	return exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: name, Type: exerciseModel.DeviceTypeContainer, Image: "img", ResourcePreset: preset}
 }
+
+// blocksOf is the amount of a whole number of blocks, as the default policy gives it.
+func blocksOf(n int) resourcesModel.Amount { return resourcesModel.DefaultPolicy().Amount(n) }
 
 func variant(internet bool, devices ...exerciseModel.Device) exerciseModel.Variant {
 	return exerciseModel.Variant{ID: uuid.Must(uuid.NewV7()), Topology: exerciseModel.Topology{Internet: exerciseModel.NetworkSpec{Enabled: internet}, Devices: devices}}
@@ -55,14 +57,14 @@ func variant(internet bool, devices ...exerciseModel.Device) exerciseModel.Varia
 
 func TestPlanTaskReservesTheLargestVariantOrThePinnedOne(t *testing.T) {
 	policy := resourcesModel.DefaultPolicy()
-	small := variant(false, container("web", "", ""))
-	large := variant(true, container("web", "", ""), container("db", "250m", "1Gi"))
+	small := variant(false, container("web", ""))
+	large := variant(true, container("web", ""), container("db", "large"))
 	exerciseID := uuid.Must(uuid.NewV7())
 
 	perTeam := eventExerciseModel.EventExercise{ExerciseID: exerciseID, VariantMode: eventExerciseModel.VariantModePerTeam}
 	task := planTask(policy, perTeam, []exerciseModel.Variant{small, large}, nil)
-	assert.Equal(t, resourcesModel.Totals{Devices: 1, Amount: resourcesModel.Amount{CPUMillicores: 25, MemoryBytes: 64 * mi}}, task.Range.Min)
-	assert.Equal(t, resourcesModel.Totals{Devices: 2, Amount: resourcesModel.Amount{CPUMillicores: 275, MemoryBytes: 64*mi + gi}}, task.Reserved, "the largest variant is reserved")
+	assert.Equal(t, resourcesModel.Totals{Devices: 1, Blocks: 1, Amount: resourcesModel.Amount{CPUMillicores: 16, MemoryBytes: 64 * mi}}, task.Range.Min)
+	assert.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 17, Amount: resourcesModel.Amount{CPUMillicores: 266, MemoryBytes: 64*mi + gi}}, task.Reserved, "the largest variant is reserved")
 	assert.True(t, task.InternetLab)
 	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 250, MemoryBytes: gi}, task.deviceMax)
 	assert.Equal(t, 2, task.labDevices)
@@ -75,11 +77,11 @@ func TestPlanTaskReservesTheLargestVariantOrThePinnedOne(t *testing.T) {
 
 func TestPlanTaskIsHeavyOnlyWhenAnApprovalHoldsADeviceAboveTheFrame(t *testing.T) {
 	policy := resourcesModel.DefaultPolicy()
-	heavy := container("db", "500m", "2Gi")
+	heavy := container("db", "xlarge")
 	vs := []exerciseModel.Variant{variant(false, heavy)}
 	link := eventExerciseModel.EventExercise{ExerciseID: uuid.Must(uuid.NewV7())}
 	assert.False(t, planTask(policy, link, vs, nil).Heavy)
-	approved := []resourcesModel.Approval{{DeviceID: heavy.ID, Amount: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}}}
+	approved := []resourcesModel.Approval{{DeviceID: heavy.ID, Amount: blocksOf(32)}}
 	assert.True(t, planTask(policy, link, vs, approved).Heavy)
 }
 
@@ -97,8 +99,8 @@ func TestResourcePlanCountsDevicesPlusGroupOverheadForTheTeams(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	eventID, exerciseID, versionID, linkID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	heavy := container("db", "500m", "2Gi")
-	vs := []exerciseModel.Variant{variant(true, container("web", "", ""), heavy)}
+	heavy := container("db", "xlarge")
+	vs := []exerciseModel.Variant{variant(true, container("web", ""), heavy)}
 	body, err := json.Marshal(vs)
 	require.NoError(t, err)
 
@@ -118,7 +120,7 @@ func TestResourcePlanCountsDevicesPlusGroupOverheadForTheTeams(t *testing.T) {
 		gateway: infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 20, MemoryBytes: 32 * mi}, PerUnit: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi}},
 		maxCPU:  4000,
 	}
-	u := NewEventUseCase(Dependencies{Repo: q, Infra: infra, Elevations: fakeApprovals{exerciseID: {{DeviceID: heavy.ID, Amount: resourcesModel.Amount{CPUMillicores: 500, MemoryBytes: 2 * gi}}}}})
+	u := NewEventUseCase(Dependencies{Repo: q, Infra: infra, Elevations: fakeApprovals{exerciseID: {{DeviceID: heavy.ID, Amount: blocksOf(32)}}}})
 	plan, err := u.GetResourcePlan(context.Background(), eventID)
 	require.NoError(t, err)
 
@@ -126,17 +128,19 @@ func TestResourcePlanCountsDevicesPlusGroupOverheadForTheTeams(t *testing.T) {
 	assert.Equal(t, "Web", plan.Tasks[0].ExerciseName)
 	assert.True(t, plan.Tasks[0].Heavy)
 	assert.True(t, plan.Tasks[0].InternetLab)
-	assert.Equal(t, resourcesModel.Totals{Devices: 2, Amount: resourcesModel.Amount{CPUMillicores: 525, MemoryBytes: 64*mi + 2*gi}}, plan.TeamTasks)
+	assert.Equal(t, resourcesModel.Totals{Devices: 2, Blocks: 33, Amount: resourcesModel.Amount{CPUMillicores: 516, MemoryBytes: 64*mi + 2*gi}}, plan.TeamTasks)
 
-	// The VPN is sized by the maximum team size (4 users), the gateway by the internet labs (1).
-	assert.Equal(t, GroupOverhead{MaxUsers: 4, InternetLabs: 1, Known: true,
-		VPN:     resourcesModel.Amount{CPUMillicores: 30, MemoryBytes: 48 * mi},
-		Gateway: resourcesModel.Amount{CPUMillicores: 30, MemoryBytes: 48 * mi}}, plan.Group)
-	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 585, MemoryBytes: 64*mi + 2*gi + 96*mi}, plan.PerTeam.Amount)
+	// The VPN is sized by the maximum team size (4 users), the gateway by the internet labs (1); both are
+	// rounded up to whole blocks (30m / 48Mi is two blocks).
+	assert.Equal(t, GroupOverhead{MaxUsers: 4, InternetLabs: 1, Known: true, VPNBlocks: 2, GatewayBlocks: 2,
+		VPN:     resourcesModel.Amount{CPUMillicores: 32, MemoryBytes: 128 * mi},
+		Gateway: resourcesModel.Amount{CPUMillicores: 32, MemoryBytes: 128 * mi}}, plan.Group)
+	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 580, MemoryBytes: 64*mi + 2*gi + 256*mi}, plan.PerTeam.Amount)
+	assert.Equal(t, 37, plan.PerTeam.Blocks, "the devices' blocks plus the group pods' blocks")
 	assert.Equal(t, 2, plan.PerTeam.Devices, "the group pods are a separate line, not devices")
 	assert.Equal(t, 10, plan.Teams)
 	assert.Equal(t, "max_teams", plan.TeamsBasis)
-	assert.Equal(t, int64(5850), plan.Total.CPUMillicores)
+	assert.Equal(t, int64(5800), plan.Total.CPUMillicores)
 	assert.False(t, plan.NoAgentFits)
 }
 
@@ -144,14 +148,14 @@ func TestResourcePlanFlagsATaskNoAgentCanRunAndNeverNamesOne(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	eventID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	body, err := json.Marshal([]exerciseModel.Variant{variant(false, container("big", "2", "1Gi"))})
+	body, err := json.Marshal([]exerciseModel.Variant{variant(false, container("big", "huge"))})
 	require.NoError(t, err)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID}, nil)
 	q.EXPECT().ListEventExercises(gomock.Any(), eventID).Return([]postgres.EventExercise{{ID: uuid.Must(uuid.NewV7()), EventID: eventID, ExerciseID: exerciseID, ExerciseVersionID: versionID}}, nil)
 	q.EXPECT().ListVersionVariantDevices(gomock.Any(), gomock.Any()).Return([]postgres.ListVersionVariantDevicesRow{{VersionID: versionID, ExerciseID: exerciseID, Variants: body}}, nil)
 	q.EXPECT().ListEventExerciseDetails(gomock.Any(), eventID).Return(nil, nil)
 
-	u := NewEventUseCase(Dependencies{Repo: q, Infra: planInfra{maxCPU: 1000}})
+	u := NewEventUseCase(Dependencies{Repo: q, Infra: planInfra{maxCPU: 500}})
 	plan, err := u.GetResourcePlan(context.Background(), eventID)
 	require.NoError(t, err)
 	assert.True(t, plan.NoAgentFits)
@@ -164,7 +168,7 @@ func TestPlacementNeedIsTheEventsLargestDeviceAndItsGroupPlan(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	eventID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	body, err := json.Marshal([]exerciseModel.Variant{variant(true, container("a", "", ""), container("b", "500m", "2Gi"))})
+	body, err := json.Marshal([]exerciseModel.Variant{variant(true, container("a", ""), container("b", "xlarge"))})
 	require.NoError(t, err)
 	team := int16(eventConfigModel.ParticipationTeam)
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: team, Valid: true}, MaxTeamSize: 6}, nil)

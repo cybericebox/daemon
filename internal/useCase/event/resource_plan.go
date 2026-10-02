@@ -60,8 +60,11 @@ type GroupOverhead struct {
 	// MaxUsers is the event's maximum team size (1 without teams); InternetLabs the tasks with an internet lab.
 	MaxUsers     int
 	InternetLabs int
-	VPN          resourcesModel.Amount
-	Gateway      resourcesModel.Amount
+	// VPN and Gateway are the pods rounded up to whole blocks, with their blocks.
+	VPN           resourcesModel.Amount
+	Gateway       resourcesModel.Amount
+	VPNBlocks     int
+	GatewayBlocks int
 	// Known is false while no agent reported its sizing (the pods then add nothing to the plan).
 	Known bool
 	// TooLarge: the event's maximum team size (or its internet labs) is above what every agent that is used can
@@ -223,6 +226,7 @@ func (u *EventUseCase) GetResourcePlan(ctx context.Context, eventID uuid.UUID) (
 	if planner != nil {
 		if sizes, known := planner.GroupSizes(infraModel.GroupPlan{MaxUsers: in.maxUsers, InternetLabs: in.internetLab}); known {
 			plan.Group.VPN, plan.Group.Gateway, plan.Group.Known = sizes.VPN, sizes.Gateway, true
+			plan.Group.VPNBlocks, plan.Group.GatewayBlocks = u.resourcePolicy().BlocksOf(sizes.VPN), u.resourcePolicy().BlocksOf(sizes.Gateway)
 		}
 	}
 	if planner != nil && planner.NeedFit(infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: in.maxUsers, InternetLabs: in.internetLab}}) != nil {
@@ -230,6 +234,7 @@ func (u *EventUseCase) GetResourcePlan(ctx context.Context, eventID uuid.UUID) (
 	}
 	plan.PerTeam = plan.TeamTasks
 	plan.PerTeam.Amount = plan.PerTeam.Amount.Add(plan.Group.VPN).Add(plan.Group.Gateway)
+	plan.PerTeam.Blocks += plan.Group.VPNBlocks + plan.Group.GatewayBlocks
 	for i := 0; i < plan.Teams; i++ {
 		plan.Total = plan.Total.Add(plan.PerTeam)
 	}

@@ -1715,12 +1715,16 @@ func TestExerciseCapabilitiesCarryThePlatformResourceSettings(t *testing.T) {
 	var body struct {
 		Data struct {
 			Resources struct {
+				Block   struct{ CPUMillicores, MemoryBytes int64 }
 				Presets []struct {
 					ID            string
+					Blocks        int
 					CPUMillicores int64
 					MemoryBytes   int64
 				}
 				DefaultPreset            string
+				FrameBlocks              int
+				CeilingBlocks            int
 				Frame                    struct{ CPUMillicores, MemoryBytes int64 }
 				Ceiling                  struct{ CPUMillicores, MemoryBytes int64 }
 				MaxDevicesPerLab         int
@@ -1732,8 +1736,11 @@ func TestExerciseCapabilitiesCarryThePlatformResourceSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	res := body.Data.Resources
-	if len(res.Presets) != 4 || res.Presets[0].ID != "micro" || res.Presets[0].CPUMillicores != 25 || res.DefaultPreset != "micro" {
+	if len(res.Presets) != 6 || res.Presets[0].ID != "micro" || res.Presets[0].Blocks != 1 || res.Presets[0].CPUMillicores != 16 || res.Presets[3].Blocks != 16 || res.Presets[5].Blocks != 64 || res.DefaultPreset != "micro" {
 		t.Fatalf("presets: %+v", res)
+	}
+	if res.Block.MemoryBytes != 64<<20 || res.FrameBlocks != 16 || res.CeilingBlocks != 64 {
+		t.Fatalf("block/frame/ceiling blocks: %+v", res)
 	}
 	if res.Frame.CPUMillicores != 250 || res.Frame.MemoryBytes != 1<<30 || res.Ceiling.CPUMillicores != 1000 || res.Ceiling.MemoryBytes != 4<<30 {
 		t.Fatalf("frame/ceiling: %+v", res)
@@ -1762,7 +1769,7 @@ func TestResourceElevationRoutes(t *testing.T) {
 		return w
 	}
 	uc := &fakeUC{elevation: exerciseUseCase.ElevationView{ID: elevationID, ExerciseID: exID, Status: "pending", Reason: "db",
-		Requested: []exerciseUseCase.ElevationDevice{{DeviceID: uuid.Must(uuid.NewV7()), Name: "db", CPUMillicores: 500, MemoryBytes: 2 << 30}}}}
+		Requested: []exerciseUseCase.ElevationDevice{{DeviceID: uuid.Must(uuid.NewV7()), Name: "db", Blocks: 32, CPUMillicores: 500, MemoryBytes: 2 << 30}}}}
 
 	// An admin cannot list or decide; a plain user is not even asked about the exercise policy for that.
 	admin := build(rbac.RoleAdmin, uc)
@@ -1780,8 +1787,8 @@ func TestResourceElevationRoutes(t *testing.T) {
 		t.Fatalf("list: %d status=%q %s", w.Code, uc.elevationStatus, w.Body.String())
 	}
 	w := do(super, http.MethodPost, "/api/exercises/elevations/"+elevationID.String()+"/approve",
-		`{"Note":"ok","Devices":[{"DeviceID":"`+uc.elevation.Requested[0].DeviceID.String()+`","CPUMillicores":400,"MemoryBytes":1073741824}]}`)
-	if w.Code != http.StatusOK || !uc.elevationDecision.Approve || uc.elevationDecision.Note != "ok" || len(uc.elevationDecision.Devices) != 1 || uc.elevationDecision.Devices[0].CPUMillicores != 400 {
+		`{"Note":"ok","Devices":[{"DeviceID":"`+uc.elevation.Requested[0].DeviceID.String()+`","Blocks":16}]}`)
+	if w.Code != http.StatusOK || !uc.elevationDecision.Approve || uc.elevationDecision.Note != "ok" || len(uc.elevationDecision.Devices) != 1 || uc.elevationDecision.Devices[0].Blocks != 16 {
 		t.Fatalf("decide: %d %+v %s", w.Code, uc.elevationDecision, w.Body.String())
 	}
 	if w = do(super, http.MethodPost, "/api/exercises/elevations/"+elevationID.String()+"/approve", `nope`); w.Code != http.StatusBadRequest {
@@ -1799,11 +1806,12 @@ func TestResourceElevationRoutes(t *testing.T) {
 			Status    string
 			Requested []struct {
 				Name          string
+				Blocks        int
 				CPUMillicores int64
 			}
 		}
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Data.Status != "pending" || len(body.Data.Requested) != 1 || body.Data.Requested[0].CPUMillicores != 500 {
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Data.Status != "pending" || len(body.Data.Requested) != 1 || body.Data.Requested[0].CPUMillicores != 500 || body.Data.Requested[0].Blocks != 32 {
 		t.Fatalf("response: %v %+v", err, body)
 	}
 	if w = do(author, http.MethodGet, "/api/exercises/"+exID.String()+"/elevation", ""); w.Code != http.StatusOK {

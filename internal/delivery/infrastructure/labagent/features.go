@@ -187,9 +187,15 @@ func (f *Fleet) NeedFit(need infraModel.PlacementNeed) *infraModel.FitViolation 
 	return worst
 }
 
+// roundedSizes is the group's pod sizes rounded up to whole blocks: what is reserved and sent to the agent.
+func (f *Fleet) roundedSizes(s infraModel.GroupSizes) infraModel.GroupSizes {
+	policy := f.Policy()
+	return infraModel.GroupSizes{VPN: policy.RoundUp(s.VPN), Gateway: policy.RoundUp(s.Gateway)}
+}
+
 // GroupSizes computes the sizes of a group's own pods for a plan with the formula of the agents that are
-// used; with several agents the largest of each is taken, so the plan holds wherever the group lands.
-// known is false when no agent has reported its sizing.
+// used, rounded up to whole blocks; with several agents the largest of each is taken, so the plan holds
+// wherever the group lands. known is false when no agent has reported its sizing.
 func (f *Fleet) GroupSizes(plan infraModel.GroupPlan) (sizes infraModel.GroupSizes, known bool) {
 	for _, m := range f.eligible() {
 		feat := m.Features.Get()
@@ -200,7 +206,7 @@ func (f *Fleet) GroupSizes(plan infraModel.GroupPlan) (sizes infraModel.GroupSiz
 		sizes = infraModel.GroupSizes{VPN: sizes.VPN.Max(s.VPN), Gateway: sizes.Gateway.Max(s.Gateway)}
 		known = true
 	}
-	return sizes, known
+	return f.roundedSizes(sizes), known
 }
 
 // labNeed is what one lab asks of an agent: its largest device and its container devices.
@@ -228,7 +234,7 @@ func (f *Fleet) withSizes(ctx context.Context, m *Member) context.Context {
 	if feat == nil {
 		return ctx
 	}
-	return infraModel.WithGroupSizes(ctx, feat.Limits.SizesFor(infraModel.PlacementNeedFrom(ctx).Plan))
+	return infraModel.WithGroupSizes(ctx, f.roundedSizes(feat.Limits.SizesFor(infraModel.PlacementNeedFrom(ctx).Plan)))
 }
 
 // setGroupSizes writes the planned pod sizes into a group to create, explicitly; the agent rejects a size over

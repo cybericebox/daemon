@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
-	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 type DeviceType string
@@ -241,8 +240,8 @@ func (t Topology) validateStructure() error {
 		if reason := invalidPersistence(d); reason != "" {
 			return ErrDevicePersistenceInvalid.WithContext("device", d.Name).WithContext("reason", reason).Err()
 		}
-		if field := invalidResourceField(d.Resources); field != "" {
-			return ErrDeviceResourcesInvalid.WithContext("device", d.Name).WithContext("field", field).Err()
+		if d.Resources != nil {
+			return ErrDeviceCustomResources.WithPublicContext("device", d.Name).Err()
 		}
 		if d.SecurityPreset != "" && !d.SecurityPreset.Valid() {
 			return ErrDeviceSecurityPresetInvalid.WithContext("device", d.Name).Err()
@@ -616,40 +615,6 @@ func validDHCPRanges(ranges []DHCPRange) bool {
 func validIPv4(value string) bool {
 	parsed, err := netip.ParseAddr(value)
 	return err == nil && parsed.Is4()
-}
-
-func invalidResourceField(resources *DeviceResources) string {
-	if resources == nil {
-		return ""
-	}
-	fields := []struct {
-		name  string
-		value string
-	}{
-		{"cpuRequest", resources.CPURequest},
-		{"memoryRequest", resources.MemoryRequest},
-		{"cpuLimit", resources.CPULimit},
-		{"memoryLimit", resources.MemoryLimit},
-	}
-	parsed := make(map[string]resource.Quantity, len(fields))
-	for _, field := range fields {
-		if field.value == "" {
-			continue
-		}
-		quantity, err := resource.ParseQuantity(field.value)
-		if err != nil || quantity.Sign() <= 0 {
-			return field.name
-		}
-		parsed[field.name] = quantity
-	}
-	for _, pair := range [][2]string{{"cpuRequest", "cpuLimit"}, {"memoryRequest", "memoryLimit"}} {
-		request, requestSet := parsed[pair[0]]
-		limit, limitSet := parsed[pair[1]]
-		if requestSet && limitSet && request.Cmp(limit) > 0 {
-			return pair[0]
-		}
-	}
-	return ""
 }
 
 func routesInvalid(ip IPConfig) bool {

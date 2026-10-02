@@ -44,7 +44,7 @@ func TestResourceElevationLifecycleInTheDatabase(t *testing.T) {
 	loaded, err := repo.GetElevation(ctx, first.ID)
 	require.NoError(t, err)
 	require.Equal(t, []resourcesModel.Approval{device}, loaded.Requested)
-	require.NoError(t, loaded.Approve(nil, resourcesModel.DefaultPolicy().Ceiling, uuid.Nil, "ok", itNow))
+	require.NoError(t, loaded.Approve(nil, resourcesModel.DefaultPolicy(), uuid.Nil, "ok", itNow))
 	n, err := repo.DecideElevation(ctx, loaded)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
