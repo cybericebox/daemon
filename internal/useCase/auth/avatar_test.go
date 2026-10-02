@@ -327,3 +327,27 @@ func TestGetAvatar_ReferenceLookupErrorPropagates(t *testing.T) {
 		t.Fatalf("legacy fallback must not run when the reference lookup itself failed: calls=%d", st.getCalls)
 	}
 }
+
+// L14: the Google "picture" is the one URL of the profile the daemon fetches; it may only
+// point at Google's avatar hosts.
+func TestIsProviderAvatarURL(t *testing.T) {
+	for raw, want := range map[string]bool{
+		"https://lh3.googleusercontent.com/a/ACg8oc=s96-c": true,
+		"https://googleusercontent.com/x":                  true,
+		"https://LH3.GoogleUserContent.com./a":             true,
+		"http://lh3.googleusercontent.com/a":               false, // not https
+		"https://lh3.googleusercontent.com:8443/a":         false, // a port
+		"https://user:pw@lh3.googleusercontent.com/a":      false, // credentials
+		"https://evilgoogleusercontent.com/a":              false, // suffix without the dot
+		"https://googleusercontent.com.evil.test/a":        false,
+		"https://169.254.169.254/latest/meta-data":         false,
+		"https://localhost/a":                              false,
+		"file:///etc/passwd":                               false,
+		"":                                                 false,
+		"%zz":                                              false,
+	} {
+		if got := auth.ExportIsProviderAvatarURL(raw); got != want {
+			t.Errorf("%q: got %v, want %v", raw, got, want)
+		}
+	}
+}

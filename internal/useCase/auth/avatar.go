@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -54,8 +55,29 @@ func sniffImage(r io.Reader) (head []byte, contentType string, err error) {
 	return head, contentType, nil
 }
 
-// avatarDownloadClient fetches provider (e.g. Google) avatars for re-hosting.
-var avatarDownloadClient = &http.Client{Timeout: 10 * time.Second}
+// avatarDownloadClient fetches provider (e.g. Google) avatars for re-hosting. A redirect is followed
+// only to another allowed avatar host.
+var avatarDownloadClient = &http.Client{
+	Timeout: 10 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 || !isProviderAvatarURL(req.URL.String()) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	},
+}
+
+// isProviderAvatarURL allows only Google's avatar hosts (https, no credentials, no port). The
+// "picture" field is the one value of the Google profile the daemon fetches, so it must not be
+// able to point the backend at any other address.
+func isProviderAvatarURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	return host == "googleusercontent.com" || strings.HasSuffix(host, ".googleusercontent.com")
+}
 
 // avatarKey is the LEGACY object-store key a user's avatar used to be stored
 // under, before avatars moved onto the shared media service. Reads fall back
@@ -185,6 +207,10 @@ func (u *AuthUseCase) adoptProviderAvatar(ctx context.Context, userID uuid.UUID,
 // storage, never hot-linked.
 func (u *AuthUseCase) syncProviderAvatar(ctx context.Context, userID uuid.UUID, externalURL string) string {
 	if !u.storageConfigured || externalURL == "" {
+		return ""
+	}
+	if !isProviderAvatarURL(externalURL) {
+		log.Warn().Msg("provider avatar skipped: the picture URL is not on an allowed avatar host")
 		return ""
 	}
 
