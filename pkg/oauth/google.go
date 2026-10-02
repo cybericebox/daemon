@@ -81,6 +81,9 @@ func (c *Client) GetGoogleUser(
 	if err != nil {
 		return nil, "", err
 	}
+	if !c.consumeState(claims) {
+		return nil, "", ErrInvalidState
+	}
 	tokens, err := c.googleCfg.Exchange(ctx, code)
 	if err != nil {
 		return nil, "", fmt.Errorf("oauth: exchange code: %w", err)
@@ -102,6 +105,9 @@ func (c *Client) GetGoogleUserFromToken(
 	claims, err := c.parseStateToken(state)
 	if err != nil {
 		return nil, "", err
+	}
+	if !c.consumeState(claims) {
+		return nil, "", ErrInvalidState
 	}
 	user, err := c.fetchGoogleUser(ctx, userInfoURL, tokens)
 	if err != nil {

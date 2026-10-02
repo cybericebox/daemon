@@ -73,8 +73,8 @@ func TestGoogleSetupRedirect_CarriesTrustedReturnTo(t *testing.T) {
 
 func callbackReq(intent string, extra ...*http.Cookie) *http.Request {
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_intent", Value: intent})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_intent", Value: intent})
 	for _, c := range extra {
 		req.AddCookie(c)
 	}
@@ -92,7 +92,7 @@ func TestGoogleCallback_Register_SetupKeepsReturnTo(t *testing.T) {
 
 func TestGoogleCallback_Setup_SuccessKeepsReturnTo(t *testing.T) {
 	uc := &fakeUC{linkSetupReturnTo: eventURL}
-	w := serve(t, uc, callbackReq("setup", &http.Cookie{Name: "cib_oauth_setup_token", Value: "tok"}))
+	w := serve(t, uc, callbackReq("setup", &http.Cookie{Name: "__Host-cib_oauth_setup_token", Value: "tok"}))
 	want := "https://id.example.test/setup?token=tok&return_to=" + url.QueryEscape(eventURL)
 	if loc := w.Header().Get("Location"); loc != want {
 		t.Fatalf("want %q, got %q", want, loc)
@@ -103,7 +103,7 @@ func TestGoogleCallback_Setup_SuccessKeepsReturnTo(t *testing.T) {
 // still valid) with error=link_failed instead of the generic sign-in failure.
 func TestGoogleCallback_Setup_LinkFailedReturnsToSetup(t *testing.T) {
 	uc := &fakeUC{linkSetupReturnTo: eventURL, linkSetupErr: errors.New("already linked elsewhere")}
-	w := serve(t, uc, callbackReq("setup", &http.Cookie{Name: "cib_oauth_setup_token", Value: "tok"}))
+	w := serve(t, uc, callbackReq("setup", &http.Cookie{Name: "__Host-cib_oauth_setup_token", Value: "tok"}))
 	want := "https://id.example.test/setup?token=tok&error=link_failed&return_to=" + url.QueryEscape(eventURL)
 	if loc := w.Header().Get("Location"); loc != want {
 		t.Fatalf("want %q, got %q", want, loc)

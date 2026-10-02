@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -24,8 +25,8 @@ func registerCallback(t *testing.T, uc *fakeUC, prot *fakeProt) *httptest.Respon
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_intent", Value: "register"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_intent", Value: "register"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusTemporaryRedirect {
@@ -89,7 +90,7 @@ func TestGoogleCallback_SignIn_Blocked_RedirectsToSignInBlocked(t *testing.T) {
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -98,5 +99,41 @@ func TestGoogleCallback_SignIn_Blocked_RedirectsToSignInBlocked(t *testing.T) {
 	}
 	if prot.capturedSessionCookie != "" {
 		t.Fatal("blocked user must not be authenticated")
+	}
+}
+
+// L4: every OAuth cookie is host-only (__Host-): Secure, Path=/, no Domain, so
+// a sibling subdomain cannot toss its own state into the browser.
+func TestGoogleRedirectsSetHostPrefixedCookies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for path, wantCookies := range map[string][]string{
+		"/api/auth/google":                     {"__Host-cib_oauth_state"},
+		"/api/auth/google/register":            {"__Host-cib_oauth_state", "__Host-cib_oauth_intent"},
+		"/api/auth/google/setup?token=setup-x": {"__Host-cib_oauth_state", "__Host-cib_oauth_intent", "__Host-cib_oauth_setup_token"},
+	} {
+		r := gin.New()
+		h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
+		h.Init(r.Group("api"), r.Group("api"))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		got := map[string]*http.Cookie{}
+		for _, c := range w.Result().Cookies() {
+			got[c.Name] = c
+		}
+		for _, name := range wantCookies {
+			c, ok := got[name]
+			if !ok {
+				t.Errorf("%s: cookie %s not set (got %v)", path, name, got)
+				continue
+			}
+			if !c.Secure || !c.HttpOnly || c.Path != "/" || c.Domain != "" {
+				t.Errorf("%s: %s is not a valid __Host- cookie: %+v", path, name, c)
+			}
+		}
+		for name := range got {
+			if !strings.HasPrefix(name, "__Host-") {
+				t.Errorf("%s: cookie %s lacks the __Host- prefix", path, name)
+			}
+		}
 	}
 }

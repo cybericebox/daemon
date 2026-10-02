@@ -14,11 +14,16 @@ import (
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
+// The OAuth cookies carry the __Host- prefix: the browser then accepts them only from this exact host
+// (Secure, Path=/, no Domain), so a script on a sibling subdomain of the registrable domain cannot
+// plant its own state or setup token here ("cookie tossing").
 const (
-	oauthIntentCookie      = "cib_oauth_intent"
-	oauthSetupTokenCookie  = "cib_oauth_setup_token"
-	oauthStateCookie       = "cib_oauth_state"
-	oauthLinkSessionCookie = "cib_oauth_link_sid"
+	oauthIntentCookie      = "__Host-cib_oauth_intent"
+	oauthSetupTokenCookie  = "__Host-cib_oauth_setup_token"
+	oauthStateCookie       = "__Host-cib_oauth_state"
+	oauthLinkSessionCookie = "__Host-cib_oauth_link_sid"
+	// oauthCookiePath is "/" because __Host- requires it.
+	oauthCookiePath = "/"
 )
 
 // redirectFromQuery validates the ?return_to= query param against the platform
@@ -47,7 +52,7 @@ func (h *Handler) googleRedirect(ctx *gin.Context) {
 		return
 	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 
@@ -66,8 +71,8 @@ func (h *Handler) googleRegisterRedirect(ctx *gin.Context) {
 		return
 	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthIntentCookie, "register", h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
+	ctx.SetCookie(oauthIntentCookie, "register", h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 
@@ -93,9 +98,9 @@ func (h *Handler) googleSetupRedirect(ctx *gin.Context) {
 		return
 	}
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthIntentCookie, "setup", h.oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthSetupTokenCookie, setupToken, h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
+	ctx.SetCookie(oauthIntentCookie, "setup", h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
+	ctx.SetCookie(oauthSetupTokenCookie, setupToken, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 
@@ -121,7 +126,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 	// CSRF / login-fixation guard: verify the state cookie double-submit binding.
 	stateCookie, _ := ctx.Cookie(oauthStateCookie)
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthStateCookie, "", -1, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthStateCookie, "", -1, oauthCookiePath, "", true, true)
 	if stateCookie == "" || subtle.ConstantTimeCompare([]byte(stateCookie), []byte(state)) != 1 {
 		h.googleErrorRedirect(ctx, "/sign-in", "failed", "")
 		return
@@ -129,7 +134,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 
 	intent, _ := ctx.Cookie(oauthIntentCookie)
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthIntentCookie, "", -1, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthIntentCookie, "", -1, oauthCookiePath, "", true, true)
 
 	meta := authModel.SessionMetadata{UserAgent: ctx.Request.UserAgent(), IP: ctx.ClientIP()}
 
@@ -167,7 +172,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 	case "setup":
 		setupToken, _ := ctx.Cookie(oauthSetupTokenCookie)
 		ctx.SetSameSite(http.SameSiteLaxMode)
-		ctx.SetCookie(oauthSetupTokenCookie, "", -1, "/api/auth", "", true, true)
+		ctx.SetCookie(oauthSetupTokenCookie, "", -1, oauthCookiePath, "", true, true)
 		if setupToken == "" {
 			h.googleErrorRedirect(ctx, "/sign-in", "failed", "")
 			return
@@ -190,7 +195,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		// Read and immediately clear the Lax link-session cookie (single-use).
 		sessVal, _ := ctx.Cookie(oauthLinkSessionCookie)
 		ctx.SetSameSite(http.SameSiteLaxMode)
-		ctx.SetCookie(oauthLinkSessionCookie, "", -1, "/api/auth", "", true, true)
+		ctx.SetCookie(oauthLinkSessionCookie, "", -1, oauthCookiePath, "", true, true)
 		if sessVal == "" {
 			response.TemporaryRedirect(
 				ctx,
@@ -254,9 +259,9 @@ func (h *Handler) googleLinkRedirect(ctx *gin.Context) {
 	// callback can read it.
 	sessVal, _ := ctx.Cookie(authModel.SessionCookie)
 	ctx.SetSameSite(http.SameSiteLaxMode)
-	ctx.SetCookie(oauthIntentCookie, "link", h.oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, "/api/auth", "", true, true)
-	ctx.SetCookie(oauthLinkSessionCookie, sessVal, h.oauthCookieMaxAge, "/api/auth", "", true, true)
+	ctx.SetCookie(oauthIntentCookie, "link", h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
+	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
+	ctx.SetCookie(oauthLinkSessionCookie, sessVal, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
 	response.TemporaryRedirect(ctx, url)
 }
 

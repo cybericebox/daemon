@@ -506,7 +506,7 @@ func TestGoogleCallback_StateMatch_SignsIn(t *testing.T) {
 
 	// No intent cookie → dispatches to sign-in path.
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusTemporaryRedirect {
@@ -526,7 +526,7 @@ func TestGoogleCallback_NotRegistered_RedirectsToSignUpOffer(t *testing.T) {
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -557,7 +557,7 @@ func TestGoogleCallback_GoogleAuthGenericError_RedirectsToSignInFailed(t *testin
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -668,7 +668,7 @@ func TestGoogleLinkRedirect_Returns307(t *testing.T) {
 	// Verify the Lax link-session cookie was set with the session value.
 	var linkSIDCookie *http.Cookie
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "cib_oauth_link_sid" {
+		if c.Name == "__Host-cib_oauth_link_sid" {
 			linkSIDCookie = c
 			break
 		}
@@ -701,9 +701,9 @@ func TestGoogleCallback_Link_Success(t *testing.T) {
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_intent", Value: "link"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_link_sid", Value: "sess-value"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_intent", Value: "link"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_link_sid", Value: "sess-value"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -717,7 +717,7 @@ func TestGoogleCallback_Link_Success(t *testing.T) {
 	// The link cookie must be cleared (MaxAge < 0).
 	var cleared bool
 	for _, c := range w.Result().Cookies() {
-		if c.Name == "cib_oauth_link_sid" && c.MaxAge < 0 {
+		if c.Name == "__Host-cib_oauth_link_sid" && c.MaxAge < 0 {
 			cleared = true
 			break
 		}
@@ -739,8 +739,8 @@ func TestGoogleCallback_Link_MissingLinkCookie(t *testing.T) {
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_intent", Value: "link"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_intent", Value: "link"})
 	// oauth_link_sid is intentionally absent — simulates Strict cookie being dropped.
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -766,9 +766,9 @@ func TestGoogleCallback_Link_UseCase_Error(t *testing.T) {
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_intent", Value: "link"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_link_sid", Value: "sess-value"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_intent", Value: "link"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_link_sid", Value: "sess-value"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -791,8 +791,8 @@ func TestGoogleCallback_Register_Success(t *testing.T) {
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_intent", Value: "register"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_intent", Value: "register"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -815,9 +815,9 @@ func TestGoogleCallback_Setup_Success(t *testing.T) {
 	h.Init(r.Group("api"), r.Group("api"))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/callback?code=c&state=s", nil)
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_state", Value: "s"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_intent", Value: "setup"})
-	req.AddCookie(&http.Cookie{Name: "cib_oauth_setup_token", Value: "existing-setup-tok"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_state", Value: "s"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_intent", Value: "setup"})
+	req.AddCookie(&http.Cookie{Name: "__Host-cib_oauth_setup_token", Value: "existing-setup-tok"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

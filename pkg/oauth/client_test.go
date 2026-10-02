@@ -383,3 +383,24 @@ func TestGetGoogleUser_OIDCEmailVerifiedAccepted(t *testing.T) {
 		t.Fatalf("want verified user, got %+v, %v", user, err)
 	}
 }
+
+// L4 PoC: the state was a stateless JWT valid for its whole lifetime, so a
+// captured callback URL could be replayed. It is single-use now.
+func TestGetGoogleUser_StateIsSingleUse(t *testing.T) {
+	srv, googleCfg := mockOAuthServer(t, map[string]any{"id": "1", "email": "a@example.com", "verified_email": true})
+	c := mustClient(t)
+	_, state, _ := c.GetGoogleLoginURL("")
+	tok, _ := googleCfg.Exchange(context.Background(), "any-code")
+
+	if _, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok); err != nil {
+		t.Fatalf("first use: %v", err)
+	}
+	if _, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok); !errors.Is(err, oauth.ErrInvalidState) {
+		t.Fatalf("replay must be ErrInvalidState, got %v", err)
+	}
+	// another login is unaffected
+	_, other, _ := c.GetGoogleLoginURL("")
+	if _, _, err := c.GetGoogleUserFromToken(context.Background(), other, srv.URL+"/userinfo", tok); err != nil {
+		t.Fatalf("a fresh state works: %v", err)
+	}
+}

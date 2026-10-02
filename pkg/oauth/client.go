@@ -3,8 +3,10 @@ package oauth
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/oauth2"
 )
@@ -38,6 +40,14 @@ type Client struct {
 	googleCfg *oauth2.Config
 	signKey   []byte
 	stateTTL  time.Duration
+
+	// usedStates remembers the ids of the states that already came back, until
+	// they would have expired anyway: a state is single-use, so a captured
+	// callback URL cannot be replayed within its lifetime. In memory: with
+	// several replicas it holds per replica (the code Google issues is
+	// single-use too).
+	usedMu     sync.Mutex
+	usedStates map[string]time.Time
 }
 
 // New constructs a Client, returning an error on invalid config.
@@ -50,9 +60,10 @@ func New(cfg Config) (*Client, error) {
 		ttl = 10 * time.Minute
 	}
 	return &Client{
-		googleCfg: newGoogleClientConfig(cfg.Google, cfg.RedirectURLTemplate),
-		signKey:   []byte(cfg.StateSignature),
-		stateTTL:  ttl,
+		googleCfg:  newGoogleClientConfig(cfg.Google, cfg.RedirectURLTemplate),
+		signKey:    []byte(cfg.StateSignature),
+		stateTTL:   ttl,
+		usedStates: map[string]time.Time{},
 	}, nil
 }
 
@@ -81,6 +92,7 @@ func (c *Client) newStateToken(redirect string) (string, error) {
 			Subject:   stateSubject,
 			ExpiresAt: jwt.NewNumericDate(now.Add(c.stateTTL)),
 			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        uuid.Must(uuid.NewV7()).String(),
 		},
 		Redirect: redirect,
 	}
@@ -109,4 +121,21 @@ func (c *Client) parseStateToken(tokenStr string) (*stateClaims, error) {
 		return nil, ErrInvalidState
 	}
 	return claims, nil
+}
+
+// consumeState marks the state as used; false when it was already used.
+func (c *Client) consumeState(claims *stateClaims) bool {
+	now := time.Now()
+	c.usedMu.Lock()
+	defer c.usedMu.Unlock()
+	for id, expires := range c.usedStates {
+		if now.After(expires) {
+			delete(c.usedStates, id)
+		}
+	}
+	if _, used := c.usedStates[claims.ID]; used {
+		return false
+	}
+	c.usedStates[claims.ID] = claims.ExpiresAt.Time
+	return true
 }
