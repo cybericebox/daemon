@@ -30,6 +30,7 @@ type Queries interface {
 	UpdateEventScoringProfile(ctx context.Context, arg postgres.UpdateEventScoringProfileParams) (int64, error)
 	DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error)
 	GetLiveEventByTag(ctx context.Context, arg postgres.GetLiveEventByTagParams) (postgres.Event, error)
+	EventTagExists(ctx context.Context, tag string) (bool, error)
 	ListEventsDueForScoringPopulation(ctx context.Context, now time.Time) ([]postgres.ListEventsDueForScoringPopulationRow, error)
 	InsertEventScoringPopulation(ctx context.Context, arg postgres.InsertEventScoringPopulationParams) (postgres.EventScoringPopulation, error)
 	CountLiveEventsWithTag(ctx context.Context, arg postgres.CountLiveEventsWithTagParams) (int64, error)
@@ -241,6 +242,11 @@ func (r *Repository) GetLiveByTag(ctx context.Context, tag string, now time.Time
 		return eventModel.Event{}, err
 	}
 	return ToDomain(row), nil
+}
+
+// TagExists reports whether any event (archived included) carries the tag.
+func (r *Repository) TagExists(ctx context.Context, tag string) (bool, error) {
+	return r.q.EventTagExists(ctx, tag)
 }
 
 // ToDomain maps a sqlc row to the domain entity. updated_at is nullable at

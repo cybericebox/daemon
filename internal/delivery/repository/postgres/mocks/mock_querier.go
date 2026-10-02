@@ -2465,6 +2465,21 @@ func (mr *MockQuerierMockRecorder) EventHasActiveExerciseFamily(ctx, arg any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EventHasActiveExerciseFamily", reflect.TypeOf((*MockQuerier)(nil).EventHasActiveExerciseFamily), ctx, arg)
 }
 
+// EventTagExists mocks base method.
+func (m *MockQuerier) EventTagExists(ctx context.Context, tag string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EventTagExists", ctx, tag)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EventTagExists indicates an expected call of EventTagExists.
+func (mr *MockQuerierMockRecorder) EventTagExists(ctx, tag any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EventTagExists", reflect.TypeOf((*MockQuerier)(nil).EventTagExists), ctx, tag)
+}
+
 // ExerciseDraftDiffersFromPublished mocks base method.
 func (m *MockQuerier) ExerciseDraftDiffersFromPublished(ctx context.Context, exerciseID uuid.UUID) (bool, error) {
 	m.ctrl.T.Helper()

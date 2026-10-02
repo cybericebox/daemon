@@ -227,6 +227,19 @@ func (q *Queries) DeleteEvent(ctx context.Context, id uuid.UUID) (int64, error) 
 	return result.RowsAffected(), nil
 }
 
+const eventTagExists = `-- name: EventTagExists :one
+SELECT EXISTS (SELECT 1 FROM events WHERE tag = $1)
+`
+
+// Whether any event (archived included) carries the tag. Deleted events are gone
+// from the table, so this is "the tag belongs to an event that still exists".
+func (q *Queries) EventTagExists(ctx context.Context, tag string) (bool, error) {
+	row := q.db.QueryRow(ctx, eventTagExists, tag)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getEventByID = `-- name: GetEventByID :one
 SELECT id, tag, name, available_from, archive_at, updated_at, updated_by, created_at, created_by, join_policy, publish_at, start_at, finish_at, withdraw_at, manual_finished_at, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, force_event_scoring, landing_document, internal_name, lifecycle_configured, live_layout, live_layout_draft, infrastructure_allowed, landing_draft, static_points
 FROM events

@@ -278,6 +278,9 @@ type Querier interface {
 	// Whether an active attachment of the event already uses the exercise, a fork
 	// of it, or the source it was forked from.
 	EventHasActiveExerciseFamily(ctx context.Context, arg EventHasActiveExerciseFamilyParams) (bool, error)
+	// Whether any event (archived included) carries the tag. Deleted events are gone
+	// from the table, so this is "the tag belongs to an event that still exists".
+	EventTagExists(ctx context.Context, tag string) (bool, error)
 	// jsonb equality is semantic (key order and whitespace are irrelevant), so a
 	// working copy re-saved or restored with the published content compares
 	// equal. Zero rows when either pointer is NULL: those cases are decided by
@@ -536,12 +539,6 @@ type Querier interface {
 	IssueEventLiveScreenLink(ctx context.Context, arg IssueEventLiveScreenLinkParams) error
 	ListActiveBannersByUser(ctx context.Context, arg ListActiveBannersByUserParams) ([]ListActiveBannersByUserRow, error)
 	ListActiveFutureTimedEventFormAssignments(ctx context.Context, eventID uuid.UUID) ([]EventFormAssignment, error)
-	// One page of the journal, newest first, keyset-paged by (created_at, id).
-	// Every filter is optional. route and target_id are "contains" matches
-	// (strpos, so no LIKE escaping); target_kind matches the "kind:" token of the
-	// space-separated target ("event:<id> team:<id>"); a status class is
-	// status_min..status_max; cursor_created_at/cursor_id continue after the
-	// last row of the previous page.
 	// One page of the journal, newest first, keyset-paged by (created_at, id).
 	// Every filter is optional. route and target_id are "contains" matches
 	// (strpos, so no LIKE escaping); target_kind matches the "kind:" token of the

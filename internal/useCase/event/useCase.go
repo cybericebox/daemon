@@ -187,6 +187,8 @@ type EventUseCase struct {
 	// task open beacon in process.
 	activity  ActivityLog
 	taskOpens *taskOpenThrottle
+	// tagListener is told when an event is created, deleted or retagged.
+	tagListener TagListener
 	// invitationLimits bounds the mail the invitation routes can cause.
 	invitationLimits *invitationLimits
 }

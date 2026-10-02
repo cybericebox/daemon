@@ -237,3 +237,8 @@ WHERE p.event_id IS NULL
   AND e.start_at <= sqlc.arg(now)
   AND c.participation IS NOT NULL
 ORDER BY e.start_at ASC;
+
+-- name: EventTagExists :one
+-- Whether any event (archived included) carries the tag. Deleted events are gone
+-- from the table, so this is "the tag belongs to an event that still exists".
+SELECT EXISTS (SELECT 1 FROM events WHERE tag = $1);

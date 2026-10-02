@@ -66,6 +66,7 @@ func (u *EventUseCase) CreateEvent(ctx context.Context, in CreateEventInput) (Ev
 	if err = unit.Save(); err != nil {
 		return EventView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create event").Err()
 	}
+	u.tagsChanged()
 	return toEventView(created, now), nil
 }
 
@@ -109,6 +110,33 @@ func (u *EventUseCase) ResolveEventByTag(ctx context.Context, tag string, now ti
 		return EventTenantView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve event by tag").Err()
 	}
 	return toEventTenantView(e, now), nil
+}
+
+// EventTagExists reports whether an event with the tag exists in any lifecycle
+// state (archived included; a deleted event is gone). It backs the browser
+// origin allow-list: an event site may call the API for as long as its event
+// exists. Not route-gated.
+func (u *EventUseCase) EventTagExists(ctx context.Context, tag string) (bool, error) {
+	ok, err := u.events.TagExists(ctx, tag)
+	if err != nil {
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to check the event tag").Err()
+	}
+	return ok, nil
+}
+
+// TagListener is told when the set of event tags may have changed (an event was
+// created, deleted or retagged), so caches keyed by tag can drop their entries.
+type TagListener interface {
+	Invalidate()
+}
+
+// SetTagListener wires the listener; nil until wired.
+func (u *EventUseCase) SetTagListener(l TagListener) { u.tagListener = l }
+
+func (u *EventUseCase) tagsChanged() {
+	if u.tagListener != nil {
+		u.tagListener.Invalidate()
+	}
 }
 
 // ListEvents returns a keyset page filtered by search. Route gate: events.read.
@@ -207,6 +235,7 @@ func (u *EventUseCase) UpdateEvent(ctx context.Context, id uuid.UUID, in UpdateE
 	if err != nil {
 		return EventView{}, err
 	}
+	u.tagsChanged()
 	return toEventView(e, now), nil
 }
 
@@ -302,5 +331,6 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, id uuid.UUID) error {
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete event").Err()
 	}
+	u.tagsChanged()
 	return nil
 }

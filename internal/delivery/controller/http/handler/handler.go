@@ -56,6 +56,13 @@ type (
 		// middleware.ResolveEventTenant from this and h.domain, rather than
 		// threading the middleware in from controller.go.
 		ResolveEventByTag(ctx context.Context, tag string, now time.Time) (eventUseCase.EventTenantView, error)
+
+		// EventTagExists and SetTagListener back the browser origin allow-list:
+		// an event site is allowed while its event exists (archived included),
+		// and the listener drops cached answers when an event is created,
+		// deleted or retagged.
+		EventTagExists(ctx context.Context, tag string) (bool, error)
+		SetTagListener(l eventUseCase.TagListener)
 	}
 
 	// Protector is the subset of the protection middleware the handler aggregator needs.
