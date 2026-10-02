@@ -73,6 +73,18 @@ func (u *EventUseCase) SubmitParticipantForm(ctx context.Context, eventID, userI
 		}
 		return ParticipantFormAnswerView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get participant form").Err()
 	}
+	// The form is answered while the event lasts: after its effective finish the answers are frozen, as
+	// they are for the participant's own edits.
+	e, err := u.events.GetByID(ctx, eventID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return ParticipantFormAnswerView{}, eventModel.ErrEventNotFound.Err()
+		}
+		return ParticipantFormAnswerView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	if !participantModel.AnswersEditable(e.Lifecycle.EffectiveFinishAt(), time.Now()) {
+		return ParticipantFormAnswerView{}, participantModel.ErrParticipantFieldsLocked.Err()
+	}
 	// Answers an organizer prefilled stay: a non-editable field with a value
 	// cannot be changed by the participant.
 	stored, err := u.forms.LatestRegistrationAnswers(ctx, eventID, []uuid.UUID{userID})

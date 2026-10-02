@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -36,6 +38,7 @@ func newAnswerFileFixture(t *testing.T) answerFileFixture {
 	media := &brandMediaFake{file: mediaModel.File{ID: uuid.Must(uuid.NewV7()), SizeBytes: 9}}
 	f := answerFileFixture{q: q, media: media, uc: event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media}),
 		eventID: uuid.Must(uuid.NewV7()), userID: uuid.Must(uuid.NewV7()), formVer: uuid.Must(uuid.NewV7())}
+	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).Return(postgres.Event{}, nil).AnyTimes() // an unfinished event
 	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), f.eventID).
 		Return(postgres.EventFormVersion{ID: f.formVer, EventID: f.eventID, Version: 1, Enabled: true, Document: []byte(fileFormDocument)}, nil)
 	return f
@@ -114,5 +117,21 @@ func TestSubmitParticipantFormRejectsSomeoneElsesUpload(t *testing.T) {
 	_, err := f.uc.SubmitParticipantForm(context.Background(), f.eventID, f.userID, event.SubmitParticipantFormInput{Answers: answers})
 	if !errors.Is(err, eventModel.ErrAnswerFileUnavailable.Err()) {
 		t.Fatalf("another user's upload must be refused: %v", err)
+	}
+}
+
+// A finished event takes no more registration answers from anyone logged in.
+func TestSubmitParticipantFormIsRefusedAfterTheEventFinished(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	eventID, userID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Now()
+	finished := startedEvent(eventID, now)
+	finished.FinishAt = pgtype.Timestamptz{Time: now.Add(-time.Minute), Valid: true}
+	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), eventID).Return(postgres.EventFormVersion{ID: versionID, EventID: eventID, Version: 1, Enabled: true, Document: []byte(fileFormDocument)}, nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(finished, nil)
+	_, err := uc.SubmitParticipantForm(context.Background(), eventID, userID, event.SubmitParticipantFormInput{Answers: map[string]any{}})
+	if !errors.Is(err, participantModel.ErrParticipantFieldsLocked.Err()) {
+		t.Fatalf("err = %v", err)
 	}
 }

@@ -69,6 +69,7 @@ func TestSubmitParticipantFormKeepsPrefilledLockedAnswers(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	uc := newUC(q)
 	eventID, userID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).Return(postgres.Event{}, nil).AnyTimes() // an unfinished event
 	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), eventID).Return(prefillFormVersion(eventID, versionID), nil).AnyTimes()
 	q.EXPECT().ListLatestRegistrationAnswersForUsers(gomock.Any(), gomock.Any()).Return([]postgres.ListLatestRegistrationAnswersForUsersRow{
 		{UserID: userID, Answers: []byte(`{"school":"KPI"}`)},

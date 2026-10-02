@@ -1,6 +1,7 @@
 package eventFormModel
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -282,6 +283,21 @@ func (f Form) validateAnswers(answers map[string]any, tolerate func(key string) 
 	}
 	// values holds the answers of the questions the participant sees; a
 	// question hidden by its condition hides everything that depends on it.
+	declared := make(map[string]bool, len(f.Document.Blocks))
+	for _, block := range f.Document.Blocks {
+		if block.Type == eventContentModel.BlockField {
+			declared[block.Key] = true
+		}
+	}
+	// Only the questions of the form can be answered: any other key would be stored as it comes.
+	for key := range answers {
+		if !declared[key] {
+			return fmt.Errorf("unknown field %q", key)
+		}
+	}
+	if encoded, err := json.Marshal(answers); err != nil || len(encoded) > MaxAnswersBytes {
+		return fmt.Errorf("the answers are larger than %d bytes", MaxAnswersBytes)
+	}
 	values := make(map[string]any, len(answers))
 	fields := make(map[string]eventContentModel.Block)
 	for _, block := range f.Document.Blocks {
@@ -294,6 +310,13 @@ func (f Form) validateAnswers(answers map[string]any, tolerate func(key string) 
 			return err
 		}
 		if !visible {
+			// A question hidden by its condition is not demanded, but what was sent for it is still held to
+			// the rules of the field.
+			if value, submitted := answers[block.Key]; submitted {
+				if err := validateValue(block, value); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		value, submitted := answers[block.Key]
@@ -346,8 +369,16 @@ func empty(value any) bool { return value == nil || fmt.Sprint(value) == "" }
 func validateValue(block eventContentModel.Block, value any) error {
 	switch block.Input {
 	case "text", "long_text":
-		if _, ok := value.(string); !ok {
+		text, ok := value.(string)
+		if !ok {
 			return fmt.Errorf("field %q must be text", block.Key)
+		}
+		limit := MaxTextAnswerBytes
+		if block.Input == "long_text" {
+			limit = MaxLongTextAnswerBytes
+		}
+		if len(text) > limit {
+			return fmt.Errorf("field %q is longer than %d bytes", block.Key, limit)
 		}
 	case "number":
 		switch value.(type) {
@@ -383,6 +414,9 @@ func validateValue(block eventContentModel.Block, value any) error {
 		if !ok {
 			return fmt.Errorf("field %q must be a list", block.Key)
 		}
+		if len(values) > len(block.Options) {
+			return fmt.Errorf("field %q has more answers than options", block.Key)
+		}
 		for _, item := range values {
 			text, ok := item.(string)
 			if !ok || !contains(block.Options, text) {
@@ -392,6 +426,15 @@ func validateValue(block eventContentModel.Block, value any) error {
 	}
 	return nil
 }
+
+// Size limits of the answers of one form.
+const (
+	// MaxTextAnswerBytes bounds a one-line answer, MaxLongTextAnswerBytes a long one, MaxAnswersBytes all the
+	// answers of one submission together.
+	MaxTextAnswerBytes     = 4 << 10
+	MaxLongTextAnswerBytes = 64 << 10
+	MaxAnswersBytes        = 256 << 10
+)
 
 func contains(values []string, value string) bool {
 	for _, item := range values {
