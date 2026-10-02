@@ -31,7 +31,9 @@ func TestRosterChangesTakeTheEventLockBeforeReadingAnything(t *testing.T) {
 		"assign": func(uc *event.EventUseCase) error {
 			return uc.AssignParticipantToTeam(context.Background(), eventID, teamID, userID)
 		},
-		"form": func(uc *event.EventUseCase) error { return uc.FormManagedTeam(context.Background(), eventID, teamID, actorID) },
+		"form": func(uc *event.EventUseCase) error {
+			return uc.FormManagedTeam(context.Background(), eventID, teamID, actorID)
+		},
 	}
 	for name, call := range calls {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))

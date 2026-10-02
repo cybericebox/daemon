@@ -250,7 +250,8 @@ func TestSaveDraft_TwoVariants_NoCrossContamination(t *testing.T) {
 	if gotA == priorCipherA || gotA == priorCipherB || gotA == "new-plaintext-A" {
 		t.Fatalf("variant A must be freshly encrypted, distinct from stale/foreign ciphertext: got %q", gotA)
 	}
-	plain, dErr := cipher.Decrypt(gotA)
+	plainBytes, dErr := cipher.DecryptWithContext(gotA, exercise.EnvSecretContext(idA, "web", "DB_PASS"))
+	plain := string(plainBytes)
 	if dErr != nil {
 		t.Fatalf("variant A ciphertext must decrypt: %v", dErr)
 	}

@@ -171,13 +171,12 @@ func TestDeployVariantTest_DecryptsSecretsAndDeploys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ct, err := cipher.Encrypt("FLAG{plain}")
+	variantID := uuid.Must(uuid.NewV7())
+	versionID := uuid.Must(uuid.NewV7())
+	ct, err := cipher.EncryptWithContext([]byte("FLAG{plain}"), exercise.EnvSecretContext(variantID, "web", "FLAG"))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	variantID := uuid.Must(uuid.NewV7())
-	versionID := uuid.Must(uuid.NewV7())
 	variants := []exerciseModel.Variant{{
 		ID: variantID,
 		Topology: exerciseModel.Topology{
@@ -311,12 +310,13 @@ func TestResolveDeployedTopology_UsesPinnedVariantIndexAndDecryptsSecrets(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	ct, err := cipher.Encrypt("FLAG{pinned}")
+	variantID := uuid.Must(uuid.NewV7())
+	ct, err := cipher.EncryptWithContext([]byte("FLAG{pinned}"), exercise.EnvSecretContext(variantID, "web", "FLAG"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	versionID := uuid.Must(uuid.NewV7())
-	variants, err := json.Marshal([]exerciseModel.Variant{{Index: 0}, {Index: 7, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}})
+	variants, err := json.Marshal([]exerciseModel.Variant{{Index: 0}, {ID: variantID, Index: 7, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -939,5 +939,22 @@ func TestTestDeployDeviceActions_OnlyForTheOwnerAndALiveLease(t *testing.T) {
 	}
 	if len(infra.deviceCalls) != 0 {
 		t.Fatalf("the agent must not be called: %v", infra.deviceCalls)
+	}
+}
+
+// A secret is bound to its variant and variable: the same ciphertext pasted into another variant fails to open.
+func TestResolveDeployedTopology_ASecretSealedForAnotherVariantDoesNotOpen(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	cipher, _ := secret.New(testKey)
+	sealedFor := uuid.Must(uuid.NewV7())
+	ct, _ := cipher.EncryptWithContext([]byte("FLAG{moved}"), exercise.EnvSecretContext(sealedFor, "web", "FLAG"))
+	versionID := uuid.Must(uuid.NewV7())
+	otherVariant := uuid.Must(uuid.NewV7())
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: otherVariant, Index: 3, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", EnvVars: []exerciseModel.EnvVar{{Name: "FLAG", Value: ct, Secret: true}}}}}}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher})
+	if _, err := uc.ResolveDeployedTopology(context.Background(), versionID, 3); err == nil {
+		t.Fatal("a secret copied under another variant must not decrypt")
 	}
 }

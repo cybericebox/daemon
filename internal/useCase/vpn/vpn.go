@@ -7,6 +7,7 @@ package vpn
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -47,6 +48,16 @@ type ConfigView struct {
 	UpdatedAt time.Time
 }
 
+// configContext binds a stored config to its row (user, scope and scope reference): a ciphertext copied to
+// another row, or another user's, does not open.
+func configContext(userID uuid.UUID, scope vpnModel.Scope, scopeRef uuid.NullUUID) []byte {
+	ref := ""
+	if scopeRef.Valid {
+		ref = scopeRef.UUID.String()
+	}
+	return []byte(fmt.Sprintf("vpn-config:%s:%v:%s", userID, scope, ref))
+}
+
 // StoreConfig encrypts and upserts a user's VPN config for a scope. Re-issuing
 // within the same scope replaces the stored ciphertext.
 func (u *VPNUseCase) StoreConfig(ctx context.Context, userID uuid.UUID, scope vpnModel.Scope, scopeRef uuid.NullUUID, plaintext string) error {
@@ -56,7 +67,7 @@ func (u *VPNUseCase) StoreConfig(ctx context.Context, userID uuid.UUID, scope vp
 	if u.cipher == nil {
 		return vpnModel.ErrVPNSecretsNotConfigured.Err()
 	}
-	ct, err := u.cipher.Encrypt(plaintext)
+	ct, err := u.cipher.EncryptWithContext([]byte(plaintext), configContext(userID, scope, scopeRef))
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to encrypt VPN config").Err()
 	}
@@ -79,11 +90,11 @@ func (u *VPNUseCase) GetConfig(ctx context.Context, userID uuid.UUID, scope vpnM
 	if u.cipher == nil {
 		return "", vpnModel.ErrVPNSecretsNotConfigured.Err()
 	}
-	pt, err := u.cipher.Decrypt(c.Config)
+	pt, err := u.cipher.DecryptWithContext(c.Config, configContext(userID, scope, scopeRef))
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt VPN config").Err()
 	}
-	return pt, nil
+	return string(pt), nil
 }
 
 // ListUserConfigs returns metadata for a user's stored configs (no ciphertext),

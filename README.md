@@ -117,9 +117,9 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `TEMPORAL_CODE_TTL` | `1h` | Lifetime of one-time codes (confirmation, reset). |
 | `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH` | `8`, `72` | Password length bounds (bcrypt ignores bytes past 72). |
 | `PASSWORD_MIN_CAPITAL_LETTERS`, `PASSWORD_MIN_SMALL_LETTERS`, `PASSWORD_MIN_DIGITS`, `PASSWORD_MIN_SPECIAL_CHARACTERS` | `1`, `1`, `1`, `0` | Complexity policy, published at `GET /api/auth/password/policy`. |
-| `PLATFORM_SECRETS_KEY` | none | 64 hex characters (AES-256). Seals platform secrets: SMTP provider passwords and the private keys of enrolled agents. Empty disables them; an invalid value is fatal. |
-| `EXERCISE_SECRETS_KEY` | none | 64 hex characters. Seals exercise secret env vars. Empty disables them (saving one answers 409). |
-| `VPN_SECRETS_KEY` | none | 64 hex characters. Seals stored VPN client configs. Empty disables their storage. |
+| `PLATFORM_SECRETS_KEY` | none | One 64-hex-character key (AES-256), or a keyring `id:hex,id:hex` (see below). Seals platform secrets: SMTP provider passwords and the private keys of enrolled agents. Empty disables them; an invalid value is fatal. |
+| `EXERCISE_SECRETS_KEY` | none | One 64-hex-character key or a keyring. Seals exercise secret env vars. Empty disables them (saving one answers 409). |
+| `VPN_SECRETS_KEY` | none | One 64-hex-character key or a keyring. Seals stored VPN client configs. Empty disables their storage. |
 
 Generate a key with `openssl rand -hex 32`. Keep every key stable: changing one makes data sealed with it unreadable.
 
@@ -135,6 +135,8 @@ Exactly one mode must be configured, otherwise the daemon refuses to start.
 `RECAPTCHA_SCORE` (default `0.5`) is the minimum accepted score; below `0.3` (0 accepts every bot) is fatal in production. The token must have been solved on a platform frontend host.
 
 ### Mail
+
+**Rotating a secrets key.** Each `*_SECRETS_KEY` may be a keyring of `id:hex` entries (an id is 1 to 16 characters of `a-z`, `0-9`, `_`, `-`), for example `2026b:<hex>,2025a:<hex>`. The first key encrypts; every key opens. A ciphertext names the key that sealed it (`v1:<id>:...`), and values written before keyrings (no id) open with the keys of the ring in turn. To rotate: put the new key first and keep the old one after it; remove the old one when nothing is sealed with it any more (a value whose key is missing from the ring fails with the missing key id). Secrets are also bound to their row (a VPN config to its user and scope, an exercise secret to its variant, device and variable), so a ciphertext copied elsewhere does not open.
 
 Sender and transport settings live in the database: SMTP providers are managed in the admin (Mail settings) and their passwords are sealed with `PLATFORM_SECRETS_KEY`. The environment transport is only a bootstrap fallback.
 

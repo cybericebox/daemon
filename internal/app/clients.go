@@ -90,7 +90,7 @@ func setupClients(cfg *config.Config) *clients {
 }
 
 // newCipher builds the cipher of one secret family: nil when its key is unset (the
-// feature is then disabled), an error when it is set but is not 64 hex chars.
+// feature is then disabled), an error when it is set but is neither one 64-hex-char key nor a keyring.
 func newCipher(key string) (*secret.Cipher, error) {
 	if key == "" {
 		return nil, nil
@@ -103,7 +103,7 @@ func newCipher(key string) (*secret.Cipher, error) {
 func mustCipher(envName, key, feature string) *secret.Cipher {
 	cipher, err := newCipher(key)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("%s is set but invalid (need 64 hex chars)", envName)
+		log.Fatal().Err(err).Msgf("%s is set but invalid (one 64-hex-char key, or a keyring of id:hex entries)", envName)
 	}
 	if cipher == nil {
 		log.Warn().Msgf("%s unconfigured — %s disabled", envName, feature)

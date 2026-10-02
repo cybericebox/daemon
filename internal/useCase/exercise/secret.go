@@ -103,6 +103,12 @@ func submittedSecretKeys(variants []exerciseModel.Variant) map[string]bool {
 	return out
 }
 
+// envSecretContext binds the ciphertext of a secret env var to its variant, device and name (the same identity
+// the draft merge keeps a secret by): a value copied to another variable does not open there.
+func envSecretContext(variantID uuid.UUID, device, name string) []byte {
+	return []byte("exercise-env:" + variantID.String() + ":" + device + ":" + name)
+}
+
 // encryptSecrets encrypts every secret env-var value that the caller actually
 // submitted as non-empty plaintext (tracked via rawSubmitted). Values merged
 // in from the stored draft are already ciphertext and are skipped.
@@ -118,7 +124,7 @@ func (u *ExerciseUseCase) encryptSecrets(variants []exerciseModel.Variant, rawSu
 				if u.cipher == nil {
 					return exerciseModel.ErrSecretsNotConfigured.Err()
 				}
-				ct, err := u.cipher.Encrypt(ev.Value)
+				ct, err := u.cipher.EncryptWithContext([]byte(ev.Value), envSecretContext(variants[vi].ID, d.Name, ev.Name))
 				if err != nil {
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to encrypt secret env var").Err()
 				}
@@ -147,11 +153,11 @@ func (u *ExerciseUseCase) decryptExportedSecrets(versions []exerciseModel.Exerci
 					if u.cipher == nil {
 						return exerciseModel.ErrSecretsNotConfigured.Err()
 					}
-					plain, err := u.cipher.Decrypt(env.Value)
+					plain, err := u.cipher.DecryptWithContext(env.Value, envSecretContext(versions[vi].Variants[variantIndex].ID, device.Name, env.Name))
 					if err != nil {
 						return model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt secret env var for export").Err()
 					}
-					env.Value = plain
+					env.Value = string(plain)
 				}
 			}
 		}
@@ -175,7 +181,7 @@ func (u *ExerciseUseCase) encryptImportedSecrets(versions []exerciseModel.Exerci
 					if u.cipher == nil {
 						return exerciseModel.ErrSecretsNotConfigured.Err()
 					}
-					ciphertext, err := u.cipher.Encrypt(env.Value)
+					ciphertext, err := u.cipher.EncryptWithContext([]byte(env.Value), envSecretContext(versions[vi].Variants[variantIndex].ID, device.Name, env.Name))
 					if err != nil {
 						return model.ErrPlatform.WithError(err).WithMessage("Failed to encrypt imported secret env var").Err()
 					}

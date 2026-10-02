@@ -161,6 +161,10 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if in.Password == "" && containsSecretValues(parsed.Versions) {
 		return ExerciseView{}, fmt.Errorf("an archive containing secret values must be password-protected")
 	}
+	// A secret is bound to its variant id: the ids are final before anything is sealed.
+	for i := range parsed.Versions {
+		normalizeContentIDs(parsed.Versions[i].Variants)
+	}
 	if err = u.encryptImportedSecrets(parsed.Versions); err != nil {
 		return ExerciseView{}, err
 	}

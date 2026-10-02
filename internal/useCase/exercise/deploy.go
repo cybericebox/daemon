@@ -182,7 +182,7 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 	if len(variant.Topology.Devices) == 0 {
 		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployNoLab.Err()
 	}
-	topo, err := u.decryptTopologySecrets(variant.Topology)
+	topo, err := u.decryptTopologySecrets(variant.ID, variant.Topology)
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
@@ -600,7 +600,7 @@ func (u *ExerciseUseCase) ResolveDeployedTopology(ctx context.Context, versionID
 	}
 	for _, variant := range version.Variants {
 		if variant.Index == variantIndex {
-			return u.decryptTopologySecrets(variant.Topology)
+			return u.decryptTopologySecrets(variant.ID, variant.Topology)
 		}
 	}
 	return exerciseModel.Topology{}, exerciseModel.ErrExerciseVersionNotFound.Err()
@@ -664,7 +664,7 @@ func (u *ExerciseUseCase) loadVariant(ctx context.Context, versionID, variantID 
 // decryptTopologySecrets returns a copy of the topology with secret env-var
 // values decrypted to plaintext for deployment. The stored variant (ciphertext)
 // is never mutated — devices and their env slices are copied before rewriting.
-func (u *ExerciseUseCase) decryptTopologySecrets(topo exerciseModel.Topology) (exerciseModel.Topology, error) {
+func (u *ExerciseUseCase) decryptTopologySecrets(variantID uuid.UUID, topo exerciseModel.Topology) (exerciseModel.Topology, error) {
 	out := topo
 	out.Devices = make([]exerciseModel.Device, len(topo.Devices))
 	copy(out.Devices, topo.Devices)
@@ -682,11 +682,11 @@ func (u *ExerciseUseCase) decryptTopologySecrets(topo exerciseModel.Topology) (e
 			if u.cipher == nil {
 				return exerciseModel.Topology{}, exerciseModel.ErrSecretsNotConfigured.Err()
 			}
-			pt, err := u.cipher.Decrypt(envs[ei].Value)
+			pt, err := u.cipher.DecryptWithContext(envs[ei].Value, envSecretContext(variantID, d.Name, envs[ei].Name))
 			if err != nil {
 				return exerciseModel.Topology{}, model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt secret env var").Err()
 			}
-			envs[ei].Value = pt
+			envs[ei].Value = string(pt)
 		}
 		d.EnvVars = envs
 	}
