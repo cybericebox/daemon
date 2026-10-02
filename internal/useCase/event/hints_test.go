@@ -10,7 +10,9 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
+	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	event "github.com/cybericebox/daemon/internal/useCase/event"
 )
 
@@ -96,5 +98,29 @@ func TestUnlockHint_RefusesWhenEventDisablesHints(t *testing.T) {
 	_, err := uc.UnlockHint(context.Background(), f.eventID, f.userID, f.challengeID, f.hintID)
 	if !errors.Is(err, eventChallengeModel.ErrEventChallengeHintsDisabled.Err()) || unit.saved {
 		t.Fatalf("want ErrEventChallengeHintsDisabled, got %v", err)
+	}
+}
+
+// L20: a hint costs points; like a submission it needs the blocking required forms filled in.
+func TestUnlockHint_RefusedWhileRequiredFormsAreBlocking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	stubParticipationModelReads(q)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	f := newHintFixture()
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).
+		Return(postgres.EventParticipant{EventID: f.eventID, UserID: f.userID, Status: 2, TeamID: uuid.NullUUID{UUID: f.teamID, Valid: true}, CreatedAt: f.now}, nil)
+	q.EXPECT().GetEventParticipantFieldsMissing(gomock.Any(), gomock.Any()).Return(int32(1), nil)
+	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), f.eventID).Return(postgres.EventFormVersion{
+		EventID: f.eventID, Version: 2, Enabled: true, Required: true, RequireExisting: true, BlockSubmissions: true, Document: []byte(`{"blocks":[]}`),
+	}, nil)
+	// no event, hint or unlock is read: the gate is first
+
+	if _, err := uc.UnlockHint(context.Background(), f.eventID, f.userID, f.challengeID, f.hintID); !errors.Is(err, participantModel.ErrEventFormRequired.Err()) {
+		t.Fatalf("want ErrEventFormRequired, got %v", err)
+	}
+	if unit.saved {
+		t.Fatal("nothing may commit")
 	}
 }

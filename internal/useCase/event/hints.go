@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
@@ -43,6 +44,10 @@ func (u *EventUseCase) UnlockHint(ctx context.Context, eventID, userID, challeng
 		return OwnHintView{}, participantModel.ErrParticipantNotApproved.Err()
 	}
 	if err = requireTeamAdmitted(txCtx, eventTeamRepo.New(txRepo), eventID, *p.TeamID); err != nil {
+		return OwnHintView{}, err
+	}
+	// A hint costs points: like a submission, it needs the required forms filled in.
+	if err = requireFieldsFilled(txCtx, eventFormRepo.New(txRepo), eventTeamRepo.New(txRepo), eventID, userID, *p.TeamID); err != nil {
 		return OwnHintView{}, err
 	}
 	e, err := eventRepo.New(txRepo).GetByID(txCtx, eventID)

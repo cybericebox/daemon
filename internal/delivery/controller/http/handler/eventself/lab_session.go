@@ -31,7 +31,7 @@ type labLinkResponse struct {
 
 // openLabLink godoc
 // @Summary Get the link that opens one web device of a task's lab
-// @Description Returns https://<device>-<code>.<base>/_auth?t=..., signed for the caller's team lab group and client. The link lives about two minutes and is single use: the page fetches it on every click and opens it. The laboratory proxy turns it into its own session cookie; the platform sets no cookie. expires_at is the end of the session the link grants.
+// @Description Returns https://<device>-<code>.<base>/_auth?t=..., signed for the caller's team lab group and client. The link lives about two minutes. It is a stateless signed token (no jti, by the proxy protocol), so it is NOT single use within that time: treat it like a password and do not share it. The page fetches it on every click and opens it. The laboratory proxy turns it into its own session cookie; the platform sets no cookie. expires_at is the end of the session the link grants.
 // @Tags events-self
 // @Accept json
 // @Produce json
