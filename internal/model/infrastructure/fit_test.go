@@ -13,21 +13,27 @@ const mi, gi = 1 << 20, 1 << 30
 
 func TestGroupPodSizingGrowsWithUnitsUpToTheMaximum(t *testing.T) {
 	vpn := GroupPodSizing{
-		Base:    resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi},
-		PerUnit: resourcesModel.Amount{CPUMillicores: 2, MemoryBytes: 4 * mi},
-		Max:     resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 64 * mi},
+		Base:     resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi},
+		PerUnit:  resourcesModel.Amount{CPUMillicores: 2, MemoryBytes: 4 * mi},
+		MaxUnits: 20,
 	}
 	assert.True(t, vpn.Reported())
 	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi}, vpn.Size(0))
 	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 20, MemoryBytes: 36 * mi}, vpn.Size(5))
-	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 64 * mi}, vpn.Size(1000), "the maximum caps it")
+	assert.Equal(t, resourcesModel.Amount{CPUMillicores: 50, MemoryBytes: 96 * mi}, vpn.Size(1000), "base + per-unit x max units")
 	assert.Equal(t, vpn.Size(0), vpn.Size(-3), "no negative users")
 
-	// A zero maximum is no maximum; an unreported sizing adds nothing.
 	open := GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 1, MemoryBytes: 1}, PerUnit: resourcesModel.Amount{CPUMillicores: 1, MemoryBytes: 1}}
-	assert.Equal(t, int64(101), open.Size(100).CPUMillicores)
+	assert.Equal(t, int64(101), open.Size(100).CPUMillicores, "0 max units = not capped")
 	assert.False(t, GroupPodSizing{}.Reported())
 	assert.Equal(t, resourcesModel.Amount{}, GroupPodSizing{}.Size(10))
+}
+
+func TestFitsRefusesAGroupLargerThanTheVPNOrGatewayMaximum(t *testing.T) {
+	l := LimitsFeature{VPN: GroupPodSizing{MaxUnits: 20}, Gateway: GroupPodSizing{MaxUnits: 4}}
+	assert.Nil(t, l.Fits(PlacementNeed{Plan: GroupPlan{MaxUsers: 20, InternetLabs: 4}}))
+	assert.Equal(t, &FitViolation{Resource: FitUsers, Requested: 21, Max: 20}, l.Fits(PlacementNeed{Plan: GroupPlan{MaxUsers: 21}}))
+	assert.Equal(t, &FitViolation{Resource: FitInternetLabs, Requested: 5, Max: 4}, l.Fits(PlacementNeed{Plan: GroupPlan{InternetLabs: 5}}))
 }
 
 func TestSizesForUsesUsersForTheVPNAndInternetLabsForTheGateway(t *testing.T) {

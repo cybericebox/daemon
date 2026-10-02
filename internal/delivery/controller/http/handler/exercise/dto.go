@@ -574,9 +574,8 @@ type requestElevationRequest struct {
 }
 
 type decideElevationRequest struct {
-	// Approve true approves, false rejects. Devices are the approved values per requested device (a value may
-	// be lower than requested, never above the ceiling); empty approves exactly what was requested.
-	Approve bool                      `json:"Approve"`
+	// Devices (approve only) are the approved values per requested device (a value may be lower than
+	// requested, never above the ceiling); empty approves exactly what was requested.
 	Note    string                    `json:"Note"`
 	Devices []elevationDeviceResponse `json:"Devices"`
 }

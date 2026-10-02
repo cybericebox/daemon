@@ -99,6 +99,7 @@ type Querier interface {
 	// Conflict means overlapping HALF-OPEN platform windows, not merely a reused
 	// tag. The exclusion constraint closes the race between concurrent writers.
 	CountLiveEventsWithTag(ctx context.Context, arg CountLiveEventsWithTagParams) (int64, error)
+	CountPendingResourceChangeRequests(ctx context.Context) (int64, error)
 	CountPendingTeamInvitations(ctx context.Context, arg CountPendingTeamInvitationsParams) (int64, error)
 	// The stand counts split by kind: moderators = the moderators team stand, else an event team stand.
 	CountPlatformStandsByKindStatus(ctx context.Context) ([]CountPlatformStandsByKindStatusRow, error)
@@ -162,6 +163,9 @@ type Querier interface {
 	// nothing to snapshot.
 	CreateExerciseCheckpoint(ctx context.Context, arg CreateExerciseCheckpointParams) (ExerciseVersion, error)
 	CreateExerciseProposal(ctx context.Context, arg CreateExerciseProposalParams) (ExerciseProposal, error)
+	// Timestamps and the id come from the domain factory. The partial unique index allows one pending request per
+	// exercise.
+	CreateExerciseResourceElevation(ctx context.Context, arg CreateExerciseResourceElevationParams) error
 	CreateExerciseTestDeploy(ctx context.Context, arg CreateExerciseTestDeployParams) (ExerciseTestDeployment, error)
 	// One statement: bump (or create) the blob's refcount and insert the logical
 	// file row pointing at it. Also (re)stamps the blob's touched_at to this
@@ -189,6 +193,10 @@ type Querier interface {
 	CreateModeratorsTeam(ctx context.Context, arg CreateModeratorsTeamParams) error
 	CreateNotificationBroadcast(ctx context.Context, arg CreateNotificationBroadcastParams) (NotificationBroadcast, error)
 	CreatePlatformLabCapacityObservation(ctx context.Context, arg CreatePlatformLabCapacityObservationParams) (PlatformLabCapacityObservation, error)
+	CreateResourceAlarm(ctx context.Context, arg CreateResourceAlarmParams) error
+	CreateResourceChangeRequest(ctx context.Context, arg CreateResourceChangeRequestParams) error
+	CreateResourceReservation(ctx context.Context, arg CreateResourceReservationParams) error
+	CreateResourceTestLabHold(ctx context.Context, arg CreateResourceTestLabHoldParams) error
 	CreateSecretEnvelope(ctx context.Context, arg CreateSecretEnvelopeParams) (SecretEnvelope, error)
 	// All timestamps come from the domain factory (NewSession), not DB defaults —
 	// one source of truth for entity defaults.
@@ -202,6 +210,10 @@ type Querier interface {
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateUserProvider(ctx context.Context, arg CreateUserProviderParams) (UserProvider, error)
 	DecideExerciseProposal(ctx context.Context, arg DecideExerciseProposalParams) (int64, error)
+	// Only a pending request can be decided; 0 rows: it was decided meanwhile.
+	DecideExerciseResourceElevation(ctx context.Context, arg DecideExerciseResourceElevationParams) (int64, error)
+	// Writes the decision of a pending request; 0 rows: it was decided meanwhile.
+	DecideResourceChangeRequest(ctx context.Context, arg DecideResourceChangeRequestParams) (int64, error)
 	// Guarded delete: refuses when the blob got re-referenced between the S3
 	// removal decision and this call.
 	DeleteBlob(ctx context.Context, contentHash string) (int64, error)
@@ -233,6 +245,7 @@ type Querier interface {
 	DeleteExercise(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteExerciseEventAccess(ctx context.Context, exerciseID uuid.UUID) error
 	DeleteExpiredRequestIdempotency(ctx context.Context, expiresAt time.Time) (int64, error)
+	DeleteExpiredResourceTestLabHolds(ctx context.Context, now time.Time) (int64, error)
 	DeleteFileReferences(ctx context.Context, arg DeleteFileReferencesParams) (int64, error)
 	DeleteFileReferencesBatch(ctx context.Context, arg DeleteFileReferencesBatchParams) (int64, error)
 	DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error)
@@ -243,6 +256,7 @@ type Querier interface {
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteOwnedExerciseTestDeploy(ctx context.Context, arg DeleteOwnedExerciseTestDeployParams) (int64, error)
 	DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
 	DeleteSession(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSolveIntegrityReview(ctx context.Context, arg DeleteSolveIntegrityReviewParams) (int64, error)
@@ -368,6 +382,7 @@ type Querier interface {
 	// The participation funnel below the approved participants: how many of
 	// them and their teams ever opened a task, tried an answer and solved.
 	GetEventReportFunnel(ctx context.Context, eventID uuid.UUID) (GetEventReportFunnelRow, error)
+	GetEventResourceReservation(ctx context.Context, eventID uuid.NullUUID) (ResourceReservation, error)
 	GetEventResultRevision(ctx context.Context, eventID uuid.UUID) (GetEventResultRevisionRow, error)
 	GetEventSMTPConfig(ctx context.Context, scopeEventID uuid.NullUUID) (MailSmtpConfig, error)
 	GetEventScoringPopulation(ctx context.Context, eventID uuid.UUID) (EventScoringPopulation, error)
@@ -395,6 +410,7 @@ type Querier interface {
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
 	GetExerciseInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error)
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (ExerciseProposal, error)
+	GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (ExerciseResourceElevation, error)
 	GetExerciseVersionByID(ctx context.Context, id uuid.UUID) (ExerciseVersion, error)
 	GetFileByID(ctx context.Context, id uuid.UUID) (File, error)
 	// Read path for an owner's current file set (e.g. resolving a user's avatar
@@ -422,6 +438,8 @@ type Querier interface {
 	// The participant's newest registration answer row (its version id keeps the
 	// staff-only values next to the answers they belong to).
 	GetLatestEventRegistrationAnswerRow(ctx context.Context, arg GetLatestEventRegistrationAnswerRowParams) (GetLatestEventRegistrationAnswerRowRow, error)
+	// The open request of the exercise, else its latest decided one.
+	GetLatestExerciseResourceElevation(ctx context.Context, exerciseID uuid.UUID) (ExerciseResourceElevation, error)
 	GetLatestInboxCursor(ctx context.Context, arg GetLatestInboxCursorParams) (GetLatestInboxCursorRow, error)
 	// Resolve the tenant event from a subdomain tag: the single non-archived event
 	// sharing the tag and currently inside its platform availability window.
@@ -442,6 +460,7 @@ type Querier interface {
 	GetModeratorsTeam(ctx context.Context, eventID uuid.UUID) (EventTeam, error)
 	GetNotificationBroadcast(ctx context.Context, id uuid.UUID) (GetNotificationBroadcastRow, error)
 	GetNotificationSetting(ctx context.Context, arg GetNotificationSettingParams) (NotificationSetting, error)
+	GetOpenResourceAlarm(ctx context.Context, arg GetOpenResourceAlarmParams) (ResourceAlarm, error)
 	GetOwnedExerciseTestDeploy(ctx context.Context, arg GetOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
 	// Team-wide counters, including members who have left since.
 	GetParticipationTeamTotals(ctx context.Context, arg GetParticipationTeamTotalsParams) (GetParticipationTeamTotalsRow, error)
@@ -495,6 +514,10 @@ type Querier interface {
 	GetPublishedEmailTemplate(ctx context.Context, arg GetPublishedEmailTemplateParams) (NotificationEmailTemplate, error)
 	GetPublishedInAppTemplate(ctx context.Context, arg GetPublishedInAppTemplateParams) (NotificationInAppTemplate, error)
 	GetRequestIdempotency(ctx context.Context, arg GetRequestIdempotencyParams) (RequestIdempotency, error)
+	GetResourceAlarm(ctx context.Context, id uuid.UUID) (ResourceAlarm, error)
+	GetResourceCalendarSettings(ctx context.Context) (ResourceCalendarSetting, error)
+	GetResourceChangeRequest(ctx context.Context, id uuid.UUID) (ResourceChangeRequest, error)
+	GetResourceReservation(ctx context.Context, id uuid.UUID) (ResourceReservation, error)
 	GetSecretEnvelope(ctx context.Context, id uuid.UUID) (SecretEnvelope, error)
 	GetSessionByID(ctx context.Context, id uuid.UUID) (Session, error)
 	GetSessionsByUser(ctx context.Context, userID uuid.UUID) ([]Session, error)
@@ -539,6 +562,7 @@ type Querier interface {
 	IssueEventLiveScreenLink(ctx context.Context, arg IssueEventLiveScreenLinkParams) error
 	ListActiveBannersByUser(ctx context.Context, arg ListActiveBannersByUserParams) ([]ListActiveBannersByUserRow, error)
 	ListActiveFutureTimedEventFormAssignments(ctx context.Context, eventID uuid.UUID) ([]EventFormAssignment, error)
+	ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]ResourceTestLabHold, error)
 	// One page of the journal, newest first, keyset-paged by (created_at, id).
 	// Every filter is optional. route and target_id are "contains" matches
 	// (strpos, so no LIKE escaping); target_kind matches the "kind:" token of the
@@ -546,6 +570,8 @@ type Querier interface {
 	// status_min..status_max; cursor_created_at/cursor_id continue after the
 	// last row of the previous page.
 	ListAdminAuditLog(ctx context.Context, arg ListAdminAuditLogParams) ([]AdminAuditLog, error)
+	// The approved values of every approved elevation of the given exercises.
+	ListApprovedExerciseResourceElevations(ctx context.Context, exerciseIds []uuid.UUID) ([]ListApprovedExerciseResourceElevationsRow, error)
 	// One row per recipient and channel target of the broadcast (recipients still
 	// waiting for their first attempt have a NULL channel).
 	ListBroadcastDeliveries(ctx context.Context, arg ListBroadcastDeliveriesParams) ([]ListBroadcastDeliveriesRow, error)
@@ -821,6 +847,8 @@ type Querier interface {
 	// fork source name, infrastructure and a pending proposal.
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]ListExerciseCardExtrasRow, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]ListExerciseProposalsRow, error)
+	// Newest first; status and exercise narrow the list (a null argument does not filter).
+	ListExerciseResourceElevations(ctx context.Context, arg ListExerciseResourceElevationsParams) ([]ListExerciseResourceElevationsRow, error)
 	// Tags of existing exercises by use; an empty prefix returns the most used.
 	// Prefix matching is literal (%, _ are not LIKE wildcards) and
 	// case-insensitive. viewer_id set = count only exercises the viewer may read.
@@ -904,6 +932,7 @@ type Querier interface {
 	// Sessions a new handshake may still extend: those ending at or after
 	// ended_after.
 	ListOpenEventVPNSessions(ctx context.Context, arg ListOpenEventVPNSessionsParams) ([]EventVpnSession, error)
+	ListOpenResourceAlarmsOfReservation(ctx context.Context, reservationID uuid.UUID) ([]ResourceAlarm, error)
 	// touched_at < touched_before (the same GC grace cutoff DeleteUnreferencedFiles
 	// uses) gives a concurrent dedup upload of this exact content a grace window
 	// to complete its CreateFile bump before GC ever considers the blob a
@@ -917,6 +946,7 @@ type Querier interface {
 	ListOwnTeamPendingInvitees(ctx context.Context, arg ListOwnTeamPendingInviteesParams) ([]ListOwnTeamPendingInviteesRow, error)
 	ListOwnedExerciseTestDeploys(ctx context.Context, createdBy uuid.UUID) ([]ExerciseTestDeployment, error)
 	ListOwnedExerciseTestDeploysForExercise(ctx context.Context, arg ListOwnedExerciseTestDeploysForExerciseParams) ([]ExerciseTestDeployment, error)
+	ListOwnedResourceBookings(ctx context.Context, arg ListOwnedResourceBookingsParams) ([]ResourceReservation, error)
 	// The roster of one team with each member's own counters: attempts (only the
 	// counts, never the answers), correct attempts and opened hints.
 	ListParticipationMembers(ctx context.Context, arg ListParticipationMembersParams) ([]ListParticipationMembersRow, error)
@@ -1094,6 +1124,16 @@ type Querier interface {
 	// What the resource totals of a page of exercises need from their published versions: per variant its id and
 	// the container-device fields that decide a device's size (never the image, env vars or secrets).
 	ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]ListPublishedVariantDevicesRow, error)
+	// Open alarms first, then the resolved ones, newest first; only_open leaves the resolved out.
+	ListResourceAlarms(ctx context.Context, arg ListResourceAlarmsParams) ([]ListResourceAlarmsRow, error)
+	// Newest first; status and event narrow it (a null argument matches everything).
+	ListResourceChangeRequests(ctx context.Context, arg ListResourceChangeRequestsParams) ([]ListResourceChangeRequestsRow, error)
+	// The event names of event reservations (for the admin timeline).
+	ListResourceReservationLabels(ctx context.Context, ids []uuid.UUID) ([]ListResourceReservationLabelsRow, error)
+	// Every active reservation that has not ended by the given time.
+	ListResourceReservationsEndingAfter(ctx context.Context, afterAt time.Time) ([]ResourceReservation, error)
+	// The active reservations that share a slot with [from, to).
+	ListResourceReservationsInWindow(ctx context.Context, arg ListResourceReservationsInWindowParams) ([]ResourceReservation, error)
 	// scope_filter: 'platform' = platform banners, otherwise the Event id.
 	ListSiteBanners(ctx context.Context, scopeFilter string) ([]SiteBanner, error)
 	ListSolveIntegrityReviews(ctx context.Context, eventID uuid.UUID) ([]ListSolveIntegrityReviewsRow, error)
@@ -1153,6 +1193,11 @@ type Querier interface {
 	LockEventTeamChallenge(ctx context.Context, arg LockEventTeamChallengeParams) (uuid.UUID, error)
 	// Serializes the "one active test lab per user" check and insert of one owner until the transaction ends.
 	LockExerciseTestDeploysOf(ctx context.Context, owner string) error
+	// Resource calendar: reservations, change requests, readiness alarms, settings and test lab holds. See
+	// migration 0151. Reservations are one aggregate: every change is a whole-row UPDATE.
+	// Serializes everything that decides on the calendar (reservations, placement, test lab admission) until the
+	// transaction ends: no two admissions see the same free room.
+	LockResourceCalendar(ctx context.Context) error
 	// Open requests become read but stay open: only their decision closes them.
 	MarkAllInAppReadByUser(ctx context.Context, arg MarkAllInAppReadByUserParams) error
 	// Claims the message of a group: only when nobody sent one since the cutoff. Returns the number of occurrences
@@ -1364,6 +1409,7 @@ type Querier interface {
 	// (creating the row when none exists) and retires the older text footer.
 	SetPlatformMailFooter(ctx context.Context, arg SetPlatformMailFooterParams) error
 	SetPlatformSMTPProviderEnabled(ctx context.Context, arg SetPlatformSMTPProviderEnabledParams) (MailSmtpConfig, error)
+	SetResourceCalendarSettings(ctx context.Context, arg SetResourceCalendarSettingsParams) error
 	// What a user (or, with a nil user, anybody in the team) did against one task
 	// before a moment. One row per surface.
 	SummarizeLabTouches(ctx context.Context, arg SummarizeLabTouchesParams) ([]SummarizeLabTouchesRow, error)
@@ -1428,6 +1474,8 @@ type Querier interface {
 	UpdateInfrastructureAgent(ctx context.Context, arg UpdateInfrastructureAgentParams) (int64, error)
 	UpdateLabBindingReadiness(ctx context.Context, arg UpdateLabBindingReadinessParams) (int64, error)
 	UpdatePlatformSMTPProvider(ctx context.Context, arg UpdatePlatformSMTPProviderParams) (MailSmtpConfig, error)
+	UpdateResourceAlarm(ctx context.Context, arg UpdateResourceAlarmParams) (int64, error)
+	UpdateResourceReservation(ctx context.Context, arg UpdateResourceReservationParams) (int64, error)
 	UpdateSiteBanner(ctx context.Context, arg UpdateSiteBannerParams) (SiteBanner, error)
 	// content_changed marks a participant-visible change («Оновлено»).
 	UpdateTeamChallengeContent(ctx context.Context, arg UpdateTeamChallengeContentParams) (int64, error)

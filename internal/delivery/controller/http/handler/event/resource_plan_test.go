@@ -40,7 +40,7 @@ func totals(devices int, cpu, mem int64) resourcesModel.Totals {
 func TestEventResourcePlanRouteShowsTasksGroupOverheadAndTotal(t *testing.T) {
 	actor, eventID, exerciseID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	u := &resourcePlanUC{plan: eventUseCase.EventResourcePlan{
-		Tasks: []eventUseCase.PlanTask{{ExerciseID: exerciseID, ExerciseName: "Web", Range: resourcesModel.Range{Min: totals(1, 25, 64<<20), Max: totals(2, 275, 1<<30)}, Reserved: totals(2, 275, 1<<30), Heavy: true, InternetLab: true}},
+		Tasks:     []eventUseCase.PlanTask{{ExerciseID: exerciseID, ExerciseName: "Web", Range: resourcesModel.Range{Min: totals(1, 25, 64<<20), Max: totals(2, 275, 1<<30)}, Reserved: totals(2, 275, 1<<30), Heavy: true, InternetLab: true}},
 		TeamTasks: totals(2, 275, 1<<30),
 		Group:     eventUseCase.GroupOverhead{MaxUsers: 4, InternetLabs: 1, VPN: resourcesModel.Amount{CPUMillicores: 30, MemoryBytes: 48 << 20}, Known: true},
 		PerTeam:   totals(2, 305, 1<<30+48<<20), Teams: 10, TeamsBasis: "max_teams", Total: totals(20, 3050, 10*(1<<30+48<<20)),

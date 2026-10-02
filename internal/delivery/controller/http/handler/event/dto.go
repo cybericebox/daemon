@@ -974,6 +974,8 @@ type resourcePlanGroupResponse struct {
 	VPN          resourceAmountResponse `json:"VPN"`
 	Gateway      resourceAmountResponse `json:"Gateway"`
 	Known        bool                   `json:"Known"`
+	// TooLarge: the maximum team size (or the internet labs) is above what every used laboratory can size a group for.
+	TooLarge bool `json:"TooLarge"`
 }
 
 // eventResourcePlanResponse is what the event reserves: per team the devices of its tasks plus the group
@@ -997,7 +999,7 @@ func toResourcePlanResponse(p eventUseCase.EventResourcePlan) eventResourcePlanR
 		TeamTasks: totalsResponse(p.TeamTasks), PerTeam: totalsResponse(p.PerTeam), Total: totalsResponse(p.Total),
 		Teams: p.Teams, TeamsBasis: p.TeamsBasis, NoAgentFits: p.NoAgentFits,
 		Group: resourcePlanGroupResponse{
-			MaxUsers: p.Group.MaxUsers, InternetLabs: p.Group.InternetLabs, Known: p.Group.Known,
+			MaxUsers: p.Group.MaxUsers, InternetLabs: p.Group.InternetLabs, Known: p.Group.Known, TooLarge: p.Group.TooLarge,
 			VPN:     resourceAmountResponse{CPUMillicores: p.Group.VPN.CPUMillicores, MemoryBytes: p.Group.VPN.MemoryBytes},
 			Gateway: resourceAmountResponse{CPUMillicores: p.Group.Gateway.CPUMillicores, MemoryBytes: p.Group.Gateway.MemoryBytes},
 		},

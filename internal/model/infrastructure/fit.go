@@ -21,35 +21,34 @@ type LimitsFeature struct {
 	Gateway GroupPodSizing `json:"gateway"`
 	// DeviceProfiles are the enabled device security profiles of the cluster.
 	DeviceProfiles []string `json:"device_profiles,omitempty"`
+	// DefaultVPN and DefaultGateway are the pod sizes the agent uses when a group names none.
+	DefaultVPN     resourcesModel.Amount `json:"default_vpn"`
+	DefaultGateway resourcesModel.Amount `json:"default_gateway"`
 }
 
-// GroupPodSizing is the size of one kind of group pod: Base plus PerUnit for every unit, never above Max
-// (a zero Max resource is no maximum). The pods are Guaranteed and created at the planned size.
+// GroupPodSizing is the size of one kind of group pod: Base plus PerUnit for every unit (a user for the VPN, an
+// internet lab for the gateway), with at most MaxUnits units (0 = not reported). The pods are Guaranteed and
+// created at the planned size.
 type GroupPodSizing struct {
-	Base    resourcesModel.Amount `json:"base"`
-	PerUnit resourcesModel.Amount `json:"per_unit"`
-	Max     resourcesModel.Amount `json:"max"`
+	Base     resourcesModel.Amount `json:"base"`
+	PerUnit  resourcesModel.Amount `json:"per_unit"`
+	MaxUnits int32                 `json:"max_units"`
 }
 
 // Reported is false for an agent that did not report this sizing (its pod then adds nothing to a plan).
 func (s GroupPodSizing) Reported() bool { return s != GroupPodSizing{} }
 
-// Size is the pod for the given number of units.
+// Size is the pod for the given number of units; units above MaxUnits are not sized (the plan is refused by
+// Fits first).
 func (s GroupPodSizing) Size(units int) resourcesModel.Amount {
-	if units < 0 {
-		units = 0
+	units = max(units, 0)
+	if s.MaxUnits > 0 {
+		units = min(units, int(s.MaxUnits))
 	}
-	size := resourcesModel.Amount{
+	return resourcesModel.Amount{
 		CPUMillicores: s.Base.CPUMillicores + int64(units)*s.PerUnit.CPUMillicores,
 		MemoryBytes:   s.Base.MemoryBytes + int64(units)*s.PerUnit.MemoryBytes,
 	}
-	if s.Max.CPUMillicores > 0 {
-		size.CPUMillicores = min(size.CPUMillicores, s.Max.CPUMillicores)
-	}
-	if s.Max.MemoryBytes > 0 {
-		size.MemoryBytes = min(size.MemoryBytes, s.Max.MemoryBytes)
-	}
-	return size
 }
 
 // Resources a violation can name.
@@ -57,6 +56,8 @@ const (
 	FitDevices      = "devices"
 	FitCPU          = "cpu"
 	FitMemory       = "memory"
+	FitUsers        = "users"
+	FitInternetLabs = "internetLabs"
 	FitDeviceCPU    = "deviceCpu"
 	FitDeviceMemory = "deviceMemory"
 )
@@ -139,6 +140,12 @@ func (l LimitsFeature) Fits(need PlacementNeed) *FitViolation {
 	}
 	if l.LabMaxDevices > 0 && need.LabDevices > int(l.LabMaxDevices) {
 		return &FitViolation{Resource: FitDevices, Requested: int64(need.LabDevices), Max: int64(l.LabMaxDevices)}
+	}
+	if l.VPN.MaxUnits > 0 && need.Plan.MaxUsers > int(l.VPN.MaxUnits) {
+		return &FitViolation{Resource: FitUsers, Requested: int64(need.Plan.MaxUsers), Max: int64(l.VPN.MaxUnits)}
+	}
+	if l.Gateway.MaxUnits > 0 && need.Plan.InternetLabs > int(l.Gateway.MaxUnits) {
+		return &FitViolation{Resource: FitInternetLabs, Requested: int64(need.Plan.InternetLabs), Max: int64(l.Gateway.MaxUnits)}
 	}
 	return nil
 }

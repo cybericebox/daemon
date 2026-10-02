@@ -297,8 +297,10 @@ type Alarm struct {
 	ReservationID uuid.UUID
 	EventID       *uuid.UUID
 	AgentID       *uuid.UUID
-	// Units is how many teams are affected; Shortage what is missing (zero when not known).
+	// Units is how many teams are affected; Shortage what is missing (zero when not known). Stage is how far the
+	// escalation went (0 first sight, then AlarmStage* as the deploy lead comes closer).
 	Units    int
+	Stage    int
 	Shortage Amount
 	RaisedAt time.Time
 	// UpdatedAt is the last time the cause was seen.
@@ -317,8 +319,11 @@ func NewAlarm(kind AlarmKind, r *Reservation, agent *uuid.UUID, units int, short
 	return &Alarm{ID: id, Kind: kind, ReservationID: r.ID, EventID: r.EventID, AgentID: agent, Units: units, Shortage: shortage, RaisedAt: now, UpdatedAt: now}, nil
 }
 
-// Open is true while the alarm is neither resolved nor acknowledged.
-func (a *Alarm) Open() bool { return a.ResolvedAt == nil && a.AckedAt == nil }
+// Open is true until the cause goes away (an acknowledged alarm stays open while its cause lasts).
+func (a *Alarm) Open() bool { return a.ResolvedAt == nil }
+
+// Acknowledged is true once an admin saw the alarm.
+func (a *Alarm) Acknowledged() bool { return a.AckedAt != nil }
 
 // Resolve closes the alarm: its cause is gone.
 func (a *Alarm) Resolve(now time.Time) {

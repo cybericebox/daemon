@@ -60,6 +60,12 @@ type Queries interface {
 	GetEventInfrastructureAllowed(ctx context.Context, id uuid.UUID) (bool, error)
 	FindEventFork(ctx context.Context, arg postgres.FindEventForkParams) (postgres.Exercise, error)
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]postgres.ListExerciseCardExtrasRow, error)
+	CreateExerciseResourceElevation(ctx context.Context, arg postgres.CreateExerciseResourceElevationParams) error
+	GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (postgres.ExerciseResourceElevation, error)
+	DecideExerciseResourceElevation(ctx context.Context, arg postgres.DecideExerciseResourceElevationParams) (int64, error)
+	ListExerciseResourceElevations(ctx context.Context, arg postgres.ListExerciseResourceElevationsParams) ([]postgres.ListExerciseResourceElevationsRow, error)
+	GetLatestExerciseResourceElevation(ctx context.Context, exerciseID uuid.UUID) (postgres.ExerciseResourceElevation, error)
+	ListApprovedExerciseResourceElevations(ctx context.Context, exerciseIds []uuid.UUID) ([]postgres.ListApprovedExerciseResourceElevationsRow, error)
 	ListPublishedVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListPublishedVariantDevicesRow, error)
 	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListVersionVariantDevicesRow, error)
 	ListFileExerciseIDs(ctx context.Context, arg postgres.ListFileExerciseIDsParams) ([]uuid.UUID, error)

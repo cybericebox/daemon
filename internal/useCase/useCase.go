@@ -13,6 +13,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabObservationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
@@ -181,6 +182,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Sessions:   testSessions,
 			DeployUoW:  postgres.NewUnitOfWorker[testDeployRepo.Queries](deps.Repo.UoWFactory()),
 			Resources:  deps.ResourcesPolicy,
+			Elevations: exerciseRepo.New(deps.Repo),
 		},
 	)
 
@@ -225,6 +227,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			SetupTokens:              setupTokens,
 			LabSessions:              deps.LabSessions,
 			Resources:                deps.ResourcesPolicy,
+			Elevations:               exerciseRepo.New(deps.Repo),
 		},
 	)
 

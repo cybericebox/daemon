@@ -715,6 +715,21 @@ func (mr *MockQuerierMockRecorder) CountLiveEventsWithTag(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountLiveEventsWithTag", reflect.TypeOf((*MockQuerier)(nil).CountLiveEventsWithTag), ctx, arg)
 }
 
+// CountPendingResourceChangeRequests mocks base method.
+func (m *MockQuerier) CountPendingResourceChangeRequests(ctx context.Context) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountPendingResourceChangeRequests", ctx)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountPendingResourceChangeRequests indicates an expected call of CountPendingResourceChangeRequests.
+func (mr *MockQuerierMockRecorder) CountPendingResourceChangeRequests(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPendingResourceChangeRequests", reflect.TypeOf((*MockQuerier)(nil).CountPendingResourceChangeRequests), ctx)
+}
+
 // CountPendingTeamInvitations mocks base method.
 func (m *MockQuerier) CountPendingTeamInvitations(ctx context.Context, arg postgres.CountPendingTeamInvitationsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -1326,6 +1341,20 @@ func (mr *MockQuerierMockRecorder) CreateExerciseProposal(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateExerciseProposal", reflect.TypeOf((*MockQuerier)(nil).CreateExerciseProposal), ctx, arg)
 }
 
+// CreateExerciseResourceElevation mocks base method.
+func (m *MockQuerier) CreateExerciseResourceElevation(ctx context.Context, arg postgres.CreateExerciseResourceElevationParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateExerciseResourceElevation", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateExerciseResourceElevation indicates an expected call of CreateExerciseResourceElevation.
+func (mr *MockQuerierMockRecorder) CreateExerciseResourceElevation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateExerciseResourceElevation", reflect.TypeOf((*MockQuerier)(nil).CreateExerciseResourceElevation), ctx, arg)
+}
+
 // CreateExerciseTestDeploy mocks base method.
 func (m *MockQuerier) CreateExerciseTestDeploy(ctx context.Context, arg postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
 	m.ctrl.T.Helper()
@@ -1518,6 +1547,62 @@ func (mr *MockQuerierMockRecorder) CreatePlatformLabCapacityObservation(ctx, arg
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreatePlatformLabCapacityObservation", reflect.TypeOf((*MockQuerier)(nil).CreatePlatformLabCapacityObservation), ctx, arg)
 }
 
+// CreateResourceAlarm mocks base method.
+func (m *MockQuerier) CreateResourceAlarm(ctx context.Context, arg postgres.CreateResourceAlarmParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateResourceAlarm", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateResourceAlarm indicates an expected call of CreateResourceAlarm.
+func (mr *MockQuerierMockRecorder) CreateResourceAlarm(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateResourceAlarm", reflect.TypeOf((*MockQuerier)(nil).CreateResourceAlarm), ctx, arg)
+}
+
+// CreateResourceChangeRequest mocks base method.
+func (m *MockQuerier) CreateResourceChangeRequest(ctx context.Context, arg postgres.CreateResourceChangeRequestParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateResourceChangeRequest", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateResourceChangeRequest indicates an expected call of CreateResourceChangeRequest.
+func (mr *MockQuerierMockRecorder) CreateResourceChangeRequest(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateResourceChangeRequest", reflect.TypeOf((*MockQuerier)(nil).CreateResourceChangeRequest), ctx, arg)
+}
+
+// CreateResourceReservation mocks base method.
+func (m *MockQuerier) CreateResourceReservation(ctx context.Context, arg postgres.CreateResourceReservationParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateResourceReservation", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateResourceReservation indicates an expected call of CreateResourceReservation.
+func (mr *MockQuerierMockRecorder) CreateResourceReservation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateResourceReservation", reflect.TypeOf((*MockQuerier)(nil).CreateResourceReservation), ctx, arg)
+}
+
+// CreateResourceTestLabHold mocks base method.
+func (m *MockQuerier) CreateResourceTestLabHold(ctx context.Context, arg postgres.CreateResourceTestLabHoldParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateResourceTestLabHold", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateResourceTestLabHold indicates an expected call of CreateResourceTestLabHold.
+func (mr *MockQuerierMockRecorder) CreateResourceTestLabHold(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateResourceTestLabHold", reflect.TypeOf((*MockQuerier)(nil).CreateResourceTestLabHold), ctx, arg)
+}
+
 // CreateSecretEnvelope mocks base method.
 func (m *MockQuerier) CreateSecretEnvelope(ctx context.Context, arg postgres.CreateSecretEnvelopeParams) (postgres.SecretEnvelope, error) {
 	m.ctrl.T.Helper()
@@ -1651,6 +1736,36 @@ func (m *MockQuerier) DecideExerciseProposal(ctx context.Context, arg postgres.D
 func (mr *MockQuerierMockRecorder) DecideExerciseProposal(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecideExerciseProposal", reflect.TypeOf((*MockQuerier)(nil).DecideExerciseProposal), ctx, arg)
+}
+
+// DecideExerciseResourceElevation mocks base method.
+func (m *MockQuerier) DecideExerciseResourceElevation(ctx context.Context, arg postgres.DecideExerciseResourceElevationParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DecideExerciseResourceElevation", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DecideExerciseResourceElevation indicates an expected call of DecideExerciseResourceElevation.
+func (mr *MockQuerierMockRecorder) DecideExerciseResourceElevation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecideExerciseResourceElevation", reflect.TypeOf((*MockQuerier)(nil).DecideExerciseResourceElevation), ctx, arg)
+}
+
+// DecideResourceChangeRequest mocks base method.
+func (m *MockQuerier) DecideResourceChangeRequest(ctx context.Context, arg postgres.DecideResourceChangeRequestParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DecideResourceChangeRequest", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DecideResourceChangeRequest indicates an expected call of DecideResourceChangeRequest.
+func (mr *MockQuerierMockRecorder) DecideResourceChangeRequest(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecideResourceChangeRequest", reflect.TypeOf((*MockQuerier)(nil).DecideResourceChangeRequest), ctx, arg)
 }
 
 // DeleteBlob mocks base method.
@@ -1961,6 +2076,21 @@ func (mr *MockQuerierMockRecorder) DeleteExpiredRequestIdempotency(ctx, expiresA
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExpiredRequestIdempotency", reflect.TypeOf((*MockQuerier)(nil).DeleteExpiredRequestIdempotency), ctx, expiresAt)
 }
 
+// DeleteExpiredResourceTestLabHolds mocks base method.
+func (m *MockQuerier) DeleteExpiredResourceTestLabHolds(ctx context.Context, now time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExpiredResourceTestLabHolds", ctx, now)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteExpiredResourceTestLabHolds indicates an expected call of DeleteExpiredResourceTestLabHolds.
+func (mr *MockQuerierMockRecorder) DeleteExpiredResourceTestLabHolds(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExpiredResourceTestLabHolds", reflect.TypeOf((*MockQuerier)(nil).DeleteExpiredResourceTestLabHolds), ctx, now)
+}
+
 // DeleteFileReferences mocks base method.
 func (m *MockQuerier) DeleteFileReferences(ctx context.Context, arg postgres.DeleteFileReferencesParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2107,6 +2237,20 @@ func (m *MockQuerier) DeletePlatformSMTPProvider(ctx context.Context, id uuid.UU
 func (mr *MockQuerierMockRecorder) DeletePlatformSMTPProvider(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePlatformSMTPProvider", reflect.TypeOf((*MockQuerier)(nil).DeletePlatformSMTPProvider), ctx, id)
+}
+
+// DeleteResourceTestLabHold mocks base method.
+func (m *MockQuerier) DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteResourceTestLabHold", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteResourceTestLabHold indicates an expected call of DeleteResourceTestLabHold.
+func (mr *MockQuerierMockRecorder) DeleteResourceTestLabHold(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteResourceTestLabHold", reflect.TypeOf((*MockQuerier)(nil).DeleteResourceTestLabHold), ctx, id)
 }
 
 // DeleteSession mocks base method.
@@ -3229,6 +3373,21 @@ func (mr *MockQuerierMockRecorder) GetEventReportFunnel(ctx, eventID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventReportFunnel", reflect.TypeOf((*MockQuerier)(nil).GetEventReportFunnel), ctx, eventID)
 }
 
+// GetEventResourceReservation mocks base method.
+func (m *MockQuerier) GetEventResourceReservation(ctx context.Context, eventID uuid.NullUUID) (postgres.ResourceReservation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventResourceReservation", ctx, eventID)
+	ret0, _ := ret[0].(postgres.ResourceReservation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventResourceReservation indicates an expected call of GetEventResourceReservation.
+func (mr *MockQuerierMockRecorder) GetEventResourceReservation(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventResourceReservation", reflect.TypeOf((*MockQuerier)(nil).GetEventResourceReservation), ctx, eventID)
+}
+
 // GetEventResultRevision mocks base method.
 func (m *MockQuerier) GetEventResultRevision(ctx context.Context, eventID uuid.UUID) (postgres.GetEventResultRevisionRow, error) {
 	m.ctrl.T.Helper()
@@ -3529,6 +3688,21 @@ func (mr *MockQuerierMockRecorder) GetExerciseProposal(ctx, id any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseProposal", reflect.TypeOf((*MockQuerier)(nil).GetExerciseProposal), ctx, id)
 }
 
+// GetExerciseResourceElevation mocks base method.
+func (m *MockQuerier) GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (postgres.ExerciseResourceElevation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExerciseResourceElevation", ctx, id)
+	ret0, _ := ret[0].(postgres.ExerciseResourceElevation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExerciseResourceElevation indicates an expected call of GetExerciseResourceElevation.
+func (mr *MockQuerierMockRecorder) GetExerciseResourceElevation(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseResourceElevation", reflect.TypeOf((*MockQuerier)(nil).GetExerciseResourceElevation), ctx, id)
+}
+
 // GetExerciseVersionByID mocks base method.
 func (m *MockQuerier) GetExerciseVersionByID(ctx context.Context, id uuid.UUID) (postgres.ExerciseVersion, error) {
 	m.ctrl.T.Helper()
@@ -3754,6 +3928,21 @@ func (mr *MockQuerierMockRecorder) GetLatestEventRegistrationAnswerRow(ctx, arg 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestEventRegistrationAnswerRow", reflect.TypeOf((*MockQuerier)(nil).GetLatestEventRegistrationAnswerRow), ctx, arg)
 }
 
+// GetLatestExerciseResourceElevation mocks base method.
+func (m *MockQuerier) GetLatestExerciseResourceElevation(ctx context.Context, exerciseID uuid.UUID) (postgres.ExerciseResourceElevation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLatestExerciseResourceElevation", ctx, exerciseID)
+	ret0, _ := ret[0].(postgres.ExerciseResourceElevation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestExerciseResourceElevation indicates an expected call of GetLatestExerciseResourceElevation.
+func (mr *MockQuerierMockRecorder) GetLatestExerciseResourceElevation(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestExerciseResourceElevation", reflect.TypeOf((*MockQuerier)(nil).GetLatestExerciseResourceElevation), ctx, exerciseID)
+}
+
 // GetLatestInboxCursor mocks base method.
 func (m *MockQuerier) GetLatestInboxCursor(ctx context.Context, arg postgres.GetLatestInboxCursorParams) (postgres.GetLatestInboxCursorRow, error) {
 	m.ctrl.T.Helper()
@@ -3842,6 +4031,21 @@ func (m *MockQuerier) GetNotificationSetting(ctx context.Context, arg postgres.G
 func (mr *MockQuerierMockRecorder) GetNotificationSetting(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNotificationSetting", reflect.TypeOf((*MockQuerier)(nil).GetNotificationSetting), ctx, arg)
+}
+
+// GetOpenResourceAlarm mocks base method.
+func (m *MockQuerier) GetOpenResourceAlarm(ctx context.Context, arg postgres.GetOpenResourceAlarmParams) (postgres.ResourceAlarm, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOpenResourceAlarm", ctx, arg)
+	ret0, _ := ret[0].(postgres.ResourceAlarm)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOpenResourceAlarm indicates an expected call of GetOpenResourceAlarm.
+func (mr *MockQuerierMockRecorder) GetOpenResourceAlarm(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOpenResourceAlarm", reflect.TypeOf((*MockQuerier)(nil).GetOpenResourceAlarm), ctx, arg)
 }
 
 // GetOwnedExerciseTestDeploy mocks base method.
@@ -4172,6 +4376,66 @@ func (m *MockQuerier) GetRequestIdempotency(ctx context.Context, arg postgres.Ge
 func (mr *MockQuerierMockRecorder) GetRequestIdempotency(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRequestIdempotency", reflect.TypeOf((*MockQuerier)(nil).GetRequestIdempotency), ctx, arg)
+}
+
+// GetResourceAlarm mocks base method.
+func (m *MockQuerier) GetResourceAlarm(ctx context.Context, id uuid.UUID) (postgres.ResourceAlarm, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetResourceAlarm", ctx, id)
+	ret0, _ := ret[0].(postgres.ResourceAlarm)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetResourceAlarm indicates an expected call of GetResourceAlarm.
+func (mr *MockQuerierMockRecorder) GetResourceAlarm(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceAlarm", reflect.TypeOf((*MockQuerier)(nil).GetResourceAlarm), ctx, id)
+}
+
+// GetResourceCalendarSettings mocks base method.
+func (m *MockQuerier) GetResourceCalendarSettings(ctx context.Context) (postgres.ResourceCalendarSetting, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetResourceCalendarSettings", ctx)
+	ret0, _ := ret[0].(postgres.ResourceCalendarSetting)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetResourceCalendarSettings indicates an expected call of GetResourceCalendarSettings.
+func (mr *MockQuerierMockRecorder) GetResourceCalendarSettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceCalendarSettings", reflect.TypeOf((*MockQuerier)(nil).GetResourceCalendarSettings), ctx)
+}
+
+// GetResourceChangeRequest mocks base method.
+func (m *MockQuerier) GetResourceChangeRequest(ctx context.Context, id uuid.UUID) (postgres.ResourceChangeRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetResourceChangeRequest", ctx, id)
+	ret0, _ := ret[0].(postgres.ResourceChangeRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetResourceChangeRequest indicates an expected call of GetResourceChangeRequest.
+func (mr *MockQuerierMockRecorder) GetResourceChangeRequest(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceChangeRequest", reflect.TypeOf((*MockQuerier)(nil).GetResourceChangeRequest), ctx, id)
+}
+
+// GetResourceReservation mocks base method.
+func (m *MockQuerier) GetResourceReservation(ctx context.Context, id uuid.UUID) (postgres.ResourceReservation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetResourceReservation", ctx, id)
+	ret0, _ := ret[0].(postgres.ResourceReservation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetResourceReservation indicates an expected call of GetResourceReservation.
+func (mr *MockQuerierMockRecorder) GetResourceReservation(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceReservation", reflect.TypeOf((*MockQuerier)(nil).GetResourceReservation), ctx, id)
 }
 
 // GetSecretEnvelope mocks base method.
@@ -4635,6 +4899,21 @@ func (mr *MockQuerierMockRecorder) ListActiveFutureTimedEventFormAssignments(ctx
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveFutureTimedEventFormAssignments", reflect.TypeOf((*MockQuerier)(nil).ListActiveFutureTimedEventFormAssignments), ctx, eventID)
 }
 
+// ListActiveResourceTestLabHolds mocks base method.
+func (m *MockQuerier) ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]postgres.ResourceTestLabHold, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveResourceTestLabHolds", ctx, now)
+	ret0, _ := ret[0].([]postgres.ResourceTestLabHold)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveResourceTestLabHolds indicates an expected call of ListActiveResourceTestLabHolds.
+func (mr *MockQuerierMockRecorder) ListActiveResourceTestLabHolds(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveResourceTestLabHolds", reflect.TypeOf((*MockQuerier)(nil).ListActiveResourceTestLabHolds), ctx, now)
+}
+
 // ListAdminAuditLog mocks base method.
 func (m *MockQuerier) ListAdminAuditLog(ctx context.Context, arg postgres.ListAdminAuditLogParams) ([]postgres.AdminAuditLog, error) {
 	m.ctrl.T.Helper()
@@ -4648,6 +4927,21 @@ func (m *MockQuerier) ListAdminAuditLog(ctx context.Context, arg postgres.ListAd
 func (mr *MockQuerierMockRecorder) ListAdminAuditLog(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAdminAuditLog", reflect.TypeOf((*MockQuerier)(nil).ListAdminAuditLog), ctx, arg)
+}
+
+// ListApprovedExerciseResourceElevations mocks base method.
+func (m *MockQuerier) ListApprovedExerciseResourceElevations(ctx context.Context, exerciseIds []uuid.UUID) ([]postgres.ListApprovedExerciseResourceElevationsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListApprovedExerciseResourceElevations", ctx, exerciseIds)
+	ret0, _ := ret[0].([]postgres.ListApprovedExerciseResourceElevationsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListApprovedExerciseResourceElevations indicates an expected call of ListApprovedExerciseResourceElevations.
+func (mr *MockQuerierMockRecorder) ListApprovedExerciseResourceElevations(ctx, exerciseIds any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListApprovedExerciseResourceElevations", reflect.TypeOf((*MockQuerier)(nil).ListApprovedExerciseResourceElevations), ctx, exerciseIds)
 }
 
 // ListBroadcastDeliveries mocks base method.
@@ -6195,6 +6489,21 @@ func (mr *MockQuerierMockRecorder) ListExerciseProposals(ctx, status any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseProposals", reflect.TypeOf((*MockQuerier)(nil).ListExerciseProposals), ctx, status)
 }
 
+// ListExerciseResourceElevations mocks base method.
+func (m *MockQuerier) ListExerciseResourceElevations(ctx context.Context, arg postgres.ListExerciseResourceElevationsParams) ([]postgres.ListExerciseResourceElevationsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseResourceElevations", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListExerciseResourceElevationsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseResourceElevations indicates an expected call of ListExerciseResourceElevations.
+func (mr *MockQuerierMockRecorder) ListExerciseResourceElevations(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseResourceElevations", reflect.TypeOf((*MockQuerier)(nil).ListExerciseResourceElevations), ctx, arg)
+}
+
 // ListExerciseTags mocks base method.
 func (m *MockQuerier) ListExerciseTags(ctx context.Context, arg postgres.ListExerciseTagsParams) ([]postgres.ListExerciseTagsRow, error) {
 	m.ctrl.T.Helper()
@@ -6675,6 +6984,21 @@ func (mr *MockQuerierMockRecorder) ListOpenEventVPNSessions(ctx, arg any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOpenEventVPNSessions", reflect.TypeOf((*MockQuerier)(nil).ListOpenEventVPNSessions), ctx, arg)
 }
 
+// ListOpenResourceAlarmsOfReservation mocks base method.
+func (m *MockQuerier) ListOpenResourceAlarmsOfReservation(ctx context.Context, reservationID uuid.UUID) ([]postgres.ResourceAlarm, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOpenResourceAlarmsOfReservation", ctx, reservationID)
+	ret0, _ := ret[0].([]postgres.ResourceAlarm)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOpenResourceAlarmsOfReservation indicates an expected call of ListOpenResourceAlarmsOfReservation.
+func (mr *MockQuerierMockRecorder) ListOpenResourceAlarmsOfReservation(ctx, reservationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOpenResourceAlarmsOfReservation", reflect.TypeOf((*MockQuerier)(nil).ListOpenResourceAlarmsOfReservation), ctx, reservationID)
+}
+
 // ListOrphanBlobs mocks base method.
 func (m *MockQuerier) ListOrphanBlobs(ctx context.Context, touchedBefore time.Time) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -6748,6 +7072,21 @@ func (m *MockQuerier) ListOwnedExerciseTestDeploysForExercise(ctx context.Contex
 func (mr *MockQuerierMockRecorder) ListOwnedExerciseTestDeploysForExercise(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOwnedExerciseTestDeploysForExercise", reflect.TypeOf((*MockQuerier)(nil).ListOwnedExerciseTestDeploysForExercise), ctx, arg)
+}
+
+// ListOwnedResourceBookings mocks base method.
+func (m *MockQuerier) ListOwnedResourceBookings(ctx context.Context, arg postgres.ListOwnedResourceBookingsParams) ([]postgres.ResourceReservation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOwnedResourceBookings", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ResourceReservation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOwnedResourceBookings indicates an expected call of ListOwnedResourceBookings.
+func (mr *MockQuerierMockRecorder) ListOwnedResourceBookings(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOwnedResourceBookings", reflect.TypeOf((*MockQuerier)(nil).ListOwnedResourceBookings), ctx, arg)
 }
 
 // ListParticipationMembers mocks base method.
@@ -7320,6 +7659,81 @@ func (mr *MockQuerierMockRecorder) ListPublishedVariantDevices(ctx, ids any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPublishedVariantDevices", reflect.TypeOf((*MockQuerier)(nil).ListPublishedVariantDevices), ctx, ids)
 }
 
+// ListResourceAlarms mocks base method.
+func (m *MockQuerier) ListResourceAlarms(ctx context.Context, arg postgres.ListResourceAlarmsParams) ([]postgres.ListResourceAlarmsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListResourceAlarms", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListResourceAlarmsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListResourceAlarms indicates an expected call of ListResourceAlarms.
+func (mr *MockQuerierMockRecorder) ListResourceAlarms(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceAlarms", reflect.TypeOf((*MockQuerier)(nil).ListResourceAlarms), ctx, arg)
+}
+
+// ListResourceChangeRequests mocks base method.
+func (m *MockQuerier) ListResourceChangeRequests(ctx context.Context, arg postgres.ListResourceChangeRequestsParams) ([]postgres.ListResourceChangeRequestsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListResourceChangeRequests", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListResourceChangeRequestsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListResourceChangeRequests indicates an expected call of ListResourceChangeRequests.
+func (mr *MockQuerierMockRecorder) ListResourceChangeRequests(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceChangeRequests", reflect.TypeOf((*MockQuerier)(nil).ListResourceChangeRequests), ctx, arg)
+}
+
+// ListResourceReservationLabels mocks base method.
+func (m *MockQuerier) ListResourceReservationLabels(ctx context.Context, ids []uuid.UUID) ([]postgres.ListResourceReservationLabelsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListResourceReservationLabels", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListResourceReservationLabelsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListResourceReservationLabels indicates an expected call of ListResourceReservationLabels.
+func (mr *MockQuerierMockRecorder) ListResourceReservationLabels(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceReservationLabels", reflect.TypeOf((*MockQuerier)(nil).ListResourceReservationLabels), ctx, ids)
+}
+
+// ListResourceReservationsEndingAfter mocks base method.
+func (m *MockQuerier) ListResourceReservationsEndingAfter(ctx context.Context, afterAt time.Time) ([]postgres.ResourceReservation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListResourceReservationsEndingAfter", ctx, afterAt)
+	ret0, _ := ret[0].([]postgres.ResourceReservation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListResourceReservationsEndingAfter indicates an expected call of ListResourceReservationsEndingAfter.
+func (mr *MockQuerierMockRecorder) ListResourceReservationsEndingAfter(ctx, afterAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceReservationsEndingAfter", reflect.TypeOf((*MockQuerier)(nil).ListResourceReservationsEndingAfter), ctx, afterAt)
+}
+
+// ListResourceReservationsInWindow mocks base method.
+func (m *MockQuerier) ListResourceReservationsInWindow(ctx context.Context, arg postgres.ListResourceReservationsInWindowParams) ([]postgres.ResourceReservation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListResourceReservationsInWindow", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ResourceReservation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListResourceReservationsInWindow indicates an expected call of ListResourceReservationsInWindow.
+func (mr *MockQuerierMockRecorder) ListResourceReservationsInWindow(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListResourceReservationsInWindow", reflect.TypeOf((*MockQuerier)(nil).ListResourceReservationsInWindow), ctx, arg)
+}
+
 // ListSiteBanners mocks base method.
 func (m *MockQuerier) ListSiteBanners(ctx context.Context, scopeFilter string) ([]postgres.SiteBanner, error) {
 	m.ctrl.T.Helper()
@@ -7692,6 +8106,20 @@ func (m *MockQuerier) LockExerciseTestDeploysOf(ctx context.Context, owner strin
 func (mr *MockQuerierMockRecorder) LockExerciseTestDeploysOf(ctx, owner any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockExerciseTestDeploysOf", reflect.TypeOf((*MockQuerier)(nil).LockExerciseTestDeploysOf), ctx, owner)
+}
+
+// LockResourceCalendar mocks base method.
+func (m *MockQuerier) LockResourceCalendar(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockResourceCalendar", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockResourceCalendar indicates an expected call of LockResourceCalendar.
+func (mr *MockQuerierMockRecorder) LockResourceCalendar(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockResourceCalendar", reflect.TypeOf((*MockQuerier)(nil).LockResourceCalendar), ctx)
 }
 
 // MarkAllInAppReadByUser mocks base method.
@@ -9214,6 +9642,20 @@ func (mr *MockQuerierMockRecorder) SetPlatformSMTPProviderEnabled(ctx, arg any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPlatformSMTPProviderEnabled", reflect.TypeOf((*MockQuerier)(nil).SetPlatformSMTPProviderEnabled), ctx, arg)
 }
 
+// SetResourceCalendarSettings mocks base method.
+func (m *MockQuerier) SetResourceCalendarSettings(ctx context.Context, arg postgres.SetResourceCalendarSettingsParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetResourceCalendarSettings", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetResourceCalendarSettings indicates an expected call of SetResourceCalendarSettings.
+func (mr *MockQuerierMockRecorder) SetResourceCalendarSettings(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetResourceCalendarSettings", reflect.TypeOf((*MockQuerier)(nil).SetResourceCalendarSettings), ctx, arg)
+}
+
 // SummarizeLabTouches mocks base method.
 func (m *MockQuerier) SummarizeLabTouches(ctx context.Context, arg postgres.SummarizeLabTouchesParams) ([]postgres.SummarizeLabTouchesRow, error) {
 	m.ctrl.T.Helper()
@@ -9732,6 +10174,36 @@ func (m *MockQuerier) UpdatePlatformSMTPProvider(ctx context.Context, arg postgr
 func (mr *MockQuerierMockRecorder) UpdatePlatformSMTPProvider(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePlatformSMTPProvider", reflect.TypeOf((*MockQuerier)(nil).UpdatePlatformSMTPProvider), ctx, arg)
+}
+
+// UpdateResourceAlarm mocks base method.
+func (m *MockQuerier) UpdateResourceAlarm(ctx context.Context, arg postgres.UpdateResourceAlarmParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateResourceAlarm", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateResourceAlarm indicates an expected call of UpdateResourceAlarm.
+func (mr *MockQuerierMockRecorder) UpdateResourceAlarm(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceAlarm", reflect.TypeOf((*MockQuerier)(nil).UpdateResourceAlarm), ctx, arg)
+}
+
+// UpdateResourceReservation mocks base method.
+func (m *MockQuerier) UpdateResourceReservation(ctx context.Context, arg postgres.UpdateResourceReservationParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateResourceReservation", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateResourceReservation indicates an expected call of UpdateResourceReservation.
+func (mr *MockQuerierMockRecorder) UpdateResourceReservation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceReservation", reflect.TypeOf((*MockQuerier)(nil).UpdateResourceReservation), ctx, arg)
 }
 
 // UpdateSiteBanner mocks base method.

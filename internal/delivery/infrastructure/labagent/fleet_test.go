@@ -504,10 +504,10 @@ func TestNeedFitNamesNoAgent(t *testing.T) {
 func TestGroupSizesUseTheAgentsFormula(t *testing.T) {
 	f := newFleetFixture(t)
 	sizing := func(base, per, mx int64) infraModel.GroupPodSizing {
-		return infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: base, MemoryBytes: base << 20}, PerUnit: resourcesModel.Amount{CPUMillicores: per, MemoryBytes: per << 20}, Max: resourcesModel.Amount{CPUMillicores: mx, MemoryBytes: mx << 20}}
+		return infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: base, MemoryBytes: base << 20}, PerUnit: resourcesModel.Amount{CPUMillicores: per, MemoryBytes: per << 20}, MaxUnits: int32(mx)}
 	}
-	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing(10, 2, 100), Gateway: sizing(20, 5, 50)}})
-	f.bm.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing(30, 1, 100), Gateway: sizing(5, 10, 200)}})
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing(10, 2, 10), Gateway: sizing(20, 5, 10)}})
+	f.bm.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing(30, 1, 10), Gateway: sizing(5, 10, 10)}})
 	sizes, known := f.fleet.GroupSizes(infraModel.GroupPlan{MaxUsers: 10, InternetLabs: 3})
 	if !known {
 		t.Fatal("sizing reported")
@@ -518,7 +518,7 @@ func TestGroupSizesUseTheAgentsFormula(t *testing.T) {
 	}
 	// The maximum caps the growth.
 	capped, _ := f.fleet.GroupSizes(infraModel.GroupPlan{MaxUsers: 1000, InternetLabs: 1000})
-	if capped.VPN.CPUMillicores != 100 || capped.Gateway.CPUMillicores != 200 {
+	if capped.VPN.CPUMillicores != 40 || capped.Gateway.CPUMillicores != 105 {
 		t.Fatalf("capped %+v", capped)
 	}
 	f.am.Features, f.bm.Features = nil, nil
@@ -575,5 +575,30 @@ func TestSetPolicyChangesTheFrameAnAgentMustMeet(t *testing.T) {
 	f.fleet.SetPolicy(policy)
 	if f.fleet.MeetsRequirements(f.am) || f.fleet.Policy().Frame.CPUMillicores != 500 {
 		t.Fatal("a larger frame flags the agent")
+	}
+}
+
+func TestFeaturesOfReadsTheGroupPodSizingAndSendsExplicitSizes(t *testing.T) {
+	got := FeaturesOf(&labpb.FeaturesResponse{GroupPods: &labpb.GroupPodsFeature{
+		Vpn:        &labpb.PodSizing{BaseCpuMillicores: 10, BaseMemoryBytes: 16 << 20, PerUnitCpuMillicores: 2, PerUnitMemoryBytes: 4 << 20, MaxUnits: 20},
+		Gateway:    &labpb.PodSizing{BaseCpuMillicores: 20, BaseMemoryBytes: 32 << 20, PerUnitCpuMillicores: 5, MaxUnits: 4},
+		DefaultVpn: &labpb.PodSize{CpuMillicores: 50, MemoryBytes: 64 << 20},
+	}}).Limits
+	if got.VPN.MaxUnits != 20 || got.VPN.PerUnit.CPUMillicores != 2 || got.Gateway.MaxUnits != 4 || got.DefaultVPN.CPUMillicores != 50 || !got.VPN.Reported() {
+		t.Fatalf("limits %+v", got)
+	}
+	item := &labpb.LabGroupItem{Name: "g"}
+	setGroupSizes(item, infraModel.GroupSizes{VPN: resourcesModel.Amount{CPUMillicores: 30, MemoryBytes: 48 << 20}})
+	if item.GetVpnSize().GetCpuMillicores() != 30 || item.GetGatewaySize() != nil {
+		t.Fatalf("item %+v", item)
+	}
+	f := newFleetFixture(t)
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: got.VPN, Gateway: got.Gateway}})
+	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 5, InternetLabs: 1}})
+	if err := f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"); err != nil {
+		t.Fatal(err)
+	}
+	if item := f.a.createGroup.GetItems()[0]; item.GetVpnSize().GetCpuMillicores() != 20 || item.GetGatewaySize().GetCpuMillicores() != 25 {
+		t.Fatalf("CreateLabGroups carries the sizes explicitly: %+v", item)
 	}
 }

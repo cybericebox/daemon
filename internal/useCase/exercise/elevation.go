@@ -156,17 +156,44 @@ func (u *ExerciseUseCase) RequestElevation(ctx context.Context, actor Actor, exe
 	return u.toElevationView(ctx, elevation, e.Name), nil
 }
 
-// ListExerciseElevations is the request history of one exercise, newest first. Route gate: read access to
-// the exercise.
-func (u *ExerciseUseCase) ListExerciseElevations(ctx context.Context, exerciseID uuid.UUID) ([]ElevationView, error) {
+// LatestElevation is the exercise's open request, else its latest decided one; nil when it never had one.
+// Route gate: read access to the exercise.
+func (u *ExerciseUseCase) LatestElevation(ctx context.Context, exerciseID uuid.UUID) (*ElevationView, error) {
 	if u.elevations == nil {
-		return []ElevationView{}, nil
+		return nil, nil
 	}
-	rows, err := u.elevations.ListElevations(ctx, nil, uuid.NullUUID{UUID: exerciseID, Valid: true})
+	latest, err := u.elevations.LatestElevation(ctx, exerciseID)
 	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the resource elevation requests").Err()
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return nil, nil
+		}
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get the resource elevation request").Err()
 	}
-	return u.elevationViews(ctx, rows), nil
+	name := ""
+	if ex, getErr := u.exercises.GetByID(ctx, exerciseID); getErr == nil {
+		name = ex.Name
+	}
+	view := u.toElevationView(ctx, latest, name)
+	return &view, nil
+}
+
+// GetElevation is one request. Route gate: exercises.elevations.read.
+func (u *ExerciseUseCase) GetElevation(ctx context.Context, id uuid.UUID) (ElevationView, error) {
+	if u.elevations == nil {
+		return ElevationView{}, exerciseModel.ErrElevationNotFound.Err()
+	}
+	e, err := u.elevations.GetElevation(ctx, id)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return ElevationView{}, exerciseModel.ErrElevationNotFound.Err()
+		}
+		return ElevationView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get the resource elevation request").Err()
+	}
+	name := ""
+	if ex, getErr := u.exercises.GetByID(ctx, e.ExerciseID); getErr == nil {
+		name = ex.Name
+	}
+	return u.toElevationView(ctx, e, name), nil
 }
 
 // ListElevations is the platform admin's list of requests; status is pending, approved, rejected or empty for
@@ -176,6 +203,7 @@ func (u *ExerciseUseCase) ListElevations(ctx context.Context, status string) ([]
 		return []ElevationView{}, nil
 	}
 	var filter *resourcesModel.ElevationStatus
+	decidedOnly := status == "decided"
 	for _, s := range []resourcesModel.ElevationStatus{resourcesModel.ElevationPending, resourcesModel.ElevationApproved, resourcesModel.ElevationRejected} {
 		if s.String() == status {
 			filter = &s
@@ -184,6 +212,15 @@ func (u *ExerciseUseCase) ListElevations(ctx context.Context, status string) ([]
 	rows, err := u.elevations.ListElevations(ctx, filter, uuid.NullUUID{})
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the resource elevation requests").Err()
+	}
+	if decidedOnly {
+		kept := rows[:0]
+		for _, r := range rows {
+			if r.Status != resourcesModel.ElevationPending {
+				kept = append(kept, r)
+			}
+		}
+		rows = kept
 	}
 	return u.elevationViews(ctx, rows), nil
 }

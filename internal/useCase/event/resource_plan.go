@@ -64,6 +64,9 @@ type GroupOverhead struct {
 	Gateway      resourcesModel.Amount
 	// Known is false while no agent reported its sizing (the pods then add nothing to the plan).
 	Known bool
+	// TooLarge: the event's maximum team size (or its internet labs) is above what every agent that is used can
+	// size a group for: a planning error.
+	TooLarge bool
 }
 
 // EventResourcePlan is what the event reserves: per team the devices of its tasks plus the group's VPN and
@@ -221,6 +224,9 @@ func (u *EventUseCase) GetResourcePlan(ctx context.Context, eventID uuid.UUID) (
 		if sizes, known := planner.GroupSizes(infraModel.GroupPlan{MaxUsers: in.maxUsers, InternetLabs: in.internetLab}); known {
 			plan.Group.VPN, plan.Group.Gateway, plan.Group.Known = sizes.VPN, sizes.Gateway, true
 		}
+	}
+	if planner != nil && planner.NeedFit(infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: in.maxUsers, InternetLabs: in.internetLab}}) != nil {
+		plan.Group.TooLarge, plan.NoAgentFits = true, true
 	}
 	plan.PerTeam = plan.TeamTasks
 	plan.PerTeam.Amount = plan.PerTeam.Amount.Add(plan.Group.VPN).Add(plan.Group.Gateway)

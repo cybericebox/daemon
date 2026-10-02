@@ -488,6 +488,21 @@ type ExerciseProposal struct {
 	CatalogExerciseID uuid.NullUUID      `json:"catalog_exercise_id"`
 }
 
+type ExerciseResourceElevation struct {
+	ID           uuid.UUID          `json:"id"`
+	ExerciseID   uuid.UUID          `json:"exercise_id"`
+	VersionID    uuid.NullUUID      `json:"version_id"`
+	Status       int16              `json:"status"`
+	Reason       string             `json:"reason"`
+	Requested    []byte             `json:"requested"`
+	Approved     []byte             `json:"approved"`
+	DecisionNote string             `json:"decision_note"`
+	RequestedBy  uuid.NullUUID      `json:"requested_by"`
+	RequestedAt  time.Time          `json:"requested_at"`
+	DecidedBy    uuid.NullUUID      `json:"decided_by"`
+	DecidedAt    pgtype.Timestamptz `json:"decided_at"`
+}
+
 type ExerciseTestDeployment struct {
 	ID        uuid.UUID `json:"id"`
 	GroupName string    `json:"group_name"`
@@ -750,6 +765,86 @@ type RequestIdempotency struct {
 	ResponseBody   []byte      `json:"response_body"`
 	CreatedAt      time.Time   `json:"created_at"`
 	ExpiresAt      time.Time   `json:"expires_at"`
+}
+
+type ResourceAlarm struct {
+	ID                    uuid.UUID          `json:"id"`
+	Kind                  string             `json:"kind"`
+	ReservationID         uuid.UUID          `json:"reservation_id"`
+	EventID               uuid.NullUUID      `json:"event_id"`
+	AgentID               uuid.NullUUID      `json:"agent_id"`
+	Units                 int32              `json:"units"`
+	Stage                 int16              `json:"stage"`
+	ShortageCpuMillicores int64              `json:"shortage_cpu_millicores"`
+	ShortageMemoryBytes   int64              `json:"shortage_memory_bytes"`
+	RaisedAt              time.Time          `json:"raised_at"`
+	UpdatedAt             time.Time          `json:"updated_at"`
+	ResolvedAt            pgtype.Timestamptz `json:"resolved_at"`
+	AckedBy               uuid.NullUUID      `json:"acked_by"`
+	AckedAt               pgtype.Timestamptz `json:"acked_at"`
+}
+
+type ResourceCalendarSetting struct {
+	ID                    bool      `json:"id"`
+	TestPoolCpuMillicores int64     `json:"test_pool_cpu_millicores"`
+	TestPoolMemoryBytes   int64     `json:"test_pool_memory_bytes"`
+	UpdatedAt             time.Time `json:"updated_at"`
+}
+
+type ResourceChangeRequest struct {
+	ID                   uuid.UUID          `json:"id"`
+	ReservationID        uuid.UUID          `json:"reservation_id"`
+	EventID              uuid.UUID          `json:"event_id"`
+	RequestedBy          uuid.NullUUID      `json:"requested_by"`
+	RequestedAt          time.Time          `json:"requested_at"`
+	SizeCpuMillicores    pgtype.Int8        `json:"size_cpu_millicores"`
+	SizeMemoryBytes      pgtype.Int8        `json:"size_memory_bytes"`
+	DynamicCpuMillicores pgtype.Int8        `json:"dynamic_cpu_millicores"`
+	DynamicMemoryBytes   pgtype.Int8        `json:"dynamic_memory_bytes"`
+	WindowStart          pgtype.Timestamptz `json:"window_start"`
+	WindowEnd            pgtype.Timestamptz `json:"window_end"`
+	Reason               string             `json:"reason"`
+	Status               int16              `json:"status"`
+	DecidedBy            uuid.NullUUID      `json:"decided_by"`
+	DecidedAt            pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote         string             `json:"decision_note"`
+}
+
+type ResourceReservation struct {
+	ID                         uuid.UUID          `json:"id"`
+	Kind                       string             `json:"kind"`
+	EventID                    uuid.NullUUID      `json:"event_id"`
+	OwnerID                    uuid.NullUUID      `json:"owner_id"`
+	StartsAt                   time.Time          `json:"starts_at"`
+	EndsAt                     time.Time          `json:"ends_at"`
+	Teams                      int32              `json:"teams"`
+	PerTeamCpuMillicores       int64              `json:"per_team_cpu_millicores"`
+	PerTeamMemoryBytes         int64              `json:"per_team_memory_bytes"`
+	LargestDeviceCpuMillicores int64              `json:"largest_device_cpu_millicores"`
+	LargestDeviceMemoryBytes   int64              `json:"largest_device_memory_bytes"`
+	BufferPercent              int32              `json:"buffer_percent"`
+	DynamicCpuMillicores       int64              `json:"dynamic_cpu_millicores"`
+	DynamicMemoryBytes         int64              `json:"dynamic_memory_bytes"`
+	TailGapSeconds             int32              `json:"tail_gap_seconds"`
+	SizeCpuMillicores          int64              `json:"size_cpu_millicores"`
+	SizeMemoryBytes            int64              `json:"size_memory_bytes"`
+	Placement                  []byte             `json:"placement"`
+	Unplaced                   int32              `json:"unplaced"`
+	CreatedBy                  uuid.NullUUID      `json:"created_by"`
+	CreatedAt                  time.Time          `json:"created_at"`
+	UpdatedAt                  time.Time          `json:"updated_at"`
+	CanceledAt                 pgtype.Timestamptz `json:"canceled_at"`
+}
+
+type ResourceTestLabHold struct {
+	ID            uuid.UUID     `json:"id"`
+	OwnerID       uuid.UUID     `json:"owner_id"`
+	Via           string        `json:"via"`
+	ReservationID uuid.NullUUID `json:"reservation_id"`
+	CpuMillicores int64         `json:"cpu_millicores"`
+	MemoryBytes   int64         `json:"memory_bytes"`
+	StartsAt      time.Time     `json:"starts_at"`
+	ExpiresAt     time.Time     `json:"expires_at"`
 }
 
 type SecretEnvelope struct {

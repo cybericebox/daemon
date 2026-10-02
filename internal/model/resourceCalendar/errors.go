@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// next free detail code: 14
+// next free detail code: 15
 
 var (
 	// ErrWindowInvalid: the time range of a reservation or a booking is empty, reversed or out of bounds.
@@ -77,4 +77,9 @@ var (
 	ErrNoReservation = err.ErrObjectNotFound.WithObjectCode(model.ResourceCalendarObjectCode).
 				WithMessage("The event has no resource reservation").
 				WithDetailCode(13)
+
+	// ErrChangeRequestPending: the event has a change request that waits for a decision; a new one is sent after it.
+	ErrChangeRequestPending = err.ErrConflict.WithObjectCode(model.ResourceCalendarObjectCode).
+				WithMessage("The event has a change request that waits for a decision").
+				WithDetailCode(14)
 )

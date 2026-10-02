@@ -30,6 +30,7 @@ type planInfra struct {
 	Infrastructure
 	vpn, gateway infraModel.GroupPodSizing
 	maxCPU       int64
+	vpnMaxUsers  int32
 }
 
 func (p planInfra) GroupSizes(plan infraModel.GroupPlan) (infraModel.GroupSizes, bool) {
@@ -37,7 +38,7 @@ func (p planInfra) GroupSizes(plan infraModel.GroupPlan) (infraModel.GroupSizes,
 }
 
 func (p planInfra) NeedFit(need infraModel.PlacementNeed) *infraModel.FitViolation {
-	return infraModel.LimitsFeature{DeviceMaxCPUMillicores: p.maxCPU}.Fits(need)
+	return infraModel.LimitsFeature{DeviceMaxCPUMillicores: p.maxCPU, VPN: infraModel.GroupPodSizing{MaxUnits: p.vpnMaxUsers}}.Fits(need)
 }
 
 func container(name, cpu, mem string) exerciseModel.Device {
@@ -113,7 +114,7 @@ func TestResourcePlanCountsDevicesPlusGroupOverheadForTheTeams(t *testing.T) {
 	q.EXPECT().ListEventExerciseDetails(gomock.Any(), eventID).Return([]postgres.ListEventExerciseDetailsRow{{ID: linkID, ExerciseID: exerciseID, ExerciseVersionID: versionID, ExerciseName: "Web"}}, nil)
 
 	infra := planInfra{
-		vpn:     infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi}, PerUnit: resourcesModel.Amount{CPUMillicores: 5, MemoryBytes: 8 * mi}, Max: resourcesModel.Amount{CPUMillicores: 100, MemoryBytes: 64 * mi}},
+		vpn:     infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi}, PerUnit: resourcesModel.Amount{CPUMillicores: 5, MemoryBytes: 8 * mi}, MaxUnits: 20},
 		gateway: infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 20, MemoryBytes: 32 * mi}, PerUnit: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 16 * mi}},
 		maxCPU:  4000,
 	}
@@ -183,4 +184,20 @@ func TestPlacementNeedIsTheEventsLargestDeviceAndItsGroupPlan(t *testing.T) {
 	again, err := u.eventPlacementNeed(context.Background(), eventID)
 	require.NoError(t, err)
 	assert.Equal(t, need, again)
+}
+
+func TestResourcePlanIsAPlanningErrorWhenTheTeamSizeIsAboveTheVPNMaximum(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	eventID := uuid.Must(uuid.NewV7())
+	team := int16(eventConfigModel.ParticipationTeam)
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: team, Valid: true}, MaxTeamSize: 30, MaxTeams: pgtype.Int4{Int32: 2, Valid: true}}, nil)
+	q.EXPECT().ListEventExercises(gomock.Any(), eventID).Return(nil, nil)
+	q.EXPECT().ListVersionVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	q.EXPECT().ListEventExerciseDetails(gomock.Any(), eventID).Return(nil, nil)
+	u := NewEventUseCase(Dependencies{Repo: q, Infra: planInfra{vpnMaxUsers: 20, maxCPU: 4000}})
+	plan, err := u.GetResourcePlan(context.Background(), eventID)
+	require.NoError(t, err)
+	assert.True(t, plan.Group.TooLarge)
+	assert.True(t, plan.NoAgentFits)
 }

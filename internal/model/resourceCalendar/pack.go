@@ -102,13 +102,16 @@ func Ordered(agents []Agent) []Agent {
 // the agent first in priority order). It adds the placed room to load and returns the shares and the units no
 // agent could take. Placement never sums free room across agents: "2 + 10 free" is not room for 12.
 func Place(agents []Agent, load Load, r *Reservation) (shares []Share, unplaced int) {
+	return placeUnits(agents, load, r.TeamSlot(), r.LargestDevice, r.Teams)
+}
+
+func placeUnits(agents []Agent, load Load, slot, device Amount, units int) (shares []Share, unplaced int) {
 	ordered := Ordered(agents)
-	slot := r.TeamSlot()
-	remaining := r.Teams
+	remaining := units
 	for remaining > 0 {
 		bestIdx, bestFit := -1, 0
 		for i, a := range ordered {
-			fit := min(a.unitsFit(a.Free(load[a.ID]), slot, r.LargestDevice), remaining)
+			fit := min(a.unitsFit(a.Free(load[a.ID]), slot, device), remaining)
 			if fit > bestFit {
 				bestIdx, bestFit = i, fit
 			}
@@ -122,6 +125,68 @@ func Place(agents []Agent, load Load, r *Reservation) (shares []Share, unplaced 
 		remaining -= bestFit
 	}
 	return shares, remaining
+}
+
+// PlaceKeeping places a reservation that already has a placement (its size, window or teams changed): every
+// team stays where it is while its agent still has room for it, and only the rest (new teams, teams that no
+// longer fit) is placed over the agents. Nothing that fits is moved.
+func PlaceKeeping(agents []Agent, others []*Reservation, r *Reservation) {
+	load := PeakLoad(r.Window, others)
+	slot := r.TeamSlot()
+	byID := map[uuid.UUID]Agent{}
+	for _, a := range agents {
+		byID[a.ID] = a
+	}
+	var kept []Share
+	left := r.Teams
+	for _, s := range r.Placement {
+		a, ok := byID[s.AgentID]
+		if !ok || left == 0 {
+			continue
+		}
+		fit := min(a.unitsFit(a.Free(load[a.ID]), slot, r.LargestDevice), s.Units, left)
+		if fit <= 0 {
+			continue
+		}
+		load.add(a.ID, Amount{CPUMillicores: slot.CPUMillicores * int64(fit), MemoryBytes: slot.MemoryBytes * int64(fit)})
+		kept = append(kept, Share{AgentID: a.ID, Units: fit})
+		left -= fit
+	}
+	extra, unplaced := placeUnits(agents, load, slot, r.LargestDevice, left)
+	r.Placement, r.Unplaced = mergeShares(kept, extra), unplaced
+}
+
+// CompleteUnplaced places the teams a reservation still lacks an agent for, next to the teams already placed; it
+// only adds, nothing placed is touched. It reports whether a team was added.
+func CompleteUnplaced(agents []Agent, others []*Reservation, r *Reservation) bool {
+	if r.Unplaced == 0 {
+		return false
+	}
+	load := PeakLoad(r.Window, others)
+	slot := r.TeamSlot()
+	for _, s := range r.Placement {
+		load.add(s.AgentID, Amount{CPUMillicores: slot.CPUMillicores * int64(s.Units), MemoryBytes: slot.MemoryBytes * int64(s.Units)})
+	}
+	extra, unplaced := placeUnits(agents, load, slot, r.LargestDevice, r.Unplaced)
+	if unplaced == r.Unplaced {
+		return false
+	}
+	r.Placement, r.Unplaced = mergeShares(r.Placement, extra), unplaced
+	return true
+}
+
+func mergeShares(a, b []Share) []Share {
+	var out []Share
+	index := map[uuid.UUID]int{}
+	for _, s := range append(append([]Share(nil), a...), b...) {
+		if i, ok := index[s.AgentID]; ok {
+			out[i].Units += s.Units
+			continue
+		}
+		index[s.AgentID] = len(out)
+		out = append(out, s)
+	}
+	return out
 }
 
 // PeakLoad is, per agent, the most the other reservations place on it in any slot of w. A placement valid

@@ -1573,8 +1573,11 @@ func (f *fakeUC) RequestElevation(_ context.Context, _ exerciseUseCase.Actor, _ 
 	f.elevationReason = reason
 	return f.elevation, f.err
 }
-func (f *fakeUC) ListExerciseElevations(_ context.Context, _ uuid.UUID) ([]exerciseUseCase.ElevationView, error) {
-	return []exerciseUseCase.ElevationView{f.elevation}, f.err
+func (f *fakeUC) LatestElevation(_ context.Context, _ uuid.UUID) (*exerciseUseCase.ElevationView, error) {
+	return &f.elevation, f.err
+}
+func (f *fakeUC) GetElevation(_ context.Context, _ uuid.UUID) (exerciseUseCase.ElevationView, error) {
+	return f.elevation, f.err
 }
 func (f *fakeUC) ListElevations(_ context.Context, status string) ([]exerciseUseCase.ElevationView, error) {
 	f.elevationStatus = status
@@ -1764,8 +1767,8 @@ func TestResourceElevationRoutes(t *testing.T) {
 	// An admin cannot list or decide; a plain user is not even asked about the exercise policy for that.
 	admin := build(rbac.RoleAdmin, uc)
 	for _, tc := range [][3]string{
-		{http.MethodGet, "/api/exercises/resource-elevations", ""},
-		{http.MethodPost, "/api/exercises/resource-elevations/" + elevationID.String() + "/decide", `{"Approve":true}`},
+		{http.MethodGet, "/api/exercises/elevations", ""},
+		{http.MethodPost, "/api/exercises/elevations/" + elevationID.String() + "/approve", `{}`},
 	} {
 		if w := do(admin, tc[0], tc[1], tc[2]); w.Code != http.StatusForbidden {
 			t.Fatalf("%s %s as admin: %d, want 403", tc[0], tc[1], w.Code)
@@ -1773,21 +1776,21 @@ func TestResourceElevationRoutes(t *testing.T) {
 	}
 
 	super := build(rbac.RoleSuperAdmin, uc)
-	if w := do(super, http.MethodGet, "/api/exercises/resource-elevations?status=pending", ""); w.Code != http.StatusOK || uc.elevationStatus != "pending" {
+	if w := do(super, http.MethodGet, "/api/exercises/elevations?status=pending", ""); w.Code != http.StatusOK || uc.elevationStatus != "pending" {
 		t.Fatalf("list: %d status=%q %s", w.Code, uc.elevationStatus, w.Body.String())
 	}
-	w := do(super, http.MethodPost, "/api/exercises/resource-elevations/"+elevationID.String()+"/decide",
-		`{"Approve":true,"Note":"ok","Devices":[{"DeviceID":"`+uc.elevation.Requested[0].DeviceID.String()+`","CPUMillicores":400,"MemoryBytes":1073741824}]}`)
+	w := do(super, http.MethodPost, "/api/exercises/elevations/"+elevationID.String()+"/approve",
+		`{"Note":"ok","Devices":[{"DeviceID":"`+uc.elevation.Requested[0].DeviceID.String()+`","CPUMillicores":400,"MemoryBytes":1073741824}]}`)
 	if w.Code != http.StatusOK || !uc.elevationDecision.Approve || uc.elevationDecision.Note != "ok" || len(uc.elevationDecision.Devices) != 1 || uc.elevationDecision.Devices[0].CPUMillicores != 400 {
 		t.Fatalf("decide: %d %+v %s", w.Code, uc.elevationDecision, w.Body.String())
 	}
-	if w = do(super, http.MethodPost, "/api/exercises/resource-elevations/"+elevationID.String()+"/decide", `nope`); w.Code != http.StatusBadRequest {
+	if w = do(super, http.MethodPost, "/api/exercises/elevations/"+elevationID.String()+"/approve", `nope`); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad body: %d", w.Code)
 	}
 
 	// An author requests with a reason.
 	author := newEngine(uc, uuid.Must(uuid.NewV7()))
-	w = do(author, http.MethodPost, "/api/exercises/"+exID.String()+"/resource-elevations", `{"Reason":"the database needs memory"}`)
+	w = do(author, http.MethodPost, "/api/exercises/"+exID.String()+"/elevation", `{"Reason":"the database needs memory"}`)
 	if w.Code != http.StatusOK || uc.elevationReason != "the database needs memory" {
 		t.Fatalf("request: %d reason=%q %s", w.Code, uc.elevationReason, w.Body.String())
 	}
@@ -1803,7 +1806,7 @@ func TestResourceElevationRoutes(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Data.Status != "pending" || len(body.Data.Requested) != 1 || body.Data.Requested[0].CPUMillicores != 500 {
 		t.Fatalf("response: %v %+v", err, body)
 	}
-	if w = do(author, http.MethodGet, "/api/exercises/"+exID.String()+"/resource-elevations", ""); w.Code != http.StatusOK {
+	if w = do(author, http.MethodGet, "/api/exercises/"+exID.String()+"/elevation", ""); w.Code != http.StatusOK {
 		t.Fatalf("history: %d", w.Code)
 	}
 }

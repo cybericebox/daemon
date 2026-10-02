@@ -24,12 +24,14 @@ const (
 	KindLabDeploy       Kind = "lab_deploy"
 	KindLabCertExpiry   Kind = "lab_cert_expiry"
 	KindLabComponent    Kind = "lab_component"
+	// KindLabReadiness is a readiness alarm of the resource calendar: a reservation that cannot be served as promised.
+	KindLabReadiness Kind = "lab_readiness"
 )
 
 // Kinds lists every kind, in the order the admin page shows them.
 var Kinds = []Kind{
 	KindHTTP5xx, KindPanic, KindHTTP403, KindHTTP429, KindJob, KindQueue, KindMail,
-	KindLabAgentOffline, KindLabDeploy, KindLabCertExpiry, KindLabComponent,
+	KindLabAgentOffline, KindLabDeploy, KindLabCertExpiry, KindLabComponent, KindLabReadiness,
 }
 
 // Valid reports whether k is a known kind.
@@ -79,7 +81,7 @@ func DefaultRule(k Kind) NotifyRule {
 	switch k {
 	case KindHTTP5xx:
 		return NotifyNewOrSpike
-	case KindPanic, KindJob, KindQueue, KindLabAgentOffline, KindLabDeploy, KindLabCertExpiry:
+	case KindPanic, KindJob, KindQueue, KindLabAgentOffline, KindLabDeploy, KindLabCertExpiry, KindLabReadiness:
 		return NotifyAlways
 	case KindHTTP403, KindMail, KindLabComponent:
 		return NotifyNew

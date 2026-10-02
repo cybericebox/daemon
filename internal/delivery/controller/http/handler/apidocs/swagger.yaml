@@ -1816,6 +1816,10 @@ definitions:
         type: boolean
       MaxUsers:
         type: integer
+      TooLarge:
+        description: 'TooLarge: the maximum team size (or the internet labs) is above
+          what every used laboratory can size a group for.'
+        type: boolean
       VPN:
         $ref: '#/definitions/event.resourceAmountResponse'
     type: object
@@ -4890,16 +4894,14 @@ definitions:
     type: object
   exercise.decideElevationRequest:
     properties:
-      Approve:
-        description: |-
-          Approve true approves, false rejects. Devices are the approved values per requested device (a value may
-          be lower than requested, never above the ceiling); empty approves exactly what was requested.
-        type: boolean
       Devices:
         items:
           $ref: '#/definitions/exercise.elevationDeviceResponse'
         type: array
       Note:
+        description: |-
+          Devices (approve only) are the approved values per requested device (a value may be lower than
+          requested, never above the ceiling); empty approves exactly what was requested.
         type: string
     type: object
   exercise.deployAccessResponse:
@@ -6179,9 +6181,9 @@ definitions:
         type: integer
       BaseMemoryBytes:
         type: integer
-      MaxCPUMillicores:
-        type: integer
-      MaxMemoryBytes:
+      MaxUnits:
+        description: MaxUnits is the most users (VPN) or internet labs (gateway) the
+          pod is sized for.
         type: integer
       PerUnitCPUMillicores:
         type: integer
@@ -17459,6 +17461,67 @@ paths:
       summary: Save the draft version (full snapshot PUT)
       tags:
       - exercises
+  /exercises/{id}/elevation:
+    get:
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.elevationResponse'
+              type: object
+      summary: 'The exercise''s resource elevation request: the open one, else the
+        latest decided; null when none'
+      tags:
+      - exercises
+    post:
+      consumes:
+      - application/json
+      description: Asks for the devices of the working copy (the draft, else the published
+        version) that pass the frame and are not covered by an earlier approval, with
+        a reason. One request is open per exercise. 409 (70969) when no device needs
+        it, 409 (70970) when a request is already pending, 400 (20967) when a device
+        is above the elevation ceiling, 400 (20973) without a reason. The platform
+        admins are notified.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: reason
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.requestElevationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.elevationResponse'
+              type: object
+      summary: Ask a platform admin to let devices of the task go above the platform
+        resource frame
+      tags:
+      - exercises
   /exercises/{id}/proposals:
     post:
       consumes:
@@ -17514,68 +17577,6 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Publish the draft version
-      tags:
-      - exercises
-  /exercises/{id}/resource-elevations:
-    get:
-      parameters:
-      - description: exercise ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/exercise.elevationResponse'
-                  type: array
-              type: object
-      summary: Resource elevation requests of one exercise, newest first
-      tags:
-      - exercises
-    post:
-      consumes:
-      - application/json
-      description: Asks for the devices of the working copy (the draft, else the published
-        version) that pass the frame and are not covered by an earlier approval, with
-        a reason. One request is open per exercise. 409 (70969) when no device needs
-        it, 409 (70970) when a request is already pending, 400 (20967) when a device
-        is above the elevation ceiling, 400 (20973) without a reason. The platform
-        admins are notified.
-      parameters:
-      - description: exercise ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: reason
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/exercise.requestElevationRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/exercise.elevationResponse'
-              type: object
-      summary: Ask a platform admin to let devices of the task go above the platform
-        resource frame
       tags:
       - exercises
   /exercises/{id}/unarchive:
@@ -18038,6 +18039,124 @@ paths:
       summary: Poll a test deploy's runtime status
       tags:
       - exercises
+  /exercises/elevations:
+    get:
+      description: Requires exercises.elevations.read (super_admin only).
+      parameters:
+      - description: pending | decided (approved or rejected) | approved | rejected;
+          empty lists all
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.elevationResponse'
+                  type: array
+              type: object
+      summary: Resource elevation requests (platform admin)
+      tags:
+      - exercises
+  /exercises/elevations/{elevationID}:
+    get:
+      description: Requires exercises.elevations.read (super_admin only).
+      parameters:
+      - description: request ID
+        in: path
+        name: elevationID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.elevationResponse'
+              type: object
+      summary: One resource elevation request (platform admin)
+      tags:
+      - exercises
+  /exercises/elevations/{elevationID}/approve:
+    post:
+      consumes:
+      - application/json
+      description: 'The approval stores the approved values per device (default: exactly
+        what was requested; lower values are allowed, never above the ceiling): a
+        later version of the exercise keeps it while every value stays at or below
+        them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid
+        approved values. Notifies the author and closes the admins'' request. Requires
+        exercises.elevations.write (super_admin only).'
+      parameters:
+      - description: request ID
+        in: path
+        name: elevationID
+        required: true
+        type: string
+      - description: note and optional approved values
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/exercise.decideElevationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.elevationResponse'
+              type: object
+      summary: Approve a resource elevation request
+      tags:
+      - exercises
+  /exercises/elevations/{elevationID}/reject:
+    post:
+      consumes:
+      - application/json
+      description: Requires exercises.elevations.write (super_admin only). 404 (30968),
+        409 (70971) when already decided.
+      parameters:
+      - description: request ID
+        in: path
+        name: elevationID
+        required: true
+        type: string
+      - description: note
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/exercise.decideElevationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.elevationResponse'
+              type: object
+      summary: Reject a resource elevation request
+      tags:
+      - exercises
   /exercises/export:
     post:
       consumes:
@@ -18232,68 +18351,6 @@ paths:
                   $ref: '#/definitions/exercise.proposalResponse'
               type: object
       summary: Reject a proposal
-      tags:
-      - exercises
-  /exercises/resource-elevations:
-    get:
-      description: Requires exercises.elevations.read (super_admin only).
-      parameters:
-      - description: pending | approved | rejected; empty lists all
-        in: query
-        name: status
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  items:
-                    $ref: '#/definitions/exercise.elevationResponse'
-                  type: array
-              type: object
-      summary: Resource elevation requests (platform admin)
-      tags:
-      - exercises
-  /exercises/resource-elevations/{elevationID}/decide:
-    post:
-      consumes:
-      - application/json
-      description: 'The approval stores the approved values per device (default: exactly
-        what was requested; lower values are allowed, never above the ceiling): a
-        later version of the exercise keeps it while every value stays at or below
-        them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid
-        approved values. Notifies the author and closes the admins'' request. Requires
-        exercises.elevations.write (super_admin only).'
-      parameters:
-      - description: request ID
-        in: path
-        name: elevationID
-        required: true
-        type: string
-      - description: decision
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/exercise.decideElevationRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/exercise.elevationResponse'
-              type: object
-      summary: Approve or reject a resource elevation request
       tags:
       - exercises
   /exercises/tags:

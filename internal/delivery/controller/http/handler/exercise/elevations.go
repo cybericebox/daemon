@@ -18,7 +18,7 @@ import (
 // @Param    id    path  string                   true  "exercise ID"
 // @Param    body  body  requestElevationRequest  true  "reason"
 // @Success  200  {object}  response.Response{data=elevationResponse}
-// @Router   /exercises/{id}/resource-elevations [post]
+// @Router   /exercises/{id}/elevation [post]
 func (h *Handler) requestElevation(ctx *gin.Context) {
 	id, ok := parseExerciseID(ctx)
 	if !ok {
@@ -42,24 +42,24 @@ func (h *Handler) requestElevation(ctx *gin.Context) {
 	response.AbortWithData(ctx, elevationToResponse(e))
 }
 
-// exerciseElevations godoc
-// @Summary  Resource elevation requests of one exercise, newest first
+// exerciseElevation godoc
+// @Summary  The exercise's resource elevation request: the open one, else the latest decided; null when none
 // @Tags     exercises
 // @Produce  json
 // @Param    id  path  string  true  "exercise ID"
-// @Success  200  {object}  response.Response{data=[]elevationResponse}
-// @Router   /exercises/{id}/resource-elevations [get]
-func (h *Handler) exerciseElevations(ctx *gin.Context) {
+// @Success  200  {object}  response.Response{data=elevationResponse}
+// @Router   /exercises/{id}/elevation [get]
+func (h *Handler) exerciseElevation(ctx *gin.Context) {
 	id, ok := parseExerciseID(ctx)
 	if !ok {
 		return
 	}
-	items, err := h.useCase.ListExerciseElevations(ctx, id)
+	e, err := h.useCase.LatestElevation(ctx, id)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, elevationsToResponse(items))
+	response.AbortWithData(ctx, elevationPtr(e))
 }
 
 // listElevations godoc
@@ -67,9 +67,9 @@ func (h *Handler) exerciseElevations(ctx *gin.Context) {
 // @Description  Requires exercises.elevations.read (super_admin only).
 // @Tags     exercises
 // @Produce  json
-// @Param    status  query  string  false  "pending | approved | rejected; empty lists all"
+// @Param    status  query  string  false  "pending | decided (approved or rejected) | approved | rejected; empty lists all"
 // @Success  200  {object}  response.Response{data=[]elevationResponse}
-// @Router   /exercises/resource-elevations [get]
+// @Router   /exercises/elevations [get]
 func (h *Handler) listElevations(ctx *gin.Context) {
 	items, err := h.useCase.ListElevations(ctx, ctx.Query("status"))
 	if err != nil {
@@ -79,17 +79,53 @@ func (h *Handler) listElevations(ctx *gin.Context) {
 	response.AbortWithData(ctx, elevationsToResponse(items))
 }
 
-// decideElevation godoc
-// @Summary  Approve or reject a resource elevation request
+// getElevation godoc
+// @Summary  One resource elevation request (platform admin)
+// @Description  Requires exercises.elevations.read (super_admin only).
+// @Tags     exercises
+// @Produce  json
+// @Param    elevationID  path  string  true  "request ID"
+// @Success  200  {object}  response.Response{data=elevationResponse}
+// @Router   /exercises/elevations/{elevationID} [get]
+func (h *Handler) getElevation(ctx *gin.Context) {
+	id, err := uuid.FromString(ctx.Param("elevationID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	e, err := h.useCase.GetElevation(ctx, id)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, elevationToResponse(e))
+}
+
+// approveElevation godoc
+// @Summary  Approve a resource elevation request
 // @Description  The approval stores the approved values per device (default: exactly what was requested; lower values are allowed, never above the ceiling): a later version of the exercise keeps it while every value stays at or below them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid approved values. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).
 // @Tags     exercises
 // @Accept   json
 // @Produce  json
 // @Param    elevationID  path  string                  true  "request ID"
-// @Param    body         body  decideElevationRequest  true  "decision"
+// @Param    body         body  decideElevationRequest  false "note and optional approved values"
 // @Success  200  {object}  response.Response{data=elevationResponse}
-// @Router   /exercises/resource-elevations/{elevationID}/decide [post]
-func (h *Handler) decideElevation(ctx *gin.Context) {
+// @Router   /exercises/elevations/{elevationID}/approve [post]
+func (h *Handler) approveElevation(ctx *gin.Context) { h.decideElevation(ctx, true) }
+
+// rejectElevation godoc
+// @Summary  Reject a resource elevation request
+// @Description  Requires exercises.elevations.write (super_admin only). 404 (30968), 409 (70971) when already decided.
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    elevationID  path  string                  true  "request ID"
+// @Param    body         body  decideElevationRequest  false "note"
+// @Success  200  {object}  response.Response{data=elevationResponse}
+// @Router   /exercises/elevations/{elevationID}/reject [post]
+func (h *Handler) rejectElevation(ctx *gin.Context) { h.decideElevation(ctx, false) }
+
+func (h *Handler) decideElevation(ctx *gin.Context, approve bool) {
 	id, err := uuid.FromString(ctx.Param("elevationID"))
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -100,13 +136,17 @@ func (h *Handler) decideElevation(ctx *gin.Context) {
 		return
 	}
 	var req decideElevationRequest
-	if err = ctx.ShouldBindJSON(&req); err != nil {
-		response.AbortWithBadRequest(ctx, err)
-		return
+	if ctx.Request.ContentLength != 0 {
+		if err = ctx.ShouldBindJSON(&req); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
 	}
-	in := exerciseUseCase.DecideElevationInput{Approve: req.Approve, Note: req.Note}
-	for _, d := range req.Devices {
-		in.Devices = append(in.Devices, exerciseUseCase.ElevationDevice{DeviceID: d.DeviceID, Name: d.Name, CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
+	in := exerciseUseCase.DecideElevationInput{Approve: approve, Note: req.Note}
+	if approve {
+		for _, d := range req.Devices {
+			in.Devices = append(in.Devices, exerciseUseCase.ElevationDevice{DeviceID: d.DeviceID, Name: d.Name, CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
+		}
 	}
 	e, err := h.useCase.DecideElevation(ctx, actor, id, in)
 	if err != nil {

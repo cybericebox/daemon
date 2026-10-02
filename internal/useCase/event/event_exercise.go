@@ -48,6 +48,10 @@ func (u *EventUseCase) AttachExercise(ctx context.Context, eventID uuid.UUID, in
 	if family {
 		return EventExerciseView{}, eventExerciseModel.ErrEventExerciseExists.Err()
 	}
+	// A task added to a running event deploys for all teams or not at all: its reservation must hold it.
+	if err = u.requireReservedForTask(ctx, eventID, version, link, time.Now()); err != nil {
+		return EventExerciseView{}, err
+	}
 	if u.uow == nil {
 		return EventExerciseView{}, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
 	}

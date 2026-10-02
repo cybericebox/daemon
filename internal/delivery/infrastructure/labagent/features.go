@@ -60,21 +60,28 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 	}
 }
 
-// limitsOf converts the agent's limits. The sizing of the group pods (VPN: base, per user, maximum;
-// gateway: base, per internet lab, maximum) is read here once the laboratory protocol reports it; until then
-// it stays unreported and adds nothing to a plan.
+// limitsOf converts the agent's limits and the sizing of its group pods (VPN: base, per user, maximum users;
+// gateway: base, per internet lab, maximum labs); an agent that reports none adds nothing to a plan.
 func limitsOf(r *labpb.FeaturesResponse) infraModel.LimitsFeature {
 	dev, lab := r.GetLimits().GetDevice(), r.GetLimits().GetLab()
-	vpn, gateway := groupSizingOf(r)
+	pods := r.GetGroupPods()
 	return infraModel.LimitsFeature{
 		DeviceMaxCPUMillicores: dev.GetMaxCpuMillicores(), DeviceMaxMemoryBytes: dev.GetMaxMemoryBytes(),
 		LabMaxDevices: lab.GetMaxDevices(), TenantMaxLabs: r.GetLimits().GetTenant().GetMaxLabs(),
-		VPN: vpn, Gateway: gateway, DeviceProfiles: r.GetDeviceProfiles(),
+		VPN: sizingOf(pods.GetVpn()), Gateway: sizingOf(pods.GetGateway()), DeviceProfiles: r.GetDeviceProfiles(),
+		DefaultVPN:     resourcesModel.Amount{CPUMillicores: pods.GetDefaultVpn().GetCpuMillicores(), MemoryBytes: pods.GetDefaultVpn().GetMemoryBytes()},
+		DefaultGateway: resourcesModel.Amount{CPUMillicores: pods.GetDefaultGateway().GetCpuMillicores(), MemoryBytes: pods.GetDefaultGateway().GetMemoryBytes()},
 	}
 }
 
-// groupSizingOf is the seam for the laboratory's group pod sizing report.
-func groupSizingOf(*labpb.FeaturesResponse) (vpn, gateway infraModel.GroupPodSizing) { return }
+// sizingOf converts one pod sizing of the agent's group pods report.
+func sizingOf(p *labpb.PodSizing) infraModel.GroupPodSizing {
+	return infraModel.GroupPodSizing{
+		Base:     resourcesModel.Amount{CPUMillicores: p.GetBaseCpuMillicores(), MemoryBytes: p.GetBaseMemoryBytes()},
+		PerUnit:  resourcesModel.Amount{CPUMillicores: p.GetPerUnitCpuMillicores(), MemoryBytes: p.GetPerUnitMemoryBytes()},
+		MaxUnits: p.GetMaxUnits(),
+	}
+}
 
 // wantsPersistence reports whether the topology asks any device to keep its state.
 func wantsPersistence(topo exerciseModel.Topology) bool {
@@ -211,6 +218,13 @@ func (f *Fleet) withSizes(ctx context.Context, m *Member) context.Context {
 	return infraModel.WithGroupSizes(ctx, feat.Limits.SizesFor(infraModel.PlacementNeedFrom(ctx).Plan))
 }
 
-// setGroupSizes writes the planned pod sizes into a group to create. The laboratory protocol does not carry
-// them yet (the laboratory agent adds the fields): this is the one place to wire them.
-func setGroupSizes(*labpb.LabGroupItem, infraModel.GroupSizes) {}
+// setGroupSizes writes the planned pod sizes into a group to create, explicitly; the agent rejects a size over
+// its maximum.
+func setGroupSizes(item *labpb.LabGroupItem, sizes infraModel.GroupSizes) {
+	if sizes.VPN.CPUMillicores > 0 && sizes.VPN.MemoryBytes > 0 {
+		item.VpnSize = &labpb.PodSize{CpuMillicores: sizes.VPN.CPUMillicores, MemoryBytes: sizes.VPN.MemoryBytes}
+	}
+	if sizes.Gateway.CPUMillicores > 0 && sizes.Gateway.MemoryBytes > 0 {
+		item.GatewaySize = &labpb.PodSize{CpuMillicores: sizes.Gateway.CPUMillicores, MemoryBytes: sizes.Gateway.MemoryBytes}
+	}
+}

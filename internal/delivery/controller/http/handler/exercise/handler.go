@@ -95,7 +95,8 @@ type (
 		ListExercisesFor(ctx context.Context, actor exerciseUseCase.Actor, f exerciseUseCase.ExercisesFilter) (exerciseUseCase.ExercisesListResult, error)
 		SetExerciseAccess(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.SetAccessInput) (exerciseUseCase.ExerciseView, error)
 		RequestElevation(ctx context.Context, actor exerciseUseCase.Actor, exerciseID uuid.UUID, reason string) (exerciseUseCase.ElevationView, error)
-		ListExerciseElevations(ctx context.Context, exerciseID uuid.UUID) ([]exerciseUseCase.ElevationView, error)
+		LatestElevation(ctx context.Context, exerciseID uuid.UUID) (*exerciseUseCase.ElevationView, error)
+		GetElevation(ctx context.Context, id uuid.UUID) (exerciseUseCase.ElevationView, error)
 		ListElevations(ctx context.Context, status string) ([]exerciseUseCase.ElevationView, error)
 		DecideElevation(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, in exerciseUseCase.DecideElevationInput) (exerciseUseCase.ElevationView, error)
 		ProposeExercise(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, note string) (exerciseUseCase.ProposalView, error)
@@ -139,8 +140,10 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("proposals/:proposalID/reject", h.prot.RequirePermission(rbac.PermExercisesPublish), h.rejectProposal)
 
 		// resource elevations: a platform admin lists and decides the requests to take devices above the frame
-		ex.GET("resource-elevations", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.listElevations)
-		ex.POST("resource-elevations/:elevationID/decide", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.decideElevation)
+		ex.GET("elevations", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.listElevations)
+		ex.GET("elevations/:elevationID", h.prot.RequirePermission(rbac.PermExercisesElevationsRead), h.getElevation)
+		ex.POST("elevations/:elevationID/approve", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.approveElevation)
+		ex.POST("elevations/:elevationID/reject", h.prot.RequirePermission(rbac.PermExercisesElevationsWrite), h.rejectElevation)
 
 		// deploy routes: "deploys" is a static segment sibling to ":id" and, like
 		// "files", must be registered before the ":id" param routes. Status,
@@ -163,8 +166,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST(":id/unarchive", self, h.authorize(exerciseUseCase.ActionWrite), h.unarchive)
 		ex.PUT(":id/access", h.prot.RequirePermission(rbac.PermExercisesWrite), h.setAccess)
 		ex.POST(":id/proposals", self, h.authorize(exerciseUseCase.ActionPublish), h.propose)
-		ex.GET(":id/resource-elevations", self, h.authorize(exerciseUseCase.ActionRead), h.exerciseElevations)
-		ex.POST(":id/resource-elevations", self, h.authorize(exerciseUseCase.ActionWrite), h.requestElevation)
+		ex.GET(":id/elevation", self, h.authorize(exerciseUseCase.ActionRead), h.exerciseElevation)
+		ex.POST(":id/elevation", self, h.authorize(exerciseUseCase.ActionWrite), h.requestElevation)
 
 		ex.GET(":id/versions", self, h.authorize(exerciseUseCase.ActionRead), h.listVersions)
 		ex.GET(":id/versions/:versionID", self, h.authorize(exerciseUseCase.ActionReadPublished), h.getVersion)

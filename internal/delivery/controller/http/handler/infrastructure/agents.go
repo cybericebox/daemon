@@ -111,8 +111,8 @@ type (
 		BaseMemoryBytes      int64 `json:"BaseMemoryBytes"`
 		PerUnitCPUMillicores int64 `json:"PerUnitCPUMillicores"`
 		PerUnitMemoryBytes   int64 `json:"PerUnitMemoryBytes"`
-		MaxCPUMillicores     int64 `json:"MaxCPUMillicores"`
-		MaxMemoryBytes       int64 `json:"MaxMemoryBytes"`
+		// MaxUnits is the most users (VPN) or internet labs (gateway) the pod is sized for.
+		MaxUnits int32 `json:"MaxUnits"`
 	}
 
 	agentsResponse struct {
@@ -166,7 +166,7 @@ func toSizing(s infraModel.GroupPodSizing) groupPodSizingResponse {
 	return groupPodSizingResponse{
 		BaseCPUMillicores: s.Base.CPUMillicores, BaseMemoryBytes: s.Base.MemoryBytes,
 		PerUnitCPUMillicores: s.PerUnit.CPUMillicores, PerUnitMemoryBytes: s.PerUnit.MemoryBytes,
-		MaxCPUMillicores: s.Max.CPUMillicores, MaxMemoryBytes: s.Max.MemoryBytes,
+		MaxUnits: s.MaxUnits,
 	}
 }
 

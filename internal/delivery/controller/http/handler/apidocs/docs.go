@@ -13910,6 +13910,194 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/elevations": {
+            "get": {
+                "description": "Requires exercises.elevations.read (super_admin only).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Resource elevation requests (platform admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "pending | decided (approved or rejected) | approved | rejected; empty lists all",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.elevationResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/elevations/{elevationID}": {
+            "get": {
+                "description": "Requires exercises.elevations.read (super_admin only).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "One resource elevation request (platform admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "request ID",
+                        "name": "elevationID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.elevationResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/elevations/{elevationID}/approve": {
+            "post": {
+                "description": "The approval stores the approved values per device (default: exactly what was requested; lower values are allowed, never above the ceiling): a later version of the exercise keeps it while every value stays at or below them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid approved values. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Approve a resource elevation request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "request ID",
+                        "name": "elevationID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "note and optional approved values",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/exercise.decideElevationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.elevationResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/elevations/{elevationID}/reject": {
+            "post": {
+                "description": "Requires exercises.elevations.write (super_admin only). 404 (30968), 409 (70971) when already decided.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Reject a resource elevation request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "request ID",
+                        "name": "elevationID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "note",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/exercise.decideElevationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.elevationResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/export": {
             "post": {
                 "consumes": [
@@ -14226,102 +14414,6 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/exercise.proposalResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/exercises/resource-elevations": {
-            "get": {
-                "description": "Requires exercises.elevations.read (super_admin only).",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "exercises"
-                ],
-                "summary": "Resource elevation requests (platform admin)",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "pending | approved | rejected; empty lists all",
-                        "name": "status",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/exercise.elevationResponse"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/exercises/resource-elevations/{elevationID}/decide": {
-            "post": {
-                "description": "The approval stores the approved values per device (default: exactly what was requested; lower values are allowed, never above the ceiling): a later version of the exercise keeps it while every value stays at or below them. 404 (30968), 409 (70971) when already decided, 400 (20972) for invalid approved values. Notifies the author and closes the admins' request. Requires exercises.elevations.write (super_admin only).",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "exercises"
-                ],
-                "summary": "Approve or reject a resource elevation request",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "request ID",
-                        "name": "elevationID",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "decision",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/exercise.decideElevationRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/exercise.elevationResponse"
                                         }
                                     }
                                 }
@@ -14814,6 +14906,97 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/{id}/elevation": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "The exercise's resource elevation request: the open one, else the latest decided; null when none",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.elevationResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Asks for the devices of the working copy (the draft, else the published version) that pass the frame and are not covered by an earlier approval, with a reason. One request is open per exercise. 409 (70969) when no device needs it, 409 (70970) when a request is already pending, 400 (20967) when a device is above the elevation ceiling, 400 (20973) without a reason. The platform admins are notified.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Ask a platform admin to let devices of the task go above the platform resource frame",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "reason",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.requestElevationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.elevationResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}/proposals": {
             "post": {
                 "consumes": [
@@ -14906,100 +15089,6 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/exercises/{id}/resource-elevations": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "exercises"
-                ],
-                "summary": "Resource elevation requests of one exercise, newest first",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "exercise ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/exercise.elevationResponse"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            },
-            "post": {
-                "description": "Asks for the devices of the working copy (the draft, else the published version) that pass the frame and are not covered by an earlier approval, with a reason. One request is open per exercise. 409 (70969) when no device needs it, 409 (70970) when a request is already pending, 400 (20967) when a device is above the elevation ceiling, 400 (20973) without a reason. The platform admins are notified.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "exercises"
-                ],
-                "summary": "Ask a platform admin to let devices of the task go above the platform resource frame",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "exercise ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "reason",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/exercise.requestElevationRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/exercise.elevationResponse"
-                                        }
-                                    }
-                                }
-                            ]
                         }
                     }
                 }
@@ -22548,6 +22637,10 @@ const docTemplate = `{
                 "MaxUsers": {
                     "type": "integer"
                 },
+                "TooLarge": {
+                    "description": "TooLarge: the maximum team size (or the internet labs) is above what every used laboratory can size a group for.",
+                    "type": "boolean"
+                },
                 "VPN": {
                     "$ref": "#/definitions/event.resourceAmountResponse"
                 }
@@ -27115,10 +27208,6 @@ const docTemplate = `{
         "exercise.decideElevationRequest": {
             "type": "object",
             "properties": {
-                "Approve": {
-                    "description": "Approve true approves, false rejects. Devices are the approved values per requested device (a value may\nbe lower than requested, never above the ceiling); empty approves exactly what was requested.",
-                    "type": "boolean"
-                },
                 "Devices": {
                     "type": "array",
                     "items": {
@@ -27126,6 +27215,7 @@ const docTemplate = `{
                     }
                 },
                 "Note": {
+                    "description": "Devices (approve only) are the approved values per requested device (a value may be lower than\nrequested, never above the ceiling); empty approves exactly what was requested.",
                     "type": "string"
                 }
             }
@@ -28992,10 +29082,8 @@ const docTemplate = `{
                 "BaseMemoryBytes": {
                     "type": "integer"
                 },
-                "MaxCPUMillicores": {
-                    "type": "integer"
-                },
-                "MaxMemoryBytes": {
+                "MaxUnits": {
+                    "description": "MaxUnits is the most users (VPN) or internet labs (gateway) the pod is sized for.",
                     "type": "integer"
                 },
                 "PerUnitCPUMillicores": {

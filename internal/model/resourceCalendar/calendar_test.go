@@ -242,3 +242,39 @@ func TestBookingWindowBounds(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 8, w.Slots())
 }
+
+func TestPlaceKeepingMovesNothingThatStillFits(t *testing.T) {
+	a, b := agent(1, 0, 4000, 1<<40), agent(2, 1, 4000, 1<<40)
+	r := eventRes(t, win(0, 4), 4, Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30})
+	PlaceReservation([]Agent{a, b}, nil, r)
+	require.Equal(t, []Share{{AgentID: a.ID, Units: 4}}, r.Placement)
+
+	// The event grows to 6 teams: the 4 stay on a, only the 2 new ones go to b.
+	require.NoError(t, r.Recalculate(6, Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30}, Amount{}, 0, Amount{}, t0))
+	PlaceKeeping([]Agent{a, b}, nil, r)
+	assert.Zero(t, r.Unplaced)
+	assert.Equal(t, []Share{{AgentID: a.ID, Units: 4}, {AgentID: b.ID, Units: 2}}, r.Placement)
+
+	// Agent a shrinks: the teams that no longer fit there are placed elsewhere, the rest stay.
+	a.Capacity.CPUMillicores = 2000
+	PlaceKeeping([]Agent{a, b}, nil, r)
+	assert.Zero(t, r.Unplaced)
+	assert.Equal(t, []Share{{AgentID: a.ID, Units: 2}, {AgentID: b.ID, Units: 4}}, r.Placement)
+
+	// An agent that is gone is not kept.
+	PlaceKeeping([]Agent{b}, nil, r)
+	assert.Equal(t, 2, r.Unplaced)
+}
+
+func TestCompleteUnplacedOnlyAdds(t *testing.T) {
+	a := agent(1, 0, 4000, 1<<40)
+	r := eventRes(t, win(0, 4), 6, Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30})
+	PlaceReservation([]Agent{a}, nil, r)
+	require.Equal(t, 2, r.Unplaced)
+	assert.False(t, CompleteUnplaced([]Agent{a}, nil, r), "no room yet")
+
+	b := agent(2, 1, 4000, 1<<40)
+	assert.True(t, CompleteUnplaced([]Agent{a, b}, nil, r))
+	assert.Zero(t, r.Unplaced)
+	assert.Equal(t, []Share{{AgentID: a.ID, Units: 4}, {AgentID: b.ID, Units: 2}}, r.Placement)
+}
