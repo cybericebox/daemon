@@ -312,6 +312,7 @@ func TestRenameTeam_AllowsCaptainAndUsesOptimisticLock(t *testing.T) {
 	now := time.Now()
 
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rosterOpenEventRow(eventID, now), nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 	q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{EventID: eventID, ID: teamID}).Return(postgres.EventTeam{
 		ID: teamID, EventID: eventID, Name: "Old Team", JoinCode: "secure-join-code", CaptainID: captainID, MemberCount: 2, CreatedAt: now.Add(-time.Hour), UpdatedAt: now,
 	}, nil)
@@ -384,6 +385,7 @@ func TestDisbandTeam_CaptainDeletesTeam(t *testing.T) {
 
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, CreatedAt: now, UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true}}, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rosterOpenEventRow(eventID, now), nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 	q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{EventID: eventID, ID: teamID}).Return(postgres.EventTeam{
 		ID: teamID, EventID: eventID, Name: "Blue Team", JoinCode: "secure-join-code", CaptainID: captainID, MemberCount: 2, CreatedAt: now, UpdatedAt: now,
 	}, nil)
@@ -517,6 +519,7 @@ func TestRegenerateTeamJoinCode_CaptainSetsNewCodeAndExpiry(t *testing.T) {
 			eventID, teamID, captainID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 			now := time.Now()
 			q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rosterOpenEventRow(eventID, now), nil)
+			q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 			q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{EventID: eventID, ID: teamID}).Return(postgres.EventTeam{
 				ID: teamID, EventID: eventID, Name: "Blue Team", JoinCode: "old-secure-join-code",
 				JoinCodeExpiresAt: pgtype.Timestamptz{Time: now.Add(time.Hour), Valid: true},
@@ -556,6 +559,7 @@ func TestRegenerateTeamJoinCode_UntilStartIsBoundToTheEventStart(t *testing.T) {
 	now := time.Now()
 	row := rosterOpenEventRow(eventID, now)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(row, nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 	q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{EventID: eventID, ID: teamID}).Return(postgres.EventTeam{
 		ID: teamID, EventID: eventID, Name: "Blue Team", JoinCode: "old-secure-join-code", CaptainID: captainID, MemberCount: 2, CreatedAt: now, UpdatedAt: now,
 	}, nil)
@@ -590,6 +594,7 @@ func TestRegenerateTeamJoinCode_RejectsNonCaptainAndUnknownExpiry(t *testing.T) 
 			eventID, teamID, captainID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 			now := time.Now()
 			q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rosterOpenEventRow(eventID, now), nil)
+			q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 			q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{
 				ID: teamID, EventID: eventID, Name: "Blue Team", JoinCode: "old-secure-join-code", CaptainID: captainID, MemberCount: 2, CreatedAt: now, UpdatedAt: now,
 			}, nil)
@@ -738,6 +743,7 @@ func TestTeamRoster_StaysOpenAfterStartWhenJoiningIsRolling(t *testing.T) {
 	eventID, teamID, captainID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	now := time.Now()
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rollingEventRow(eventID, now), nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 	q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{
 		ID: teamID, EventID: eventID, Name: "Old Team", JoinCode: "secure-join-code", CaptainID: captainID, MemberCount: 2, CreatedAt: now, UpdatedAt: now,
 	}, nil)
@@ -1047,6 +1053,7 @@ func TestFormedTeamCannotBeDisbandedOrDeletedWithMembers(t *testing.T) {
 				EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true},
 				MaxTeamSize: 5, CreatedAt: now, UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true},
 			}, nil).AnyTimes()
+			q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 			q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(formedTeamRow(teamID, eventID, captainID, now, true), nil).AnyTimes()
 			if err := act(uc, eventID, teamID); !eventTeamModel.ErrEventTeamSwitchLocked.Err().Is(err) {
 				t.Fatalf("a formed team must not be disbanded, got %v", err)
@@ -1169,5 +1176,51 @@ func TestJoinTeam_LateJoinOfNewPersonAfterStart(t *testing.T) {
 	q.EXPECT().AssignEventParticipantTeam(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	if err := uc.JoinTeam(context.Background(), eventID, userID, "secure-join-code"); err != nil {
 		t.Fatalf("a new person may join after the start with late join on: %v", err)
+	}
+}
+
+// L15: captain_id stays on the team when a moderator rejects or moves the captain; the rights do not.
+func TestCaptainActionsNeedAnApprovedCaptainOfThatTeam(t *testing.T) {
+	stale := map[string]postgres.EventParticipant{
+		"rejected":       {Status: 3},
+		"pending":        {Status: 1},
+		"another team":   {Status: 2, TeamID: uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true}},
+		"no team at all": {Status: 2},
+	}
+	actions := map[string]func(uc *event.EventUseCase, eventID, teamID, captainID uuid.UUID) error{
+		"rename": func(uc *event.EventUseCase, eventID, teamID, captainID uuid.UUID) error {
+			return uc.RenameTeam(context.Background(), eventID, teamID, captainID, "New Team")
+		},
+		"join code": func(uc *event.EventUseCase, eventID, teamID, captainID uuid.UUID) error {
+			return uc.RegenerateTeamJoinCode(context.Background(), eventID, teamID, captainID, eventTeamModel.JoinCodeExpiryNone)
+		},
+		"disband": func(uc *event.EventUseCase, eventID, teamID, captainID uuid.UUID) error {
+			return uc.DisbandTeam(context.Background(), eventID, teamID, captainID)
+		},
+	}
+	for state, row := range stale {
+		for name, act := range actions {
+			t.Run(state+"/"+name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				q := newFormGateMock(ctrl)
+				unit := &testUoW{}
+				uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+				eventID, teamID, captainID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+				now := time.Now()
+				row.EventID, row.UserID = eventID, captainID
+				q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rollingEventRow(eventID, now), nil).AnyTimes()
+				q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true}}, nil).AnyTimes()
+				q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{
+					ID: teamID, EventID: eventID, Name: "Old", JoinCode: "secure-join-code", CaptainID: captainID, MemberCount: 2, CreatedAt: now, UpdatedAt: now,
+				}, nil).AnyTimes()
+				q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(row, nil).AnyTimes()
+				if err := act(uc, eventID, teamID, captainID); !eventTeamModel.ErrEventTeamCaptainRequired.Err().Is(err) {
+					t.Fatalf("a captain who is %s must not act, got %v", state, err)
+				}
+				if unit.saved {
+					t.Fatal("nothing may commit")
+				}
+			})
+		}
 	}
 }

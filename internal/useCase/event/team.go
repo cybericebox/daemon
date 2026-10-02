@@ -862,8 +862,8 @@ func (u *EventUseCase) UpdateOwnTeamFields(ctx context.Context, eventID, teamID,
 		}
 		return OwnTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
 	}
-	if !team.IsCaptain(userID) {
-		return OwnTeamView{}, eventTeamModel.ErrEventTeamCaptainRequired.Err()
+	if err = requireCaptainOfTeam(txCtx, participantRepo.New(txRepo), team, eventID, userID); err != nil {
+		return OwnTeamView{}, err
 	}
 	form, err := teams.GetFieldConfig(txCtx, eventID)
 	if err != nil {
@@ -1065,8 +1065,8 @@ func (u *EventUseCase) DisbandTeam(ctx context.Context, eventID, teamID, captain
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
 	}
-	if !team.IsCaptain(captainID) {
-		return eventTeamModel.ErrEventTeamCaptainRequired.Err()
+	if err = requireCaptainOfTeam(txCtx, participantRepo.New(txRepo), team, eventID, captainID); err != nil {
+		return err
 	}
 	// Disbanding detaches every member, which would free them to join another
 	// team, so a formed team cannot be disbanded.
@@ -1172,6 +1172,27 @@ func (u *EventUseCase) TransferTeamCaptaincy(ctx context.Context, eventID, teamI
 	return nil
 }
 
+// requireCaptainOfTeam is the captain gate of every captain-only action: the
+// team names the person as its captain AND the person is still an approved
+// participant of that very team. A captain a moderator rejected or moved keeps
+// the captain_id on the team but none of the rights.
+func requireCaptainOfTeam(ctx context.Context, participants *participantRepo.Repository, team eventTeamModel.EventTeam, eventID, userID uuid.UUID) error {
+	if !team.IsCaptain(userID) {
+		return eventTeamModel.ErrEventTeamCaptainRequired.Err()
+	}
+	p, err := participants.Get(ctx, eventID, userID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return eventTeamModel.ErrEventTeamCaptainRequired.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event participant").Err()
+	}
+	if p.Status != participantModel.StatusApproved || p.TeamID == nil || *p.TeamID != team.ID {
+		return eventTeamModel.ErrEventTeamCaptainRequired.Err()
+	}
+	return nil
+}
+
 func (u *EventUseCase) mutateCaptainTeam(ctx context.Context, eventID, teamID, userID uuid.UUID, mutate func(*eventTeamModel.EventTeam, eventModel.Event, time.Time) error) error {
 	if u.uow == nil {
 		return model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
@@ -1194,6 +1215,9 @@ func (u *EventUseCase) mutateCaptainTeam(ctx context.Context, eventID, teamID, u
 			return eventTeamModel.ErrEventTeamNotFound.Err()
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event team").Err()
+	}
+	if err = requireCaptainOfTeam(txCtx, participantRepo.New(txRepo), team, eventID, userID); err != nil {
+		return err
 	}
 	expectedUpdatedAt := team.UpdatedAt
 	if err = mutate(&team, event, time.Now()); err != nil {

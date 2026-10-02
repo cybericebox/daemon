@@ -125,6 +125,7 @@ func TestUpdateOwnTeamFieldsAllowsOnlyEditableFields(t *testing.T) {
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
 	now := time.Now()
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: captainID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}}, nil).AnyTimes()
 	q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Name: "Blue", CaptainID: captainID, MemberCount: 2, CreatedAt: now, UpdatedAt: now}, nil)
 	q.EXPECT().GetEventTeamFieldConfig(gomock.Any(), eventID).Return(postgres.EventTeamFieldConfig{EventID: eventID, Enabled: true, Document: document}, nil)
 	q.EXPECT().GetEventTeamExtraFields(gomock.Any(), gomock.Any()).Return([]byte(`{"school":"KPI"}`), nil)
