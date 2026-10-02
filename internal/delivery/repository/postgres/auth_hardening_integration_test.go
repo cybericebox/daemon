@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
@@ -67,5 +68,42 @@ func TestDeleteTemporalCodesForUser(t *testing.T) {
 		if _, err := db.Queries.GetTemporalCodeByCode(ctx, code); err == nil {
 			t.Fatalf("%s must be gone", code)
 		}
+	}
+}
+
+// A pending invitation is known by the address the organizer typed, never by the profile name of
+// the invited account: searching a name must not find it, and the name column shows the address.
+func TestPendingInvitationIsNotSearchableByName(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	event := mustSeedEventForParticipants(t, db, "invsearch")
+	manager := mustSeedUser(t, db, "inv-manager@test.test")
+	invited := mustSeedUser(t, db, "secret.person@test.test")
+	rtExec(t, db, `UPDATE users SET first_name = 'Zlatan', last_name = 'Ibrahimovic' WHERE id = $1`, invited)
+	repo := participantRepo.New(db.Queries)
+	if _, _, err := repo.Invite(ctx, event.ID, invited, manager, uuid.NullUUID{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	count := func(search string) int64 {
+		n, err := repo.CountMatching(ctx, event.ID, -1, participantRepo.Kind(""), search, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if count("Zlatan") != 0 || count("Ibrahimovic") != 0 {
+		t.Fatal("a pending invitation must not be found by the profile name")
+	}
+	if count("secret.person@") != 1 {
+		t.Fatal("the address the organizer typed must find it")
+	}
+	rows, err := repo.List(ctx, event.ID, -1, participantRepo.Kind(""), "Zlatan", nil, time.Now().AddDate(1, 0, 0), uuid.Must(uuid.FromString("ffffffff-ffff-ffff-ffff-ffffffffffff")), 10)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("list by name: %d rows, %v", len(rows), err)
+	}
+	// Once the invitation is accepted the name is the person's to share.
+	rtExec(t, db, `UPDATE event_participants SET status = 2 WHERE event_id = $1 AND user_id = $2`, event.ID, invited)
+	if count("Zlatan") != 1 {
+		t.Fatal("an accepted participant is found by name")
 	}
 }

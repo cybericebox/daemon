@@ -97,7 +97,8 @@ WHERE participant.event_id = sqlc.arg(event_id)::uuid
     OR (sqlc.arg(kind)::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND (sqlc.arg(search)::text = ''
     OR person.email ILIKE '%' || sqlc.arg(search)::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || sqlc.arg(search)::text || '%')
   AND (jsonb_array_length(sqlc.arg(field_filters)::jsonb) = 0
     OR event_answers_match_all(event_registration_answers(participant.event_id, participant.user_id), sqlc.arg(field_filters)::jsonb))
@@ -119,7 +120,8 @@ WHERE participant.event_id = sqlc.arg(event_id)::uuid
     OR (sqlc.arg(kind)::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND (sqlc.arg(search)::text = ''
     OR person.email ILIKE '%' || sqlc.arg(search)::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || sqlc.arg(search)::text || '%')
   AND (jsonb_array_length(sqlc.arg(field_filters)::jsonb) = 0
     OR event_answers_match_all(event_registration_answers(participant.event_id, participant.user_id), sqlc.arg(field_filters)::jsonb));
@@ -267,9 +269,12 @@ FROM event_participants participant
                                             THEN COALESCE(event_registration_answers(participant.event_id, participant.user_id), '{}'::jsonb)
                                         ELSE '{}'::jsonb END
                                     || jsonb_build_object(
-                                        '@name', COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
-                                                          NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
-                                                          person.email),
+                                        -- A pending invitation is known by the address the organizer typed only:
+                                        -- the profile name of an invited account is not theirs to search or sort by.
+                                        '@name', CASE WHEN participant.invited AND participant.status = 1 THEN person.email
+                                                      ELSE COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
+                                                                    NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
+                                                                    person.email) END,
                                         '@email', person.email,
                                         '@pseudonym', participant.pseudonym,
                                         '@status', participant.status::text,
@@ -293,7 +298,8 @@ WHERE participant.event_id = sqlc.arg(event_id)::uuid
     OR (sqlc.arg(kind)::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND (sqlc.arg(search)::text = ''
     OR person.email ILIKE '%' || sqlc.arg(search)::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || sqlc.arg(search)::text || '%')
   AND event_answers_match_all(listed.doc, sqlc.arg(filters)::jsonb)
 ORDER BY CASE WHEN sqlc.arg(sort_dir)::text = 'asc' THEN event_list_sort_value(listed.doc, sqlc.arg(sort_key)::text) END ASC NULLS LAST,
@@ -315,9 +321,12 @@ FROM event_participants participant
                                             THEN COALESCE(event_registration_answers(participant.event_id, participant.user_id), '{}'::jsonb)
                                         ELSE '{}'::jsonb END
                                     || jsonb_build_object(
-                                        '@name', COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
-                                                          NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
-                                                          person.email),
+                                        -- A pending invitation is known by the address the organizer typed only:
+                                        -- the profile name of an invited account is not theirs to search or sort by.
+                                        '@name', CASE WHEN participant.invited AND participant.status = 1 THEN person.email
+                                                      ELSE COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
+                                                                    NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
+                                                                    person.email) END,
                                         '@email', person.email,
                                         '@pseudonym', participant.pseudonym,
                                         '@status', participant.status::text,
@@ -341,6 +350,7 @@ WHERE participant.event_id = sqlc.arg(event_id)::uuid
     OR (sqlc.arg(kind)::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND (sqlc.arg(search)::text = ''
     OR person.email ILIKE '%' || sqlc.arg(search)::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || sqlc.arg(search)::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || sqlc.arg(search)::text || '%')
   AND event_answers_match_all(listed.doc, sqlc.arg(filters)::jsonb);

@@ -104,7 +104,8 @@ WHERE participant.event_id = $1::uuid
     OR ($3::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND ($4::text = ''
     OR person.email ILIKE '%' || $4::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || $4::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || $4::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || $4::text || '%')
   AND (jsonb_array_length($5::jsonb) = 0
     OR event_answers_match_all(event_registration_answers(participant.event_id, participant.user_id), $5::jsonb))
@@ -145,9 +146,12 @@ FROM event_participants participant
                                             THEN COALESCE(event_registration_answers(participant.event_id, participant.user_id), '{}'::jsonb)
                                         ELSE '{}'::jsonb END
                                     || jsonb_build_object(
-                                        '@name', COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
-                                                          NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
-                                                          person.email),
+                                        -- A pending invitation is known by the address the organizer typed only:
+                                        -- the profile name of an invited account is not theirs to search or sort by.
+                                        '@name', CASE WHEN participant.invited AND participant.status = 1 THEN person.email
+                                                      ELSE COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
+                                                                    NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
+                                                                    person.email) END,
                                         '@email', person.email,
                                         '@pseudonym', participant.pseudonym,
                                         '@status', participant.status::text,
@@ -171,7 +175,8 @@ WHERE participant.event_id = $2::uuid
     OR ($4::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND ($5::text = ''
     OR person.email ILIKE '%' || $5::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || $5::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || $5::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || $5::text || '%')
   AND event_answers_match_all(listed.doc, $6::jsonb)
 `
@@ -386,7 +391,8 @@ WHERE participant.event_id = $1::uuid
     OR ($3::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND ($4::text = ''
     OR person.email ILIKE '%' || $4::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || $4::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || $4::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || $4::text || '%')
   AND (jsonb_array_length($5::jsonb) = 0
     OR event_answers_match_all(event_registration_answers(participant.event_id, participant.user_id), $5::jsonb))
@@ -517,9 +523,12 @@ FROM event_participants participant
                                             THEN COALESCE(event_registration_answers(participant.event_id, participant.user_id), '{}'::jsonb)
                                         ELSE '{}'::jsonb END
                                     || jsonb_build_object(
-                                        '@name', COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
-                                                          NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
-                                                          person.email),
+                                        -- A pending invitation is known by the address the organizer typed only:
+                                        -- the profile name of an invited account is not theirs to search or sort by.
+                                        '@name', CASE WHEN participant.invited AND participant.status = 1 THEN person.email
+                                                      ELSE COALESCE(NULLIF(btrim(person.first_name || ' ' || person.last_name), ''),
+                                                                    NULLIF(event_participant_public_name(participant.event_id, participant.user_id), ''),
+                                                                    person.email) END,
                                         '@email', person.email,
                                         '@pseudonym', participant.pseudonym,
                                         '@status', participant.status::text,
@@ -543,7 +552,8 @@ WHERE participant.event_id = $2::uuid
     OR ($4::text = 'invitations' AND participant.invited AND participant.status = 1))
   AND ($5::text = ''
     OR person.email ILIKE '%' || $5::text || '%'
-    OR (person.first_name || ' ' || person.last_name) ILIKE '%' || $5::text || '%'
+    OR (NOT (participant.invited AND participant.status = 1)
+        AND (person.first_name || ' ' || person.last_name) ILIKE '%' || $5::text || '%')
     OR COALESCE(participant.pseudonym, '') ILIKE '%' || $5::text || '%')
   AND event_answers_match_all(listed.doc, $6::jsonb)
 ORDER BY CASE WHEN $7::text = 'asc' THEN event_list_sort_value(listed.doc, $8::text) END ASC NULLS LAST,
