@@ -46,3 +46,26 @@ func TestSanitizeSVGRejectsNonSVG(t *testing.T) {
 		t.Fatal("svg sniff")
 	}
 }
+
+// The reported PoC: a CSS escape spells url( so the text checks miss it, and the viewer's browser fetches it.
+func TestSanitizeSVGDropsCSSEscapedURLs(t *testing.T) {
+	for name, style := range map[string]string{
+		"escaped url":        `fill:u\72l(https://evil.example/x)`,
+		"escaped paren":      `fill:url\28 https://evil.example/x)`,
+		"hex escape":         `fill:\75 rl(https://evil.example/x)`,
+		"escaped everywhere": `background:\000075rl(//evil.example/x)`,
+	} {
+		out, err := SanitizeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1" style="` + style + `"/></svg>`))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if strings.Contains(string(out), "style") || strings.Contains(string(out), "evil") {
+			t.Errorf("%s: the attribute survived: %s", name, out)
+		}
+	}
+	// A plain local reference still works.
+	out, err := SanitizeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs><rect fill="url(#g)" width="1" height="1"/></svg>`))
+	if err != nil || !strings.Contains(string(out), `fill="url(#g)"`) {
+		t.Fatalf("local gradient: %s %v", out, err)
+	}
+}

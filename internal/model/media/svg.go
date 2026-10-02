@@ -40,6 +40,11 @@ func safeSVGValue(name, value string) bool {
 	if name == "href" {
 		return strings.HasPrefix(value, "#")
 	}
+	// A backslash is a CSS escape: u\72l( is url( for the style engine but not for the text checks below.
+	// Drawing values never need one.
+	if strings.Contains(value, "\\") {
+		return false
+	}
 	if strings.Contains(lower, "javascript:") || strings.Contains(lower, "expression(") || strings.Contains(lower, "@import") {
 		return false
 	}
