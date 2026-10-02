@@ -73,7 +73,7 @@ type (
 			userID uuid.UUID,
 			firstName, lastName string,
 		) error
-		RequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail string) error
+		RequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail, currentPassword string) error
 		ConfirmEmailChange(ctx context.Context, code string) error
 		UnlinkGoogle(ctx context.Context, userID uuid.UUID) error
 		DeleteAccount(ctx context.Context, userID uuid.UUID) error

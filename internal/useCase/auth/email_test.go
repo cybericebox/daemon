@@ -12,11 +12,13 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/useCase/auth"
@@ -39,11 +41,22 @@ func newEmailUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *f
 	return uc, repo, notifier
 }
 
+// accountWithPassword is the stored row of a user whose password is "Correct!1".
+func accountWithPassword(t *testing.T, uid uuid.UUID) postgres.User {
+	t.Helper()
+	hashed, err := password.New(password.Config{HashCost: 4}).Hash("Correct!1")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	return postgres.User{ID: uid, Email: "old@b.test", FirstName: "Jane", HashedPassword: pgtype.Text{String: hashed, Valid: true}}
+}
+
 func TestRequestEmailChange_Taken(t *testing.T) {
 	uc, repo, _ := newEmailUC(t)
 	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(accountWithPassword(t, uid), nil)
 	repo.EXPECT().GetUserByEmail(gomock.Any(), "taken@b.test").Return(postgres.User{ID: uuid.Must(uuid.NewV7())}, nil)
-	if err := uc.RequestEmailChange(context.Background(), uid, "taken@b.test"); !errors.Is(err, userModel.ErrUserExists.Err()) {
+	if err := uc.RequestEmailChange(context.Background(), uid, "taken@b.test", "Correct!1"); !errors.Is(err, userModel.ErrUserExists.Err()) {
 		t.Fatalf("want ErrUserExists, got %v", err)
 	}
 }
@@ -51,11 +64,11 @@ func TestRequestEmailChange_Taken(t *testing.T) {
 func TestRequestEmailChange_SendsToNewAddress(t *testing.T) {
 	uc, repo, notifier := newEmailUC(t)
 	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(accountWithPassword(t, uid), nil)
 	repo.EXPECT().GetUserByEmail(gomock.Any(), "new@b.test").Return(postgres.User{}, pgx.ErrNoRows)
-	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Email: "old@b.test", FirstName: "Jane"}, nil)
 	repo.EXPECT().CreateTemporalCode(gomock.Any(), gomock.Any()).Return(postgres.TemporalCode{}, nil)
 
-	if err := uc.RequestEmailChange(context.Background(), uid, "new@b.test"); err != nil {
+	if err := uc.RequestEmailChange(context.Background(), uid, "new@b.test", "Correct!1"); err != nil {
 		t.Fatalf("request: %v", err)
 	}
 	if notifier.calls != 1 || notifier.lastRecipientEmail != "new@b.test" {
@@ -63,13 +76,36 @@ func TestRequestEmailChange_SendsToNewAddress(t *testing.T) {
 	}
 }
 
+// M1: a stolen session alone cannot move the account to another mailbox.
+func TestRequestEmailChange_WrongPasswordRefused(t *testing.T) {
+	uc, repo, notifier := newEmailUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(accountWithPassword(t, uid), nil)
+	// No availability probe, no code, no mail.
+	if err := uc.RequestEmailChange(context.Background(), uid, "new@b.test", "Wrong!1"); !errors.Is(err, authModel.ErrAuthInvalidOldPassword.Err()) {
+		t.Fatalf("want ErrAuthInvalidOldPassword, got %v", err)
+	}
+	if notifier.calls != 0 {
+		t.Fatalf("no mail may be sent, got %d", notifier.calls)
+	}
+}
+
+func TestRequestEmailChange_PasswordlessAccountMustSetOne(t *testing.T) {
+	uc, repo, _ := newEmailUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid}, nil)
+	if err := uc.RequestEmailChange(context.Background(), uid, "new@b.test", ""); !errors.Is(err, authModel.ErrAuthPasswordRequired.Err()) {
+		t.Fatalf("want ErrAuthPasswordRequired, got %v", err)
+	}
+}
+
 func TestConfirmEmailChange_Success(t *testing.T) {
 	uc, repo, _ := newEmailUC(t)
 	uid := uuid.Must(uuid.NewV7())
 	data, _ := json.Marshal(temporalCodeModel.TemporalEmailChangeCodeData{UserID: uid, Email: "new@b.test"})
-	bsCode := strings.ReplaceAll(base64.StdEncoding.EncodeToString([]byte("raw")), "=", "")
-	repo.EXPECT().GetTemporalCodeByCode(gomock.Any(), "raw").Return(postgres.TemporalCode{
-		ID: uuid.Must(uuid.NewV7()), Code: "raw", Type: temporalCodeModel.EmailChangeCodeType, Data: data, ExpiresAt: time.Now().Add(time.Hour),
+	bsCode := strings.ReplaceAll(base64.StdEncoding.EncodeToString([]byte(rawCode)), "=", "")
+	repo.EXPECT().GetTemporalCodeByCode(gomock.Any(), auth.ExportHashTemporalCode(rawCode)).Return(postgres.TemporalCode{
+		ID: uuid.Must(uuid.NewV7()), Type: temporalCodeModel.EmailChangeCodeType, Data: data, ExpiresAt: time.Now().Add(time.Hour),
 	}, nil)
 	repo.EXPECT().DeleteTemporalCode(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().GetUserByEmail(gomock.Any(), "new@b.test").Return(postgres.User{}, pgx.ErrNoRows)
@@ -81,6 +117,8 @@ func TestConfirmEmailChange_Success(t *testing.T) {
 			}
 			return 1, nil
 		})
+	// M1: the recovery address changed — every session ends.
+	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
 
 	if err := uc.ConfirmEmailChange(context.Background(), bsCode); err != nil {
 		t.Fatalf("confirm: %v", err)

@@ -16,7 +16,7 @@ import (
 //     ErrObjectNotFound→404, ...), so "the same fact" needing two statuses is
 //     two different error vars by definition.
 //
-// AuthObjectCode — next free detail code: 27
+// AuthObjectCode — next free detail code: 28
 var (
 	// 401
 	// multi-site (category A): sign-in must be timing- and error-
@@ -101,6 +101,10 @@ var (
 	// when its verified email is the address of the account being set up.
 	ErrAuthGoogleEmailMismatch = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 					WithMessage("Google email does not match the account").WithDetailCode(25)
+	// ErrAuthPasswordRequired: the action re-checks the account password, and
+	// this account has none (Google-only): set one first.
+	ErrAuthPasswordRequired = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
+				WithMessage("Set a password first").WithDetailCode(27)
 	ErrAuthInvalidEmail = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Invalid email address").WithDetailCode(26)
 )

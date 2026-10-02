@@ -29,6 +29,8 @@ type updateProfileRequest struct {
 
 type requestEmailChangeRequest struct {
 	Email string `json:"Email"`
+	// CurrentPassword re-authenticates the change (the stolen-session guard).
+	CurrentPassword string `json:"CurrentPassword"`
 }
 
 type confirmEmailChangeRequest struct {
@@ -145,7 +147,7 @@ func (h *Handler) requestEmailChange(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	if err := h.useCase.RequestEmailChange(ctx.Request.Context(), userID, req.Email); err != nil {
+	if err := h.useCase.RequestEmailChange(ctx.Request.Context(), userID, req.Email, req.CurrentPassword); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

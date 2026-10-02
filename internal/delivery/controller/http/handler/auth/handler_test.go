@@ -139,7 +139,7 @@ func (f *fakeUC) UpdateAccountProfile(
 func (f *fakeUC) RequestEmailChange(
 	_ context.Context,
 	_ uuid.UUID,
-	_ string,
+	_, _ string,
 ) error {
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
@@ -65,7 +66,12 @@ func (u *AuthUseCase) ResetPassword(ctx context.Context, bsCode, newPassword str
 	if err = json.Unmarshal(raw, &data); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to unmarshal temporal code data").Err()
 	}
-	return u.applyNewPassword(ctx, data.UserID, newPassword)
+	if err = u.applyNewPassword(ctx, data.UserID, newPassword); err != nil {
+		return err
+	}
+	// Whoever held a session when the password was lost (a stolen cookie is the
+	// usual reason to reset) must not keep it.
+	return u.revokeSessions(ctx, data.UserID, uuid.Nil)
 }
 
 // SetAccountPassword sets the authenticated user's password. With an existing
@@ -85,7 +91,30 @@ func (u *AuthUseCase) SetAccountPassword(ctx context.Context, userID uuid.UUID, 
 			return authModel.ErrAuthInvalidOldPassword.Err()
 		}
 	}
-	return u.applyNewPassword(ctx, userID, newPassword)
+	if err = u.applyNewPassword(ctx, userID, newPassword); err != nil {
+		return err
+	}
+	// Every other device signs in again with the new password; this one stays.
+	var keep uuid.UUID
+	if claims, ok := rbac.CurrentUserSessionFromContext(ctx); ok && claims.UserID == userID {
+		keep = claims.SessionID
+	}
+	return u.revokeSessions(ctx, userID, keep)
+}
+
+// revokeSessions ends the user's sessions after a credential change: all of
+// them, or all but keep when it is set.
+func (u *AuthUseCase) revokeSessions(ctx context.Context, userID, keep uuid.UUID) error {
+	var err error
+	if keep == uuid.Nil {
+		_, err = u.sessions.DeleteAllForUser(ctx, userID)
+	} else {
+		_, err = u.sessions.DeleteForUserExcept(ctx, userID, keep)
+	}
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to revoke sessions").Err()
+	}
+	return nil
 }
 
 // applyNewPassword validates complexity, hashes and persists newPassword.

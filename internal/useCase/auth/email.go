@@ -12,6 +12,7 @@ import (
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
@@ -20,21 +21,34 @@ import (
 
 // RequestEmailChange issues a one-time code bound to the user + new address and
 // emails a confirmation link to the NEW address (via the notifier override).
-func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, rawEmail string) error {
+//
+// The account password is required: an email change is the step before a
+// password reset, so a stolen session alone must not be able to take it.
+func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, rawEmail, currentPassword string) error {
 	newEmail, err := parseEmail(rawEmail)
 	if err != nil {
 		return err
 	}
+	current, err := u.users.GetByID(ctx, userID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
+	}
+	if !current.HasPassword() {
+		return authModel.ErrAuthPasswordRequired.Err()
+	}
+	matches, err := u.password.Matches(currentPassword, current.HashedPassword)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to check password").Err()
+	}
+	if !matches {
+		return authModel.ErrAuthInvalidOldPassword.Err()
+	}
+
 	// Reject if a (non-deleted) account already uses the new address.
 	if _, err := u.users.GetByEmail(ctx, newEmail); err == nil {
 		return userModel.ErrUserExists.WithError(errors.New("email-change-request: new address already in use")).Err()
 	} else if !repositoryTools.IsObjectNotFoundError(err) {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to check email availability").Err()
-	}
-
-	current, err := u.users.GetByID(ctx, userID)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
 	}
 
 	code, err := u.createTemporalCode(ctx, temporalCodeModel.EmailChangeCodeType,
@@ -81,9 +95,14 @@ func (u *AuthUseCase) ConfirmEmailChange(ctx context.Context, bsCode string) err
 	}
 
 	// One aggregate write replaces the old email+confirmed statement pair.
-	return u.mutateUser(ctx, data.UserID, func(user *userModel.User) error {
+	if err = u.mutateUser(ctx, data.UserID, func(user *userModel.User) error {
 		user.ChangeEmail(data.Email, time.Now())
 		user.ConfirmEmail(time.Now())
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	// The address is the recovery channel of the account: every session ends,
+	// the owner signs in again (this link works without a session).
+	return u.revokeSessions(ctx, data.UserID, uuid.Nil)
 }
