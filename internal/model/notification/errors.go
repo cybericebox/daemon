@@ -8,7 +8,7 @@ import (
 // Notification errors declared here are listed in the API error catalog
 // (tools/errorcatalog scans errors.go); the older ones live in
 // notification.go and share the same detail-code space.
-// NotificationObjectCode — next free detail code: 25
+// NotificationObjectCode — next free detail code: 27
 var (
 	// ErrInboxRequestNotFound: the item does not exist or the caller is not
 	// one of its recipients (cross-user attempt → clean not-found).
@@ -24,7 +24,7 @@ var (
 				WithMessage("Inbox request is already resolved").WithDetailCode(19)
 )
 
-// Broadcast errors. NotificationObjectCode — next free detail code: 26
+// Broadcast errors. NotificationObjectCode — next free detail code: 27
 var (
 	ErrBroadcastNotFound = err.ErrObjectNotFound.WithObjectCode(model.NotificationObjectCode).
 				WithMessage("Broadcast not found").WithDetailCode(20)

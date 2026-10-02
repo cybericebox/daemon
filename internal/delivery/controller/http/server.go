@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -20,8 +21,10 @@ type (
 		tlsEnabled bool
 	}
 	certReloader struct {
-		CertFile          string // path to the x509 certificate for https
-		KeyFile           string // path to the x509 private key matching `CertFile`
+		CertFile string // path to the x509 certificate for https
+		KeyFile  string // path to the x509 private key matching `CertFile`
+		// mu guards the cache: GetCertificate runs on every handshake, concurrently.
+		mu                sync.Mutex
 		cachedCert        *tls.Certificate
 		cachedCertModTime time.Time
 	}
@@ -35,6 +38,8 @@ func newCertReloader(certFile, keyFile string) *certReloader {
 }
 
 func (cr *certReloader) GetCertificate(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
 	stat, err := os.Stat(cr.KeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed checking key file modification time: %w", err)

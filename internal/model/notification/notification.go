@@ -140,4 +140,4 @@ var ErrTemplatePreviewInvalid = err.ErrInvalidData.
 var ErrPresetNested = err.ErrInvalidData.
 	WithObjectCode(model.NotificationObjectCode).
 	WithMessage("A block preset cannot contain another preset").
-	WithDetailCode(17)
+	WithDetailCode(26)
