@@ -74,6 +74,22 @@ func (u *EventUseCase) moderatorsSubmitTeam(ctx context.Context, txRepo eventRep
 	return u.resolveModeratorsTeam(ctx, event)
 }
 
+// requirePrerequisitesSolved is the board's lock: a challenge opens for a team
+// only once the team solved every prerequisite of it.
+func requirePrerequisitesSolved(ctx context.Context, challenges *eventChallengeRepo.Repository, teamChallenges *teamChallengeRepo.Repository, teamID, eventChallengeID uuid.UUID) error {
+	prerequisites, err := challenges.Prerequisites(ctx, eventChallengeID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get challenge prerequisites").Err()
+	}
+	for _, prerequisiteID := range prerequisites {
+		prerequisite, prerequisiteErr := teamChallenges.Get(ctx, teamID, prerequisiteID)
+		if prerequisiteErr != nil || prerequisite.SolvedAt == nil {
+			return teamChallengeModel.ErrTeamChallengePrerequisites.Err()
+		}
+	}
+	return nil
+}
+
 func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, challengeID uuid.UUID, in SubmitChallengeInput, moderators bool) (SubmitChallengeResult, error) {
 	if u.uow == nil {
 		return SubmitChallengeResult{}, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
@@ -153,15 +169,8 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 		if !published {
 			return SubmitChallengeResult{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
 		}
-		prerequisites, preErr := eventChallengeRepo.New(txRepo).Prerequisites(txCtx, tc.EventChallengeID)
-		if preErr != nil {
-			return SubmitChallengeResult{}, model.ErrPlatform.WithError(preErr).WithMessage("Failed to get challenge prerequisites").Err()
-		}
-		for _, prerequisiteID := range prerequisites {
-			prerequisite, prerequisiteErr := teamChallengeRepo.New(txRepo).Get(txCtx, teamID, prerequisiteID)
-			if prerequisiteErr != nil || prerequisite.SolvedAt == nil {
-				return SubmitChallengeResult{}, teamChallengeModel.ErrTeamChallengePrerequisites.Err()
-			}
+		if err = requirePrerequisitesSolved(txCtx, eventChallengeRepo.New(txRepo), teamChallengeRepo.New(txRepo), teamID, tc.EventChallengeID); err != nil {
+			return SubmitChallengeResult{}, err
 		}
 	}
 	if err = throttleSubmission(txCtx, challengeAttemptRepo.New(txRepo), eventID, teamID, tc.EventChallengeID, tc.ID, in.ReceivedAt); err != nil {

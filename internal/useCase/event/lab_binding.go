@@ -13,6 +13,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
@@ -83,6 +84,26 @@ func (u *EventUseCase) requireOwnAvailableChallenge(ctx context.Context, eventID
 	}
 	if tc.EventID != eventID || tc.Readiness != teamChallengeModel.ReadinessPublished {
 		return participantModel.Participant{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
+	}
+	// The same locks as the board, submit and files: a task the organizers
+	// unpublished, whose set was removed from the event, or whose prerequisites
+	// the team has not solved has no lab surface either.
+	challenge, err := u.eventChallenges.GetForEvent(ctx, eventID, tc.EventChallengeID)
+	if err != nil {
+		return participantModel.Participant{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event challenge").Err()
+	}
+	if !challenge.Published {
+		return participantModel.Participant{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
+	}
+	set, err := u.eventExercises.GetByID(ctx, eventID, challenge.EventExerciseID)
+	if err != nil {
+		return participantModel.Participant{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event exercise").Err()
+	}
+	if set.Status == eventExerciseModel.StatusDetached {
+		return participantModel.Participant{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
+	}
+	if err = requirePrerequisitesSolved(ctx, u.eventChallenges, u.teamChallenges, *p.TeamID, tc.EventChallengeID); err != nil {
+		return participantModel.Participant{}, err
 	}
 	return p, nil
 }
