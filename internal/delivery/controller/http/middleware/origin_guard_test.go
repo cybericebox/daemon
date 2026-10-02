@@ -15,94 +15,139 @@ import (
 func guardRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
-		Exercises: "exercises.example.test", EventDomain: "example.test", LabsDomain: "labs.example.test"}
+		Exercises: "exercises.example.test", EventDomain: "events.example.test"}
 	r := gin.New()
 	r.Use(middleware.OriginGuard(hosts))
 	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
-	r.GET("/x", ok)
-	r.POST("/x", ok)
-	r.PUT("/x", ok)
-	r.PATCH("/x", ok)
-	r.DELETE("/x", ok)
+	for _, m := range []string{"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"} {
+		r.Handle(m, "/x", ok)
+	}
 	return r
 }
 
+// send builds a request; a header with the value "<absent>" is left out, any other (even "") is set.
 func send(r *gin.Engine, method, body string, headers map[string]string) int {
 	req := httptest.NewRequest(method, "/x", strings.NewReader(body))
 	for k, v := range headers {
-		req.Header.Set(k, v)
+		req.Header[k] = []string{v}
 	}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w.Code
 }
 
-// R-18: pages under the labs domain are same-site with the platform, so SameSite=Strict does not
-// keep them out; their writes are refused by origin.
-func TestOriginGuard_RefusesTheLabsDomain(t *testing.T) {
+var (
+	allMethods   = []string{"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"}
+	writeMethods = []string{"POST", "PUT", "PATCH", "DELETE"}
+	jsonType     = "application/json"
+)
+
+func bodyFor(method string) string {
+	for _, w := range writeMethods {
+		if method == w {
+			return `{}`
+		}
+	}
+	return ""
+}
+
+// The allow-list: MAIN, ID, ADMIN, EXERCISES, API and one-label event sites, https only. Every method.
+func TestOriginGuard_AllowedOriginsPassForEveryMethod(t *testing.T) {
 	r := guardRouter()
-	json := "application/json"
-	for _, origin := range []string{"https://web-abc123.labs.example.test", "https://labs.example.test", "https://A.B.LABS.example.test"} {
-		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-			if got := send(r, method, `{}`, map[string]string{"Origin": origin, "Content-Type": json}); got != http.StatusForbidden {
-				t.Errorf("%s from %s: %d, want 403", method, origin, got)
+	for _, origin := range []string{
+		"https://example.test", "https://id.example.test", "https://admin.example.test", "https://exercises.example.test",
+		"https://api.example.test", "https://ctf.events.example.test",
+	} {
+		for _, m := range allMethods {
+			if got := send(r, m, bodyFor(m), map[string]string{"Origin": origin, "Content-Type": jsonType}); got != http.StatusOK {
+				t.Errorf("%s from %s: %d", m, origin, got)
 			}
 		}
 	}
-	// no Origin (a navigation or form post): the Referer names the source
-	if got := send(r, "POST", `{}`, map[string]string{"Referer": "https://web-abc.labs.example.test/page", "Content-Type": json}); got != http.StatusForbidden {
-		t.Errorf("Referer from the labs domain: %d, want 403", got)
-	}
-	// a lookalike host is not the labs domain
-	if got := send(r, "POST", `{}`, map[string]string{"Origin": "https://evillabs.example.test", "Content-Type": json}); got != http.StatusOK {
-		t.Errorf("lookalike: %d (the CORS gate, not this one, handles foreign hosts)", got)
-	}
 }
 
-func TestOriginGuard_PlatformFrontendsPass(t *testing.T) {
+func TestOriginGuard_RefusesEveryOtherOriginForEveryMethod(t *testing.T) {
 	r := guardRouter()
-	for _, origin := range []string{"https://id.example.test", "https://ctf.example.test", "https://admin.example.test"} {
-		if got := send(r, "POST", `{"a":1}`, map[string]string{"Origin": origin, "Content-Type": "application/json; charset=utf-8"}); got != http.StatusOK {
-			t.Errorf("%s: %d", origin, got)
+	for name, origin := range map[string]string{
+		"lab device page":               "https://web-x.labs.example.test",
+		"labs domain itself":            "https://labs.example.test",
+		"two labels under EVENT_DOMAIN": "https://a.b.events.example.test",
+		"EVENT_DOMAIN itself":           "https://events.example.test",
+		"lookalike":                     "https://evil-example.test",
+		"suffix trick":                  "https://id.example.test.evil.com",
+		"prefix trick":                  "https://xid.example.test",
+		"http, not https":               "http://id.example.test",
+		"http event site":               "http://ctf.events.example.test",
+		"credentials":                   "https://user@id.example.test",
+		"unrelated":                     "https://evil.test",
+	} {
+		for _, m := range allMethods {
+			if got := send(r, m, bodyFor(m), map[string]string{"Origin": origin, "Content-Type": jsonType}); got != http.StatusForbidden {
+				t.Errorf("%s: %s from %s: %d, want 403", name, m, origin, got)
+			}
 		}
 	}
-	if got := send(r, "DELETE", ``, map[string]string{"Origin": "https://id.example.test"}); got != http.StatusOK {
-		t.Errorf("a bodiless DELETE needs no content type: %d", got)
-	}
-	if got := send(r, "POST", `{}`, map[string]string{"Referer": "https://id.example.test/profile", "Content-Type": "application/json"}); got != http.StatusOK {
-		t.Errorf("Referer from a frontend when Origin is absent: %d", got)
-	}
 }
 
-func TestOriginGuard_WriteWithoutOriginOrRefererIsRefused(t *testing.T) {
+// "null" (sandboxed frames, data: and file: pages, some redirects) names a source: present and never allowed.
+func TestOriginGuard_NullOriginIsPresentAndRefused(t *testing.T) {
 	r := guardRouter()
-	for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
-		if got := send(r, method, `{}`, map[string]string{"Content-Type": "application/json"}); got != http.StatusForbidden {
-			t.Errorf("%s with neither Origin nor Referer: %d, want 403", method, got)
+	for _, m := range allMethods {
+		if got := send(r, m, bodyFor(m), map[string]string{"Origin": "null", "Content-Type": jsonType}); got != http.StatusForbidden {
+			t.Errorf("%s with Origin: null: %d, want 403 (it must not fall into the 'absent' path)", m, got)
+		}
+		// even a GET that would pass without an Origin, and even with an allowed Referer next to it
+		if got := send(r, m, bodyFor(m), map[string]string{"Origin": "null", "Referer": "https://id.example.test/x", "Content-Type": jsonType}); got != http.StatusForbidden {
+			t.Errorf("%s with Origin: null and a good Referer: %d, want 403", m, got)
 		}
 	}
-	if got := send(r, "POST", `{}`, map[string]string{"Origin": "null", "Content-Type": "application/json"}); got != http.StatusOK {
-		// a "null" origin names a source; the CORS gate (an earlier middleware) rejects it
-		t.Errorf("null origin is the CORS gate's: %d", got)
+	if got := send(r, "GET", "", map[string]string{"Origin": ""}); got != http.StatusForbidden {
+		t.Errorf("an empty Origin header is present, not absent: %d", got)
 	}
 }
 
-func TestOriginGuard_SafeMethodsAreUntouched(t *testing.T) {
+// No Origin: the Referer names the source.
+func TestOriginGuard_RefererIsCheckedWhenOriginIsAbsent(t *testing.T) {
 	r := guardRouter()
-	if got := send(r, "GET", ``, nil); got != http.StatusOK {
-		t.Errorf("GET without Origin: %d", got)
+	for _, m := range allMethods {
+		good := map[string]string{"Referer": "https://id.example.test/profile?x=1", "Content-Type": jsonType}
+		if got := send(r, m, bodyFor(m), good); got != http.StatusOK {
+			t.Errorf("%s with an allowed Referer: %d", m, got)
+		}
+		for _, bad := range []string{"https://web-x.labs.example.test/page", "http://id.example.test/", "https://evil.test/", "https://a.b.events.example.test/"} {
+			if got := send(r, m, bodyFor(m), map[string]string{"Referer": bad, "Content-Type": jsonType}); got != http.StatusForbidden {
+				t.Errorf("%s with Referer %s: %d, want 403", m, bad, got)
+			}
+		}
 	}
-	if got := send(r, "GET", ``, map[string]string{"Origin": "https://web.labs.example.test"}); got != http.StatusOK {
-		t.Errorf("GET from the labs domain is a read (the CORS gate decides what the page may read): %d", got)
+	// the Origin wins over the Referer
+	if got := send(r, "POST", `{}`, map[string]string{"Origin": "https://evil.test", "Referer": "https://id.example.test/", "Content-Type": jsonType}); got != http.StatusForbidden {
+		t.Errorf("a bad Origin with a good Referer: %d", got)
 	}
 }
 
-// A cross-origin form post cannot send JSON: a body in any other type never reaches a JSON handler.
-func TestOriginGuard_BodyMustBeJSONOrMultipart(t *testing.T) {
+// Neither header: navigations, the event frontend's server-side fetches (INTERNAL_API_ORIGIN) and health checks pass;
+// writes do not.
+func TestOriginGuard_NamelessRequests(t *testing.T) {
 	r := guardRouter()
-	origin := map[string]string{"Origin": "https://id.example.test"}
+	for _, m := range []string{"GET", "HEAD", "OPTIONS"} {
+		if got := send(r, m, "", nil); got != http.StatusOK {
+			t.Errorf("%s with neither Origin nor Referer: %d, want pass", m, got)
+		}
+	}
+	for _, m := range writeMethods {
+		if got := send(r, m, bodyFor(m), map[string]string{"Content-Type": jsonType}); got != http.StatusForbidden {
+			t.Errorf("%s with neither Origin nor Referer: %d, want 403", m, got)
+		}
+	}
+}
+
+// A cross-origin form post cannot send JSON: a write with a body in another type never reaches a JSON handler.
+func TestOriginGuard_WriteBodyMustBeJSONOrMultipart(t *testing.T) {
+	r := guardRouter()
+	origin := "https://id.example.test"
 	for _, ct := range []string{"text/plain", "application/x-www-form-urlencoded", "", "application/jsonx", "text/html"} {
-		h := map[string]string{"Origin": origin["Origin"]}
+		h := map[string]string{"Origin": origin}
 		if ct != "" {
 			h["Content-Type"] = ct
 		}
@@ -110,7 +155,13 @@ func TestOriginGuard_BodyMustBeJSONOrMultipart(t *testing.T) {
 			t.Errorf("content type %q: %d, want 415", ct, got)
 		}
 	}
-	if got := send(r, "POST", "--b\r\n--b--", map[string]string{"Origin": origin["Origin"], "Content-Type": "multipart/form-data; boundary=b"}); got != http.StatusOK {
+	if got := send(r, "POST", `{"a":1}`, map[string]string{"Origin": origin, "Content-Type": "application/json; charset=utf-8"}); got != http.StatusOK {
+		t.Errorf("json with a charset: %d", got)
+	}
+	if got := send(r, "POST", "--b\r\n--b--", map[string]string{"Origin": origin, "Content-Type": "multipart/form-data; boundary=b"}); got != http.StatusOK {
 		t.Errorf("an upload is multipart: %d", got)
+	}
+	if got := send(r, "DELETE", "", map[string]string{"Origin": origin}); got != http.StatusOK {
+		t.Errorf("a bodiless write needs no content type: %d", got)
 	}
 }

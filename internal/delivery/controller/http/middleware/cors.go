@@ -16,9 +16,7 @@ package middleware
 import (
 	"github.com/cybericebox/daemon/internal/config"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -75,23 +73,8 @@ func HandleCORSMiddleWare(hosts config.HostsConfig) gin.HandlerFunc {
 	}
 }
 
-// originAllowed reports whether origin is https and its host is a frontend
-// host or an event site. On rejection it returns a short reason for logging
-// (never surfaced to the client — the 403 body stays opaque).
+// originAllowed delegates to the shared allow-list (config.HostsConfig.OriginAllowed), the same one
+// the origin guard uses.
 func originAllowed(origin string, hosts config.HostsConfig) (reason string, ok bool) {
-	parsed, err := url.Parse(origin)
-	if err != nil {
-		return "unparseable Origin header", false
-	}
-	if parsed.Scheme != "https" {
-		return "scheme is not https (got " + parsed.Scheme + ")", false
-	}
-	if parsed.Host == "" {
-		return "empty host in Origin", false
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if !hosts.IsFrontendOrigin(host) {
-		return "host is neither a platform frontend host nor an event site", false
-	}
-	return "", true
+	return hosts.OriginAllowed(origin)
 }

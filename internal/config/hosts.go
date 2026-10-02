@@ -24,11 +24,6 @@ type HostsConfig struct {
 	Exercises string `env:"EXERCISES_HOST,required"`
 	// EventDomain holds the event sites: <tag>.<EventDomain>.
 	EventDomain string `env:"EVENT_DOMAIN,required"`
-	// LabsDomain is the base domain of the lab device pages (<device>-<code>.<LABS_DOMAIN>). It is
-	// optional here (no laboratory, no value), but when set the API refuses every state-changing
-	// request that comes from a page under it: those pages run task-controlled content on a domain
-	// that is same-site with the platform, so SameSite=Strict does not keep them out.
-	LabsDomain string `env:"LABS_DOMAIN"`
 }
 
 // Validate normalises the hosts (lower case) and checks that each is a bare host name under one
@@ -61,22 +56,30 @@ func (h *HostsConfig) Validate() error {
 		}
 		*f.val = v
 	}
-	if labs := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(h.LabsDomain), ".")); labs != "" {
-		if strings.ContainsAny(labs, "/:@?# ") || strings.HasPrefix(labs, ".") {
-			return fmt.Errorf("LABS_DOMAIN must be a bare domain name (no scheme, port or path), got %q", h.LabsDomain)
-		}
-		h.LabsDomain = labs
-	}
 	return nil
 }
 
-// IsLabsHost reports whether host is the labs domain or any subdomain of it.
-func (h HostsConfig) IsLabsHost(host string) bool {
-	if h.LabsDomain == "" {
-		return false
+// OriginAllowed is THE allow-list of browser origins, shared by CORS and the origin guard so they
+// cannot drift apart: https only, and the host is exactly MAIN, ID, ADMIN, EXERCISES, API (for
+// same-origin calls) or an event site, which is exactly one label under EVENT_DOMAIN. Anything else
+// (a lab device page web-x.labs.<domain>, a two-label host under EVENT_DOMAIN, a lookalike domain,
+// "null", http) is refused. On refusal reason is a short text for logs, never for the client.
+func (h HostsConfig) OriginAllowed(origin string) (reason string, ok bool) {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return "unparseable origin", false
 	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	return host == h.LabsDomain || strings.HasSuffix(host, "."+h.LabsDomain)
+	if parsed.Scheme != "https" {
+		return "scheme is not https (got " + parsed.Scheme + ")", false
+	}
+	if parsed.Host == "" || parsed.User != nil {
+		return "empty host or credentials in the origin", false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if host == h.API || h.IsFrontendOrigin(host) {
+		return "", true
+	}
+	return "host is neither a platform host nor an event site", false
 }
 
 // URL returns https://<host><path>.

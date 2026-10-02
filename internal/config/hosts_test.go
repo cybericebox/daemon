@@ -84,25 +84,35 @@ func TestHostsOutsideEventDomain(t *testing.T) {
 	}
 }
 
-func TestLabsDomain(t *testing.T) {
+func TestOriginAllowed(t *testing.T) {
 	h := HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
-		Exercises: "exercises.example.test", EventDomain: "example.test", LabsDomain: " Labs.Example.Test. "}
-	if err := h.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if h.LabsDomain != "labs.example.test" {
-		t.Fatalf("normalized: %q", h.LabsDomain)
-	}
-	for host, want := range map[string]bool{"labs.example.test": true, "web-1.labs.example.test": true, "WEB.LABS.EXAMPLE.TEST.": true, "evillabs.example.test": false, "example.test": false, "labs.example.test.evil.com": false} {
-		if got := h.IsLabsHost(host); got != want {
-			t.Errorf("IsLabsHost(%q)=%v want %v", host, got, want)
+		Exercises: "exercises.example.test", EventDomain: "events.example.test"}
+	for origin, want := range map[string]bool{
+		"https://example.test":             true,
+		"https://id.example.test":          true,
+		"https://admin.example.test":       true,
+		"https://exercises.example.test":   true,
+		"https://api.example.test":         true, // same-origin calls
+		"https://ctf.events.example.test":  true, // one label under EVENT_DOMAIN
+		"https://CTF.Events.Example.Test":  true,
+		"https://web-x.labs.example.test":  false, // a lab device page
+		"https://a.b.events.example.test":  false, // two labels under EVENT_DOMAIN
+		"https://events.example.test":      false, // the event domain itself
+		"https://evil-example.test":        false, // lookalikes
+		"https://id.example.test.evil.com": false,
+		"https://example.test.evil.com":    false,
+		"https://xid.example.test":         false,
+		"http://id.example.test":           false, // not https
+		"http://ctf.events.example.test":   false,
+		"https://user@id.example.test":     false,
+		"null":                             false,
+		"":                                 false,
+		"file:///etc/passwd":               false,
+		"data:text/html,x":                 false,
+		"https://id.example.test:8443":     true, // the port is not part of the host check
+	} {
+		if _, got := h.OriginAllowed(origin); got != want {
+			t.Errorf("OriginAllowed(%q)=%v want %v", origin, got, want)
 		}
-	}
-	if (HostsConfig{}).IsLabsHost("labs.example.test") {
-		t.Error("no labs domain configured: nothing is a labs host")
-	}
-	h.LabsDomain = "https://labs.example.test"
-	if h.Validate() == nil {
-		t.Error("a scheme in LABS_DOMAIN must be refused")
 	}
 }
