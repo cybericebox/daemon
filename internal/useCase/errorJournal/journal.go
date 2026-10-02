@@ -110,6 +110,8 @@ type (
 		At          time.Time
 		Sample      errorJournal.Sample
 		Keep        int
+		// Count is the occurrences this record adds (at least 1).
+		Count int
 	}
 	RecordResult struct {
 		Group    errorJournal.Group
@@ -160,6 +162,7 @@ type Journal struct {
 	mu       sync.Mutex
 	notFound map[notFoundKey]int64
 	offline  map[string]*offlineState
+	certLast map[string]time.Time
 }
 
 type notFoundKey struct {
@@ -188,7 +191,7 @@ func New(deps Dependencies) *Journal {
 		repo: deps.Repo, tg: deps.Telegram, mail: deps.Mailer, agents: deps.Agents, cfg: cfg, now: time.Now,
 		queue: make(chan errorJournal.Event, cfg.BufferSize), hub: NewHub(),
 		spikes: spikeCounter{hits: map[string][]time.Time{}}, notFound: map[notFoundKey]int64{},
-		offline: map[string]*offlineState{},
+		offline: map[string]*offlineState{}, certLast: map[string]time.Time{},
 	}
 }
 
@@ -314,7 +317,7 @@ func (j *Journal) Record(ctx context.Context, e errorJournal.Event) (RecordResul
 	}
 	rec, err := j.repo.Record(ctx, RecordInput{
 		Fingerprint: fp, Kind: e.Kind, Source: e.Source, Title: errorJournal.Title(e), At: e.At,
-		Sample: sample, Keep: j.cfg.SamplesPerGroup,
+		Sample: sample, Keep: j.cfg.SamplesPerGroup, Count: max(e.Count, 1),
 	})
 	if err != nil {
 		return RecordResult{}, err

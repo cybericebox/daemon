@@ -20,10 +20,13 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
 	jobsRegistry "github.com/cybericebox/daemon/internal/jobs"
+	errorjournalJob "github.com/cybericebox/daemon/internal/jobs/errorjournal"
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
+	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
 	"github.com/cybericebox/daemon/internal/useCase"
 	"github.com/cybericebox/daemon/pkg/labaccess"
+	"github.com/cybericebox/daemon/pkg/telegram"
 	"github.com/cybericebox/daemon/pkg/worker"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 )
@@ -49,9 +52,10 @@ func Run(cfg *config.Config) {
 	cls := setupClients(cfg)
 
 	// job worker client
+	// Every failed attempt, discard and panic of a job goes to the error journal.
 	wc := worker.NewWorkerClient(repo.Pool(), worker.Retention{
 		Completed: cfg.Tunables.JobCompletedRetention, Failed: cfg.Tunables.JobFailedRetention,
-	})
+	}).WithErrorHandler(errorjournalJob.ErrorHandler{})
 
 	// Flag rate limits are process-wide settings read by the submit paths.
 	challengeAttempt.ChallengeRateLimit = challengeAttempt.RateLimit{Attempts: cfg.FlagRateLimit.ChallengeAttempts, Window: cfg.FlagRateLimit.ChallengeWindow}
@@ -74,6 +78,8 @@ func Run(cfg *config.Config) {
 		ExerciseCipher:   cls.exerciseCipher,
 		VPNCipher:        cls.vpnCipher,
 		PlatformCipher:   cls.platformCipher,
+		ErrorJournal:     errorJournalConfig(cfg),
+		Telegram:         telegram.New(cfg.Telegram.BotToken),
 	}
 	applyTunables(cfg.Tunables)
 	labIssuer, err := labaccess.New(labaccess.Config{
@@ -121,6 +127,10 @@ func Run(cfg *config.Config) {
 				return ucs.AgentsUseCase.RecordAgentFeatures(ctx, member.ID, f, observedAt)
 			})
 			// Everything stored carries the registry id of the agent.
+			runner = runner.WithErrorsSink(func(ctx context.Context, report *labpb.ErrorJournal) {
+				ucs.Journal.ReportAgentErrors(ctx, member.Name, agentErrors(report))
+			})
+			runner = runner.WithLinkSink(agentLink{journal: ucs.Journal, id: member.ID, name: member.Name})
 			return runner.WithAgentID(member.ID.String()).Run(ctx)
 		},
 	})
@@ -130,6 +140,15 @@ func Run(cfg *config.Config) {
 	// Web links are signed with the access key of the agent that holds the lab group.
 	deps.LabSessions = labagent.SessionIssuer{Fleet: fleet, Issuer: labIssuer}
 	ucs = useCase.NewUseCase(deps)
+	// The error journal: capture points anywhere in the process report to it without waiting; its writer and its
+	// periodic checks (job queue, agent certificates) run until shutdown.
+	errorJournal.SetReporter(ucs.Journal)
+	journalDone := make(chan struct{})
+	go func() {
+		defer close(journalDone)
+		ucs.Journal.Run(runtimeCtx)
+	}()
+	go ucs.Journal.Watch(runtimeCtx)
 	bootstrapAgent(ctx, cfg.Infrastructure.Agent, ucs.AgentsUseCase)
 
 	if err := startupdefaults.Seed(ctx, repo.Queries); err != nil {
@@ -154,6 +173,7 @@ func Run(cfg *config.Config) {
 			UseCase:              ucs,
 			HTTPControllerConfig: cfg.HTTPController,
 			AuthConfig:           cfg.Auth,
+			ErrorJournal:         ucs.Journal,
 		},
 	)
 	ctrl.Start()
@@ -178,6 +198,12 @@ func Run(cfg *config.Config) {
 
 	wc.Stop(shutdownCtx)
 	ctrl.Stop(shutdownCtx)
+	// The writer drains what the last requests and jobs reported.
+	select {
+	case <-journalDone:
+	case <-shutdownCtx.Done():
+		log.Warn().Msg("Timed out flushing the error journal")
+	}
 	select {
 	case <-monitoringDone:
 	case <-shutdownCtx.Done():

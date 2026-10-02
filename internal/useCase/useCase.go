@@ -6,6 +6,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
+	"github.com/cybericebox/daemon/internal/delivery/repository/errorJournalRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	eventFormRepo "github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
@@ -27,6 +28,7 @@ import (
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
+	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
@@ -79,6 +81,7 @@ type (
 		*platformAnalyticsUseCase.PlatformAnalyticsUseCase
 		*broadcastUseCase.NotificationBroadcastUseCase
 		*bannerUseCase.SiteBannerUseCase
+		*errorJournalUseCase.Journal
 	}
 	Dependencies struct {
 		Repo            *repository.Repository
@@ -109,6 +112,9 @@ type (
 		AgentRemote infrastructureUseCase.AgentRemote
 		// LabSessions signs the tokens of the laboratory L7 proxy; nil when unconfigured.
 		LabSessions eventUseCase.LabSessionIssuer
+		// ErrorJournal tunes the platform error journal; Telegram is its bot (nil or disabled: no Telegram messages).
+		ErrorJournal errorJournalUseCase.Config
+		Telegram     errorJournalUseCase.Telegram
 	}
 )
 
@@ -283,6 +289,14 @@ func NewUseCase(deps Dependencies) *UseCase {
 		SignInURL: deps.AuthConfig.Hosts.IDURL("/sign-in"),
 	})
 
+	journalUC := errorJournalUseCase.New(errorJournalUseCase.Dependencies{
+		Repo:     errorJournalRepo.New(deps.Repo.Queries, deps.Repo.Pool()),
+		Telegram: deps.Telegram,
+		Mailer:   mailUC,
+		Agents:   errorJournalUseCase.CertificatesOf(infrastructureAgentRepo.New(deps.Repo)),
+		Config:   deps.ErrorJournal,
+	})
+
 	return &UseCase{
 		authUC,
 		adminAuditUseCase.New(deps.Repo),
@@ -322,5 +336,6 @@ func NewUseCase(deps Dependencies) *UseCase {
 			EventDomain: deps.AuthConfig.Hosts.EventDomain,
 		}),
 		bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{Repo: deps.Repo}),
+		journalUC,
 	}
 }

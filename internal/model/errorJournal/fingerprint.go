@@ -35,7 +35,11 @@ func Fingerprint(e Event) string {
 	case KindHTTP429:
 		parts = []string{string(e.Kind), e.Route, e.Limiter}
 	default:
-		parts = []string{string(e.Kind), e.Source, Normalize(e.Message)}
+		what := e.Key
+		if what == "" {
+			what = Normalize(e.Message)
+		}
+		parts = []string{string(e.Kind), e.Source, what}
 	}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x1f")))
 	return hex.EncodeToString(sum[:16])

@@ -221,6 +221,211 @@ definitions:
       Started:
         type: integer
     type: object
+  errorJournal.chatRequest:
+    properties:
+      ChatID:
+        type: string
+      Label:
+        type: string
+    type: object
+  errorJournal.detailResponse:
+    properties:
+      Group:
+        $ref: '#/definitions/errorJournal.groupResponse'
+      Samples:
+        items:
+          $ref: '#/definitions/errorJournal.sampleResponse'
+        type: array
+    type: object
+  errorJournal.groupResponse:
+    properties:
+      FirstSeenAt:
+        type: string
+      ID:
+        type: string
+      Kind:
+        type: string
+      LastNotifiedAt:
+        type: string
+      LastSeenAt:
+        type: string
+      Occurrences:
+        type: integer
+      ResolvedAt:
+        type: string
+      Source:
+        type: string
+      Status:
+        type: string
+      Title:
+        type: string
+    type: object
+  errorJournal.listResponse:
+    properties:
+      Items:
+        items:
+          $ref: '#/definitions/errorJournal.groupResponse'
+        type: array
+      Limit:
+        type: integer
+      Offset:
+        type: integer
+      Total:
+        type: integer
+    type: object
+  errorJournal.notFoundDayResponse:
+    properties:
+      Day:
+        description: Day is the calendar day (UTC), YYYY-MM-DD.
+        type: string
+      Hits:
+        type: integer
+      Route:
+        description: Route is the route template of a handler 404; empty counts every
+          unmatched path together.
+        type: string
+    type: object
+  errorJournal.notFoundResponse:
+    properties:
+      Days:
+        description: Days has one row per day and route.
+        items:
+          $ref: '#/definitions/errorJournal.notFoundDayResponse'
+        type: array
+      From:
+        type: string
+      Routes:
+        description: Routes has the totals per route over the period, the busiest
+          first.
+        items:
+          $ref: '#/definitions/errorJournal.notFoundRouteResponse'
+        type: array
+      To:
+        type: string
+      Total:
+        type: integer
+    type: object
+  errorJournal.notFoundRouteResponse:
+    properties:
+      Hits:
+        type: integer
+      Route:
+        type: string
+    type: object
+  errorJournal.sampleResponse:
+    properties:
+      Details:
+        additionalProperties:
+          type: string
+        type: object
+      HTTPStatus:
+        type: integer
+      ID:
+        type: string
+      Limiter:
+        type: string
+      Message:
+        type: string
+      Method:
+        type: string
+      OccurredAt:
+        type: string
+      Permission:
+        type: string
+      RequestID:
+        type: string
+      Role:
+        type: string
+      Route:
+        type: string
+      Stack:
+        type: string
+      UserID:
+        type: string
+    type: object
+  errorJournal.settingsRequest:
+    properties:
+      EmailToSuperAdmins:
+        type: boolean
+      Emails:
+        items:
+          type: string
+        type: array
+      TelegramChats:
+        items:
+          $ref: '#/definitions/errorJournal.chatRequest'
+        type: array
+    type: object
+  errorJournal.settingsResponse:
+    properties:
+      EmailToSuperAdmins:
+        type: boolean
+      Emails:
+        items:
+          type: string
+        type: array
+      TelegramChats:
+        items:
+          $ref: '#/definitions/errorJournal.telegramChatResponse'
+        type: array
+      TelegramEnabled:
+        type: boolean
+      UpdatedAt:
+        type: string
+    type: object
+  errorJournal.statusRequest:
+    properties:
+      Status:
+        description: Status is open, resolved or ignored.
+        type: string
+    required:
+    - Status
+    type: object
+  errorJournal.streamEvent:
+    properties:
+      Group:
+        $ref: '#/definitions/errorJournal.groupResponse'
+      New:
+        description: 'New: the fingerprint was first seen now, or came back after
+          it was resolved.'
+        type: boolean
+      Sample:
+        $ref: '#/definitions/errorJournal.sampleResponse'
+    type: object
+  errorJournal.telegramChatResponse:
+    properties:
+      ChatID:
+        type: string
+      Failing:
+        type: boolean
+      FailingSince:
+        type: string
+      Label:
+        type: string
+      LastError:
+        type: string
+    type: object
+  errorJournal.testResponse:
+    properties:
+      Results:
+        items:
+          $ref: '#/definitions/errorJournal.testResultResponse'
+        type: array
+    type: object
+  errorJournal.testResultResponse:
+    properties:
+      Channel:
+        description: Channel is telegram or email.
+        type: string
+      Error:
+        type: string
+      Label:
+        type: string
+      OK:
+        type: boolean
+      Target:
+        type: string
+    type: object
   event.LiveResultChangeView:
     properties:
       CreatedAt:
@@ -3817,6 +4022,10 @@ definitions:
       FirstBlood:
         description: FirstBlood marks the earliest solve among the visible teams.
         type: boolean
+      NameHidden:
+        description: 'NameHidden: the participant''s real name is withheld by the
+          event''s participants visibility (TeamName is empty).'
+        type: boolean
       Own:
         type: boolean
       SolvedAt:
@@ -4404,6 +4613,10 @@ definitions:
     properties:
       LastSolveAt:
         type: string
+      NameHidden:
+        description: 'NameHidden: the participant''s real name is withheld by the
+          event''s participants visibility (TeamName is empty).'
+        type: boolean
       Points:
         type: integer
       Rank:
@@ -8136,6 +8349,233 @@ info:
   title: CyberICEBox API
   version: "1.0"
 paths:
+  /admin/errors:
+    get:
+      parameters:
+      - collectionFormat: csv
+        description: 'kinds (repeat or comma separated): http_5xx, panic, http_403,
+          http_429, job, queue, mail, lab_agent_offline, lab_deploy, lab_cert_expiry,
+          lab_component'
+        in: query
+        items:
+          type: string
+        name: kind
+        type: array
+      - description: open, resolved or ignored
+        in: query
+        name: status
+        type: string
+      - description: last seen at or after (RFC 3339)
+        in: query
+        name: from
+        type: string
+      - description: last seen at or before (RFC 3339)
+        in: query
+        name: to
+        type: string
+      - description: text in the title or source
+        in: query
+        name: q
+        type: string
+      - description: page size, 1-200 (default 50)
+        in: query
+        name: limit
+        type: integer
+      - description: offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.listResponse'
+              type: object
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: List error groups (super admin)
+      tags:
+      - error-journal
+  /admin/errors/{groupID}:
+    get:
+      parameters:
+      - description: group id
+        in: path
+        name: groupID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.detailResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: One error group with its recent samples (super admin)
+      tags:
+      - error-journal
+  /admin/errors/{groupID}/status:
+    patch:
+      consumes:
+      - application/json
+      parameters:
+      - description: group id
+        in: path
+        name: groupID
+        required: true
+        type: string
+      - description: new status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.statusRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.groupResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Resolve, ignore or reopen an error group (super admin)
+      tags:
+      - error-journal
+  /admin/errors/not-found:
+    get:
+      description: A handler 404 is counted per route template; every unmatched path
+        (bots scanning) is one counter with an empty route. Paths are never stored.
+      parameters:
+      - description: first day (RFC 3339), default 30 days back
+        in: query
+        name: from
+        type: string
+      - description: last day (RFC 3339), default today
+        in: query
+        name: to
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.notFoundResponse'
+              type: object
+      summary: Daily 404 statistics (super admin)
+      tags:
+      - error-journal
+  /admin/errors/settings:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.settingsResponse'
+              type: object
+      summary: 'Notification settings: e-mail list and Telegram chat ids (super admin)'
+      tags:
+      - error-journal
+    put:
+      consumes:
+      - application/json
+      description: The lists replace the stored ones. A chat id that stays keeps its
+        failing mark; the server owns the mark.
+      parameters:
+      - description: settings
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/errorJournal.settingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.settingsResponse'
+              type: object
+      summary: Replace the notification settings (super admin)
+      tags:
+      - error-journal
+  /admin/errors/settings/test:
+    post:
+      description: Reports each target. A chat that answers is no longer marked failing;
+        one the bot may not write to is marked failing.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/errorJournal.testResponse'
+              type: object
+      summary: Send a test message to every chat id and address (super admin)
+      tags:
+      - error-journal
+  /admin/errors/stream:
+    get:
+      description: 'Sends an "error-group" event for every recorded occurrence (data:
+        streamEvent) and a "heartbeat" event while idle. Nothing is replayed: fetch
+        the list on connect.'
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/errorJournal.streamEvent'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Live stream of recorded errors (super admin, Server-Sent Events)
+      tags:
+      - error-journal
   /analytics/events:
     get:
       description: Events created and started and registrations per day of the period,

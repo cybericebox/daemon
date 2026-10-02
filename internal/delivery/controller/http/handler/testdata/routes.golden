@@ -1,4 +1,12 @@
 GET    /api/admin/audit-log | gate: platform.audit.read | layers: -
+GET    /api/admin/errors | gate: platform.errors.read | layers: -
+GET    /api/admin/errors/:groupID | gate: platform.errors.read | layers: -
+PATCH  /api/admin/errors/:groupID/status | gate: platform.errors.write | layers: -
+GET    /api/admin/errors/not-found | gate: platform.errors.read | layers: -
+GET    /api/admin/errors/settings | gate: platform.errors.read | layers: -
+PUT    /api/admin/errors/settings | gate: platform.errors.write | layers: -
+POST   /api/admin/errors/settings/test | gate: platform.errors.write | layers: -
+GET    /api/admin/errors/stream | gate: platform.errors.read | layers: -
 GET    /api/analytics/events | gate: analytics.read | layers: -
 GET    /api/analytics/events/export.csv | gate: analytics.read | layers: -
 GET    /api/analytics/infrastructure | gate: analytics.read | layers: -

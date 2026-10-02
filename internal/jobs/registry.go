@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/agentmaintenance"
 	"github.com/cybericebox/daemon/internal/jobs/broadcastsend"
 	"github.com/cybericebox/daemon/internal/jobs/dataretention"
+	"github.com/cybericebox/daemon/internal/jobs/errorjournal"
 	"github.com/cybericebox/daemon/internal/jobs/eventanalytics"
 	"github.com/cybericebox/daemon/internal/jobs/eventformdelivery"
 	"github.com/cybericebox/daemon/internal/jobs/eventmail"
@@ -49,6 +50,7 @@ type (
 		dataretentionJob.IUseCase
 		accountinactivityJob.IUseCase
 		eventanalyticsJob.IUseCase
+		errorjournalJob.IUseCase
 	}
 	workerRegistry struct {
 		uc                  iUseCase
@@ -89,6 +91,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	river.AddWorker(workers, dataretentionJob.NewWorker(wr.uc))
 	river.AddWorker(workers, accountinactivityJob.NewWorker(wr.uc))
 	river.AddWorker(workers, eventanalyticsJob.NewWorker(wr.uc))
+	river.AddWorker(workers, errorjournalJob.NewPurgeWorker(wr.uc))
 }
 
 // PeriodicJobs declares the schedule-driven jobs (queried by the worker
@@ -125,6 +128,10 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 			return jobsModel.AccountInactivityArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		// Error journal purge: groups, samples and 404 counters past the retention, once a day, one pass at a time.
+		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.ErrorJournalPurgeArgs{}, standPassInsertOpts()
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
 		// Event analytics rollups (5-minute buckets, VPN sessions): one pass a
 		// minute, one at a time; the next tick re-derives what is due.

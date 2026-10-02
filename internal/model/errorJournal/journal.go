@@ -110,6 +110,11 @@ type Event struct {
 	// Details are small extra facts (attempt, queue, agent). Values are scrubbed.
 	Details map[string]string
 
+	// Count is how many occurrences the event stands for (a laboratory agent reports counts per window); 0 means one.
+	Count int
+	// Key, when set, replaces the normalized message in the fingerprint (a laboratory agent's own stable
+	// fingerprint of the error, which survives restarts and replicas).
+	Key string
 	// Notify overrides the rule of the kind for this event.
 	Notify NotifyRule
 	At     time.Time

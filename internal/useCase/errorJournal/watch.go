@@ -2,7 +2,6 @@ package errorJournalUseCase
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -33,14 +32,13 @@ type offlineState struct {
 func (j *Journal) Watch(ctx context.Context) {
 	ticker := time.NewTicker(j.cfg.WatchEvery)
 	defer ticker.Stop()
-	lastCert := map[uuid.UUID]time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			j.CheckQueue(ctx)
-			j.CheckCertificates(ctx, lastCert)
+			j.CheckCertificates(ctx)
 		}
 	}
 }
@@ -80,9 +78,9 @@ func (j *Journal) condition(ctx context.Context, e errorJournal.Event, holds boo
 }
 
 // CheckCertificates reports agent certificates that end within the warning period (and resolves the group of a
-// renewed one). last remembers when each agent was written, so a certificate that stays near its end is not
-// written every minute.
-func (j *Journal) CheckCertificates(ctx context.Context, last map[uuid.UUID]time.Time) {
+// renewed one), reading the agent registry. A certificate that stays near its end is written once an hour, not
+// every minute.
+func (j *Journal) CheckCertificates(ctx context.Context) {
 	if j.agents == nil {
 		return
 	}
@@ -91,27 +89,38 @@ func (j *Journal) CheckCertificates(ctx context.Context, last map[uuid.UUID]time
 		log.Warn().Err(err).Msg("Failed to list the agent certificates")
 		return
 	}
-	now := j.now()
 	for _, c := range certs {
-		e := errorJournal.Event{
-			Kind: errorJournal.KindLabCertExpiry, Source: c.Name, Message: msgCertEnds, Notify: errorJournal.NotifyNew,
-		}
-		if c.NotAfter == nil || c.NotAfter.Sub(now) > j.cfg.CertExpiryWarn {
-			delete(last, c.ID)
-			j.condition(ctx, e, false)
-			continue
-		}
-		if now.Sub(last[c.ID]) < certRepeat {
-			continue
-		}
-		last[c.ID] = now
-		left := c.NotAfter.Sub(now)
-		e.Details = map[string]string{"agent": c.Name, "not_after": c.NotAfter.UTC().Format(time.RFC3339), "hours_left": strconv.Itoa(int(left.Hours()))}
-		if left <= 0 {
-			e.Message = "Laboratory agent certificate has expired"
-		}
-		j.condition(ctx, e, true)
+		j.certCondition(ctx, c.Name, c.NotAfter)
 	}
+}
+
+// certCondition records the warning for one agent's certificate, or resolves it when the certificate is far from
+// its end. The registry check and the agent's own report of its certificate meet here: one group per agent.
+func (j *Journal) certCondition(ctx context.Context, name string, notAfter *time.Time) {
+	now := j.now()
+	e := errorJournal.Event{Kind: errorJournal.KindLabCertExpiry, Source: name, Message: msgCertEnds, Notify: errorJournal.NotifyNew}
+	if notAfter == nil || notAfter.Sub(now) > j.cfg.CertExpiryWarn {
+		j.mu.Lock()
+		delete(j.certLast, name)
+		j.mu.Unlock()
+		j.condition(ctx, e, false)
+		return
+	}
+	j.mu.Lock()
+	recent := now.Sub(j.certLast[name]) < certRepeat
+	if !recent {
+		j.certLast[name] = now
+	}
+	j.mu.Unlock()
+	if recent {
+		return
+	}
+	left := notAfter.Sub(now)
+	e.Details = map[string]string{"agent": name, "not_after": notAfter.UTC().Format(time.RFC3339), "hours_left": strconv.Itoa(int(left.Hours()))}
+	if left <= 0 {
+		e.Message = "Laboratory agent certificate has expired"
+	}
+	j.condition(ctx, e, true)
 }
 
 // AgentLinkDown tells the journal that the monitoring link to an agent failed. The agent is reported offline once
@@ -161,20 +170,76 @@ func (j *Journal) AgentLinkUp(ctx context.Context, id uuid.UUID, name string) {
 	}
 }
 
-// AgentComponentErrors is the entry for the errors a laboratory agent reports about its operator, node agent and
-// proxy: counts and recent messages, no tenant data.
-func (j *Journal) AgentComponentErrors(name, component string, count int64, messages []string) {
-	if count <= 0 && len(messages) == 0 {
-		return
+// AgentErrors is what a laboratory agent reports in a monitoring message: errors of its own components (only for
+// the platform's tenant), lab deploys of this tenant that failed, and the end of the client certificate. Counts and
+// short scrubbed messages only; no tenant data.
+type AgentErrors struct {
+	Components     []AgentComponent
+	DeployFailures []AgentDeployFailure
+	// CertNotAfter is the end of the platform's client certificate at this agent; nil when not reported.
+	CertNotAfter *time.Time
+}
+
+type AgentComponent struct {
+	Component string
+	Instance  string
+	Groups    []AgentErrorGroup
+}
+
+// AgentErrorGroup is one distinct error of a component: Fingerprint is the agent's own, stable across restarts
+// and replicas.
+type AgentErrorGroup struct {
+	Fingerprint string
+	Kind        string
+	Normalized  string
+	Count       int64
+	First, Last time.Time
+	Samples     []string
+}
+
+type AgentDeployFailure struct {
+	LabGroup, Lab, ReasonCode, Device, Message string
+	At                                         time.Time
+}
+
+// ReportAgentErrors maps an agent's report to the journal: component groups become lab_component errors (the
+// fingerprint is prefixed with the agent name through the source), failed deploys lab_deploy, the certificate end
+// the lab_cert_expiry check.
+func (j *Journal) ReportAgentErrors(ctx context.Context, agent string, in AgentErrors) {
+	for _, comp := range in.Components {
+		for _, g := range comp.Groups {
+			if g.Count <= 0 {
+				continue
+			}
+			msg := g.Normalized
+			if len(g.Samples) > 0 {
+				msg = g.Samples[0]
+			}
+			j.Report(errorJournal.Event{
+				Kind: errorJournal.KindLabComponent, Source: agent + "/" + comp.Component, Key: g.Fingerprint,
+				Message: msg, Count: int(min(g.Count, 1_000_000)), At: g.Last,
+				Details: map[string]string{
+					"agent": agent, "component": comp.Component, "instance": comp.Instance, "kind": g.Kind,
+					"pattern": g.Normalized, "count": strconv.FormatInt(g.Count, 10),
+				},
+			})
+		}
 	}
-	msg := fmt.Sprintf("Laboratory %s reports errors", component)
-	if len(messages) > 0 {
-		msg = messages[0]
+	for _, d := range in.DeployFailures {
+		msg := d.ReasonCode
+		if d.Message != "" {
+			msg += ": " + d.Message
+		}
+		j.Report(errorJournal.Event{
+			Kind: errorJournal.KindLabDeploy, Source: agent, Message: msg, At: d.At,
+			Details: map[string]string{
+				"agent": agent, "lab_group": d.LabGroup, "lab": d.Lab, "device": d.Device, "reason_code": d.ReasonCode,
+			},
+		})
 	}
-	j.Report(errorJournal.Event{
-		Kind: errorJournal.KindLabComponent, Source: name + "/" + component, Message: msg,
-		Details: map[string]string{"agent": name, "component": component, "count": strconv.FormatInt(count, 10)},
-	})
+	if in.CertNotAfter != nil {
+		j.certCondition(ctx, agent, in.CertNotAfter)
+	}
 }
 
 // AgentRecords is the registry of enrolled agents (the part the certificate check reads).

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/config"
 	authHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/auth"
+	errorJournalHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/errorJournal"
 	eventHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/event"
 	eventAnalyticsHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/eventAnalytics"
 	eventselfHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/eventself"
@@ -47,6 +48,7 @@ type (
 		platformAnalyticsHandler.IUseCase
 		infrastructureHandler.IUseCase
 		adminAuditHandler.IUseCase
+		errorJournalHandler.IUseCase
 		mailHandler.IUseCase
 
 		// ResolveEventByTag backs the participant-route tenant-resolution
@@ -74,6 +76,7 @@ func (h *Handler) Init(router *gin.Engine) {
 	{
 		platformSettings.NewSettingAPIHandler(h.useCase, h.prot).Init(baseAPI)
 		adminAuditHandler.New(h.useCase, h.prot).Init(baseAPI)
+		errorJournalHandler.New(h.useCase, h.prot).Init(baseAPI)
 
 		user.NewUserAPIHandler(h.useCase, h.prot).Init(baseAPI)
 

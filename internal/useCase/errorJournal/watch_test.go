@@ -67,17 +67,16 @@ func TestCertificateCloseToExpiryIsReportedOncePerHour(t *testing.T) {
 	far := h.now.Add(90 * 24 * time.Hour)
 	id1, id2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	h.j.agents = fakeAgents{certs: []AgentCertificate{{ID: id1, Name: "k0s", NotAfter: &soon}, {ID: id2, Name: "other", NotAfter: &far}}}
-	last := map[uuid.UUID]time.Time{}
 
-	h.j.CheckCertificates(ctx, last)
-	h.j.CheckCertificates(ctx, last)
+	h.j.CheckCertificates(ctx)
+	h.j.CheckCertificates(ctx)
 	assert.Equal(t, 1, openGroups(h, errorJournal.KindLabCertExpiry))
 	assert.EqualValues(t, 1, firstGroup(h, errorJournal.KindLabCertExpiry).Occurrences)
 	assert.Equal(t, 1, h.tg.count("100"))
 
 	// renewed: the certificate is far again
 	h.j.agents = fakeAgents{certs: []AgentCertificate{{ID: id1, Name: "k0s", NotAfter: &far}}}
-	h.j.CheckCertificates(ctx, last)
+	h.j.CheckCertificates(ctx)
 	assert.Equal(t, 0, openGroups(h, errorJournal.KindLabCertExpiry))
 }
 
@@ -136,14 +135,40 @@ func (j *Journal) handleQueued(t *testing.T) {
 	}
 }
 
-func TestComponentErrorsFromAnAgentAreGroupedByAgentAndComponent(t *testing.T) {
+func TestAgentReportMapsComponentsDeploysAndCertificate(t *testing.T) {
 	h := newHarness(DefaultConfig())
-	h.j.AgentComponentErrors("k0s", "operator", 3, []string{"reconcile failed for lab 17"})
-	h.j.AgentComponentErrors("k0s", "operator", 5, []string{"reconcile failed for lab 18"})
-	h.j.AgentComponentErrors("k0s", "proxy", 0, nil)
+	now := h.now
+	soon := now.Add(48 * time.Hour)
+	report := AgentErrors{
+		Components: []AgentComponent{{Component: "operator", Instance: "op-1", Groups: []AgentErrorGroup{
+			{Fingerprint: "ab12cd34", Kind: "reconcile", Normalized: "reconcile failed for <obj>", Count: 7, Last: now, Samples: []string{"reconcile failed for lab x"}},
+			{Fingerprint: "zero", Count: 0},
+		}}},
+		DeployFailures: []AgentDeployFailure{{LabGroup: "g1", Lab: "l1", ReasonCode: "ImagePull", Device: "web", Message: "pull denied", At: now}},
+		CertNotAfter:   &soon,
+	}
+	h.j.ReportAgentErrors(ctx, "k0s", report)
 	h.j.handleQueued(t)
-	require.Equal(t, 1, openGroups(h, errorJournal.KindLabComponent))
-	assert.EqualValues(t, 2, firstGroup(h, errorJournal.KindLabComponent).Occurrences)
+
+	comp := firstGroup(h, errorJournal.KindLabComponent)
+	assert.EqualValues(t, 7, comp.Occurrences, "the agent's count is kept")
+	assert.Equal(t, "k0s/operator", comp.Source, "the group names the agent")
+	assert.Len(t, h.repo.groups, 3)
+	deploy := firstGroup(h, errorJournal.KindLabDeploy)
+	assert.Equal(t, "k0s", deploy.Source)
+	assert.Contains(t, h.repo.samples[deploy.ID][0].Message, "ImagePull: pull denied")
+	assert.Equal(t, "web", h.repo.samples[deploy.ID][0].Details["device"])
+	assert.Equal(t, 1, openGroups(h, errorJournal.KindLabCertExpiry))
+
+	// the same agent fingerprint on another agent is another group
+	h.j.ReportAgentErrors(ctx, "other", AgentErrors{Components: report.Components[:1]})
+	h.j.handleQueued(t)
+	assert.Len(t, h.repo.groups, 4)
+
+	// a later cert report far from the end resolves the warning
+	far := now.Add(90 * 24 * time.Hour)
+	h.j.ReportAgentErrors(ctx, "k0s", AgentErrors{CertNotAfter: &far})
+	assert.Equal(t, 0, openGroups(h, errorJournal.KindLabCertExpiry))
 }
 
 type fakeRecords struct{ records []infraModel.AgentRecord }

@@ -294,3 +294,18 @@ func TestLinkSinkHearsUpOnceWhenTheAgentDeliversAndNeverForAnOpenFailure(t *test
 		t.Fatalf("a link that never opened must not report up, got %d", failing.ups)
 	}
 }
+
+func TestErrorsSinkReceivesTheAgentsErrorJournalReport(t *testing.T) {
+	var got []*labpb.ErrorJournal
+	stream := &scriptedStream{updates: []*labpb.MonitoringUpdate{
+		{AgentId: "agent-a", Sequence: 1, ObservedAtUnixMs: time.Now().UnixMilli(), SchemaVersion: 1, Snapshot: true,
+			Errors: &labpb.ErrorJournal{ClientCertNotAfterUnix: 42, DeployFailures: []*labpb.DeployFailure{{LabGroup: "g", ReasonCode: "ImagePull"}}}},
+		update("", 2, false),
+	}}
+	var requests []*labpb.MonitoringRequest
+	runner := NewRunner(nil, openOnce(stream, &requests), &recordingStore{}).WithErrorsSink(func(_ context.Context, r *labpb.ErrorJournal) { got = append(got, r) })
+	_ = runner.consume(context.Background())
+	if len(got) != 1 || got[0].GetClientCertNotAfterUnix() != 42 || got[0].GetDeployFailures()[0].GetReasonCode() != "ImagePull" {
+		t.Fatalf("errors sink got %#v, want the one report", got)
+	}
+}

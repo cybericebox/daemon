@@ -51,6 +51,8 @@ type Runner struct {
 	capacity CapacitySink
 	// features receives what the agent says the tenant can use (first message, then on change).
 	features FeaturesSink
+	// errors receives the agent's error journal report (its components, failed lab deploys, certificate end).
+	errors ErrorsSink
 	// link hears whether the stream to the agent works (the error journal's agent-offline check).
 	link LinkSink
 	// position is the last message processed: where a reconnect resumes. It lives in memory for the
@@ -80,6 +82,15 @@ type FeaturesSink func(ctx context.Context, features *labpb.FeaturesResponse, ob
 type LinkSink interface {
 	Down(cause error)
 	Up()
+}
+
+// ErrorsSink receives the error journal part of a monitoring message. It must not block.
+type ErrorsSink func(ctx context.Context, report *labpb.ErrorJournal)
+
+// WithErrorsSink hands every error journal report of the agent to sink.
+func (r *Runner) WithErrorsSink(sink ErrorsSink) *Runner {
+	r.errors = sink
+	return r
 }
 
 // WithLinkSink reports the state of the link to sink.
@@ -202,6 +213,9 @@ func (r *Runner) consume(ctx context.Context) error {
 }
 
 func (r *Runner) persist(ctx context.Context, update *labpb.MonitoringUpdate) error {
+	if report := update.GetErrors(); report != nil && r.errors != nil {
+		r.errors(ctx, report)
+	}
 	if features := update.GetFeatures(); features != nil && r.features != nil {
 		if sinkErr := r.features(ctx, features, time.UnixMilli(update.GetObservedAtUnixMs()).UTC()); sinkErr != nil {
 			log.Error().Err(sinkErr).Msg("Failed to record the agent features")

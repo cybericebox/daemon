@@ -44,8 +44,8 @@ func (r *fakeRepo) Record(_ context.Context, in RecordInput) (RecordResult, erro
 		g.Status, g.ResolvedAt = errorJournal.StatusOpen, nil
 		res.Reopened = true
 	}
-	g.Occurrences++
-	g.SuppressedSince++
+	g.Occurrences += int64(in.Count)
+	g.SuppressedSince += int64(in.Count)
 	g.LastSeenAt = in.At
 	in.Sample.GroupID = g.ID
 	r.samples[g.ID] = append([]errorJournal.Sample{in.Sample}, r.samples[g.ID]...)

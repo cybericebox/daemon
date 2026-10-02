@@ -8,6 +8,374 @@
     },
     "basePath": "/api",
     "paths": {
+        "/admin/errors": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "List error groups (super admin)",
+                "parameters": [
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "csv",
+                        "description": "kinds (repeat or comma separated): http_5xx, panic, http_403, http_429, job, queue, mail, lab_agent_offline, lab_deploy, lab_cert_expiry, lab_component",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "open, resolved or ignored",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "last seen at or after (RFC 3339)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "last seen at or before (RFC 3339)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "text in the title or source",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size, 1-200 (default 50)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.listResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/not-found": {
+            "get": {
+                "description": "A handler 404 is counted per route template; every unmatched path (bots scanning) is one counter with an empty route. Paths are never stored.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Daily 404 statistics (super admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "first day (RFC 3339), default 30 days back",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "last day (RFC 3339), default today",
+                        "name": "to",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.notFoundResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/settings": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Notification settings: e-mail list and Telegram chat ids (super admin)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "The lists replace the stored ones. A chat id that stays keeps its failing mark; the server owns the mark.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Replace the notification settings (super admin)",
+                "parameters": [
+                    {
+                        "description": "settings",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/errorJournal.settingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/settings/test": {
+            "post": {
+                "description": "Reports each target. A chat that answers is no longer marked failing; one the bot may not write to is marked failing.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Send a test message to every chat id and address (super admin)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.testResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/stream": {
+            "get": {
+                "description": "Sends an \"error-group\" event for every recorded occurrence (data: streamEvent) and a \"heartbeat\" event while idle. Nothing is replayed: fetch the list on connect.",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Live stream of recorded errors (super admin, Server-Sent Events)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/errorJournal.streamEvent"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/{groupID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "One error group with its recent samples (super admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "group id",
+                        "name": "groupID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.detailResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/errors/{groupID}/status": {
+            "patch": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "error-journal"
+                ],
+                "summary": "Resolve, ignore or reopen an error group (super admin)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "group id",
+                        "name": "groupID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new status",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/errorJournal.statusRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/errorJournal.groupResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/analytics/events": {
             "get": {
                 "description": "Events created and started and registrations per day of the period, events by lifecycle status, the newest events of the period with participants, teams, solves, completion rate and duration (at most EventsLimit; EventsTotal is the full count), and the next scheduled events. Aggregates only, the moderators team is not counted.",
@@ -19462,6 +19830,313 @@
                 }
             }
         },
+        "errorJournal.chatRequest": {
+            "type": "object",
+            "properties": {
+                "ChatID": {
+                    "type": "string"
+                },
+                "Label": {
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.detailResponse": {
+            "type": "object",
+            "properties": {
+                "Group": {
+                    "$ref": "#/definitions/errorJournal.groupResponse"
+                },
+                "Samples": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.sampleResponse"
+                    }
+                }
+            }
+        },
+        "errorJournal.groupResponse": {
+            "type": "object",
+            "properties": {
+                "FirstSeenAt": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Kind": {
+                    "type": "string"
+                },
+                "LastNotifiedAt": {
+                    "type": "string"
+                },
+                "LastSeenAt": {
+                    "type": "string"
+                },
+                "Occurrences": {
+                    "type": "integer"
+                },
+                "ResolvedAt": {
+                    "type": "string"
+                },
+                "Source": {
+                    "type": "string"
+                },
+                "Status": {
+                    "type": "string"
+                },
+                "Title": {
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.listResponse": {
+            "type": "object",
+            "properties": {
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.groupResponse"
+                    }
+                },
+                "Limit": {
+                    "type": "integer"
+                },
+                "Offset": {
+                    "type": "integer"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "errorJournal.notFoundDayResponse": {
+            "type": "object",
+            "properties": {
+                "Day": {
+                    "description": "Day is the calendar day (UTC), YYYY-MM-DD.",
+                    "type": "string"
+                },
+                "Hits": {
+                    "type": "integer"
+                },
+                "Route": {
+                    "description": "Route is the route template of a handler 404; empty counts every unmatched path together.",
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.notFoundResponse": {
+            "type": "object",
+            "properties": {
+                "Days": {
+                    "description": "Days has one row per day and route.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.notFoundDayResponse"
+                    }
+                },
+                "From": {
+                    "type": "string"
+                },
+                "Routes": {
+                    "description": "Routes has the totals per route over the period, the busiest first.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.notFoundRouteResponse"
+                    }
+                },
+                "To": {
+                    "type": "string"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "errorJournal.notFoundRouteResponse": {
+            "type": "object",
+            "properties": {
+                "Hits": {
+                    "type": "integer"
+                },
+                "Route": {
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.sampleResponse": {
+            "type": "object",
+            "properties": {
+                "Details": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "HTTPStatus": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Limiter": {
+                    "type": "string"
+                },
+                "Message": {
+                    "type": "string"
+                },
+                "Method": {
+                    "type": "string"
+                },
+                "OccurredAt": {
+                    "type": "string"
+                },
+                "Permission": {
+                    "type": "string"
+                },
+                "RequestID": {
+                    "type": "string"
+                },
+                "Role": {
+                    "type": "string"
+                },
+                "Route": {
+                    "type": "string"
+                },
+                "Stack": {
+                    "type": "string"
+                },
+                "UserID": {
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.settingsRequest": {
+            "type": "object",
+            "properties": {
+                "EmailToSuperAdmins": {
+                    "type": "boolean"
+                },
+                "Emails": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TelegramChats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.chatRequest"
+                    }
+                }
+            }
+        },
+        "errorJournal.settingsResponse": {
+            "type": "object",
+            "properties": {
+                "EmailToSuperAdmins": {
+                    "type": "boolean"
+                },
+                "Emails": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TelegramChats": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.telegramChatResponse"
+                    }
+                },
+                "TelegramEnabled": {
+                    "type": "boolean"
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.statusRequest": {
+            "type": "object",
+            "required": [
+                "Status"
+            ],
+            "properties": {
+                "Status": {
+                    "description": "Status is open, resolved or ignored.",
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.streamEvent": {
+            "type": "object",
+            "properties": {
+                "Group": {
+                    "$ref": "#/definitions/errorJournal.groupResponse"
+                },
+                "New": {
+                    "description": "New: the fingerprint was first seen now, or came back after it was resolved.",
+                    "type": "boolean"
+                },
+                "Sample": {
+                    "$ref": "#/definitions/errorJournal.sampleResponse"
+                }
+            }
+        },
+        "errorJournal.telegramChatResponse": {
+            "type": "object",
+            "properties": {
+                "ChatID": {
+                    "type": "string"
+                },
+                "Failing": {
+                    "type": "boolean"
+                },
+                "FailingSince": {
+                    "type": "string"
+                },
+                "Label": {
+                    "type": "string"
+                },
+                "LastError": {
+                    "type": "string"
+                }
+            }
+        },
+        "errorJournal.testResponse": {
+            "type": "object",
+            "properties": {
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.testResultResponse"
+                    }
+                }
+            }
+        },
+        "errorJournal.testResultResponse": {
+            "type": "object",
+            "properties": {
+                "Channel": {
+                    "description": "Channel is telegram or email.",
+                    "type": "string"
+                },
+                "Error": {
+                    "type": "string"
+                },
+                "Label": {
+                    "type": "string"
+                },
+                "OK": {
+                    "type": "boolean"
+                },
+                "Target": {
+                    "type": "string"
+                }
+            }
+        },
         "event.LiveResultChangeView": {
             "type": "object",
             "properties": {
@@ -24823,6 +25498,10 @@
                     "description": "FirstBlood marks the earliest solve among the visible teams.",
                     "type": "boolean"
                 },
+                "NameHidden": {
+                    "description": "NameHidden: the participant's real name is withheld by the event's participants visibility (TeamName is empty).",
+                    "type": "boolean"
+                },
                 "Own": {
                     "type": "boolean"
                 },
@@ -25676,6 +26355,10 @@
             "properties": {
                 "LastSolveAt": {
                     "type": "string"
+                },
+                "NameHidden": {
+                    "description": "NameHidden: the participant's real name is withheld by the event's participants visibility (TeamName is empty).",
+                    "type": "boolean"
                 },
                 "Points": {
                     "type": "integer"
