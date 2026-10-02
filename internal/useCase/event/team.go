@@ -670,7 +670,7 @@ func buildTeamViews(ctx context.Context, participants *participantRepo.Repositor
 			return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list team invitations").Err()
 		}
 		for _, i := range invitationRows {
-			invitations[i.TeamID] = append(invitations[i.TeamID], TeamInvitationView{UserID: i.UserID, Name: strings.TrimSpace(i.FirstName + " " + i.LastName), Email: i.Email, CreatedAt: i.CreatedAt, InvitationSentAt: i.InvitationSentAt})
+			invitations[i.TeamID] = append(invitations[i.TeamID], TeamInvitationView{UserID: i.UserID, Email: i.Email, CreatedAt: i.CreatedAt, InvitationSentAt: i.InvitationSentAt})
 		}
 	}
 	items := make([]TeamView, 0, len(rows))

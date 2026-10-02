@@ -265,6 +265,7 @@
   "71318": "A required event form must be completed before continuing",
   "71321": "Answers cannot be changed after the event finish",
   "71326": "Registration is not open: the event is not published yet, or it has finished or been withdrawn",
+  "71327": "Too many invitations, try again later",
   "71401": "infrastructure agent is not connected",
   "71403": "The laboratory access is being reset, try again in a minute",
   "71405": "The device does not keep its state",

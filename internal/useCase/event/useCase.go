@@ -187,6 +187,8 @@ type EventUseCase struct {
 	// task open beacon in process.
 	activity  ActivityLog
 	taskOpens *taskOpenThrottle
+	// invitationLimits bounds the mail the invitation routes can cause.
+	invitationLimits *invitationLimits
 }
 
 type Dependencies struct {
@@ -319,6 +321,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		mail:                     mailRepo.New(deps.Repo),
 		activity:                 eventActivityRepo.New(deps.Repo),
 		taskOpens:                newTaskOpenThrottle(eventActivityModel.TaskOpenWindow),
+		invitationLimits:         newInvitationLimits(),
 	}
 }
 

@@ -233,6 +233,18 @@ func (r *Repository) List(ctx context.Context, eventID uuid.UUID, statusFilter i
 }
 
 func toListed(row postgres.ListEventParticipantsDetailedRow) Listed {
+	listed := listedFromRow(row)
+	if row.Invited && row.Status == int16(participantModel.StatusPending) {
+		// An invitation nobody accepted yet shows only the address the organizer
+		// typed. The profile name belongs to the person behind an existing
+		// account, who has not agreed to share it with this event: otherwise
+		// inviting any address would read out the name of its owner.
+		listed.FirstName, listed.LastName, listed.DisplayName = "", "", ""
+	}
+	return listed
+}
+
+func listedFromRow(row postgres.ListEventParticipantsDetailedRow) Listed {
 	return Listed{
 		Participant: ToDomain(postgres.EventParticipant{
 			EventID: row.EventID, UserID: row.UserID, Status: row.Status, CreatedAt: row.CreatedAt,

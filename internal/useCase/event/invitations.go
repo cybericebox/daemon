@@ -29,6 +29,7 @@ import (
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/daemon/pkg/ratelimit"
 )
 
 type ParticipantInvitationInput struct {
@@ -50,7 +51,42 @@ const (
 	InvitationCodeStaff              = "staff_cannot_participate"
 	InvitationCodeFieldsInvalid      = "fields_invalid"
 	InvitationCodeFailed             = "failed"
+	InvitationCodeRateLimited        = "rate_limited"
 )
+
+// Invitation quotas. A manager can mail any address through an invitation, so
+// the platform bounds what one organizer, one event and one recipient can
+// cause: enough for a large CSV import, not for a mail flood.
+const (
+	invitesPerActorHour = 500
+	invitesPerEventHour = 1000
+	// inviteMailGap / inviteMailsPerHour are the per-recipient limits (per event).
+	inviteMailGap      = time.Minute
+	inviteMailsPerHour = 3
+)
+
+type invitationLimits struct {
+	actors     *ratelimit.Window
+	events     *ratelimit.Window
+	recipients *ratelimit.Recipient
+}
+
+func newInvitationLimits() *invitationLimits {
+	return &invitationLimits{
+		actors:     ratelimit.NewWindow(invitesPerActorHour, time.Hour),
+		events:     ratelimit.NewWindow(invitesPerEventHour, time.Hour),
+		recipients: ratelimit.NewRecipient(inviteMailGap, inviteMailsPerHour),
+	}
+}
+
+// allowInvitation counts one invitation against the organizer and the event.
+func (l *invitationLimits) allowInvitation(eventID, by uuid.UUID) bool {
+	if ok, _ := l.actors.Allow(by.String()); !ok {
+		return false
+	}
+	ok, _ := l.events.Allow(eventID.String())
+	return ok
+}
 
 type ParticipantInvitationResult struct {
 	Email  string
@@ -129,6 +165,11 @@ func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID
 		seen[email] = struct{}{}
 		result := ParticipantInvitationResult{Email: email}
 		var err error
+		if !u.invitationLimits.allowInvitation(eventID, by) {
+			result.Error, result.Code = "Забагато запрошень, спробуйте пізніше", InvitationCodeRateLimited
+			results = append(results, result)
+			continue
+		}
 		if !validatePrefill(form, entry.Fields) {
 			result.Error, result.Code = "Некоректні значення полів анкети", InvitationCodeFieldsInvalid
 			results = append(results, result)
@@ -143,9 +184,12 @@ func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID
 				result.Error, result.Code = "Уже бере участь або подав заявку", InvitationCodeAlreadyParticipant
 			case errors.Is(err, participantModel.ErrStaffCannotParticipate.Err()):
 				result.Error, result.Code = "Власники й модератори заходу не беруть участі як учасники", InvitationCodeStaff
-			case errors.Is(err, participantModel.ErrInvitationRequired.Err()):
-				result.Error, result.Code = "Цей обліковий запис не можна запросити", InvitationCodeAccountUnavailable
+			case errors.Is(err, participantModel.ErrInvitationRateLimited.Err()):
+				result.Error, result.Code = "Забагато запрошень, спробуйте пізніше", InvitationCodeRateLimited
 			default:
+				// An account that cannot be invited (blocked, deleted) is answered
+				// like any other failure: the organizer must not learn the state
+				// of somebody else's account from an invitation.
 				result.Error, result.Code = "Не вдалося надіслати запрошення", InvitationCodeFailed
 			}
 		}
@@ -219,6 +263,9 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 // for accounts that were created by the invitation) and records the delivery
 // time, so a failed send stays visible and can be resent (M7).
 func (u *EventUseCase) sendParticipantInvitation(ctx context.Context, e eventModel.Event, user userModel.User, toTeam bool, teamName string, by uuid.UUID) (time.Time, error) {
+	if !u.invitationLimits.recipients.Allow("event-invitation:"+e.ID.String(), strings.ToLower(user.Email)) {
+		return time.Time{}, participantModel.ErrInvitationRateLimited.Err()
+	}
 	inviteURL := fmt.Sprintf("https://%s.%s/invite", e.Tag, u.eventDomain)
 	if user.Status == userModel.UserStatusIncomplete {
 		token, tokenErr := u.setupTokens.GenerateSetupToken(user.ID)

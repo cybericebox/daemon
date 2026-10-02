@@ -250,3 +250,69 @@ func TestResendParticipantInvitationSendsAgain(t *testing.T) {
 	require.NotNil(t, result.SentAt)
 	require.Equal(t, "https://ctf.example.test/invite", notifier.vars["invite_url"])
 }
+
+// M6: a blocked/deleted account is answered like any other failure: the
+// organizer must not read the state of somebody else's account.
+func TestInviteParticipantDoesNotRevealAccountState(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
+	uc.SetInvitationNotifier(&invitationNotifier{})
+	eventID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "blocked@example.test").Return(postgres.User{ID: userID, Email: "blocked@example.test", Status: "blocked"}, nil)
+
+	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: "blocked@example.test"}})
+	require.NoError(t, err)
+	require.Equal(t, event.InvitationCodeFailed, results[0].Code, "blocked must look like a plain failure, not account_unavailable")
+}
+
+// M6: invitations are bounded per organizer, so a manager cannot use the
+// route to mail the world (or probe it) without limit.
+func TestInviteParticipantsAreRateLimitedPerOrganizer(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: &testUoW{}}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
+	uc.SetInvitationNotifier(&invitationNotifier{})
+	eventID, managerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	// Every address is invalid: no repository is touched, but each still counts.
+	bad := make([]event.ParticipantInvitationInput, 200)
+	for i := range bad {
+		bad[i] = event.ParticipantInvitationInput{Email: "not-an-address-" + strings.Repeat("x", i)}
+	}
+	limited := 0
+	for batch := 0; batch < 4; batch++ {
+		results, err := uc.InviteParticipants(context.Background(), eventID, managerID, bad)
+		require.NoError(t, err)
+		for _, r := range results {
+			if r.Code == event.InvitationCodeRateLimited {
+				limited++
+			}
+		}
+	}
+	require.Equal(t, 800-500, limited, "500 per organizer per hour, the rest is refused")
+}
+
+func TestInviteParticipantMailToOneAddressIsThrottled(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	unit := &testUoW{}
+	notifier := &invitationNotifier{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test", SetupTokens: invitationTokens{}})
+	uc.SetInvitationNotifier(notifier)
+	eventID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil).Times(2)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "old@example.test").Return(postgres.User{ID: userID, Email: "old@example.test", Status: "active"}, nil).Times(2)
+	q.EXPECT().InviteEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).Times(2)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{
+		EventID: eventID, UserID: userID, Status: 1, InvitedBy: uuid.NullUUID{UUID: managerID, Valid: true}, Invited: true, CreatedAt: time.Now(),
+	}, nil).Times(2)
+	in := []event.ParticipantInvitationInput{{Email: "old@example.test"}}
+	first, err := uc.InviteParticipants(context.Background(), eventID, managerID, in)
+	require.NoError(t, err)
+	require.Empty(t, first[0].Code)
+	second, err := uc.InviteParticipants(context.Background(), eventID, managerID, in)
+	require.NoError(t, err)
+	require.Equal(t, event.InvitationCodeRateLimited, second[0].Code)
+}

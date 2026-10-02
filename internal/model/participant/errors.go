@@ -1,12 +1,14 @@
 package participantModel
 
 import (
+	"net/http"
+
 	"github.com/cybericebox/daemon/pkg/err"
 
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// ParticipantObjectCode — next free detail code: 27
+// ParticipantObjectCode — next free detail code: 28
 var (
 	ErrRegistrationClosed = err.ErrConflict.WithObjectCode(model.ParticipantObjectCode).
 				WithMessage("Registration is closed for this event").WithDetailCode(1)
@@ -58,6 +60,11 @@ var (
 						WithMessage("Staff-only fields are invalid").WithDetailCode(24)
 	ErrStaffCannotParticipate = err.ErrForbidden.WithObjectCode(model.ParticipantObjectCode).
 					WithMessage("Event owners and moderators cannot register as participants").WithDetailCode(25)
+	// ErrInvitationRateLimited: too many invitation mails (HTTP 429): per
+	// organizer, per event, or to one address.
+	ErrInvitationRateLimited = err.ErrConflict.WithObjectCode(model.ParticipantObjectCode).
+					WithMessage("Too many invitations, try again later").WithDetailCode(27).
+					WithHTTPCode(http.StatusTooManyRequests)
 	ErrRegistrationNotOpen = err.ErrConflict.WithObjectCode(model.ParticipantObjectCode).
 				WithMessage("Registration is not open: the event is not published yet, or it has finished or been withdrawn").WithDetailCode(26)
 )
