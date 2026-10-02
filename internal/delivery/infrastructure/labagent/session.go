@@ -25,5 +25,10 @@ func (s SessionIssuer) Issue(ctx context.Context, session labaccess.Session, now
 	if member.Tenant == "" || member.AccessKeyID == "" || len(member.AccessKey) == 0 {
 		return labaccess.Link{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
-	return s.Issuer.Issue(labaccess.SigningKey{Tenant: member.Tenant, KeyID: member.AccessKeyID, Key: member.AccessKey}, session, now)
+	sk := labaccess.SigningKey{Tenant: member.Tenant, KeyID: member.AccessKeyID, Key: member.AccessKey}
+	if f := member.Features.Get(); f != nil {
+		sk.MaxTokenTTL = time.Duration(f.Proxy.AccessTokenMaxTTLSeconds) * time.Second
+		sk.MaxSessionTTL = time.Duration(f.Proxy.SessionMaxTTLSeconds) * time.Second
+	}
+	return s.Issuer.Issue(sk, session, now)
 }

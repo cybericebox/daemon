@@ -20,15 +20,9 @@ func testSigningKey(t *testing.T) SigningKey {
 	return SigningKey{Tenant: "platform", KeyID: "k-1", Key: key}
 }
 
-func TestNewRefusesATTLOverTheCap(t *testing.T) {
-	if _, err := New(Config{TokenTTL: MaxTokenTTL + time.Second}); err == nil {
-		t.Fatal("a token ttl over the cap must be refused")
-	}
+func TestNewRefusesANegativeTTL(t *testing.T) {
 	if _, err := New(Config{TokenTTL: -time.Second}); err == nil {
 		t.Fatal("a negative ttl must be refused")
-	}
-	if _, err := New(Config{TokenTTL: MaxTokenTTL}); err != nil {
-		t.Fatalf("the cap itself is fine: %v", err)
 	}
 }
 
@@ -157,12 +151,38 @@ func TestDefaultTokenTTLAndSessionFallback(t *testing.T) {
 	}
 }
 
-func TestConfiguredSessionAndTokenCap(t *testing.T) {
-	if _, err := New(Config{TokenTTL: 10 * time.Minute, MaxTokenTTL: 15 * time.Minute}); err != nil {
-		t.Fatalf("a raised cap allows a longer token: %v", err)
+func TestTheAgentsProxyLimitsCapTheLinkAndTheSession(t *testing.T) {
+	sk := testSigningKey(t)
+	sk.MaxTokenTTL, sk.MaxSessionTTL = 2*time.Minute, time.Hour
+	issuer, err := New(Config{TokenTTL: 10 * time.Minute, SessionTTL: 24 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := New(Config{TokenTTL: 2 * time.Minute, MaxTokenTTL: time.Minute}); err == nil {
-		t.Fatal("a token above the configured cap must be rejected")
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	link, err := issuer.Issue(sk, Session{Group: "e-1-t-1", Client: "p-1", AccessURL: webURL}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _, err := jwt.NewParser().ParseUnverified(link.Token, &claims{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Claims.(*claims).Session; got != now.Add(time.Hour).Unix() || !link.ExpiresAt.Equal(now.Add(time.Hour)) {
+		t.Fatalf("the session ends at %d, want the proxy's hour", got)
+	}
+	exp, _ := parsed.Claims.GetExpirationTime()
+	if !exp.Time.Equal(now.Add(2 * time.Minute)) {
+		t.Fatalf("the link lives until %v, want the proxy's two minutes", exp.Time)
+	}
+	// An event that ends sooner than the proxy's limit keeps its own end; without a report nothing is capped.
+	short, _ := issuer.Issue(sk, Session{Group: "e-1-t-1", Client: "p-1", AccessURL: webURL, ExpiresAt: now.Add(10 * time.Minute)}, now)
+	if !short.ExpiresAt.Equal(now.Add(10 * time.Minute)) {
+		t.Fatalf("session = %v", short.ExpiresAt)
+	}
+	sk.MaxTokenTTL, sk.MaxSessionTTL = 0, 0
+	free, _ := issuer.Issue(sk, Session{Group: "e-1-t-1", Client: "p-1", AccessURL: webURL}, now)
+	if !free.ExpiresAt.Equal(now.Add(24 * time.Hour)) {
+		t.Fatalf("no report: session = %v", free.ExpiresAt)
 	}
 	if _, err := New(Config{SessionTTL: -time.Hour}); err == nil {
 		t.Fatal("a negative session ttl must be rejected")

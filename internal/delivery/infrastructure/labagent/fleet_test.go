@@ -344,6 +344,7 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		Scheduler:        &labpb.SchedulerFeature{Enabled: true, MaxPods: 4},
 		Endpoints:        &labpb.EndpointsFeature{LabsDomain: "labs.example.test", VpnEndpoint: "vpn.example.test:51820"},
 		Certificate:      &labpb.CertificateFeature{NotAfterUnix: 99, IssuedTtlSeconds: 100},
+		Proxy:            &labpb.ProxyFeature{AccessTokenMaxTtlSeconds: 300, SessionMaxTtlSeconds: 86400},
 	})
 	want := infraModel.AgentFeatures{
 		Persistence: infraModel.PersistenceFeature{Available: true, DefaultDebounce: 5000, WriteQuotaBytes: 10, MaxFileSizeBytes: 20, ExcludedPaths: []string{"/proc"}},
@@ -351,6 +352,7 @@ func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
 		Scheduler:   infraModel.SchedulerFeature{Enabled: true, MaxPods: 4},
 		Endpoints:   infraModel.EndpointsFeature{LabsDomain: "labs.example.test", VPNEndpoint: "vpn.example.test:51820"},
 		Certificate: infraModel.CertificateFeature{NotAfterUnix: 99, IssuedTTLSeconds: 100},
+		Proxy:       infraModel.ProxyFeature{AccessTokenMaxTTLSeconds: 300, SessionMaxTTLSeconds: 86400},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v want %+v", got, want)

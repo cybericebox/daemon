@@ -92,8 +92,6 @@ type (
 		AuthConfig     config.AuthConfig
 		MediaConfig    config.MediaConfig
 		ExerciseConfig config.ExerciseConfig
-		// LabAccessTokenMaxTTL is the longest lab access token the proxy accepts.
-		LabAccessTokenMaxTTL time.Duration
 		// RetentionPolicy is the Privacy Policy's retention periods.
 		RetentionPolicy retentionModel.Policy
 		// One cipher per secret family (separate keys); each nil when its key is unset.
@@ -182,7 +180,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}
 	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
 		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),
-		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote, AccessTokenMaxTTL: deps.LabAccessTokenMaxTTL,
+		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote,
 	})
 
 	testLabsUC := infrastructureUseCase.NewTestLabsUseCase(

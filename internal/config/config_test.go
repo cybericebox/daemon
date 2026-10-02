@@ -274,9 +274,9 @@ func TestTunablesDefaultsAndOverrides(t *testing.T) {
 		tn.EmailImageUploadMaxBytes != 10<<20 || tn.EmailImageMaxBytes != 300<<10 || tn.EmailImageMaxWidth != 1200 {
 		t.Fatalf("defaults drifted from the env template: %+v", tn)
 	}
-	if cfg.Auth.SetupTokenTTL != 168*time.Hour || cfg.LabSession.TTL != 24*time.Hour || cfg.LabAccess.TokenMaxTTL != 5*time.Minute ||
+	if cfg.Auth.SetupTokenTTL != 168*time.Hour || cfg.LabSession.TTL != 24*time.Hour ||
 		cfg.Exercise.TestDeployTTL != 2*time.Hour || cfg.Exercise.TestDeployTTLMax != 8*time.Hour {
-		t.Fatalf("TTL defaults drifted: %v %v %v", cfg.Auth.SetupTokenTTL, cfg.LabSession.TTL, cfg.LabAccess.TokenMaxTTL)
+		t.Fatalf("TTL defaults drifted: %v %v", cfg.Auth.SetupTokenTTL, cfg.LabSession.TTL)
 	}
 	t.Setenv("SSE_MAX_LIFETIME", "5m")
 	t.Setenv("SETUP_TOKEN_TTL", "1h")

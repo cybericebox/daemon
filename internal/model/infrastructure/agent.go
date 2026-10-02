@@ -63,6 +63,7 @@ type AgentFeatures struct {
 	Scheduler   SchedulerFeature   `json:"scheduler"`
 	Endpoints   EndpointsFeature   `json:"endpoints"`
 	Certificate CertificateFeature `json:"certificate"`
+	Proxy       ProxyFeature       `json:"proxy"`
 }
 
 // PersistenceFeature is device state persistence for the tenant.
@@ -92,6 +93,13 @@ type SchedulerFeature struct {
 type EndpointsFeature struct {
 	LabsDomain  string `json:"labs_domain"`
 	VPNEndpoint string `json:"vpn_endpoint"`
+}
+
+// ProxyFeature are the limits of the laboratory L7 proxy for web links: the longest a link can be opened
+// and the longest a session lives (the proxy cuts a longer one).
+type ProxyFeature struct {
+	AccessTokenMaxTTLSeconds int64 `json:"access_token_max_ttl_seconds"`
+	SessionMaxTTLSeconds     int64 `json:"session_max_ttl_seconds"`
 }
 
 // CertificateFeature is the client certificate of the platform's connection and the lifetime of the ones

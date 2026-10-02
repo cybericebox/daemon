@@ -76,6 +76,10 @@ type (
 		// LabsDomain is the base domain of the lab web endpoints; VPNEndpoint is host:port of WireGuard.
 		LabsDomain  string `json:"LabsDomain"`
 		VPNEndpoint string `json:"VPNEndpoint"`
+		// ProxyAccessTokenMaxTTLSeconds is the longest a web link can be opened; ProxySessionMaxTTLSeconds the
+		// longest a proxy session lives (a longer event window means a new link is opened).
+		ProxyAccessTokenMaxTTLSeconds int64 `json:"ProxyAccessTokenMaxTTLSeconds"`
+		ProxySessionMaxTTLSeconds     int64 `json:"ProxySessionMaxTTLSeconds"`
 	}
 
 	agentsResponse struct {
@@ -124,6 +128,7 @@ func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
 		PersistenceExcludedPaths: f.Persistence.ExcludedPaths, ImageCacheEnabled: f.ImageCache.Enabled,
 		ImageCacheRegistries: f.ImageCache.Registries, SchedulerEnabled: f.Scheduler.Enabled, SchedulerMaxPods: f.Scheduler.MaxPods,
 		LabsDomain: f.Endpoints.LabsDomain, VPNEndpoint: f.Endpoints.VPNEndpoint,
+		ProxyAccessTokenMaxTTLSeconds: f.Proxy.AccessTokenMaxTTLSeconds, ProxySessionMaxTTLSeconds: f.Proxy.SessionMaxTTLSeconds,
 	}
 }
 

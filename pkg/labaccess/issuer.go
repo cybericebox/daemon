@@ -38,9 +38,6 @@ const (
 	DefaultSessionTTL = 24 * time.Hour
 	// DefaultTokenTTL is how long an access token can be opened.
 	DefaultTokenTTL = time.Minute
-	// MaxTokenTTL is the default cap of LAB_ACCESS_TOKEN_TTL (LAB_ACCESS_TOKEN_MAX_TTL); the proxy
-	// refuses a longer token too.
-	MaxTokenTTL = 5 * time.Minute
 	// AuthPath is the proxy path that consumes a handoff link.
 	AuthPath = "/_auth"
 )
@@ -50,10 +47,9 @@ const Audience = "laboratory-proxy"
 
 // Config sets how long a token can be opened.
 type Config struct {
-	// TokenTTL is how long a token can be opened (default one minute, five at most).
+	// TokenTTL is how long a token can be opened (default one minute). The proxy of each agent states
+	// its own limit (SigningKey.MaxTokenTTL), which caps it.
 	TokenTTL time.Duration
-	// MaxTokenTTL caps TokenTTL; zero means MaxTokenTTL.
-	MaxTokenTTL time.Duration
 	// SessionTTL is the session length when the caller names no end; zero means DefaultSessionTTL.
 	SessionTTL time.Duration
 }
@@ -64,6 +60,10 @@ type SigningKey struct {
 	Tenant string
 	KeyID  string
 	Key    ed25519.PrivateKey
+	// MaxTokenTTL and MaxSessionTTL are what the tenant's proxy accepts (its agent reports them): the
+	// longest link and the longest session. Zero = not reported, no cap is applied here.
+	MaxTokenTTL   time.Duration
+	MaxSessionTTL time.Duration
 }
 
 // Session is who the link is for, in the operator's own terms: a LabGroup and
@@ -112,20 +112,14 @@ type Issuer struct {
 
 // New returns an issuer; the signing key is given per token.
 func New(cfg Config) (*Issuer, error) {
-	if cfg.MaxTokenTTL == 0 {
-		cfg.MaxTokenTTL = MaxTokenTTL
-	}
 	if cfg.SessionTTL == 0 {
 		cfg.SessionTTL = DefaultSessionTTL
 	}
-	if cfg.MaxTokenTTL < 0 || cfg.SessionTTL < 0 {
-		return nil, errors.New("labaccess: the session and the token cap ttl must be positive")
+	if cfg.SessionTTL < 0 || cfg.TokenTTL < 0 {
+		return nil, errors.New("labaccess: the session and the token ttl must be positive")
 	}
-	switch {
-	case cfg.TokenTTL == 0:
-		cfg.TokenTTL = min(DefaultTokenTTL, cfg.MaxTokenTTL)
-	case cfg.TokenTTL < 0 || cfg.TokenTTL > cfg.MaxTokenTTL:
-		return nil, fmt.Errorf("labaccess: the token ttl must be up to %s", cfg.MaxTokenTTL)
+	if cfg.TokenTTL == 0 {
+		cfg.TokenTTL = DefaultTokenTTL
 	}
 	return &Issuer{ttl: cfg.TokenTTL, sessionTTL: cfg.SessionTTL}, nil
 }
@@ -147,11 +141,19 @@ func (i *Issuer) Issue(sk SigningKey, s Session, now time.Time) (Link, error) {
 	if s.ExpiresAt.After(now) {
 		end = s.ExpiresAt
 	}
+	// The proxy cuts a session at its own limit: say so in the link instead of promising more.
+	if sk.MaxSessionTTL > 0 && end.After(now.Add(sk.MaxSessionTTL)) {
+		end = now.Add(sk.MaxSessionTTL)
+	}
+	ttl := i.ttl
+	if sk.MaxTokenTTL > 0 {
+		ttl = min(ttl, sk.MaxTokenTTL)
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims{
 		GroupID: s.Group, Host: host, Session: end.Unix(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer: sk.Tenant, Subject: s.Client, Audience: jwt.ClaimStrings{Audience},
-			IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(i.ttl)),
+			IssuedAt: jwt.NewNumericDate(now), NotBefore: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 		},
 	})
 	token.Header["kid"] = sk.KeyID

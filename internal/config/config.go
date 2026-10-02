@@ -41,10 +41,8 @@ type (
 	// (every agent is a tenant with its own key), never with a platform-wide key.
 	LabAccessConfig struct {
 		// TokenTTL is how long an access token can be opened: it is exchanged for
-		// the proxy's own cookie at once. Up to 5m.
+		// the proxy's own cookie at once. Each agent's proxy states its own cap, which this never exceeds.
 		TokenTTL time.Duration `env:"TOKEN_TTL" envDefault:"1m"`
-		// TokenMaxTTL caps TokenTTL (LAB_ACCESS_TOKEN_MAX_TTL); the proxy refuses a longer token too.
-		TokenMaxTTL time.Duration `env:"TOKEN_MAX_TTL" envDefault:"5m"`
 	}
 
 	// LabSessionConfig is how long a lab web session lasts when the caller names no end (LAB_SESSION_TTL).

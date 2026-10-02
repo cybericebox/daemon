@@ -19,8 +19,8 @@ import (
 )
 
 // MinAccessKeyRetention is the least a rotated-out access key stays at the agent. The real retention is
-// three times the longest token the proxy accepts (the agent reports it), never less than this: only then
-// is no token signed with the old key still alive.
+// three times the longest link the agent's proxy accepts, never less than this: only then is no token
+// signed with the old key still alive.
 const MinAccessKeyRetention = 15 * time.Minute
 
 // certRenewAt is the fraction of its lifetime after which a client certificate is renewed.
@@ -106,8 +106,6 @@ type (
 		remote     AgentRemote
 		impacts    AgentImpacts
 		now        func() time.Time
-		// tokenMaxTTL is the longest lab access token the proxy accepts.
-		tokenMaxTTL time.Duration
 
 		capacityMu   sync.Mutex
 		lastCapacity map[uuid.UUID]capacityReading
@@ -129,9 +127,6 @@ type (
 		// Impacts reports the future reservations an agent's deletion affects; nil without a calendar.
 		Impacts AgentImpacts
 		Now     func() time.Time
-		// AccessTokenMaxTTL is the longest lab access token the proxy accepts; the retention of a rotated-out
-		// key follows it.
-		AccessTokenMaxTTL time.Duration
 	}
 
 	// AgentAdminView is one agent for the admin list.
@@ -157,7 +152,7 @@ func NewAgentsUseCase(deps AgentsDependencies) *AgentsUseCase {
 	if now == nil {
 		now = time.Now
 	}
-	return &AgentsUseCase{store: deps.Store, placements: deps.Placements, sealer: deps.Sealer, fleet: deps.Fleet, remote: deps.Remote, impacts: deps.Impacts, now: now, tokenMaxTTL: deps.AccessTokenMaxTTL, lastCapacity: map[uuid.UUID]capacityReading{}}
+	return &AgentsUseCase{store: deps.Store, placements: deps.Placements, sealer: deps.Sealer, fleet: deps.Fleet, remote: deps.Remote, impacts: deps.Impacts, now: now, lastCapacity: map[uuid.UUID]capacityReading{}}
 }
 
 // ListAgents lists the agents with their live state, ordered like the placement: by priority, then by name.
@@ -423,7 +418,7 @@ func (u *AgentsUseCase) removeRetiredKeys(ctx context.Context, r infraModel.Agen
 	var waiting []infraModel.RetiredKey
 	var errs []error
 	for _, key := range r.RetiredAccessKeys {
-		if now.Sub(key.RetiredAt) < u.accessKeyRetention() {
+		if now.Sub(key.RetiredAt) < accessKeyRetention(r) {
 			waiting = append(waiting, key)
 			continue
 		}
@@ -659,9 +654,13 @@ func (u *AgentsUseCase) seal(id uuid.UUID, field, plaintext string) (string, err
 	return sealed, nil
 }
 
-// accessKeyRetention is how long a rotated-out access key stays at the agent.
-func (u *AgentsUseCase) accessKeyRetention() time.Duration {
-	return max(MinAccessKeyRetention, 3*u.tokenMaxTTL)
+// accessKeyRetention is how long a rotated-out access key stays at the agent: three times the longest
+// link its proxy accepts (the agent reports it), never less than MinAccessKeyRetention.
+func accessKeyRetention(r infraModel.AgentRecord) time.Duration {
+	if r.Features == nil {
+		return MinAccessKeyRetention
+	}
+	return max(MinAccessKeyRetention, 3*time.Duration(r.Features.Proxy.AccessTokenMaxTTLSeconds)*time.Second)
 }
 
 // renewDue says the agent's client certificate is past two thirds of its own lifetime. The lifetime

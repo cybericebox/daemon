@@ -673,18 +673,18 @@ func TestRenewalIsDueAtTwoThirdsOfTheCertificateLifetime(t *testing.T) {
 	}
 }
 
-func TestAccessKeyRetentionFollowsTheProxyTokenLimit(t *testing.T) {
-	uc := &AgentsUseCase{}
-	if uc.accessKeyRetention() != MinAccessKeyRetention {
-		t.Fatalf("no limit known: %v", uc.accessKeyRetention())
+func TestAccessKeyRetentionFollowsTheAgentsProxyTokenLimit(t *testing.T) {
+	r := infraModel.AgentRecord{}
+	if accessKeyRetention(r) != MinAccessKeyRetention {
+		t.Fatalf("no report: %v", accessKeyRetention(r))
 	}
-	uc.tokenMaxTTL = 5 * time.Minute
-	if uc.accessKeyRetention() != 15*time.Minute {
-		t.Fatalf("5m tokens: %v", uc.accessKeyRetention())
+	r.Features = &infraModel.AgentFeatures{Proxy: infraModel.ProxyFeature{AccessTokenMaxTTLSeconds: 300}}
+	if accessKeyRetention(r) != 15*time.Minute {
+		t.Fatalf("5m tokens: %v", accessKeyRetention(r))
 	}
-	uc.tokenMaxTTL = 20 * time.Minute
-	if uc.accessKeyRetention() != time.Hour {
-		t.Fatalf("20m tokens keep the key an hour: %v", uc.accessKeyRetention())
+	r.Features.Proxy.AccessTokenMaxTTLSeconds = 1200
+	if accessKeyRetention(r) != time.Hour {
+		t.Fatalf("20m tokens keep the key an hour: %v", accessKeyRetention(r))
 	}
 }
 

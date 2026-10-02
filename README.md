@@ -174,11 +174,10 @@ Lab infrastructure is served by one or more laboratory agents. Agents live in th
 | `AGENT_NAME` | `default` | Label of the bootstrapped agent. |
 | `AGENT_CA_FILE` | none | CA of the agent's server certificate; only for a self-signed development stand (empty means system roots). |
 | `AGENT_INSTANCE_ID` | `cybericebox` | Immutable platform-instance label put on every object created in the infrastructure, so two platform instances can share one cluster. Must be a valid Kubernetes label value. Never change it for a running deployment. |
-| `LAB_ACCESS_TOKEN_TTL` | `1m` | How long a web access link (`/_auth`) can be opened, up to `LAB_ACCESS_TOKEN_MAX_TTL`. Tokens are signed with the access key of the agent that holds the lab, never with a platform-wide key. |
-| `LAB_ACCESS_TOKEN_MAX_TTL` | `5m` | Cap of `LAB_ACCESS_TOKEN_TTL`; the proxy refuses a longer token too. |
+| `LAB_ACCESS_TOKEN_TTL` | `1m` | How long a web access link (`/_auth`) can be opened, up to the limit the agent's proxy reports. Tokens are signed with the access key of the agent that holds the lab, never with a platform-wide key. |
 | `LAB_SESSION_TTL` | `24h` | Lab web session length when the caller names no end. |
 
-What a laboratory offers is not configured here: each agent reports it (device state persistence and its limits, the image cache, the scheduler, the lab and VPN endpoints, its certificate) and the platform keeps the last report per agent (shown in the admin agent list). The exercise editor offers state persistence when some enabled agent offers it, and a deploy is refused when the agent that holds the team's group does not. A client certificate is renewed after two thirds of its own lifetime, and a rotated-out access key stays at the agent for three times the longest proxy token (at least 15 minutes).
+What a laboratory offers is not configured here: each agent reports it (device state persistence and its limits, the image cache, the scheduler, the lab and VPN endpoints, its certificate) and the platform keeps the last report per agent (shown in the admin agent list). The exercise editor offers state persistence when some enabled agent offers it, and a deploy is refused when the agent that holds the team's group does not. A client certificate is renewed after two thirds of its own lifetime, and a rotated-out access key stays at the agent for three times the longest link its proxy accepts (at least 15 minutes). The proxy limits (longest link, longest session) come from the agent too, and a web link never promises a longer session than the proxy allows.
 
 The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` and `LAB_ACCESS_PRIVATE_KEY` were removed and have no replacement: keys are per agent and stored in the database.
 
