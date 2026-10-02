@@ -10,7 +10,6 @@ FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS builder
 ARG TARGETOS=linux
 ARG TARGETARCH
 WORKDIR /build
-RUN apk add --no-cache gcc g++
 COPY go.* ./
 # The backend imports the Laboratory agent contract through the local Go-module
 # replacement in go.mod.  Docker build contexts are isolated, so deployments
@@ -23,7 +22,11 @@ COPY . .
 COPY ./internal/delivery/repository/postgres/migrations /build/migrations
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o app -a -ldflags '-w -extldflags "-static"' ./cmd/daemon
 
-FROM alpine
+FROM alpine:3.22
+# The daemon runs as an unprivileged user (no root inside the container). It therefore listens on 8080;
+# set HTTP_SERVER_PORT to change it.
+RUN addgroup -S -g 10001 app && adduser -S -D -u 10001 -G app app
+ENV HTTP_SERVER_PORT=8080
 WORKDIR /app
 
 # db migration files (applied on boot)
@@ -32,5 +35,6 @@ COPY --from=builder /build/migrations /app/migrations
 # the built binary
 COPY --from=builder /build/app /app/app
 
+USER 10001:10001
 ENTRYPOINT ["/app/app"]
 EXPOSE 8080
