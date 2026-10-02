@@ -48,7 +48,7 @@ func (h *Handler) uploadAnswerFile(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxAnswerFileRequestBytes)
+	middleware.LimitBody(ctx, maxAnswerFileRequestBytes)
 	header, err := ctx.FormFile("file")
 	if err != nil {
 		var tooLarge *http.MaxBytesError

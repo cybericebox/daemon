@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
@@ -47,7 +48,7 @@ func (h *Handler) uploadManagedAnswerFile(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, maxAnswerFileRequestBytes)
+	middleware.LimitBody(ctx, maxAnswerFileRequestBytes)
 	header, err := ctx.FormFile("file")
 	if err != nil {
 		var tooLarge *http.MaxBytesError

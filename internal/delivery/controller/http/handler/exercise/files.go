@@ -10,6 +10,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -54,7 +55,7 @@ func (h *Handler) uploadFile(ctx *gin.Context) {
 		return
 	}
 	bodyCap := h.useCase.MaxUploadBytes() + multipartOverheadSlack
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, bodyCap)
+	middleware.LimitBody(ctx, bodyCap)
 	fh, err := ctx.FormFile("file")
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError

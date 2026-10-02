@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
@@ -43,7 +44,7 @@ func (h *Handler) uploadEventBrandDraft(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, (5<<20)+(32<<10))
+	middleware.LimitBody(ctx, (5<<20)+(32<<10))
 	header, err := ctx.FormFile("file")
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)

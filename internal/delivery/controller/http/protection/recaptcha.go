@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	recaptcha "cloud.google.com/go/recaptchaenterprise/v2/apiv1"
@@ -23,7 +25,11 @@ import (
 
 var recaptchaHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
-const siteVerifyURL = "https://www.google.com/recaptcha/api/siteverify"
+// maxRecaptchaBodyBytes bounds the sign-in and sign-up bodies read before authentication.
+const maxRecaptchaBodyBytes = 64 << 10
+
+// siteVerifyURL is a variable so a test can point it at a local server.
+var siteVerifyURL = "https://www.google.com/recaptcha/api/siteverify"
 
 // RequireRecaptcha verifies the request's reCAPTCHA token for the given action.
 // Verification is always enforced; the mode is selected by ProjectID:
@@ -55,9 +61,13 @@ type recaptchaTokenRequest struct {
 // getRecaptchaToken reads RecaptchaToken from the JSON body and restores the body
 // so the downstream handler can re-bind it.
 func (p *Protection) getRecaptchaToken(ctx *gin.Context) (string, error) {
-	bodyBytes, err := io.ReadAll(ctx.Request.Body)
+	// The token request is a small JSON body; this runs before authentication, so it is read with a cap.
+	bodyBytes, err := io.ReadAll(io.LimitReader(ctx.Request.Body, maxRecaptchaBodyBytes+1))
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to read request body").Err()
+	}
+	if len(bodyBytes) > maxRecaptchaBodyBytes {
+		return "", authModel.ErrAuthNoRecaptchaToken.Err()
 	}
 	ctx.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
@@ -81,16 +91,15 @@ type siteVerifyResponse struct {
 
 // verifyRecaptchaToken validates a classic reCAPTCHA v3 token via the siteverify API.
 func (p *Protection) verifyRecaptchaToken(ctx context.Context, token, action string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, siteVerifyURL, nil)
+	// The secret travels in the POST body, never in the URL: a failed request is logged with its URL.
+	form := url.Values{"secret": {p.recaptcha.SecretKey}, "response": {token}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, siteVerifyURL, strings.NewReader(form.Encode()))
 	if err != nil {
-		return model.ErrPlatform.WithError(err).
+		return model.ErrPlatform.WithError(errors.New("cannot build the verification request")).
 			WithMessage("Failed to create recaptcha request").
 			Err()
 	}
-	q := req.URL.Query()
-	q.Add("secret", p.recaptcha.SecretKey)
-	q.Add("response", token)
-	req.URL.RawQuery = q.Encode()
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := recaptchaHTTPClient.Do(req)
 	if err != nil {

@@ -6,9 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
+
+// avatarRequestSlack is the room for the multipart framing around an avatar file.
+const avatarRequestSlack = 64 << 10
 
 // uploadAvatar godoc
 // @Summary  Upload the authenticated user's avatar (multipart "file")
@@ -23,6 +28,8 @@ func (h *Handler) uploadAvatar(ctx *gin.Context) {
 	// RequirePermission(rbac.PermSelf) on this route guarantees userID is present.
 	claims, _ := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 	userID := claims.UserID
+	// Cap the raw body before the multipart form is read: the avatar limit plus the form framing.
+	middleware.LimitBody(ctx, authUseCase.MaxAvatarBytes+avatarRequestSlack)
 	fileHeader, err := ctx.FormFile("file")
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	notificationModel "github.com/cybericebox/daemon/internal/model/notification"
 	emailModel "github.com/cybericebox/daemon/internal/model/notification/email"
@@ -666,7 +667,7 @@ func (h *Handler) uploadEventEmailImage(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, int64(emailUseCase.MaxTemplateImageUploadBytes)+eventEmailImageMultipartSlack)
+	middleware.LimitBody(ctx, int64(emailUseCase.MaxTemplateImageUploadBytes)+eventEmailImageMultipartSlack)
 	fh, err := ctx.FormFile("file")
 	if err != nil {
 		var tooLarge *http.MaxBytesError

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
@@ -34,12 +35,27 @@ type (
 	}
 )
 
+// hardenRouter sets how the client address is found and what every request and response is held to. The
+// client address comes from X-Forwarded-For only for requests from a trusted proxy (none by default):
+// otherwise any client could pick its own address and dodge every per-address limit. Every body is capped.
+func hardenRouter(router *gin.Engine, cfg *config.HTTPControllerConfig) error {
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		return err
+	}
+	router.Use(middleware.BodyLimit(cfg.MaxBodyBytes), middleware.SecurityHeaders)
+	return nil
+}
+
 func NewController(deps Dependencies) *Controller {
 	// create the router
 	// gin.New, not gin.Default: logger and recovery come from ForMode, per the
 	// gin mode config.SetupLogger set from ENV (and so does the route dump).
 	router := gin.New()
 	router.Use(middleware.ForMode(gin.Mode())...)
+
+	if err := hardenRouter(router, deps.Config); err != nil {
+		log.Fatal().Err(err).Msg("Invalid HTTP controller configuration")
+	}
 
 	// add global middleware for error handling
 	router.Use(response.WithErrorHandler)

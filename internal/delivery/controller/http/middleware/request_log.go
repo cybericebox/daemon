@@ -1,9 +1,13 @@
 package middleware
 
 import (
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"runtime/debug"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,7 +25,17 @@ func ForMode(mode string) []gin.HandlerFunc {
 	if mode == gin.ReleaseMode {
 		return []gin.HandlerFunc{RequestLogger(), Recovery()}
 	}
-	return []gin.HandlerFunc{gin.Logger(), gin.Recovery()}
+	return []gin.HandlerFunc{gin.LoggerWithConfig(gin.LoggerConfig{Formatter: consoleLine}), gin.Recovery()}
+}
+
+// consoleLine is gin's coloured request line without the query string and the client address: the query
+// carries tokens (setup, invitation, live screen) and OAuth codes, and an address is not logged.
+func consoleLine(p gin.LogFormatterParams) string {
+	path, _, _ := strings.Cut(p.Path, "?")
+	return fmt.Sprintf("[GIN] %s |%s %3d %s| %13v | %s %-7s %s\n%s",
+		p.TimeStamp.Format("2006/01/02 - 15:04:05"),
+		p.StatusCodeColor(), p.StatusCode, p.ResetColor(),
+		p.Latency, p.MethodColor(), p.Method+p.ResetColor(), path, p.ErrorMessage)
 }
 
 // RequestLogger writes one zerolog line per request: info for success, warn
@@ -30,7 +44,7 @@ func RequestLogger() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
-		query := c.Request.URL.RawQuery
+		queryKeys := queryKeyNames(c.Request.URL.Query())
 
 		c.Next()
 
@@ -40,17 +54,27 @@ func RequestLogger() gin.HandlerFunc {
 			Str("path", path).
 			Int("status", status).
 			Dur("latency", time.Since(start)).
-			Str("ip", c.ClientIP()).
 			Int("size", c.Writer.Size()).
 			Str("user_agent", c.Request.UserAgent())
-		if query != "" {
-			event = event.Str("query", query)
+		// Only the names of the query parameters are logged: their values carry tokens and codes.
+		if len(queryKeys) > 0 {
+			event = event.Strs("query_keys", queryKeys)
 		}
 		if len(c.Errors) > 0 {
 			event = event.Str("errors", c.Errors.String())
 		}
 		event.Msg("HTTP request")
 	}
+}
+
+// queryKeyNames lists the parameter names of a query, sorted.
+func queryKeyNames(values url.Values) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func levelForStatus(status int) zerolog.Level {

@@ -72,7 +72,7 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, string, er
 	// GetObject is lazy; Stat forces the request so a missing key surfaces now.
 	info, err := obj.Stat()
 	if err != nil {
-		err = obj.Close()
+		_ = obj.Close() // keep the Stat error: closing must not replace it
 		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
 			return nil, "", ErrObjectNotFound
 		}

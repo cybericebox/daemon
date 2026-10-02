@@ -83,6 +83,8 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `HTTP_SERVER_READ_TIMEOUT` | `10s` | Read timeout. |
 | `HTTP_SERVER_WRITE_TIMEOUT` | `10s` | Write timeout. |
 | `HTTP_SERVER_MAX_HEADER_MB` | `1` | Max header size in MiB. |
+| `MAX_REQUEST_BODY_BYTES` | `10485760` | Cap of every request body (10 MiB); an upload route states its own larger cap. |
+| `TRUSTED_PROXIES` | none | Comma-separated CIDRs or addresses of the proxies in front of the daemon (ingress, CDN). The client address is read from `X-Forwarded-For` only for requests from them; with none listed the connection address is used and the header is ignored. Behind a proxy set it, or every client shares the proxy address in the per-address limits. |
 | `HTTP_SERVER_TLS_ENABLED` | `false` | Serve HTTPS. |
 | `HTTP_SERVER_TLS_CERT_FILE` | `/certificates/tls.crt` | Server certificate. |
 | `HTTP_SERVER_TLS_KEY_FILE` | `/certificates/tls.key` | Server key. |

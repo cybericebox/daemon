@@ -57,13 +57,13 @@ func TestForMode_ReleaseLogsRequestsAsJSONOnly(t *testing.T) {
 		t.Fatalf("request log is not one JSON object: %v: %q", err, zlOut.String())
 	}
 	for key, want := range map[string]any{
-		"level": "info", "method": "GET", "path": "/ok", "query": "x=1", "status": float64(204),
+		"level": "info", "method": "GET", "path": "/ok", "status": float64(204),
 	} {
 		if line[key] != want {
 			t.Errorf("%s: got %v want %v", key, line[key], want)
 		}
 	}
-	for _, key := range []string{"latency", "ip"} {
+	for _, key := range []string{"latency"} {
 		if _, ok := line[key]; !ok {
 			t.Errorf("missing %s", key)
 		}
@@ -130,5 +130,27 @@ func TestForMode_ProductionLogsSuccessfulRequest(t *testing.T) {
 	}
 	if line["level"] != "info" || line["status"] != float64(200) || line["path"] != "/200" {
 		t.Errorf("got %v, want info 200 /200", line)
+	}
+}
+
+// Query values carry tokens and OAuth codes, and an address is not logged: only the parameter names are.
+func TestRequestLogNeverRecordsQueryValuesOrTheClientAddress(t *testing.T) {
+	for _, mode := range []string{gin.ReleaseMode, gin.DebugMode} {
+		ginOut, zlOut := captureLogs(t)
+		r := newRouter(mode)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/ok?token=SETUP-SECRET&code=OAUTH-CODE&state=abc", nil)
+		req.RemoteAddr = "203.0.113.9:4444"
+		req.Header.Set("X-Forwarded-For", "198.51.100.7")
+		r.ServeHTTP(w, req)
+		logged := zlOut.String() + ginOut.String()
+		for _, secret := range []string{"SETUP-SECRET", "OAUTH-CODE", "203.0.113.9", "198.51.100.7"} {
+			if strings.Contains(logged, secret) {
+				t.Errorf("%s: the log contains %q: %s", mode, secret, logged)
+			}
+		}
+		if mode == gin.ReleaseMode && !strings.Contains(zlOut.String(), `"query_keys":["code","state","token"]`) {
+			t.Errorf("the parameter names are kept: %s", zlOut.String())
+		}
 	}
 }

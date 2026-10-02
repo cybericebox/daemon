@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/netip"
 	"regexp"
 	"time"
 
@@ -211,6 +212,13 @@ type (
 	HTTPControllerConfig struct {
 		Server            HTTPServerConfig `envPrefix:"HTTP_SERVER_"`
 		EnableSwaggerDocs bool
+		// TrustedProxies are the networks (CIDRs or addresses) of the proxies in front of the daemon (the
+		// ingress, the CDN). The client address is taken from X-Forwarded-For only for a request that comes
+		// from one of them; with none listed (the default) it is the connection's own address and the header
+		// is ignored, so a client cannot choose its address.
+		TrustedProxies []string `env:"TRUSTED_PROXIES"`
+		// MaxBodyBytes caps every request body; an upload route states its own larger cap.
+		MaxBodyBytes int64 `env:"MAX_REQUEST_BODY_BYTES" envDefault:"10485760"`
 	}
 
 	HTTPServerConfig struct {
@@ -322,6 +330,21 @@ var instanceIDPattern = regexp.MustCompile(`^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-
 func (c AgentConfig) Validate() error {
 	if !instanceIDPattern.MatchString(c.InstanceID) {
 		return errors.New("infrastructure agent: AGENT_INSTANCE_ID must be a label value (1-63 characters of letters, digits, '-', '_' or '.', starting and ending with a letter or digit)")
+	}
+	return nil
+}
+
+// Validate checks the proxy list and the body cap.
+func (c HTTPControllerConfig) Validate() error {
+	for _, entry := range c.TrustedProxies {
+		if _, err := netip.ParsePrefix(entry); err != nil {
+			if _, addrErr := netip.ParseAddr(entry); addrErr != nil {
+				return fmt.Errorf("TRUSTED_PROXIES: %q is not an address or a CIDR", entry)
+			}
+		}
+	}
+	if c.MaxBodyBytes < 1 {
+		return errors.New("MAX_REQUEST_BODY_BYTES must be at least 1")
 	}
 	return nil
 }
@@ -452,6 +475,9 @@ func MustGetConfig() *Config {
 
 	if err = instance.Auth.Recaptcha.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid reCAPTCHA configuration")
+	}
+	if err = instance.HTTPController.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid HTTP controller configuration")
 	}
 	if err = instance.Tunables.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid limits and timings")

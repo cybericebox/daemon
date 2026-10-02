@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	notificationModel "github.com/cybericebox/daemon/internal/model/notification"
 	"github.com/cybericebox/daemon/internal/model/notification/branding"
@@ -48,7 +49,7 @@ func (h *Handler) uploadEmailImage(ctx *gin.Context) {
 	// Cap the raw body BEFORE gin parses the multipart form (see exercise
 	// files.go): FormFile would otherwise absorb an oversized upload first.
 	bodyCap := h.useCase.MaxEmailImageUploadBytes() + multipartOverheadSlack
-	ctx.Request.Body = http.MaxBytesReader(ctx.Writer, ctx.Request.Body, bodyCap)
+	middleware.LimitBody(ctx, bodyCap)
 	fh, err := ctx.FormFile("file")
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError

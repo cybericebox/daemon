@@ -81,7 +81,9 @@ func TestOversizedTemplatesAndOutputAreRefused(t *testing.T) {
 
 func TestARecursivePresetCannotTakeTheProcessDown(t *testing.T) {
 	a, b := "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
-	loop := func(id string) json.RawMessage { return json.RawMessage(`[{"type":"preset","preset_id":"` + id + `"},{"type":"preset","preset_id":"` + id + `"}]`) }
+	loop := func(id string) json.RawMessage {
+		return json.RawMessage(`[{"type":"preset","preset_id":"` + id + `"},{"type":"preset","preset_id":"` + id + `"}]`)
+	}
 	presets := map[string]json.RawMessage{a: loop(a)}
 	_, err := RenderEmail(json.RawMessage(`[{"type":"preset","preset_id":"`+a+`"}]`), nil, presets, nil, RenderContext{})
 	assert.NoError(t, err, "a preset that uses itself ends at the depth limit")
