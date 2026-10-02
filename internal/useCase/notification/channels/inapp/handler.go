@@ -78,6 +78,8 @@ func (h *Handler) Handle(
 	if err != nil {
 		return err
 	}
+	// The server keeps the body to the small in-app format; the browser sanitizes again, but is not the only defence.
+	body = inAppModel.SanitizeBody(body)
 	link, err := render.RenderText(tmpl.Link, vars)
 	if err != nil {
 		return err
