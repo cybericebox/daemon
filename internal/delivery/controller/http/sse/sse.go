@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -57,4 +58,43 @@ func WriteHeaders(ctx *gin.Context) {
 	// Send the headers now: EventSource only fires "open" once it sees them, so a
 	// quiet stream would otherwise look like it is still connecting.
 	ctx.Writer.Flush()
+}
+
+// RevalidateInterval is how often a long stream re-checks that its reader may still read it.
+const RevalidateInterval = time.Minute
+
+// Limiter caps the streams one caller keeps open at once: every stream holds a connection, a
+// goroutine and (for the live ones) a polling loop, so one account or address opening hundreds is a
+// cheap way to exhaust the process. Keys are chosen by the caller (a user, an address, a screen link).
+type Limiter struct {
+	mu   sync.Mutex
+	open map[string]int
+}
+
+// Streams is the process-wide stream limiter.
+var Streams = &Limiter{}
+
+// Acquire reserves one stream for key, at most max at a time. release must be called when the stream ends.
+func (l *Limiter) Acquire(key string, max int) (release func(), ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.open == nil {
+		l.open = map[string]int{}
+	}
+	if l.open[key] >= max {
+		return nil, false
+	}
+	l.open[key]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			if l.open[key] <= 1 {
+				delete(l.open, key)
+				return
+			}
+			l.open[key]--
+		})
+	}, true
 }

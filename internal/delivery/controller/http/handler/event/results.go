@@ -367,6 +367,9 @@ func (h *Handler) exportSolutionAttempts(ctx *gin.Context) {
 	w.Flush()
 }
 
+// maxJournalStreamsPerUser bounds the open attempts-journal streams of one account.
+const maxJournalStreamsPerUser = 6
+
 // liveSolutionAttempts godoc
 // @Summary Stream attempts journal changes (new attempts or decisions)
 // @Tags events
@@ -389,6 +392,19 @@ func (h *Handler) liveSolutionAttempts(ctx *gin.Context) {
 		}
 		interval = time.Duration(seconds) * time.Second
 	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	// One account keeps only a few journal streams open, and the stream ends when the reader
+	// loses the right to read the event (the gate ran once, at the start).
+	release, ok := sse.Streams.Acquire("attempts:"+claims.UserID.String(), maxJournalStreamsPerUser)
+	if !ok {
+		response.AbortWithTooManyRequests(ctx)
+		return
+	}
+	defer release()
 	flusher, streamCtx, cancel, err := sse.Open(ctx)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -419,10 +435,16 @@ func (h *Handler) liveSolutionAttempts(ctx *gin.Context) {
 	defer ticker.Stop()
 	heartbeat := time.NewTicker(sse.HeartbeatInterval)
 	defer heartbeat.Stop()
+	revalidate := time.NewTicker(sse.RevalidateInterval)
+	defer revalidate.Stop()
 	for {
 		select {
 		case <-streamCtx.Done():
 			return
+		case <-revalidate.C:
+			if h.useCase.RequireReadEvent(streamCtx, eventID, claims.UserID) != nil {
+				return // removed from the event (or blocked) while the stream was open
+			}
 		case <-ticker.C:
 			next, stampErr := h.useCase.GetSolutionAttemptsStamp(streamCtx, eventID)
 			if stampErr != nil {

@@ -67,7 +67,8 @@ func (h *Handler) liveScreenAccess(ctx *gin.Context) {
 	}
 	// Read the raw query: ctx.Query would cache it before it is rewritten.
 	query := ctx.Request.URL.Query()
-	if err := h.useCase.ResolveLiveScreenToken(ctx, tenant.EventID, query.Get("token")); err != nil {
+	token := query.Get("token")
+	if err := h.useCase.ResolveLiveScreenToken(ctx, tenant.EventID, token); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
@@ -77,11 +78,16 @@ func (h *Handler) liveScreenAccess(ctx *gin.Context) {
 	ctx.Request.URL.RawQuery = query.Encode()
 	// No session and no role: only resultsAccess below, for this event,
 	// turns the mark into the screen view.
-	ctx.Request = ctx.Request.WithContext(context.WithValue(ctx.Request.Context(), liveScreenEventKey{}, tenant.EventID))
+	screenCtx := context.WithValue(ctx.Request.Context(), liveScreenEventKey{}, tenant.EventID)
+	// The token stays with the request: a long stream re-checks it, so a revoked link stops the stream.
+	ctx.Request = ctx.Request.WithContext(context.WithValue(screenCtx, liveScreenTokenKey{}, token))
 	ctx.Next()
 }
 
-type liveScreenEventKey struct{}
+type (
+	liveScreenEventKey struct{}
+	liveScreenTokenKey struct{}
+)
 
 // resultsAccess is the reader of a results request: a live screen checked
 // for this very event, or the optional session.

@@ -334,6 +334,13 @@ func (h *Handler) submitFormResponse(ctx *gin.Context) {
 // @Param pollInterval query integer false "Database polling interval in seconds (2-30, default 2)"
 // @Success 200 {string} string "SSE result-change and snapshot-required events"
 // @Router /events/{id}/results/live [get]
+// Stream budgets of the live results (see liveResults).
+const (
+	maxStreamsPerScreen  = 10
+	maxStreamsPerUser    = 8
+	maxStreamsPerAddress = 40
+)
+
 func (h *Handler) liveResults(ctx *gin.Context) {
 	eventID, ok := eventIDFromPath(ctx)
 	if !ok {
@@ -359,6 +366,20 @@ func (h *Handler) liveResults(ctx *gin.Context) {
 		return
 	}
 	access := resultsAccess(ctx, eventID)
+	// A stream holds a connection and a polling loop: the budget is per screen link, per account, or
+	// (anonymous readers) per client address; generous for a lab behind one address.
+	key, limit := "ip:"+ctx.ClientIP(), maxStreamsPerAddress
+	if _, isScreen := ctx.Request.Context().Value(liveScreenTokenKey{}).(string); isScreen {
+		key, limit = "screen:"+eventID.String(), maxStreamsPerScreen
+	} else if claims, found := rbac.CurrentUserSessionFromContext(ctx.Request.Context()); found {
+		key, limit = "user:"+claims.UserID.String(), maxStreamsPerUser
+	}
+	release, admitted := sse.Streams.Acquire("results:"+key, limit)
+	if !admitted {
+		response.AbortWithTooManyRequests(ctx)
+		return
+	}
+	defer release()
 	flusher, streamCtx, cancel, err := sse.Open(ctx)
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -383,10 +404,18 @@ func (h *Handler) liveResults(ctx *gin.Context) {
 	defer ticker.Stop()
 	heartbeat := time.NewTicker(sse.HeartbeatInterval)
 	defer heartbeat.Stop()
+	revalidate := time.NewTicker(sse.RevalidateInterval)
+	defer revalidate.Stop()
+	screenToken, _ := ctx.Request.Context().Value(liveScreenTokenKey{}).(string)
 	for {
 		select {
 		case <-streamCtx.Done():
 			return
+		case <-revalidate.C:
+			// A screen link the organizer revoked (or that expired) stops its open streams too.
+			if screenToken != "" && h.useCase.ResolveLiveScreenToken(streamCtx, eventID, screenToken) != nil {
+				return
+			}
 		case <-ticker.C:
 			replay, replayErr := subscription.Replay(streamCtx, lastRevision)
 			if replayErr != nil {

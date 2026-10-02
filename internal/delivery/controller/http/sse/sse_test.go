@@ -100,3 +100,30 @@ func TestHeartbeatIsANamedEvent(t *testing.T) {
 		t.Fatal("heartbeat must be flushed")
 	}
 }
+
+// L18: one caller cannot hold an unbounded number of streams open.
+func TestLimiterCapsStreamsPerKeyAndReleases(t *testing.T) {
+	var l Limiter
+	var releases []func()
+	for i := 0; i < 3; i++ {
+		release, ok := l.Acquire("user-1", 3)
+		if !ok {
+			t.Fatalf("stream %d must be admitted", i)
+		}
+		releases = append(releases, release)
+	}
+	if _, ok := l.Acquire("user-1", 3); ok {
+		t.Fatal("the 4th stream of one key must be refused")
+	}
+	if _, ok := l.Acquire("user-2", 3); !ok {
+		t.Fatal("another key has its own budget")
+	}
+	releases[0]()
+	releases[0]() // releasing twice frees one slot only
+	if _, ok := l.Acquire("user-1", 3); !ok {
+		t.Fatal("a released slot is reusable")
+	}
+	if _, ok := l.Acquire("user-1", 3); ok {
+		t.Fatal("a double release must not free two slots")
+	}
+}
