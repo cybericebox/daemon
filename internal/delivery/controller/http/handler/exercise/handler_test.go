@@ -149,6 +149,12 @@ func (f *fakeUC) UploadFile(_ context.Context, name, contentType string, r io.Re
 	f.uploadContent = string(b)
 	return f.uploadedFile, f.err
 }
+func (f *fakeUC) GetFile(_ context.Context, id uuid.UUID) (mediaModel.File, error) {
+	if f.err != nil {
+		return mediaModel.File{}, f.err
+	}
+	return f.streamedFile, nil
+}
 func (f *fakeUC) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error) {
 	f.streamedFileID = id
 	if f.err != nil {
@@ -1025,6 +1031,12 @@ func TestDownloadFile_Returns200(t *testing.T) {
 	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Fatalf("want X-Content-Type-Options=nosniff, got %q", got)
 	}
+	if got := rec.Header().Get("Content-Security-Policy"); got != "default-src 'none'; sandbox" {
+		t.Fatalf("unexpected CSP: %q", got)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("unexpected Cache-Control: %q", got)
+	}
 	if uc.streamedFileID != fileID {
 		t.Fatalf("want streamed fileID=%s, got %s", fileID, uc.streamedFileID)
 	}
@@ -1093,6 +1105,32 @@ func TestDownloadFile_NotFound_Returns404(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// A caller who may not read the file is refused before the blob is opened.
+func TestDownloadFile_Unauthorized_DoesNotOpenBlob(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	fileID := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{streamedFile: mediaModel.File{ID: fileID, Name: "f", SizeBytes: 5}, streamedContent: "hello"}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	r.Use(func(c *gin.Context) {
+		rc := rbac.ContextWithCurrentUserSession(c.Request.Context(), rbac.Claims{UserID: uid})
+		c.Request = c.Request.WithContext(rc)
+		c.Next()
+	})
+	exerciseHandler.NewExerciseAPIHandler(uc, fakeProt{}).Init(r.Group("api"))
+
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String(), nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("want 404, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if uc.streamedFileID != (uuid.UUID{}) {
+		t.Fatalf("blob opened for an unauthorized caller")
 	}
 }
 

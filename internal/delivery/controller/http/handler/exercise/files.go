@@ -104,16 +104,23 @@ func (h *Handler) downloadFile(ctx *gin.Context) {
 	if !ok {
 		return
 	}
+	// Authorize on the metadata first: a caller who may not read the file
+	// never makes the server open its blob.
+	meta, err := h.useCase.GetFile(ctx, fileID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	if err = h.useCase.AuthorizeFileDownload(ctx, actor, meta); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
 	rc, f, err := h.useCase.StreamFile(ctx, fileID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 	defer func() { _ = rc.Close() }()
-	if err = h.useCase.AuthorizeFileDownload(ctx, actor, f); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
 
 	// f.Name is the raw client-supplied upload filename stored verbatim —
 	// FormatMediaType quotes/escapes it (and RFC 2231-encodes non-ASCII) so a
@@ -124,6 +131,11 @@ func (h *Handler) downloadFile(ctx *gin.Context) {
 	// is the primary mitigation, nosniff is defense-in-depth (as in the avatar
 	// route).
 	ctx.Header("X-Content-Type-Options", "nosniff")
+	// Defence in depth if a browser ever renders the body: no scripts, no
+	// subresources, opaque origin. The bytes belong to one authorized caller,
+	// so no shared cache keeps them.
+	ctx.Header("Content-Security-Policy", "default-src 'none'; sandbox")
+	ctx.Header("Cache-Control", "private, no-store")
 	contentType := f.ContentType
 	if contentType == "" {
 		contentType = "application/octet-stream"

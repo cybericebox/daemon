@@ -76,6 +76,7 @@ type (
 		ImportExerciseArchive(ctx context.Context, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error)
 		// files
 		UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error)
+		GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error)
 		StreamFile(ctx context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 		// MaxUploadBytes is the same cap UploadFile enforces internally; the
 		// handler uses it to cap the request body at the HTTP boundary too
