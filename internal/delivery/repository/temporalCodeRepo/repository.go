@@ -18,6 +18,7 @@ type Queries interface {
 	CreateTemporalCode(ctx context.Context, arg postgres.CreateTemporalCodeParams) (postgres.TemporalCode, error)
 	GetTemporalCodeByCode(ctx context.Context, code string) (postgres.TemporalCode, error)
 	DeleteTemporalCode(ctx context.Context, id uuid.UUID) (int64, error)
+	DeleteTemporalCodesForUser(ctx context.Context, arg postgres.DeleteTemporalCodesForUserParams) (int64, error)
 }
 
 type Repository struct {
@@ -64,4 +65,9 @@ func (r *Repository) GetByCode(ctx context.Context, code string) (temporalCodeMo
 // Delete removes a temporal code (single-use consumption).
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) (int64, error) {
 	return r.q.DeleteTemporalCode(ctx, id)
+}
+
+// DeleteForUser removes every code of the type issued to the user.
+func (r *Repository) DeleteForUser(ctx context.Context, codeType int32, userID uuid.UUID) (int64, error) {
+	return r.q.DeleteTemporalCodesForUser(ctx, postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: userID.String()})
 }

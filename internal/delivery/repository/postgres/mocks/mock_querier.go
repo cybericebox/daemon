@@ -2168,6 +2168,21 @@ func (mr *MockQuerierMockRecorder) DeleteTemporalCode(ctx, id any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTemporalCode", reflect.TypeOf((*MockQuerier)(nil).DeleteTemporalCode), ctx, id)
 }
 
+// DeleteTemporalCodesForUser mocks base method.
+func (m *MockQuerier) DeleteTemporalCodesForUser(ctx context.Context, arg postgres.DeleteTemporalCodesForUserParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteTemporalCodesForUser", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteTemporalCodesForUser indicates an expected call of DeleteTemporalCodesForUser.
+func (mr *MockQuerierMockRecorder) DeleteTemporalCodesForUser(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteTemporalCodesForUser", reflect.TypeOf((*MockQuerier)(nil).DeleteTemporalCodesForUser), ctx, arg)
+}
+
 // DeleteUnreferencedFiles mocks base method.
 func (m *MockQuerier) DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]postgres.DeleteUnreferencedFilesRow, error) {
 	m.ctrl.T.Helper()

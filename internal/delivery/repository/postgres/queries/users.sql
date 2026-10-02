@@ -1,8 +1,13 @@
 -- name: GetUserByEmail :one
+-- An address is one account whatever its case. Accounts registered before the
+-- addresses were normalized may still hold a mixed-case spelling: the exact
+-- match wins if two spellings ever coexist.
 SELECT *
 FROM users
-WHERE email = $1
-  AND deleted_at IS NULL;
+WHERE lower(email) = lower(sqlc.arg(email)::text)
+  AND deleted_at IS NULL
+ORDER BY (email = sqlc.arg(email)::text) DESC, created_at
+LIMIT 1;
 
 -- name: GetUserByID :one
 SELECT *

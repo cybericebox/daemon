@@ -110,6 +110,8 @@ func TestResetPassword_Success(t *testing.T) {
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	// M1: a reset ends EVERY session of the account (the old password may have
 	// been lost together with a stolen cookie).
+	// One link, one reset: the other reset codes of the account go with it.
+	repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: temporalCodeModel.PasswordResettingCodeType, UserID: uid.String()}).Return(int64(1), nil)
 	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(2), nil)
 
 	if err := uc.ResetPassword(context.Background(), bsCode, "Secret!1"); err != nil {

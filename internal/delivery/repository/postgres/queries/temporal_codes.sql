@@ -11,3 +11,11 @@ WHERE code = $1;
 DELETE
 FROM temporal_codes
 WHERE id = $1;
+
+-- name: DeleteTemporalCodesForUser :execrows
+-- Every code of the type issued to the user (the payload names the user): a
+-- password reset revokes the reset links still in the mailbox.
+DELETE
+FROM temporal_codes
+WHERE type = sqlc.arg(type)
+  AND data ->> 'UserID' = sqlc.arg(user_id)::text;

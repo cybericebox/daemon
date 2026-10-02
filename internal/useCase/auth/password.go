@@ -80,6 +80,10 @@ func (u *AuthUseCase) ResetPassword(ctx context.Context, bsCode, newPassword str
 	if err = u.applyNewPassword(ctx, data.UserID, newPassword); err != nil {
 		return err
 	}
+	// The other reset links still sitting in the mailbox are dead too: one link, one reset.
+	if _, err = u.codes.DeleteForUser(ctx, temporalCodeModel.PasswordResettingCodeType, data.UserID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to revoke the other reset codes").Err()
+	}
 	// Whoever held a session when the password was lost (a stolen cookie is the
 	// usual reason to reset) must not keep it.
 	return u.revokeSessions(ctx, data.UserID, uuid.Nil)

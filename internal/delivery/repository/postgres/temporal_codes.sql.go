@@ -59,6 +59,28 @@ func (q *Queries) DeleteTemporalCode(ctx context.Context, id uuid.UUID) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const deleteTemporalCodesForUser = `-- name: DeleteTemporalCodesForUser :execrows
+DELETE
+FROM temporal_codes
+WHERE type = $1
+  AND data ->> 'UserID' = $2::text
+`
+
+type DeleteTemporalCodesForUserParams struct {
+	Type   int32  `json:"type"`
+	UserID string `json:"user_id"`
+}
+
+// Every code of the type issued to the user (the payload names the user): a
+// password reset revokes the reset links still in the mailbox.
+func (q *Queries) DeleteTemporalCodesForUser(ctx context.Context, arg DeleteTemporalCodesForUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteTemporalCodesForUser, arg.Type, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getTemporalCodeByCode = `-- name: GetTemporalCodeByCode :one
 SELECT id, code, type, data, expires_at, created_at
 FROM temporal_codes

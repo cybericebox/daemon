@@ -248,6 +248,9 @@ type Querier interface {
 	DeleteTeamChallengeSolve(ctx context.Context, teamChallengeID uuid.UUID) error
 	DeleteTeamChallengesForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteTemporalCode(ctx context.Context, id uuid.UUID) (int64, error)
+	// Every code of the type issued to the user (the payload names the user): a
+	// password reset revokes the reset links still in the mailbox.
+	DeleteTemporalCodesForUser(ctx context.Context, arg DeleteTemporalCodesForUserParams) (int64, error)
 	// GC step 1: drop grace-expired unreferenced files, decrement their blobs.
 	DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]DeleteUnreferencedFilesRow, error)
 	DeleteUserProvider(ctx context.Context, arg DeleteUserProviderParams) (int64, error)
@@ -500,6 +503,9 @@ type Querier interface {
 	GetTeamChallengeHints(ctx context.Context, arg GetTeamChallengeHintsParams) (GetTeamChallengeHintsRow, error)
 	GetTeamChallengeScoringContext(ctx context.Context, teamChallengeID uuid.UUID) (GetTeamChallengeScoringContextRow, error)
 	GetTemporalCodeByCode(ctx context.Context, code string) (TemporalCode, error)
+	// An address is one account whatever its case. Accounts registered before the
+	// addresses were normalized may still hold a mixed-case spelling: the exact
+	// match wins if two spellings ever coexist.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByProvider(ctx context.Context, arg GetUserByProviderParams) (User, error)
