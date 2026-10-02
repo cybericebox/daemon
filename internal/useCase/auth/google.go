@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -102,7 +101,7 @@ func (u *AuthUseCase) BeginGoogleRegistration(
 	}
 	if provErr == nil {
 		if linked.IsIncomplete() {
-			return u.setupResult(linked.ID, returnTo)
+			return u.setupResult(ctx, linked.ID, returnTo)
 		}
 		if err = refuseBlocked(&linked); err != nil {
 			return GoogleRegistrationResult{}, err
@@ -136,7 +135,7 @@ func (u *AuthUseCase) BeginGoogleRegistration(
 			return GoogleRegistrationResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create user provider").Err()
 		}
 		u.adoptProviderAvatar(ctx, userID, googleUser.Picture)
-		return u.setupResult(userID, returnTo)
+		return u.setupResult(ctx, userID, returnTo)
 
 	case existing.Status == userModel.UserStatusActive:
 		// 3. an active account already owns this email — block (link from profile instead).
@@ -168,7 +167,7 @@ func (u *AuthUseCase) BeginGoogleRegistration(
 		if existing.Picture == "" {
 			u.adoptProviderAvatar(ctx, existing.ID, googleUser.Picture)
 		}
-		return u.setupResult(existing.ID, returnTo)
+		return u.setupResult(ctx, existing.ID, returnTo)
 	}
 }
 
@@ -201,9 +200,9 @@ func (u *AuthUseCase) linkGoogleProvider(ctx context.Context, userID uuid.UUID, 
 // account's own address, otherwise anyone could bind THEIR Google identity (or,
 // via a forced GET, a victim's) to an account set up by someone else.
 func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleProviderID, googleEmail string) error {
-	userID, err := u.token.ParseSetupToken(setupToken)
+	userID, err := u.setupTokens.Verify(ctx, setupToken)
 	if err != nil {
-		return authModel.ErrInvalidToken.WithError(fmt.Errorf("google-link-setup: parse setup token: %w", err)).Err()
+		return err
 	}
 	user, err := u.users.GetByID(ctx, userID)
 	if err != nil {
@@ -270,19 +269,15 @@ func (u *AuthUseCase) UnlinkGoogle(ctx context.Context, userID uuid.UUID, curren
 
 // issueSetupToken generates a fresh setup token for userID.
 // setupResult wraps a freshly issued setup token as a registration result.
-func (u *AuthUseCase) setupResult(userID uuid.UUID, returnTo string) (GoogleRegistrationResult, error) {
-	tok, err := u.issueSetupToken(userID)
+func (u *AuthUseCase) setupResult(ctx context.Context, userID uuid.UUID, returnTo string) (GoogleRegistrationResult, error) {
+	tok, err := u.issueSetupToken(ctx, userID)
 	if err != nil {
 		return GoogleRegistrationResult{}, err
 	}
 	return GoogleRegistrationResult{SetupToken: tok, ReturnTo: returnTo}, nil
 }
 
-func (u *AuthUseCase) issueSetupToken(userID uuid.UUID) (string, error) {
+func (u *AuthUseCase) issueSetupToken(ctx context.Context, userID uuid.UUID) (string, error) {
 	// Someone who came through Google signs up themselves: the short lifetime.
-	setupToken, err := u.token.GenerateSetupTokenFor(userID, u.cfg.SignupSetupTokenTTL)
-	if err != nil {
-		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()
-	}
-	return setupToken, nil
+	return u.setupTokens.GenerateSetupToken(ctx, userID, u.cfg.SignupSetupTokenTTL)
 }

@@ -26,6 +26,7 @@ func newInviteUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	allowSetupLinkIssue(repo)
 	notifier := &fakeNotifier{}
 	// Every queued invitation restarts the unconfirmed-account clock.
 	repo.EXPECT().MarkUserInvitationSent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.MarkUserInvitationSentParams) (int64, error) {

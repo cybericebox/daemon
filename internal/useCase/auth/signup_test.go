@@ -27,6 +27,7 @@ func newSignupUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	allowSetupLinkIssue(repo)
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
 	notifier := &fakeNotifier{}
 	uc := auth.NewAuthUseCase(auth.Dependencies{
@@ -127,7 +128,7 @@ func TestBeginEmailRegistration_UntrustedRedirectDropped(t *testing.T) {
 func TestGetSetupContext_AlreadyComplete(t *testing.T) {
 	uc, repo, tk, _ := newSignupUC(t)
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusActive)}, nil)
 
 	if _, err := uc.GetSetupContext(context.Background(), setupToken); !errors.Is(err, authModel.ErrSetupAlreadyComplete.Err()) {
@@ -145,7 +146,7 @@ func TestGetSetupContext_BadToken(t *testing.T) {
 func TestCompleteRegistration_NoPasswordNoProvider(t *testing.T) {
 	uc, repo, tk, _ := newSignupUC(t)
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
 	repo.EXPECT().GetUserProviders(gomock.Any(), uid).Return([]postgres.UserProvider{}, nil)
 
@@ -158,7 +159,7 @@ func TestCompleteRegistration_NoPasswordNoProvider(t *testing.T) {
 func TestCompleteRegistration_TosNotAccepted(t *testing.T) {
 	uc, repo, tk, _ := newSignupUC(t)
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
 
 	_, _, err := uc.CompleteRegistration(context.Background(), setupToken, "Jane", "Doe", "Secret!1", 0, "", authModel.SessionMetadata{})
@@ -174,7 +175,7 @@ func TestCompleteRegistration_TosNotAccepted(t *testing.T) {
 func TestCompleteRegistration_TosBeforeLoginMethod(t *testing.T) {
 	uc, repo, tk, _ := newSignupUC(t)
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
 
 	// empty password (no login method) AND tosVersion=0 (ToS not accepted)

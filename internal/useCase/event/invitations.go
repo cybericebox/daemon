@@ -268,7 +268,7 @@ func (u *EventUseCase) sendParticipantInvitation(ctx context.Context, e eventMod
 	}
 	inviteURL := fmt.Sprintf("https://%s.%s/invite", e.Tag, u.eventDomain)
 	if user.Status == userModel.UserStatusIncomplete {
-		token, tokenErr := u.setupTokens.GenerateSetupToken(user.ID)
+		token, tokenErr := u.setupTokens.GenerateSetupToken(ctx, user.ID, 0)
 		if tokenErr != nil {
 			return time.Time{}, model.ErrPlatform.WithError(tokenErr).WithMessage("Failed to issue invitation setup link").Err()
 		}

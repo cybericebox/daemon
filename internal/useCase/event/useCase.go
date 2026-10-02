@@ -169,7 +169,7 @@ type EventUseCase struct {
 	eventDomain              string
 	idHost                   string
 	setupTokens              interface {
-		GenerateSetupToken(uuid.UUID) (string, error)
+		GenerateSetupToken(ctx context.Context, userID uuid.UUID, ttl time.Duration) (string, error)
 	}
 	labSessions        LabSessionIssuer
 	invitationNotifier InvitationNotifier
@@ -213,7 +213,7 @@ type Dependencies struct {
 	// IDHost is ID_HOST, the sign-in app host of invitation links.
 	IDHost      string
 	SetupTokens interface {
-		GenerateSetupToken(uuid.UUID) (string, error)
+		GenerateSetupToken(ctx context.Context, userID uuid.UUID, ttl time.Duration) (string, error)
 	}
 	// LabSessions signs the proxy tokens of the web side of lab access; nil
 	// when unconfigured.

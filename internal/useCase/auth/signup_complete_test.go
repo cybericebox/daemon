@@ -26,6 +26,7 @@ func newCompleteUC(t *testing.T, superAdminEmail string) (*auth.AuthUseCase, *po
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	allowSetupLinkIssue(repo)
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
 	uc := auth.NewAuthUseCase(auth.Dependencies{
 		Repo:     repo,
@@ -54,7 +55,7 @@ func incompleteRow(uid uuid.UUID, email string) postgres.User {
 func TestCompleteRegistration_SingleUpdateActivates(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "")
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(incompleteRow(uid, "jane@test.test"), nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.AssignableToTypeOf(postgres.UpdateUserParams{})).
@@ -102,7 +103,7 @@ func TestCompleteRegistration_SingleUpdateActivates(t *testing.T) {
 func TestCompleteRegistration_OptimisticLock_UsesLoadedUpdatedAt(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "")
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	loadedAt := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
 	row := incompleteRow(uid, "jane@test.test")
@@ -135,7 +136,7 @@ func TestCompleteRegistration_OptimisticLock_UsesLoadedUpdatedAt(t *testing.T) {
 func TestCompleteRegistration_PromotesSuperAdminInSameWrite(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "root@test.test")
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(incompleteRow(uid, "root@test.test"), nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
@@ -161,7 +162,7 @@ func TestCompleteRegistration_PromotesSuperAdminInSameWrite(t *testing.T) {
 func TestCompleteRegistration_SuperAdminEmailCaseInsensitive(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "Root@Test.test")
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(incompleteRow(uid, "root@test.test"), nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
@@ -186,7 +187,7 @@ func TestCompleteRegistration_SuperAdminEmailCaseInsensitive(t *testing.T) {
 func TestCompleteRegistration_UpdateFailure_NoSession(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "")
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(incompleteRow(uid, "j@test.test"), nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(0), errors.New("boom"))
@@ -204,7 +205,7 @@ func TestCompleteRegistration_UpdateFailure_NoSession(t *testing.T) {
 func TestCompleteRegistration_UserGoneOnReRead_InvalidToken(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "")
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	gomock.InOrder(
 		repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(incompleteRow(uid, "j@test.test"), nil),
@@ -226,7 +227,7 @@ func TestCompleteRegistration_UserGoneOnReRead_InvalidToken(t *testing.T) {
 func TestCompleteRegistration_ConcurrentModification_UserModified(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "")
 	uid := uuid.Must(uuid.NewV7())
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	gomock.InOrder(
 		repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(incompleteRow(uid, "j@test.test"), nil),

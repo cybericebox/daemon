@@ -77,9 +77,9 @@ func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.
 	if !u.mailAllowed(mailKindSignUp, emailAddr) {
 		return nil
 	}
-	setupToken, err := u.token.GenerateSetupTokenFor(userID, u.cfg.SignupSetupTokenTTL)
+	setupToken, err := u.setupTokens.GenerateSetupToken(ctx, userID, u.cfg.SignupSetupTokenTTL)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()
+		return err
 	}
 
 	link := u.cfg.Hosts.IDURL(fmt.Sprintf("/setup?token=%s", setupToken))
@@ -97,9 +97,9 @@ func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.
 
 // GetSetupContext resolves a setup token to the registration-completion screen.
 func (u *AuthUseCase) GetSetupContext(ctx context.Context, setupToken string) (*SetupContext, error) {
-	userID, err := u.token.ParseSetupToken(setupToken)
+	userID, err := u.setupTokens.Verify(ctx, setupToken)
 	if err != nil {
-		return nil, authModel.ErrInvalidToken.WithError(fmt.Errorf("setup-context: parse setup token: %w", err)).Err()
+		return nil, err
 	}
 	user, err := u.users.GetByID(ctx, userID)
 	if err != nil {
@@ -134,9 +134,9 @@ func (u *AuthUseCase) CompleteRegistration(
 	redirect string,
 	meta authModel.SessionMetadata,
 ) (sessionCookie, code string, err error) {
-	userID, err := u.token.ParseSetupToken(setupToken)
+	userID, err := u.setupTokens.Verify(ctx, setupToken)
 	if err != nil {
-		return "", "", authModel.ErrInvalidToken.WithError(fmt.Errorf("complete-registration: parse setup token: %w", err)).Err()
+		return "", "", err
 	}
 	var hashedPassword string
 	if plainPassword != "" {
@@ -171,6 +171,10 @@ func (u *AuthUseCase) CompleteRegistration(
 		return "", "", err
 	}
 
+	// The link is spent: a second use (or a stolen copy) finds nothing.
+	if err = u.setupTokens.Revoke(ctx, user.ID); err != nil {
+		return "", "", err
+	}
 	safeRedirect := u.resolveRedirect(redirect)
 	cookie, err := u.createSession(ctx, user.ID, meta)
 	if err != nil {

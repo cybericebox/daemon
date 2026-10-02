@@ -31,6 +31,7 @@ func newPwUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *pass
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	allowSetupLinkIssue(repo)
 	pw := password.New(password.Config{HashCost: 4})
 	notifier := &fakeNotifier{}
 	uc := auth.NewAuthUseCase(auth.Dependencies{

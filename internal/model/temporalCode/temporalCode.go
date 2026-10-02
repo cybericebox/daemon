@@ -38,10 +38,19 @@ type TemporalEmailChangeCodeData struct {
 	Email  string
 }
 
+// TemporalSetupLinkCodeData is the JSON payload stored with a setup-link code.
+type TemporalSetupLinkCodeData struct {
+	UserID uuid.UUID
+}
+
 // temporal code types
 const (
 	PasswordResettingCodeType = int32(iota)
 	EmailChangeCodeType
+	// SetupLinkCodeType keeps the id of a setup link (sign-up, invitation): the link works only
+	// while its row exists, a new link for the same user replaces the old one, finishing the
+	// setup deletes it.
+	SetupLinkCodeType
 )
 
 // Error-code convention: see internal/model/auth/errors.go. Enforced by

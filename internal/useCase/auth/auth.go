@@ -38,9 +38,7 @@ type IRepository interface {
 type ITokenClient interface {
 	GenerateSessionCookie(sessionID uuid.UUID, expiresAt time.Time) (string, error)
 	ParseSessionCookie(tokenStr string) (uuid.UUID, error)
-	GenerateSetupToken(userID uuid.UUID) (string, error)
-	GenerateSetupTokenFor(userID uuid.UUID, ttl time.Duration) (string, error)
-	ParseSetupToken(tokenStr string) (uuid.UUID, error)
+	ISetupTokenSigner
 }
 
 // IPasswordClient is the password port (satisfied by *password.Client).
@@ -100,6 +98,7 @@ type AuthUseCase struct {
 	inboxRequests     IInboxRequests // nil until wired
 	limits            *authLimits
 	background        func(func())
+	setupTokens       *SetupTokenStore
 	// superAdminMu serializes the operations that can take a super_admin out of
 	// service (demote, block, delete): the "last one" check and its write are one decision.
 	// In process: with several replicas the window is the length of one request.
@@ -129,6 +128,8 @@ type Dependencies struct {
 	// Background runs the work a public request must not wait for (nil: a goroutine). Tests pass a
 	// synchronous runner.
 	Background func(func())
+	// SetupTokens is shared with the event invitations; nil builds one from Repo and Token.
+	SetupTokens *SetupTokenStore
 }
 
 // isOAuthConfigured returns true only when deps.OAuth is a non-nil interface
@@ -147,7 +148,12 @@ func isOAuthConfigured(o IOAuthClient) bool {
 }
 
 func NewAuthUseCase(deps Dependencies) *AuthUseCase {
+	setupTokens := deps.SetupTokens
+	if setupTokens == nil {
+		setupTokens = NewSetupTokenStore(deps.Repo, deps.Token)
+	}
 	return &AuthUseCase{
+		setupTokens:       setupTokens,
 		sessions:          sessionRepo.New(deps.Repo),
 		users:             userRepo.New(deps.Repo),
 		codes:             temporalCodeRepo.New(deps.Repo),

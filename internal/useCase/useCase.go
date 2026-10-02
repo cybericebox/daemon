@@ -190,6 +190,10 @@ func NewUseCase(deps Dependencies) *UseCase {
 		infrastructureUseCase.TestLabsDependencies{Source: platformStandRepo.New(deps.Repo), Agent: deps.LabAgent, Destroyer: exerciseUC},
 	)
 
+	// Setup links of the sign-up, Google and invitation flows share one store: a new link for an
+	// account replaces its old one, finishing the setup spends it.
+	setupTokens := authUseCase.NewSetupTokenStore(deps.Repo, deps.Token)
+
 	eventUC := eventUseCase.NewEventUseCase(
 		eventUseCase.Dependencies{
 			Repo:                     deps.Repo,
@@ -207,7 +211,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			PublicAPIBaseURL:         deps.AuthConfig.Hosts.APIURL(""),
 			EventDomain:              deps.AuthConfig.Hosts.EventDomain,
 			IDHost:                   deps.AuthConfig.Hosts.ID,
-			SetupTokens:              deps.Token,
+			SetupTokens:              setupTokens,
 			LabSessions:              deps.LabSessions,
 		},
 	)
@@ -263,6 +267,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Storage:  deps.Storage,
 			Avatar:   mediaUC,
 			Config:   deps.AuthConfig,
+
+			SetupTokens: setupTokens,
 		},
 	)
 	authUC.SetInboxRequests(inboxRequests)

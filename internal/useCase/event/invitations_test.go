@@ -24,7 +24,9 @@ import (
 
 type invitationTokens struct{}
 
-func (invitationTokens) GenerateSetupToken(uuid.UUID) (string, error) { return "setup-secret", nil }
+func (invitationTokens) GenerateSetupToken(context.Context, uuid.UUID, time.Duration) (string, error) {
+	return "setup-secret", nil
+}
 
 type invitationNotifier struct {
 	userID uuid.UUID

@@ -65,9 +65,10 @@ func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rba
 		return userModel.ErrUserExists.WithError(errors.New("invite: account already exists in a non-incomplete status")).Err()
 	}
 
-	setupToken, err := u.token.GenerateSetupToken(userID)
+	// A new invitation link replaces the previous one of the account.
+	setupToken, err := u.setupTokens.GenerateSetupToken(ctx, userID, 0)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to generate setup token").Err()
+		return err
 	}
 
 	override := userModel.User{ID: userID, Email: emailAddr, FirstName: firstName}

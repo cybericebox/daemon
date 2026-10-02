@@ -144,3 +144,26 @@ func TestGenerateSetupTokenFor_OwnLifetime(t *testing.T) {
 		t.Fatalf("zero must mean the default lifetime: %v", d)
 	}
 }
+
+func TestIssueSetupToken_CarriesAUniqueIdThatParses(t *testing.T) {
+	c := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
+	uid := uuid.Must(uuid.NewV7())
+	a, idA, expA, err := c.IssueSetupToken(uid, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, idB, _, _ := c.IssueSetupToken(uid, time.Hour)
+	if idA == "" || idA == idB {
+		t.Fatalf("token ids must be unique: %q %q", idA, idB)
+	}
+	gotUser, gotID, err := c.ParseSetupTokenID(a)
+	if err != nil || gotUser != uid || gotID != idA {
+		t.Fatalf("parse: %v %q %v", gotUser, gotID, err)
+	}
+	if time.Until(expA) > time.Hour || time.Until(expA) < 59*time.Minute {
+		t.Fatalf("expiry %v", expA)
+	}
+	if _, _, err = c.ParseSetupTokenID("garbage"); err == nil {
+		t.Fatal("garbage must be refused")
+	}
+}

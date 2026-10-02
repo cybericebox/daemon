@@ -39,32 +39,47 @@ func (c *Client) GenerateSetupToken(userID uuid.UUID) (string, error) {
 // GenerateSetupTokenFor is GenerateSetupToken with its own lifetime: the link mailed to someone who
 // signed up by themselves needs hours, an invitation days. ttl <= 0 means the client's default.
 func (c *Client) GenerateSetupTokenFor(userID uuid.UUID, ttl time.Duration) (string, error) {
+	signed, _, _, err := c.IssueSetupToken(userID, ttl)
+	return signed, err
+}
+
+// IssueSetupToken is GenerateSetupTokenFor that also returns the token id (jti) and its expiry, for
+// the store that makes the link single-use and revocable.
+func (c *Client) IssueSetupToken(userID uuid.UUID, ttl time.Duration) (signed, id string, expiresAt time.Time, err error) {
 	if ttl <= 0 {
 		ttl = c.setupTTL
 	}
 	now := time.Now()
+	id = uuid.Must(uuid.NewV7()).String()
+	expiresAt = now.Add(ttl)
 	claims := setupClaims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer,
 			Subject:   userID.String(),
 			Audience:  jwt.ClaimStrings{setupAudience},
-			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(now),
-			ID:        uuid.Must(uuid.NewV7()).String(),
+			ID:        id,
 		},
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := tok.SignedString(c.signKey)
+	signed, err = tok.SignedString(c.signKey)
 	if err != nil {
-		return "", fmt.Errorf("token: sign setup token: %w", err)
+		return "", "", time.Time{}, fmt.Errorf("token: sign setup token: %w", err)
 	}
-	return signed, nil
+	return signed, id, expiresAt, nil
 }
 
 // ParseSetupToken validates the HMAC signature, audience ("setup"), and expiry,
 // then returns the userID encoded in the Subject claim.
 // A tampered, expired, or incorrectly-typed token returns ErrInvalidToken.
 func (c *Client) ParseSetupToken(tokenStr string) (uuid.UUID, error) {
+	userID, _, err := c.ParseSetupTokenID(tokenStr)
+	return userID, err
+}
+
+// ParseSetupTokenID is ParseSetupToken that also returns the token id (jti).
+func (c *Client) ParseSetupTokenID(tokenStr string) (uuid.UUID, string, error) {
 	tok, err := jwt.ParseWithClaims(
 		tokenStr,
 		&setupClaims{},
@@ -74,15 +89,15 @@ func (c *Client) ParseSetupToken(tokenStr string) (uuid.UUID, error) {
 		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, "", ErrInvalidToken
 	}
 	claims, ok := tok.Claims.(*setupClaims)
 	if !ok || !tok.Valid {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, "", ErrInvalidToken
 	}
 	id, err := uuid.FromString(claims.Subject)
 	if err != nil {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, "", ErrInvalidToken
 	}
-	return id, nil
+	return id, claims.ID, nil
 }

@@ -40,6 +40,7 @@ func newGoogleUC(t *testing.T, gu *oauth.GoogleUser) (*auth.AuthUseCase, *postgr
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	allowSetupLinkIssue(repo)
 	uc := auth.NewAuthUseCase(auth.Dependencies{
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
@@ -56,6 +57,7 @@ func newGoogleUCRedirect(t *testing.T, gu *oauth.GoogleUser, redirect string) (*
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	allowSetupLinkIssue(repo)
 	uc := auth.NewAuthUseCase(auth.Dependencies{
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
@@ -217,7 +219,7 @@ func TestLinkGoogleToSetupFromOAuth_ReturnsStateReturnTo(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	uc, repo := newGoogleUCRedirect(t, &oauth.GoogleUser{GoogleID: "g-7", Email: "s@b.test"}, "https://event.test/e/1")
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Email: "s@b.test", Status: string(userModel.UserStatusIncomplete)}, nil).AnyTimes()
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
@@ -254,7 +256,7 @@ func TestLinkGoogleToSetup_DifferentUser(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	other := uuid.Must(uuid.NewV7())
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Email: "a@b.test", Status: string(userModel.UserStatusIncomplete)}, nil)
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{ID: other}, nil)
 
@@ -351,9 +353,9 @@ func TestUnlinkGoogle_Success(t *testing.T) {
 func TestLinkGoogleProvider_SameUserIsNoOp(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
-	setupToken, _ := tk.GenerateSetupToken(uid)
 
 	uc, repo := newGoogleUC(t, nil)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 
 	// User exists and is incomplete.
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
@@ -377,7 +379,7 @@ func TestLinkGoogleToSetup_ForeignGoogleEmailRefused(t *testing.T) {
 	uc, repo := newGoogleUC(t, nil)
 	uid := uuid.Must(uuid.NewV7())
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Email: "attacker@evil.test", Status: string(userModel.UserStatusIncomplete)}, nil)
 	// No GetUserByProvider / CreateUserProvider: nothing may be linked.
@@ -392,7 +394,7 @@ func TestLinkGoogleToSetup_EmailMatchIsCaseInsensitive(t *testing.T) {
 	uc, repo := newGoogleUC(t, nil)
 	uid := uuid.Must(uuid.NewV7())
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
-	setupToken, _ := tk.GenerateSetupToken(uid)
+	setupToken := liveSetupLink(t, repo, tk, uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Email: "alice@b.test", Status: string(userModel.UserStatusIncomplete)}, nil)
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
