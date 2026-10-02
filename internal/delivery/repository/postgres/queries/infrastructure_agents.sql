@@ -92,6 +92,13 @@ SET capacity_cpu_millicores = sqlc.narg(capacity_cpu_millicores),
     capacity_seen_at        = sqlc.arg(seen_at)
 WHERE id = sqlc.arg(id);
 
+-- name: SetInfrastructureAgentCapacityNodes :execrows
+-- The allocatable room of each lab node the agent last reported (JSON).
+UPDATE infrastructure_agents
+SET capacity_nodes = sqlc.arg(capacity_nodes)
+WHERE id = sqlc.arg(id)
+  AND archived_at IS NULL;
+
 -- name: SetInfrastructureAgentFeatures :execrows
 -- The last laboratory features the agent reported (JSON) and when they were read.
 UPDATE infrastructure_agents

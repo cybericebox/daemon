@@ -565,7 +565,8 @@ type InfrastructureAgent struct {
 	// Last laboratory features read from the agent (persistence, image cache, scheduler, endpoints, certificate); NULL until first read
 	Features []byte `json:"features"`
 	// When features was last read successfully
-	FeaturesAt pgtype.Timestamptz `json:"features_at"`
+	FeaturesAt    pgtype.Timestamptz `json:"features_at"`
+	CapacityNodes []byte             `json:"capacity_nodes"`
 }
 
 type LabBinding struct {

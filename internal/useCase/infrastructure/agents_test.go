@@ -26,6 +26,7 @@ type memAgents struct {
 	records        map[uuid.UUID]infraModel.AgentRecord
 	order          []uuid.UUID
 	capacityWrites int
+	nodeWrites     int
 }
 
 func newMemAgents() *memAgents { return &memAgents{records: map[uuid.UUID]infraModel.AgentRecord{}} }
@@ -54,6 +55,13 @@ func (m *memAgents) SetCapacity(_ context.Context, id uuid.UUID, cpu, memory *in
 	r.CapacityCPUMillicores, r.CapacityMemoryBytes, r.CapacitySeenAt = cpu, memory, &seen
 	m.records[id] = r
 	m.capacityWrites++
+	return nil
+}
+func (m *memAgents) SetNodes(_ context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error {
+	r := m.records[id]
+	r.Nodes, r.NodesReported = nodes, true
+	m.records[id] = r
+	m.nodeWrites++
 	return nil
 }
 func (m *memAgents) SetFeatures(_ context.Context, id uuid.UUID, f infraModel.AgentFeatures, seen time.Time) error {
@@ -666,6 +674,29 @@ func TestRecordAgentCapacityWritesOnChangeAndWhenStale(t *testing.T) {
 	got := f.store.records[view.ID]
 	if got.CapacityCPUMillicores != nil || got.CapacityMemoryBytes != nil || got.CapacitySeenAt == nil {
 		t.Fatalf("unlimited = %+v", got.AgentRegistration)
+	}
+}
+
+func TestRecordAgentNodesWritesOnChangeAndKeepsThemThroughABlink(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	view, _ := f.uc.EnrollAgent(ctx, enrollForm("eu", 1))
+	nodes := []infraModel.AgentNode{{Name: "n1", CPUMillicores: 3500, MemoryBytes: 8 << 30}, {Name: "n2", CPUMillicores: 1500, MemoryBytes: 4 << 30}}
+	for range 2 {
+		if err := f.uc.RecordAgentNodes(ctx, view.ID, nodes); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.store.nodeWrites != 1 || !f.store.records[view.ID].NodesReported || len(f.store.records[view.ID].Nodes) != 2 {
+		t.Fatalf("unchanged nodes are written once: %d %+v", f.store.nodeWrites, f.store.records[view.ID].Nodes)
+	}
+	// No schedulable node for a moment (a node-agent restarting) does not erase what is known.
+	if err := f.uc.RecordAgentNodes(ctx, view.ID, nil); err != nil || f.store.nodeWrites != 1 || len(f.store.records[view.ID].Nodes) != 2 {
+		t.Fatalf("an empty report is ignored: %v %d", err, f.store.nodeWrites)
+	}
+	nodes[1].CPUMillicores = 2500
+	if err := f.uc.RecordAgentNodes(ctx, view.ID, nodes); err != nil || f.store.nodeWrites != 2 || f.store.records[view.ID].Nodes[1].CPUMillicores != 2500 {
+		t.Fatalf("a changed node is written: %v %d", err, f.store.nodeWrites)
 	}
 }
 

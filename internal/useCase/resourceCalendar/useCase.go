@@ -216,11 +216,13 @@ type agentState struct {
 	Used bool
 	// Why says why an agent is not used: disabled, below_requirements, no_capacity.
 	Why string
+	// NodesReported: the agent reports the room of each node (Nodes is set from it).
+	NodesReported bool
 }
 
 // agentStates reads every agent of the registry; the ones that are used are the enabled ones that meet the
-// platform requirements and have a recorded capacity. Per-node room is not reported by the agents yet, so every
-// agent counts as one node (see calModel.Agent.Nodes).
+// platform requirements and have a recorded capacity. The allocatable room of each node is what the agent last
+// reported; an agent that reports none counts as one node (see calModel.Agent.Nodes).
 func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time) ([]agentState, error) {
 	records, err := u.agents.ListRecords(ctx)
 	if err != nil {
@@ -257,6 +259,12 @@ func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time
 				st.DeviceMax = Amount{CPUMillicores: r.Features.Limits.DeviceMaxCPUMillicores, MemoryBytes: r.Features.Limits.DeviceMaxMemoryBytes}
 			}
 			st.Connected = now.Sub(*r.CapacitySeenAt) <= u.cfg.AgentFresh
+			if r.NodesReported {
+				st.NodesReported = true
+				for _, n := range r.Nodes {
+					st.Nodes = append(st.Nodes, Amount{CPUMillicores: n.CPUMillicores, MemoryBytes: n.MemoryBytes})
+				}
+			}
 		}
 		out = append(out, st)
 	}

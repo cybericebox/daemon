@@ -64,6 +64,17 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 	}
 }
 
+// NodesOf converts the per-node room of an agent's capacity: what labs can ever use on each node (the agent's report
+// is net of the platform reserve). The free room is not kept: it changes with every pod and the calendar plans on what
+// can be used, not on what is free at this moment.
+func NodesOf(c *labpb.CapacityResponse) []infraModel.AgentNode {
+	out := make([]infraModel.AgentNode, 0, len(c.GetNodes()))
+	for _, n := range c.GetNodes() {
+		out = append(out, infraModel.AgentNode{Name: n.GetName(), CPUMillicores: n.GetAllocatableCpuMillicores(), MemoryBytes: n.GetAllocatableMemoryBytes()})
+	}
+	return out
+}
+
 // limitsOf converts the agent's limits and the sizing of its group pods (VPN: base, per user, maximum users;
 // gateway: base, per internet lab, maximum labs); an agent that reports none adds nothing to a plan.
 func limitsOf(r *labpb.FeaturesResponse) infraModel.LimitsFeature {

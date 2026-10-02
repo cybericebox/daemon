@@ -1398,6 +1398,8 @@ type Querier interface {
 	SetInfrastructureAgentAccessKey(ctx context.Context, arg SetInfrastructureAgentAccessKeyParams) (int64, error)
 	// The last known capacity (the tenant quota; NULL = no limit on that resource) and when it was read.
 	SetInfrastructureAgentCapacity(ctx context.Context, arg SetInfrastructureAgentCapacityParams) (int64, error)
+	// The allocatable room of each lab node the agent last reported (JSON).
+	SetInfrastructureAgentCapacityNodes(ctx context.Context, arg SetInfrastructureAgentCapacityNodesParams) (int64, error)
 	// A renewed client certificate with its new key (the tenant is the certificate CN and stays).
 	SetInfrastructureAgentCertificate(ctx context.Context, arg SetInfrastructureAgentCertificateParams) (int64, error)
 	// The last laboratory features the agent reported (JSON) and when they were read.

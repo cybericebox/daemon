@@ -25,6 +25,7 @@ type Queries interface {
 	SetInfrastructureAgentAccessKey(context.Context, postgres.SetInfrastructureAgentAccessKeyParams) (int64, error)
 	SetInfrastructureAgentRetiredKeys(context.Context, postgres.SetInfrastructureAgentRetiredKeysParams) (int64, error)
 	SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error)
+	SetInfrastructureAgentCapacityNodes(context.Context, postgres.SetInfrastructureAgentCapacityNodesParams) (int64, error)
 	SetInfrastructureAgentFeatures(context.Context, postgres.SetInfrastructureAgentFeaturesParams) (int64, error)
 	ArchiveInfrastructureAgent(context.Context, postgres.ArchiveInfrastructureAgentParams) (int64, error)
 	ReplaceInfrastructureAgentCredentials(context.Context, postgres.ReplaceInfrastructureAgentCredentialsParams) (int64, error)
@@ -71,6 +72,10 @@ func toDomain(row postgres.InfrastructureAgent) infraModel.AgentRegistration {
 			t := row.FeaturesAt.Time
 			reg.Features, reg.FeaturesAt = &f, &t
 		}
+	}
+	// A malformed list reads as not reported: the agent's next report rewrites it.
+	if len(row.CapacityNodes) > 0 && json.Unmarshal(row.CapacityNodes, &reg.Nodes) == nil {
+		reg.NodesReported = true
 	}
 	reg.CapacityCPUMillicores = int8Ptr(row.CapacityCpuMillicores)
 	reg.CapacityMemoryBytes = int8Ptr(row.CapacityMemoryBytes)
@@ -208,6 +213,19 @@ func (r *Repository) SetCapacity(ctx context.Context, id uuid.UUID, cpuMillicore
 	_, err := r.q.SetInfrastructureAgentCapacity(ctx, postgres.SetInfrastructureAgentCapacityParams{
 		ID: id, CapacityCpuMillicores: int8Of(cpuMillicores), CapacityMemoryBytes: int8Of(memoryBytes), SeenAt: pgtype.Timestamptz{Time: seenAt, Valid: true},
 	})
+	return err
+}
+
+// SetNodes records the allocatable room of each lab node the agent last reported.
+func (r *Repository) SetNodes(ctx context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error {
+	if nodes == nil {
+		nodes = []infraModel.AgentNode{}
+	}
+	encoded, err := json.Marshal(nodes)
+	if err != nil {
+		return err
+	}
+	_, err = r.q.SetInfrastructureAgentCapacityNodes(ctx, postgres.SetInfrastructureAgentCapacityNodesParams{ID: id, CapacityNodes: encoded})
 	return err
 }
 

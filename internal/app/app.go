@@ -130,7 +130,14 @@ func Run(cfg *config.Config) {
 					v := capacity.GetMemoryQuotaBytes()
 					memory = &v
 				}
-				return ucs.AgentsUseCase.RecordAgentCapacity(ctx, member.ID, cpu, memory, observedAt)
+				if err := ucs.AgentsUseCase.RecordAgentCapacity(ctx, member.ID, cpu, memory, observedAt); err != nil {
+					return err
+				}
+				// The room of each lab node, for the calendar's packing (an older agent reports none).
+				if capacity.GetNodesReported() {
+					return ucs.AgentsUseCase.RecordAgentNodes(ctx, member.ID, labagent.NodesOf(capacity))
+				}
+				return nil
 			})
 			// What the agent offers (persistence, image cache, scheduler, endpoints): the live member gets it at
 			// once, the registry keeps the last report.

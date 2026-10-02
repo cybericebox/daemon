@@ -47,12 +47,24 @@ type AgentRegistration struct {
 	CapacityCPUMillicores *int64
 	CapacityMemoryBytes   *int64
 	CapacitySeenAt        *time.Time
+	// Nodes is the allocatable room of each lab node as the agent last reported it (what labs can ever use there,
+	// net of the platform reserve). NodesReported is false for an agent that does not report it (an older one):
+	// its whole capacity then counts as one node.
+	Nodes         []AgentNode
+	NodesReported bool
 	// Features is what the agent last reported the tenant can use (persistence, image cache, scheduler,
 	// endpoints, certificate); nil until the first report. FeaturesAt is when it was read.
 	Features   *AgentFeatures
 	FeaturesAt *time.Time
 	// ArchivedAt is set for a deleted agent: the record stays for history, its keys and endpoint are gone.
 	ArchivedAt *time.Time
+}
+
+// AgentNode is the allocatable room of one lab node of an agent.
+type AgentNode struct {
+	Name          string `json:"name"`
+	CPUMillicores int64  `json:"cpu_millicores"`
+	MemoryBytes   int64  `json:"memory_bytes"`
 }
 
 // AgentFeatures is what a laboratory agent offers the platform's tenant. The platform keeps no copy of

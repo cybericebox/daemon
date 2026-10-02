@@ -457,3 +457,40 @@ func TestReportedTenantQuotaLimitsTheCapacity(t *testing.T) {
 	assert.Equal(t, int64(4000), c.Agents[0].Capacity.CPUMillicores)
 	assert.True(t, c.Agents[1].CPUUnlimited)
 }
+
+func withNodes(r *infraModel.AgentRecord, nodes ...infraModel.AgentNode) {
+	r.Nodes, r.NodesReported = nodes, true
+}
+
+// Per-node room is on when every agent that is used reports it: a device has to fit one node, so an agent of two
+// small nodes cannot take a large device although its capacity sums to enough, and the team goes to the agent that can.
+func TestPerNodeRoomPacksDevicesOnOneNode(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	small := infraModel.AgentNode{CPUMillicores: 500, MemoryBytes: 8 << 30}
+	big := infraModel.AgentNode{CPUMillicores: 4000, MemoryBytes: 32 << 30}
+	withNodes(&h.agents.records[0], small, small, small, small)
+	h.planner.need = Need{Teams: 4, PerTeam: Amount{CPUMillicores: 1000, MemoryBytes: 2 << 30}, LargestDevice: Amount{CPUMillicores: 800, MemoryBytes: 1 << 30}}
+
+	c, err := h.uc.GetResourceCalendarCapacity(ctx)
+	require.NoError(t, err)
+	assert.False(t, c.PerNodeRoomReported, "one agent of two reports it")
+	assert.Equal(t, int64(10000), c.Agents[0].Capacity.CPUMillicores)
+	assert.Len(t, c.Agents[0].Nodes, 4)
+
+	withNodes(&h.agents.records[1], big, big)
+	c, err = h.uc.GetResourceCalendarCapacity(ctx)
+	require.NoError(t, err)
+	assert.True(t, c.PerNodeRoomReported, "both agents report it")
+
+	res, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	require.NoError(t, err)
+	require.Len(t, res.Reservation.Placement, 1, "the whole event is on the agent with a node for the device")
+	assert.Equal(t, "b", res.Reservation.Placement[0].AgentName)
+	assert.Equal(t, 4, res.Reservation.Placement[0].Units)
+
+	// A device no node of any agent can hold: nothing is placed.
+	h.planner.need.LargestDevice = Amount{CPUMillicores: 6000, MemoryBytes: 1 << 30}
+	_, err = h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{DryRun: true}, uuid.Nil)
+	assert.True(t, is(err, calModel.ErrReservationConflict), "%v", err)
+}

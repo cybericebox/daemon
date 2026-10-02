@@ -58,6 +58,9 @@ type AgentCapacityView struct {
 	MemoryUnlimited bool
 	// DeviceMax is the largest device the agent allows; zero is no limit.
 	DeviceMax Amount
+	// Nodes is the allocatable room of each lab node the agent reported (net of the platform reserve); empty when
+	// it reports none. A device must fit one of them.
+	Nodes []Amount
 }
 
 // CapacityView is the capacity of the agents that are used.
@@ -70,8 +73,8 @@ type CapacityView struct {
 	// TestPool is the guaranteed minimum for test laboratories.
 	TestPool Amount
 	Agents   []AgentCapacityView
-	// PerNodeRoomReported is false while the agents do not report per-node room: packing then treats each
-	// agent as one node.
+	// PerNodeRoomReported is true when every agent that is used reports the room of its nodes (and there is one):
+	// a device then has to fit one node. Otherwise an agent without a report counts as one node.
 	PerNodeRoomReported bool
 }
 

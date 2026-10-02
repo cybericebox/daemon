@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"slices"
 	"sync"
 	"time"
 
@@ -44,6 +45,7 @@ type (
 		SetRetiredKeys(ctx context.Context, id uuid.UUID, retired []infraModel.RetiredKey, now time.Time) (bool, error)
 		Delete(ctx context.Context, id uuid.UUID) (bool, error)
 		SetCapacity(ctx context.Context, id uuid.UUID, cpuMillicores, memoryBytes *int64, seenAt time.Time) error
+		SetNodes(ctx context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error
 		SetFeatures(ctx context.Context, id uuid.UUID, features infraModel.AgentFeatures, seenAt time.Time) error
 		Archive(ctx context.Context, id uuid.UUID, name string, at time.Time) (bool, error)
 		ReplaceCredentials(ctx context.Context, a infraModel.AgentRecord) (bool, error)
@@ -112,6 +114,7 @@ type (
 
 		capacityMu   sync.Mutex
 		lastCapacity map[uuid.UUID]capacityReading
+		lastNodes    map[uuid.UUID][]infraModel.AgentNode
 	}
 
 	// capacityReading is the last capacity written for an agent, to skip repeated writes.
@@ -590,6 +593,31 @@ func (u *AgentsUseCase) RecordAgentCapacity(ctx context.Context, id uuid.UUID, c
 	}
 	u.capacityMu.Lock()
 	u.lastCapacity[id] = capacityReading{cpu: cpuMillicores, memory: memoryBytes, at: seenAt}
+	u.capacityMu.Unlock()
+	return nil
+}
+
+// RecordAgentNodes keeps the allocatable room of each lab node an agent last reported, for the resource calendar's
+// packing. It is called with every capacity the agent reports and writes only when the nodes change. An empty list
+// (no schedulable node right now: a node-agent restarting) is not recorded, so a blink never erases what is known.
+func (u *AgentsUseCase) RecordAgentNodes(ctx context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+	u.capacityMu.Lock()
+	last, known := u.lastNodes[id]
+	u.capacityMu.Unlock()
+	if known && slices.Equal(last, nodes) {
+		return nil
+	}
+	if err := u.store.SetNodes(ctx, id, nodes); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the agent nodes").Err()
+	}
+	u.capacityMu.Lock()
+	if u.lastNodes == nil {
+		u.lastNodes = map[uuid.UUID][]infraModel.AgentNode{}
+	}
+	u.lastNodes[id] = slices.Clone(nodes)
 	u.capacityMu.Unlock()
 	return nil
 }
