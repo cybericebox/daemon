@@ -309,6 +309,10 @@ func (u *EventUseCase) UpdateEventExercise(ctx context.Context, eventID, eventEx
 	if version.ExerciseID != link.ExerciseID {
 		return EventExerciseView{}, eventExerciseModel.ErrEventExerciseVersionMismatch.Err()
 	}
+	// A task of a running event runs for every team: a version that asks for more must fit the reservation.
+	if err = u.requireReservedForChange(ctx, eventID, link, version, time.Now()); err != nil {
+		return EventExerciseView{}, err
+	}
 	return u.switchInTransaction(ctx, eventID, eventExerciseID, entry, version, nil)
 }
 
@@ -332,6 +336,9 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 		if versionErr != nil {
 			return EventExerciseView{}, versionErr
 		}
+		if err = u.requireReservedForChange(ctx, eventID, link, version, time.Now()); err != nil {
+			return EventExerciseView{}, err
+		}
 		return u.switchInTransaction(ctx, eventID, eventExerciseID, entry, version, nil)
 	} else if !repositoryTools.IsObjectNotFoundError(findErr) {
 		return EventExerciseView{}, model.ErrPlatform.WithError(findErr).WithMessage("Failed to find event fork").Err()
@@ -351,6 +358,10 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 	}
 	version := exerciseModel.ExerciseVersion{ID: uuid.Must(uuid.NewV7()), ExerciseID: fork.ID, Status: exerciseModel.VersionStatusPublished,
 		AdminNote: pinned.AdminNote, Variants: pinned.Variants, CreatedAt: now, CreatedBy: uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}, PublishedAt: &now}
+	// The copy carries the pinned topology, so it asks for what the task asks for now; the gate still looks.
+	if err = u.requireReservedForChange(ctx, eventID, link, version, now); err != nil {
+		return EventExerciseView{}, err
+	}
 	create := func(ctx context.Context, repo IRepository) error {
 		exercises := exerciseRepo.New(repo)
 		created, createErr := exercises.Create(ctx, fork)
@@ -422,6 +433,9 @@ func (u *EventUseCase) RevertEventExercise(ctx context.Context, eventID, eventEx
 	}
 	version, entry, err := u.attachableVersion(ctx, eventID, target.UUID, false)
 	if err != nil {
+		return EventExerciseView{}, err
+	}
+	if err = u.requireReservedForChange(ctx, eventID, link, version, time.Now()); err != nil {
 		return EventExerciseView{}, err
 	}
 	return u.switchInTransaction(ctx, eventID, eventExerciseID, entry, version, nil)

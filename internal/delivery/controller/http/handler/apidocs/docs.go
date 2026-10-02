@@ -6521,6 +6521,7 @@ const docTemplate = `{
         },
         "/events/{id}/manage/exercises/{exerciseID}/fork": {
             "post": {
+                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.",
                 "produces": [
                     "application/json"
                 ],
@@ -6627,6 +6628,7 @@ const docTemplate = `{
         },
         "/events/{id}/manage/exercises/{exerciseID}/revert": {
             "post": {
+                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.",
                 "produces": [
                     "application/json"
                 ],
@@ -6674,6 +6676,7 @@ const docTemplate = `{
         },
         "/events/{id}/manage/exercises/{exerciseID}/update": {
             "post": {
+                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.",
                 "consumes": [
                     "application/json"
                 ],

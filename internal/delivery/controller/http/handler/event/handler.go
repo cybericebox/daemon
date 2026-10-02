@@ -1976,6 +1976,7 @@ func parseEventExerciseParams(ctx *gin.Context) (eventID, exerciseID, userID uui
 
 // updateEventExercise godoc
 // @Summary «Оновити»: switch the attachment in place to the latest (or given) published version, keeping event overrides
+// @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
 // @Tags events
 // @Accept json
 // @Produce json
@@ -2006,6 +2007,7 @@ func (h *Handler) updateEventExercise(ctx *gin.Context) {
 
 // forkEventExercise godoc
 // @Summary «Налаштувати під захід»: switch to the event's own copy of the catalog exercise
+// @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
@@ -2027,6 +2029,7 @@ func (h *Handler) forkEventExercise(ctx *gin.Context) {
 
 // revertEventExercise godoc
 // @Summary «Повернути оригінал»: switch a fork attachment back to its catalog source
+// @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
