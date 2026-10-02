@@ -203,6 +203,23 @@ func CanAssignRole(caller, target Role) bool {
 	return true
 }
 
+// roleRank orders the stored roles by privilege.
+var roleRank = map[Role]int{RoleUser: 0, RoleAdminViewer: 1, RoleAdmin: 2, RoleSuperAdmin: 3}
+
+// CanSetRole reports whether caller may give target to an account whose role is current ("" for a
+// new account): CanAssignRole, and only a super_admin may RAISE anyone to admin or above. An admin
+// can lower another admin (admin -> admin_viewer, user) and keep an admin an admin, but never makes
+// one: admin rights are not handed out by admins.
+func CanSetRole(caller, current, target Role) bool {
+	if !CanAssignRole(caller, target) {
+		return false
+	}
+	if caller == RoleSuperAdmin {
+		return true
+	}
+	return !(roleRank[target] >= roleRank[RoleAdmin] && roleRank[target] > roleRank[current])
+}
+
 // PermissionStrings returns the held permission set for a role as plain
 // strings, for the API to expose to clients. Mirrors Permissions.
 func PermissionStrings(role Role) []string {

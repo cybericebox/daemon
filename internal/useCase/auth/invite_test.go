@@ -239,7 +239,7 @@ func TestInviteUser_IncompleteAccount_ResetsProviderBinding(t *testing.T) {
 		}
 		return 1, nil
 	})
-	if err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "inc@b.test", rbac.RoleAdmin, "A", "B"); err != nil {
+	if err := uc.InviteUser(inviteCtx(rbac.RoleSuperAdmin), "inc@b.test", rbac.RoleAdmin, "A", "B"); err != nil {
 		t.Fatalf("re-invite: %v", err)
 	}
 	if !deleted {
@@ -263,5 +263,13 @@ func TestInviteUser_InvalidEmailRefused(t *testing.T) {
 	uc, _, _ := newInviteUC(t)
 	if err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "Bob <bob@b.test>", rbac.RoleUser, "", ""); !errors.Is(err, authModel.ErrAuthInvalidEmail.Err()) {
 		t.Fatalf("want ErrAuthInvalidEmail, got %v", err)
+	}
+}
+
+// Admin rights are not handed out by admins: an admin cannot invite one (a super_admin can).
+func TestInviteUser_AdminCannotInviteAnAdmin(t *testing.T) {
+	uc, _, _ := newInviteUC(t)
+	if err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "x@b.test", rbac.RoleAdmin, "A", "B"); !errors.Is(err, authModel.ErrCannotAssignRole.Err()) {
+		t.Fatalf("want ErrCannotAssignRole, got %v", err)
 	}
 }

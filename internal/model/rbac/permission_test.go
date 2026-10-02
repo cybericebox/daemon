@@ -176,3 +176,35 @@ func TestPlatformMailSettingsAreSuperAdminOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestCanSetRole(t *testing.T) {
+	cases := []struct {
+		caller, current, target Role
+		want                    bool
+	}{
+		// a super_admin sets anything but is the only one who makes admins
+		{RoleSuperAdmin, RoleUser, RoleAdmin, true},
+		{RoleSuperAdmin, RoleAdmin, RoleSuperAdmin, true},
+		// an admin never raises anyone to admin or above
+		{RoleAdmin, RoleUser, RoleAdmin, false},
+		{RoleAdmin, RoleAdminViewer, RoleAdmin, false},
+		{RoleAdmin, "", RoleAdmin, false}, // a new account (invitation)
+		{RoleAdmin, RoleAdmin, RoleSuperAdmin, false},
+		// an admin lowers another admin, or leaves one as it is
+		{RoleAdmin, RoleAdmin, RoleAdminViewer, true},
+		{RoleAdmin, RoleAdmin, RoleUser, true},
+		{RoleAdmin, RoleAdmin, RoleAdmin, true},
+		// below admin an admin may set freely
+		{RoleAdmin, RoleUser, RoleAdminViewer, true},
+		{RoleAdmin, "", RoleUser, true},
+		{RoleAdmin, RoleAdminViewer, RoleUser, true},
+		// those without the permissions cannot grant anything above their own
+		{RoleAdminViewer, RoleUser, RoleAdminViewer, true},
+		{RoleUser, RoleUser, RoleAdminViewer, false},
+	}
+	for _, c := range cases {
+		if got := CanSetRole(c.caller, c.current, c.target); got != c.want {
+			t.Errorf("CanSetRole(%q,%q,%q)=%v want %v", c.caller, c.current, c.target, got, c.want)
+		}
+	}
+}

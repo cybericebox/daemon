@@ -530,3 +530,32 @@ func TestAdminConcurrentDemotionsLeaveOneSuperAdmin(t *testing.T) {
 		t.Fatalf("exactly one demotion may succeed: ok=%d active=%d", ok, active)
 	}
 }
+
+// An admin lowers another admin but never raises anyone to admin.
+func TestAdminUpdateUserRole_AdminLowersAdminButNeverRaises(t *testing.T) {
+	cases := []struct {
+		name      string
+		current   rbac.Role
+		target    rbac.Role
+		wantError bool
+	}{
+		{"lower an admin", rbac.RoleAdmin, rbac.RoleUser, false},
+		{"raise a user to admin", rbac.RoleUser, rbac.RoleAdmin, true},
+		{"raise a viewer to admin", rbac.RoleAdminViewer, rbac.RoleAdmin, true},
+		{"raise a user to viewer", rbac.RoleUser, rbac.RoleAdminViewer, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			uc, repo := newAdminUC(t)
+			uid := uuid.Must(uuid.NewV7())
+			repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(c.current), Status: "active"}, nil)
+			if !c.wantError {
+				repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+			}
+			err := uc.UpdateUserRole(adminCtx(rbac.RoleAdmin), uid, c.target)
+			if c.wantError != errors.Is(err, authModel.ErrCannotAssignRole.Err()) || (!c.wantError && err != nil) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
+}

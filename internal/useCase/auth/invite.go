@@ -112,7 +112,8 @@ func (u *AuthUseCase) assertCanInvite(ctx context.Context, role rbac.Role) error
 	if !ok {
 		return authModel.ErrAuthInvalidSession.Err()
 	}
-	if !rbac.CanAssignRole(caller.Role, role) {
+	// An invitation creates the account at that role: a raise like any other.
+	if !rbac.CanSetRole(caller.Role, "", role) {
 		return authModel.ErrCannotAssignRole.Err()
 	}
 	return nil
@@ -177,7 +178,7 @@ func (u *AuthUseCase) InviteEntries(ctx context.Context, entries []InviteEntry) 
 			result.Code = InviteCodeEmailInvalid
 		case !rbac.ValidRole(string(role)):
 			result.Code = InviteCodeRoleInvalid
-		case !rbac.CanAssignRole(caller.Role, role):
+		case !rbac.CanSetRole(caller.Role, "", role):
 			result.Code = InviteCodeRoleForbidden
 		default:
 			if err := u.InviteUser(ctx, emailAddr, role, strings.TrimSpace(entry.FirstName), strings.TrimSpace(entry.LastName)); err != nil {

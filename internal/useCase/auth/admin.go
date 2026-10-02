@@ -227,6 +227,10 @@ func (u *AuthUseCase) UpdateUserRole(ctx context.Context, userID uuid.UUID, role
 		if err := requireManageableTarget(caller.Role, rbac.Role(target.Role)); err != nil {
 			return err
 		}
+		// Admins lower roles; only a super_admin makes an admin.
+		if !rbac.CanSetRole(caller.Role, target.Role, role) {
+			return authModel.ErrCannotAssignRole.Err()
+		}
 		// Guard: demoting the last super_admin is forbidden.
 		if target.Role == rbac.RoleSuperAdmin && role != rbac.RoleSuperAdmin {
 			if err := u.guardLastSuperAdmin(ctx, target); err != nil {
