@@ -50,6 +50,16 @@ func ukTemplates() []Template {
 					para("Якщо ви не реєструвалися, жодних дій не потрібно."))),
 		},
 		{
+			Type: "email_changed", Subject: "Електронну пошту облікового запису змінено", Preheader: "Вхід через Google вимкнено",
+			Body: blocks(logo(),
+				rich(heading("Електронну пошту змінено"),
+					para("Вітаємо, ", variable("Name"), "! Адресу облікового запису Cyber ICE Box змінено на ", variable("NewEmail"), "."),
+					para("Разом із цим вимкнено вхід через Google: якщо він був підключений, увійдіть паролем.")),
+				button("Скинути пароль", "{{ResetURL}}"),
+				fallbackUK("ResetURL"),
+				rich(para("Якщо це були не ви, негайно скиньте пароль за кнопкою вище."))),
+		},
+		{
 			Type: "account_inactivity_warning", Subject: "Ваш обліковий запис Cyber ICE Box буде видалено", Preheader: "Увійдіть, щоб зберегти обліковий запис",
 			Body: blocks(logo(),
 				rich(heading("Обліковий запис буде видалено"),

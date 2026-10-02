@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/useCase/notification/startupdefaults"
 	"os"
 	"os/signal"
 	"syscall"
@@ -129,6 +130,9 @@ func Run(cfg *config.Config) {
 	ucs = useCase.NewUseCase(deps)
 	bootstrapAgent(ctx, cfg.Infrastructure.Agent, ucs.AgentsUseCase)
 
+	if err := startupdefaults.Seed(ctx, repo.Queries); err != nil {
+		log.Error().Err(err).Msg("Failed to seed the startup notification defaults")
+	}
 	// ── bootstrap: promote designated super-admin if the account already exists ──
 	if err := ucs.PromoteSuperAdminIfDesignated(ctx); err != nil {
 		log.Error().Err(err).Msg("Failed to promote designated super admin")

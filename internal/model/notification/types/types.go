@@ -19,6 +19,9 @@ const (
 	NotificationTypePasswordReset        NotificationType = "password_reset"
 	NotificationTypeUserInvitation       NotificationType = "user_invitation"
 	NotificationTypeAccountExists        NotificationType = "account_exists"
+	// NotificationTypeEmailChanged is the security notice to the OLD address
+	// after the account email was changed (and Google unlinked).
+	NotificationTypeEmailChanged NotificationType = "email_changed"
 	// NotificationTypeAccountInactivityWarning warns an inactive account's
 	// owner before the retention job deletes the account.
 	NotificationTypeAccountInactivityWarning NotificationType = "account_inactivity_warning"

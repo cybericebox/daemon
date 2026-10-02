@@ -48,7 +48,7 @@ func TestEmailTemplatesRedesignMigration(t *testing.T) {
 	}
 	requireDefaults := func(skip string) {
 		for _, tpl := range emaildefaults.All(emaildefaults.UK) {
-			if tpl.Type == skip {
+			if tpl.Type == skip || emaildefaults.StartupSeeded[tpl.Type] {
 				continue
 			}
 			got, ok := load(tpl.Type)
@@ -109,7 +109,7 @@ func TestInAppTemplatesRedesignMigration(t *testing.T) {
 	}
 	requireDefaults := func(skip string) {
 		for _, tpl := range inappdefaults.All(inappdefaults.UK) {
-			if tpl.Type == skip {
+			if tpl.Type == skip || emaildefaults.StartupSeeded[tpl.Type] {
 				continue
 			}
 			title, body, link, icon := load(tpl.Type)

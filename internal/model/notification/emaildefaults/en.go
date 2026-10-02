@@ -49,6 +49,16 @@ func enTemplates() []Template {
 					para("If you did not sign up, no action is needed."))),
 		},
 		{
+			Type: "email_changed", Subject: "The account email was changed", Preheader: "Sign-in with Google is turned off",
+			Body: blocks(logo(),
+				rich(heading("The email was changed"),
+					para("Hello, ", variable("Name"), "! The address of your Cyber ICE Box account was changed to ", variable("NewEmail"), "."),
+					para("Sign-in with Google is turned off with it: if it was linked, sign in with your password.")),
+				button("Reset password", "{{ResetURL}}"),
+				fallbackEN("ResetURL"),
+				rich(para("If this was not you, reset your password now with the button above."))),
+		},
+		{
 			Type: "account_inactivity_warning", Subject: "Your Cyber ICE Box account will be deleted", Preheader: "Sign in to keep your account",
 			Body: blocks(logo(),
 				rich(heading("Your account will be deleted"),
