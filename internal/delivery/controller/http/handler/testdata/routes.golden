@@ -57,7 +57,7 @@ POST   /api/events/:id/archive | gate: events.write | layers: -
 GET    /api/events/:id/config | gate: events.read | layers: -
 PUT    /api/events/:id/config | gate: events.write | layers: -
 GET    /api/events/:id/content | gate: events.content.read(public) | layers: -
-GET    /api/events/:id/content-images/:fileID | gate: - | layers: middleware.PublicMedia
+GET    /api/events/:id/content-images/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/content/document | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content/pages | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content/pages/:slug | gate: events.content.read(public) | layers: -
@@ -65,12 +65,12 @@ GET    /api/events/:id/content/pages/:slug/access | gate: events.content.read(pu
 GET    /api/events/:id/content/pages/:slug/document | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content/pages/:slug/values | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content/values | gate: events.content.read(public) | layers: -
-GET    /api/events/:id/favicon/:fileID | gate: - | layers: middleware.PublicMedia
+GET    /api/events/:id/favicon/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/forms/:formID | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/forms/:formID/response | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/forms/pending | gate: self | layers: eventself.touchPresence
 PUT    /api/events/:id/infrastructure | gate: events.write | layers: -
-GET    /api/events/:id/logo/:fileID | gate: - | layers: middleware.PublicMedia
+GET    /api/events/:id/logo/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/manage/access | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/analytics/access | gate: self | layers: eventAnalytics.requireSections
 GET    /api/events/:id/manage/analytics/communications | gate: self | layers: eventAnalytics.requireSections
@@ -280,7 +280,7 @@ PUT    /api/events/:id/managers/:userID | gate: events.write | layers: -
 GET    /api/events/:id/participants | gate: events.read | layers: -
 POST   /api/events/:id/participants/:userID/approve | gate: events.write | layers: -
 POST   /api/events/:id/participants/:userID/reject | gate: events.write | layers: -
-GET    /api/events/:id/preview-picture/:fileID | gate: - | layers: middleware.PublicMedia
+GET    /api/events/:id/preview-picture/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/results | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/changes | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/live | gate: events.results.read(public) | layers: -

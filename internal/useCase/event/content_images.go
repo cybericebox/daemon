@@ -55,7 +55,7 @@ func (u *EventUseCase) UploadEventContentImage(ctx context.Context, eventID, use
 }
 
 func (u *EventUseCase) StreamEventContentImage(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.ensureEvent(ctx, eventID); err != nil {
+	if err := u.requireMediaVisible(ctx, eventID); err != nil {
 		return nil, "", err
 	}
 	if u.brandMedia == nil {

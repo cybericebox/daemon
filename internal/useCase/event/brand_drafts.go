@@ -158,7 +158,7 @@ func (u *EventUseCase) EventFaviconURL(ctx context.Context, eventID uuid.UUID) (
 }
 
 func (u *EventUseCase) StreamEventFavicon(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.ensureEvent(ctx, eventID); err != nil {
+	if err := u.requireMediaVisible(ctx, eventID); err != nil {
 		return nil, "", err
 	}
 	ids, err := u.brandMedia.GetReferences(ctx, mediaModel.RefTypeEventFavicon, eventID)

@@ -11,40 +11,52 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 )
 
-// OriginGuard is the anti-CSRF / anti-lab-page gate, on top of the session cookie's SameSite=Strict
-// (which does not keep out pages on a domain that is same-site with the platform, like the lab
-// device pages). It is an ALLOW-list, for every method:
+// OriginGuard decides by the sensitivity of the data, not by the method alone, on top of the session
+// cookie's SameSite=Strict (which does not keep out pages on a domain that is same-site with the
+// platform, like the lab device pages):
 //
-//   - an Origin that is present must be on the allow-list (config.HostsConfig.OriginAllowed: MAIN,
-//     ID, ADMIN, EXERCISES, API and one-label event sites, https only), else 403. "null" (sandboxed
-//     frames, data: and file: pages, some redirects) is PRESENT and not allowed;
-//   - without an Origin, a present Referer must be on the allow-list too, else 403 (except on the
-//     public-media routes, PublicMediaRoutes: their Referer is whoever embeds the image);
-//   - with neither: GET, HEAD and OPTIONS pass (navigations, the event frontend's server-side
-//     fetches, health checks); a write (POST, PUT, PATCH, DELETE) is refused: a browser always
-//     names its source on a cross-origin write, so a nameless write is not a browser acting for a
-//     signed-in user (the API has no tokenless webhook);
+//   - PUBLIC reads (GET/HEAD of PublicReadRoutes: public event info and content, the scoreboard,
+//     public media, avatars, the OAuth redirects) are not checked: embeds and referrers must never
+//     break;
+//   - everything else (a gated route, a write) must come from the allow-list (OriginPolicy: the
+//     platform hosts and event sites whose tag exists, https only): a present Origin must be allowed,
+//     else 403 ("null" is present and never allowed); with no Origin a present Referer must be
+//     allowed; with neither, a WRITE is refused (a browser always names its source on a cross-origin
+//     write; the API has no tokenless webhook), and a READ is allowed except a no-cors subresource
+//     load (Sec-Fetch-Mode: no-cors: an <img> or <script> of an authenticated URL), while top-level
+//     navigations, downloads and server-side fetches pass;
 //   - a write with a body must be application/json or multipart/form-data (the upload routes): a
 //     cross-origin form post cannot send JSON, and a body in another type never reaches a handler
 //     that reads JSON whatever its header says.
-//
-// The allow-list is the CORS one, shared, so the two cannot drift apart.
 func OriginGuard(hosts config.HostsConfig) gin.HandlerFunc {
+	return OriginGuardWith(OriginPolicy{Hosts: hosts})
+}
+
+// OriginGuardWith is OriginGuard over an explicit policy (with the event tag check).
+func OriginGuardWith(policy OriginPolicy) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		write := isWrite(ctx.Request.Method)
+		if !write && PublicReadRoutes[ctx.FullPath()] {
+			ctx.Next()
+			return
+		}
+		req := ctx.Request.Context()
 		if origin, present := ctx.Request.Header["Origin"]; present && len(origin) > 0 {
 			// Present (even empty or "null") is a named source.
-			if reason, ok := hosts.OriginAllowed(origin[0]); !ok {
+			if reason, ok := policy.Allowed(req, origin[0]); !ok {
 				refuse(ctx, "origin: "+reason)
 				return
 			}
-		} else if referer := ctx.GetHeader("Referer"); referer != "" && !publicMediaRead(ctx) {
-			if reason, ok := hosts.OriginAllowed(referer); !ok {
+		} else if referer := ctx.GetHeader("Referer"); referer != "" {
+			if reason, ok := policy.Allowed(req, referer); !ok {
 				refuse(ctx, "referer: "+reason)
 				return
 			}
 		} else if write {
 			refuse(ctx, "no Origin and no Referer on a state-changing request")
+			return
+		} else if ctx.GetHeader("Sec-Fetch-Mode") == "no-cors" {
+			refuse(ctx, "no-cors load of an authenticated URL")
 			return
 		}
 		if write && hasBody(ctx.Request) && !allowedBodyType(ctx.GetHeader("Content-Type")) {
@@ -55,15 +67,6 @@ func OriginGuard(hosts config.HostsConfig) gin.HandlerFunc {
 		}
 		ctx.Next()
 	}
-}
-
-// publicMediaRead is a read of a public-media route (PublicMediaRoutes): its Referer is the page
-// that embeds it, wherever that is.
-func publicMediaRead(ctx *gin.Context) bool {
-	if ctx.Request.Method != http.MethodGet && ctx.Request.Method != http.MethodHead {
-		return false
-	}
-	return PublicMediaRoutes[ctx.FullPath()]
 }
 
 func isWrite(method string) bool {

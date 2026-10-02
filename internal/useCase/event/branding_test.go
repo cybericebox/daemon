@@ -14,13 +14,16 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 	event "github.com/cybericebox/daemon/internal/useCase/event"
 )
 
@@ -128,7 +131,9 @@ func TestEventContentImageIsIndependentAndEventScoped(t *testing.T) {
 	ctx := context.Background()
 	eventID, otherEventID, actor, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q := newFormGateMock(gomock.NewController(t))
-	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.Event, error) { return postgres.Event{ID: id}, nil }).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.Event, error) {
+		return startedEvent(id, time.Now()), nil
+	}).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID}, previewRefs: []uuid.UUID{uuid.Must(uuid.NewV7())}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
 	png := realPNG("content")
@@ -149,7 +154,7 @@ func TestEventContentImageAcceptsAnimatedGIF(t *testing.T) {
 	ctx := context.Background()
 	eventID, actor, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q := newFormGateMock(gomock.NewController(t))
-	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID}, nil).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, time.Now()), nil).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
 	first := image.NewPaletted(image.Rect(0, 0, 2, 2), color.Palette{color.Black, color.White})
@@ -171,7 +176,7 @@ func TestEventLogoUploadReadAndReset(t *testing.T) {
 	ctx := context.Background()
 	eventID, actor, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q := newFormGateMock(gomock.NewController(t))
-	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID}, nil).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, time.Now()), nil).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID, ContentType: "image/png"}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
 	if got, err := u.EventLogoURL(ctx, eventID); err != nil || got != "" {
@@ -212,7 +217,7 @@ func TestEventBrandDraftDoesNotPublishAndRejectsOtherActor(t *testing.T) {
 	ctx := context.Background()
 	eventID, actor, otherActor, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q := newFormGateMock(gomock.NewController(t))
-	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID}, nil).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, time.Now()), nil).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
 	png := realPNG("minimal")
@@ -233,7 +238,7 @@ func TestEventPreviewPictureUploadReadAndReset(t *testing.T) {
 	ctx := context.Background()
 	eventID, actor, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q := newFormGateMock(gomock.NewController(t))
-	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID}, nil).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, time.Now()), nil).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID, ContentType: "image/png"}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media, PublicAPIBaseURL: "https://api.example.test"})
 	if _, err := u.UploadEventPreviewPicture(ctx, eventID, actor, strings.NewReader("not an image"), 12); err == nil {
@@ -305,7 +310,7 @@ func TestEventBrandDraftOfANonImageIsRefused(t *testing.T) {
 	ctx := context.Background()
 	eventID, actor, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q := newFormGateMock(gomock.NewController(t))
-	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID}, nil).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, time.Now()), nil).AnyTimes()
 	media := &brandMediaFake{file: mediaModel.File{ID: fileID}}
 	u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
 	// Stored by another route: right name and owner, but an HTML document.
@@ -316,5 +321,66 @@ func TestEventBrandDraftOfANonImageIsRefused(t *testing.T) {
 	_, err := u.SaveEventAppearance(ctx, eventID, actor, event.EventAppearanceInput{Logo: event.BrandAssetChange{Action: "replace", FileID: fileID}, Favicon: event.BrandAssetChange{Action: "keep"}})
 	if !errors.Is(err, eventModel.ErrEventBrandDraftInvalid.Err()) || len(media.refs) != 0 {
 		t.Fatalf("a non-image draft must be refused as an invalid draft: refs=%v err=%v", media.refs, err)
+	}
+}
+
+// Before the event is published its media is not public: only staff of the event see it.
+func TestEventMediaOfAnUnpublishedEventIsForItsStaffOnly(t *testing.T) {
+	eventID, logoID, staff, stranger := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	build := func(t *testing.T, e postgres.Event) (*event.EventUseCase, *brandMediaFake, *postgresMocks.MockQuerier) {
+		q := newFormGateMock(gomock.NewController(t))
+		q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(e, nil).AnyTimes()
+		media := &brandMediaFake{file: mediaModel.File{ID: logoID}, refs: []uuid.UUID{logoID}, previewRefs: []uuid.UUID{logoID}, faviconRefs: []uuid.UUID{logoID},
+			contentRefs: map[uuid.UUID][]uuid.UUID{eventID: {logoID}}}
+		return event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media}), media, q
+	}
+	unpublished := postgres.Event{ID: eventID, LifecycleConfigured: false}
+	published := startedEvent(eventID, time.Now())
+	streams := map[string]func(*event.EventUseCase, context.Context) error{
+		"logo": func(u *event.EventUseCase, c context.Context) error {
+			_, _, err := u.StreamEventLogo(c, eventID, logoID)
+			return err
+		},
+		"favicon": func(u *event.EventUseCase, c context.Context) error {
+			_, _, err := u.StreamEventFavicon(c, eventID, logoID)
+			return err
+		},
+		"preview": func(u *event.EventUseCase, c context.Context) error {
+			_, _, err := u.StreamEventPreviewPicture(c, eventID, logoID)
+			return err
+		},
+		"content": func(u *event.EventUseCase, c context.Context) error {
+			_, _, err := u.StreamEventContentImage(c, eventID, logoID)
+			return err
+		},
+	}
+	for name, stream := range streams {
+		t.Run(name, func(t *testing.T) {
+			u, _, q := build(t, published)
+			_ = q
+			if err := stream(u, context.Background()); err != nil {
+				t.Fatalf("a published event's media is public: %v", err)
+			}
+			// unpublished: not found for an anonymous caller and for a stranger
+			u, _, _ = build(t, unpublished)
+			if err := stream(u, context.Background()); !errors.Is(err, eventModel.ErrEventNotFound.Err()) {
+				t.Fatalf("anonymous: want not found, got %v", err)
+			}
+			strangerCtx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: stranger, Role: rbac.RoleUser})
+			q2 := newFormGateMock(gomock.NewController(t))
+			q2.EXPECT().GetEventByID(gomock.Any(), eventID).Return(unpublished, nil).AnyTimes()
+			q2.EXPECT().GetEventManager(gomock.Any(), gomock.Any()).Return(postgres.EventManager{}, pgx.ErrNoRows).AnyTimes()
+			media := &brandMediaFake{file: mediaModel.File{ID: logoID}, refs: []uuid.UUID{logoID}, previewRefs: []uuid.UUID{logoID}, faviconRefs: []uuid.UUID{logoID},
+				contentRefs: map[uuid.UUID][]uuid.UUID{eventID: {logoID}}}
+			u2 := event.NewEventUseCase(event.Dependencies{Repo: q2, BrandMedia: media})
+			if err := stream(u2, strangerCtx); !errors.Is(err, eventModel.ErrEventNotFound.Err()) {
+				t.Fatalf("a signed-in stranger: want not found, got %v", err)
+			}
+			// a platform admin with events.read reads it (implicit viewer)
+			adminCtx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: staff, Role: rbac.RoleAdmin})
+			if err := stream(u2, adminCtx); err != nil {
+				t.Fatalf("platform staff set the event up: %v", err)
+			}
+		})
 	}
 }

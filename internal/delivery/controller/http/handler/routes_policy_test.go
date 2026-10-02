@@ -232,24 +232,20 @@ func TestRoutePolicy(t *testing.T) {
 // Each carries the reason it is safe. A route missing from this map that has no
 // gate fails TestRouteInvariants; so does an entry that got a gate (stale).
 var publicRoutes = map[string]string{
-	"POST /api/auth/sign-in":                      "credential entry; recaptcha, failure lockout",
-	"POST /api/auth/sign-up":                      "registration entry; recaptcha, per-recipient mail quota",
-	"GET /api/auth/setup":                         "setup-token flow: the token is the credential",
-	"POST /api/auth/setup":                        "setup-token flow: the token is the credential",
-	"POST /api/auth/password/reset-request":       "recaptcha; neutral answer; per-recipient mail quota",
-	"POST /api/auth/password/reset":               "single-use emailed code is the credential",
-	"GET /api/auth/password/policy":               "static complexity policy (config, no user data)",
-	"POST /api/auth/account/email/confirm":        "single-use emailed code is the credential",
-	"GET /api/auth/avatar/:id":                    "public avatar proxy; the bucket stays private",
-	"GET /api/auth/google":                        "OAuth sign-in redirect",
-	"GET /api/auth/google/register":               "OAuth registration redirect",
-	"GET /api/auth/google/setup":                  "OAuth setup-link redirect; the email must match the account",
-	"GET /api/auth/google/callback":               "OAuth callback; state cookie double-submit",
-	"GET /api/events/upcoming":                    "landing card of the nearest published event (public data only)",
-	"GET /api/events/:id/logo/:fileID":            "image proxy verifies the file is this event's current logo",
-	"GET /api/events/:id/favicon/:fileID":         "image proxy verifies the file is this event's current favicon",
-	"GET /api/events/:id/preview-picture/:fileID": "image proxy verifies the file is this event's current preview",
-	"GET /api/events/:id/content-images/:fileID":  "image proxy verifies the file belongs to this event's page content",
+	"POST /api/auth/sign-in":                "credential entry; recaptcha, failure lockout",
+	"POST /api/auth/sign-up":                "registration entry; recaptcha, per-recipient mail quota",
+	"GET /api/auth/setup":                   "setup-token flow: the token is the credential",
+	"POST /api/auth/setup":                  "setup-token flow: the token is the credential",
+	"POST /api/auth/password/reset-request": "recaptcha; neutral answer; per-recipient mail quota",
+	"POST /api/auth/password/reset":         "single-use emailed code is the credential",
+	"GET /api/auth/password/policy":         "static complexity policy (config, no user data)",
+	"POST /api/auth/account/email/confirm":  "single-use emailed code is the credential",
+	"GET /api/auth/avatar/:id":              "public avatar proxy; the bucket stays private",
+	"GET /api/auth/google":                  "OAuth sign-in redirect",
+	"GET /api/auth/google/register":         "OAuth registration redirect",
+	"GET /api/auth/google/setup":            "OAuth setup-link redirect; the email must match the account",
+	"GET /api/auth/google/callback":         "OAuth callback; state cookie double-submit",
+	"GET /api/events/upcoming":              "landing card of the nearest published event (public data only)",
 }
 
 // selfWithoutLayerPrefixes are the areas where PermSelf alone is the whole route
@@ -367,8 +363,10 @@ func TestPublicMediaRoutesMatchTheMiddlewareSet(t *testing.T) {
 			if s.method != "GET" {
 				t.Errorf("%s %s: public media is read-only", s.method, s.path)
 			}
-			if len(s.gates) != 0 {
-				t.Errorf("%s: public media must be unauthenticated, it has gates %v", s.path, s.gates)
+			for _, g := range s.gates {
+				if !rbac.RolePublic.HasPermission(g) {
+					t.Errorf("%s: public media must be unauthenticated, it has the real gate %v", s.path, g)
+				}
 			}
 			used[s.path] = true
 		}
@@ -381,6 +379,36 @@ func TestPublicMediaRoutesMatchTheMiddlewareSet(t *testing.T) {
 	for path := range used {
 		if !middleware.PublicMediaRoutes[path] {
 			t.Errorf("%s uses PublicMedia but is not in middleware.PublicMediaRoutes (its Referer would still be checked)", path)
+		}
+	}
+}
+
+// The origin guard's public reads are exactly the mounted GET routes that have no gate or only public
+// gates: nothing authenticated is exempt, and no public read is checked by mistake.
+func TestPublicReadRoutesMatchTheMountedRouter(t *testing.T) {
+	want := map[string]bool{}
+	for _, s := range buildRoutePolicy(t) {
+		if s.method != "GET" {
+			continue
+		}
+		public := true
+		for _, g := range s.gates {
+			if !rbac.RolePublic.HasPermission(g) {
+				public = false
+			}
+		}
+		if public {
+			want[s.path] = true
+		}
+	}
+	for path := range want {
+		if !middleware.PublicReadRoutes[path] {
+			t.Errorf("%s is a public read but the origin guard would check it: add it to middleware.PublicReadRoutes", path)
+		}
+	}
+	for path := range middleware.PublicReadRoutes {
+		if !want[path] {
+			t.Errorf("%s is exempt from the origin guard but the router gates it (or does not mount it)", path)
 		}
 	}
 }

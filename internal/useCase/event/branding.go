@@ -13,9 +13,12 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
+	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
 // UploadLimits are the byte limits of the event image uploads (EVENT_LOGO_MAX_BYTES,
@@ -92,7 +95,7 @@ func (u *EventUseCase) RemoveEventLogo(ctx context.Context, eventID uuid.UUID) e
 }
 
 func (u *EventUseCase) StreamEventLogo(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.ensureEvent(ctx, eventID); err != nil {
+	if err := u.requireMediaVisible(ctx, eventID); err != nil {
 		return nil, "", err
 	}
 	ids, err := u.brandMedia.GetReferences(ctx, mediaModel.RefTypeEventLogo, eventID)
@@ -188,7 +191,7 @@ func (u *EventUseCase) RemoveEventPreviewPicture(ctx context.Context, eventID, u
 }
 
 func (u *EventUseCase) StreamEventPreviewPicture(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.ensureEvent(ctx, eventID); err != nil {
+	if err := u.requireMediaVisible(ctx, eventID); err != nil {
 		return nil, "", err
 	}
 	ids, err := u.brandMedia.GetReferences(ctx, mediaModel.RefTypeEventPreviewPicture, eventID)
@@ -203,4 +206,28 @@ func (u *EventUseCase) StreamEventPreviewPicture(ctx context.Context, eventID, f
 		return nil, "", err
 	}
 	return reader, file.ContentType, nil
+}
+
+// requireMediaVisible is the gate of the public media routes (logo, favicon, preview picture, page
+// images): they are public once the event is published. Before that the event does not exist for
+// anyone but its staff, whose own pages show the images while they are being set up.
+func (u *EventUseCase) requireMediaVisible(ctx context.Context, eventID uuid.UUID) error {
+	e, err := u.events.GetByID(ctx, eventID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return eventModel.ErrEventNotFound.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	if e.Lifecycle.Status(time.Now()) != eventModel.LifecycleNotPublished {
+		return nil
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx)
+	if !ok {
+		return eventModel.ErrEventNotFound.Err()
+	}
+	if err = u.RequireReadEvent(ctx, eventID, claims.UserID); err != nil {
+		return eventModel.ErrEventNotFound.WithError(err).Err()
+	}
+	return nil
 }

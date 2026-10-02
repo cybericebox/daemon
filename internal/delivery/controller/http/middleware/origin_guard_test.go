@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,16 +13,24 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 )
 
+// knownTags is the set of event tags that exist in these tests.
+type knownTags map[string]bool
+
+func (k knownTags) EventTagExists(_ context.Context, tag string) bool { return k[tag] }
+
 func guardRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
 		Exercises: "exercises.example.test", EventDomain: "events.example.test"}
 	r := gin.New()
-	r.Use(middleware.OriginGuard(hosts))
+	r.Use(middleware.OriginGuardWith(middleware.OriginPolicy{Hosts: hosts, Tags: knownTags{"ctf": true}}))
 	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
 	for _, m := range []string{"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"} {
 		r.Handle(m, "/x", ok)
 	}
+	// a public read: PublicReadRoutes has the avatar route
+	r.GET("/api/auth/avatar/:id", ok)
+	r.GET("/api/events/:id/results", ok)
 	return r
 }
 
@@ -56,7 +65,7 @@ func TestOriginGuard_AllowedOriginsPassForEveryMethod(t *testing.T) {
 	r := guardRouter()
 	for _, origin := range []string{
 		"https://example.test", "https://id.example.test", "https://admin.example.test", "https://exercises.example.test",
-		"https://api.example.test", "https://ctf.events.example.test",
+		"https://api.example.test", "https://ctf.events.example.test", // the tag exists
 	} {
 		for _, m := range allMethods {
 			if got := send(r, m, bodyFor(m), map[string]string{"Origin": origin, "Content-Type": jsonType}); got != http.StatusOK {
@@ -163,5 +172,106 @@ func TestOriginGuard_WriteBodyMustBeJSONOrMultipart(t *testing.T) {
 	}
 	if got := send(r, "DELETE", "", map[string]string{"Origin": origin}); got != http.StatusOK {
 		t.Errorf("a bodiless write needs no content type: %d", got)
+	}
+}
+
+// Public reads (gate "-" or public gates: public event info, the scoreboard, public media, avatars)
+// are not checked: embeds and referrers must never break.
+func TestOriginGuard_PublicReadsAreNotChecked(t *testing.T) {
+	r := guardRouter()
+	for _, path := range []string{"/api/auth/avatar/x", "/api/events/e1/results"} {
+		for name, h := range map[string]map[string]string{
+			"foreign referer": {"Referer": "https://mail.google.com/mail/u/0/"},
+			"lab referer":     {"Referer": "https://web-x.labs.example.test/"},
+			"no headers":      nil,
+			"no-cors embed":   {"Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "image"},
+			"foreign origin":  {"Origin": "https://evil.test"}, // the CORS gate, an earlier middleware, decides what a foreign page may READ
+			"unknown tag":     {"Origin": "https://nosuch.events.example.test"},
+			"origin null":     {"Origin": "null"},
+		} {
+			for _, m := range []string{"GET"} { // gin mounts no HEAD for these routes
+				req := httptest.NewRequest(m, path, nil)
+				for k, v := range h {
+					req.Header[k] = []string{v}
+				}
+				w := httptest.NewRecorder()
+				r.ServeHTTP(w, req)
+				if w.Code != http.StatusOK {
+					t.Errorf("%s %s (%s): %d, want pass", m, path, name, w.Code)
+				}
+			}
+		}
+	}
+	// a public route's WRITE is still checked
+	if got := send(r, "POST", `{}`, map[string]string{"Referer": "https://mail.google.com/", "Content-Type": jsonType}); got != http.StatusForbidden {
+		t.Errorf("a write is never public: %d", got)
+	}
+}
+
+// An authenticated GET from a lab page is refused, whatever the way it names its source.
+func TestOriginGuard_AuthenticatedReadFromALabPageIsRefused(t *testing.T) {
+	r := guardRouter()
+	for _, h := range []map[string]string{
+		{"Origin": "https://web-x.labs.example.test"},
+		{"Referer": "https://web-x.labs.example.test/page"},
+		{"Origin": "null"},
+		{"Origin": "https://nosuch.events.example.test"},
+	} {
+		if got := send(r, "GET", "", h); got != http.StatusForbidden {
+			t.Errorf("%v: %d, want 403", h, got)
+		}
+	}
+}
+
+// An authenticated URL cannot be loaded as an <img>/<script> by a page that names no source;
+// top-level navigations, downloads and server-side fetches pass.
+func TestOriginGuard_AuthenticatedNoCorsLoadIsRefused(t *testing.T) {
+	r := guardRouter()
+	if got := send(r, "GET", "", map[string]string{"Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "image"}); got != http.StatusForbidden {
+		t.Errorf("no-cors image load: %d, want 403", got)
+	}
+	for name, h := range map[string]map[string]string{
+		"navigation":      {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"},
+		"download":        {"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Sec-Fetch-Site": "same-site"},
+		"same-origin xhr": {"Sec-Fetch-Mode": "cors", "Sec-Fetch-Site": "same-origin"},
+		"server fetch":    nil,
+	} {
+		if got := send(r, "GET", "", h); got != http.StatusOK {
+			t.Errorf("%s: %d, want pass", name, got)
+		}
+	}
+	// a no-cors load that names a platform page as its Referer is that page's own load
+	if got := send(r, "GET", "", map[string]string{"Sec-Fetch-Mode": "no-cors", "Referer": "https://id.example.test/profile"}); got != http.StatusOK {
+		t.Errorf("our own page's image load: %d", got)
+	}
+}
+
+func TestEventTagCache_CachesAndRefusesWhenTheLookupFails(t *testing.T) {
+	calls := 0
+	exists := map[string]bool{"ctf": true}
+	failing := false
+	c := middleware.NewEventTagCache(func(_ context.Context, tag string) (bool, error) {
+		calls++
+		if failing {
+			return false, context.DeadlineExceeded
+		}
+		return exists[tag], nil
+	})
+	ctx := context.Background()
+	if !c.EventTagExists(ctx, "ctf") || !c.EventTagExists(ctx, "ctf") || calls != 1 {
+		t.Fatalf("a known tag is looked up once, calls=%d", calls)
+	}
+	if c.EventTagExists(ctx, "nosuch") || c.EventTagExists(ctx, "nosuch") || calls != 2 {
+		t.Fatalf("an unknown tag is remembered briefly, calls=%d", calls)
+	}
+	exists["nosuch"] = true // an event with that tag is created
+	c.Invalidate()
+	if !c.EventTagExists(ctx, "nosuch") {
+		t.Fatal("after an invalidation a new event is accepted")
+	}
+	failing = true
+	c.Invalidate()
+	if c.EventTagExists(ctx, "ctf") {
+		t.Fatal("a lookup error must refuse the origin")
 	}
 }

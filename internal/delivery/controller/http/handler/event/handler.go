@@ -229,10 +229,10 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ev.GET("", h.prot.RequirePermission(rbac.PermEventsRead), h.list)
 		// Public: anonymous landing-page card (allowlisted in tools/checkroutes).
 		ev.GET("upcoming", h.upcoming)
-		ev.GET(":id/logo/:fileID", middleware.PublicMedia, h.streamEventLogo)
-		ev.GET(":id/favicon/:fileID", middleware.PublicMedia, h.streamEventFavicon)
-		ev.GET(":id/preview-picture/:fileID", middleware.PublicMedia, h.streamEventPreviewPicture)
-		ev.GET(":id/content-images/:fileID", middleware.PublicMedia, h.streamEventContentImage)
+		ev.GET(":id/logo/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventLogo)
+		ev.GET(":id/favicon/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventFavicon)
+		ev.GET(":id/preview-picture/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventPreviewPicture)
+		ev.GET(":id/content-images/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventContentImage)
 		ev.POST("", h.prot.RequirePermission(rbac.PermEventsWrite), h.create)
 
 		ev.GET(":id", h.prot.RequirePermission(rbac.PermEventsRead), h.get)

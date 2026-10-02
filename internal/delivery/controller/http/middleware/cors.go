@@ -34,6 +34,12 @@ const preflightMaxAge = 10 * time.Minute
 // https://<tag>.<EVENT_DOMAIN> event sites. Any other present Origin is rejected
 // with 403 before the request reaches routing.
 func HandleCORSMiddleWare(hosts config.HostsConfig) gin.HandlerFunc {
+	return HandleCORS(OriginPolicy{Hosts: hosts})
+}
+
+// HandleCORS is HandleCORSMiddleWare over an explicit policy (with the event tag check).
+func HandleCORS(policy OriginPolicy) gin.HandlerFunc {
+	hosts := policy.Hosts
 	return func(ctx *gin.Context) {
 		origin := ctx.GetHeader("Origin")
 		if origin == "" {
@@ -41,7 +47,7 @@ func HandleCORSMiddleWare(hosts config.HostsConfig) gin.HandlerFunc {
 			return
 		}
 
-		if reason, ok := originAllowed(origin, hosts); !ok {
+		if reason, ok := policy.Allowed(ctx.Request.Context(), origin); !ok {
 			log.Warn().
 				Str("origin", origin).
 				Str("eventDomain", hosts.EventDomain).
@@ -71,10 +77,4 @@ func HandleCORSMiddleWare(hosts config.HostsConfig) gin.HandlerFunc {
 
 		ctx.Next()
 	}
-}
-
-// originAllowed delegates to the shared allow-list (config.HostsConfig.OriginAllowed), the same one
-// the origin guard uses.
-func originAllowed(origin string, hosts config.HostsConfig) (reason string, ok bool) {
-	return hosts.OriginAllowed(origin)
 }
