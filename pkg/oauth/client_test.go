@@ -171,10 +171,11 @@ func mockOAuthServer(t *testing.T, userInfoPayload map[string]any) (*httptest.Se
 
 func TestGetGoogleUser_ValidFlow(t *testing.T) {
 	userPayload := map[string]any{
-		"id":      "google-uid-123",
-		"email":   "alice@example.com",
-		"name":    "Alice",
-		"picture": "https://example.com/pic.jpg",
+		"id":             "google-uid-123",
+		"email":          "alice@example.com",
+		"verified_email": true,
+		"name":           "Alice",
+		"picture":        "https://example.com/pic.jpg",
 	}
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 
@@ -202,11 +203,12 @@ func TestGetGoogleUser_ValidFlow(t *testing.T) {
 
 func TestGetGoogleUser_ReadsGivenAndFamilyName(t *testing.T) {
 	userPayload := map[string]any{
-		"id":          "google-uid-123",
-		"email":       "vp@example.com",
-		"name":        "Volodymyr Porokhniak",
-		"given_name":  "Volodymyr",
-		"family_name": "Porokhniak",
+		"id":             "google-uid-123",
+		"email":          "vp@example.com",
+		"verified_email": true,
+		"name":           "Volodymyr Porokhniak",
+		"given_name":     "Volodymyr",
+		"family_name":    "Porokhniak",
 	}
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 	c := mustClient(t)
@@ -260,8 +262,9 @@ func TestGetGoogleUser_InvalidState(t *testing.T) {
 func TestGetGoogleUser_MissingRequiredFields(t *testing.T) {
 	// Response missing "id" field.
 	userPayload := map[string]any{
-		"email": "alice@example.com",
-		"name":  "Alice",
+		"email":          "alice@example.com",
+		"verified_email": true,
+		"name":           "Alice",
 	}
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 
@@ -293,8 +296,8 @@ func TestGetGoogleLoginURL_EmbedsRedirect(t *testing.T) {
 
 	userPayload := map[string]any{
 		"id":    "google-uid-999",
-		"email": "redirect-test@example.com",
-		"name":  "Redirect Test",
+		"email": "redirect-test@example.com", "verified_email": true,
+		"name": "Redirect Test",
 	}
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 
@@ -328,8 +331,8 @@ func TestGetGoogleLoginURL_EmptyRedirect(t *testing.T) {
 
 	userPayload := map[string]any{
 		"id":    "google-uid-1",
-		"email": "no-redirect@example.com",
-		"name":  "No Redirect",
+		"email": "no-redirect@example.com", "verified_email": true,
+		"name": "No Redirect",
 	}
 	srv, googleCfg := mockOAuthServer(t, userPayload)
 
@@ -344,5 +347,39 @@ func TestGetGoogleLoginURL_EmptyRedirect(t *testing.T) {
 	}
 	if redirect != "" {
 		t.Fatalf("redirect = %q, want empty string", redirect)
+	}
+}
+
+// Google only vouches for an address when verified_email is true; an
+// unverified one must never reach account linking (PoC from the auth audit).
+func TestGetGoogleUser_UnverifiedEmailRejected(t *testing.T) {
+	cases := map[string]map[string]any{
+		"false":   {"id": "999", "email": "superadmin@example.com", "verified_email": false},
+		"absent":  {"id": "999", "email": "superadmin@example.com"},
+		"string":  {"id": "999", "email": "superadmin@example.com", "verified_email": "true"},
+		"oidc no": {"id": "999", "email": "superadmin@example.com", "email_verified": false},
+	}
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv, googleCfg := mockOAuthServer(t, payload)
+			c := mustClient(t)
+			_, state, _ := c.GetGoogleLoginURL("")
+			tok, _ := googleCfg.Exchange(context.Background(), "any-code")
+			_, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok)
+			if !errors.Is(err, oauth.ErrGoogleEmailNotVerified) {
+				t.Fatalf("want ErrGoogleEmailNotVerified, got %v", err)
+			}
+		})
+	}
+}
+
+func TestGetGoogleUser_OIDCEmailVerifiedAccepted(t *testing.T) {
+	srv, googleCfg := mockOAuthServer(t, map[string]any{"id": "1", "email": "a@example.com", "email_verified": true})
+	c := mustClient(t)
+	_, state, _ := c.GetGoogleLoginURL("")
+	tok, _ := googleCfg.Exchange(context.Background(), "any-code")
+	user, _, err := c.GetGoogleUserFromToken(context.Background(), state, srv.URL+"/userinfo", tok)
+	if err != nil || !user.EmailVerified {
+		t.Fatalf("want verified user, got %+v, %v", user, err)
 	}
 }

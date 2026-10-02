@@ -219,7 +219,7 @@ func TestLinkGoogleToSetupFromOAuth_ReturnsStateReturnTo(t *testing.T) {
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
 	setupToken, _ := tk.GenerateSetupToken(uid)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
-		Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil).AnyTimes()
+		Return(postgres.User{ID: uid, Email: "s@b.test", Status: string(userModel.UserStatusIncomplete)}, nil).AnyTimes()
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
 	repo.EXPECT().CreateUserProvider(gomock.Any(), gomock.Any()).Return(postgres.UserProvider{}, nil)
 
@@ -244,7 +244,7 @@ func TestBeginGoogleRegistration_ActiveEmailBlocks(t *testing.T) {
 
 func TestLinkGoogleToSetup_BadToken(t *testing.T) {
 	uc, _ := newGoogleUC(t, nil)
-	if err := uc.LinkGoogleToSetup(context.Background(), "garbage", "g-1"); !errors.Is(err, authModel.ErrInvalidToken.Err()) {
+	if err := uc.LinkGoogleToSetup(context.Background(), "garbage", "g-1", "a@b.test"); !errors.Is(err, authModel.ErrInvalidToken.Err()) {
 		t.Fatalf("want ErrInvalidToken, got %v", err)
 	}
 }
@@ -255,10 +255,10 @@ func TestLinkGoogleToSetup_DifferentUser(t *testing.T) {
 	other := uuid.Must(uuid.NewV7())
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
 	setupToken, _ := tk.GenerateSetupToken(uid)
-	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Email: "a@b.test", Status: string(userModel.UserStatusIncomplete)}, nil)
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{ID: other}, nil)
 
-	if err := uc.LinkGoogleToSetup(context.Background(), setupToken, "g-1"); !errors.Is(err, userModel.ErrUserExists.Err()) {
+	if err := uc.LinkGoogleToSetup(context.Background(), setupToken, "g-1", "a@b.test"); !errors.Is(err, userModel.ErrUserExists.Err()) {
 		t.Fatalf("want ErrUserExists, got %v", err)
 	}
 }
@@ -355,7 +355,7 @@ func TestLinkGoogleProvider_SameUserIsNoOp(t *testing.T) {
 
 	// User exists and is incomplete.
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
-		Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
+		Return(postgres.User{ID: uid, Email: "a@b.test", Status: string(userModel.UserStatusIncomplete)}, nil)
 
 	// GetUserByProvider returns the SAME user → idempotent no-op.
 	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).
@@ -363,7 +363,71 @@ func TestLinkGoogleProvider_SameUserIsNoOp(t *testing.T) {
 
 	// CreateUserProvider must NOT be called — gomock will fail the test if it is.
 
-	if err := uc.LinkGoogleToSetup(context.Background(), setupToken, "g-same"); err != nil {
+	if err := uc.LinkGoogleToSetup(context.Background(), setupToken, "g-same", "a@b.test"); err != nil {
 		t.Fatalf("same-user idempotency: expected nil, got %v", err)
+	}
+}
+
+// M2: GET /auth/google/setup?token=<attacker token> makes the VICTIM's Google
+// identity reach LinkGoogleToSetup for the attacker's account. The identity
+// must not be bound unless its verified email is the account's own address.
+func TestLinkGoogleToSetup_ForeignGoogleEmailRefused(t *testing.T) {
+	uc, repo := newGoogleUC(t, nil)
+	uid := uuid.Must(uuid.NewV7())
+	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
+	setupToken, _ := tk.GenerateSetupToken(uid)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).
+		Return(postgres.User{ID: uid, Email: "attacker@evil.test", Status: string(userModel.UserStatusIncomplete)}, nil)
+	// No GetUserByProvider / CreateUserProvider: nothing may be linked.
+
+	err := uc.LinkGoogleToSetup(context.Background(), setupToken, "victim-google-id", "victim@b.test")
+	if !errors.Is(err, authModel.ErrAuthGoogleEmailMismatch.Err()) {
+		t.Fatalf("want ErrAuthGoogleEmailMismatch, got %v", err)
+	}
+}
+
+func TestLinkGoogleToSetup_EmailMatchIsCaseInsensitive(t *testing.T) {
+	uc, repo := newGoogleUC(t, nil)
+	uid := uuid.Must(uuid.NewV7())
+	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
+	setupToken, _ := tk.GenerateSetupToken(uid)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).
+		Return(postgres.User{ID: uid, Email: "alice@b.test", Status: string(userModel.UserStatusIncomplete)}, nil)
+	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
+	repo.EXPECT().CreateUserProvider(gomock.Any(), gomock.Any()).Return(postgres.UserProvider{}, nil)
+
+	if err := uc.LinkGoogleToSetup(context.Background(), setupToken, "g-1", "Alice@B.test"); err != nil {
+		t.Fatalf("LinkGoogleToSetup: %v", err)
+	}
+}
+
+// H1: an unverified Google email surfaces as a client error, never as a
+// registration step.
+func TestBeginGoogleRegistration_UnverifiedEmailRefused(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	uc := auth.NewAuthUseCase(auth.Dependencies{
+		Repo:     repo,
+		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
+		Password: password.New(password.Config{HashCost: 4}),
+		Notifier: &fakeNotifier{},
+		OAuth:    &fakeOAuth{err: oauth.ErrGoogleEmailNotVerified},
+		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, Hosts: testHosts("test")},
+	})
+	_, err := uc.BeginGoogleRegistration(context.Background(), "code", "state", authModel.SessionMetadata{})
+	if !errors.Is(err, authModel.ErrAuthGoogleEmailNotVerified.Err()) {
+		t.Fatalf("want ErrAuthGoogleEmailNotVerified, got %v", err)
+	}
+}
+
+// A mixed-case Google address finds the (lower-cased) account instead of
+// creating a duplicate one.
+func TestBeginGoogleRegistration_EmailIsNormalized(t *testing.T) {
+	uc, repo := newGoogleUC(t, &oauth.GoogleUser{GoogleID: "g-9", Email: " Alice@B.test "})
+	repo.EXPECT().GetUserByProvider(gomock.Any(), gomock.Any()).Return(postgres.User{}, pgx.ErrNoRows)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "alice@b.test").
+		Return(postgres.User{ID: uuid.Must(uuid.NewV7()), Status: string(userModel.UserStatusActive)}, nil)
+	if _, err := uc.BeginGoogleRegistration(context.Background(), "code", "state", authModel.SessionMetadata{}); !errors.Is(err, authModel.ErrAuthAccountExistsSignIn.Err()) {
+		t.Fatalf("want ErrAuthAccountExistsSignIn, got %v", err)
 	}
 }

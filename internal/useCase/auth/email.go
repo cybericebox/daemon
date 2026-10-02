@@ -20,7 +20,11 @@ import (
 
 // RequestEmailChange issues a one-time code bound to the user + new address and
 // emails a confirmation link to the NEW address (via the notifier override).
-func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, newEmail string) error {
+func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, rawEmail string) error {
+	newEmail, err := parseEmail(rawEmail)
+	if err != nil {
+		return err
+	}
 	// Reject if a (non-deleted) account already uses the new address.
 	if _, err := u.users.GetByEmail(ctx, newEmail); err == nil {
 		return userModel.ErrUserExists.WithError(errors.New("email-change-request: new address already in use")).Err()

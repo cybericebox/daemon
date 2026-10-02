@@ -149,6 +149,8 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 				// Email owned by an active account without Google: sign in there
 				// (Google can then be linked from the profile). Never auto-link.
 				h.googleErrorRedirect(ctx, "/sign-in", "already_registered", "")
+			case errors.Is(err, authModel.ErrAuthGoogleEmailNotVerified.Err()):
+				h.googleErrorRedirect(ctx, "/sign-up", "email_not_verified", "")
 			default:
 				h.googleErrorRedirect(ctx, "/sign-up", "failed", "")
 			}

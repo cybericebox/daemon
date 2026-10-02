@@ -29,7 +29,7 @@ func (u *AuthUseCase) SignIn(
 ) (sessionCookie, safeRedirect string, err error) {
 	safeRedirect = u.resolveRedirect(redirect)
 
-	user, dbErr := u.users.GetByEmail(ctx, emailAddr)
+	user, dbErr := u.users.GetByEmail(ctx, normalizeEmail(emailAddr))
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
 		return "", "", model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
 	}

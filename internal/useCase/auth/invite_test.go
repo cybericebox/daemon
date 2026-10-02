@@ -87,6 +87,7 @@ func TestInviteUser_IncompleteAccount_Reinvites(t *testing.T) {
 	uc, repo, notifier := newInviteUC(t)
 	uid := uuid.Must(uuid.NewV7())
 	repo.EXPECT().GetUserByEmail(gomock.Any(), "inc@b.test").Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
+	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, arg postgres.UpdateUserParams) (int64, error) {
@@ -215,5 +216,51 @@ func TestInviteEntries_BatchSize(t *testing.T) {
 	uc, _, _ := newInviteUC(t)
 	if _, err := uc.InviteEntries(inviteCtx(rbac.RoleAdmin), nil); !errors.Is(err, authModel.ErrInviteBatchSize.Err()) {
 		t.Fatalf("want ErrInviteBatchSize, got %v", err)
+	}
+}
+
+// H1: an admin invite over an unclaimed account must not inherit a provider
+// somebody bound beforehand — otherwise the pre-registered Google identity of
+// an attacker would claim the invited (admin) role.
+func TestInviteUser_IncompleteAccount_ResetsProviderBinding(t *testing.T) {
+	uc, repo, _ := newInviteUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "inc@b.test").Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
+	deleted := false
+	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).DoAndReturn(func(_ context.Context, _ uuid.UUID) (int64, error) {
+		deleted = true
+		return 1, nil
+	})
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: string(userModel.UserStatusIncomplete)}, nil)
+	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ postgres.UpdateUserParams) (int64, error) {
+		if !deleted {
+			return 0, fmt.Errorf("role was changed before the old provider binding was dropped")
+		}
+		return 1, nil
+	})
+	if err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "inc@b.test", rbac.RoleAdmin, "A", "B"); err != nil {
+		t.Fatalf("re-invite: %v", err)
+	}
+	if !deleted {
+		t.Fatal("provider binding must be reset on re-invite")
+	}
+}
+
+func TestInviteUser_EmailIsNormalized(t *testing.T) {
+	uc, repo, notifier := newInviteUC(t)
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "mixed@b.test").Return(postgres.User{}, pgx.ErrNoRows)
+	repo.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Return(postgres.User{}, nil)
+	if err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), " Mixed@B.test", rbac.RoleUser, "", ""); err != nil {
+		t.Fatalf("invite: %v", err)
+	}
+	if notifier.lastRecipientEmail != "mixed@b.test" {
+		t.Fatalf("recipient %q", notifier.lastRecipientEmail)
+	}
+}
+
+func TestInviteUser_InvalidEmailRefused(t *testing.T) {
+	uc, _, _ := newInviteUC(t)
+	if err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "Bob <bob@b.test>", rbac.RoleUser, "", ""); !errors.Is(err, authModel.ErrAuthInvalidEmail.Err()) {
+		t.Fatalf("want ErrAuthInvalidEmail, got %v", err)
 	}
 }

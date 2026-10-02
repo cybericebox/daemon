@@ -19,7 +19,7 @@ func (u *AuthUseCase) PromoteSuperAdminIfDesignated(ctx context.Context) error {
 	if u.cfg.SuperAdminEmail == "" {
 		return nil
 	}
-	user, err := u.users.GetByEmail(ctx, u.cfg.SuperAdminEmail)
+	user, err := u.users.GetByEmail(ctx, normalizeEmail(u.cfg.SuperAdminEmail))
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return nil

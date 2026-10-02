@@ -157,6 +157,31 @@ func TestCompleteRegistration_PromotesSuperAdminInSameWrite(t *testing.T) {
 	}
 }
 
+// L1: the designated address matches whatever case it was configured or stored in.
+func TestCompleteRegistration_SuperAdminEmailCaseInsensitive(t *testing.T) {
+	uc, repo, tk := newCompleteUC(t, "Root@Test.test")
+	uid := uuid.Must(uuid.NewV7())
+	setupToken, _ := tk.GenerateSetupToken(uid)
+
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(incompleteRow(uid, "root@test.test"), nil)
+	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, arg postgres.UpdateUserParams) (int64, error) {
+			if arg.Role != string(rbac.RoleSuperAdmin) {
+				t.Fatalf("want super_admin, got %s", arg.Role)
+			}
+			return 1, nil
+		})
+	repo.EXPECT().CreateSession(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, arg postgres.CreateSessionParams) (postgres.Session, error) {
+			return postgres.Session{ID: arg.ID, UserID: arg.UserID, ExpiresAt: arg.ExpiresAt}, nil
+		})
+	if _, _, err := uc.CompleteRegistration(
+		context.Background(), setupToken, "Root", "Admin", "Secret!1", 1, "", authModel.SessionMetadata{},
+	); err != nil {
+		t.Fatalf("CompleteRegistration: %v", err)
+	}
+}
+
 // A failed write aborts the flow: no session is created.
 func TestCompleteRegistration_UpdateFailure_NoSession(t *testing.T) {
 	uc, repo, tk := newCompleteUC(t, "")

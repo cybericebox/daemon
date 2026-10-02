@@ -21,7 +21,7 @@ import (
 // silent when the address is unknown (no account-existence leak). An
 // incomplete account gets the continue-registration email instead.
 func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) error {
-	user, err := u.users.GetByEmail(ctx, emailAddr)
+	user, err := u.users.GetByEmail(ctx, normalizeEmail(emailAddr))
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return nil

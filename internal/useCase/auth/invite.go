@@ -26,6 +26,10 @@ func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rba
 		return err
 	}
 
+	emailAddr, err := parseEmail(emailAddr)
+	if err != nil {
+		return err
+	}
 	user, dbErr := u.users.GetByEmail(ctx, emailAddr)
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
 		return model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
@@ -40,6 +44,12 @@ func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rba
 		}
 	case user.Status == userModel.UserStatusIncomplete:
 		// Incomplete account exists — re-invite: update role, re-send link.
+		// A provider bound while the account was still unclaimed was bound by
+		// whoever got there first, not by the invitee: drop it, so the invited
+		// role (possibly admin) can only be claimed through the invitation link.
+		if _, err := u.users.DeleteProviders(ctx, userID); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to reset provider links").Err()
+		}
 		if err := u.mutateUser(ctx, userID, func(user *userModel.User) error {
 			return user.ChangeRole(role, time.Now())
 		}); err != nil {

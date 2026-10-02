@@ -16,7 +16,7 @@ import (
 //     ErrObjectNotFound→404, ...), so "the same fact" needing two statuses is
 //     two different error vars by definition.
 //
-// AuthObjectCode — next free detail code: 24
+// AuthObjectCode — next free detail code: 27
 var (
 	// 401
 	// multi-site (category A): sign-in must be timing- and error-
@@ -93,6 +93,16 @@ var (
 				WithMessage("Avatar file too large").WithDetailCode(21)
 	ErrInviteBatchSize = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Invite 1 to 200 people at a time").WithDetailCode(23)
+	// ErrAuthGoogleEmailNotVerified: Google does not vouch for the address of
+	// this profile, so it cannot prove mailbox ownership.
+	ErrAuthGoogleEmailNotVerified = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
+					WithMessage("Google email is not verified").WithDetailCode(24)
+	// ErrAuthGoogleEmailMismatch: a Google identity may complete a setup only
+	// when its verified email is the address of the account being set up.
+	ErrAuthGoogleEmailMismatch = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
+					WithMessage("Google email does not match the account").WithDetailCode(25)
+	ErrAuthInvalidEmail = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
+				WithMessage("Invalid email address").WithDetailCode(26)
 )
 
 // AuthRecaptchaObjectCode — next free detail code: 5

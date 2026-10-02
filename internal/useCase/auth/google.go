@@ -38,6 +38,9 @@ func (u *AuthUseCase) resolveGoogleUser(ctx context.Context, code, state string)
 	}
 	googleUser, redirect, err := u.oauth.GetGoogleUser(ctx, code, state)
 	if err != nil {
+		if errors.Is(err, oauth.ErrGoogleEmailNotVerified) {
+			return nil, "", authModel.ErrAuthGoogleEmailNotVerified.WithError(err).Err()
+		}
 		return nil, "", model.ErrPlatform.WithError(err).WithMessage("Failed to get google user").Err()
 	}
 	return googleUser, redirect, nil
@@ -90,6 +93,7 @@ func (u *AuthUseCase) BeginGoogleRegistration(
 		return GoogleRegistrationResult{}, err
 	}
 	returnTo := u.trustedReturnTo(stateRedirect)
+	googleUser.Email = normalizeEmail(googleUser.Email)
 
 	// 1. Provider already linked → sign in (finished account) or resume setup.
 	linked, provErr := u.users.GetByProvider(ctx, userModel.GoogleProvider, googleUser.GoogleID)
@@ -140,6 +144,9 @@ func (u *AuthUseCase) BeginGoogleRegistration(
 
 	default:
 		// 4. incomplete account exists — link Google, confirm email, backfill name.
+		// The profile's email is verified by Google (rejected upstream otherwise)
+		// and is the very address this account was found by, so the mailbox
+		// owner is the one linking.
 		if err = u.users.LinkProvider(ctx, tools.NewUUIDv7(), existing.ID, userModel.GoogleProvider, googleUser.GoogleID); err != nil {
 			if ce, ok := repositoryTools.UniqueViolationError(err, userModel.ErrUserExists); ok {
 				return GoogleRegistrationResult{}, ce.Err()
@@ -189,7 +196,11 @@ func (u *AuthUseCase) linkGoogleProvider(ctx context.Context, userID uuid.UUID, 
 
 // LinkGoogleToSetup links a Google provider to an incomplete account identified by a
 // setup token. Status stays incomplete; the flip to active happens in CompleteRegistration.
-func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleProviderID string) error {
+//
+// googleEmail is the Google-verified address of the identity: it must be the
+// account's own address, otherwise anyone could bind THEIR Google identity (or,
+// via a forced GET, a victim's) to an account set up by someone else.
+func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleProviderID, googleEmail string) error {
 	userID, err := u.token.ParseSetupToken(setupToken)
 	if err != nil {
 		return authModel.ErrInvalidToken.WithError(fmt.Errorf("google-link-setup: parse setup token: %w", err)).Err()
@@ -204,6 +215,9 @@ func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleP
 	if user.Status != userModel.UserStatusIncomplete {
 		return authModel.ErrSetupAlreadyComplete.Err()
 	}
+	if normalizeEmail(googleEmail) != normalizeEmail(user.Email) {
+		return authModel.ErrAuthGoogleEmailMismatch.WithError(errors.New("google-link-setup: google email differs from the account email")).Err()
+	}
 	return u.linkGoogleProvider(ctx, userID, googleProviderID)
 }
 
@@ -217,7 +231,7 @@ func (u *AuthUseCase) LinkGoogleToSetupFromOAuth(ctx context.Context, setupToken
 		return "", err
 	}
 	returnTo = u.trustedReturnTo(stateRedirect)
-	return returnTo, u.LinkGoogleToSetup(ctx, setupToken, googleUser.GoogleID)
+	return returnTo, u.LinkGoogleToSetup(ctx, setupToken, googleUser.GoogleID, googleUser.Email)
 }
 
 // LinkGoogleToAccountFromOAuth links a Google identity to the signed-in user.

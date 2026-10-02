@@ -18,16 +18,22 @@ const (
 
 var (
 	ErrGoogleUserFetch = errors.New("oauth: failed to fetch google user info")
+	// ErrGoogleEmailNotVerified: Google does not vouch for the address, so it
+	// proves nothing about who owns the mailbox and must never be linked to an account.
+	ErrGoogleEmailNotVerified = errors.New("oauth: google email is not verified")
 )
 
 // GoogleUser holds the profile data returned by Google.
 type GoogleUser struct {
-	GoogleID   string
-	Email      string
-	Name       string // full display name ("name")
-	GivenName  string // "given_name"
-	FamilyName string // "family_name"
-	Picture    string
+	GoogleID string
+	Email    string
+	// EmailVerified is always true for a user the client returns: unverified
+	// profiles are rejected while parsing.
+	EmailVerified bool
+	Name          string // full display name ("name")
+	GivenName     string // "given_name"
+	FamilyName    string // "family_name"
+	Picture       string
 }
 
 // FirstLastName returns the user's first and last name: given_name/family_name
@@ -135,16 +141,23 @@ func parseGoogleUserResponse(body []byte) (*GoogleUser, error) {
 		}
 		return ""
 	}
+	// userinfo v2 reports "verified_email", OIDC "email_verified"; only a JSON
+	// boolean true counts.
+	verified := raw["verified_email"] == true || raw["email_verified"] == true
 	u := &GoogleUser{
-		GoogleID:   get("id"),
-		Email:      get("email"),
-		Name:       get("name"),
-		GivenName:  get("given_name"),
-		FamilyName: get("family_name"),
-		Picture:    get("picture"),
+		GoogleID:      get("id"),
+		Email:         get("email"),
+		EmailVerified: verified,
+		Name:          get("name"),
+		GivenName:     get("given_name"),
+		FamilyName:    get("family_name"),
+		Picture:       get("picture"),
 	}
 	if u.GoogleID == "" || u.Email == "" {
 		return nil, fmt.Errorf("%w: missing required fields", ErrGoogleUserFetch)
+	}
+	if !verified {
+		return nil, ErrGoogleEmailNotVerified
 	}
 	return u, nil
 }

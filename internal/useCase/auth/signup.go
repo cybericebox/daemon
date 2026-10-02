@@ -23,7 +23,11 @@ import (
 // setup link. Active accounts receive a security notification and return nil; the
 // flow does not reveal whether the address already exists. A trusted redirect is
 // carried on the setup link as return_to; an untrusted one is dropped.
-func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, emailAddr, redirect string) error {
+func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, rawEmail, redirect string) error {
+	emailAddr, err := parseEmail(rawEmail)
+	if err != nil {
+		return err
+	}
 	user, dbErr := u.users.GetByEmail(ctx, emailAddr)
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
 		return model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
@@ -139,7 +143,7 @@ func (u *AuthUseCase) CompleteRegistration(
 		}, time.Now()); err != nil {
 			return err
 		}
-		if u.cfg.SuperAdminEmail != "" && user.Email == u.cfg.SuperAdminEmail {
+		if u.isDesignatedSuperAdmin(user.Email) {
 			return user.ChangeRole(rbac.RoleSuperAdmin, time.Now())
 		}
 		return nil
