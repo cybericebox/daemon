@@ -176,7 +176,7 @@ func (h *Handler) getTimeline(ctx *gin.Context) {
 // getCapacity godoc
 //
 //	@Summary		Resource calendar capacity
-//	@Description	The capacity of every agent as the calendar uses it: the recorded tenant quota (no quota is no limit on that resource), the device maximum, whether the agent is connected (its capacity was read recently) and, for an agent that is not used, why (disabled, below_requirements, no_capacity). PerNodeRoomReported is true when every agent that is used reports the room of its nodes, which a device must then fit one of (Nodes of each agent); an agent that reports none counts as one node. Requires infrastructure.read.
+//	@Description	The capacity of every agent as the calendar uses it: the recorded tenant quota (no quota is no limit on that resource), the device maximum, whether the agent is connected (its capacity was read recently) and, for an agent that is not used, why (disabled, below_requirements, no_capacity). DeviceMax is the largest device the agent can place (its limit and the largest device its nodes can hold, as the agent reports it; the agent never shows its nodes): a reservation whose largest device is above it is not placed there. Requires infrastructure.read.
 //	@Tags			infrastructure
 //	@Produce		json
 //	@Success		200	{object}	response.Response{data=capacityDTO}

@@ -56,11 +56,8 @@ type AgentCapacityView struct {
 	// CPUUnlimited and MemoryUnlimited: the agent puts no limit on that resource (no tenant quota).
 	CPUUnlimited    bool
 	MemoryUnlimited bool
-	// DeviceMax is the largest device the agent allows; zero is no limit.
+	// DeviceMax is the largest device the agent can place (its limit and what it says its nodes can hold); zero is no limit.
 	DeviceMax Amount
-	// Nodes is the allocatable room of each lab node the agent reported (net of the platform reserve); empty when
-	// it reports none. A device must fit one of them.
-	Nodes []Amount
 }
 
 // CapacityView is the capacity of the agents that are used.
@@ -73,9 +70,6 @@ type CapacityView struct {
 	// TestPool is the guaranteed minimum for test laboratories.
 	TestPool Amount
 	Agents   []AgentCapacityView
-	// PerNodeRoomReported is true when every agent that is used reports the room of its nodes (and there is one):
-	// a device then has to fit one node. Otherwise an agent without a report counts as one node.
-	PerNodeRoomReported bool
 }
 
 // MaintenanceView is a maintenance window the cluster operator announced on an agent: in it the agent gives the

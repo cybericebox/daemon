@@ -565,9 +565,10 @@ type InfrastructureAgent struct {
 	// Last laboratory features read from the agent (persistence, image cache, scheduler, endpoints, certificate); NULL until first read
 	Features []byte `json:"features"`
 	// When features was last read successfully
-	FeaturesAt         pgtype.Timestamptz `json:"features_at"`
-	CapacityNodes      []byte             `json:"capacity_nodes"`
-	MaintenanceWindows []byte             `json:"maintenance_windows"`
+	FeaturesAt             pgtype.Timestamptz `json:"features_at"`
+	MaxDeviceCpuMillicores pgtype.Int8        `json:"max_device_cpu_millicores"`
+	MaxDeviceMemoryBytes   pgtype.Int8        `json:"max_device_memory_bytes"`
+	MaintenanceWindows     []byte             `json:"maintenance_windows"`
 }
 
 type LabBinding struct {

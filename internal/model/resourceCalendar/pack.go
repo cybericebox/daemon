@@ -11,19 +11,17 @@ import (
 const Unlimited int64 = math.MaxInt64 / 4
 
 // Agent is what the calendar knows about one agent it may use: its recorded capacity (the tenant quota, else
-// the cluster allocatable), its device maximum, and, when the agent reports it, the allocatable room of each
-// of its nodes. The agents that are used are the enabled ones that meet the platform requirements.
+// the cluster allocatable), its device maximum (which includes the largest device the agent says it can
+// place; the agent never shows its nodes) and its maintenance windows. The agents that are used are the enabled ones that meet the platform requirements.
 type Agent struct {
 	ID       uuid.UUID
 	Name     string
 	Priority int
 	// Capacity is what the agent gives the platform; Unlimited for a resource without a limit.
 	Capacity Amount
-	// DeviceMax is the largest device the agent allows; zero is no limit.
+	// DeviceMax is the largest device the agent can place: its device limit and the largest device any of its nodes can
+	// hold, as the agent reports them (the agent never shows its nodes); zero is no limit.
 	DeviceMax Amount
-	// Nodes is the allocatable room of each node, when the agent reports it. Empty: the agent's per-node room
-	// is not known and its whole capacity is treated as one node.
-	Nodes []Amount
 	// Outages are the maintenance windows the cluster operator announced on the agent: in each the capacity is what the
 	// window leaves (zero by default). Placing a reservation counts the least capacity of its whole window.
 	Outages []Outage
@@ -49,24 +47,14 @@ func (a Agent) Free(load Amount) Amount {
 	return Amount{CPUMillicores: max(a.Capacity.CPUMillicores-load.CPUMillicores, 0), MemoryBytes: max(a.Capacity.MemoryBytes-load.MemoryBytes, 0)}
 }
 
-// Allows reports whether the agent can run a device of this size at all: within its device maximum and, when
-// the nodes are known, on some node.
+// Allows reports whether the agent can run a device of this size at all: within its device maximum (its limit and the largest
+// device it says it can place). How devices fit its nodes is the agent's job: it refuses what it cannot place, and the
+// readiness alarm tells the admin.
 func (a Agent) Allows(device Amount) bool {
 	if a.DeviceMax.CPUMillicores > 0 && device.CPUMillicores > a.DeviceMax.CPUMillicores {
 		return false
 	}
-	if a.DeviceMax.MemoryBytes > 0 && device.MemoryBytes > a.DeviceMax.MemoryBytes {
-		return false
-	}
-	if len(a.Nodes) == 0 {
-		return true
-	}
-	for _, n := range a.Nodes {
-		if device.Within(n) {
-			return true
-		}
-	}
-	return false
+	return a.DeviceMax.MemoryBytes <= 0 || device.MemoryBytes <= a.DeviceMax.MemoryBytes
 }
 
 // unitsFit is how many equal units of this size fit into free room on the agent.

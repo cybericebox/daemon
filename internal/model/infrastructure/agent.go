@@ -47,11 +47,9 @@ type AgentRegistration struct {
 	CapacityCPUMillicores *int64
 	CapacityMemoryBytes   *int64
 	CapacitySeenAt        *time.Time
-	// Nodes is the allocatable room of each lab node as the agent last reported it (what labs can ever use there,
-	// net of the platform reserve). NodesReported is false for an agent that does not report it (an older one):
-	// its whole capacity then counts as one node.
-	Nodes         []AgentNode
-	NodesReported bool
+	// MaxDevice is the largest device the agent last reported it can place (per resource, the largest allocatable of a
+	// lab node net of the platform reserve); nil for an agent that does not report it. The agent never reveals its nodes.
+	MaxDevice *AgentDevice
 	// Maintenance is the windows the cluster operator announced on the agent, as it last reported them (the ones that
 	// apply to the platform's tenant). MaintenanceReported is false for an agent that has not reported them (an older
 	// agent, or the CRD is not installed).
@@ -65,11 +63,10 @@ type AgentRegistration struct {
 	ArchivedAt *time.Time
 }
 
-// AgentNode is the allocatable room of one lab node of an agent.
-type AgentNode struct {
-	Name          string `json:"name"`
-	CPUMillicores int64  `json:"cpu_millicores"`
-	MemoryBytes   int64  `json:"memory_bytes"`
+// AgentDevice is the largest device an agent can place.
+type AgentDevice struct {
+	CPUMillicores int64 `json:"cpu_millicores"`
+	MemoryBytes   int64 `json:"memory_bytes"`
 }
 
 // AgentMaintenanceWindow is a maintenance window announced on an agent by the cluster operator (never by the platform

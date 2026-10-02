@@ -95,31 +95,25 @@ type agentCapacityDTO struct {
 	CPUUnlimited    bool      `json:"CPUUnlimited"`
 	MemoryUnlimited bool      `json:"MemoryUnlimited"`
 	DeviceMax       amountDTO `json:"DeviceMax"`
-	// Nodes is the allocatable room of each lab node the agent reported (empty when it reports none).
-	Nodes []amountDTO `json:"Nodes"`
 }
 
 type capacityDTO struct {
-	Total               amountDTO          `json:"Total"`
-	CPUUnlimited        bool               `json:"CPUUnlimited"`
-	MemoryUnlimited     bool               `json:"MemoryUnlimited"`
-	TestPool            amountDTO          `json:"TestPool"`
-	Agents              []agentCapacityDTO `json:"Agents"`
-	PerNodeRoomReported bool               `json:"PerNodeRoomReported"`
+	Total           amountDTO          `json:"Total"`
+	CPUUnlimited    bool               `json:"CPUUnlimited"`
+	MemoryUnlimited bool               `json:"MemoryUnlimited"`
+	TestPool        amountDTO          `json:"TestPool"`
+	Agents          []agentCapacityDTO `json:"Agents"`
 }
 
 func capacity(v calUseCase.CapacityView) capacityDTO {
 	out := capacityDTO{
 		Total: amount(v.Total), CPUUnlimited: v.CPUUnlimited, MemoryUnlimited: v.MemoryUnlimited, TestPool: amount(v.TestPool),
-		Agents: make([]agentCapacityDTO, 0, len(v.Agents)), PerNodeRoomReported: v.PerNodeRoomReported,
+		Agents: make([]agentCapacityDTO, 0, len(v.Agents)),
 	}
 	for _, a := range v.Agents {
 		dto := agentCapacityDTO{
 			ID: a.ID, Name: a.Name, Priority: a.Priority, Used: a.Used, Why: a.Why, Connected: a.Connected, Capacity: amount(a.Capacity),
-			CPUUnlimited: a.CPUUnlimited, MemoryUnlimited: a.MemoryUnlimited, DeviceMax: amount(a.DeviceMax), Nodes: make([]amountDTO, 0, len(a.Nodes)),
-		}
-		for _, n := range a.Nodes {
-			dto.Nodes = append(dto.Nodes, amount(n))
+			CPUUnlimited: a.CPUUnlimited, MemoryUnlimited: a.MemoryUnlimited, DeviceMax: amount(a.DeviceMax),
 		}
 		out.Agents = append(out.Agents, dto)
 	}

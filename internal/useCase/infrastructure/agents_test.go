@@ -26,7 +26,7 @@ type memAgents struct {
 	records        map[uuid.UUID]infraModel.AgentRecord
 	order          []uuid.UUID
 	capacityWrites int
-	nodeWrites     int
+	deviceWrites   int
 	windowWrites   int
 }
 
@@ -58,11 +58,11 @@ func (m *memAgents) SetCapacity(_ context.Context, id uuid.UUID, cpu, memory *in
 	m.capacityWrites++
 	return nil
 }
-func (m *memAgents) SetNodes(_ context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error {
+func (m *memAgents) SetMaxDevice(_ context.Context, id uuid.UUID, d *infraModel.AgentDevice) error {
 	r := m.records[id]
-	r.Nodes, r.NodesReported = nodes, true
+	r.MaxDevice = d
 	m.records[id] = r
-	m.nodeWrites++
+	m.deviceWrites++
 	return nil
 }
 func (m *memAgents) SetMaintenance(_ context.Context, id uuid.UUID, w []infraModel.AgentMaintenanceWindow) error {
@@ -685,26 +685,25 @@ func TestRecordAgentCapacityWritesOnChangeAndWhenStale(t *testing.T) {
 	}
 }
 
-func TestRecordAgentNodesWritesOnChangeAndKeepsThemThroughABlink(t *testing.T) {
+func TestRecordAgentMaxDeviceWritesOnChangeAndKeepsItThroughABlink(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentsFixture(t, boundSealer{})
 	view, _ := f.uc.EnrollAgent(ctx, enrollForm("eu", 1))
-	nodes := []infraModel.AgentNode{{Name: "n1", CPUMillicores: 3500, MemoryBytes: 8 << 30}, {Name: "n2", CPUMillicores: 1500, MemoryBytes: 4 << 30}}
+	d := &infraModel.AgentDevice{CPUMillicores: 3500, MemoryBytes: 16 << 30}
 	for range 2 {
-		if err := f.uc.RecordAgentNodes(ctx, view.ID, nodes); err != nil {
+		if err := f.uc.RecordAgentMaxDevice(ctx, view.ID, d); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if f.store.nodeWrites != 1 || !f.store.records[view.ID].NodesReported || len(f.store.records[view.ID].Nodes) != 2 {
-		t.Fatalf("unchanged nodes are written once: %d %+v", f.store.nodeWrites, f.store.records[view.ID].Nodes)
+	if f.store.deviceWrites != 1 || f.store.records[view.ID].MaxDevice == nil || f.store.records[view.ID].MaxDevice.CPUMillicores != 3500 {
+		t.Fatalf("an unchanged value is written once: %d %+v", f.store.deviceWrites, f.store.records[view.ID].MaxDevice)
 	}
-	// No schedulable node for a moment (a node-agent restarting) does not erase what is known.
-	if err := f.uc.RecordAgentNodes(ctx, view.ID, nil); err != nil || f.store.nodeWrites != 1 || len(f.store.records[view.ID].Nodes) != 2 {
-		t.Fatalf("an empty report is ignored: %v %d", err, f.store.nodeWrites)
+	// A capacity without the value (no schedulable node for a moment, an older agent) does not erase what is known.
+	if err := f.uc.RecordAgentMaxDevice(ctx, view.ID, nil); err != nil || f.store.deviceWrites != 1 || f.store.records[view.ID].MaxDevice == nil {
+		t.Fatalf("an absent value is ignored: %v %d", err, f.store.deviceWrites)
 	}
-	nodes[1].CPUMillicores = 2500
-	if err := f.uc.RecordAgentNodes(ctx, view.ID, nodes); err != nil || f.store.nodeWrites != 2 || f.store.records[view.ID].Nodes[1].CPUMillicores != 2500 {
-		t.Fatalf("a changed node is written: %v %d", err, f.store.nodeWrites)
+	if err := f.uc.RecordAgentMaxDevice(ctx, view.ID, &infraModel.AgentDevice{CPUMillicores: 2000, MemoryBytes: 16 << 30}); err != nil || f.store.deviceWrites != 2 || f.store.records[view.ID].MaxDevice.CPUMillicores != 2000 {
+		t.Fatalf("a changed value is written: %v %d", err, f.store.deviceWrites)
 	}
 }
 

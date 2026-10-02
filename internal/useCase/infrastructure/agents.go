@@ -45,7 +45,7 @@ type (
 		SetRetiredKeys(ctx context.Context, id uuid.UUID, retired []infraModel.RetiredKey, now time.Time) (bool, error)
 		Delete(ctx context.Context, id uuid.UUID) (bool, error)
 		SetCapacity(ctx context.Context, id uuid.UUID, cpuMillicores, memoryBytes *int64, seenAt time.Time) error
-		SetNodes(ctx context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error
+		SetMaxDevice(ctx context.Context, id uuid.UUID, d *infraModel.AgentDevice) error
 		SetMaintenance(ctx context.Context, id uuid.UUID, windows []infraModel.AgentMaintenanceWindow) error
 		SetFeatures(ctx context.Context, id uuid.UUID, features infraModel.AgentFeatures, seenAt time.Time) error
 		Archive(ctx context.Context, id uuid.UUID, name string, at time.Time) (bool, error)
@@ -115,7 +115,7 @@ type (
 
 		capacityMu   sync.Mutex
 		lastCapacity map[uuid.UUID]capacityReading
-		lastNodes    map[uuid.UUID][]infraModel.AgentNode
+		lastDevice   map[uuid.UUID]infraModel.AgentDevice
 		lastWindows  map[uuid.UUID][]infraModel.AgentMaintenanceWindow
 	}
 
@@ -599,27 +599,27 @@ func (u *AgentsUseCase) RecordAgentCapacity(ctx context.Context, id uuid.UUID, c
 	return nil
 }
 
-// RecordAgentNodes keeps the allocatable room of each lab node an agent last reported, for the resource calendar's
-// packing. It is called with every capacity the agent reports and writes only when the nodes change. An empty list
-// (no schedulable node right now: a node-agent restarting) is not recorded, so a blink never erases what is known.
-func (u *AgentsUseCase) RecordAgentNodes(ctx context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error {
-	if len(nodes) == 0 {
+// RecordAgentMaxDevice keeps the largest device an agent last reported it can place, for the resource calendar, which does
+// not plan a device above it. It is called with every capacity the agent reports and writes only when the value changes. A
+// capacity without the value (no schedulable node for a moment, an older agent) is not recorded, so a blink never erases it.
+func (u *AgentsUseCase) RecordAgentMaxDevice(ctx context.Context, id uuid.UUID, d *infraModel.AgentDevice) error {
+	if d == nil {
 		return nil
 	}
 	u.capacityMu.Lock()
-	last, known := u.lastNodes[id]
+	last, known := u.lastDevice[id]
 	u.capacityMu.Unlock()
-	if known && slices.Equal(last, nodes) {
+	if known && last == *d {
 		return nil
 	}
-	if err := u.store.SetNodes(ctx, id, nodes); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the agent nodes").Err()
+	if err := u.store.SetMaxDevice(ctx, id, d); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the agent's largest device").Err()
 	}
 	u.capacityMu.Lock()
-	if u.lastNodes == nil {
-		u.lastNodes = map[uuid.UUID][]infraModel.AgentNode{}
+	if u.lastDevice == nil {
+		u.lastDevice = map[uuid.UUID]infraModel.AgentDevice{}
 	}
-	u.lastNodes[id] = slices.Clone(nodes)
+	u.lastDevice[id] = *d
 	u.capacityMu.Unlock()
 	return nil
 }

@@ -120,7 +120,7 @@ VALUES ($1, $2, $3, true, $4, $5, $6,
         $7, $8, $9, $10,
         $11, $12, $13,
         $14, $15, $16, $17)
-RETURNING id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at, capacity_nodes, maintenance_windows
+RETURNING id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at, max_device_cpu_millicores, max_device_memory_bytes, maintenance_windows
 `
 
 type CreateInfrastructureAgentParams struct {
@@ -192,7 +192,8 @@ func (q *Queries) CreateInfrastructureAgent(ctx context.Context, arg CreateInfra
 		&i.ArchivedAt,
 		&i.Features,
 		&i.FeaturesAt,
-		&i.CapacityNodes,
+		&i.MaxDeviceCpuMillicores,
+		&i.MaxDeviceMemoryBytes,
 		&i.MaintenanceWindows,
 	)
 	return i, err
@@ -222,7 +223,7 @@ func (q *Queries) DeleteLabGroupPlacement(ctx context.Context, labGroupName stri
 }
 
 const getInfrastructureAgent = `-- name: GetInfrastructureAgent :one
-SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at, capacity_nodes, maintenance_windows
+SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at, max_device_cpu_millicores, max_device_memory_bytes, maintenance_windows
 FROM infrastructure_agents
 WHERE id = $1
 `
@@ -256,7 +257,8 @@ func (q *Queries) GetInfrastructureAgent(ctx context.Context, id uuid.UUID) (Inf
 		&i.ArchivedAt,
 		&i.Features,
 		&i.FeaturesAt,
-		&i.CapacityNodes,
+		&i.MaxDeviceCpuMillicores,
+		&i.MaxDeviceMemoryBytes,
 		&i.MaintenanceWindows,
 	)
 	return i, err
@@ -276,7 +278,7 @@ func (q *Queries) GetLabGroupPlacement(ctx context.Context, labGroupName string)
 }
 
 const listInfrastructureAgents = `-- name: ListInfrastructureAgents :many
-SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at, capacity_nodes, maintenance_windows
+SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at, max_device_cpu_millicores, max_device_memory_bytes, maintenance_windows
 FROM infrastructure_agents
 ORDER BY key
 `
@@ -316,7 +318,8 @@ func (q *Queries) ListInfrastructureAgents(ctx context.Context) ([]Infrastructur
 			&i.ArchivedAt,
 			&i.Features,
 			&i.FeaturesAt,
-			&i.CapacityNodes,
+			&i.MaxDeviceCpuMillicores,
+			&i.MaxDeviceMemoryBytes,
 			&i.MaintenanceWindows,
 		); err != nil {
 			return nil, err
@@ -442,27 +445,6 @@ func (q *Queries) SetInfrastructureAgentCapacity(ctx context.Context, arg SetInf
 	return result.RowsAffected(), nil
 }
 
-const setInfrastructureAgentCapacityNodes = `-- name: SetInfrastructureAgentCapacityNodes :execrows
-UPDATE infrastructure_agents
-SET capacity_nodes = $1
-WHERE id = $2
-  AND archived_at IS NULL
-`
-
-type SetInfrastructureAgentCapacityNodesParams struct {
-	CapacityNodes []byte    `json:"capacity_nodes"`
-	ID            uuid.UUID `json:"id"`
-}
-
-// The allocatable room of each lab node the agent last reported (JSON).
-func (q *Queries) SetInfrastructureAgentCapacityNodes(ctx context.Context, arg SetInfrastructureAgentCapacityNodesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, setInfrastructureAgentCapacityNodes, arg.CapacityNodes, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const setInfrastructureAgentCertificate = `-- name: SetInfrastructureAgentCertificate :execrows
 UPDATE infrastructure_agents
 SET client_cert_pem       = $1,
@@ -536,6 +518,29 @@ type SetInfrastructureAgentMaintenanceParams struct {
 // The maintenance windows the agent last reported (JSON).
 func (q *Queries) SetInfrastructureAgentMaintenance(ctx context.Context, arg SetInfrastructureAgentMaintenanceParams) (int64, error) {
 	result, err := q.db.Exec(ctx, setInfrastructureAgentMaintenance, arg.MaintenanceWindows, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setInfrastructureAgentMaxDevice = `-- name: SetInfrastructureAgentMaxDevice :execrows
+UPDATE infrastructure_agents
+SET max_device_cpu_millicores = $1,
+    max_device_memory_bytes   = $2
+WHERE id = $3
+  AND archived_at IS NULL
+`
+
+type SetInfrastructureAgentMaxDeviceParams struct {
+	MaxDeviceCpuMillicores pgtype.Int8 `json:"max_device_cpu_millicores"`
+	MaxDeviceMemoryBytes   pgtype.Int8 `json:"max_device_memory_bytes"`
+	ID                     uuid.UUID   `json:"id"`
+}
+
+// The largest device the agent last reported it can place (NULL = not reported).
+func (q *Queries) SetInfrastructureAgentMaxDevice(ctx context.Context, arg SetInfrastructureAgentMaxDeviceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setInfrastructureAgentMaxDevice, arg.MaxDeviceCpuMillicores, arg.MaxDeviceMemoryBytes, arg.ID)
 	if err != nil {
 		return 0, err
 	}

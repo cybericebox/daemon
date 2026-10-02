@@ -216,16 +216,14 @@ type agentState struct {
 	Used bool
 	// Why says why an agent is not used: disabled, below_requirements, no_capacity.
 	Why string
-	// NodesReported: the agent reports the room of each node (Nodes is set from it).
-	NodesReported bool
 	// MaintenanceReported: the agent has reported its maintenance windows (Outages is set from them; none is a report
 	// of none).
 	MaintenanceReported bool
 }
 
 // agentStates reads every agent of the registry; the ones that are used are the enabled ones that meet the
-// platform requirements and have a recorded capacity. The allocatable room of each node is what the agent last
-// reported; an agent that reports none counts as one node (see calModel.Agent.Nodes).
+// platform requirements and have a recorded capacity. The agent's DeviceMax is the smaller of its device limit and the
+// largest device it says it can place (it never shows its nodes).
 func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time) ([]agentState, error) {
 	records, err := u.agents.ListRecords(ctx)
 	if err != nil {
@@ -276,11 +274,8 @@ func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time
 					st.Outages = append(st.Outages, o)
 				}
 			}
-			if r.NodesReported {
-				st.NodesReported = true
-				for _, n := range r.Nodes {
-					st.Nodes = append(st.Nodes, Amount{CPUMillicores: n.CPUMillicores, MemoryBytes: n.MemoryBytes})
-				}
+			if d := r.MaxDevice; d != nil {
+				st.DeviceMax = tighter(st.DeviceMax, Amount{CPUMillicores: d.CPUMillicores, MemoryBytes: d.MemoryBytes})
 			}
 		}
 		out = append(out, st)
@@ -307,6 +302,20 @@ func connectedAgents(states []agentState) []calModel.Agent {
 		}
 	}
 	return calModel.Ordered(out)
+}
+
+// tighter is the smaller of two device maxima per resource, where zero means no limit.
+func tighter(a, b Amount) Amount {
+	pick := func(x, y int64) int64 {
+		switch {
+		case x <= 0:
+			return y
+		case y <= 0:
+			return x
+		}
+		return min(x, y)
+	}
+	return Amount{CPUMillicores: pick(a.CPUMillicores, b.CPUMillicores), MemoryBytes: pick(a.MemoryBytes, b.MemoryBytes)}
 }
 
 func platformErr(err error, msg string) error {

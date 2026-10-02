@@ -92,10 +92,11 @@ SET capacity_cpu_millicores = sqlc.narg(capacity_cpu_millicores),
     capacity_seen_at        = sqlc.arg(seen_at)
 WHERE id = sqlc.arg(id);
 
--- name: SetInfrastructureAgentCapacityNodes :execrows
--- The allocatable room of each lab node the agent last reported (JSON).
+-- name: SetInfrastructureAgentMaxDevice :execrows
+-- The largest device the agent last reported it can place (NULL = not reported).
 UPDATE infrastructure_agents
-SET capacity_nodes = sqlc.arg(capacity_nodes)
+SET max_device_cpu_millicores = sqlc.narg(max_device_cpu_millicores),
+    max_device_memory_bytes   = sqlc.narg(max_device_memory_bytes)
 WHERE id = sqlc.arg(id)
   AND archived_at IS NULL;
 

@@ -175,17 +175,17 @@ func TestInfrastructureAgents_RecordedCapacityArchiveAndReconnect(t *testing.T) 
 	if got.CapacitySeenAt == nil || !got.CapacitySeenAt.Equal(now) || got.CapacityCPUMillicores == nil || *got.CapacityCPUMillicores != 8000 || got.CapacityMemoryBytes != nil {
 		t.Fatalf("capacity = %+v (a null value with a read time means no limit)", got.AgentRegistration)
 	}
-	// The room of each lab node: none reported until the agent says so.
-	if got.NodesReported || len(got.Nodes) != 0 {
-		t.Fatalf("an agent that reported no nodes: %+v", got.AgentRegistration)
+	// The largest device the agent can place: none reported until the agent says so.
+	if got.MaxDevice != nil {
+		t.Fatalf("an agent that reported no device: %+v", got.AgentRegistration)
 	}
-	nodes := []infraModel.AgentNode{{Name: "n1", CPUMillicores: 3500, MemoryBytes: 8 << 30}, {Name: "n2", CPUMillicores: 1500, MemoryBytes: 4 << 30}}
-	if err := repo.SetNodes(ctx, a.ID, nodes); err != nil {
+	if err := repo.SetMaxDevice(ctx, a.ID, &infraModel.AgentDevice{CPUMillicores: 3500, MemoryBytes: 16 << 30}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = repo.Get(ctx, a.ID); !got.NodesReported || len(got.Nodes) != 2 || got.Nodes[1] != nodes[1] {
-		t.Fatalf("nodes = %+v", got.AgentRegistration)
+	if got, _ = repo.Get(ctx, a.ID); got.MaxDevice == nil || got.MaxDevice.CPUMillicores != 3500 || got.MaxDevice.MemoryBytes != 16<<30 {
+		t.Fatalf("max device = %+v", got.MaxDevice)
 	}
+
 	// The maintenance windows: none reported until the agent says so; an empty report is a report of none.
 	if got.MaintenanceReported {
 		t.Fatalf("an agent that reported no windows: %+v", got.AgentRegistration)

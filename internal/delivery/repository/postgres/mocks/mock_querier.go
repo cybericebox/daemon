@@ -9568,21 +9568,6 @@ func (mr *MockQuerierMockRecorder) SetInfrastructureAgentCapacity(ctx, arg any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureAgentCapacity", reflect.TypeOf((*MockQuerier)(nil).SetInfrastructureAgentCapacity), ctx, arg)
 }
 
-// SetInfrastructureAgentCapacityNodes mocks base method.
-func (m *MockQuerier) SetInfrastructureAgentCapacityNodes(ctx context.Context, arg postgres.SetInfrastructureAgentCapacityNodesParams) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetInfrastructureAgentCapacityNodes", ctx, arg)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SetInfrastructureAgentCapacityNodes indicates an expected call of SetInfrastructureAgentCapacityNodes.
-func (mr *MockQuerierMockRecorder) SetInfrastructureAgentCapacityNodes(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureAgentCapacityNodes", reflect.TypeOf((*MockQuerier)(nil).SetInfrastructureAgentCapacityNodes), ctx, arg)
-}
-
 // SetInfrastructureAgentCertificate mocks base method.
 func (m *MockQuerier) SetInfrastructureAgentCertificate(ctx context.Context, arg postgres.SetInfrastructureAgentCertificateParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -9626,6 +9611,21 @@ func (m *MockQuerier) SetInfrastructureAgentMaintenance(ctx context.Context, arg
 func (mr *MockQuerierMockRecorder) SetInfrastructureAgentMaintenance(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureAgentMaintenance", reflect.TypeOf((*MockQuerier)(nil).SetInfrastructureAgentMaintenance), ctx, arg)
+}
+
+// SetInfrastructureAgentMaxDevice mocks base method.
+func (m *MockQuerier) SetInfrastructureAgentMaxDevice(ctx context.Context, arg postgres.SetInfrastructureAgentMaxDeviceParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetInfrastructureAgentMaxDevice", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetInfrastructureAgentMaxDevice indicates an expected call of SetInfrastructureAgentMaxDevice.
+func (mr *MockQuerierMockRecorder) SetInfrastructureAgentMaxDevice(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureAgentMaxDevice", reflect.TypeOf((*MockQuerier)(nil).SetInfrastructureAgentMaxDevice), ctx, arg)
 }
 
 // SetInfrastructureAgentRetiredKeys mocks base method.

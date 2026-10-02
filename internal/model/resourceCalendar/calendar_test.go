@@ -102,11 +102,13 @@ func TestElevatedTaskOnlyOnAgentsWhoseMaximaFit(t *testing.T) {
 	assert.Equal(t, high.ID, shares[0].AgentID)
 }
 
-func TestDeviceMustFitSomeNode(t *testing.T) {
+// The agent says only the largest device it can place; a device above it is not planned there, however much room is free in total.
+func TestDeviceMustFitTheLargestPlaceableDevice(t *testing.T) {
 	a := agent(1, 0, 10000, 1<<40)
-	a.Nodes = []Amount{{CPUMillicores: 500, MemoryBytes: 1 << 30}, {CPUMillicores: 500, MemoryBytes: 1 << 30}}
+	a.DeviceMax = Amount{CPUMillicores: 500, MemoryBytes: 1 << 30}
 	assert.True(t, a.Allows(Amount{CPUMillicores: 500, MemoryBytes: 1 << 30}))
-	assert.False(t, a.Allows(Amount{CPUMillicores: 800, MemoryBytes: 1 << 30}), "1000m free in total, but no node holds one 800m device")
+	assert.False(t, a.Allows(Amount{CPUMillicores: 800, MemoryBytes: 1 << 30}), "10 CPU free in total, but no node holds one 800m device")
+	assert.False(t, a.Allows(Amount{CPUMillicores: 100, MemoryBytes: 2 << 30}))
 }
 
 func TestPlacementRespectsOtherReservationsPeak(t *testing.T) {

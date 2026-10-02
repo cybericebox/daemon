@@ -45,7 +45,7 @@ func (q *queryStub) SetInfrastructureAgentRetiredKeys(context.Context, postgres.
 func (q *queryStub) SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error) {
 	return 1, nil
 }
-func (q *queryStub) SetInfrastructureAgentCapacityNodes(context.Context, postgres.SetInfrastructureAgentCapacityNodesParams) (int64, error) {
+func (q *queryStub) SetInfrastructureAgentMaxDevice(context.Context, postgres.SetInfrastructureAgentMaxDeviceParams) (int64, error) {
 	return 1, nil
 }
 func (q *queryStub) SetInfrastructureAgentMaintenance(context.Context, postgres.SetInfrastructureAgentMaintenanceParams) (int64, error) {

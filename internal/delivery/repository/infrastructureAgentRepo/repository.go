@@ -25,7 +25,7 @@ type Queries interface {
 	SetInfrastructureAgentAccessKey(context.Context, postgres.SetInfrastructureAgentAccessKeyParams) (int64, error)
 	SetInfrastructureAgentRetiredKeys(context.Context, postgres.SetInfrastructureAgentRetiredKeysParams) (int64, error)
 	SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error)
-	SetInfrastructureAgentCapacityNodes(context.Context, postgres.SetInfrastructureAgentCapacityNodesParams) (int64, error)
+	SetInfrastructureAgentMaxDevice(context.Context, postgres.SetInfrastructureAgentMaxDeviceParams) (int64, error)
 	SetInfrastructureAgentMaintenance(context.Context, postgres.SetInfrastructureAgentMaintenanceParams) (int64, error)
 	SetInfrastructureAgentFeatures(context.Context, postgres.SetInfrastructureAgentFeaturesParams) (int64, error)
 	ArchiveInfrastructureAgent(context.Context, postgres.ArchiveInfrastructureAgentParams) (int64, error)
@@ -75,8 +75,8 @@ func toDomain(row postgres.InfrastructureAgent) infraModel.AgentRegistration {
 		}
 	}
 	// A malformed list reads as not reported: the agent's next report rewrites it.
-	if len(row.CapacityNodes) > 0 && json.Unmarshal(row.CapacityNodes, &reg.Nodes) == nil {
-		reg.NodesReported = true
+	if row.MaxDeviceCpuMillicores.Valid && row.MaxDeviceMemoryBytes.Valid {
+		reg.MaxDevice = &infraModel.AgentDevice{CPUMillicores: row.MaxDeviceCpuMillicores.Int64, MemoryBytes: row.MaxDeviceMemoryBytes.Int64}
 	}
 	if len(row.MaintenanceWindows) > 0 && json.Unmarshal(row.MaintenanceWindows, &reg.Maintenance) == nil {
 		reg.MaintenanceReported = true
@@ -220,16 +220,13 @@ func (r *Repository) SetCapacity(ctx context.Context, id uuid.UUID, cpuMillicore
 	return err
 }
 
-// SetNodes records the allocatable room of each lab node the agent last reported.
-func (r *Repository) SetNodes(ctx context.Context, id uuid.UUID, nodes []infraModel.AgentNode) error {
-	if nodes == nil {
-		nodes = []infraModel.AgentNode{}
+// SetMaxDevice records the largest device the agent last reported it can place; nil clears it.
+func (r *Repository) SetMaxDevice(ctx context.Context, id uuid.UUID, d *infraModel.AgentDevice) error {
+	params := postgres.SetInfrastructureAgentMaxDeviceParams{ID: id}
+	if d != nil {
+		params.MaxDeviceCpuMillicores, params.MaxDeviceMemoryBytes = int8Of(&d.CPUMillicores), int8Of(&d.MemoryBytes)
 	}
-	encoded, err := json.Marshal(nodes)
-	if err != nil {
-		return err
-	}
-	_, err = r.q.SetInfrastructureAgentCapacityNodes(ctx, postgres.SetInfrastructureAgentCapacityNodesParams{ID: id, CapacityNodes: encoded})
+	_, err := r.q.SetInfrastructureAgentMaxDevice(ctx, params)
 	return err
 }
 

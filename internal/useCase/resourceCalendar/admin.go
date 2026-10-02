@@ -17,17 +17,11 @@ const MaxTimelineRange = 31 * 24 * time.Hour
 
 func capacityView(states []agentState, pool Amount) CapacityView {
 	view := CapacityView{TestPool: pool, Agents: make([]AgentCapacityView, 0, len(states))}
-	reported, used := 0, 0
 	for _, st := range states {
 		a := AgentCapacityView{
 			ID: st.ID, Name: st.Name, Priority: st.Priority, Used: st.Used, Why: st.Why, Connected: st.Connected, DeviceMax: st.DeviceMax,
 		}
 		if st.Used {
-			used++
-			if st.NodesReported {
-				reported++
-				a.Nodes = append([]Amount(nil), st.Nodes...)
-			}
 			a.CPUUnlimited, a.MemoryUnlimited = st.Capacity.CPUMillicores >= calModel.Unlimited, st.Capacity.MemoryBytes >= calModel.Unlimited
 			if !a.CPUUnlimited {
 				a.Capacity.CPUMillicores = st.Capacity.CPUMillicores
@@ -42,7 +36,6 @@ func capacityView(states []agentState, pool Amount) CapacityView {
 		}
 		view.Agents = append(view.Agents, a)
 	}
-	view.PerNodeRoomReported = used > 0 && reported == used
 	return view
 }
 
