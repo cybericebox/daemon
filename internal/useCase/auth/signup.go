@@ -32,10 +32,21 @@ func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, rawEmail, redi
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
 		return model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
 	}
+	// Whether the address is new, half-registered or taken decides how much work follows; all of it
+	// runs after the answer, so the answer's timing says nothing about the account.
+	returnTo := u.trustedReturnTo(redirect)
+	exists := !repositoryTools.IsObjectNotFoundError(dbErr)
+	u.runInBackground("sign-up", func(ctx context.Context) error {
+		return u.registerOrNotify(ctx, emailAddr, returnTo, user, exists)
+	})
+	return nil
+}
 
+// registerOrNotify is the work behind BeginEmailRegistration for one address.
+func (u *AuthUseCase) registerOrNotify(ctx context.Context, emailAddr, returnTo string, user userModel.User, exists bool) error {
 	userID := user.ID
 	switch {
-	case repositoryTools.IsObjectNotFoundError(dbErr):
+	case !exists:
 		userID = tools.NewUUIDv7()
 		if _, err := u.users.Create(ctx, userModel.NewIncompleteUser(userID, emailAddr, time.Now())); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to create user").Err()
@@ -55,7 +66,7 @@ func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, rawEmail, redi
 		// Incomplete account already exists — reuse it, re-issue the setup link.
 	}
 
-	return u.sendContinueRegistration(ctx, userID, emailAddr, user.FirstName, u.trustedReturnTo(redirect))
+	return u.sendContinueRegistration(ctx, userID, emailAddr, user.FirstName, returnTo)
 }
 
 // sendContinueRegistration issues a setup token for an incomplete account and

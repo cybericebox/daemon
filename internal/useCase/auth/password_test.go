@@ -39,6 +39,8 @@ func newPwUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *pass
 		Password: pw,
 		Notifier: notifier,
 		Config:   config.AuthConfig{TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
+		// The mail work runs after the answer in production; the tests wait for it.
+		Background: func(work func()) { work() },
 	})
 	return uc, repo, pw, notifier
 }
@@ -200,5 +202,56 @@ func TestApplyNewPassword_NoRows(t *testing.T) {
 	err := uc.SetAccountPassword(context.Background(), uid, "", "New!1pass")
 	if !errors.Is(err, userModel.ErrUserNotFound.Err()) {
 		t.Fatalf("want ErrUserNotFound, got %v", err)
+	}
+}
+
+// L8: the work that depends on whether the address has an account runs after the answer: the
+// request itself only looks the address up, so its timing says nothing about the account.
+func TestForgotPassword_MailWorkIsDeferredPastTheAnswer(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	notifier := &fakeNotifier{}
+	var queued []func()
+	uc := auth.NewAuthUseCase(auth.Dependencies{
+		Repo:       repo,
+		Token:      token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
+		Password:   password.New(password.Config{HashCost: 4}),
+		Notifier:   notifier,
+		Config:     config.AuthConfig{TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
+		Background: func(work func()) { queued = append(queued, work) },
+	})
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "a@b.test").Return(postgres.User{ID: uid, Status: "active"}, nil)
+	repo.EXPECT().CreateTemporalCode(gomock.Any(), gomock.Any()).Return(postgres.TemporalCode{}, nil)
+
+	if err := uc.ForgotPassword(context.Background(), "a@b.test"); err != nil {
+		t.Fatal(err)
+	}
+	if notifier.calls != 0 {
+		t.Fatal("no code may be created and no mail queued before the answer is given")
+	}
+	if len(queued) != 1 {
+		t.Fatalf("the mail work must be handed to the background, got %d jobs", len(queued))
+	}
+	queued[0]()
+	if notifier.calls != 1 {
+		t.Fatalf("the deferred work must send the mail, got %d", notifier.calls)
+	}
+}
+
+// An unknown address queues nothing at all.
+func TestForgotPassword_UnknownAddressQueuesNothing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	jobs := 0
+	uc := auth.NewAuthUseCase(auth.Dependencies{
+		Repo: repo, Token: token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
+		Password: password.New(password.Config{HashCost: 4}), Notifier: &fakeNotifier{},
+		Config:     config.AuthConfig{TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
+		Background: func(func()) { jobs++ },
+	})
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "ghost@b.test").Return(postgres.User{}, pgx.ErrNoRows)
+	if err := uc.ForgotPassword(context.Background(), "ghost@b.test"); err != nil || jobs != 0 {
+		t.Fatalf("err=%v jobs=%d", err, jobs)
 	}
 }

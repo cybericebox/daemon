@@ -99,6 +99,7 @@ type AuthUseCase struct {
 	cfg               config.AuthConfig
 	inboxRequests     IInboxRequests // nil until wired
 	limits            *authLimits
+	background        func(func())
 	// superAdminMu serializes the operations that can take a super_admin out of
 	// service (demote, block, delete): the "last one" check and its write are one decision.
 	// In process: with several replicas the window is the length of one request.
@@ -125,6 +126,9 @@ type Dependencies struct {
 	Storage  IStorageClient
 	Avatar   IAvatarStorage
 	Config   config.AuthConfig
+	// Background runs the work a public request must not wait for (nil: a goroutine). Tests pass a
+	// synchronous runner.
+	Background func(func())
 }
 
 // isOAuthConfigured returns true only when deps.OAuth is a non-nil interface
@@ -157,6 +161,7 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		avatar:            deps.Avatar,
 		cfg:               deps.Config,
 		limits:            newAuthLimits(),
+		background:        deps.Background,
 	}
 }
 
@@ -257,4 +262,25 @@ func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, a
 		}
 	}
 	return nil
+}
+
+// backgroundTimeout bounds one piece of background work.
+const backgroundTimeout = 30 * time.Second
+
+// runInBackground does the mail side of the public flows (sign-up, forgot password) after the answer
+// is sent. Whether an address has an account decides whether work follows the lookup; done inline,
+// the time to answer told it. Now every outcome answers right after the lookup.
+func (u *AuthUseCase) runInBackground(job string, work func(ctx context.Context) error) {
+	run := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), backgroundTimeout)
+		defer cancel()
+		if err := work(ctx); err != nil {
+			log.Error().Err(err).Str("job", job).Msg("Background auth work failed")
+		}
+	}
+	if u.background != nil {
+		u.background(run)
+		return
+	}
+	go run()
 }

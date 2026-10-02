@@ -35,6 +35,8 @@ func newSignupUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 		Password: password.New(password.Config{HashCost: 4}),
 		Notifier: notifier,
 		Config:   config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
+		// The mail work runs after the answer in production; the tests wait for it.
+		Background: func(work func()) { work() },
 	})
 	return uc, repo, tk, notifier
 }

@@ -29,13 +29,19 @@ func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) erro
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get user by email").Err()
 	}
-	// Registration not finished: there is no password to reset — re-send the
-	// continue-registration link instead (same neutral response).
+	// Everything after the lookup runs in the background: an unknown address returns at once, so a
+	// known one must not take visibly longer (nor fail visibly when the mail queue does).
+	u.runInBackground("forgot-password", func(ctx context.Context) error { return u.sendPasswordReset(ctx, user) })
+	return nil
+}
+
+// sendPasswordReset mails the reset link of an existing account (or, for one that never finished
+// registering, the continue-registration link: there is no password to reset).
+func (u *AuthUseCase) sendPasswordReset(ctx context.Context, user userModel.User) error {
 	if user.IsIncomplete() {
 		return u.sendContinueRegistration(ctx, user.ID, user.Email, user.FirstName, "")
 	}
-	// Mail-bombing guard. Over the quota the answer stays the same neutral
-	// success: nothing tells the caller whether the address has an account.
+	// Mail-bombing guard: over the quota nothing is sent.
 	if !u.mailAllowed(mailKindReset, user.Email) {
 		return nil
 	}
