@@ -47,7 +47,9 @@ type ExerciseUseCase struct {
 	sessions    ITestSessions  // nil when no proxy key is configured
 	proposals   IProposalInbox // nil until wired; proposal inbox requests are then skipped
 	// resources is the platform's device resources settings (zero: the owner's defaults, see Policy).
-	resources      resourcesModel.Policy
+	resources resourcesModel.Policy
+	// testLabGate admits a test laboratory into the resource calendar; nil: no check.
+	testLabGate    TestLabGate
 	elevations     IElevations     // nil in narrow constructions: no approvals exist then
 	elevationInbox IElevationInbox // nil until wired; elevation notifications are then skipped
 }

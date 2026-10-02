@@ -33,7 +33,7 @@ func organizerChange(c calModel.ChangeRequest) OrganizerChangeView {
 
 // GetEventResources is what an organizer sees: allocated vs used, the window, whether the reservation holds and
 // the change requests. Never an agent.
-func (u *UseCase) GetEventResources(ctx context.Context, eventID uuid.UUID) (OrganizerReservationView, error) {
+func (u *ResourceCalendarUseCase) GetEventResources(ctx context.Context, eventID uuid.UUID) (OrganizerReservationView, error) {
 	changes, err := u.store.ListChangeRequests(ctx, nil, &eventID)
 	if err != nil {
 		return OrganizerReservationView{}, platformErr(err, "Failed to list the change requests")
@@ -70,7 +70,7 @@ func (u *UseCase) GetEventResources(ctx context.Context, eventID uuid.UUID) (Org
 }
 
 // covered reports whether a reservation is placed in full and no slot of its window is over capacity.
-func (u *UseCase) covered(ctx context.Context, r *calModel.Reservation, states []agentState) bool {
+func (u *ResourceCalendarUseCase) covered(ctx context.Context, r *calModel.Reservation, states []agentState) bool {
 	if r.Unplaced > 0 {
 		return false
 	}
@@ -87,7 +87,7 @@ func (u *UseCase) covered(ctx context.Context, r *calModel.Reservation, states [
 
 // RequestResourceChange sends the platform admin a request to change the event's reservation. One request waits
 // at a time.
-func (u *UseCase) RequestResourceChange(ctx context.Context, eventID, by uuid.UUID, in ChangeInput) (OrganizerChangeView, error) {
+func (u *ResourceCalendarUseCase) RequestResourceChange(ctx context.Context, eventID, by uuid.UUID, in ChangeInput) (OrganizerChangeView, error) {
 	now := u.now().UTC()
 	var created *calModel.ChangeRequest
 	var label calModel.Label
@@ -131,7 +131,7 @@ func (u *UseCase) RequestResourceChange(ctx context.Context, eventID, by uuid.UU
 	return organizerChange(*created), nil
 }
 
-func (u *UseCase) changeNotice(c calModel.ChangeRequest, l calModel.Label, requester uuid.UUID) inboxUseCase.ResourceChange {
+func (u *ResourceCalendarUseCase) changeNotice(c calModel.ChangeRequest, l calModel.Label, requester uuid.UUID) inboxUseCase.ResourceChange {
 	n := inboxUseCase.ResourceChange{
 		ID: c.ID, EventID: c.EventID, EventName: l.EventName, EventTag: l.EventTag, RequestedBy: requester, RequestedAt: c.RequestedAt,
 		Reason: c.Reason, DecisionNote: c.DecisionNote, Summary: changeSummary(c),
@@ -169,7 +169,7 @@ func amountText(a Amount) string {
 }
 
 // ListChangeRequests lists the change requests for the admin, newest first; status and event narrow it.
-func (u *UseCase) ListChangeRequests(ctx context.Context, status *calModel.ChangeStatus, eventID *uuid.UUID) ([]ChangeRequestView, error) {
+func (u *ResourceCalendarUseCase) ListResourceChangeRequests(ctx context.Context, status *calModel.ChangeStatus, eventID *uuid.UUID) ([]ChangeRequestView, error) {
 	rows, err := u.store.ListChangeRequests(ctx, status, eventID)
 	if err != nil {
 		return nil, platformErr(err, "Failed to list the change requests")
@@ -181,7 +181,7 @@ func (u *UseCase) ListChangeRequests(ctx context.Context, status *calModel.Chang
 	return out, nil
 }
 
-func (u *UseCase) changeView(ctx context.Context, row calModel.NamedChangeRequest) ChangeRequestView {
+func (u *ResourceCalendarUseCase) changeView(ctx context.Context, row calModel.NamedChangeRequest) ChangeRequestView {
 	c := row.ChangeRequest
 	v := ChangeRequestView{
 		ID: c.ID, ReservationID: c.ReservationID, EventID: c.EventID, EventName: row.EventName, EventTag: row.EventTag,
@@ -197,7 +197,7 @@ func (u *UseCase) changeView(ctx context.Context, row calModel.NamedChangeReques
 // DecideChangeRequest approves or rejects a change request (a platform admin only). Approving extends the
 // existing reservation (size, estimate, window) and places it again, keeping every team that still fits; if it
 // no longer fits by packing it is refused unless the admin allows the conflict. Nothing is moved automatically.
-func (u *UseCase) DecideChangeRequest(ctx context.Context, id uuid.UUID, approve bool, note string, by uuid.UUID, allowConflicts bool) (ChangeRequestView, error) {
+func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Context, id uuid.UUID, approve bool, note string, by uuid.UUID, allowConflicts bool) (ChangeRequestView, error) {
 	now := u.now().UTC()
 	states, err := u.agentStates(ctx, now)
 	if err != nil {
@@ -281,7 +281,7 @@ func (u *UseCase) DecideChangeRequest(ctx context.Context, id uuid.UUID, approve
 
 // applyChange puts an approved request into the reservation: the estimate, then the size, then the window. The
 // tail gap still applies on top of a later end.
-func (u *UseCase) applyChange(r *calModel.Reservation, c calModel.ChangeRequest, now time.Time) error {
+func (u *ResourceCalendarUseCase) applyChange(r *calModel.Reservation, c calModel.ChangeRequest, now time.Time) error {
 	if c.Dynamic != nil {
 		if err := r.Recalculate(r.Teams, r.PerTeam, r.LargestDevice, r.BufferPercent, *c.Dynamic, now); err != nil {
 			return err

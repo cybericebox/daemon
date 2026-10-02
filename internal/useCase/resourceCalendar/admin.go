@@ -39,7 +39,7 @@ func capacityView(states []agentState, pool Amount) CapacityView {
 }
 
 // GetCapacity is the capacity of the agents as the calendar uses it (admin).
-func (u *UseCase) GetCapacity(ctx context.Context) (CapacityView, error) {
+func (u *ResourceCalendarUseCase) GetResourceCalendarCapacity(ctx context.Context) (CapacityView, error) {
 	states, err := u.agentStates(ctx, u.now().UTC())
 	if err != nil {
 		return CapacityView{}, err
@@ -53,7 +53,7 @@ func (u *UseCase) GetCapacity(ctx context.Context) (CapacityView, error) {
 
 // GetTimeline is the calendar over a range of slots: the reservations, the total reserved, the capacity and the
 // conflicts (admin). The range is at most 31 days.
-func (u *UseCase) GetTimeline(ctx context.Context, from, to time.Time) (TimelineView, error) {
+func (u *ResourceCalendarUseCase) GetResourceCalendarTimeline(ctx context.Context, from, to time.Time) (TimelineView, error) {
 	w, err := calModel.NewWindow(from, to)
 	if err != nil || w.Duration() > MaxTimelineRange {
 		return TimelineView{}, calModel.ErrWindowInvalid.Err()
@@ -119,7 +119,7 @@ func (u *UseCase) GetTimeline(ctx context.Context, from, to time.Time) (Timeline
 	return view, nil
 }
 
-func (u *UseCase) openAlarmsByReservation(ctx context.Context, states []agentState) (map[uuid.UUID][]AlarmView, error) {
+func (u *ResourceCalendarUseCase) openAlarmsByReservation(ctx context.Context, states []agentState) (map[uuid.UUID][]AlarmView, error) {
 	rows, err := u.store.ListAlarms(ctx, true, alarmListLimit)
 	if err != nil {
 		return nil, platformErr(err, "Failed to list the readiness alarms")
@@ -136,7 +136,7 @@ func (u *UseCase) openAlarmsByReservation(ctx context.Context, states []agentSta
 }
 
 // GetStats is the allocated, used and free room now, per agent and per event (admin).
-func (u *UseCase) GetStats(ctx context.Context) (StatsView, error) {
+func (u *ResourceCalendarUseCase) GetResourceCalendarStats(ctx context.Context) (StatsView, error) {
 	now := u.now().UTC()
 	states, err := u.agentStates(ctx, now)
 	if err != nil {
@@ -220,7 +220,7 @@ func (u *UseCase) GetStats(ctx context.Context) (StatsView, error) {
 }
 
 // GetSettings reads the calendar settings.
-func (u *UseCase) GetSettings(ctx context.Context) (calModel.Settings, error) {
+func (u *ResourceCalendarUseCase) GetResourceCalendarSettings(ctx context.Context) (calModel.Settings, error) {
 	s, err := u.store.Settings(ctx)
 	if err != nil {
 		return calModel.Settings{}, platformErr(err, "Failed to read the calendar settings")
@@ -230,7 +230,7 @@ func (u *UseCase) GetSettings(ctx context.Context) (calModel.Settings, error) {
 
 // SetTestPool sets the guaranteed minimum pool for test laboratories (admin). A pool that the reservations of the
 // next month no longer leave room for is refused unless the admin allows the conflict.
-func (u *UseCase) SetTestPool(ctx context.Context, pool Amount, allowConflicts bool) (calModel.Settings, []ConflictView, error) {
+func (u *ResourceCalendarUseCase) SetResourceTestPool(ctx context.Context, pool Amount, allowConflicts bool) (calModel.Settings, []ConflictView, error) {
 	if pool.CPUMillicores < 0 || pool.MemoryBytes < 0 {
 		return calModel.Settings{}, nil, calModel.ErrReservationInvalid.Err()
 	}
@@ -274,7 +274,7 @@ func (u *UseCase) SetTestPool(ctx context.Context, pool Amount, allowConflicts b
 
 // FutureImpact tells which future reservations lose capacity when an agent goes: the placed share of every
 // reservation that has not ended (the agent deletion's confirmation lists them).
-func (u *UseCase) FutureImpact(ctx context.Context, agent uuid.UUID, now time.Time) ([]infraUseCase.ReservationImpact, error) {
+func (u *ResourceCalendarUseCase) FutureImpact(ctx context.Context, agent uuid.UUID, now time.Time) ([]infraUseCase.ReservationImpact, error) {
 	rs, err := u.store.ListEndingAfter(ctx, now)
 	if err != nil {
 		return nil, err

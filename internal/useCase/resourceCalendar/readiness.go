@@ -42,7 +42,7 @@ type cause struct {
 }
 
 // causes finds why a reservation cannot be served as promised now. A canceled or ended reservation has none.
-func (u *UseCase) causes(ctx context.Context, s Store, r *calModel.Reservation, states []agentState, now time.Time) ([]cause, error) {
+func (u *ResourceCalendarUseCase) causes(ctx context.Context, s Store, r *calModel.Reservation, states []agentState, now time.Time) ([]cause, error) {
 	if !r.Active() || !now.Before(r.Window.End) || r.Kind != calModel.KindEvent || states == nil {
 		return nil, nil
 	}
@@ -107,7 +107,7 @@ func sameAgent(a, b *uuid.UUID) bool {
 // reconcileReservation brings the alarms of one reservation in line with its causes: a new cause raises an
 // alarm, a known one is updated (and escalates as the lead comes closer), a gone one resolves its alarm. The
 // changes people must hear about are returned; they are sent after the commit.
-func (u *UseCase) reconcileReservation(ctx context.Context, s Store, r *calModel.Reservation, states []agentState, now time.Time) ([]alarmEvent, error) {
+func (u *ResourceCalendarUseCase) reconcileReservation(ctx context.Context, s Store, r *calModel.Reservation, states []agentState, now time.Time) ([]alarmEvent, error) {
 	found, err := u.causes(ctx, s, r, states, now)
 	if err != nil {
 		return nil, err
@@ -188,7 +188,7 @@ func agentName(names map[uuid.UUID]string, id *uuid.UUID) string {
 
 // emit tells the people who act on the calendar: the super admins through the notification system and the
 // error journal. A failure is logged, never raised: the alarm itself is stored.
-func (u *UseCase) emit(ctx context.Context, events []alarmEvent) {
+func (u *ResourceCalendarUseCase) emit(ctx context.Context, events []alarmEvent) {
 	for _, ev := range events {
 		a := ev.alarm
 		if ev.resolved {
@@ -234,7 +234,7 @@ func derefID(id *uuid.UUID) uuid.UUID {
 // Reconcile is the periodic readiness check: it completes the teams that had no agent when capacity appears (it
 // only adds, nothing placed is moved), raises, escalates and resolves the alarms, and drops the expired test
 // laboratory holds.
-func (u *UseCase) Reconcile(ctx context.Context) error {
+func (u *ResourceCalendarUseCase) ReconcileResourceCalendar(ctx context.Context) error {
 	now := u.now().UTC()
 	states, err := u.agentStates(ctx, now)
 	if err != nil {
@@ -285,7 +285,7 @@ func (u *UseCase) Reconcile(ctx context.Context) error {
 }
 
 // ListAlarms lists the readiness alarms, open ones first.
-func (u *UseCase) ListAlarms(ctx context.Context, onlyOpen bool) ([]AlarmView, error) {
+func (u *ResourceCalendarUseCase) ListResourceAlarms(ctx context.Context, onlyOpen bool) ([]AlarmView, error) {
 	rows, err := u.store.ListAlarms(ctx, onlyOpen, alarmListLimit)
 	if err != nil {
 		return nil, platformErr(err, "Failed to list the readiness alarms")
@@ -315,7 +315,7 @@ func alarmView(a calModel.Alarm, l calModel.Label, names map[uuid.UUID]string) A
 
 // AcknowledgeAlarm records that an admin saw an alarm and closes its inbox request; the alarm stays open while
 // its cause lasts.
-func (u *UseCase) AcknowledgeAlarm(ctx context.Context, id, by uuid.UUID) (AlarmView, error) {
+func (u *ResourceCalendarUseCase) AcknowledgeResourceAlarm(ctx context.Context, id, by uuid.UUID) (AlarmView, error) {
 	a, err := u.store.GetAlarm(ctx, id)
 	if err != nil {
 		if notFound(err) {

@@ -12,7 +12,7 @@ import (
 // ALL teams. perTeam is the plan of one team with the new task, teams the teams there are and device the largest
 // device of the tasks. An event without a reservation is not checked (it runs on the platform's free room).
 // Otherwise it fails with ErrNotEnoughReserved ("request an extension"); no partial rollout.
-func (u *UseCase) HoldsForAllTeams(ctx context.Context, eventID uuid.UUID, perTeam Amount, teams int, device Amount) error {
+func (u *ResourceCalendarUseCase) HoldsForAllTeams(ctx context.Context, eventID uuid.UUID, perTeam Amount, teams int, device Amount) error {
 	r, err := u.store.GetEventReservation(ctx, eventID)
 	if err != nil {
 		if notFound(err) {

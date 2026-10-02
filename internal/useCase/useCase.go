@@ -20,6 +20,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	"github.com/cybericebox/daemon/internal/delivery/repository/resourceCalendarRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
@@ -47,6 +48,7 @@ import (
 	statsUseCase "github.com/cybericebox/daemon/internal/useCase/notification/stats"
 	platformAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/platformAnalytics"
 	"github.com/cybericebox/daemon/internal/useCase/platformSettings"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	retentionUseCase "github.com/cybericebox/daemon/internal/useCase/retention"
 	signalUseCase "github.com/cybericebox/daemon/internal/useCase/signal"
 	vpnUseCase "github.com/cybericebox/daemon/internal/useCase/vpn"
@@ -84,6 +86,7 @@ type (
 		*broadcastUseCase.NotificationBroadcastUseCase
 		*bannerUseCase.SiteBannerUseCase
 		*errorJournalUseCase.Journal
+		*calendarUseCase.ResourceCalendarUseCase
 	}
 	Dependencies struct {
 		Repo            *repository.Repository
@@ -117,6 +120,8 @@ type (
 		AgentRemote infrastructureUseCase.AgentRemote
 		// LabSessions signs the tokens of the laboratory L7 proxy; nil when unconfigured.
 		LabSessions eventUseCase.LabSessionIssuer
+		// Calendar tunes the resource calendar (event reservation buffer, tail gap, lead margin).
+		Calendar calendarUseCase.Config
 		// ErrorJournal tunes the platform error journal; Telegram is its bot (nil or disabled: no Telegram messages).
 		ErrorJournal errorJournalUseCase.Config
 		Telegram     errorJournalUseCase.Telegram
@@ -190,15 +195,6 @@ func NewUseCase(deps Dependencies) *UseCase {
 		infrastructureUseCase.Dependencies{Agent: deps.LabAgent, Agents: infrastructureAgentRepo.New(deps.Repo), Observations: eventLabObservationRepo.New(deps.Repo), Stands: platformStandRepo.New(deps.Repo)},
 	)
 
-	var agentSealer infrastructureUseCase.AgentSealer
-	if deps.PlatformCipher != nil {
-		agentSealer = deps.PlatformCipher
-	}
-	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
-		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),
-		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote, Frame: deps.ResourcesPolicy.Frame,
-	})
-
 	testLabsUC := infrastructureUseCase.NewTestLabsUseCase(
 		infrastructureUseCase.TestLabsDependencies{Source: platformStandRepo.New(deps.Repo), Agent: deps.LabAgent, Destroyer: exerciseUC},
 	)
@@ -231,6 +227,29 @@ func NewUseCase(deps Dependencies) *UseCase {
 		},
 	)
 
+	// The resource calendar: reservations of lab resources over time, placed over the agents by packing. It plans
+	// from the event's resource plan, reads the agents' recorded capacity and tells the platform admins through the
+	// inbox; the event use case asks it before a new task of a running event, the exercise use case before a test
+	// laboratory, and an agent's deletion lists the reservations it would leave not covered.
+	calendarUC := calendarUseCase.New(calendarUseCase.Dependencies{
+		Store: resourceCalendarRepo.New(deps.Repo), Tx: calendarTx{uow: postgres.NewUnitOfWorker[resourceCalendarRepo.Queries](deps.Repo.UoWFactory())},
+		Agents: infrastructureAgentRepo.New(deps.Repo), Events: eventRepo.New(deps.Repo), Configs: eventConfigRepo.New(deps.Repo),
+		Planner: calendarNeeds{events: eventUC}, Usage: calendarUsage{observations: eventLabObservationRepo.New(deps.Repo)},
+		Config: deps.Calendar, Frame: deps.ResourcesPolicy.Frame, Overhead: groupOverhead(deps.LabAgent),
+	})
+	eventUC.SetResourceGate(calendarUC)
+	exerciseUC.SetTestLabGate(calendarUC)
+
+	var agentSealer infrastructureUseCase.AgentSealer
+	if deps.PlatformCipher != nil {
+		agentSealer = deps.PlatformCipher
+	}
+	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
+		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),
+		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote, Frame: deps.ResourcesPolicy.Frame,
+		Impacts: calendarUC,
+	})
+
 	mailUC := mailUseCase.NewMailUseCase(mailUseCase.Dependencies{
 		Repo: deps.Repo, Cipher: deps.PlatformCipher, Env: deps.SMTPEnv, SMTPPolicy: mailModel.SMTPPolicy{AllowedPorts: deps.SMTPAllowedPorts}, Domain: deps.AuthConfig.Hosts.Main, SupportEmail: deps.AuthConfig.SupportEmail,
 	})
@@ -250,6 +269,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	eventUC.SetStandInbox(inboxRequests)
 	exerciseUC.SetProposalInbox(inboxRequests)
 	exerciseUC.SetElevationInbox(inboxRequests)
+	calendarUC.SetNotifier(inboxRequests)
 	eventUC.SetEmailFooters(mailUC)
 	emailTemplateUC := emailUseCase.NewNotificationEmailTemplateUseCase(deps.Repo, mediaUC)
 	emailTemplateUC.SetFooterSource(mailUC)
@@ -347,5 +367,6 @@ func NewUseCase(deps Dependencies) *UseCase {
 		}),
 		bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{Repo: deps.Repo}),
 		journalUC,
+		calendarUC,
 	}
 }

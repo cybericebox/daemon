@@ -21,6 +21,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/labcleanup"
 	"github.com/cybericebox/daemon/internal/jobs/mediagc"
 	"github.com/cybericebox/daemon/internal/jobs/notify"
+	"github.com/cybericebox/daemon/internal/jobs/resourcecalendar"
 	"github.com/cybericebox/daemon/internal/jobs/resultchangegc"
 	"github.com/cybericebox/daemon/internal/jobs/signalprocessing"
 	"github.com/cybericebox/daemon/internal/jobs/testdeploygc"
@@ -51,6 +52,7 @@ type (
 		accountinactivityJob.IUseCase
 		eventanalyticsJob.IUseCase
 		errorjournalJob.IUseCase
+		resourcecalendarJob.IUseCase
 	}
 	workerRegistry struct {
 		uc                  iUseCase
@@ -92,6 +94,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	river.AddWorker(workers, accountinactivityJob.NewWorker(wr.uc))
 	river.AddWorker(workers, eventanalyticsJob.NewWorker(wr.uc))
 	river.AddWorker(workers, errorjournalJob.NewPurgeWorker(wr.uc))
+	river.AddWorker(workers, resourcecalendarJob.NewWorker(wr.uc))
 }
 
 // PeriodicJobs declares the schedule-driven jobs (queried by the worker
@@ -137,6 +140,11 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 		// minute, one at a time; the next tick re-derives what is due.
 		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
 			return jobsModel.EventAnalyticsArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		// Resource calendar readiness check: alarms, completing the teams that had no agent, expired test lab
+		// holds. One pass a minute, one at a time; the next tick re-derives everything.
+		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.ResourceCalendarArgs{}, standPassInsertOpts()
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
 	}
 	if wr.laboratoriesEnabled {

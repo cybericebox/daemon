@@ -222,7 +222,9 @@ func (m *memStore) PurgeHolds(_ context.Context, now time.Time) (int64, error) {
 
 type passTx struct{ s Store }
 
-func (p passTx) Do(ctx context.Context, fn func(context.Context, Store) error) error { return fn(ctx, p.s) }
+func (p passTx) Do(ctx context.Context, fn func(context.Context, Store) error) error {
+	return fn(ctx, p.s)
+}
 
 type fakeAgents struct{ records []infraModel.AgentRecord }
 

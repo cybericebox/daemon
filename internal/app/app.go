@@ -26,6 +26,7 @@ import (
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
 	"github.com/cybericebox/daemon/internal/useCase"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/telegram"
 	"github.com/cybericebox/daemon/pkg/worker"
@@ -83,6 +84,7 @@ func Run(cfg *config.Config) {
 		MediaConfig:      cfg.Media,
 		ExerciseConfig:   cfg.Exercise,
 		ResourcesPolicy:  resourcesPolicy,
+		Calendar:         calendarConfig(cfg.Calendar),
 		SMTPAllowedPorts: cfg.Tunables.SMTPAllowedPorts,
 		RetentionPolicy:  cfg.Retention.Policy(),
 		ExerciseCipher:   cls.exerciseCipher,
@@ -220,5 +222,13 @@ func Run(cfg *config.Config) {
 	case <-monitoringDone:
 	case <-shutdownCtx.Done():
 		log.Warn().Msg("Timed out stopping laboratory monitoring")
+	}
+}
+
+// calendarConfig hands the resource calendar settings to the use case.
+func calendarConfig(c config.CalendarConfig) calendarUseCase.Config {
+	return calendarUseCase.Config{
+		BufferPercent: c.BufferPercent, TailGap: c.TailGap, LeadMargin: c.LeadMargin, SearchHorizon: c.SearchHorizon,
+		AgentFresh: c.AgentFresh, TestLabLease: c.TestLabLease,
 	}
 }

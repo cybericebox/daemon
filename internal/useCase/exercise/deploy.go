@@ -20,6 +20,7 @@ import (
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
@@ -207,6 +208,11 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		deployFlags = append(deployFlags, exerciseModel.DeployFlag{TaskID: link.TaskID, Name: link.Name, Flag: link.Flag})
 	}
 	id := uuid.Must(uuid.NewV7())
+	// The resource calendar decides whether the laboratory fits: the author's booked window, the guaranteed pool
+	// or unplanned room; otherwise the error names the nearest free window.
+	if err = u.admitTestLab(ctx, id, ownerID, topo); err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
 	deploy := exerciseModel.TestDeploy{Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(u.testDeployTTL())}
 
 	// Everything an author does to their test labs is serialized, so the group is created with the
@@ -232,11 +238,13 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 				return true, model.ErrPlatform.WithError(errors.Join(err, cleanupErr)).WithMessage("Failed to deploy variant lab").Err()
 			}
 			_, _ = repo.DeleteOwned(cleanupCtx, deploy.ID, ownerID)
+			u.releaseTestLab(cleanupCtx, deploy.ID)
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to deploy variant lab").Err()
 		}
 		return true, nil
 	})
 	if err != nil {
+		u.releaseTestLab(context.WithoutCancel(ctx), id)
 		return exerciseModel.DeployHandle{}, err
 	}
 
@@ -505,6 +513,7 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 	if _, err = repo.DeleteOwned(ctx, deploy.ID, deploy.CreatedBy); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to remove test deploy").Err()
 	}
+	u.releaseTestLab(ctx, deploy.ID)
 	return nil
 }
 
@@ -591,6 +600,9 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 			return exerciseModel.TestDeploy{}, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return exerciseModel.TestDeploy{}, model.ErrPlatform.WithError(err).WithMessage("Failed to extend test deploy").Err()
+	}
+	if u.testLabGate != nil {
+		_ = u.testLabGate.ExtendTestLab(ctx, deployID, ownerID, calendarUseCase.Amount{}, value.ExpiresAt)
 	}
 	return value, nil
 }

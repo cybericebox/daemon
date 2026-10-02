@@ -20,7 +20,7 @@ import (
 var now0 = time.Date(2026, 10, 5, 6, 0, 0, 0, time.UTC)
 
 type harness struct {
-	uc       *UseCase
+	uc       *ResourceCalendarUseCase
 	store    *memStore
 	agents   *fakeAgents
 	planner  *fakePlanner
@@ -69,7 +69,7 @@ func is(err error, target liberr.ErrorCreator) bool {
 
 func TestEventReservationSizeWindowAndPlacement(t *testing.T) {
 	h := newHarness(t)
-	res, err := h.uc.SetEventReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
+	res, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	assert.True(t, res.Saved)
 	assert.True(t, res.Reservation.Covered)
@@ -85,7 +85,7 @@ func TestEventReservationSizeWindowAndPlacement(t *testing.T) {
 	assert.Equal(t, 8, res.Reservation.Placement[0].Units)
 	assert.Equal(t, "a", res.Reservation.Placement[0].AgentName)
 
-	again, err := h.uc.SetEventReservation(context.Background(), h.event.ID, EventReservationInput{DryRun: true, Teams: ptr(10)}, uuid.Nil)
+	again, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{DryRun: true, Teams: ptr(10)}, uuid.Nil)
 	require.NoError(t, err)
 	assert.False(t, again.Saved)
 	stored, _ := h.store.GetEventReservation(context.Background(), h.event.ID)
@@ -96,10 +96,10 @@ func ptr[T any](v T) *T { return &v }
 
 func TestTailGapNeverShorterAndAdminMaySetMore(t *testing.T) {
 	h := newHarness(t)
-	res, err := h.uc.SetEventReservation(context.Background(), h.event.ID, EventReservationInput{TailGap: ptr(5 * time.Minute)}, uuid.Nil)
+	res, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{TailGap: ptr(5 * time.Minute)}, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 10, 5, 13, 0, 0, 0, time.UTC), res.Reservation.To)
-	res, err = h.uc.SetEventReservation(context.Background(), h.event.ID, EventReservationInput{TailGap: ptr(3 * time.Hour)}, uuid.Nil)
+	res, err = h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{TailGap: ptr(3 * time.Hour)}, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, time.Date(2026, 10, 5, 15, 0, 0, 0, time.UTC), res.Reservation.To)
 }
@@ -107,20 +107,20 @@ func TestTailGapNeverShorterAndAdminMaySetMore(t *testing.T) {
 func TestReservationThatDoesNotFitIsRefusedUnlessAllowed(t *testing.T) {
 	h := newHarness(t)
 	h.planner.need.Teams = 40 // 40 x 1.15 CPU > 2 agents of 10 CPU
-	_, err := h.uc.SetEventReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.Error(t, err)
 	assert.True(t, is(err, calModel.ErrReservationConflict), "%v", err)
 	_, getErr := h.store.GetEventReservation(context.Background(), h.event.ID)
 	assert.Error(t, getErr, "nothing was stored")
 
-	res, err := h.uc.SetEventReservation(context.Background(), h.event.ID, EventReservationInput{AllowConflicts: true}, uuid.Nil)
+	res, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{AllowConflicts: true}, uuid.Nil)
 	require.NoError(t, err)
 	assert.True(t, res.Saved)
 	assert.False(t, res.Reservation.Covered)
 	assert.Positive(t, res.Reservation.Unplaced)
 	require.NotEmpty(t, res.Conflicts)
 	// A readiness alarm was raised, the admins were told.
-	alarms, err := h.uc.ListAlarms(context.Background(), true)
+	alarms, err := h.uc.ListResourceAlarms(context.Background(), true)
 	require.NoError(t, err)
 	kinds := map[calModel.AlarmKind]bool{}
 	for _, a := range alarms {
@@ -133,9 +133,9 @@ func TestReservationThatDoesNotFitIsRefusedUnlessAllowed(t *testing.T) {
 func TestNothingIsMovedWhenAReservationGrows(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{Teams: ptr(8)}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{Teams: ptr(8)}, uuid.Nil)
 	require.NoError(t, err)
-	res, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{Teams: ptr(12)}, uuid.Nil)
+	res, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{Teams: ptr(12)}, uuid.Nil)
 	require.NoError(t, err)
 	require.Len(t, res.Reservation.Placement, 2)
 	assert.Equal(t, "a", res.Reservation.Placement[0].AgentName, "the 8 teams stay on the first agent")
@@ -146,12 +146,12 @@ func TestNothingIsMovedWhenAReservationGrows(t *testing.T) {
 func TestAnotherEventOverlappingTakesTheOtherAgent(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	// A second event at the same time: its 8 teams do not fit next to the first on agent a.
 	other := eventModel.Event{ID: uuid.Must(uuid.NewV7()), Name: "Other", Tag: "other", InfrastructureAllowed: true, Lifecycle: h.event.Lifecycle}
 	h.uc.events = multiEvents{h.event, other}
-	res, err := h.uc.SetEventReservation(ctx, other.ID, EventReservationInput{}, uuid.Nil)
+	res, err := h.uc.SetEventResourceReservation(ctx, other.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	require.Len(t, res.Reservation.Placement, 1)
 	assert.Equal(t, "b", res.Reservation.Placement[0].AgentName)
@@ -172,7 +172,7 @@ func TestChangeRequestApprovalExtendsTheReservation(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	organizer := uuid.Must(uuid.NewV7())
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 
 	end := time.Date(2026, 10, 5, 14, 0, 0, 0, time.UTC)
@@ -185,20 +185,20 @@ func TestChangeRequestApprovalExtendsTheReservation(t *testing.T) {
 	_, err = h.uc.RequestResourceChange(ctx, h.event.ID, organizer, ChangeInput{WindowEnd: &end, Reason: "again"})
 	assert.True(t, is(err, calModel.ErrChangeRequestPending))
 
-	decided, err := h.uc.DecideChangeRequest(ctx, view.ID, true, "ok", uuid.Nil, false)
+	decided, err := h.uc.DecideResourceChangeRequest(ctx, view.ID, true, "ok", uuid.Nil, false)
 	require.NoError(t, err)
 	assert.Equal(t, calModel.ChangeApproved, decided.Status)
 	r, _ := h.store.GetEventReservation(ctx, h.event.ID)
 	assert.Equal(t, end.Add(time.Hour), r.Window.End, "the 1h gap still applies on top of the longer window")
 	assert.Equal(t, []bool{true}, h.notifier.decided)
-	_, err = h.uc.DecideChangeRequest(ctx, view.ID, false, "", uuid.Nil, false)
+	_, err = h.uc.DecideResourceChangeRequest(ctx, view.ID, false, "", uuid.Nil, false)
 	assert.True(t, is(err, calModel.ErrChangeRequestDecided))
 
 	// A rejected request changes nothing.
 	size := Amount{CPUMillicores: 100000, MemoryBytes: 1 << 40}
 	v2, err := h.uc.RequestResourceChange(ctx, h.event.ID, organizer, ChangeInput{Size: &size, Reason: "huge"})
 	require.NoError(t, err)
-	_, err = h.uc.DecideChangeRequest(ctx, v2.ID, false, "no", uuid.Nil, false)
+	_, err = h.uc.DecideResourceChangeRequest(ctx, v2.ID, false, "no", uuid.Nil, false)
 	require.NoError(t, err)
 	after, _ := h.store.GetEventReservation(ctx, h.event.ID)
 	assert.Equal(t, r.Size, after.Size)
@@ -207,17 +207,17 @@ func TestChangeRequestApprovalExtendsTheReservation(t *testing.T) {
 func TestChangeApprovalThatDoesNotFitNeedsTheAdminToAllowIt(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	size := Amount{CPUMillicores: 90000, MemoryBytes: 100 << 30}
 	v, err := h.uc.RequestResourceChange(ctx, h.event.ID, uuid.Must(uuid.NewV7()), ChangeInput{Size: &size, Reason: "growth"})
 	require.NoError(t, err)
-	_, err = h.uc.DecideChangeRequest(ctx, v.ID, true, "", uuid.Nil, false)
+	_, err = h.uc.DecideResourceChangeRequest(ctx, v.ID, true, "", uuid.Nil, false)
 	assert.True(t, is(err, calModel.ErrReservationConflict), "%v", err)
 	pending := calModel.ChangePending
-	list, _ := h.uc.ListChangeRequests(ctx, &pending, nil)
+	list, _ := h.uc.ListResourceChangeRequests(ctx, &pending, nil)
 	assert.Len(t, list, 1, "still pending after the refused approval")
-	_, err = h.uc.DecideChangeRequest(ctx, v.ID, true, "", uuid.Nil, true)
+	_, err = h.uc.DecideResourceChangeRequest(ctx, v.ID, true, "", uuid.Nil, true)
 	require.NoError(t, err)
 }
 
@@ -227,7 +227,7 @@ func TestOrganizerSeesAllocatedVsUsedWithoutAgents(t *testing.T) {
 	empty, err := h.uc.GetEventResources(ctx, h.event.ID)
 	require.NoError(t, err)
 	assert.False(t, empty.Reserved)
-	_, err = h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err = h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	h.usage.u = Usage{ByEvent: map[uuid.UUID]Amount{h.event.ID: {CPUMillicores: 3000, MemoryBytes: 4 << 30}}}
 	v, err := h.uc.GetEventResources(ctx, h.event.ID)
@@ -242,7 +242,7 @@ func TestTaskOfARunningEventNeedsTheReservationForAllTeams(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	assert.NoError(t, h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 50000}, 8, Amount{}), "no reservation, no check")
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	// Per-team room is 1.15 CPU / 2.3Gi.
 	assert.NoError(t, h.uc.HoldsForAllTeams(ctx, h.event.ID, Amount{CPUMillicores: 1100, MemoryBytes: 2 << 30}, 8, Amount{CPUMillicores: 250}))
@@ -255,28 +255,28 @@ func TestTaskOfARunningEventNeedsTheReservationForAllTeams(t *testing.T) {
 func TestAgentLostRaisesAlarmAndResolvesWhenBack(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	assert.Empty(t, h.notifier.raised)
 
 	// Agent a (where the teams are) is disabled.
 	h.agents.records[0].Enabled = false
-	require.NoError(t, h.uc.Reconcile(ctx))
-	alarms, _ := h.uc.ListAlarms(ctx, true)
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
+	alarms, _ := h.uc.ListResourceAlarms(ctx, true)
 	require.Len(t, alarms, 1)
 	assert.Equal(t, calModel.AlarmAgentLost, alarms[0].Kind)
 	assert.Equal(t, "a", alarms[0].AgentName)
 	assert.Len(t, h.notifier.raised, 1)
 	// The next pass does not raise it again.
-	require.NoError(t, h.uc.Reconcile(ctx))
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
 	assert.Len(t, h.notifier.raised, 1)
 	// Nothing was moved: the placement still names agent a.
 	r, _ := h.store.GetEventReservation(ctx, h.event.ID)
 	assert.Equal(t, uuid.UUID{15: 1}, r.Placement[0].AgentID)
 
 	h.agents.records[0].Enabled = true
-	require.NoError(t, h.uc.Reconcile(ctx))
-	open, _ := h.uc.ListAlarms(ctx, true)
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
+	open, _ := h.uc.ListResourceAlarms(ctx, true)
 	assert.Empty(t, open)
 	assert.NotEmpty(t, h.notifier.closed)
 }
@@ -284,19 +284,19 @@ func TestAgentLostRaisesAlarmAndResolvesWhenBack(t *testing.T) {
 func TestAgentShrinkRaisesAlarm(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	h.agents.records[0].CapacityCPUMillicores = i64(4000)
-	require.NoError(t, h.uc.Reconcile(ctx))
-	alarms, _ := h.uc.ListAlarms(ctx, true)
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
+	alarms, _ := h.uc.ListResourceAlarms(ctx, true)
 	require.Len(t, alarms, 1)
 	assert.Equal(t, calModel.AlarmAgentShrunk, alarms[0].Kind)
-	tl, err := h.uc.GetTimeline(ctx, now0, now0.Add(12*time.Hour))
+	tl, err := h.uc.GetResourceCalendarTimeline(ctx, now0, now0.Add(12*time.Hour))
 	require.NoError(t, err)
 	require.NotEmpty(t, tl.Conflicts, "the shrink shows as a conflict on the timeline")
 	assert.False(t, tl.Reservations[0].Covered)
 	// The admin's manual answer: re-place; the teams that no longer fit move to the other agent.
-	res, err := h.uc.ReplanReservation(ctx, tl.Reservations[0].ID, false)
+	res, err := h.uc.ReplanResourceReservation(ctx, tl.Reservations[0].ID, false)
 	require.NoError(t, err)
 	assert.True(t, res.Reservation.Covered)
 }
@@ -304,20 +304,20 @@ func TestAgentShrinkRaisesAlarm(t *testing.T) {
 func TestNotConnectedAlarmEscalatesTowardsTheLead(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	// Both agents stop answering (their capacity was read long ago); the window starts at 7:00, now is 6:00.
 	long := now0.Add(-3 * time.Hour)
 	h.agents.records[0].CapacitySeenAt, h.agents.records[1].CapacitySeenAt = &long, &long
-	require.NoError(t, h.uc.Reconcile(ctx))
-	alarms, _ := h.uc.ListAlarms(ctx, true)
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
+	alarms, _ := h.uc.ListResourceAlarms(ctx, true)
 	require.Len(t, alarms, 1)
 	assert.Equal(t, calModel.AlarmNotConnected, alarms[0].Kind)
 	assert.Equal(t, StageTwoHours, alarms[0].Stage)
 	require.Len(t, h.notifier.raised, 1)
 
 	h.clock = time.Date(2026, 10, 5, 7, 0, 0, 0, time.UTC) // the deploy lead
-	require.NoError(t, h.uc.Reconcile(ctx))
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
 	require.Len(t, h.notifier.raised, 2, "escalated at the lead")
 	assert.True(t, h.notifier.raised[1].Escalated)
 	assert.Equal(t, StageAtLead, h.notifier.raised[1].Stage)
@@ -328,14 +328,14 @@ func TestUnplacedTeamsAreCompletedWhenCapacityAppears(t *testing.T) {
 	ctx := context.Background()
 	h.agents.records = h.agents.records[:1]
 	h.planner.need.Teams = 12 // 12 x 1.15 CPU > 10 CPU
-	res, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{AllowConflicts: true}, uuid.Nil)
+	res, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{AllowConflicts: true}, uuid.Nil)
 	require.NoError(t, err)
 	require.Positive(t, res.Reservation.Unplaced)
 	h.agents.records = append(h.agents.records, record(2, 1, 10000, 64<<30, now0))
-	require.NoError(t, h.uc.Reconcile(ctx))
+	require.NoError(t, h.uc.ReconcileResourceCalendar(ctx))
 	r, _ := h.store.GetEventReservation(ctx, h.event.ID)
 	assert.Zero(t, r.Unplaced)
-	open, _ := h.uc.ListAlarms(ctx, true)
+	open, _ := h.uc.ListResourceAlarms(ctx, true)
 	assert.Empty(t, open)
 }
 
@@ -344,7 +344,7 @@ func TestTestLabAdmissionPoolFreeBookingAndNearestWindow(t *testing.T) {
 	ctx := context.Background()
 	owner := uuid.Must(uuid.NewV7())
 	lab := Amount{CPUMillicores: 2000, MemoryBytes: 4 << 30}
-	_, _, err := h.uc.SetTestPool(ctx, Amount{CPUMillicores: 2000, MemoryBytes: 4 << 30}, false)
+	_, _, err := h.uc.SetResourceTestPool(ctx, Amount{CPUMillicores: 2000, MemoryBytes: 4 << 30}, false)
 	require.NoError(t, err)
 
 	// Inside the pool.
@@ -359,7 +359,7 @@ func TestTestLabAdmissionPoolFreeBookingAndNearestWindow(t *testing.T) {
 	// An event takes all but the pool (18 of 20 CPU, 2 held for the pool is not enough for a lab), 7:00-13:00.
 	h.planner.need.Teams = 18
 	h.planner.need.PerTeam = Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30}
-	_, err = h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{BufferPercent: ptr(0)}, uuid.Nil)
+	_, err = h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{BufferPercent: ptr(0)}, uuid.Nil)
 	require.NoError(t, err)
 	_, err = h.uc.AdmitTestLab(ctx, TestLabRequest{ID: uuid.Must(uuid.NewV7()), Owner: owner, Size: lab, Lease: 2 * time.Hour})
 	require.Error(t, err)
@@ -374,10 +374,10 @@ func TestTestLabAdmissionPoolFreeBookingAndNearestWindow(t *testing.T) {
 	b, err := h.uc.BookTestLab(ctx, owner, *check.NearestFrom, 2*time.Hour, lab, Amount{})
 	require.NoError(t, err)
 	assert.Equal(t, 8, int(b.To.Sub(b.From)/(15*time.Minute)))
-	bookings, _ := h.uc.ListBookings(ctx, owner)
+	bookings, _ := h.uc.ListTestLabBookings(ctx, owner)
 	assert.Len(t, bookings, 1)
-	require.NoError(t, h.uc.CancelBooking(ctx, owner, b.ID))
-	bookings, _ = h.uc.ListBookings(ctx, owner)
+	require.NoError(t, h.uc.CancelTestLabBooking(ctx, owner, b.ID))
+	bookings, _ = h.uc.ListTestLabBookings(ctx, owner)
 	assert.Empty(t, bookings)
 }
 
@@ -400,7 +400,7 @@ func TestTestLabRunsInsideTheBookedWindow(t *testing.T) {
 func TestFutureImpactListsTheReservationsOfAnAgent(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	impacts, err := h.uc.FutureImpact(ctx, uuid.UUID{15: 1}, now0)
 	require.NoError(t, err)
@@ -415,10 +415,10 @@ func TestStatsAndCapacityShowAllocatedUsedFree(t *testing.T) {
 	h := newHarness(t)
 	ctx := context.Background()
 	h.clock = time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
-	_, err := h.uc.SetEventReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
 	require.NoError(t, err)
 	h.usage.u = Usage{ByEvent: map[uuid.UUID]Amount{h.event.ID: {CPUMillicores: 2000}}, ByAgent: map[uuid.UUID]Amount{{15: 1}: {CPUMillicores: 2000}}}
-	st, err := h.uc.GetStats(ctx)
+	st, err := h.uc.GetResourceCalendarStats(ctx)
 	require.NoError(t, err)
 	require.Len(t, st.Agents, 2)
 	assert.Equal(t, int64(9200), st.Agents[0].Allocated.CPUMillicores)
@@ -428,7 +428,7 @@ func TestStatsAndCapacityShowAllocatedUsedFree(t *testing.T) {
 	require.Len(t, st.Events, 1)
 	assert.Equal(t, int64(2000), st.Events[0].InUse.CPUMillicores)
 	assert.True(t, st.Events[0].Covered)
-	capView, err := h.uc.GetCapacity(ctx)
+	capView, err := h.uc.GetResourceCalendarCapacity(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(20000), capView.Total.CPUMillicores)
 	assert.False(t, capView.PerNodeRoomReported)
@@ -438,12 +438,12 @@ func TestAgentsThatAreNotUsedHaveNoCapacity(t *testing.T) {
 	h := newHarness(t)
 	h.agents.records[0].Enabled = false
 	h.agents.records[1].CapacitySeenAt = nil
-	capView, err := h.uc.GetCapacity(context.Background())
+	capView, err := h.uc.GetResourceCalendarCapacity(context.Background())
 	require.NoError(t, err)
 	assert.Zero(t, capView.Total.CPUMillicores)
 	assert.Equal(t, "disabled", capView.Agents[0].Why)
 	assert.Equal(t, "no_capacity", capView.Agents[1].Why)
 	// With no capacity at all a reservation is refused unless allowed (it is then "not covered").
-	_, err = h.uc.SetEventReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
+	_, err = h.uc.SetEventResourceReservation(context.Background(), h.event.ID, EventReservationInput{}, uuid.Nil)
 	assert.True(t, is(err, calModel.ErrReservationConflict))
 }

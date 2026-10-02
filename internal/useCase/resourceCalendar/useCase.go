@@ -141,8 +141,8 @@ type (
 		Now      func() time.Time
 	}
 
-	// UseCase is the resource calendar.
-	UseCase struct {
+	// ResourceCalendarUseCase is the resource calendar.
+	ResourceCalendarUseCase struct {
 		store    Store
 		tx       Transactor
 		agents   AgentSource
@@ -157,6 +157,9 @@ type (
 		now      func() time.Time
 	}
 )
+
+// SetNotifier wires the notifications after the dispatcher exists (the inbox request router).
+func (u *ResourceCalendarUseCase) SetNotifier(n Notifier) { u.notifier = n }
 
 // DefaultConfig is the calendar's defaults.
 func DefaultConfig() Config {
@@ -189,7 +192,7 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-func New(deps Dependencies) *UseCase {
+func New(deps Dependencies) *ResourceCalendarUseCase {
 	now := deps.Now
 	if now == nil {
 		now = time.Now
@@ -198,7 +201,7 @@ func New(deps Dependencies) *UseCase {
 	if frame == (resourcesModel.Amount{}) {
 		frame = resourcesModel.DefaultPolicy().Frame
 	}
-	return &UseCase{
+	return &ResourceCalendarUseCase{
 		store: deps.Store, tx: deps.Tx, agents: deps.Agents, events: deps.Events, configs: deps.Configs, planner: deps.Planner,
 		usage: deps.Usage, notifier: deps.Notifier, cfg: deps.Config.withDefaults(), frame: frame, overhead: deps.Overhead, now: now,
 	}
@@ -218,7 +221,7 @@ type agentState struct {
 // agentStates reads every agent of the registry; the ones that are used are the enabled ones that meet the
 // platform requirements and have a recorded capacity. Per-node room is not reported by the agents yet, so every
 // agent counts as one node (see calModel.Agent.Nodes).
-func (u *UseCase) agentStates(ctx context.Context, now time.Time) ([]agentState, error) {
+func (u *ResourceCalendarUseCase) agentStates(ctx context.Context, now time.Time) ([]agentState, error) {
 	records, err := u.agents.ListRecords(ctx)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the agents for the resource calendar").Err()
@@ -280,7 +283,7 @@ func platformErr(err error, msg string) error {
 func notFound(err error) bool { return repositoryTools.IsObjectNotFoundError(err) }
 
 // inTx runs fn in one transaction holding the calendar lock: no two decisions see the same free room.
-func (u *UseCase) inTx(ctx context.Context, fn func(ctx context.Context, s Store) error) error {
+func (u *ResourceCalendarUseCase) inTx(ctx context.Context, fn func(ctx context.Context, s Store) error) error {
 	return u.tx.Do(ctx, func(ctx context.Context, s Store) error {
 		if err := s.Lock(ctx); err != nil {
 			return platformErr(err, "Failed to lock the resource calendar")

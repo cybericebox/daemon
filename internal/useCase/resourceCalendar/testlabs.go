@@ -13,7 +13,7 @@ import (
 const maxActiveBookings = 3
 
 // sizeWithOverhead adds the group's own pods a test laboratory brings.
-func (u *UseCase) sizeWithOverhead(size Amount) Amount {
+func (u *ResourceCalendarUseCase) sizeWithOverhead(size Amount) Amount {
 	if u.overhead == nil {
 		return size
 	}
@@ -30,7 +30,7 @@ type admission struct {
 // decideTestLab decides whether a test laboratory may start now: inside the author's own booked window, else
 // inside the guaranteed pool, else from room no event has reserved above the pool; otherwise it says when the
 // nearest free window starts. The calendar lock is held by the caller.
-func (u *UseCase) decideTestLab(ctx context.Context, s Store, states []agentState, size, device Amount, owner uuid.UUID, lease time.Duration, now time.Time) (admission, error) {
+func (u *ResourceCalendarUseCase) decideTestLab(ctx context.Context, s Store, states []agentState, size, device Amount, owner uuid.UUID, lease time.Duration, now time.Time) (admission, error) {
 	settings, err := s.Settings(ctx)
 	if err != nil {
 		return admission{}, platformErr(err, "Failed to read the calendar settings")
@@ -96,7 +96,7 @@ func (u *UseCase) decideTestLab(ctx context.Context, s Store, states []agentStat
 
 // fitsAbovePool: some agent holds the lab in every slot of the lease next to what is placed there, and the
 // room that is free in total, after the pool (or what the running labs already hold above it), is enough.
-func (u *UseCase) fitsAbovePool(agents []calModel.Agent, rs []*calModel.Reservation, w calModel.Window, pool, pooled, size, device Amount) bool {
+func (u *ResourceCalendarUseCase) fitsAbovePool(agents []calModel.Agent, rs []*calModel.Reservation, w calModel.Window, pool, pooled, size, device Amount) bool {
 	peak := calModel.PeakLoad(w, rs)
 	var free Amount
 	fits := false
@@ -113,7 +113,7 @@ func (u *UseCase) fitsAbovePool(agents []calModel.Agent, rs []*calModel.Reservat
 	return fits && size.Within(rest)
 }
 
-func (u *UseCase) leaseOf(l time.Duration) time.Duration {
+func (u *ResourceCalendarUseCase) leaseOf(l time.Duration) time.Duration {
 	if l <= 0 {
 		return u.cfg.TestLabLease
 	}
@@ -131,7 +131,7 @@ func noRoom(a admission, lease time.Duration) error {
 // AdmitTestLab decides, and records the hold of, a catalog author's test laboratory. It fails with
 // ErrNoTestLabRoom ("no free resources now, the nearest window is from HH:MM") when neither a booking, the pool
 // nor free room holds it; the author may then book that window. Release the hold when the laboratory ends.
-func (u *UseCase) AdmitTestLab(ctx context.Context, req TestLabRequest) (TestLabRoom, error) {
+func (u *ResourceCalendarUseCase) AdmitTestLab(ctx context.Context, req TestLabRequest) (TestLabRoom, error) {
 	now := u.now().UTC()
 	lease := u.leaseOf(req.Lease)
 	size := u.sizeWithOverhead(req.Size)
@@ -162,7 +162,7 @@ func (u *UseCase) AdmitTestLab(ctx context.Context, req TestLabRequest) (TestLab
 }
 
 // ExtendTestLab moves the end of a hold when the lease of its laboratory is extended.
-func (u *UseCase) ExtendTestLab(ctx context.Context, id, owner uuid.UUID, size Amount, until time.Time) error {
+func (u *ResourceCalendarUseCase) ExtendTestLab(ctx context.Context, id, owner uuid.UUID, size Amount, until time.Time) error {
 	now := u.now().UTC()
 	return u.inTx(ctx, func(ctx context.Context, s Store) error {
 		holds, err := s.ActiveHolds(ctx, now)
@@ -182,7 +182,7 @@ func (u *UseCase) ExtendTestLab(ctx context.Context, id, owner uuid.UUID, size A
 }
 
 // ReleaseTestLab frees the room of a test laboratory that ended.
-func (u *UseCase) ReleaseTestLab(ctx context.Context, id uuid.UUID) error {
+func (u *ResourceCalendarUseCase) ReleaseTestLab(ctx context.Context, id uuid.UUID) error {
 	if err := u.store.DeleteHold(ctx, id); err != nil {
 		return platformErr(err, "Failed to release the test laboratory hold")
 	}
@@ -191,7 +191,7 @@ func (u *UseCase) ReleaseTestLab(ctx context.Context, id uuid.UUID) error {
 
 // CheckTestLabRoom answers, without holding anything, whether a test laboratory fits now and, if not, when the
 // nearest free window starts (the author's "book a window" offer).
-func (u *UseCase) CheckTestLabRoom(ctx context.Context, owner uuid.UUID, size, device Amount, lease time.Duration) (TestLabRoom, error) {
+func (u *ResourceCalendarUseCase) CheckTestLabRoom(ctx context.Context, owner uuid.UUID, size, device Amount, lease time.Duration) (TestLabRoom, error) {
 	now := u.now().UTC()
 	lease = u.leaseOf(lease)
 	states, err := u.agentStates(ctx, now)
@@ -216,7 +216,7 @@ func (u *UseCase) CheckTestLabRoom(ctx context.Context, owner uuid.UUID, size, d
 // BookTestLab reserves a window of room for the author's test laboratory (for example 2 hours from HH:MM). The
 // booking holds in the calendar like an event reservation. When the window does not fit, the answer carries the
 // nearest window that does.
-func (u *UseCase) BookTestLab(ctx context.Context, owner uuid.UUID, start time.Time, duration time.Duration, size, device Amount) (BookingView, error) {
+func (u *ResourceCalendarUseCase) BookTestLab(ctx context.Context, owner uuid.UUID, start time.Time, duration time.Duration, size, device Amount) (BookingView, error) {
 	now := u.now().UTC()
 	w, err := calModel.NewBookingWindow(start, duration, now)
 	if err != nil {
@@ -277,7 +277,7 @@ func (u *UseCase) BookTestLab(ctx context.Context, owner uuid.UUID, start time.T
 }
 
 // ListBookings lists the author's bookings that have not ended.
-func (u *UseCase) ListBookings(ctx context.Context, owner uuid.UUID) ([]BookingView, error) {
+func (u *ResourceCalendarUseCase) ListTestLabBookings(ctx context.Context, owner uuid.UUID) ([]BookingView, error) {
 	rs, err := u.store.ListOwnedBookings(ctx, owner, u.now().UTC())
 	if err != nil {
 		return nil, platformErr(err, "Failed to read the bookings")
@@ -290,7 +290,7 @@ func (u *UseCase) ListBookings(ctx context.Context, owner uuid.UUID) ([]BookingV
 }
 
 // CancelBooking cancels the author's own booking; its room is free at once.
-func (u *UseCase) CancelBooking(ctx context.Context, owner, id uuid.UUID) error {
+func (u *ResourceCalendarUseCase) CancelTestLabBooking(ctx context.Context, owner, id uuid.UUID) error {
 	now := u.now().UTC()
 	return u.inTx(ctx, func(ctx context.Context, s Store) error {
 		r, err := s.GetReservation(ctx, id)

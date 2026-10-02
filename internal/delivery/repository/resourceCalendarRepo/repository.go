@@ -116,8 +116,8 @@ func reservationFrom(row postgres.ResourceReservation) calModel.Reservation {
 		Teams:  int(row.Teams), PerTeam: calModel.Amount{CPUMillicores: row.PerTeamCpuMillicores, MemoryBytes: row.PerTeamMemoryBytes},
 		LargestDevice: calModel.Amount{CPUMillicores: row.LargestDeviceCpuMillicores, MemoryBytes: row.LargestDeviceMemoryBytes},
 		BufferPercent: int(row.BufferPercent), Dynamic: calModel.Amount{CPUMillicores: row.DynamicCpuMillicores, MemoryBytes: row.DynamicMemoryBytes},
-		TailGap: time.Duration(row.TailGapSeconds) * time.Second,
-		Size:    calModel.Amount{CPUMillicores: row.SizeCpuMillicores, MemoryBytes: row.SizeMemoryBytes},
+		TailGap:   time.Duration(row.TailGapSeconds) * time.Second,
+		Size:      calModel.Amount{CPUMillicores: row.SizeCpuMillicores, MemoryBytes: row.SizeMemoryBytes},
 		Placement: placement, Unplaced: int(row.Unplaced),
 		CreatedBy: row.CreatedBy.UUID, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(), CanceledAt: timePtr(row.CanceledAt),
 	}

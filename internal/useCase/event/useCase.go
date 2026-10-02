@@ -128,7 +128,7 @@ func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uui
 
 type EventUseCase struct {
 	// resourceGate checks a new task of a running event against the event's resource reservation; nil: unchecked.
-	resourceGate ResourceGate
+	resourceGate      ResourceGate
 	observations      *eventLabObservationRepo.Repository
 	standDeployBudget int
 	prewarmLead       time.Duration

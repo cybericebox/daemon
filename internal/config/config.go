@@ -32,6 +32,7 @@ type (
 		Media          MediaConfig          `                                   envPrefix:"MEDIA_"`
 		Exercise       ExerciseConfig       `                                   envPrefix:"EXERCISE_"`
 		Resources      ResourcesConfig      `                                   envPrefix:"RESOURCES_"`
+		Calendar       CalendarConfig       `                                   envPrefix:"CALENDAR_"`
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
 		Limits         LimitsConfig         `                                   envPrefix:"LIMIT_"`
 		RateLimit      RateLimitConfig      `                                   envPrefix:"RATE_LIMIT_"`
@@ -348,6 +349,25 @@ type (
 		ElevationCeiling string `env:"ELEVATION_CEILING" envDefault:"1/4Gi"`
 	}
 
+	// CalendarConfig is the resource calendar (CALENDAR_*): how an event reservation is sized and windowed, and
+	// when an agent counts as connected.
+	CalendarConfig struct {
+		// BufferPercent is the buffer added to the size of an event reservation (the plan x teams).
+		BufferPercent int `env:"BUFFER_PERCENT" envDefault:"15"`
+		// TailGap is the gap kept after the event end, so events never run back to back on the same
+		// resources; the platform admin may set more for one event, never less.
+		TailGap time.Duration `env:"TAIL_GAP" envDefault:"1h"`
+		// LeadMargin is added before the stand deploy lead: the capacity must be connected that much earlier.
+		LeadMargin time.Duration `env:"LEAD_MARGIN" envDefault:"30m"`
+		// SearchHorizon is how far ahead the nearest free window of a test laboratory is looked for.
+		SearchHorizon time.Duration `env:"SEARCH_HORIZON" envDefault:"168h"`
+		// AgentFresh is how recent the capacity read of an agent must be for it to count as connected (agents
+		// are read at least every 5 minutes).
+		AgentFresh time.Duration `env:"AGENT_FRESH" envDefault:"15m"`
+		// TestLabLease is the lease a test laboratory is admitted for when its caller names none.
+		TestLabLease time.Duration `env:"TEST_LAB_LEASE" envDefault:"2h"`
+	}
+
 	// ExerciseConfig holds catalog secret handling and flag generation policy.
 	// Empty key disables exercise secret env vars (saving one yields a 409).
 	ExerciseConfig struct {
@@ -584,6 +604,24 @@ func (c ResourcesConfig) Policy() (resourcesModel.Policy, error) {
 	return policy, nil
 }
 
+func (c CalendarConfig) Validate() error {
+	switch {
+	case c.BufferPercent < 0 || c.BufferPercent > 200:
+		return errors.New("calendar: CALENDAR_BUFFER_PERCENT must be between 0 and 200")
+	case c.TailGap < 15*time.Minute || c.TailGap > 7*24*time.Hour:
+		return errors.New("calendar: CALENDAR_TAIL_GAP must be between 15m and 168h")
+	case c.LeadMargin < 0 || c.LeadMargin > 24*time.Hour:
+		return errors.New("calendar: CALENDAR_LEAD_MARGIN must be between 0 and 24h")
+	case c.SearchHorizon < time.Hour || c.SearchHorizon > 90*24*time.Hour:
+		return errors.New("calendar: CALENDAR_SEARCH_HORIZON must be between 1h and 2160h")
+	case c.AgentFresh < 6*time.Minute || c.AgentFresh > 24*time.Hour:
+		return errors.New("calendar: CALENDAR_AGENT_FRESH must be between 6m and 24h")
+	case c.TestLabLease < 15*time.Minute || c.TestLabLease > 24*time.Hour:
+		return errors.New("calendar: CALENDAR_TEST_LAB_LEASE must be between 15m and 24h")
+	}
+	return nil
+}
+
 func (c ExerciseConfig) Validate() error {
 	if c.FlagRandomBytes < 1 || c.FlagRandomBytes > 1024 {
 		return errors.New("exercise: EXERCISE_FLAG_RANDOM_BYTES must be between 1 and 1024")
@@ -733,6 +771,9 @@ func MustGetConfig() *Config {
 	}
 	if _, err = instance.Resources.Policy(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid device resources settings")
+	}
+	if err = instance.Calendar.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid resource calendar configuration")
 	}
 	if err = instance.Limits.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid abuse limits")
