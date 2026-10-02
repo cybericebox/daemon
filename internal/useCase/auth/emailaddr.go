@@ -2,9 +2,9 @@ package auth
 
 import (
 	"net/mail"
-	"strings"
 
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	userModel "github.com/cybericebox/daemon/internal/model/user"
 )
 
 // maxEmailLength is the RFC 5321 limit for a mailbox address.
@@ -13,9 +13,7 @@ const maxEmailLength = 254
 // normalizeEmail is the one canonical spelling of an address: users.email is a
 // case-sensitive unique column, so "Alice@x" and "alice@x" must never be two
 // accounts (and an invitation must find the account that registered).
-func normalizeEmail(raw string) string {
-	return strings.ToLower(strings.TrimSpace(raw))
-}
+func normalizeEmail(raw string) string { return userModel.NormalizeEmail(raw) }
 
 // parseEmail normalizes raw and rejects anything that is not a bare mailbox
 // address (display names, groups, comments, control bytes, over-long input).

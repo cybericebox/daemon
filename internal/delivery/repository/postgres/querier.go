@@ -503,9 +503,8 @@ type Querier interface {
 	GetTeamChallengeHints(ctx context.Context, arg GetTeamChallengeHintsParams) (GetTeamChallengeHintsRow, error)
 	GetTeamChallengeScoringContext(ctx context.Context, teamChallengeID uuid.UUID) (GetTeamChallengeScoringContextRow, error)
 	GetTemporalCodeByCode(ctx context.Context, code string) (TemporalCode, error)
-	// An address is one account whatever its case. Accounts registered before the
-	// addresses were normalized may still hold a mixed-case spelling: the exact
-	// match wins if two spellings ever coexist.
+	// The address arrives normalized (trimmed, lower case): the plain unique
+	// index on email does the lookup.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetUserByProvider(ctx context.Context, arg GetUserByProviderParams) (User, error)

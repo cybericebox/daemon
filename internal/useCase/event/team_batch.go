@@ -430,7 +430,7 @@ func normalizeBatchTeams(in []BatchTeamInput) ([]batchTeam, []BatchTeamIssue) {
 	return teams, issues
 }
 
-func normalizeInvitationEmail(raw string) string { return strings.ToLower(strings.TrimSpace(raw)) }
+func normalizeInvitationEmail(raw string) string { return userModel.NormalizeEmail(raw) }
 
 func validInvitationEmail(email string) bool {
 	address, err := mail.ParseAddress(email)

@@ -160,7 +160,7 @@ func (u *AuthUseCase) InviteEntries(ctx context.Context, entries []InviteEntry) 
 	results := make([]InviteEntryResult, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		emailAddr := strings.ToLower(strings.TrimSpace(entry.Email))
+		emailAddr := normalizeEmail(entry.Email)
 		if _, dup := seen[emailAddr]; dup {
 			continue
 		}

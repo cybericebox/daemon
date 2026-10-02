@@ -220,15 +220,12 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
 FROM users
-WHERE lower(email) = lower($1::text)
+WHERE email = $1
   AND deleted_at IS NULL
-ORDER BY (email = $1::text) DESC, created_at
-LIMIT 1
 `
 
-// An address is one account whatever its case. Accounts registered before the
-// addresses were normalized may still hold a mixed-case spelling: the exact
-// match wins if two spellings ever coexist.
+// The address arrives normalized (trimmed, lower case): the plain unique
+// index on email does the lookup.
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
 	row := q.db.QueryRow(ctx, getUserByEmail, email)
 	var i User

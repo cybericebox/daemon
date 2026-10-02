@@ -249,7 +249,7 @@ func (r *Repository) DeleteProviders(ctx context.Context, userID uuid.UUID) (int
 func (r *Repository) Create(ctx context.Context, u userModel.User) (userModel.User, error) {
 	row, err := r.q.CreateUser(ctx, postgres.CreateUserParams{
 		ID:             u.ID,
-		Email:          u.Email,
+		Email:          userModel.NormalizeEmail(u.Email),
 		FirstName:      u.FirstName,
 		LastName:       u.LastName,
 		HashedPassword: textFromString(u.HashedPassword),
@@ -279,7 +279,7 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (userModel.User,
 
 // GetByEmail loads one (non-deleted) user by address.
 func (r *Repository) GetByEmail(ctx context.Context, email string) (userModel.User, error) {
-	row, err := r.q.GetUserByEmail(ctx, email)
+	row, err := r.q.GetUserByEmail(ctx, userModel.NormalizeEmail(email))
 	if err != nil {
 		return userModel.User{}, err
 	}
@@ -295,7 +295,7 @@ func (r *Repository) Update(ctx context.Context, u userModel.User, expectedUpdat
 	return r.q.UpdateUser(ctx, postgres.UpdateUserParams{
 		ExpectedUpdatedAt: timestamptzFromTime(expectedUpdatedAt),
 		ID:                u.ID,
-		Email:             u.Email,
+		Email:             userModel.NormalizeEmail(u.Email),
 		FirstName:         u.FirstName,
 		LastName:          u.LastName,
 		HashedPassword:    textFromString(u.HashedPassword),

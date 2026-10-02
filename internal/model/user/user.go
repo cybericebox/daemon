@@ -59,7 +59,7 @@ func (u User) NotificationProfile() NotificationProfile {
 func NewIncompleteUser(id uuid.UUID, email string, now time.Time) User {
 	return User{
 		ID:        id,
-		Email:     email,
+		Email:     NormalizeEmail(email),
 		Role:      rbac.RoleUser,
 		Status:    UserStatusIncomplete,
 		LastSeen:  now,
@@ -159,7 +159,7 @@ func (u *User) UpdateProfile(firstName, lastName string, now time.Time) {
 
 // ChangeEmail sets a new (already verified by the flow) email address.
 func (u *User) ChangeEmail(email string, now time.Time) {
-	u.Email = email
+	u.Email = NormalizeEmail(email)
 	u.touch(now)
 }
 

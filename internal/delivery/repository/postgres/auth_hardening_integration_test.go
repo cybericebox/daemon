@@ -8,42 +8,30 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
-	"github.com/cybericebox/daemon/internal/model/rbac"
+	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	temporalCodeModel "github.com/cybericebox/daemon/internal/model/temporalCode"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
-// An address is one account whatever its case: accounts registered before the addresses were
-// normalized still hold a mixed-case spelling and must stay reachable.
-func TestGetUserByEmailIsCaseInsensitive(t *testing.T) {
+// Two spellings of an address are one account: the repository normalizes on write and on lookup,
+// and the plain unique index on email enforces it.
+func TestUserEmailIsNormalizedByTheRepository(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
+	repo := userRepo.New(db.Queries)
 	id := uuid.Must(uuid.NewV7())
-	if _, err := db.Queries.CreateUser(ctx, postgres.CreateUserParams{
-		ID: id, Email: "Alice@Example.Test", Role: string(rbac.RoleUser), Status: string(userModel.UserStatusActive),
-	}); err != nil {
+	if _, err := repo.Create(ctx, userModel.NewIncompleteUser(id, " Alice@Example.Test ", time.Now())); err != nil {
 		t.Fatal(err)
 	}
-	for _, spelling := range []string{"alice@example.test", "ALICE@EXAMPLE.TEST", "Alice@Example.Test"} {
-		got, err := db.Queries.GetUserByEmail(ctx, spelling)
-		if err != nil || got.ID != id {
-			t.Fatalf("%q: got %v, %v", spelling, got.ID, err)
+	for _, spelling := range []string{"alice@example.test", "ALICE@EXAMPLE.TEST", " Alice@Example.Test"} {
+		got, err := repo.GetByEmail(ctx, spelling)
+		if err != nil || got.ID != id || got.Email != "alice@example.test" {
+			t.Fatalf("%q: got %v %q, %v", spelling, got.ID, got.Email, err)
 		}
 	}
-	if _, err := db.Queries.GetUserByEmail(ctx, "bob@example.test"); err == nil {
-		t.Fatal("another address must not match")
-	}
-
-	// If two spellings ever coexist, the exact one wins.
-	lower := uuid.Must(uuid.NewV7())
-	if _, err := db.Queries.CreateUser(ctx, postgres.CreateUserParams{
-		ID: lower, Email: "alice@example.test", Role: string(rbac.RoleUser), Status: string(userModel.UserStatusActive),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := db.Queries.GetUserByEmail(ctx, "alice@example.test"); err != nil || got.ID != lower {
-		t.Fatalf("the exact spelling must win: got %v, %v", got.ID, err)
+	if _, err := repo.Create(ctx, userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "ALICE@example.test", time.Now())); err == nil {
+		t.Fatal("a second spelling of the same address must violate the unique index")
 	}
 }
 

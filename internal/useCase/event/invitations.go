@@ -136,7 +136,7 @@ func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, b
 func uniqueInvitationEmails(entries []ParticipantInvitationInput) map[string]struct{} {
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		seen[strings.ToLower(strings.TrimSpace(entry.Email))] = struct{}{}
+		seen[userModel.NormalizeEmail(entry.Email)] = struct{}{}
 	}
 	return seen
 }
@@ -158,7 +158,7 @@ func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID
 	results := make([]ParticipantInvitationResult, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		email := strings.ToLower(strings.TrimSpace(entry.Email))
+		email := userModel.NormalizeEmail(entry.Email)
 		if _, exists := seen[email]; exists {
 			continue
 		}
@@ -263,7 +263,7 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 // for accounts that were created by the invitation) and records the delivery
 // time, so a failed send stays visible and can be resent (M7).
 func (u *EventUseCase) sendParticipantInvitation(ctx context.Context, e eventModel.Event, user userModel.User, toTeam bool, teamName string, by uuid.UUID) (time.Time, error) {
-	if !u.invitationLimits.recipients.Allow("event-invitation:"+e.ID.String(), strings.ToLower(user.Email)) {
+	if !u.invitationLimits.recipients.Allow("event-invitation:"+e.ID.String(), userModel.NormalizeEmail(user.Email)) {
 		return time.Time{}, participantModel.ErrInvitationRateLimited.Err()
 	}
 	inviteURL := fmt.Sprintf("https://%s.%s/invite", e.Tag, u.eventDomain)
