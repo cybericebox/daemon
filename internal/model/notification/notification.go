@@ -134,3 +134,10 @@ var ErrTemplatePreviewInvalid = err.ErrInvalidData.
 	WithObjectCode(model.NotificationObjectCode).
 	WithMessage("Template cannot be rendered").
 	WithDetailCode(16)
+
+// ErrPresetNested: a block preset uses another preset (or itself). Presets are building blocks of a
+// template; letting them include each other makes loops possible.
+var ErrPresetNested = err.ErrInvalidData.
+	WithObjectCode(model.NotificationObjectCode).
+	WithMessage("A block preset cannot contain another preset").
+	WithDetailCode(17)

@@ -277,6 +277,8 @@ type renderer struct {
 	assetSrc func(Asset) string
 	assets   []Asset
 	seen     map[Asset]bool
+	// depth is how many presets deep the block being rendered is; blocks counts every block rendered.
+	depth, blocks int
 }
 
 // src records a (unique, first-use ordered) asset and returns its <img src>.
@@ -295,6 +297,13 @@ const (
 	logoMaxWidth     = 600
 )
 
+// maxPresetDepth is how many presets may nest; maxRenderedBlocks bounds the blocks of one email, however
+// they are nested.
+const (
+	maxPresetDepth    = 3
+	maxRenderedBlocks = 2000
+)
+
 func (r *renderer) renderBlockSlice(raw json.RawMessage) (string, error) {
 	var blocks []block
 	if err := json.Unmarshal(raw, &blocks); err != nil {
@@ -302,6 +311,9 @@ func (r *renderer) renderBlockSlice(raw json.RawMessage) (string, error) {
 	}
 	var sb strings.Builder
 	for _, b := range blocks {
+		if r.blocks++; r.blocks > maxRenderedBlocks {
+			return "", fmt.Errorf("render: more than %d blocks", maxRenderedBlocks)
+		}
 		s, err := r.renderBlock(b)
 		if err != nil {
 			return "", err
@@ -376,7 +388,15 @@ func (r *renderer) renderBlock(b block) (string, error) {
 		if !ok {
 			return "", nil // missing preset → render nothing, no error
 		}
-		return r.renderBlockSlice(presetRaw)
+		// A preset may use another preset, but a loop (A uses itself, A and B use each other) must not take
+		// the process down: the nesting is cut at a fixed depth.
+		if r.depth >= maxPresetDepth {
+			return "", nil
+		}
+		r.depth++
+		out, err := r.renderBlockSlice(presetRaw)
+		r.depth--
+		return out, err
 
 	case "rich_text":
 		return renderLexical(b.Content, st, vars)
@@ -637,4 +657,18 @@ func cmpOr(v, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// ContainsPreset reports whether a block array uses a preset block anywhere.
+func ContainsPreset(raw json.RawMessage) bool {
+	var blocks []block
+	if json.Unmarshal(raw, &blocks) != nil {
+		return false
+	}
+	for _, b := range blocks {
+		if b.Type == "preset" {
+			return true
+		}
+	}
+	return false
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	notificationModel "github.com/cybericebox/daemon/internal/model/notification"
 	emailModel "github.com/cybericebox/daemon/internal/model/notification/email"
+	"github.com/cybericebox/daemon/internal/useCase/notification/channels/render"
 )
 
 // NotificationEmailPresetUseCase implements CRUD for email block presets.
@@ -48,6 +49,9 @@ func (u *NotificationEmailPresetUseCase) GetEmailBlockPreset(ctx context.Context
 
 // CreateEmailBlockPreset persists a new preset.
 func (u *NotificationEmailPresetUseCase) CreateEmailBlockPreset(ctx context.Context, in emailModel.PresetInput) (emailModel.BlockPreset, error) {
+	if render.ContainsPreset(in.Blocks) {
+		return emailModel.BlockPreset{}, notificationModel.ErrPresetNested.Err()
+	}
 	if err := u.images.ValidateBody(ctx, in.Blocks); err != nil {
 		return emailModel.BlockPreset{}, err
 	}
@@ -63,6 +67,9 @@ func (u *NotificationEmailPresetUseCase) CreateEmailBlockPreset(ctx context.Cont
 
 // UpdateEmailBlockPreset modifies an existing preset, returning ErrPresetNotFound when absent.
 func (u *NotificationEmailPresetUseCase) UpdateEmailBlockPreset(ctx context.Context, id uuid.UUID, in emailModel.PresetInput) (emailModel.BlockPreset, error) {
+	if render.ContainsPreset(in.Blocks) {
+		return emailModel.BlockPreset{}, notificationModel.ErrPresetNested.Err()
+	}
 	if err := u.images.ValidateBody(ctx, in.Blocks); err != nil {
 		return emailModel.BlockPreset{}, err
 	}

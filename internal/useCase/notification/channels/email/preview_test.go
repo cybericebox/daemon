@@ -182,7 +182,7 @@ func TestPreviewEmail_UnrenderableDraftIsInvalidInput(t *testing.T) {
 	}{
 		"subject syntax error": {
 			in:     emailUseCase.PreviewInput{Subject: "Hi {{.user_first_name", Body: json.RawMessage(`[]`)},
-			reason: "unclosed action",
+			reason: "{{.Variable}}",
 		},
 		"unknown variable in subject": {
 			in:     emailUseCase.PreviewInput{Subject: "Hi {{.no_such_var}}", Body: json.RawMessage(`[]`)},

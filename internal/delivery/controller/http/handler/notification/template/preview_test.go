@@ -109,7 +109,7 @@ func TestPreviewEmail_UnrenderableDraftIs400WithReason(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.True(t, strings.HasPrefix(resp.Status.Message, "Template cannot be rendered: "), resp.Status.Message)
-	assert.Contains(t, resp.Status.Message, "unclosed action")
+	assert.Contains(t, resp.Status.Message, "{{.Variable}}")
 }
 
 // The preview must not depend on image requests (the sandboxed iframe sends

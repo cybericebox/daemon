@@ -2,11 +2,37 @@ package notificationTypes
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var templateVariablePattern = regexp.MustCompile(`\{\{\s*\.?(\w+)\s*\}\}`)
+
+// MaxTemplateLength bounds one template string (a subject, an in-app body, a link).
+const MaxTemplateLength = 64 << 10
+
+// ErrTemplateSyntax: a template uses more than variable substitution.
+var ErrTemplateSyntax = errors.New("a template may contain only {{.Variable}} substitutions")
+
+// ValidateTemplateSyntax accepts a template string that holds only plain variable substitutions
+// ({{.name}}): no function, pipeline, condition, loop, definition or nested template. Templates are written by
+// organizers and admins, so anything the template engine could execute beyond a lookup is refused.
+func ValidateTemplateSyntax(tmpl string) error {
+	if len(tmpl) > MaxTemplateLength {
+		return fmt.Errorf("template is longer than %d bytes", MaxTemplateLength)
+	}
+	if strings.Count(tmpl, "{{") != len(templateVariablePattern.FindAllStringIndex(tmpl, -1)) {
+		return ErrTemplateSyntax
+	}
+	return nil
+}
+
+// NormalizeTemplate writes every variable as {{.name}}, the form the template engine understands.
+func NormalizeTemplate(tmpl string) string {
+	return templateVariablePattern.ReplaceAllString(tmpl, "{{.$1}}")
+}
 
 // ValidateTemplateVariables verifies that a template uses only variables which
 // its code-owned notification type guarantees on the selected channel.
@@ -19,6 +45,9 @@ func ValidateTemplateVariables(t NotificationType, channel NotificationChannel, 
 		allowed[descriptor.Name] = struct{}{}
 	}
 	for _, value := range values {
+		if err := ValidateTemplateSyntax(value); err != nil {
+			return err
+		}
 		for _, match := range templateVariablePattern.FindAllStringSubmatch(value, -1) {
 			if _, ok := allowed[match[1]]; !ok {
 				return fmt.Errorf("notification type %q does not provide variable %q", t, match[1])
