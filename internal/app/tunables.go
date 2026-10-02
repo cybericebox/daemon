@@ -9,7 +9,6 @@ import (
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
-	infrastructureUseCase "github.com/cybericebox/daemon/internal/useCase/infrastructure"
 	mailUseCase "github.com/cybericebox/daemon/internal/useCase/mail"
 	emailUseCase "github.com/cybericebox/daemon/internal/useCase/notification/channels/email"
 )
@@ -20,8 +19,6 @@ func applyTunables(t config.TunablesConfig) {
 	eventStandModel.DeployTimeout = t.EventStandDeployTimeout
 	sse.SetMaxLifetime(t.SSEMaxLifetime)
 	eventContentModel.LiveScreenLinkMaxTTL = t.LiveScreenLinkMaxTTL
-	infrastructureUseCase.AccessKeyRetention = t.AgentAccessKeyRetention
-	infrastructureUseCase.CertRenewBefore = t.AgentCertRenewBefore
 	eventConfigModel.SetDefaultMaxTeamSize(t.EventDefaultMaxTeamSize)
 
 	mailUseCase.ConfigureLimiter(mailUseCase.LimiterTimings{

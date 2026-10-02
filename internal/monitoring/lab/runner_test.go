@@ -245,3 +245,24 @@ func TestCapacitySinkReceivesTheReportedCapacity(t *testing.T) {
 		t.Fatalf("sink got %+v at %v, observations %d", got, at, len(store.capacities))
 	}
 }
+
+func TestFeaturesSinkReceivesTheReportedFeatures(t *testing.T) {
+	store := &recordingStore{}
+	stream := &scriptedStream{updates: []*labpb.MonitoringUpdate{{
+		AgentId: "agent-a", Sequence: 1, ObservedAtUnixMs: 1_700_000_000_000, SchemaVersion: 1, Snapshot: true,
+		Features: &labpb.FeaturesResponse{Tenant: "platform", StatePersistence: &labpb.StatePersistenceFeature{Available: true}},
+	}}}
+	var got *labpb.FeaturesResponse
+	var at time.Time
+	runner := NewRunner(nil, func(context.Context, *labpb.MonitoringRequest) (Stream, error) { return stream, nil }, store).
+		WithFeaturesSink(func(_ context.Context, f *labpb.FeaturesResponse, observed time.Time) error {
+			got, at = f, observed
+			return io.ErrUnexpectedEOF
+		})
+	if err := runner.consume(context.Background()); err != io.EOF {
+		t.Fatalf("a failing sink must not stop the stream: %v", err)
+	}
+	if got == nil || !got.GetStatePersistence().GetAvailable() || !at.Equal(time.UnixMilli(1_700_000_000_000)) {
+		t.Fatalf("sink got %+v at %v", got, at)
+	}
+}

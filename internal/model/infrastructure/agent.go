@@ -47,8 +47,59 @@ type AgentRegistration struct {
 	CapacityCPUMillicores *int64
 	CapacityMemoryBytes   *int64
 	CapacitySeenAt        *time.Time
+	// Features is what the agent last reported the tenant can use (persistence, image cache, scheduler,
+	// endpoints, certificate); nil until the first report. FeaturesAt is when it was read.
+	Features   *AgentFeatures
+	FeaturesAt *time.Time
 	// ArchivedAt is set for a deleted agent: the record stays for history, its keys and endpoint are gone.
 	ArchivedAt *time.Time
+}
+
+// AgentFeatures is what a laboratory agent offers the platform's tenant. The platform keeps no copy of
+// these settings in its own configuration: it stores the last report of each agent.
+type AgentFeatures struct {
+	Persistence PersistenceFeature `json:"persistence"`
+	ImageCache  ImageCacheFeature  `json:"image_cache"`
+	Scheduler   SchedulerFeature   `json:"scheduler"`
+	Endpoints   EndpointsFeature   `json:"endpoints"`
+	Certificate CertificateFeature `json:"certificate"`
+}
+
+// PersistenceFeature is device state persistence for the tenant.
+type PersistenceFeature struct {
+	// Available is true when the cluster enables persistence and the tenant is allowed; only then a
+	// topology may ask for it.
+	Available        bool     `json:"available"`
+	DefaultDebounce  int64    `json:"default_debounce_ms"`
+	WriteQuotaBytes  int64    `json:"write_quota_bytes"`
+	MaxFileSizeBytes int64    `json:"max_file_size_bytes"`
+	ExcludedPaths    []string `json:"excluded_paths,omitempty"`
+}
+
+// ImageCacheFeature is the agent's platform image cache.
+type ImageCacheFeature struct {
+	Enabled    bool     `json:"enabled"`
+	Registries []string `json:"registries,omitempty"`
+}
+
+// SchedulerFeature is the agent's launch queue; MaxPods 0 means no limit.
+type SchedulerFeature struct {
+	Enabled bool  `json:"enabled"`
+	MaxPods int32 `json:"max_pods"`
+}
+
+// EndpointsFeature are the hosts the agent hands out.
+type EndpointsFeature struct {
+	LabsDomain  string `json:"labs_domain"`
+	VPNEndpoint string `json:"vpn_endpoint"`
+}
+
+// CertificateFeature is the client certificate of the platform's connection and the lifetime of the ones
+// the agent issues now.
+type CertificateFeature struct {
+	// NotAfterUnix is 0 without a client certificate.
+	NotAfterUnix     int64 `json:"not_after_unix"`
+	IssuedTTLSeconds int64 `json:"issued_ttl_seconds"`
 }
 
 // ArchivedName is the name of a deleted agent: the archive time makes the name free to be used again.

@@ -49,6 +49,8 @@ type Runner struct {
 	lockKey int64
 	// capacity receives every capacity the agent reports (its tenant view); a failure is logged, never fatal.
 	capacity CapacitySink
+	// features receives what the agent says the tenant can use (first message, then on change).
+	features FeaturesSink
 	// position is the last message processed: where a reconnect resumes. It lives in memory for the
 	// runner's lifetime; a restarted daemon starts with a snapshot.
 	position position
@@ -67,6 +69,15 @@ func NewRunner(pool *pgxpool.Pool, open OpenStream, store Store) *Runner {
 
 // CapacitySink keeps the capacity an agent reports.
 type CapacitySink func(ctx context.Context, capacity *labpb.CapacityResponse, observedAt time.Time) error
+
+// FeaturesSink keeps the features an agent reports.
+type FeaturesSink func(ctx context.Context, features *labpb.FeaturesResponse, observedAt time.Time) error
+
+// WithFeaturesSink hands every reported features message to sink.
+func (r *Runner) WithFeaturesSink(sink FeaturesSink) *Runner {
+	r.features = sink
+	return r
+}
 
 // WithCapacitySink hands every reported capacity to sink (the recorded capacity of the agent).
 func (r *Runner) WithCapacitySink(sink CapacitySink) *Runner {
@@ -168,6 +179,11 @@ func (r *Runner) consume(ctx context.Context) error {
 }
 
 func (r *Runner) persist(ctx context.Context, update *labpb.MonitoringUpdate) error {
+	if features := update.GetFeatures(); features != nil && r.features != nil {
+		if sinkErr := r.features(ctx, features, time.UnixMilli(update.GetObservedAtUnixMs()).UTC()); sinkErr != nil {
+			log.Error().Err(sinkErr).Msg("Failed to record the agent features")
+		}
+	}
 	if capacity := update.GetCapacity(); capacity != nil {
 		encoded, err := protojson.Marshal(capacity)
 		if err != nil {

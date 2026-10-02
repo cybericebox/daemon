@@ -132,9 +132,11 @@ func (u *ExerciseUseCase) maxTestDeployTTL() time.Duration {
 	return defaultTestDeployTTLMax
 }
 
-// DevicePersistenceAllowed says the cluster lets devices keep their state, so the editor offers the option.
+// DevicePersistenceAllowed says some agent offers device state persistence to this platform, so the
+// editor offers the option. The agents report it; there is no setting for it here.
 func (u *ExerciseUseCase) DevicePersistenceAllowed() bool {
-	return u.flagConfig.DevicePersistence
+	p, ok := u.infra.(interface{ PersistenceAvailable() bool })
+	return ok && p.PersistenceAvailable()
 }
 
 // MaxActiveTestDeploys is how many test labs one user may run at once (at least one).

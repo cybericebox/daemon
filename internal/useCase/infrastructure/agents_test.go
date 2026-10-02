@@ -56,6 +56,12 @@ func (m *memAgents) SetCapacity(_ context.Context, id uuid.UUID, cpu, memory *in
 	m.capacityWrites++
 	return nil
 }
+func (m *memAgents) SetFeatures(_ context.Context, id uuid.UUID, f infraModel.AgentFeatures, seen time.Time) error {
+	r := m.records[id]
+	r.Features, r.FeaturesAt = &f, &seen
+	m.records[id] = r
+	return nil
+}
 func (m *memAgents) Archive(_ context.Context, id uuid.UUID, name string, at time.Time) (bool, error) {
 	r, ok := m.records[id]
 	if !ok || r.ArchivedAt != nil {
@@ -169,9 +175,11 @@ func (f *fakeFleet) Probe(_ context.Context, id uuid.UUID) agentfleet.AgentProbe
 
 // fakeRemote plays the agent: it signs a certificate with CN = tenant for the request's key.
 type fakeRemote struct {
-	t           *testing.T
-	tenant      string
-	notAfter    time.Time
+	t        *testing.T
+	tenant   string
+	notAfter time.Time
+	// notBefore is the start of the signed certificate; zero = a minute ago.
+	notBefore   time.Time
 	denyToken   bool
 	enrolled    struct{ endpoint, token, kid, pub string }
 	renewTenant string
@@ -189,7 +197,11 @@ func (r *fakeRemote) sign(csrPEM, tenant string) string {
 	}
 	_, caKey, _ := ed25519.GenerateKey(rand.Reader)
 	ca := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "agent-ca"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: r.notAfter.Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
-	tpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: tenant}, NotBefore: time.Now().Add(-time.Minute), NotAfter: r.notAfter}
+	notBefore := r.notBefore
+	if notBefore.IsZero() {
+		notBefore = time.Now().Add(-time.Minute)
+	}
+	tpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: tenant}, NotBefore: notBefore, NotAfter: r.notAfter}
 	der, err := x509.CreateCertificate(rand.Reader, tpl, ca, csr.PublicKey, caKey)
 	if err != nil {
 		r.t.Fatal(err)
@@ -349,7 +361,7 @@ func TestRotateAccessKeyRetiresTheOldKeyAndMaintenanceRemovesItLater(t *testing.
 	if err = f.uc.MaintainAgents(ctx); err != nil || len(f.remote.removed) != 0 {
 		t.Fatalf("maintain too early: %v removed %v", err, f.remote.removed)
 	}
-	f.now = f.now.Add(AccessKeyRetention + time.Minute)
+	f.now = f.now.Add(MinAccessKeyRetention + time.Minute)
 	if err = f.uc.MaintainAgents(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +372,7 @@ func TestRotateAccessKeyRetiresTheOldKeyAndMaintenanceRemovesItLater(t *testing.
 	if _, err = f.uc.RotateAgentAccessKey(ctx, view.ID); err != nil {
 		t.Fatal(err)
 	}
-	f.now = f.now.Add(AccessKeyRetention + time.Minute)
+	f.now = f.now.Add(MinAccessKeyRetention + time.Minute)
 	f.remote.removeErr = errors.New("agent down")
 	if err = f.uc.MaintainAgents(ctx); err == nil {
 		t.Fatal("a failed removal is reported")
@@ -373,12 +385,13 @@ func TestRotateAccessKeyRetiresTheOldKeyAndMaintenanceRemovesItLater(t *testing.
 func TestMaintenanceRenewsCertificatesThatEndSoon(t *testing.T) {
 	ctx := context.Background()
 	f := newAgentsFixture(t, boundSealer{})
-	f.remote.notAfter = f.now.Add(10 * 24 * time.Hour) // inside the renewal window from the start
+	// 25 of its 30 days are gone: past two thirds of its lifetime from the start.
+	f.remote.notBefore, f.remote.notAfter = f.now.Add(-25*24*time.Hour), f.now.Add(5*24*time.Hour)
 	view, err := f.uc.EnrollAgent(ctx, enrollForm("eu", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.remote.notAfter = f.now.Add(120 * 24 * time.Hour)
+	f.remote.notBefore, f.remote.notAfter = time.Time{}, f.now.Add(120*24*time.Hour)
 	reloads := f.fleet.reloads
 	if err = f.uc.MaintainAgents(ctx); err != nil {
 		t.Fatal(err)
@@ -619,5 +632,75 @@ func TestRecordAgentCapacityWritesOnChangeAndWhenStale(t *testing.T) {
 	got := f.store.records[view.ID]
 	if got.CapacityCPUMillicores != nil || got.CapacityMemoryBytes != nil || got.CapacitySeenAt == nil {
 		t.Fatalf("unlimited = %+v", got.AgentRegistration)
+	}
+}
+
+func TestRenewalIsDueAtTwoThirdsOfTheCertificateLifetime(t *testing.T) {
+	f := newAgentsFixture(t, boundSealer{})
+	key, err := agentcrypto.NewClientKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr := key.CSRPEM
+	issue := func(notBefore, notAfter time.Time) string {
+		f.remote.notBefore, f.remote.notAfter = notBefore, notAfter
+		return f.remote.sign(csr, "platform")
+	}
+	start := f.now
+	record := infraModel.AgentRecord{CertPEM: issue(start, start.Add(30*24*time.Hour))}
+	for at, want := range map[time.Duration]bool{
+		19 * 24 * time.Hour: false, 20*24*time.Hour - time.Hour: false, 20 * 24 * time.Hour: true, 29 * 24 * time.Hour: true,
+	} {
+		if got := renewDue(record, start.Add(at)); got != want {
+			t.Errorf("after %v: due = %v, want %v", at, got, want)
+		}
+	}
+	// A shorter lifetime moves the point with it.
+	short := infraModel.AgentRecord{CertPEM: issue(start, start.Add(3*time.Hour))}
+	if renewDue(short, start.Add(time.Hour)) || !renewDue(short, start.Add(2*time.Hour)) {
+		t.Error("the renewal point follows the certificate's own lifetime")
+	}
+	// Without a readable certificate the agent's reported lifetime stands in; without that nothing is guessed.
+	notAfter := start.Add(30 * 24 * time.Hour)
+	lost := infraModel.AgentRecord{CertPEM: "garbage"}
+	lost.CertNotAfter = &notAfter
+	if renewDue(lost, start.Add(29*24*time.Hour)) {
+		t.Error("no lifetime known: never guess a renewal")
+	}
+	lost.Features = &infraModel.AgentFeatures{Certificate: infraModel.CertificateFeature{IssuedTTLSeconds: 30 * 24 * 3600}}
+	if renewDue(lost, start.Add(19*24*time.Hour)) || !renewDue(lost, start.Add(21*24*time.Hour)) {
+		t.Error("the reported lifetime sets the point")
+	}
+}
+
+func TestAccessKeyRetentionFollowsTheProxyTokenLimit(t *testing.T) {
+	uc := &AgentsUseCase{}
+	if uc.accessKeyRetention() != MinAccessKeyRetention {
+		t.Fatalf("no limit known: %v", uc.accessKeyRetention())
+	}
+	uc.tokenMaxTTL = 5 * time.Minute
+	if uc.accessKeyRetention() != 15*time.Minute {
+		t.Fatalf("5m tokens: %v", uc.accessKeyRetention())
+	}
+	uc.tokenMaxTTL = 20 * time.Minute
+	if uc.accessKeyRetention() != time.Hour {
+		t.Fatalf("20m tokens keep the key an hour: %v", uc.accessKeyRetention())
+	}
+}
+
+func TestRecordAgentFeaturesKeepsTheLastReport(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	view, err := f.uc.EnrollAgent(ctx, enrollForm("eu", 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	features := infraModel.AgentFeatures{Persistence: infraModel.PersistenceFeature{Available: true}}
+	if err = f.uc.RecordAgentFeatures(ctx, view.ID, features, f.now); err != nil {
+		t.Fatal(err)
+	}
+	stored := f.store.records[view.ID]
+	if stored.Features == nil || !stored.Features.Persistence.Available || stored.FeaturesAt == nil || !stored.FeaturesAt.Equal(f.now) {
+		t.Fatalf("stored = %+v at %v", stored.Features, stored.FeaturesAt)
 	}
 }

@@ -45,6 +45,9 @@ func (q *queryStub) SetInfrastructureAgentRetiredKeys(context.Context, postgres.
 func (q *queryStub) SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error) {
 	return 1, nil
 }
+func (q *queryStub) SetInfrastructureAgentFeatures(context.Context, postgres.SetInfrastructureAgentFeaturesParams) (int64, error) {
+	return 1, nil
+}
 func (q *queryStub) ArchiveInfrastructureAgent(context.Context, postgres.ArchiveInfrastructureAgentParams) (int64, error) {
 	return 1, nil
 }
@@ -88,5 +91,25 @@ func TestCreateKeepsHowTheAgentWasAdded(t *testing.T) {
 	}
 	if q.created.Source != infraModel.AgentSourceEnv || q.created.Key != a.ID.String() {
 		t.Fatalf("created = %+v", q.created)
+	}
+}
+
+func TestFeaturesReadBackAndMalformedReadsAsNone(t *testing.T) {
+	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	row := postgres.InfrastructureAgent{
+		Features:   []byte(`{"persistence":{"available":true,"write_quota_bytes":7},"endpoints":{"labs_domain":"labs.example.test"}}`),
+		FeaturesAt: pgtype.Timestamptz{Time: at, Valid: true},
+	}
+	got := toDomain(row)
+	if got.Features == nil || !got.Features.Persistence.Available || got.Features.Persistence.WriteQuotaBytes != 7 ||
+		got.Features.Endpoints.LabsDomain != "labs.example.test" || got.FeaturesAt == nil || !got.FeaturesAt.Equal(at) {
+		t.Fatalf("features = %+v at %v", got.Features, got.FeaturesAt)
+	}
+	row.Features = []byte(`{`)
+	if got = toDomain(row); got.Features != nil || got.FeaturesAt != nil {
+		t.Fatal("a malformed report reads as none")
+	}
+	if got = toDomain(postgres.InfrastructureAgent{}); got.Features != nil {
+		t.Fatal("never reported reads as none")
 	}
 }

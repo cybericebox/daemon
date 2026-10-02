@@ -100,8 +100,9 @@ func ParseAccessPrivateKey(privateKeyPEM string) (ed25519.PrivateKey, error) {
 // Certificate is what is read from an issued client certificate.
 type Certificate struct {
 	// Tenant is the certificate subject CN: the tenant name, also the issuer of the access tokens.
-	Tenant   string
-	NotAfter time.Time
+	Tenant    string
+	NotBefore time.Time
+	NotAfter  time.Time
 }
 
 // ReadCertificate parses the first certificate of certPEM. The tenant is its subject CN, the one
@@ -124,7 +125,7 @@ func ReadCertificate(certPEM string) (Certificate, error) {
 		if cert.Subject.CommonName == "" {
 			return Certificate{}, errors.New("certificate: the subject has no CN, so no tenant name")
 		}
-		return Certificate{Tenant: cert.Subject.CommonName, NotAfter: cert.NotAfter}, nil
+		return Certificate{Tenant: cert.Subject.CommonName, NotBefore: cert.NotBefore, NotAfter: cert.NotAfter}, nil
 	}
 }
 

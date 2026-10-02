@@ -168,3 +168,28 @@ func TestManagerUpkeepGoesToTheAgentsOwnConnection(t *testing.T) {
 		t.Fatalf("enroll = %q %v", got, err)
 	}
 }
+
+func TestMembersCarryTheStoredFeaturesAndShareThemAcrossReloads(t *testing.T) {
+	a := admin("a", 10, true)
+	a.Features = &infraModel.AgentFeatures{Persistence: infraModel.PersistenceFeature{Available: true}}
+	reg := &memRegistry{records: []infraModel.AgentRecord{a}}
+	m, _ := newManager(reg, &monitorLog{}, plainCipher{})
+	ctx := context.Background()
+	if err := m.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	member := m.Fleet().Members()[0]
+	if f := member.Features.Get(); f == nil || !f.Persistence.Available || !m.Fleet().PersistenceAvailable() {
+		t.Fatalf("stored features = %+v", f)
+	}
+	// A report reaches the copy the fleet holds after a settings-only reload.
+	reg.records[0].Priority = 5
+	if err := m.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	member.Features.Set(infraModel.AgentFeatures{})
+	if m.Fleet().PersistenceAvailable() {
+		t.Fatal("the fleet must see the agent's newest report")
+	}
+	m.stopAll()
+}

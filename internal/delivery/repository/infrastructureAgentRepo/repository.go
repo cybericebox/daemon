@@ -25,6 +25,7 @@ type Queries interface {
 	SetInfrastructureAgentAccessKey(context.Context, postgres.SetInfrastructureAgentAccessKeyParams) (int64, error)
 	SetInfrastructureAgentRetiredKeys(context.Context, postgres.SetInfrastructureAgentRetiredKeysParams) (int64, error)
 	SetInfrastructureAgentCapacity(context.Context, postgres.SetInfrastructureAgentCapacityParams) (int64, error)
+	SetInfrastructureAgentFeatures(context.Context, postgres.SetInfrastructureAgentFeaturesParams) (int64, error)
 	ArchiveInfrastructureAgent(context.Context, postgres.ArchiveInfrastructureAgentParams) (int64, error)
 	ReplaceInfrastructureAgentCredentials(context.Context, postgres.ReplaceInfrastructureAgentCredentialsParams) (int64, error)
 }
@@ -62,6 +63,14 @@ func toDomain(row postgres.InfrastructureAgent) infraModel.AgentRegistration {
 	if row.ArchivedAt.Valid {
 		t := row.ArchivedAt.Time
 		reg.ArchivedAt = &t
+	}
+	if row.FeaturesAt.Valid && len(row.Features) > 0 {
+		var f infraModel.AgentFeatures
+		// A malformed report reads as none: features are a cache of what the agent said, refreshed on its next report.
+		if json.Unmarshal(row.Features, &f) == nil {
+			t := row.FeaturesAt.Time
+			reg.Features, reg.FeaturesAt = &f, &t
+		}
 	}
 	reg.CapacityCPUMillicores = int8Ptr(row.CapacityCpuMillicores)
 	reg.CapacityMemoryBytes = int8Ptr(row.CapacityMemoryBytes)
@@ -198,6 +207,18 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) (bool, error) {
 func (r *Repository) SetCapacity(ctx context.Context, id uuid.UUID, cpuMillicores, memoryBytes *int64, seenAt time.Time) error {
 	_, err := r.q.SetInfrastructureAgentCapacity(ctx, postgres.SetInfrastructureAgentCapacityParams{
 		ID: id, CapacityCpuMillicores: int8Of(cpuMillicores), CapacityMemoryBytes: int8Of(memoryBytes), SeenAt: pgtype.Timestamptz{Time: seenAt, Valid: true},
+	})
+	return err
+}
+
+// SetFeatures records what the agent last reported the tenant can use, and when it was read.
+func (r *Repository) SetFeatures(ctx context.Context, id uuid.UUID, features infraModel.AgentFeatures, seenAt time.Time) error {
+	encoded, err := json.Marshal(features)
+	if err != nil {
+		return err
+	}
+	_, err = r.q.SetInfrastructureAgentFeatures(ctx, postgres.SetInfrastructureAgentFeaturesParams{
+		ID: id, Features: encoded, SeenAt: pgtype.Timestamptz{Time: seenAt, Valid: true},
 	})
 	return err
 }

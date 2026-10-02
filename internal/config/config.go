@@ -92,10 +92,6 @@ type (
 		SSEMaxLifetime time.Duration `env:"SSE_MAX_LIFETIME" envDefault:"30m"`
 		// LiveScreenLinkMaxTTL caps «until the event ends» of a live screen link.
 		LiveScreenLinkMaxTTL time.Duration `env:"LIVE_SCREEN_LINK_MAX_TTL" envDefault:"1440h"`
-		// AgentAccessKeyRetention is how long a rotated-out access key stays at the agent.
-		AgentAccessKeyRetention time.Duration `env:"AGENT_ACCESS_KEY_RETENTION" envDefault:"15m"`
-		// AgentCertRenewBefore is how long before its end an agent client certificate is renewed.
-		AgentCertRenewBefore time.Duration `env:"AGENT_CERT_RENEW_BEFORE" envDefault:"240h"`
 		// EventDefaultMaxTeamSize is the team size limit of a new event.
 		EventDefaultMaxTeamSize int32 `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
 
@@ -268,10 +264,6 @@ type (
 		// pacing (order, waves, image preparation) is done by the Laboratory operator, which queues the
 		// Labs, so the backend hands them over quickly.
 		StandDeployBudget int `env:"STAND_DEPLOY_BUDGET" envDefault:"200"`
-		// DevicePersistence says the cluster lets devices keep their state (the chart's
-		// devices.statePersistence and the tenant policy). The exercise editor offers the option only
-		// when it is true; the agent refuses it otherwise.
-		DevicePersistence bool `env:"DEVICE_PERSISTENCE" envDefault:"true"`
 		// StandPrewarmLead is how long before an event's stand deploy time its images are fetched
 		// into the platform image cache (the agent's PrewarmImages); 0 turns it off. With the
 		// default 30 minutes deploy lead the images are warmed an hour before the start.
@@ -334,8 +326,7 @@ func (c AgentConfig) Validate() error {
 func (c TunablesConfig) Validate() error {
 	durations := map[string]time.Duration{
 		"EVENT_STAND_DEPLOY_TIMEOUT": c.EventStandDeployTimeout, "SSE_MAX_LIFETIME": c.SSEMaxLifetime,
-		"LIVE_SCREEN_LINK_MAX_TTL": c.LiveScreenLinkMaxTTL, "AGENT_ACCESS_KEY_RETENTION": c.AgentAccessKeyRetention,
-		"AGENT_CERT_RENEW_BEFORE": c.AgentCertRenewBefore, "MAIL_MAX_RATE_WAIT": c.MailMaxRateWait,
+		"LIVE_SCREEN_LINK_MAX_TTL": c.LiveScreenLinkMaxTTL, "MAIL_MAX_RATE_WAIT": c.MailMaxRateWait,
 		"MAIL_QUOTA_RETRY_AFTER": c.MailQuotaRetryAfter, "MAIL_QUOTA_RECHECK": c.MailQuotaRecheck,
 		"MAIL_QUOTA_WINDOW": c.MailQuotaWindow,
 	}

@@ -35,6 +35,10 @@ type (
 		Groups int64 `json:"Groups"`
 		// Capacity is the last known capacity (the tenant quota), kept while the agent is offline.
 		Capacity agentCapacityResponse `json:"Capacity"`
+		// Features is what the agent last reported it offers this platform (device state persistence, image
+		// cache, scheduler, endpoints); null until its first report, and kept while it is offline.
+		Features   *agentFeaturesResponse `json:"Features"`
+		FeaturesAt *time.Time             `json:"FeaturesAt"`
 		// ArchivedAt is set for a deleted agent (listed only with archived=1): its record stays for history.
 		ArchivedAt *time.Time `json:"ArchivedAt"`
 		// CertExpiresAt is the end of the client certificate's validity; it is renewed automatically
@@ -56,6 +60,22 @@ type (
 		CPUMillicores *int64     `json:"CPUMillicores"`
 		MemoryBytes   *int64     `json:"MemoryBytes"`
 		SeenAt        *time.Time `json:"SeenAt"`
+	}
+
+	agentFeaturesResponse struct {
+		PersistenceAvailable        bool     `json:"PersistenceAvailable"`
+		PersistenceDefaultDebounce  int64    `json:"PersistenceDefaultDebounceMs"`
+		PersistenceWriteQuotaBytes  int64    `json:"PersistenceWriteQuotaBytes"`
+		PersistenceMaxFileSizeBytes int64    `json:"PersistenceMaxFileSizeBytes"`
+		PersistenceExcludedPaths    []string `json:"PersistenceExcludedPaths"`
+		ImageCacheEnabled           bool     `json:"ImageCacheEnabled"`
+		ImageCacheRegistries        []string `json:"ImageCacheRegistries"`
+		SchedulerEnabled            bool     `json:"SchedulerEnabled"`
+		// SchedulerMaxPods is the most pods starting at once; 0 = no limit.
+		SchedulerMaxPods int32 `json:"SchedulerMaxPods"`
+		// LabsDomain is the base domain of the lab web endpoints; VPNEndpoint is host:port of WireGuard.
+		LabsDomain  string `json:"LabsDomain"`
+		VPNEndpoint string `json:"VPNEndpoint"`
 	}
 
 	agentsResponse struct {
@@ -90,7 +110,20 @@ func toAgentResponse(v infrastructureUseCase.AgentAdminView) agentAdminResponse 
 		Capacity: agentCapacityResponse{CPUMillicores: v.CapacityCPUMillicores, MemoryBytes: v.CapacityMemoryBytes, SeenAt: v.CapacitySeenAt}, ArchivedAt: v.ArchivedAt,
 		InUse: v.InUse, Tenant: v.Tenant, AccessKeyID: v.AccessKeyID, RetiredKeys: v.RetiredKeys, Groups: v.Groups, CertExpiresAt: v.CertNotAfter,
 		Connected: v.Probe.Connected, Healthy: v.Probe.Healthy, LatencyMs: v.Probe.Latency.Milliseconds(), Error: v.Probe.Error,
-		CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt,
+		CreatedAt: v.CreatedAt, UpdatedAt: v.UpdatedAt, Features: toFeaturesResponse(v.Features), FeaturesAt: v.FeaturesAt,
+	}
+}
+
+func toFeaturesResponse(f *infraModel.AgentFeatures) *agentFeaturesResponse {
+	if f == nil {
+		return nil
+	}
+	return &agentFeaturesResponse{
+		PersistenceAvailable: f.Persistence.Available, PersistenceDefaultDebounce: f.Persistence.DefaultDebounce,
+		PersistenceWriteQuotaBytes: f.Persistence.WriteQuotaBytes, PersistenceMaxFileSizeBytes: f.Persistence.MaxFileSizeBytes,
+		PersistenceExcludedPaths: f.Persistence.ExcludedPaths, ImageCacheEnabled: f.ImageCache.Enabled,
+		ImageCacheRegistries: f.ImageCache.Registries, SchedulerEnabled: f.Scheduler.Enabled, SchedulerMaxPods: f.Scheduler.MaxPods,
+		LabsDomain: f.Endpoints.LabsDomain, VPNEndpoint: f.Endpoints.VPNEndpoint,
 	}
 }
 

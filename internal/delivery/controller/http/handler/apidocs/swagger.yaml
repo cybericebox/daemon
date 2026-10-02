@@ -5404,6 +5404,14 @@ definitions:
         type: string
       Error:
         type: string
+      Features:
+        allOf:
+        - $ref: '#/definitions/infrastructure.agentFeaturesResponse'
+        description: |-
+          Features is what the agent last reported it offers this platform (device state persistence, image
+          cache, scheduler, endpoints); null until its first report, and kept while it is offline.
+      FeaturesAt:
+        type: string
       Groups:
         description: Groups is how many lab groups the agent holds.
         type: integer
@@ -5442,6 +5450,38 @@ definitions:
       MemoryBytes:
         type: integer
       SeenAt:
+        type: string
+    type: object
+  infrastructure.agentFeaturesResponse:
+    properties:
+      ImageCacheEnabled:
+        type: boolean
+      ImageCacheRegistries:
+        items:
+          type: string
+        type: array
+      LabsDomain:
+        description: LabsDomain is the base domain of the lab web endpoints; VPNEndpoint
+          is host:port of WireGuard.
+        type: string
+      PersistenceAvailable:
+        type: boolean
+      PersistenceDefaultDebounceMs:
+        type: integer
+      PersistenceExcludedPaths:
+        items:
+          type: string
+        type: array
+      PersistenceMaxFileSizeBytes:
+        type: integer
+      PersistenceWriteQuotaBytes:
+        type: integer
+      SchedulerEnabled:
+        type: boolean
+      SchedulerMaxPods:
+        description: SchedulerMaxPods is the most pods starting at once; 0 = no limit.
+        type: integer
+      VPNEndpoint:
         type: string
     type: object
   infrastructure.agentResponse:

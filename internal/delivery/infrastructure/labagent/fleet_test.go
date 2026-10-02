@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -284,5 +285,77 @@ func TestSessionIssuerSignsWithTheKeyOfTheAgentThatHoldsTheGroup(t *testing.T) {
 	}
 	if _, err = sessions.Issue(ctx, labaccess.Session{Group: "e-9-t-9", Client: "p-1", AccessURL: "https://web-abc.labs.example.com/"}, now); err == nil {
 		t.Fatal("an unknown group has no agent")
+	}
+}
+
+func persistentTopology() exerciseModel.Topology {
+	return exerciseModel.Topology{Devices: []exerciseModel.Device{{
+		Name: "db", Type: exerciseModel.DeviceTypeContainer, Image: "pg",
+		Persistence: &exerciseModel.DevicePersistence{Enabled: true, Debounce: "5s"},
+	}}}
+}
+
+func TestFleetRefusesPersistenceTheAgentDoesNotOffer(t *testing.T) {
+	f := newFleetFixture(t)
+	ctx := context.Background()
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{})
+	err := f.fleet.DeployLab(ctx, "e-1-t-1", "c-1", infraModel.LabMeta{}, persistentTopology())
+	if !errors.Is(err, infraModel.ErrDevicePersistenceUnavailable.Err()) {
+		t.Fatalf("a topology that needs persistence on an agent without it = %v", err)
+	}
+	if f.a.createLabs != nil {
+		t.Fatal("nothing is created for a refused topology")
+	}
+	// The same agent takes a topology without persistence, and one that asks once the agent offers it.
+	if err = f.fleet.DeployLab(ctx, "e-1-t-1", "c-2", infraModel.LabMeta{}, exerciseModel.Topology{}); err != nil {
+		t.Fatal(err)
+	}
+	f.am.Features.Set(infraModel.AgentFeatures{Persistence: infraModel.PersistenceFeature{Available: true}})
+	if err = f.fleet.DeployLab(ctx, "e-1-t-1", "c-3", infraModel.LabMeta{}, persistentTopology()); err != nil {
+		t.Fatal(err)
+	}
+	// An agent that has not reported yet is not second-guessed: it refuses on its own if it must.
+	other := newFleetFixture(t)
+	if err = other.fleet.DeployLab(ctx, "e-2-t-1", "c-1", infraModel.LabMeta{}, persistentTopology()); err != nil {
+		t.Fatalf("no report yet: %v", err)
+	}
+}
+
+func TestFleetPersistenceAvailableFollowsTheEnabledAgentsReports(t *testing.T) {
+	f := newFleetFixture(t)
+	if f.fleet.PersistenceAvailable() {
+		t.Fatal("agents that have not reported offer nothing")
+	}
+	offered := &infraModel.AgentFeatures{Persistence: infraModel.PersistenceFeature{Available: true}}
+	f.bm.Features = NewFeatureCell(offered)
+	if !f.fleet.PersistenceAvailable() {
+		t.Fatal("one agent offering it is enough")
+	}
+	f.bm.Enabled = false
+	if f.fleet.PersistenceAvailable() {
+		t.Fatal("a disabled agent takes no new groups, so it does not count")
+	}
+}
+
+func TestFeaturesOfConvertsTheAgentReport(t *testing.T) {
+	got := FeaturesOf(&labpb.FeaturesResponse{
+		StatePersistence: &labpb.StatePersistenceFeature{Available: true, DefaultDebounceMs: 5000, WriteQuotaBytes: 10, MaxFileSizeBytes: 20, ExcludedPaths: []string{"/proc"}},
+		ImageCache:       &labpb.ImageCacheFeature{Enabled: true, Registries: []string{"docker.io"}},
+		Scheduler:        &labpb.SchedulerFeature{Enabled: true, MaxPods: 4},
+		Endpoints:        &labpb.EndpointsFeature{LabsDomain: "labs.example.test", VpnEndpoint: "vpn.example.test:51820"},
+		Certificate:      &labpb.CertificateFeature{NotAfterUnix: 99, IssuedTtlSeconds: 100},
+	})
+	want := infraModel.AgentFeatures{
+		Persistence: infraModel.PersistenceFeature{Available: true, DefaultDebounce: 5000, WriteQuotaBytes: 10, MaxFileSizeBytes: 20, ExcludedPaths: []string{"/proc"}},
+		ImageCache:  infraModel.ImageCacheFeature{Enabled: true, Registries: []string{"docker.io"}},
+		Scheduler:   infraModel.SchedulerFeature{Enabled: true, MaxPods: 4},
+		Endpoints:   infraModel.EndpointsFeature{LabsDomain: "labs.example.test", VPNEndpoint: "vpn.example.test:51820"},
+		Certificate: infraModel.CertificateFeature{NotAfterUnix: 99, IssuedTTLSeconds: 100},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v want %+v", got, want)
+	}
+	if FeaturesOf(nil).Persistence.Available {
+		t.Fatal("an empty report offers nothing")
 	}
 }

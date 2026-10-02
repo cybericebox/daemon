@@ -1304,6 +1304,8 @@ type Querier interface {
 	SetInfrastructureAgentCapacity(ctx context.Context, arg SetInfrastructureAgentCapacityParams) (int64, error)
 	// A renewed client certificate with its new key (the tenant is the certificate CN and stays).
 	SetInfrastructureAgentCertificate(ctx context.Context, arg SetInfrastructureAgentCertificateParams) (int64, error)
+	// The last laboratory features the agent reported (JSON) and when they were read.
+	SetInfrastructureAgentFeatures(ctx context.Context, arg SetInfrastructureAgentFeaturesParams) (int64, error)
 	// The retired keys that are still waiting for RemoveAccessKey.
 	SetInfrastructureAgentRetiredKeys(ctx context.Context, arg SetInfrastructureAgentRetiredKeysParams) (int64, error)
 	// The platform footer (a Lexical document; NULL = the built-in default) lives

@@ -32,6 +32,8 @@ type Member struct {
 	Tenant      string
 	AccessKeyID string
 	AccessKey   ed25519.PrivateKey
+	// Features is what the agent last reported it offers the platform; shared by the copies of the member.
+	Features *FeatureCell
 }
 
 // PlacementStore remembers which agent holds a lab group. A group lives on exactly one agent for
@@ -193,9 +195,18 @@ func (f *Fleet) locate(ctx context.Context, group string, forCreate bool) (*Memb
 // routeForCreate is route for a call that creates the group: a group that is not placed yet is
 // placed now by the picker.
 func (f *Fleet) routeForCreate(ctx context.Context, group string) (*Client, error) {
+	m, err := f.memberForCreate(ctx, group)
+	if err != nil {
+		return nil, err
+	}
+	return m.Client, nil
+}
+
+// memberForCreate finds the agent of a group, placing the group when it has none yet.
+func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, error) {
 	m, err := f.routeWith(ctx, group, true)
 	if err == nil {
-		return m.Client, nil
+		return m, nil
 	}
 	if !errors.Is(err, errNoPlacement) {
 		return nil, err
@@ -218,13 +229,13 @@ func (f *Fleet) routeForCreate(ctx context.Context, group string) (*Client, erro
 		return nil, fmt.Errorf("place lab group: %w", err)
 	}
 	if winner == picked.ID {
-		return picked.Client, nil
+		return picked, nil
 	}
 	held := f.member(winner)
 	if held == nil {
 		return nil, fmt.Errorf("lab group %q is placed on agent %s that is not in the fleet", group, winner)
 	}
-	return held.Client, nil
+	return held, nil
 }
 
 // Available is true while the fleet has at least one agent; with none, infrastructure is not
@@ -247,11 +258,15 @@ func (f *Fleet) Health(ctx context.Context) error {
 }
 
 func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
-	c, err := f.routeForCreate(ctx, group)
+	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
 	}
-	return c.DeployLab(ctx, group, lab, meta, topo)
+	// The agent says what it offers: a topology that needs more is refused here, before anything is created.
+	if feat := m.Features.Get(); feat != nil && !feat.Persistence.Available && wantsPersistence(topo) {
+		return infraModel.ErrDevicePersistenceUnavailable.Err()
+	}
+	return m.Client.DeployLab(ctx, group, lab, meta, topo)
 }
 
 func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {

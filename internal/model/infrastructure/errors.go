@@ -95,4 +95,10 @@ var (
 	ErrAgentDeleteNeedsConfirm = err.ErrConflict.WithObjectCode(model.InfrastructureObjectCode).
 					WithMessage("Deleting the agent affects future reservations: confirm the delete").
 					WithDetailCode(16)
+
+	// ErrDevicePersistenceUnavailable: the topology asks a device to keep its state, but the agent that
+	// holds the team's group does not offer state persistence to this platform.
+	ErrDevicePersistenceUnavailable = err.ErrConflict.WithObjectCode(model.InfrastructureObjectCode).
+					WithMessage("The laboratory does not offer device state persistence").
+					WithDetailCode(17)
 )

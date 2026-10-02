@@ -92,6 +92,14 @@ SET capacity_cpu_millicores = sqlc.narg(capacity_cpu_millicores),
     capacity_seen_at        = sqlc.arg(seen_at)
 WHERE id = sqlc.arg(id);
 
+-- name: SetInfrastructureAgentFeatures :execrows
+-- The last laboratory features the agent reported (JSON) and when they were read.
+UPDATE infrastructure_agents
+SET features    = sqlc.arg(features),
+    features_at = sqlc.arg(seen_at)
+WHERE id = sqlc.arg(id)
+  AND archived_at IS NULL;
+
 -- name: ArchiveInfrastructureAgent :execrows
 -- Soft delete: the record stays for history, everything that connects to the agent is wiped and the
 -- name is freed by the caller's rename.
@@ -107,6 +115,8 @@ SET name                           = sqlc.arg(name),
     access_private_key_ciphertext  = '',
     access_public_key              = '',
     retired_access_keys            = '[]',
+    features                       = NULL,
+    features_at                    = NULL,
     enabled                        = false,
     archived_at                    = sqlc.arg(archived_at),
     updated_at                     = sqlc.arg(archived_at)

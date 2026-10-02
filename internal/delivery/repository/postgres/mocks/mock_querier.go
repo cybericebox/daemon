@@ -8785,6 +8785,21 @@ func (mr *MockQuerierMockRecorder) SetInfrastructureAgentCertificate(ctx, arg an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureAgentCertificate", reflect.TypeOf((*MockQuerier)(nil).SetInfrastructureAgentCertificate), ctx, arg)
 }
 
+// SetInfrastructureAgentFeatures mocks base method.
+func (m *MockQuerier) SetInfrastructureAgentFeatures(ctx context.Context, arg postgres.SetInfrastructureAgentFeaturesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetInfrastructureAgentFeatures", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetInfrastructureAgentFeatures indicates an expected call of SetInfrastructureAgentFeatures.
+func (mr *MockQuerierMockRecorder) SetInfrastructureAgentFeatures(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureAgentFeatures", reflect.TypeOf((*MockQuerier)(nil).SetInfrastructureAgentFeatures), ctx, arg)
+}
+
 // SetInfrastructureAgentRetiredKeys mocks base method.
 func (m *MockQuerier) SetInfrastructureAgentRetiredKeys(ctx context.Context, arg postgres.SetInfrastructureAgentRetiredKeysParams) (int64, error) {
 	m.ctrl.T.Helper()

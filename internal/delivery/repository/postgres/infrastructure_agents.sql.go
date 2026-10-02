@@ -26,6 +26,8 @@ SET name                           = $1,
     access_private_key_ciphertext  = '',
     access_public_key              = '',
     retired_access_keys            = '[]',
+    features                       = NULL,
+    features_at                    = NULL,
     enabled                        = false,
     archived_at                    = $2,
     updated_at                     = $2
@@ -118,7 +120,7 @@ VALUES ($1, $2, $3, true, $4, $5, $6,
         $7, $8, $9, $10,
         $11, $12, $13,
         $14, $15, $16, $17)
-RETURNING id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at
+RETURNING id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at
 `
 
 type CreateInfrastructureAgentParams struct {
@@ -188,6 +190,8 @@ func (q *Queries) CreateInfrastructureAgent(ctx context.Context, arg CreateInfra
 		&i.CapacityMemoryBytes,
 		&i.CapacitySeenAt,
 		&i.ArchivedAt,
+		&i.Features,
+		&i.FeaturesAt,
 	)
 	return i, err
 }
@@ -216,7 +220,7 @@ func (q *Queries) DeleteLabGroupPlacement(ctx context.Context, labGroupName stri
 }
 
 const getInfrastructureAgent = `-- name: GetInfrastructureAgent :one
-SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at
+SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at
 FROM infrastructure_agents
 WHERE id = $1
 `
@@ -248,6 +252,8 @@ func (q *Queries) GetInfrastructureAgent(ctx context.Context, id uuid.UUID) (Inf
 		&i.CapacityMemoryBytes,
 		&i.CapacitySeenAt,
 		&i.ArchivedAt,
+		&i.Features,
+		&i.FeaturesAt,
 	)
 	return i, err
 }
@@ -266,7 +272,7 @@ func (q *Queries) GetLabGroupPlacement(ctx context.Context, labGroupName string)
 }
 
 const listInfrastructureAgents = `-- name: ListInfrastructureAgents :many
-SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at
+SELECT id, key, name, configured, created_at, updated_at, source, endpoint, client_cert_pem, client_key_ciphertext, ca_pem, enabled, priority, tenant, cert_not_after, access_key_id, access_private_key_ciphertext, access_public_key, retired_access_keys, capacity_cpu_millicores, capacity_memory_bytes, capacity_seen_at, archived_at, features, features_at
 FROM infrastructure_agents
 ORDER BY key
 `
@@ -304,6 +310,8 @@ func (q *Queries) ListInfrastructureAgents(ctx context.Context) ([]Infrastructur
 			&i.CapacityMemoryBytes,
 			&i.CapacitySeenAt,
 			&i.ArchivedAt,
+			&i.Features,
+			&i.FeaturesAt,
 		); err != nil {
 			return nil, err
 		}
@@ -457,6 +465,29 @@ func (q *Queries) SetInfrastructureAgentCertificate(ctx context.Context, arg Set
 		arg.UpdatedAt,
 		arg.ID,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setInfrastructureAgentFeatures = `-- name: SetInfrastructureAgentFeatures :execrows
+UPDATE infrastructure_agents
+SET features    = $1,
+    features_at = $2
+WHERE id = $3
+  AND archived_at IS NULL
+`
+
+type SetInfrastructureAgentFeaturesParams struct {
+	Features []byte             `json:"features"`
+	SeenAt   pgtype.Timestamptz `json:"seen_at"`
+	ID       uuid.UUID          `json:"id"`
+}
+
+// The last laboratory features the agent reported (JSON) and when they were read.
+func (q *Queries) SetInfrastructureAgentFeatures(ctx context.Context, arg SetInfrastructureAgentFeaturesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setInfrastructureAgentFeatures, arg.Features, arg.SeenAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

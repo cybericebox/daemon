@@ -163,7 +163,7 @@ S3-compatible store (MinIO, AWS S3) for user avatars. An empty `STORAGE_ENDPOINT
 
 Lab infrastructure is served by one or more laboratory agents. Agents live in the database and are enrolled, never configured with certificate files.
 
-- **In the admin** (Infrastructure, Agents): add an agent with its endpoint and the one-time enrollment token from the cluster administrator. The platform generates its own mutual-TLS key and the signing key pair of the lab access tokens; the agent signs the client certificate (the tenant identity is its CN). Both private keys are stored encrypted with `PLATFORM_SECRETS_KEY`. Certificates are renewed automatically 10 days before they end; the access key can be rotated.
+- **In the admin** (Infrastructure, Agents): add an agent with its endpoint and the one-time enrollment token from the cluster administrator. The platform generates its own mutual-TLS key and the signing key pair of the lab access tokens; the agent signs the client certificate (the tenant identity is its CN). Both private keys are stored encrypted with `PLATFORM_SECRETS_KEY`. Certificates are renewed automatically after two thirds of their lifetime; the access key can be rotated.
 - **Bootstrap from the environment**: with `AGENT_ENDPOINT` and `AGENT_ENROLLMENT_TOKEN` set and no live agent with that endpoint, the daemon enrolls it once at start-up and stores it like any other agent. The token is ignored afterwards (remove it). A failed enrollment is logged and the daemon still starts.
 - Without any agent the daemon runs fine (catalog, event setup, exercise authoring); whatever needs to deploy a lab fails with `ErrInfrastructureUnavailable`.
 
@@ -177,8 +177,8 @@ Lab infrastructure is served by one or more laboratory agents. Agents live in th
 | `LAB_ACCESS_TOKEN_TTL` | `1m` | How long a web access link (`/_auth`) can be opened, up to `LAB_ACCESS_TOKEN_MAX_TTL`. Tokens are signed with the access key of the agent that holds the lab, never with a platform-wide key. |
 | `LAB_ACCESS_TOKEN_MAX_TTL` | `5m` | Cap of `LAB_ACCESS_TOKEN_TTL`; the proxy refuses a longer token too. |
 | `LAB_SESSION_TTL` | `24h` | Lab web session length when the caller names no end. |
-| `AGENT_ACCESS_KEY_RETENTION` | `15m` | How long a rotated-out access key stays at the agent. |
-| `AGENT_CERT_RENEW_BEFORE` | `240h` | How long before its end an agent client certificate is renewed. |
+
+What a laboratory offers is not configured here: each agent reports it (device state persistence and its limits, the image cache, the scheduler, the lab and VPN endpoints, its certificate) and the platform keeps the last report per agent (shown in the admin agent list). The exercise editor offers state persistence when some enabled agent offers it, and a deploy is refused when the agent that holds the team's group does not. A client certificate is renewed after two thirds of its own lifetime, and a rotated-out access key stays at the agent for three times the longest proxy token (at least 15 minutes).
 
 The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` and `LAB_ACCESS_PRIVATE_KEY` were removed and have no replacement: keys are per agent and stored in the database.
 
@@ -194,7 +194,6 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EXERCISE_TEST_DEPLOY_TTL` / `_MAX` | `2h` / `8h` | Lease of a catalog author's test lab, and the longest it lives from its start however often extended. |
 | `EVENT_STAND_DEPLOY_TIMEOUT` | `20m` | A Lab the agent accepted but never reported ready fails after this. |
 | `EVENT_DEFAULT_MAX_TEAM_SIZE` | `5` | Team size limit of a new event. |
-| `EXERCISE_DEVICE_PERSISTENCE` | `true` | The cluster lets devices keep their state; the editor offers the option only when true. |
 | `VPN_SECRETS_KEY` | none | See above. |
 
 ### Limits and timings
