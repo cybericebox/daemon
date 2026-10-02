@@ -231,6 +231,7 @@ func TestSubmitParticipantFormKeepsStaffNotesAndIgnoresForgedOnes(t *testing.T) 
 	uc := newUC(q)
 	eventID, userID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).Return(postgres.Event{}, nil).AnyTimes() // an unfinished event
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).AnyTimes()
 	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), eventID).Return(postgres.EventFormVersion{ID: versionID, EventID: eventID, Version: 3, Enabled: true, Required: true, Document: documentJSON(t, doc)}, nil)
 	q.EXPECT().ListLatestRegistrationAnswersForUsers(gomock.Any(), gomock.Any()).Return([]postgres.ListLatestRegistrationAnswersForUsersRow{{UserID: userID, Answers: []byte(`{"note":"VIP guest"}`)}}, nil)
 	q.EXPECT().UpsertEventFormAnswer(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.UpsertEventFormAnswerParams) (postgres.EventFormAnswer, error) {

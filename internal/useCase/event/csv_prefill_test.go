@@ -70,6 +70,7 @@ func TestSubmitParticipantFormKeepsPrefilledLockedAnswers(t *testing.T) {
 	uc := newUC(q)
 	eventID, userID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).Return(postgres.Event{}, nil).AnyTimes() // an unfinished event
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).AnyTimes()
 	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), eventID).Return(prefillFormVersion(eventID, versionID), nil).AnyTimes()
 	q.EXPECT().ListLatestRegistrationAnswersForUsers(gomock.Any(), gomock.Any()).Return([]postgres.ListLatestRegistrationAnswersForUsersRow{
 		{UserID: userID, Answers: []byte(`{"school":"KPI"}`)},
@@ -243,4 +244,19 @@ func TestInviteParticipantsPrefillCountsMissingRequiredFields(t *testing.T) {
 	require.Empty(t, results[0].Code)
 	require.Empty(t, results[1].Code)
 	require.Equal(t, map[uuid.UUID]int32{users["gap@example.test"]: 1, users["full@example.test"]: 0}, missing)
+}
+
+// L16: a participant the organizers rejected does not keep writing into the event's data.
+func TestSubmitParticipantFormIsRefusedToARejectedParticipant(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := newUC(q)
+	eventID, userID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).Return(postgres.Event{}, nil).AnyTimes()
+	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), eventID).Return(prefillFormVersion(eventID, versionID), nil).AnyTimes()
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: 3}, nil)
+	// no answer is read or written
+	_, err := uc.SubmitParticipantForm(context.Background(), eventID, userID, event.SubmitParticipantFormInput{Answers: map[string]any{"city": "Kyiv"}})
+	if !errors.Is(err, participantModel.ErrParticipantAccessForbidden.Err()) {
+		t.Fatalf("want ErrParticipantAccessForbidden, got %v", err)
+	}
 }

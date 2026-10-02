@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/mock/gomock"
 
@@ -38,7 +39,8 @@ func newAnswerFileFixture(t *testing.T) answerFileFixture {
 	media := &brandMediaFake{file: mediaModel.File{ID: uuid.Must(uuid.NewV7()), SizeBytes: 9}}
 	f := answerFileFixture{q: q, media: media, uc: event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media}),
 		eventID: uuid.Must(uuid.NewV7()), userID: uuid.Must(uuid.NewV7()), formVer: uuid.Must(uuid.NewV7())}
-	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).Return(postgres.Event{}, nil).AnyTimes() // an unfinished event
+	q.EXPECT().GetEventByID(gomock.Any(), gomock.Any()).Return(postgres.Event{}, nil).AnyTimes()                             // an unfinished event
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).AnyTimes() // has not applied yet
 	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), f.eventID).
 		Return(postgres.EventFormVersion{ID: f.formVer, EventID: f.eventID, Version: 1, Enabled: true, Document: []byte(fileFormDocument)}, nil)
 	return f

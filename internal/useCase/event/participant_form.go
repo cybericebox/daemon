@@ -85,6 +85,15 @@ func (u *EventUseCase) SubmitParticipantForm(ctx context.Context, eventID, userI
 	if !participantModel.AnswersEditable(e.Lifecycle.EffectiveFinishAt(), time.Now()) {
 		return ParticipantFormAnswerView{}, participantModel.ErrParticipantFieldsLocked.Err()
 	}
+	// A person the organizers rejected does not keep writing into the event's data. Someone who has
+	// not applied yet has no row: the form is part of applying.
+	if p, getErr := u.participants.Get(ctx, eventID, userID); getErr == nil {
+		if p.Status == participantModel.StatusRejected {
+			return ParticipantFormAnswerView{}, participantModel.ErrParticipantAccessForbidden.Err()
+		}
+	} else if !repositoryTools.IsObjectNotFoundError(getErr) && getErr != pgx.ErrNoRows {
+		return ParticipantFormAnswerView{}, model.ErrPlatform.WithError(getErr).WithMessage("Failed to get event participant").Err()
+	}
 	// Answers an organizer prefilled stay: a non-editable field with a value
 	// cannot be changed by the participant.
 	stored, err := u.forms.LatestRegistrationAnswers(ctx, eventID, []uuid.UUID{userID})
