@@ -334,11 +334,13 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		emailG.GET(
 			"images/:fileID",
 			h.prot.RequirePermission(rbac.PermNotificationsTemplatesRead),
+			middleware.SameSiteResource,
 			h.streamEmailImage,
 		)
 		emailG.GET(
 			"brand/logo",
 			h.prot.RequirePermission(rbac.PermNotificationsTemplatesRead),
+			middleware.SameSiteResource,
 			h.brandLogo,
 		)
 		emailG.POST(
