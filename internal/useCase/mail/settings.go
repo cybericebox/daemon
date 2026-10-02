@@ -640,7 +640,7 @@ func (u *MailUseCase) testEventSMTP(ctx context.Context, eventID uuid.UUID, in *
 	if err != nil {
 		return TestResult{}, err
 	}
-	stored, route, identity, err := u.eventRoute(ctx, eventID, platform)
+	stored, route, identity, _, err := u.eventRoute(ctx, eventID, platform)
 	if err != nil {
 		return TestResult{Recipient: recipient, Error: err.Error()}, nil
 	}

@@ -489,3 +489,40 @@ func TestGetEventMailSettings_NoSendingDomainMeansNoDefaultSenderAddress(t *test
 	require.Equal(t, Party{Name: "Кібер Олімпіада"}, view.Inherited.Sender, "never the platform address")
 	require.Equal(t, FieldNone, view.InheritedSources.SenderAddress)
 }
+
+// The reported PoC: an event manager sets From to a platform mailbox (or another domain) and sends through the
+// platform's own providers.
+func TestDeliver_AnEventCannotSpoofThePlatformOrAnotherDomainThroughPlatformMail(t *testing.T) {
+	for name, from := range map[string]string{
+		"platform security mailbox": "security@mail.cybericebox.com",
+		"platform support mailbox":  "Support@mail.cybericebox.com",
+		"the platform sender":       "notifications@mail.cybericebox.com",
+		"another domain":            "ceo@bank.example",
+		"no domain":                 "ceo",
+	} {
+		uc, repo, smtp := newTestUseCase(t, config.SMTPConfig{}, nil)
+		eventID := uuid.Must(uuid.NewV7())
+		repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{platformRow}, nil)
+		expectPlatformIdentity(repo, &platformIdentityRow)
+		expectEvent(repo, eventID, postgres.MailIdentity{FromName: "Оргкомітет", FromAddress: from, ReplyToAddress: "hq@uni.edu"}, nil)
+
+		require.NoError(t, uc.Deliver(context.Background(), &eventID, email.Message{To: "p@example.org"}), name)
+		require.Equal(t, email.Address{Name: "Оргкомітет", Email: "olymp@mail.cybericebox.com"}, smtp.sends[0].msg.From, name)
+		require.Equal(t, "hq@uni.edu", smtp.sends[0].msg.ReplyTo.Email, name+": the event keeps its Reply-To")
+	}
+}
+
+func TestDeliver_AnEventKeepsItsOwnSenderThroughItsOwnSMTPButNotOnTheFallback(t *testing.T) {
+	uc, repo, smtp := newTestUseCase(t, config.SMTPConfig{}, nil)
+	eventID := uuid.Must(uuid.NewV7())
+	smtp.fail["smtp.uni.example"] = errors.New("event smtp down")
+	repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{platformRow}, nil)
+	expectPlatformIdentity(repo, &platformIdentityRow)
+	expectEvent(repo, eventID, postgres.MailIdentity{FromName: "Оргкомітет", FromAddress: "ctf@uni.edu"},
+		&postgres.MailSmtpConfig{ID: uuid.Must(uuid.NewV7()), Host: "smtp.uni.example", Port: 587, TlsMode: "starttls"})
+
+	require.NoError(t, uc.Deliver(context.Background(), &eventID, email.Message{To: "p@example.org"}))
+	require.Len(t, smtp.sends, 2)
+	require.Equal(t, "ctf@uni.edu", smtp.sends[0].msg.From.Email, "through its own SMTP the event sends as it wishes")
+	require.Equal(t, "olymp@mail.cybericebox.com", smtp.sends[1].msg.From.Email, "the platform fallback only sends as the event on the platform domain")
+}

@@ -3,6 +3,8 @@ package mailUseCase
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/gofrs/uuid"
 
@@ -31,14 +33,18 @@ func (u *MailUseCase) Deliver(ctx context.Context, eventID *uuid.UUID, msg email
 	}
 	eventSender := false
 	if eventID != nil {
-		eventTransport, hasEventSMTP, eventIdentity, err := u.eventRoute(ctx, *eventID, route)
+		eventTransport, hasEventSMTP, eventIdentity, eventTag, err := u.eventRoute(ctx, *eventID, route)
 		if err != nil {
 			return err
 		}
-		msg, eventSender = withIdentity(msg, eventIdentity), true
+		// Through its own SMTP an event sends as it wishes; through the platform it may only send as itself on
+		// the platform's sending domain: an organizer cannot make the platform's servers vouch for another
+		// sender, or for a platform mailbox such as security@ or support@.
+		eventMsg, platformMsg := withIdentity(msg, eventIdentity), withIdentity(msg, platformEventIdentity(eventIdentity, route, eventTag))
+		msg, eventSender = platformMsg, true
 		if hasEventSMTP {
 			note.Transport = dispatchModel.TransportEvent
-			eventErr := u.send(ctx, eventTransport, msg)
+			eventErr := u.send(ctx, eventTransport, eventMsg)
 			if eventErr == nil {
 				return nil
 			}
@@ -105,34 +111,62 @@ func (u *MailUseCase) sendPlatform(ctx context.Context, route platformRoute, msg
 }
 
 // eventRoute resolves the Event sender and its own transport, if any.
-func (u *MailUseCase) eventRoute(ctx context.Context, eventID uuid.UUID, platform platformRoute) (transport, bool, mailModel.Identity, error) {
+func (u *MailUseCase) eventRoute(ctx context.Context, eventID uuid.UUID, platform platformRoute) (transport, bool, mailModel.Identity, string, error) {
 	e, err := u.events.GetByID(ctx, eventID)
 	if err != nil {
-		return transport{}, false, mailModel.Identity{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+		return transport{}, false, mailModel.Identity{}, "", model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
 	own, err := u.mail.EventIdentity(ctx, eventID)
 	if err != nil {
-		return transport{}, false, mailModel.Identity{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load event sender").Err()
+		return transport{}, false, mailModel.Identity{}, "", model.ErrPlatform.WithError(err).WithMessage("Failed to load event sender").Err()
 	}
 	identity, err := mailModel.EventIdentity(platform.identity, platform.domain, e.Name, e.Tag, own)
 	if err != nil {
-		return transport{}, false, mailModel.Identity{}, fmt.Errorf("event sender: %w", err)
+		return transport{}, false, mailModel.Identity{}, "", fmt.Errorf("event sender: %w", err)
 	}
 	cfg, ok, err := u.mail.EventSMTP(ctx, eventID)
 	if err != nil {
-		return transport{}, false, mailModel.Identity{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load event SMTP settings").Err()
+		return transport{}, false, mailModel.Identity{}, "", model.ErrPlatform.WithError(err).WithMessage("Failed to load event SMTP settings").Err()
 	}
 	if !ok {
-		return transport{}, false, identity, nil
+		return transport{}, false, identity, e.Tag, nil
 	}
 	conn, err := u.connection(cfg, "")
 	if err != nil {
-		return transport{}, false, mailModel.Identity{}, err
+		return transport{}, false, mailModel.Identity{}, "", err
 	}
 	return transport{
 		source: dispatchModel.TransportEvent, conn: conn, identity: identity,
 		limits: cfg.StoredLimits(), eventID: &eventID,
-	}, true, identity, nil
+	}, true, identity, e.Tag, nil
+}
+
+// reservedMailboxes are mailboxes of the platform itself that an event never sends from.
+var reservedMailboxes = []string{
+	"support", "security", "abuse", "postmaster", "hostmaster", "webmaster", "admin", "administrator", "root",
+	"noreply", "no-reply", "donotreply", "do-not-reply", "notifications", "contact", "privacy", "billing", "info", "help",
+}
+
+// platformEventIdentity is the sender of an event's mail that goes out through the platform's own
+// providers: the platform's sending domain is the only one it may use, and the mailbox must not be one of the
+// platform's own; anything else is replaced by <tag>@<sending domain>. The names and the Reply-To stay the
+// event's.
+func platformEventIdentity(identity mailModel.Identity, route platformRoute, tag string) mailModel.Identity {
+	domain := strings.ToLower(route.domain)
+	if domain == "" {
+		// No sending domain is known: the platform sender itself is the only address safe to use.
+		identity.FromAddress = route.identity.FromAddress
+		return identity
+	}
+	if tag == "" {
+		return identity
+	}
+	mailbox := strings.ToLower(mailModel.AddressLocalPart(identity.FromAddress))
+	if mailModel.AddressDomain(identity.FromAddress) != domain || slices.Contains(reservedMailboxes, mailbox) ||
+		mailbox == strings.ToLower(mailModel.AddressLocalPart(route.identity.FromAddress)) {
+		identity.FromAddress = tag + "@" + domain
+	}
+	return identity
 }
 
 func withIdentity(msg email.Message, id mailModel.Identity) email.Message {
