@@ -27,3 +27,23 @@ func SameSiteResource(c *gin.Context) {
 	c.Header("Cross-Origin-Resource-Policy", "same-site")
 	c.Next()
 }
+
+// PublicMediaRoutes are the route templates that serve PUBLIC media only: unauthenticated image
+// proxies whose URL an email, an external page or a link preview may embed. They carry
+// Cross-Origin-Resource-Policy: cross-origin (PublicMedia) and are exempt from the Referer check of
+// the origin guard (an embedding page's Referer is by definition not ours); an Origin, when
+// present, is still checked. Keep this set and the routes that use PublicMedia identical: a test
+// in the handler package compares them.
+var PublicMediaRoutes = map[string]bool{
+	"/api/auth/avatar/:id":                    true,
+	"/api/events/:id/logo/:fileID":            true,
+	"/api/events/:id/favicon/:fileID":         true,
+	"/api/events/:id/preview-picture/:fileID": true,
+	"/api/events/:id/content-images/:fileID":  true,
+}
+
+// PublicMedia is the route middleware of PublicMediaRoutes: any site may embed the response.
+func PublicMedia(c *gin.Context) {
+	c.Header("Cross-Origin-Resource-Policy", "cross-origin")
+	c.Next()
+}

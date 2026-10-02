@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
@@ -353,6 +354,33 @@ func TestRouteInvariants(t *testing.T) {
 	for id := range publicRoutes {
 		if !seenPublic[id] {
 			t.Errorf("publicRoutes lists %s, which is not mounted as a public route any more", id)
+		}
+	}
+}
+
+// The public-media routes (CORP cross-origin, no Referer check) are exactly the ones that use
+// middleware.PublicMedia, they are unauthenticated GETs, and no other route is exempt.
+func TestPublicMediaRoutesMatchTheMiddlewareSet(t *testing.T) {
+	used := map[string]bool{}
+	for _, s := range buildRoutePolicy(t) {
+		if hasLayer(s, "PublicMedia") {
+			if s.method != "GET" {
+				t.Errorf("%s %s: public media is read-only", s.method, s.path)
+			}
+			if len(s.gates) != 0 {
+				t.Errorf("%s: public media must be unauthenticated, it has gates %v", s.path, s.gates)
+			}
+			used[s.path] = true
+		}
+	}
+	for path := range middleware.PublicMediaRoutes {
+		if !used[path] {
+			t.Errorf("%s is exempt in middleware.PublicMediaRoutes but the route does not use PublicMedia", path)
+		}
+	}
+	for path := range used {
+		if !middleware.PublicMediaRoutes[path] {
+			t.Errorf("%s uses PublicMedia but is not in middleware.PublicMediaRoutes (its Referer would still be checked)", path)
 		}
 	}
 }

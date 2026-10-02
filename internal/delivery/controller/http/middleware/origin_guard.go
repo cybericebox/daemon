@@ -18,7 +18,8 @@ import (
 //   - an Origin that is present must be on the allow-list (config.HostsConfig.OriginAllowed: MAIN,
 //     ID, ADMIN, EXERCISES, API and one-label event sites, https only), else 403. "null" (sandboxed
 //     frames, data: and file: pages, some redirects) is PRESENT and not allowed;
-//   - without an Origin, a present Referer must be on the allow-list too, else 403;
+//   - without an Origin, a present Referer must be on the allow-list too, else 403 (except on the
+//     public-media routes, PublicMediaRoutes: their Referer is whoever embeds the image);
 //   - with neither: GET, HEAD and OPTIONS pass (navigations, the event frontend's server-side
 //     fetches, health checks); a write (POST, PUT, PATCH, DELETE) is refused: a browser always
 //     names its source on a cross-origin write, so a nameless write is not a browser acting for a
@@ -37,7 +38,7 @@ func OriginGuard(hosts config.HostsConfig) gin.HandlerFunc {
 				refuse(ctx, "origin: "+reason)
 				return
 			}
-		} else if referer := ctx.GetHeader("Referer"); referer != "" {
+		} else if referer := ctx.GetHeader("Referer"); referer != "" && !publicMediaRead(ctx) {
 			if reason, ok := hosts.OriginAllowed(referer); !ok {
 				refuse(ctx, "referer: "+reason)
 				return
@@ -54,6 +55,15 @@ func OriginGuard(hosts config.HostsConfig) gin.HandlerFunc {
 		}
 		ctx.Next()
 	}
+}
+
+// publicMediaRead is a read of a public-media route (PublicMediaRoutes): its Referer is the page
+// that embeds it, wherever that is.
+func publicMediaRead(ctx *gin.Context) bool {
+	if ctx.Request.Method != http.MethodGet && ctx.Request.Method != http.MethodHead {
+		return false
+	}
+	return PublicMediaRoutes[ctx.FullPath()]
 }
 
 func isWrite(method string) bool {

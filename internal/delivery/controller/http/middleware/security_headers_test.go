@@ -20,6 +20,8 @@ func headersRouter() *gin.Engine {
 	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
 	r.GET("/data", ok)
 	r.GET("/image", middleware.SameSiteResource, ok)
+	r.GET("/api/auth/avatar/:id", middleware.PublicMedia, ok)
+	r.POST("/api/auth/avatar/:id", ok)
 	return r
 }
 
@@ -88,5 +90,42 @@ func TestSameSiteResource_RelaxesOnlyTheRoutesItIsOn(t *testing.T) {
 	// an <img> sends no Origin on a GET: it passes the guard, and the browser then applies the CORP
 	if w := get(r, "/image", nil); w.Code != http.StatusOK {
 		t.Errorf("a nameless image GET: %d", w.Code)
+	}
+}
+
+// Public, unauthenticated media that emails, external pages and link previews embed: any site may load
+// it (CORP cross-origin) and its Referer is whoever embeds it, so it is not checked. Everything else
+// keeps same-origin and the Referer rule. An Origin, when present, is still checked.
+func TestPublicMedia_CrossOriginAndNoRefererCheck(t *testing.T) {
+	r := headersRouter()
+	const path = "/api/auth/avatar/x"
+	w := get(r, path, map[string]string{"Referer": "https://mail.google.com/mail/u/0/"})
+	if w.Code != http.StatusOK || w.Header().Get("Cross-Origin-Resource-Policy") != "cross-origin" {
+		t.Errorf("an external embedder: %d CORP=%q", w.Code, w.Header().Get("Cross-Origin-Resource-Policy"))
+	}
+	if w := get(r, path, nil); w.Code != http.StatusOK {
+		t.Errorf("no Referer: %d", w.Code)
+	}
+	// the Origin check is not relaxed
+	for _, origin := range []string{"https://evil.test", "null", "https://web-x.labs.example.test"} {
+		if w := get(r, path, map[string]string{"Origin": origin}); w.Code != http.StatusForbidden {
+			t.Errorf("Origin %s on public media: %d, want 403", origin, w.Code)
+		}
+	}
+	// the exemption is for reads of those routes only
+	req := httptest.NewRequest(http.MethodPost, path, nil)
+	req.Header.Set("Referer", "https://mail.google.com/")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("a write is never exempt: %d", rec.Code)
+	}
+	// any other route keeps the Referer rule and same-origin
+	other := get(r, "/data", map[string]string{"Referer": "https://mail.google.com/mail/u/0/"})
+	if other.Code != http.StatusForbidden {
+		t.Errorf("a non-media route with a foreign Referer: %d, want 403", other.Code)
+	}
+	if got := get(r, "/data", nil).Header().Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
+		t.Errorf("other routes: CORP %q", got)
 	}
 }

@@ -165,5 +165,5 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 
 	pub.POST("account/email/confirm", rate(recoveryRateLimit), h.confirmEmailChange)
 	// Public avatar proxy: streams the stored image so the bucket stays private.
-	pub.GET("avatar/:id", middleware.SameSiteResource, h.getAvatar)
+	pub.GET("avatar/:id", middleware.PublicMedia, h.getAvatar)
 }
