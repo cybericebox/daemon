@@ -10,7 +10,6 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/clienttoken"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler"
 	_ "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/apidocs"
@@ -35,7 +34,6 @@ type (
 		Config     *config.HTTPControllerConfig
 		AuthConfig config.AuthConfig
 		RateLimit  config.RateLimitConfig
-		DOS        config.DOSConfig
 		// ErrorJournal receives 5xx, panics, 403, 429 and the 404 counters; nil captures nothing.
 		ErrorJournal errjournal.Sink
 	}
@@ -84,17 +82,10 @@ func NewController(deps Dependencies) *Controller {
 
 	// build protection middleware and wire it into the handler aggregator
 	limiter := middleware.NewRateLimiter(deps.RateLimit)
-	var signer *clienttoken.Signer
-	if deps.DOS.Enabled() {
-		signer = clienttoken.NewSigner(deps.DOS.ClientTokenSecret, deps.AuthConfig.TokenSignature, deps.DOS.ClientTokenTTL)
-		limiter.EnableDOSProtection(deps.DOS, deps.AuthConfig.Hosts, signer)
-	}
 	prot := protection.New(protection.Dependencies{
-		UseCase:      deps.UseCase,
-		Config:       deps.AuthConfig,
-		Limiter:      limiter,
-		DOS:          deps.DOS,
-		ClientTokens: signer,
+		UseCase: deps.UseCase,
+		Config:  deps.AuthConfig,
+		Limiter: limiter,
 	})
 
 	// This service answers on exactly one host, api.<domain> — every other

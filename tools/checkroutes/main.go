@@ -40,7 +40,6 @@ var pathArg = map[string]int{
 // RequireCaptcha does NOT count as a gate — it is bot protection, not
 // authorization — so recaptcha-only routes are listed here too.
 var publicRoutes = map[string]bool{
-	"POST baseAPI/client-token":          true, // client token of DOS_PROTECTION=on (provider bot check)
 	"POST pub/sign-in":                   true, // recaptcha-gated credential entry
 	"POST pub/sign-up":                   true, // recaptcha-gated registration entry
 	"GET pub/setup":                      true, // setup-token flow (context)

@@ -16,7 +16,6 @@ import (
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/clienttoken"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
@@ -49,8 +48,6 @@ type Protection struct {
 	ttl       time.Duration
 	recaptcha config.RecaptchaConfig
 	captcha   CaptchaVerifier
-	dos       config.DOSConfig
-	signer    *clienttoken.Signer
 
 	recaptchaMu     sync.Mutex
 	recaptchaClient *recaptcha.Client
@@ -63,9 +60,6 @@ type Dependencies struct {
 	Limiter Limiter
 	// Captcha overrides the verifier chosen by Config.Captcha.Provider (tests).
 	Captcha CaptchaVerifier
-	// DOS and ClientTokens are the client token of DOS_PROTECTION=on.
-	DOS          config.DOSConfig
-	ClientTokens *clienttoken.Signer
 }
 
 func New(deps Dependencies) *Protection {
@@ -75,8 +69,6 @@ func New(deps Dependencies) *Protection {
 		hosts:     deps.Config.Hosts,
 		ttl:       cookieLifetime(deps.Config),
 		recaptcha: deps.Config.Recaptcha,
-		dos:       deps.DOS,
-		signer:    deps.ClientTokens,
 	}
 	p.captcha = deps.Captcha
 	if p.captcha == nil {

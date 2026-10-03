@@ -125,7 +125,7 @@ Generate a key with `openssl rand -hex 32`. Keep every key stable: changing one 
 
 ### Bot check (CAPTCHA_PROVIDER)
 
-One provider for the whole platform: the sign-in, sign-up and password-reset forms and the client token (below) all use it. The token travels in the JSON body as `RecaptchaToken` whichever provider issued it. A token must have been solved on a platform frontend host. The frontends take the same choice from `NEXT_PUBLIC_CAPTCHA_PROVIDER` and `NEXT_PUBLIC_CAPTCHA_SITE_KEY`.
+One provider for the whole platform: the sign-in, sign-up and password-reset forms use it. The token travels in the JSON body as `RecaptchaToken` whichever provider issued it. A token must have been solved on a platform frontend host. The frontends take the same choice from `NEXT_PUBLIC_CAPTCHA_PROVIDER` and `NEXT_PUBLIC_CAPTCHA_SITE_KEY`.
 
 | `CAPTCHA_PROVIDER` | Variables | Notes |
 | --- | --- | --- |
@@ -134,26 +134,6 @@ One provider for the whole platform: the sign-in, sign-up and password-reset for
 | `none` | none | Accepts every token: local development and tests only. Fatal in production. |
 
 Only the chosen provider's keys are required; any other value, or missing keys, stops the start. `RECAPTCHA_SCORE` (default `0.5`) is the minimum accepted reCAPTCHA score; below `0.3` (0 accepts every bot) is fatal in production.
-
-### DoS protection (DOS_PROTECTION)
-
-`DOS_PROTECTION=on|off` (default `off`) is independent of the provider.
-
-- `off`: public routes share the one anonymous bucket (`RATE_LIMIT_ANON_*`, below), nothing else changes.
-- `on`: on the first visit each frontend passes an invisible check of the chosen provider at `POST /api/client-token` (body `{"RecaptchaToken": "..."}`, action `clientToken`) and gets a signed `__Host-client` cookie (HttpOnly, Secure, SameSite=Lax; it is not a login and holds no personal data). Anonymous requests are then counted in a bucket per cookie. A request without a valid cookie is counted in one small shared bucket and is refused with 429 (limiter `client-token-required`, with the header `X-Client-Token: required`) unless it is the token endpoint, `/api/health`, public media or a Google sign-in redirect; the frontend answers a 429 by fetching a new token. The token endpoint is always limited by that small bucket, valid cookie or not. On top of the cookie bucket, the sign-in, sign-up and password-reset routes share a bucket of their own, and public pages of an event site (the tag of the request's `Origin`) share a bucket per event. Signed-in requests are limited per user as before. The cost with reCAPTCHA Enterprise is one assessment per new browser per day (free up to 10,000 a month); Turnstile is free.
-
-Nothing is keyed on a client address. Every bucket is a token bucket (steady refill per minute plus a burst), in memory, per replica.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DOS_CLIENT_TOKEN_TTL` | `24h` | Life of the client cookie; the frontend fetches a new one after it. |
-| `DOS_CLIENT_TOKEN_SECRET` | derived | Signing key. Empty derives one from `JWT_TOKEN_SIGNATURE`, which every replica shares. |
-| `DOS_NO_TOKEN_PER_MINUTE` / `DOS_NO_TOKEN_BURST` | `600` / `300` | The shared bucket of requests without a valid cookie and of the token endpoint. Every first visit of the platform passes through it, so size it for an event start. |
-| `DOS_CLIENT_PER_MINUTE` / `DOS_CLIENT_BURST` | `600` / `200` | The bucket of one client cookie. |
-| `DOS_AUTH_PER_MINUTE` / `DOS_AUTH_BURST` | `1200` / `400` | The shared bucket of the sign-in, sign-up and password-reset routes. |
-| `DOS_EVENT_PER_MINUTE` / `DOS_EVENT_BURST` | `6000` / `3000` | The shared bucket of the public pages of one event, per event tag. |
-
-Refusals are recorded in the error journal as `http_429` with the limiter `no-client-token`, `client-token-required`, `client`, `auth-group` or `event`.
 
 ### Mail
 

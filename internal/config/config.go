@@ -36,7 +36,6 @@ type (
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
 		Limits         LimitsConfig         `                                   envPrefix:"LIMIT_"`
 		RateLimit      RateLimitConfig      `                                   envPrefix:"RATE_LIMIT_"`
-		DOS            DOSConfig            `                                   envPrefix:"DOS_"`
 		Retention      RetentionConfig      `                                   envPrefix:"RETENTION_"`
 		LabAccess      LabAccessConfig      `                                   envPrefix:"LAB_ACCESS_"`
 		LabSession     LabSessionConfig     `                                   envPrefix:"LAB_SESSION_"`
@@ -276,7 +275,7 @@ type (
 	}
 
 	// CaptchaConfig picks the one bot check of the whole platform: the sign-in, sign-up and password-reset
-	// forms and the client token all use it. CAPTCHA_PROVIDER is turnstile | recaptcha | none (none is local
+	// forms use it. CAPTCHA_PROVIDER is turnstile | recaptcha | none (none is local
 	// development and tests only).
 	CaptchaConfig struct {
 		Provider string `env:"PROVIDER" envDefault:"recaptcha"`
@@ -823,9 +822,6 @@ func MustGetConfig() *Config {
 	}
 	if err = instance.RateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid rate limit configuration")
-	}
-	if err = instance.DOS.Validate(); err != nil {
-		log.Fatal().Err(err).Msg("Config: invalid DoS protection configuration")
 	}
 	if err = instance.FlagRateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid flag rate limit configuration")

@@ -8,12 +8,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/clienttoken"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 )
 
@@ -34,7 +32,6 @@ func captchaRouter(p *Protection) *gin.Engine {
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
 	r.POST("/x", p.RequireCaptcha("signIn"), func(c *gin.Context) { c.Status(http.StatusOK) })
-	r.POST("/api/client-token", p.IssueClientToken)
 	return r
 }
 
@@ -92,45 +89,6 @@ func typeName(v any) string {
 		return "protection.noneVerifier"
 	}
 	return "?"
-}
-
-func TestIssueClientTokenSetsTheCookieAfterTheProviderAccepts(t *testing.T) {
-	f := &fakeVerifier{}
-	signer := clienttoken.NewSigner("s", "", time.Hour)
-	r := captchaRouter(New(Dependencies{Captcha: f, DOS: config.DOSConfig{Protection: "on"}, ClientTokens: signer}))
-	w := post(r, "/api/client-token", `{"RecaptchaToken":"tok"}`)
-	if w.Code != http.StatusOK || f.action != "clientToken" {
-		t.Fatalf("code %d, action %q", w.Code, f.action)
-	}
-	cookies := w.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != clienttoken.Cookie {
-		t.Fatalf("cookies %v", cookies)
-	}
-	if _, ok := signer.Verify(cookies[0].Value); !ok {
-		t.Fatal("the cookie must verify")
-	}
-	if !strings.Contains(w.Body.String(), "ExpiresAt") {
-		t.Fatalf("body %s", w.Body.String())
-	}
-}
-
-func TestIssueClientTokenSetsNothingWhenTheProviderRefuses(t *testing.T) {
-	f := &fakeVerifier{err: errors.New("bad")}
-	r := captchaRouter(New(Dependencies{Captcha: f, DOS: config.DOSConfig{Protection: "on"},
-		ClientTokens: clienttoken.NewSigner("s", "", time.Hour)}))
-	w := post(r, "/api/client-token", `{"RecaptchaToken":"tok"}`)
-	if w.Code == http.StatusOK || len(w.Result().Cookies()) != 0 {
-		t.Fatalf("code %d, cookies %v", w.Code, w.Result().Cookies())
-	}
-}
-
-func TestIssueClientTokenDoesNotExistWithDOSOff(t *testing.T) {
-	f := &fakeVerifier{}
-	r := captchaRouter(New(Dependencies{Captcha: f, DOS: config.DOSConfig{Protection: "off"}}))
-	w := post(r, "/api/client-token", `{"RecaptchaToken":"tok"}`)
-	if w.Code != http.StatusNotFound || f.calls != 0 || len(w.Result().Cookies()) != 0 {
-		t.Fatalf("code %d, calls %d", w.Code, f.calls)
-	}
 }
 
 func turnstileServer(t *testing.T, reply string) (*turnstileVerifier, *string) {

@@ -56,7 +56,6 @@ type RateLimiter struct {
 	mu        sync.Mutex
 	users     map[uuid.UUID]*bucket
 	anon      bucket
-	dos       *dosLimiter
 	cfg       config.RateLimitConfig
 	now       func() time.Time
 	lastSweep time.Time
@@ -149,7 +148,8 @@ func (l *RateLimiter) Anonymous(ctx *gin.Context) {
 		return
 	}
 	ctx.Set(rateLimitCountedKey, true)
-	if !l.admitAnonymous(ctx) {
+	if ok, wait := l.allow(nil); !ok {
+		l.refuse(ctx, "anonymous", wait)
 		return
 	}
 	ctx.Next()
@@ -162,14 +162,18 @@ func (l *RateLimiter) Check(ctx *gin.Context, userID uuid.UUID, signedIn bool) b
 	if exemptFromRateLimit[ctx.FullPath()] {
 		return true
 	}
-	if !signedIn {
+	var key *uuid.UUID
+	name := "user"
+	if signedIn {
+		key = &userID
+	} else {
 		if _, counted := ctx.Get(rateLimitCountedKey); counted {
 			return true
 		}
-		return l.admitAnonymous(ctx)
+		name = "anonymous"
 	}
-	if ok, wait := l.allow(&userID); !ok {
-		l.refuse(ctx, "user", wait)
+	if ok, wait := l.allow(key); !ok {
+		l.refuse(ctx, name, wait)
 		return false
 	}
 	return true

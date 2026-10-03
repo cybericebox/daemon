@@ -13,7 +13,6 @@ type noopProtector struct{}
 
 func (noopProtector) Authenticate(*gin.Context, string)                 {}
 func (noopProtector) DeAuthenticate(*gin.Context)                       {}
-func (noopProtector) IssueClientToken(*gin.Context)                     {}
 func (noopProtector) RequireCaptcha(string) gin.HandlerFunc             { return func(*gin.Context) {} }
 func (noopProtector) RequirePermission(rbac.Permission) gin.HandlerFunc { return func(*gin.Context) {} }
 

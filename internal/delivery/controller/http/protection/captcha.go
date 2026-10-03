@@ -10,17 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 )
-
-// clientTokenAction is the action name the frontend executes the bot check with to get the client token.
-const clientTokenAction = "clientToken"
 
 // CaptchaVerifier checks a token of the platform's bot-check provider. action is the name the frontend
 // executed the check with (the provider reports it back where it supports that).
@@ -98,28 +93,4 @@ func (v *turnstileVerifier) Verify(ctx context.Context, token, action string) er
 			WithError(fmt.Errorf("turnstile token hostname %q is not a platform frontend", body.Hostname)).Err()
 	}
 	return nil
-}
-
-// IssueClientToken is POST /api/client-token: it verifies the provider token and sets the signed client
-// cookie. Without DOS_PROTECTION=on there is no client token and the route does not exist.
-func (p *Protection) IssueClientToken(ctx *gin.Context) {
-	if !p.dos.Enabled() || p.signer == nil {
-		response.AbortWithNotFound(ctx)
-		return
-	}
-	p.RequireCaptcha(clientTokenAction)(ctx)
-	if ctx.IsAborted() {
-		return
-	}
-	expires, err := p.signer.Set(ctx)
-	if err != nil {
-		response.AbortWithError(ctx, model.ErrPlatform.WithError(err).WithMessage("Failed to issue the client token").Err())
-		return
-	}
-	response.AbortWithData(ctx, ClientTokenResponse{ExpiresAt: expires.UTC()})
-}
-
-// ClientTokenResponse tells the frontend when to fetch the next client token.
-type ClientTokenResponse struct {
-	ExpiresAt time.Time `json:"ExpiresAt"`
 }
