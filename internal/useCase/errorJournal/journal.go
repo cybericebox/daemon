@@ -161,9 +161,29 @@ type Journal struct {
 
 	mu       sync.Mutex
 	notFound map[notFoundKey]int64
+	// refusals folds the 403 flood of one fingerprint: the first event of a window is recorded at once, the rest
+	// are counted here and written as one record per flush.
+	refusals map[string]*refusalFold
+	// kindMessaged is when the last message of a noisy kind (403) was sent, for every group of it.
+	kindMessaged map[errorJournal.Kind]time.Time
 	offline  map[string]*offlineState
 	certLast map[string]time.Time
 }
+
+// refusalFold counts the repeats of one 403 fingerprint inside its window.
+type refusalFold struct {
+	until   time.Time
+	pending int
+	last    errorJournal.Event
+}
+
+const (
+	// refusalWindow is how long one fingerprint of 403s is folded after its first event.
+	refusalWindow = time.Minute
+	// maxRefusalFolds bounds the table: more distinct fingerprints than this are dropped and counted, never
+	// written one by one.
+	maxRefusalFolds = 5000
+)
 
 type notFoundKey struct {
 	day   time.Time
@@ -192,6 +212,7 @@ func New(deps Dependencies) *Journal {
 		queue: make(chan errorJournal.Event, cfg.BufferSize), hub: NewHub(),
 		spikes: spikeCounter{hits: map[string][]time.Time{}}, notFound: map[notFoundKey]int64{},
 		offline: map[string]*offlineState{}, certLast: map[string]time.Time{},
+		refusals: map[string]*refusalFold{}, kindMessaged: map[errorJournal.Kind]time.Time{},
 	}
 }
 
@@ -207,10 +228,57 @@ func (j *Journal) Report(e errorJournal.Event) {
 	if e.At.IsZero() {
 		e.At = j.now()
 	}
+	// A 403 flood (foreign origins, a user hammering a forbidden route) costs one write per fingerprint per
+	// window, not one per request.
+	if e.Kind == errorJournal.KindHTTP403 && j.foldRefusal(e) {
+		return
+	}
 	select {
 	case j.queue <- e:
 	default:
 		j.dropped.Add(1)
+	}
+}
+
+// foldRefusal counts a repeat of a 403 fingerprint seen inside its window and reports true; the first event of
+// a window (or of a table that is full: dropped) is left to the caller.
+func (j *Journal) foldRefusal(e errorJournal.Event) bool {
+	fp := errorJournal.Fingerprint(e)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if f, ok := j.refusals[fp]; ok && e.At.Before(f.until) {
+		f.pending++
+		f.last = e
+		return true
+	}
+	if _, known := j.refusals[fp]; !known && len(j.refusals) >= maxRefusalFolds {
+		j.dropped.Add(1)
+		return true
+	}
+	j.refusals[fp] = &refusalFold{until: e.At.Add(refusalWindow)}
+	return false
+}
+
+// flushRefusals writes the folded repeats, one record per fingerprint with its count, and forgets the windows
+// that ended.
+func (j *Journal) flushRefusals(ctx context.Context) {
+	now := j.now()
+	var due []errorJournal.Event
+	j.mu.Lock()
+	for fp, f := range j.refusals {
+		if f.pending > 0 {
+			e := f.last
+			e.Count = f.pending
+			due = append(due, e)
+			f.pending = 0
+		}
+		if !now.Before(f.until) {
+			delete(j.refusals, fp)
+		}
+	}
+	j.mu.Unlock()
+	for _, e := range due {
+		j.handle(ctx, e)
 	}
 }
 
@@ -245,6 +313,7 @@ func (j *Journal) Run(ctx context.Context) {
 			j.handle(ctx, e)
 		case <-flush.C:
 			j.FlushNotFound(ctx)
+			j.flushRefusals(ctx)
 			if n := j.dropped.Swap(0); n > 0 {
 				log.Warn().Int64("dropped", n).Msg("Error journal queue was full: events dropped")
 			}
@@ -261,6 +330,7 @@ func (j *Journal) drain() {
 			j.handle(ctx, e)
 		default:
 			j.FlushNotFound(ctx)
+			j.flushRefusals(ctx)
 			return
 		}
 	}
