@@ -180,6 +180,10 @@ func presetMap(list []emailModel.BlockPreset) map[string]json.RawMessage {
 func (h *Handler) loadInline(ctx context.Context, assets []render.Asset, brand Brand) ([]email.InlinePart, error) {
 	parts, err := loadInlineParts(ctx, assets, brand, func(ctx context.Context, id uuid.UUID) ([]byte, string, error) {
 		data, f, err := readInlineFile(ctx, h.media, id)
+		if err == nil && !isTemplateImageType(f.ContentType) {
+			// Only the image types the upload pipeline stores go into a mail, whatever the body names.
+			return nil, "", mediaModel.ErrFileNotFound.Err()
+		}
 		return data, f.ContentType, err
 	})
 	if errors.Is(err, errInlineTooLarge) {

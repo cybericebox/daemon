@@ -193,6 +193,14 @@ func TestInbox_PlatformAdminRecipients(t *testing.T) {
 	if !got[admin] || !got[super] || len(ids) != 2 {
 		t.Fatalf("admins = %v, want exactly the admin and the super admin", ids)
 	}
+	// Infrastructure requests and alarms go to super admins alone.
+	supers, err := q.ListSuperAdminUserIDs(context.Background())
+	if err != nil {
+		t.Fatalf("ListSuperAdminUserIDs: %v", err)
+	}
+	if len(supers) != 1 || supers[0] != super {
+		t.Fatalf("super admins = %v, want only %v", supers, super)
+	}
 	recipients, err := q.ListEventStandRecipients(context.Background(), uuid.Must(uuid.NewV7()))
 	if err != nil {
 		t.Fatalf("ListEventStandRecipients: %v", err)

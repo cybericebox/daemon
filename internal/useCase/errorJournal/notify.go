@@ -71,6 +71,11 @@ func (j *Journal) notify(ctx context.Context, e errorJournal.Event, rec RecordRe
 	if !send {
 		return
 	}
+	// A new fingerprint is always told, so a flood of distinct 403 groups would be a flood of messages: this kind
+	// is told once per cooldown, whichever group it is.
+	if e.Kind == errorJournal.KindHTTP403 && !j.kindMessageDue(e.Kind, now) {
+		return
+	}
 	cutoff := now.Add(-j.cfg.NotifyCooldown)
 	if bypass {
 		cutoff = now.Add(time.Second) // a new fingerprint is always told, whatever the last message was
@@ -85,6 +90,17 @@ func (j *Journal) notify(ctx context.Context, e errorJournal.Event, rec RecordRe
 	}
 	text := j.message(rec.Group, sample, suppressed)
 	j.dispatch(ctx, rec.Group, text, false)
+}
+
+// kindMessageDue claims the one message per cooldown of a noisy kind.
+func (j *Journal) kindMessageDue(kind errorJournal.Kind, now time.Time) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if last, ok := j.kindMessaged[kind]; ok && now.Sub(last) < j.cfg.NotifyCooldown {
+		return false
+	}
+	j.kindMessaged[kind] = now
+	return true
 }
 
 // message is the notification text: short, plain, no secrets (the sample is already scrubbed).

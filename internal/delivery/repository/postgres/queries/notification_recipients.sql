@@ -14,6 +14,16 @@ FROM event_managers
 WHERE event_id = sqlc.arg(event_id)
 ORDER BY user_id;
 
+-- name: ListSuperAdminUserIDs :many
+-- Active super admins: the only role that sees and decides infrastructure (resource requests and alarms,
+-- elevations).
+SELECT id
+FROM users
+WHERE role = 'super_admin'
+  AND status = 'active'
+  AND deleted_at IS NULL
+ORDER BY id;
+
 -- name: ListPlatformAdminUserIDs :many
 -- Active platform administrators (super admins and admins; read-only admin
 -- viewers cannot act on requests).

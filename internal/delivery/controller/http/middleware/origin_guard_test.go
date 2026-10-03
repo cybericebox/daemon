@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -273,5 +274,37 @@ func TestEventTagCache_CachesAndRefusesWhenTheLookupFails(t *testing.T) {
 	c.Invalidate()
 	if c.EventTagExists(ctx, "ctf") {
 		t.Fatal("a lookup error must refuse the origin")
+	}
+}
+
+// M7: a flood of unique subdomains does not become a flood of lookups.
+func TestEventTagCache_BoundsTheLookups(t *testing.T) {
+	calls := 0
+	c := middleware.NewEventTagCache(func(_ context.Context, tag string) (bool, error) {
+		calls++
+		return tag == "ctf", nil
+	})
+	ctx := context.Background()
+	for _, tag := range []string{"", "ab", "UPPER", "with-dash", "a.b", strings.Repeat("a", 65)} {
+		if c.EventTagExists(ctx, tag) {
+			t.Fatalf("%q cannot be an event tag", tag)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("a label that cannot be a tag costs no lookup, calls=%d", calls)
+	}
+	if !c.EventTagExists(ctx, "ctf") {
+		t.Fatal("a known tag is accepted")
+	}
+	before := calls
+	for i := range 1000 {
+		c.EventTagExists(ctx, fmt.Sprintf("flood%d", i))
+	}
+	if calls-before > 40 {
+		t.Fatalf("1000 unique tags started %d lookups, the budget caps them", calls-before)
+	}
+	// With the budget spent a known tag still answers from its entry.
+	if !c.EventTagExists(ctx, "ctf") {
+		t.Fatal("a known tag must survive a flood")
 	}
 }

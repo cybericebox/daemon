@@ -80,6 +80,11 @@ definitions:
       Code:
         type: string
     type: object
+  auth.googleLinkResponse:
+    properties:
+      Url:
+        type: string
+    type: object
   auth.passwordPolicyResponse:
     properties:
       MaxLength:
@@ -8249,6 +8254,8 @@ definitions:
     properties:
       DurationMinutes:
         description: DurationMinutes is 15 to 480.
+        maximum: 480
+        minimum: 0
         type: integer
       LargestDevice:
         $ref: '#/definitions/resourceCalendar.amountDTO'
@@ -10271,20 +10278,38 @@ paths:
       summary: Unlink Google from the authenticated user's account
       tags:
       - auth
-    get:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: current password (accounts without a password need a recent sign-in
+          instead)
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.reauthRequest'
+      produces:
+      - application/json
       responses:
-        "307":
-          description: Temporary Redirect
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.googleLinkResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
         "401":
           description: Unauthorized
           schema:
             $ref: '#/definitions/response.Response'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/response.Response'
-      summary: Begin linking Google to the authenticated account (redirects to Google
-        OAuth)
+      summary: Begin linking Google to the authenticated account (the owner is confirmed
+        first)
       tags:
       - auth
   /auth/google/register:

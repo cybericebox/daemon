@@ -31,7 +31,7 @@ GET    /api/auth/avatar/:id | gate: - | layers: middleware.PublicMedia
 GET    /api/auth/google | gate: - | layers: -
 GET    /api/auth/google/callback | gate: - | layers: -
 DELETE /api/auth/google/link | gate: self | layers: -
-GET    /api/auth/google/link | gate: self | layers: -
+POST   /api/auth/google/link | gate: self | layers: -
 GET    /api/auth/google/register | gate: - | layers: -
 GET    /api/auth/google/setup | gate: - | layers: -
 GET    /api/auth/me | gate: self | layers: -
@@ -381,10 +381,10 @@ GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
 POST   /api/exercises/proposals/:proposalID/reject | gate: exercises.publish | layers: -
 GET    /api/exercises/tags | gate: self | layers: -
-GET    /api/exercises/test-labs/bookings | gate: self | layers: -
-POST   /api/exercises/test-labs/bookings | gate: self | layers: -
-DELETE /api/exercises/test-labs/bookings/:bookingID | gate: self | layers: -
-GET    /api/exercises/test-labs/room | gate: self | layers: -
+GET    /api/exercises/test-labs/bookings | gate: self | layers: resourceCalendar.requireTestLabAuthor
+POST   /api/exercises/test-labs/bookings | gate: self | layers: resourceCalendar.requireTestLabAuthor
+DELETE /api/exercises/test-labs/bookings/:bookingID | gate: self | layers: resourceCalendar.requireTestLabAuthor
+GET    /api/exercises/test-labs/room | gate: self | layers: resourceCalendar.requireTestLabAuthor
 POST   /api/exercises/uploads | gate: self | layers: -
 DELETE /api/exercises/uploads/:uploadID | gate: self | layers: -
 GET    /api/exercises/uploads/:uploadID | gate: self | layers: -

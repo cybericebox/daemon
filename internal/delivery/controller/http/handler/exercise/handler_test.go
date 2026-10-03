@@ -1568,6 +1568,9 @@ func (f *fakeUC) AuthorizeTestDeploy(ctx context.Context, actor exerciseUseCase.
 	_, err := f.AuthorizeExercise(ctx, actor, exerciseID, exerciseUseCase.ActionWrite)
 	return err
 }
+func (f *fakeUC) RedactFlags(_ context.Context, _ exerciseUseCase.Actor, v exerciseUseCase.VersionView) (exerciseUseCase.VersionView, error) {
+	return v, nil
+}
 func (f *fakeUC) GetAccessSummary(_ context.Context, actor exerciseUseCase.Actor) (exerciseUseCase.AccessSummary, error) {
 	return exerciseUseCase.AccessSummary{IsAdmin: actor.Role.HasPermission(rbac.PermExercisesRead)}, f.err
 }

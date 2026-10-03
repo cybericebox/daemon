@@ -6,6 +6,7 @@ package broadcastUseCase
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -22,6 +23,7 @@ import (
 	inboxModel "github.com/cybericebox/daemon/internal/model/notification/inbox"
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
+	"github.com/cybericebox/daemon/internal/useCase/notification/channels/render"
 )
 
 const (
@@ -48,6 +50,13 @@ type (
 		Enqueue func(ctx context.Context, args jobsModel.BroadcastSendArgs) error
 		// EventDomain is the domain event sites live under (<tag>.<domain>).
 		EventDomain string
+		// Images checks the files an email body embeds against the broadcast's scope; nil admits no image.
+		Images ImagePolicy
+	}
+
+	// ImagePolicy decides which uploaded files a broadcast body may embed.
+	ImagePolicy interface {
+		ValidateBroadcastBody(ctx context.Context, scopeEventID *uuid.UUID, actor uuid.UUID, body json.RawMessage) error
 	}
 
 	NotificationBroadcastUseCase struct {
@@ -56,6 +65,7 @@ type (
 		notifier   Notifier
 		enqueue    func(ctx context.Context, args jobsModel.BroadcastSendArgs) error
 		domain     string
+		images     ImagePolicy
 	}
 
 	// SendInput is one broadcast to send. ScopeEventID nil is the platform.
@@ -74,6 +84,7 @@ func NewNotificationBroadcastUseCase(deps Dependencies) *NotificationBroadcastUs
 		notifier:   deps.Notifier,
 		enqueue:    deps.Enqueue,
 		domain:     deps.EventDomain,
+		images:     deps.Images,
 	}
 	return u
 }
@@ -97,6 +108,9 @@ func (u *NotificationBroadcastUseCase) SendBroadcast(ctx context.Context, in Sen
 		return broadcastModel.Broadcast{}, err
 	}
 	if err := in.Audience.Validate(in.ScopeEventID != nil); err != nil {
+		return broadcastModel.Broadcast{}, err
+	}
+	if err := u.checkImages(ctx, in); err != nil {
 		return broadcastModel.Broadcast{}, err
 	}
 	recipients, err := u.broadcasts.Audience(ctx, in.ScopeEventID, in.Audience)
@@ -123,6 +137,17 @@ func (u *NotificationBroadcastUseCase) SendBroadcast(ctx context.Context, in Sen
 		return broadcastModel.Broadcast{}, model.ErrPlatform.WithError(err).WithMessage("Failed to queue the broadcast").Err()
 	}
 	return b, nil
+}
+
+// checkImages requires the files of the email body to belong to the broadcast's scope.
+func (u *NotificationBroadcastUseCase) checkImages(ctx context.Context, in SendInput) error {
+	if !in.Content.HasChannel(notificationTypes.NotificationChannelEmail) || len(render.ImageFileIDs(in.Content.EmailBody)) == 0 {
+		return nil
+	}
+	if u.images == nil {
+		return notificationModel.ErrBroadcastInvalid.WithMessage("Images are not available").Err()
+	}
+	return u.images.ValidateBroadcastBody(ctx, in.ScopeEventID, in.ActorID, in.Content.EmailBody)
 }
 
 // ProcessBroadcast queues the next chunk of recipients that have no dispatch

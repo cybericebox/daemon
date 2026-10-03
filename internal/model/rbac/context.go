@@ -2,6 +2,7 @@ package rbac
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
 )
@@ -15,6 +16,9 @@ type Claims struct {
 	SessionID uuid.UUID
 	UserID    uuid.UUID
 	Role      Role
+	// SignedInAt is when the session was opened (from the cookie ticket), not when the cookie was last
+	// re-issued; the "recent sign-in" check of sensitive actions reads it.
+	SignedInAt time.Time
 }
 
 type currentUserSessionCtxKey struct{}

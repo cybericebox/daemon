@@ -251,6 +251,53 @@ func (t *TemplateImages) ValidateEventBody(ctx context.Context, source EventImag
 	return nil
 }
 
+// ValidateBroadcastBody is the image policy of a broadcast body, whose files must belong to the broadcast's
+// scope: an event broadcast may embed what an event template may (ValidateEventBody: platform template and
+// preset images, the event's own), a platform broadcast the platform templates' and presets' images and the
+// sender's own uploads. Every file must be an uploaded PNG/JPEG. Without it a manager could mail themselves
+// any media file (an avatar, an answer file, another event's image) by its id.
+func (t *TemplateImages) ValidateBroadcastBody(ctx context.Context, source EventImageSource, scopeEventID *uuid.UUID, actor uuid.UUID, body json.RawMessage) error {
+	if scopeEventID != nil {
+		return t.ValidateEventBody(ctx, source, *scopeEventID, body, nil)
+	}
+	if err := t.ValidateBody(ctx, body); err != nil {
+		return err
+	}
+	for _, id := range render.ImageFileIDs(body) {
+		// The nil event matches only platform templates and presets.
+		ok, err := source.FileUsableByEvent(ctx, id, uuid.Nil)
+		if err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to check broadcast image").Err()
+		}
+		if ok {
+			continue
+		}
+		f, err := t.media.GetFile(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !f.CreatedBy.Valid || f.CreatedBy.UUID != actor {
+			return templateImageInvalid(fmt.Errorf("image file %s is not available to this broadcast", id))
+		}
+	}
+	return nil
+}
+
+// BroadcastImages is the image policy of broadcast bodies over one image source (*emailTemplateRepo.Repository
+// satisfies both ports).
+type BroadcastImages struct {
+	images *TemplateImages
+	source EventImageSource
+}
+
+func NewBroadcastImages(media TemplateMedia, presets PresetSource, source EventImageSource) *BroadcastImages {
+	return &BroadcastImages{images: NewTemplateImages(media, presets), source: source}
+}
+
+func (b *BroadcastImages) ValidateBroadcastBody(ctx context.Context, scopeEventID *uuid.UUID, actor uuid.UUID, body json.RawMessage) error {
+	return b.images.ValidateBroadcastBody(ctx, b.source, scopeEventID, actor, body)
+}
+
 // StreamForEvent is Stream restricted to files usable by eventID's templates
 // (ErrFileNotFound otherwise): the Event image route serves saved platform,
 // preset and own-Event template images only — never fresh uploads, other

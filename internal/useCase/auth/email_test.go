@@ -118,6 +118,10 @@ func TestConfirmEmailChange_Success(t *testing.T) {
 			}
 			return 1, nil
 		})
+	// M6: the pending recovery and email-change codes issued before the change are dead.
+	for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType} {
+		repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: uid.String()}).Return(int64(1), nil)
+	}
 	// The Google identity vouched for the old address: it is unlinked.
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
 	// M1: the recovery address changed — every session ends.

@@ -55,11 +55,12 @@ func (r *RequestRouter) resourceChangeVars(ctx context.Context, c ResourceChange
 	return vars, nil
 }
 
-// ResourceChangeRequested asks every platform admin (but the organizer) to decide the request.
+// ResourceChangeRequested asks every super admin (but the organizer) to decide the request.
 func (r *RequestRouter) ResourceChangeRequested(ctx context.Context, c ResourceChange) error {
-	admins, err := r.queries.ListPlatformAdminUserIDs(ctx)
+	// Infrastructure is decided by super admins only.
+	admins, err := r.queries.ListSuperAdminUserIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("inbox requests: list platform admins: %w", err)
+		return fmt.Errorf("inbox requests: list super admins: %w", err)
 	}
 	vars, err := r.resourceChangeVars(ctx, c)
 	if err != nil {
@@ -88,12 +89,13 @@ func (r *RequestRouter) ResourceChangeDecided(ctx context.Context, c ResourceCha
 	return r.fanOut(ctx, []uuid.UUID{c.RequestedBy}, typ, vars, inboxModel.NewMeta(typ, inboxModel.RoleSubject, ""))
 }
 
-// ResourceAlarmRaised tells every platform admin that a reservation cannot be served as promised. A new stage of
+// ResourceAlarmRaised tells every super admin that a reservation cannot be served as promised. A new stage of
 // a known alarm is sent again (the escalation at the deploy lead).
 func (r *RequestRouter) ResourceAlarmRaised(ctx context.Context, a ResourceAlarm) error {
-	admins, err := r.queries.ListPlatformAdminUserIDs(ctx)
+	// Infrastructure is decided by super admins only.
+	admins, err := r.queries.ListSuperAdminUserIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("inbox requests: list platform admins: %w", err)
+		return fmt.Errorf("inbox requests: list super admins: %w", err)
 	}
 	if a.Escalated {
 		// The old copy is closed so one request stays per alarm.

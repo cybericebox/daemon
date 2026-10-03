@@ -236,6 +236,10 @@ func (u *EventUseCase) AnnulSolve(ctx context.Context, eventID, teamID, challeng
 	if err = recordScoreboardRecalculation(txCtx, txRepo, eventID); err != nil {
 		return AnnulSolveView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record result change").Err()
 	}
+	// An annulled solve relocks the labs that need it as prerequisite.
+	if err = u.requestLabAccessSyncInTransaction(txCtx, txRepo, teamID, now); err != nil {
+		return AnnulSolveView{}, err
+	}
 	if err = unit.Save(); err != nil {
 		return AnnulSolveView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to annul solve").Err()
 	}

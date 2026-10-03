@@ -963,6 +963,58 @@ func (q *Queries) ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]ListFi
 	return items, nil
 }
 
+const listManagedExerciseAttachments = `-- name: ListManagedExerciseAttachments :many
+SELECT ee.exercise_version_id,
+       ee.variant_mode,
+       ee.fixed_variant_index,
+       member.role
+FROM event_exercises ee
+JOIN event_managers member ON member.event_id = ee.event_id
+WHERE ee.exercise_id = $1
+  AND member.user_id = $2
+  AND ee.status = 0
+  AND ee.detached_at IS NULL
+`
+
+type ListManagedExerciseAttachmentsParams struct {
+	ExerciseID uuid.UUID `json:"exercise_id"`
+	UserID     uuid.UUID `json:"user_id"`
+}
+
+type ListManagedExerciseAttachmentsRow struct {
+	ExerciseVersionID uuid.UUID   `json:"exercise_version_id"`
+	VariantMode       int16       `json:"variant_mode"`
+	FixedVariantIndex pgtype.Int4 `json:"fixed_variant_index"`
+	Role              int16       `json:"role"`
+}
+
+// The active attachments of the exercise in the events the user belongs to, with the user's role there: what a
+// non-admin reader may see the fixed flags of.
+func (q *Queries) ListManagedExerciseAttachments(ctx context.Context, arg ListManagedExerciseAttachmentsParams) ([]ListManagedExerciseAttachmentsRow, error) {
+	rows, err := q.db.Query(ctx, listManagedExerciseAttachments, arg.ExerciseID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListManagedExerciseAttachmentsRow{}
+	for rows.Next() {
+		var i ListManagedExerciseAttachmentsRow
+		if err := rows.Scan(
+			&i.ExerciseVersionID,
+			&i.VariantMode,
+			&i.FixedVariantIndex,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUserEventMemberships = `-- name: ListUserEventMemberships :many
 SELECT member.event_id, member.role,
        COALESCE(NULLIF(ev.internal_name, ''), ev.name)::text AS name,

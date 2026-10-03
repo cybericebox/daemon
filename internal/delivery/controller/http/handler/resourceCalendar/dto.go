@@ -463,7 +463,7 @@ type bookRequest struct {
 	// Start is the wanted start (aligned down to a 15-minute slot).
 	Start time.Time `json:"Start"`
 	// DurationMinutes is 15 to 480.
-	DurationMinutes int `json:"DurationMinutes"`
+	DurationMinutes int `json:"DurationMinutes" binding:"min=0,max=480"`
 	// Size is the laboratory's total (the exercise totals the catalog shows); LargestDevice its largest device.
 	Size          amountDTO `json:"Size"`
 	LargestDevice amountDTO `json:"LargestDevice"`

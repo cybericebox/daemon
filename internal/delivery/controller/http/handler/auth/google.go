@@ -238,17 +238,26 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 	}
 }
 
-// googleLinkRedirect godoc
-// @Summary  Begin linking Google to the authenticated account (redirects to Google OAuth)
+// googleLink godoc
+// @Summary  Begin linking Google to the authenticated account (the owner is confirmed first)
 // @Tags     auth
-// @Success  307
+// @Accept   json
+// @Param    body  body  reauthRequest  false  "current password (accounts without a password need a recent sign-in instead)"
+// @Produce  json
+// @Success  200  {object}  response.Response{data=googleLinkResponse}
+// @Failure  400  {object}  response.Response
 // @Failure  401  {object}  response.Response
-// @Failure  500  {object}  response.Response
-// @Router   /auth/google/link [get]
-// googleLinkRedirect starts linking Google to the signed-in account.
-func (h *Handler) googleLinkRedirect(ctx *gin.Context) {
+// @Router   /auth/google/link [post]
+// googleLink confirms the owner, then returns the Google consent URL to navigate to; the link itself
+// is made by the OAuth callback.
+func (h *Handler) googleLink(ctx *gin.Context) {
 	// RequirePermission(rbac.PermSelf) on this route guarantees an authenticated caller.
-	url, state, err := h.useCase.GetGoogleLoginURL("")
+	claims, _ := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	req, ok := bindReauth(ctx)
+	if !ok {
+		return
+	}
+	url, state, err := h.useCase.StartGoogleLink(ctx.Request.Context(), claims.UserID, req.CurrentPassword)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -262,7 +271,12 @@ func (h *Handler) googleLinkRedirect(ctx *gin.Context) {
 	ctx.SetCookie(oauthIntentCookie, "link", h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
 	ctx.SetCookie(oauthStateCookie, state, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
 	ctx.SetCookie(oauthLinkSessionCookie, sessVal, h.oauthCookieMaxAge, oauthCookiePath, "", true, true)
-	response.TemporaryRedirect(ctx, url)
+	response.AbortWithData(ctx, googleLinkResponse{URL: url})
+}
+
+// googleLinkResponse is the Google consent URL the client navigates to.
+type googleLinkResponse struct {
+	URL string `json:"Url"`
 }
 
 // unlinkGoogle godoc

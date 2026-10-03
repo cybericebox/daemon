@@ -101,6 +101,63 @@ func (u *ExerciseUseCase) AuthorizeExercise(ctx context.Context, actor Actor, id
 	return Access{}, nil
 }
 
+// RedactFlags removes the fixed flags a non-admin reader of a published catalog version may not see: they stay
+// only where the exercise is attached to an event the caller manages, at the version that attachment pins and,
+// for a fixed-variant attachment, in that variant alone. The view's own variants are never mutated.
+func (u *ExerciseUseCase) RedactFlags(ctx context.Context, actor Actor, v VersionView) (VersionView, error) {
+	attachments, err := u.exercises.Attachments(ctx, v.ExerciseID, actor.UserID)
+	if err != nil {
+		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get exercise attachments").Err()
+	}
+	all, only := false, map[int32]bool{}
+	for _, a := range attachments {
+		if !canManage(a.Role) || a.VersionID != v.ID {
+			continue
+		}
+		if a.Fixed {
+			only[a.FixedVariantIndex] = true
+		} else {
+			all = true
+		}
+	}
+	if all {
+		return v, nil
+	}
+	variants := make([]exerciseModel.Variant, len(v.Variants))
+	copy(variants, v.Variants)
+	for i := range variants {
+		if only[int32(i)] {
+			continue
+		}
+		tasks := make([]exerciseModel.Task, len(variants[i].Tasks))
+		copy(tasks, variants[i].Tasks)
+		for ti := range tasks {
+			tasks[ti].Flag = nil
+		}
+		variants[i].Tasks = tasks
+	}
+	v.Variants = variants
+	return v, nil
+}
+
+// RequireTestLabAuthor lets through who may run a test deploy: exercises.write, or a manage membership of an
+// event that has infrastructure. The test-lab room check and bookings are for these authors only.
+func (u *ExerciseUseCase) RequireTestLabAuthor(ctx context.Context, actor Actor) error {
+	if actor.has(rbac.PermExercisesWrite) {
+		return nil
+	}
+	memberships, err := u.exercises.Memberships(ctx, actor.UserID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event memberships").Err()
+	}
+	for _, m := range memberships {
+		if canManage(m.Role) && m.InfrastructureAllowed {
+			return nil
+		}
+	}
+	return exerciseModel.ErrExerciseForbidden.Err()
+}
+
 func canManage(role int16) bool {
 	return eventManagerModel.Role(role) == eventManagerModel.RoleOwner || eventManagerModel.Role(role) == eventManagerModel.RoleManager
 }

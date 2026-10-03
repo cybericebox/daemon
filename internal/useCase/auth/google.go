@@ -250,6 +250,16 @@ func (u *AuthUseCase) LinkGoogleToAccountFromOAuth(ctx context.Context, sessionC
 	return u.linkGoogleProvider(ctx, res.Claims.UserID, googleUser.GoogleID)
 }
 
+// StartGoogleLink confirms the owner before a Google identity is bound to the signed-in account (the
+// password, or a sign-in from the last minutes for an account without one) and returns the consent URL
+// and the state token. A stolen session alone must not be able to plant its own Google login.
+func (u *AuthUseCase) StartGoogleLink(ctx context.Context, userID uuid.UUID, currentPassword string) (loginURL, state string, err error) {
+	if err = u.reauthenticate(ctx, userID, currentPassword); err != nil {
+		return "", "", err
+	}
+	return u.GetGoogleLoginURL("")
+}
+
 // UnlinkGoogle removes the user's Google link, refusing if it is the last login
 // method (lockout guard). affected==0 (already unlinked) is a no-op.
 func (u *AuthUseCase) UnlinkGoogle(ctx context.Context, userID uuid.UUID, currentPassword string) error {

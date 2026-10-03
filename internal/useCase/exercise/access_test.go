@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -145,4 +146,51 @@ func TestAuthorizeFileDownload_AdminsReadOnlyExerciseFiles(t *testing.T) {
 			t.Fatalf("uploader: %v", err)
 		}
 	})
+}
+
+// TestRedactFlags: a non-admin reader of a catalog version sees fixed flags only where the exercise is attached to
+// an event they manage, at the pinned version, and in the fixed variant alone for a fixed attachment.
+func TestRedactFlags(t *testing.T) {
+	userID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	variants := func() []exerciseModel.Variant {
+		return []exerciseModel.Variant{
+			{Tasks: []exerciseModel.Task{{Flag: []string{"a"}}}},
+			{Tasks: []exerciseModel.Task{{Flag: []string{"b"}}}},
+		}
+	}
+	rows := func(version uuid.UUID, mode int16, role int16) []postgres.ListManagedExerciseAttachmentsRow {
+		return []postgres.ListManagedExerciseAttachmentsRow{{ExerciseVersionID: version, VariantMode: mode, FixedVariantIndex: pgtype.Int4{Int32: 1, Valid: mode == 1}, Role: role}}
+	}
+	cases := []struct {
+		name string
+		rows []postgres.ListManagedExerciseAttachmentsRow
+		want [2]bool
+	}{
+		{"no attachment", nil, [2]bool{false, false}},
+		{"viewer role", rows(versionID, 0, 2), [2]bool{false, false}},
+		{"other version", rows(uuid.Must(uuid.NewV7()), 0, 1), [2]bool{false, false}},
+		{"per team", rows(versionID, 0, 1), [2]bool{true, true}},
+		{"fixed variant", rows(versionID, 1, 0), [2]bool{false, true}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			q := postgresMocks.NewMockQuerier(ctrl)
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+			q.EXPECT().ListManagedExerciseAttachments(gomock.Any(), postgres.ListManagedExerciseAttachmentsParams{ExerciseID: exerciseID, UserID: userID}).Return(tc.rows, nil)
+			in := exercise.VersionView{ID: versionID, ExerciseID: exerciseID, Variants: variants()}
+			out, err := uc.RedactFlags(context.Background(), exercise.Actor{UserID: userID, Role: rbac.RoleUser}, in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, want := range tc.want {
+				if got := len(out.Variants[i].Tasks[0].Flag) > 0; got != want {
+					t.Fatalf("variant %d flag visible=%v want %v", i, got, want)
+				}
+			}
+			if len(in.Variants[0].Tasks[0].Flag) == 0 {
+				t.Fatal("the input view was mutated")
+			}
+		})
+	}
 }

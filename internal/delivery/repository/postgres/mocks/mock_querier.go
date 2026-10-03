@@ -6954,6 +6954,21 @@ func (mr *MockQuerierMockRecorder) ListManageScoreboard(ctx, eventID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListManageScoreboard", reflect.TypeOf((*MockQuerier)(nil).ListManageScoreboard), ctx, eventID)
 }
 
+// ListManagedExerciseAttachments mocks base method.
+func (m *MockQuerier) ListManagedExerciseAttachments(ctx context.Context, arg postgres.ListManagedExerciseAttachmentsParams) ([]postgres.ListManagedExerciseAttachmentsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListManagedExerciseAttachments", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListManagedExerciseAttachmentsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListManagedExerciseAttachments indicates an expected call of ListManagedExerciseAttachments.
+func (mr *MockQuerierMockRecorder) ListManagedExerciseAttachments(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListManagedExerciseAttachments", reflect.TypeOf((*MockQuerier)(nil).ListManagedExerciseAttachments), ctx, arg)
+}
+
 // ListMissingTeamAssignments mocks base method.
 func (m *MockQuerier) ListMissingTeamAssignments(ctx context.Context, arg postgres.ListMissingTeamAssignmentsParams) ([]postgres.ListMissingTeamAssignmentsRow, error) {
 	m.ctrl.T.Helper()
@@ -7897,6 +7912,21 @@ func (m *MockQuerier) ListSuperAdminEmails(ctx context.Context) ([]string, error
 func (mr *MockQuerierMockRecorder) ListSuperAdminEmails(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSuperAdminEmails", reflect.TypeOf((*MockQuerier)(nil).ListSuperAdminEmails), ctx)
+}
+
+// ListSuperAdminUserIDs mocks base method.
+func (m *MockQuerier) ListSuperAdminUserIDs(ctx context.Context) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSuperAdminUserIDs", ctx)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSuperAdminUserIDs indicates an expected call of ListSuperAdminUserIDs.
+func (mr *MockQuerierMockRecorder) ListSuperAdminUserIDs(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSuperAdminUserIDs", reflect.TypeOf((*MockQuerier)(nil).ListSuperAdminUserIDs), ctx)
 }
 
 // ListTeamBoardChallenges mocks base method.

@@ -276,3 +276,36 @@ func TestStreamPublishesRecordedErrors(t *testing.T) {
 		t.Fatal("no event on the stream")
 	}
 }
+
+// M8: a 403 flood costs one write per fingerprint per window and one message per cooldown for the kind.
+func TestARefusalFloodIsFoldedAndMessagedOnce(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.NotifyCooldown = 15 * time.Minute
+	h := newHarness(cfg)
+	reported := func(route string) errorJournal.Event {
+		return errorJournal.Event{Kind: errorJournal.KindHTTP403, Route: route, Method: "GET", HTTPStatus: 403, At: h.now}
+	}
+	// 100 requests on each of 20 routes.
+	for i := range 20 {
+		for range 100 {
+			h.j.Report(reported("/api/r" + string(rune('a'+i))))
+		}
+	}
+	assert.Len(t, h.j.queue, 20, "only the first event of every fingerprint reaches the queue")
+	for len(h.j.queue) > 0 {
+		h.j.handle(ctx, <-h.j.queue)
+	}
+	assert.Equal(t, 1, h.tg.count("100"), "twenty new 403 groups are one message inside the cooldown")
+
+	h.now = h.now.Add(10 * time.Second)
+	h.j.flushRefusals(ctx)
+	for _, g := range h.repo.groups {
+		assert.EqualValues(t, 100, g.Occurrences, "the repeats are written once, with their count")
+	}
+	assert.Equal(t, 1, h.tg.count("100"))
+
+	// After the cooldown a new group is told again.
+	h.now = h.now.Add(20 * time.Minute)
+	_, _ = h.j.Record(ctx, reported("/api/other"))
+	assert.Equal(t, 2, h.tg.count("100"))
+}

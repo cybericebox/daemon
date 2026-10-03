@@ -15,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
+	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	calUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 )
 
@@ -31,6 +32,7 @@ type (
 	IUseCase interface {
 		RequireManageEvent(ctx context.Context, eventID, userID uuid.UUID) error
 		RequireReadEvent(ctx context.Context, eventID, userID uuid.UUID) error
+		RequireTestLabAuthor(ctx context.Context, actor exerciseUseCase.Actor) error
 
 		GetResourceCalendarTimeline(ctx context.Context, from, to time.Time) (calUseCase.TimelineView, error)
 		GetResourceCalendarCapacity(ctx context.Context) (calUseCase.CapacityView, error)
@@ -89,12 +91,24 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("change-requests", h.requireManage, h.requestChange)
 	}
 
-	labs := router.Group("exercises/test-labs", self)
+	labs := router.Group("exercises/test-labs", self, h.requireTestLabAuthor)
 	{
 		labs.GET("room", h.testLabRoom)
 		labs.GET("bookings", h.listBookings)
 		labs.POST("bookings", h.book)
 		labs.DELETE("bookings/:bookingID", h.cancelBooking)
+	}
+}
+
+// requireTestLabAuthor: the room check and the bookings are for those who may run a test deploy.
+func (h *Handler) requireTestLabAuthor(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	if err := h.useCase.RequireTestLabAuthor(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}); err != nil {
+		response.AbortWithError(ctx, err)
 	}
 }
 
@@ -594,7 +608,12 @@ func (h *Handler) testLabRoom(ctx *gin.Context) {
 		return
 	}
 	device := calUseCase.Amount{CPUMillicores: queryInt64(ctx, "deviceCpu"), MemoryBytes: queryInt64(ctx, "deviceMemory")}
-	room, err := h.useCase.CheckTestLabRoom(ctx, owner, size, device, time.Duration(queryInt64(ctx, "leaseMinutes"))*time.Minute)
+	leaseMinutes := queryInt64(ctx, "leaseMinutes")
+	if leaseMinutes > int64(calModel.MaxBooking/time.Minute) {
+		response.AbortWithError(ctx, calModel.ErrBookingInvalid.WithContext("reason", "lease too long").Err())
+		return
+	}
+	room, err := h.useCase.CheckTestLabRoom(ctx, owner, size, device, time.Duration(leaseMinutes)*time.Minute)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

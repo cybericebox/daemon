@@ -81,8 +81,10 @@ func (u *AuthUseCase) ResetPassword(ctx context.Context, bsCode, newPassword str
 		return err
 	}
 	// The other reset links still sitting in the mailbox are dead too: one link, one reset.
-	if _, err = u.codes.DeleteForUser(ctx, temporalCodeModel.PasswordResettingCodeType, data.UserID); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to revoke the other reset codes").Err()
+	// A pending email change was requested with the old password: it dies with it (it would give the
+	// account away through the new address).
+	if err = u.revokeCodes(ctx, data.UserID, temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType); err != nil {
+		return err
 	}
 	// Whoever held a session when the password was lost (a stolen cookie is the
 	// usual reason to reset) must not keep it.
@@ -101,8 +103,15 @@ func (u *AuthUseCase) SetAccountPassword(ctx context.Context, userID uuid.UUID, 
 		if err = u.checkCurrentPassword(userID, oldPassword, user.HashedPassword); err != nil {
 			return err
 		}
+	} else if err = u.reauthenticate(ctx, userID, ""); err != nil {
+		// The first password of a Google-only account is the key to the email change and the
+		// recovery: a stolen session alone must not be able to set it.
+		return err
 	}
 	if err = u.applyNewPassword(ctx, userID, newPassword); err != nil {
+		return err
+	}
+	if err = u.revokeCodes(ctx, userID, temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType); err != nil {
 		return err
 	}
 	// Every other device signs in again with the new password; this one stays.
@@ -111,6 +120,16 @@ func (u *AuthUseCase) SetAccountPassword(ctx context.Context, userID uuid.UUID, 
 		keep = claims.SessionID
 	}
 	return u.revokeSessions(ctx, userID, keep)
+}
+
+// revokeCodes deletes every pending code of the given types issued to the user.
+func (u *AuthUseCase) revokeCodes(ctx context.Context, userID uuid.UUID, types ...int32) error {
+	for _, codeType := range types {
+		if _, err := u.codes.DeleteForUser(ctx, codeType, userID); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to revoke the pending codes").Err()
+		}
+	}
+	return nil
 }
 
 // checkCurrentPassword re-checks the password of a signed-in user for a

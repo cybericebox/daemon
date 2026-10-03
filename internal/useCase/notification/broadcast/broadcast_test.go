@@ -257,3 +257,40 @@ func TestGetBroadcast_HidesAnotherScope(t *testing.T) {
 	_, err = h.uc.GetBroadcast(context.Background(), id, nil)
 	require.NoError(t, err, "the platform scope (nil) does not filter")
 }
+
+type fakeImages struct {
+	err   error
+	asked int
+}
+
+func (f *fakeImages) ValidateBroadcastBody(context.Context, *uuid.UUID, uuid.UUID, json.RawMessage) error {
+	f.asked++
+	return f.err
+}
+
+// M10: the files an email body embeds are checked against the broadcast's scope before anything is stored.
+func TestSendBroadcast_ChecksTheEmbeddedImages(t *testing.T) {
+	file := uuid.Must(uuid.NewV7())
+	withImage := content()
+	withImage.EmailBody = json.RawMessage(`[{"type":"image","file_id":"` + file.String() + `"}]`)
+	input := broadcastUseCase.SendInput{ActorID: uuid.Must(uuid.NewV7()), Content: withImage, Audience: broadcastModel.Audience{Kind: broadcastModel.KindAll}}
+
+	// No policy wired: no image is admitted.
+	h := setup(t)
+	_, err := h.uc.SendBroadcast(context.Background(), input)
+	require.True(t, notificationModel.ErrBroadcastInvalid.Err().Is(err), "%v", err)
+
+	// A refusing policy stops the broadcast before it is stored.
+	images := &fakeImages{err: notificationModel.ErrTemplateImageInvalid.Err()}
+	h.uc = broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{Repo: h.repo, Notifier: h.notifier, EventDomain: "example.org", Images: images,
+		Enqueue: func(context.Context, jobsModel.BroadcastSendArgs) error { return nil }})
+	_, err = h.uc.SendBroadcast(context.Background(), input)
+	require.True(t, notificationModel.ErrTemplateImageInvalid.Err().Is(err), "%v", err)
+	require.Equal(t, 1, images.asked)
+
+	// A body without images never asks.
+	input.Content = content()
+	h.repo.EXPECT().ListPlatformBroadcastAudience(gomock.Any(), gomock.Any()).Return(nil, nil)
+	_, _ = h.uc.SendBroadcast(context.Background(), input)
+	require.Equal(t, 1, images.asked)
+}

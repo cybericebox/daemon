@@ -99,3 +99,34 @@ func (q *Queries) ListPlatformAdminUserIDs(ctx context.Context) ([]uuid.UUID, er
 	}
 	return items, nil
 }
+
+const listSuperAdminUserIDs = `-- name: ListSuperAdminUserIDs :many
+SELECT id
+FROM users
+WHERE role = 'super_admin'
+  AND status = 'active'
+  AND deleted_at IS NULL
+ORDER BY id
+`
+
+// Active super admins: the only role that sees and decides infrastructure (resource requests and alarms,
+// elevations).
+func (q *Queries) ListSuperAdminUserIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listSuperAdminUserIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -203,9 +203,8 @@ func TestDeleteAccount_GoogleOnlyNeedsARecentSignIn(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			uc, repo := newAccountUC(t)
 			uid, sid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-			ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: sid, Role: rbac.RoleUser})
+			ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: sid, Role: rbac.RoleUser, SignedInAt: time.Now().Add(-age)})
 			repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active"}, nil).AnyTimes()
-			repo.EXPECT().GetSessionByID(gomock.Any(), sid).Return(postgres.Session{ID: sid, UserID: uid, CreatedAt: time.Now().Add(-age), ExpiresAt: time.Now().Add(time.Hour)}, nil)
 			if name == "recent" {
 				repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 				repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)

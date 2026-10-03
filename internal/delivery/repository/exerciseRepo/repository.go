@@ -72,6 +72,7 @@ type Queries interface {
 	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error)
 	ListUserNames(ctx context.Context, ids []uuid.UUID) ([]postgres.ListUserNamesRow, error)
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserEventMembershipsRow, error)
+	ListManagedExerciseAttachments(ctx context.Context, arg postgres.ListManagedExerciseAttachmentsParams) ([]postgres.ListManagedExerciseAttachmentsRow, error)
 	ArchiveEventExercises(ctx context.Context, arg postgres.ArchiveEventExercisesParams) error
 	CreateExerciseProposal(ctx context.Context, arg postgres.CreateExerciseProposalParams) (postgres.ExerciseProposal, error)
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (postgres.ExerciseProposal, error)
@@ -661,6 +662,27 @@ func (r *Repository) Memberships(ctx context.Context, userID uuid.UUID) ([]Membe
 	out := make([]Membership, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, Membership{EventID: row.EventID, Role: row.Role, Name: row.Name, Tag: row.Tag, InfrastructureAllowed: row.InfrastructureAllowed})
+	}
+	return out, nil
+}
+
+// Attachment is one active attachment of an exercise in an event the user belongs to.
+type Attachment struct {
+	VersionID         uuid.UUID
+	Fixed             bool
+	FixedVariantIndex int32
+	Role              int16
+}
+
+// Attachments lists the active attachments of the exercise in the user's events.
+func (r *Repository) Attachments(ctx context.Context, exerciseID, userID uuid.UUID) ([]Attachment, error) {
+	rows, err := r.q.ListManagedExerciseAttachments(ctx, postgres.ListManagedExerciseAttachmentsParams{ExerciseID: exerciseID, UserID: userID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Attachment, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, Attachment{VersionID: row.ExerciseVersionID, Fixed: row.VariantMode == 1, FixedVariantIndex: row.FixedVariantIndex.Int32, Role: row.Role})
 	}
 	return out, nil
 }
