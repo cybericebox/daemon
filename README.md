@@ -79,15 +79,25 @@ All settings are environment variables. Values below are placeholders; durations
 All six hosts are bare host names (no scheme, port or path) under one registrable domain (SameSite=Strict); the daemon refuses to start otherwise. CORS allows exactly the frontend hosts, `MAIN_HOST` and `https://*.<EVENT_DOMAIN>`. `DOMAIN` and the fixed `id`/`admin`/`exercises`/`api` subdomains are gone.
 
 | `HTTP_SERVER_HOST` | `0.0.0.0` | Listen host. |
-| `HTTP_SERVER_PORT` | `80` | Listen port. |
+| `HTTP_SERVER_PORT` | `80` | Plain-HTTP listener (the default mode). Set to an empty value to turn it off (TLS only); with it empty and TLS off the daemon refuses to start. |
 | `HTTP_SERVER_READ_TIMEOUT` | `10s` | Read timeout. |
 | `HTTP_SERVER_WRITE_TIMEOUT` | `10s` | Write timeout. |
 | `HTTP_SERVER_MAX_HEADER_MB` | `1` | Max header size in MiB. |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` | Cap of every request body (10 MiB); an upload route states its own larger cap. |
 | `TRUSTED_PROXIES` | none | Comma-separated CIDRs or addresses of the proxies in front of the daemon (ingress, CDN). The client address is read from `X-Forwarded-For` only for requests from them; with none listed the connection address is used and the header is ignored. Behind a proxy set it, or every client shares the proxy address in the per-address limits. |
-| `HTTP_SERVER_TLS_ENABLED` | `false` | Serve HTTPS. |
-| `HTTP_SERVER_TLS_CERT_FILE` | `/certificates/tls.crt` | Server certificate. |
-| `HTTP_SERVER_TLS_KEY_FILE` | `/certificates/tls.key` | Server key. |
+| `HTTP_SERVER_HTTPS_PORT` | `8443` | TLS listener (HTTP/2); runs only when both `HTTP_SERVER_TLS_CERT_FILE` and `HTTP_SERVER_TLS_KEY_FILE` are set. |
+| `HTTP_SERVER_TLS_CERT_FILE` | none | PEM server certificate chain. Both cert and key set: TLS on; exactly one set: the daemon refuses to start. |
+| `HTTP_SERVER_TLS_KEY_FILE` | none | PEM server key. The certificate, key and client CA are reread when a file changes (a renewal needs no restart); a broken renewal keeps the previous one in service. |
+| `HTTP_SERVER_TLS_MIN_VERSION` | `1.2` | Lowest TLS version: `1.2` or `1.3`. |
+| `HTTP_SERVER_TLS_CLIENT_CA_FILE` | none | PEM bundle of the roots (and intermediates) that signed the client certificates (for example the Cloudflare Authenticated Origin Pulls CA). |
+| `HTTP_SERVER_TLS_CLIENT_AUTH` | `off` | `off`, `optional` (a presented certificate is verified, none is fine; a presented one that does not verify is refused) or `require` (no valid certificate: the handshake is refused). `optional` and `require` need TLS on and `HTTP_SERVER_TLS_CLIENT_CA_FILE`, else the daemon refuses to start. |
+| `HTTP_SERVER_HEALTH_PORT` | none (off) | When set, an extra plain-HTTP listener on `HEALTH_BIND` that serves only `GET /api/health` (the kubelet cannot present a client certificate). Never route it. |
+| `HEALTH_BIND` | `0.0.0.0` | Address of the health listener and of the internal listener; the deploy sets the pod IP. |
+| `HTTP_SERVER_INTERNAL_PORT` | none (off) | When set, a second plain-HTTP listener on `HEALTH_BIND` with the same API handler, for in-cluster callers (the event-frontend server rendering, `INTERNAL_API_ORIGIN`). Restrict who reaches it with a NetworkPolicy. |
+
+Client address: the only use is the session IP (login session, visible to the user only). A request whose client certificate was verified (`HTTP_SERVER_TLS_CLIENT_AUTH` `require`, or `optional` with a presented and verified certificate) takes it from `CF-Connecting-IP` (a missing or invalid value falls back to the connection address); the header is never trusted on any other connection (plain, internal listener, no or unverified certificate), where `TRUSTED_PROXIES` / `X-Forwarded-For` apply as before.
+
+Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `HTTP_SERVER_HTTPS_PORT`), `HTTP_SERVER_TLS_CLIENT_AUTH` as a boolean (now `off|optional|require`), `HTTP_SERVER_TLS_CA_FILE` (now `HTTP_SERVER_TLS_CLIENT_CA_FILE`), and the built-in `/certificates/*` and `/aop/ca.crt` defaults; `HTTP_SERVER_HEALTH_PORT` is no longer `8081` by default.
 
 ### Database
 

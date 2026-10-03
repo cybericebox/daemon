@@ -7,6 +7,7 @@ import (
 	"net/mail"
 	"net/netip"
 	"net/url"
+	"os"
 	"regexp"
 	"time"
 
@@ -309,31 +310,43 @@ type (
 		// from one of them; with none listed (the default) it is the connection's own address and the header
 		// is ignored, so a client cannot choose its address.
 		TrustedProxies []string `env:"TRUSTED_PROXIES"`
+		// HealthBind is the address the optional health listener and the optional internal listener bind to
+		// (HEALTH_BIND); the deploy sets it to the pod IP.
+		HealthBind string `env:"HEALTH_BIND" envDefault:"0.0.0.0"`
 		// MaxBodyBytes caps every request body; an upload route states its own larger cap.
 		MaxBodyBytes int64 `env:"MAX_REQUEST_BODY_BYTES" envDefault:"10485760"`
 	}
 
 	HTTPServerConfig struct {
-		Host               string        `env:"HOST"          envDefault:"0.0.0.0"`
-		Port               string        `env:"PORT"          envDefault:"80"`
+		Host string `env:"HOST" envDefault:"0.0.0.0"`
+		// Port is the plain-HTTP listener (HTTP_SERVER_PORT, default 80 when unset); set but empty turns it off
+		// (TLS only). The default is applied in populateForAllConfig: the env tag cannot tell unset from empty.
+		Port               string        `env:"PORT"`
 		ReadTimeout        time.Duration `env:"READ_TIMEOUT"  envDefault:"10s"`
 		WriteTimeout       time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
 		MaxHeaderMegabytes int           `env:"MAX_HEADER_MB" envDefault:"1"`
-		TLS                TLSConfig     `                                         envPrefix:"TLS_"`
+		// HTTPSPort is the TLS listener; it runs only when TLS.CertFile and TLS.KeyFile are both set.
+		HTTPSPort string              `env:"HTTPS_PORT" envDefault:"8443"`
+		TLS       HTTPServerTLSConfig `                  envPrefix:"TLS_"`
+		// HealthPort, when set, opens an extra plain-HTTP listener on HEALTH_BIND that serves only the health
+		// route (kubelet probes cannot present a client certificate). Empty (default) is off.
+		HealthPort string `env:"HEALTH_PORT"`
+		// InternalPort, when set, opens a second plain-HTTP listener on HEALTH_BIND with the same API handler for
+		// in-cluster callers (the event-frontend server rendering). Empty (default) is off.
+		InternalPort string `env:"INTERNAL_PORT"`
 	}
 
-	// TLSConfig is shared by the inbound HTTP server (presents CertFile/KeyFile;
-	// CAFile unused) and outbound mTLS clients such as the agent (CertFile/KeyFile
-	// is the CLIENT certificate we present, CAFile verifies the peer's server
-	// certificate; an empty CAFile means the system roots, for a publicly trusted
-	// certificate). Cert/key have no tag default so each user sets its own; the
-	// HTTP server's historical /certificates defaults are applied in
-	// populateForAllConfig.
-	TLSConfig struct {
-		Enabled  bool   `env:"ENABLED"   envDefault:"false"`
+	// HTTPServerTLSConfig is the optional TLS of the HTTP server (HTTP_SERVER_TLS_*): on only when the
+	// certificate and the key are both set.
+	HTTPServerTLSConfig struct {
 		CertFile string `env:"CERT_FILE"`
 		KeyFile  string `env:"KEY_FILE"`
-		CAFile   string `env:"CA_FILE"`
+		// MinVersion is the lowest protocol version: "1.2" or "1.3".
+		MinVersion string `env:"MIN_VERSION" envDefault:"1.2"`
+		// ClientCAFile is the PEM bundle of the roots (and intermediates) that signed the client certificates.
+		ClientCAFile string `env:"CLIENT_CA_FILE"`
+		// ClientAuth: "off", "optional" (verify a presented certificate) or "require" (refuse without a valid one).
+		ClientAuth string `env:"CLIENT_AUTH" envDefault:"off"`
 	}
 
 	// MediaConfig bounds uploads and schedules unreferenced-file GC for the
@@ -557,6 +570,41 @@ func (c HTTPControllerConfig) Validate() error {
 	}
 	if c.MaxBodyBytes < 1 {
 		return errors.New("MAX_REQUEST_BODY_BYTES must be at least 1")
+	}
+	return c.Server.validate()
+}
+
+// TLSEnabled reports whether the TLS listener runs: the certificate and the key are both set.
+func (c HTTPServerConfig) TLSEnabled() bool { return c.TLS.CertFile != "" && c.TLS.KeyFile != "" }
+
+// ClientAuthOn reports whether client certificates are asked for (optional or require).
+func (c HTTPServerConfig) ClientAuthOn() bool {
+	return c.TLSEnabled() && (c.TLS.ClientAuth == "optional" || c.TLS.ClientAuth == "require")
+}
+
+func (c HTTPServerConfig) validate() error {
+	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
+		return errors.New("HTTP_SERVER_TLS_CERT_FILE and HTTP_SERVER_TLS_KEY_FILE must be set together")
+	}
+	switch c.TLS.MinVersion {
+	case "1.2", "1.3":
+	default:
+		return fmt.Errorf("HTTP_SERVER_TLS_MIN_VERSION must be 1.2 or 1.3, got %q", c.TLS.MinVersion)
+	}
+	switch c.TLS.ClientAuth {
+	case "off":
+	case "optional", "require":
+		if !c.TLSEnabled() {
+			return errors.New("HTTP_SERVER_TLS_CLIENT_AUTH needs HTTP_SERVER_TLS_CERT_FILE and HTTP_SERVER_TLS_KEY_FILE")
+		}
+		if c.TLS.ClientCAFile == "" {
+			return errors.New("HTTP_SERVER_TLS_CLIENT_AUTH needs HTTP_SERVER_TLS_CLIENT_CA_FILE")
+		}
+	default:
+		return fmt.Errorf("HTTP_SERVER_TLS_CLIENT_AUTH must be off, optional or require, got %q", c.TLS.ClientAuth)
+	}
+	if c.Port == "" && !c.TLSEnabled() {
+		return errors.New("no listener: HTTP_SERVER_PORT is empty and TLS is off")
 	}
 	return nil
 }
@@ -898,6 +946,11 @@ func (c *Config) populateForAllConfig() {
 	// The API docs describe every route, internal ones included: development only (not stage either).
 	c.HTTPController.EnableSwaggerDocs = c.Environment == Development
 
+	// HTTP_SERVER_PORT: unset is 80, set but empty is "no plain listener" (the env tag default cannot tell them apart).
+	if _, set := os.LookupEnv("HTTP_SERVER_PORT"); !set {
+		c.HTTPController.Server.Port = "80"
+	}
+
 	if c.Environment == Development {
 		c.Infrastructure.Postgres.MigrationsPath = "internal/delivery/repository/postgres/migrations"
 	} else {
@@ -905,13 +958,4 @@ func (c *Config) populateForAllConfig() {
 	}
 
 	c.Auth.OAuth.RedirectURLTemplate = c.Auth.Hosts.APIURL("/api/auth/%s/callback")
-
-	// HTTP server's historical default cert/key paths (moved out of the shared
-	// TLSConfig tags so they don't leak onto mTLS clients like the agent).
-	if c.HTTPController.Server.TLS.CertFile == "" {
-		c.HTTPController.Server.TLS.CertFile = "/certificates/tls.crt"
-	}
-	if c.HTTPController.Server.TLS.KeyFile == "" {
-		c.HTTPController.Server.TLS.KeyFile = "/certificates/tls.key"
-	}
 }
