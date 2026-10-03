@@ -7,7 +7,7 @@ toolchain go1.27.1
 require (
 	cloud.google.com/go/recaptchaenterprise/v2 v2.28.0
 	github.com/caarlos0/env/v11 v11.4.1
-	github.com/cybericebox/laboratory v0.0.0 // TODO: pin the laboratory develop commit once it is pushed: go get github.com/cybericebox/laboratory@<sha> && go mod tidy
+	github.com/cybericebox/laboratory v0.0.0-20261003075659-294c0bba2385
 	github.com/gin-gonic/gin v1.12.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang-jwt/jwt/v5 v5.3.1
