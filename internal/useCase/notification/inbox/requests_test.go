@@ -170,7 +170,7 @@ func TestRequestRouter_ElevationRequestGoesToAdminsAndTheDecisionToTheAuthor(t *
 	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.User, error) {
 		return postgres.User{ID: id, FirstName: "Name", Email: "x@example.org"}, nil
 	}).AnyTimes()
-	repo.EXPECT().ListPlatformAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin, author}, nil)
+	repo.EXPECT().ListSuperAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin, author}, nil)
 
 	e := inboxUseCase.Elevation{ID: elevationID, ExerciseID: tools.NewUUIDv7(), ExerciseName: "Web", RequestedBy: author, Devices: "db: 500m / 2Gi", Reason: "big database"}
 	require.NoError(t, router.ElevationRequested(context.Background(), e))

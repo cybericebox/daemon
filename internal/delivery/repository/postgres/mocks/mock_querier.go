@@ -7824,6 +7824,21 @@ func (mr *MockQuerierMockRecorder) ListSuperAdminEmails(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSuperAdminEmails", reflect.TypeOf((*MockQuerier)(nil).ListSuperAdminEmails), ctx)
 }
 
+// ListSuperAdminUserIDs mocks base method.
+func (m *MockQuerier) ListSuperAdminUserIDs(ctx context.Context) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListSuperAdminUserIDs", ctx)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListSuperAdminUserIDs indicates an expected call of ListSuperAdminUserIDs.
+func (mr *MockQuerierMockRecorder) ListSuperAdminUserIDs(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSuperAdminUserIDs", reflect.TypeOf((*MockQuerier)(nil).ListSuperAdminUserIDs), ctx)
+}
+
 // ListTeamBoardChallenges mocks base method.
 func (m *MockQuerier) ListTeamBoardChallenges(ctx context.Context, arg postgres.ListTeamBoardChallengesParams) ([]postgres.ListTeamBoardChallengesRow, error) {
 	m.ctrl.T.Helper()

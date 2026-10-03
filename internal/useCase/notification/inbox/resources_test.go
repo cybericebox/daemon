@@ -27,7 +27,7 @@ func TestRequestRouter_ResourceChangeGoesToAdminsAndTheDecisionToTheOrganizer(t 
 	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.User, error) {
 		return postgres.User{ID: id, FirstName: "Name", Email: "x@example.org"}, nil
 	}).AnyTimes()
-	repo.EXPECT().ListPlatformAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin, organizer}, nil)
+	repo.EXPECT().ListSuperAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin, organizer}, nil)
 
 	c := inboxUseCase.ResourceChange{ID: changeID, EventID: tools.NewUUIDv7(), EventName: "CTF", RequestedBy: organizer, Reason: "more teams", Summary: "size 8 / 16Gi"}
 	require.NoError(t, router.ResourceChangeRequested(context.Background(), c))
@@ -59,7 +59,7 @@ func TestRequestRouter_ResourceAlarmGoesToEveryAdminAndEscalationReplacesTheCopy
 	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.User, error) {
 		return postgres.User{ID: id, Email: "x@example.org"}, nil
 	}).AnyTimes()
-	repo.EXPECT().ListPlatformAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin1, admin2}, nil).Times(2)
+	repo.EXPECT().ListSuperAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin1, admin2}, nil).Times(2)
 
 	a := inboxUseCase.ResourceAlarm{ID: alarmID, Kind: "not_connected", EventName: "CTF", AgentName: "main", Units: 3, Stage: 2, RaisedAt: time.Now()}
 	require.NoError(t, router.ResourceAlarmRaised(context.Background(), a))

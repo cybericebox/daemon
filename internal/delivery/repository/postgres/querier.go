@@ -717,6 +717,9 @@ type Querier interface {
 	// The hidden moderators team has no participant rows: its VPN clients are the
 	// event owner and moderators (observers are read-only and get no client).
 	ListEventLabAccessClients(ctx context.Context, eventTeamID uuid.UUID) ([]uuid.UUID, error)
+	// A lab is open to a team's members only when the same locks as the lab link hold: the task is published, its
+	// set is not detached and every prerequisite is solved by the team. The hidden moderators team tests tasks
+	// before they are shown, so it keeps the readiness rule alone.
 	ListEventLabAccessLabs(ctx context.Context, eventTeamID uuid.UUID) ([]ListEventLabAccessLabsRow, error)
 	// The merged current state of every lab group of one event, for the organizers' stand list.
 	ListEventLabMonitoringCurrent(ctx context.Context, eventID uuid.UUID) ([]ListEventLabMonitoringCurrentRow, error)
@@ -1148,6 +1151,9 @@ type Querier interface {
 	// already has a stand) with their persisted stand and Lab counters.
 	ListStandTeams(ctx context.Context, eventID uuid.UUID) ([]ListStandTeamsRow, error)
 	ListSuperAdminEmails(ctx context.Context) ([]string, error)
+	// Active super admins: the only role that sees and decides infrastructure (resource requests and alarms,
+	// elevations).
+	ListSuperAdminUserIDs(ctx context.Context) ([]uuid.UUID, error)
 	// The team's board: every assignment with its current presentation metadata.
 	// published_only keeps the participant board to board-published challenges;
 	// the moderators board passes false to also see unpublished ones.

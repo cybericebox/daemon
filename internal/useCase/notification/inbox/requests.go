@@ -31,6 +31,7 @@ type RequestQueries interface {
 	inboxRepo.Queries
 	ListEventWriteManagerUserIDs(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
 	ListPlatformAdminUserIDs(ctx context.Context) ([]uuid.UUID, error)
+	ListSuperAdminUserIDs(ctx context.Context) ([]uuid.UUID, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (postgres.User, error)
 }
 
@@ -170,11 +171,12 @@ type Elevation struct {
 	Devices string
 }
 
-// ElevationRequested asks every platform admin (but the author) to decide the request.
+// ElevationRequested asks every super admin (but the author) to decide the request.
 func (r *RequestRouter) ElevationRequested(ctx context.Context, e Elevation) error {
-	admins, err := r.queries.ListPlatformAdminUserIDs(ctx)
+	// Infrastructure is decided by super admins only.
+	admins, err := r.queries.ListSuperAdminUserIDs(ctx)
 	if err != nil {
-		return fmt.Errorf("inbox requests: list platform admins: %w", err)
+		return fmt.Errorf("inbox requests: list super admins: %w", err)
 	}
 	vars, err := r.elevationVars(ctx, e)
 	if err != nil {
