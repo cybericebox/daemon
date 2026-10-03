@@ -180,6 +180,20 @@ WHERE EXISTS (SELECT 1
                 AND ee.exercise_id = sqlc.arg(exercise_id))
 ORDER BY lower(COALESCE(NULLIF(ev.internal_name, ''), ev.name)), ev.id;
 
+-- name: ListManagedExerciseAttachments :many
+-- The active attachments of the exercise in the events the user belongs to, with the user's role there: what a
+-- non-admin reader may see the fixed flags of.
+SELECT ee.exercise_version_id,
+       ee.variant_mode,
+       ee.fixed_variant_index,
+       member.role
+FROM event_exercises ee
+JOIN event_managers member ON member.event_id = ee.event_id
+WHERE ee.exercise_id = sqlc.arg(exercise_id)
+  AND member.user_id = sqlc.arg(user_id)
+  AND ee.status = 0
+  AND ee.detached_at IS NULL;
+
 -- name: ListExercisesEventAccess :many
 -- The "selected events" of a page of exercises in one query, with the
 -- platform-facing event name.

@@ -89,6 +89,7 @@ type (
 		AuthorizeFileUpload(ctx context.Context, actor exerciseUseCase.Actor) error
 		AuthorizeFileDownload(ctx context.Context, actor exerciseUseCase.Actor, file mediaModel.File) error
 		AuthorizeTestDeploy(ctx context.Context, actor exerciseUseCase.Actor, exerciseID, versionID uuid.UUID) error
+		RedactFlags(ctx context.Context, actor exerciseUseCase.Actor, v exerciseUseCase.VersionView) (exerciseUseCase.VersionView, error)
 		GetAccessSummary(ctx context.Context, actor exerciseUseCase.Actor) (exerciseUseCase.AccessSummary, error)
 		CreateExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, in exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error)
 		GetExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID) (exerciseUseCase.ExerciseView, error)
@@ -546,6 +547,17 @@ func (h *Handler) getVersion(ctx *gin.Context) {
 	if !accessFrom(ctx).Full && v.Status != string(exerciseModel.VersionStatusPublished) {
 		response.AbortWithError(ctx, exerciseModel.ErrExerciseVersionNotFound.Err())
 		return
+	}
+	// The fixed flags of a catalog exercise reach only the managers of an event it is attached to.
+	if !accessFrom(ctx).Full {
+		actor, ok := actorFrom(ctx)
+		if !ok {
+			return
+		}
+		if v, err = h.useCase.RedactFlags(ctx, actor, v); err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
 	}
 	response.AbortWithData(ctx, versionToResponse(v))
 }

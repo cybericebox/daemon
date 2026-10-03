@@ -915,6 +915,9 @@ type Querier interface {
 	// moderator needs: hidden, admitted, and for individual events the real name
 	// and pseudonym of the participant behind the solo team.
 	ListManageScoreboard(ctx context.Context, eventID uuid.UUID) ([]ListManageScoreboardRow, error)
+	// The active attachments of the exercise in the events the user belongs to, with the user's role there: what a
+	// non-admin reader may see the fixed flags of.
+	ListManagedExerciseAttachments(ctx context.Context, arg ListManagedExerciseAttachmentsParams) ([]ListManagedExerciseAttachmentsRow, error)
 	// (team, active exercise) pairs the engine still has to prepare: an admitted
 	// team (or the moderators team) lacks a team challenge, or has a preparing
 	// one without its Lab binding while infrastructure is allowed.
