@@ -106,7 +106,7 @@ type tlsStand struct {
 }
 
 // startTLS runs a Server in TLS mode on free ports; the handler echoes the client address and serves /api/health.
-func startTLS(t *testing.T, clientAuth bool) *tlsStand {
+func startTLS(t *testing.T, clientAuth string) *tlsStand {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	st := &tlsStand{serverCA: newTestCA(t, "server-ca"), clientCA: newTestCA(t, "aop-ca"), dir: t.TempDir()}
@@ -117,11 +117,11 @@ func startTLS(t *testing.T, clientAuth bool) *tlsStand {
 
 	tlsPort, healthPort := freePort(t), freePort(t)
 	st.cfg = config.HTTPServerConfig{
-		Host: "127.0.0.1", Port: "1", TLSPort: tlsPort, HealthPort: healthPort,
+		Host: "127.0.0.1", Port: "", HTTPSPort: tlsPort, HealthPort: healthPort,
 		ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, MaxHeaderMegabytes: 1,
-		TLS: config.TLSConfig{
-			Enabled: true, ClientAuth: clientAuth,
-			CertFile: filepath.Join(st.dir, "tls.crt"), KeyFile: filepath.Join(st.dir, "tls.key"), CAFile: filepath.Join(st.dir, "ca.crt"),
+		TLS: config.HTTPServerTLSConfig{
+			ClientAuth: clientAuth, MinVersion: "1.2",
+			CertFile: filepath.Join(st.dir, "tls.crt"), KeyFile: filepath.Join(st.dir, "tls.key"), ClientCAFile: filepath.Join(st.dir, "ca.crt"),
 		},
 	}
 	router := gin.New()
@@ -185,14 +185,14 @@ func get(t *testing.T, c *http.Client, url string) (int, string, error) {
 }
 
 func TestMTLSRefusesAMissingClientCertificate(t *testing.T) {
-	st := startTLS(t, true)
+	st := startTLS(t, "require")
 	if _, _, err := get(t, st.client(nil), "https://"+st.tlsAddr+"/secret"); err == nil {
 		t.Fatal("a client without a certificate must be refused")
 	}
 }
 
 func TestMTLSRefusesAClientCertificateFromAnotherCA(t *testing.T) {
-	st := startTLS(t, true)
+	st := startTLS(t, "require")
 	other := newTestCA(t, "other-ca")
 	if _, _, err := get(t, st.client(clientCertFrom(t, other)), "https://"+st.tlsAddr+"/secret"); err == nil {
 		t.Fatal("a certificate from another CA must be refused")
@@ -200,7 +200,7 @@ func TestMTLSRefusesAClientCertificateFromAnotherCA(t *testing.T) {
 }
 
 func TestMTLSAcceptsAValidClientCertificateOverHTTP2(t *testing.T) {
-	st := startTLS(t, true)
+	st := startTLS(t, "require")
 	code, body, err := get(t, st.client(clientCertFrom(t, st.clientCA)), "https://"+st.tlsAddr+"/secret")
 	if err != nil || code != http.StatusOK {
 		t.Fatalf("valid certificate: %d %v", code, err)
@@ -210,15 +210,84 @@ func TestMTLSAcceptsAValidClientCertificateOverHTTP2(t *testing.T) {
 	}
 }
 
+func TestOptionalClientAuthAcceptsNoCertificate(t *testing.T) {
+	st := startTLS(t, "optional")
+	if code, _, err := get(t, st.client(nil), "https://"+st.tlsAddr+"/secret"); err != nil || code != http.StatusOK {
+		t.Fatalf("optional without a certificate: %d %v", code, err)
+	}
+}
+
+func TestOptionalClientAuthAcceptsAValidCertificate(t *testing.T) {
+	st := startTLS(t, "optional")
+	if code, _, err := get(t, st.client(clientCertFrom(t, st.clientCA)), "https://"+st.tlsAddr+"/secret"); err != nil || code != http.StatusOK {
+		t.Fatalf("optional with a valid certificate: %d %v", code, err)
+	}
+}
+
+func TestOptionalClientAuthRefusesAPresentedCertificateFromAnotherCA(t *testing.T) {
+	st := startTLS(t, "optional")
+	// The Go client withholds a certificate the server did not list as acceptable, so force it to present it.
+	other := clientCertFrom(t, newTestCA(t, "other-ca"))
+	c := st.client(nil)
+	c.Transport.(*http.Transport).TLSClientConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) { return other, nil }
+	if _, _, err := get(t, c, "https://"+st.tlsAddr+"/secret"); err == nil {
+		t.Fatal("a presented certificate that does not verify must be refused")
+	}
+}
+
+func TestTLSMinVersionIsConfigurable(t *testing.T) {
+	cert, key := writeKeyPair(t, t.TempDir())
+	for min, want := range map[string]uint16{"1.2": tls.VersionTLS12, "1.3": tls.VersionTLS13} {
+		got := newTLSConfig(&config.HTTPServerTLSConfig{CertFile: cert, KeyFile: key, MinVersion: min, ClientAuth: "off"}).MinVersion
+		if got != want {
+			t.Fatalf("min %s: got %x", min, got)
+		}
+	}
+}
+
+func TestTLSAndPlainListenersCanRunTogether(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	st := &tlsStand{serverCA: newTestCA(t, "server-ca"), dir: t.TempDir()}
+	certPEM, keyPEM := st.serverCA.issue(t, "api.example.test", true)
+	write(t, filepath.Join(st.dir, "tls.crt"), certPEM)
+	write(t, filepath.Join(st.dir, "tls.key"), keyPEM)
+	plain, secure := freePort(t), freePort(t)
+	cfg := config.HTTPServerConfig{
+		Host: "127.0.0.1", Port: plain, HTTPSPort: secure, ReadTimeout: time.Second, WriteTimeout: time.Second, MaxHeaderMegabytes: 1,
+		TLS: config.HTTPServerTLSConfig{CertFile: filepath.Join(st.dir, "tls.crt"), KeyFile: filepath.Join(st.dir, "tls.key"), MinVersion: "1.2", ClientAuth: "off"},
+	}
+	router := gin.New()
+	router.GET("/secret", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+	srv := NewServer(&cfg, "127.0.0.1", router)
+	srv.Start()
+	t.Cleanup(func() { srv.Stop(context.Background()) })
+	st.tlsAddr = "127.0.0.1:" + secure
+	waitListening(t, "127.0.0.1:"+plain)
+	waitListening(t, st.tlsAddr)
+	if code, _, err := get(t, http.DefaultClient, "http://127.0.0.1:"+plain+"/secret"); err != nil || code != 200 {
+		t.Fatalf("plain: %d %v", code, err)
+	}
+	if code, _, err := get(t, st.client(nil), "https://"+st.tlsAddr+"/secret"); err != nil || code != 200 {
+		t.Fatalf("tls: %d %v", code, err)
+	}
+}
+
+func TestTLSOnlyHasNoPlainListener(t *testing.T) {
+	st := startTLS(t, "off") // Port is empty
+	if len(NewServer(&st.cfg, "127.0.0.1", gin.New()).listeners) != 2 {
+		t.Fatal("TLS only with a health port: HTTPS + health, no plain API listener")
+	}
+}
+
 func TestTLSWithoutClientAuthNeedsNoClientCertificate(t *testing.T) {
-	st := startTLS(t, false)
+	st := startTLS(t, "off")
 	if code, _, err := get(t, st.client(nil), "https://"+st.tlsAddr+"/secret"); err != nil || code != http.StatusOK {
 		t.Fatalf("client auth off: %d %v", code, err)
 	}
 }
 
 func TestTLSRefusesOldProtocolVersions(t *testing.T) {
-	st := startTLS(t, false)
+	st := startTLS(t, "off")
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(st.serverCA.pem)
 	_, err := tls.Dial("tcp", st.tlsAddr, &tls.Config{RootCAs: pool, ServerName: "localhost", MaxVersion: tls.VersionTLS11})
@@ -228,7 +297,7 @@ func TestTLSRefusesOldProtocolVersions(t *testing.T) {
 }
 
 func TestHealthListenerServesOnlyHealthInPlainHTTP(t *testing.T) {
-	st := startTLS(t, true)
+	st := startTLS(t, "require")
 	plain := &http.Client{Timeout: 3 * time.Second}
 	if code, _, err := get(t, plain, "http://"+st.healthAddr+"/api/health"); err != nil || code != http.StatusOK {
 		t.Fatalf("health: %d %v", code, err)
@@ -238,10 +307,21 @@ func TestHealthListenerServesOnlyHealthInPlainHTTP(t *testing.T) {
 	}
 }
 
+func TestPlainOnlyIsTheDefault(t *testing.T) {
+	cfg := config.HTTPServerConfig{Port: "8080", HTTPSPort: "8443", TLS: config.HTTPServerTLSConfig{MinVersion: "1.2", ClientAuth: "off"}}
+	if cfg.TLSEnabled() {
+		t.Fatal("TLS is off without cert and key")
+	}
+	ls := NewServer(&cfg, "127.0.0.1", gin.New()).listeners
+	if len(ls) != 1 || ls[0].tls || ls[0].name != "HTTP" {
+		t.Fatalf("plain only: %+v", ls)
+	}
+}
+
 func TestPlainModeServesOnePortAndNoHealthListener(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	port := freePort(t)
-	cfg := config.HTTPServerConfig{Host: "127.0.0.1", Port: port, TLSPort: freePort(t), HealthPort: freePort(t), ReadTimeout: time.Second, WriteTimeout: time.Second, MaxHeaderMegabytes: 1}
+	cfg := config.HTTPServerConfig{Host: "127.0.0.1", Port: port, ReadTimeout: time.Second, WriteTimeout: time.Second, MaxHeaderMegabytes: 1}
 	router := gin.New()
 	router.GET("/secret", func(c *gin.Context) { c.String(http.StatusOK, "plain") })
 	srv := NewServer(&cfg, "127.0.0.1", router)
@@ -251,9 +331,8 @@ func TestPlainModeServesOnePortAndNoHealthListener(t *testing.T) {
 	if code, body, err := get(t, http.DefaultClient, "http://127.0.0.1:"+port+"/secret"); err != nil || code != 200 || body != "plain" {
 		t.Fatalf("plain: %d %q %v", code, body, err)
 	}
-	if c, err := net.DialTimeout("tcp", "127.0.0.1:"+cfg.HealthPort, 200*time.Millisecond); err == nil {
-		_ = c.Close()
-		t.Fatal("no health listener in plain mode")
+	if n := len(srv.listeners); n != 1 {
+		t.Fatalf("plain mode with no health port is one listener, got %d", n)
 	}
 }
 
@@ -273,7 +352,7 @@ func TestInternalListenerServesTheSameHandlerInPlainHTTP(t *testing.T) {
 }
 
 func TestCertificateIsReloadedWithoutARestart(t *testing.T) {
-	st := startTLS(t, false)
+	st := startTLS(t, "off")
 	serverNames := func() string {
 		conn, err := tls.Dial("tcp", st.tlsAddr, &tls.Config{InsecureSkipVerify: true})
 		if err != nil {
@@ -297,15 +376,15 @@ func TestCertificateIsReloadedWithoutARestart(t *testing.T) {
 }
 
 func TestClientCABundleIsReloadedWithoutARestart(t *testing.T) {
-	st := startTLS(t, true)
+	st := startTLS(t, "require")
 	newCA := newTestCA(t, "rotated-aop")
 	cert := clientCertFrom(t, newCA)
 	if _, _, err := get(t, st.client(cert), "https://"+st.tlsAddr+"/secret"); err == nil {
 		t.Fatal("not trusted yet")
 	}
-	write(t, st.cfg.TLS.CAFile, append(append([]byte{}, st.clientCA.pem...), newCA.pem...))
+	write(t, st.cfg.TLS.ClientCAFile, append(append([]byte{}, st.clientCA.pem...), newCA.pem...))
 	later := time.Now().Add(time.Minute)
-	_ = os.Chtimes(st.cfg.TLS.CAFile, later, later)
+	_ = os.Chtimes(st.cfg.TLS.ClientCAFile, later, later)
 	if code, _, err := get(t, st.client(cert), "https://"+st.tlsAddr+"/secret"); err != nil || code != http.StatusOK {
 		t.Fatalf("after the CA bundle changed: %d %v", code, err)
 	}
@@ -328,10 +407,14 @@ func TestRenewalKeepsServingTheOldCertificateWhenTheNewFilesAreBroken(t *testing
 // Client address selection.
 
 func originRouter(clientAuth bool) *gin.Engine {
+	mode := "off"
+	if clientAuth {
+		mode = "require"
+	}
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	cfg := config.HTTPControllerConfig{MaxBodyBytes: 1 << 20}
-	cfg.Server.TLS.Enabled, cfg.Server.TLS.ClientAuth = clientAuth, clientAuth
+	cfg.Server.TLS = config.HTTPServerTLSConfig{CertFile: "c", KeyFile: "k", ClientCAFile: "ca", ClientAuth: mode}
 	if err := hardenRouter(r, &cfg); err != nil {
 		panic(err)
 	}
