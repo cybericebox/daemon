@@ -109,6 +109,10 @@ func (u *AuthUseCase) ConfirmEmailChange(ctx context.Context, bsCode string) err
 	}); err != nil {
 		return err
 	}
+	// The change is done: pending recovery and email-change codes issued before it are dead.
+	if err = u.revokeCodes(ctx, data.UserID, temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType); err != nil {
+		return err
+	}
 	// A Google identity vouched for the OLD address: it no longer proves anything about the account,
 	// so the link goes (the account has a password: the request needed it).
 	if _, err = u.users.DeleteProviders(ctx, data.UserID); err != nil {

@@ -31,7 +31,7 @@ GET    /api/auth/avatar/:id | gate: - | layers: middleware.PublicMedia
 GET    /api/auth/google | gate: - | layers: -
 GET    /api/auth/google/callback | gate: - | layers: -
 DELETE /api/auth/google/link | gate: self | layers: -
-GET    /api/auth/google/link | gate: self | layers: -
+POST   /api/auth/google/link | gate: self | layers: -
 GET    /api/auth/google/register | gate: - | layers: -
 GET    /api/auth/google/setup | gate: - | layers: -
 GET    /api/auth/me | gate: self | layers: -

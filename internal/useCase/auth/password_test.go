@@ -112,7 +112,10 @@ func TestResetPassword_Success(t *testing.T) {
 	// M1: a reset ends EVERY session of the account (the old password may have
 	// been lost together with a stolen cookie).
 	// One link, one reset: the other reset codes of the account go with it.
-	repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: temporalCodeModel.PasswordResettingCodeType, UserID: uid.String()}).Return(int64(1), nil)
+	// M6: a pending email change dies with the old password.
+	for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType} {
+		repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: uid.String()}).Return(int64(1), nil)
+	}
 	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(2), nil)
 
 	if err := uc.ResetPassword(context.Background(), bsCode, "Secret!1"); err != nil {
@@ -138,16 +141,59 @@ func TestSetAccountPassword_WrongOld(t *testing.T) {
 	}
 }
 
+// allowCodeRevocation lets the use case delete a user's pending recovery and email-change codes.
+func allowCodeRevocation(repo *postgresMocks.MockQuerier) {
+	repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
+}
+
+// recentSession is a signed-in context whose session started age ago.
+func recentSession(repo *postgresMocks.MockQuerier, uid uuid.UUID, age time.Duration) context.Context {
+	sid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetSessionByID(gomock.Any(), sid).Return(postgres.Session{ID: sid, UserID: uid, CreatedAt: time.Now().Add(-age), ExpiresAt: time.Now().Add(time.Hour)}, nil).AnyTimes()
+	return rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: sid, Role: rbac.RoleUser})
+}
+
 func TestSetAccountPassword_FirstPassword(t *testing.T) {
 	uc, repo, _, _ := newPwUC(t)
 	uid := uuid.Must(uuid.NewV7())
-	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: pgtype.Text{}}, nil)
-	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).Return(postgres.User{Status: "active"}, nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{}}, nil).AnyTimes()
+	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+	repo.EXPECT().DeleteUserSessionsExcept(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	allowCodeRevocation(repo)
+
+	if err := uc.SetAccountPassword(recentSession(repo, uid, time.Minute), uid, "", "New!1pass"); err != nil {
+		t.Fatalf("set first password: %v", err)
+	}
+}
+
+// M4: the first password of a Google-only account needs a recent sign-in; an old session sets nothing.
+func TestSetAccountPassword_FirstPasswordNeedsARecentSignIn(t *testing.T) {
+	uc, repo, _, _ := newPwUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{}}, nil).AnyTimes()
+	// no UpdateUser, no session or code removal
+
+	if err := uc.SetAccountPassword(recentSession(repo, uid, 3*time.Hour), uid, "", "New!1pass"); !errors.Is(err, authModel.ErrAuthReauthRequired.Err()) {
+		t.Fatalf("want ErrAuthReauthRequired, got %v", err)
+	}
+	if err := uc.SetAccountPassword(context.Background(), uid, "", "New!1pass"); !errors.Is(err, authModel.ErrAuthReauthRequired.Err()) {
+		t.Fatalf("no session: want ErrAuthReauthRequired, got %v", err)
+	}
+}
+
+// M6: a password change kills the pending email-change and reset codes of the account.
+func TestSetAccountPassword_RevokesPendingCodes(t *testing.T) {
+	uc, repo, pw, _ := newPwUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	hashed, _ := pw.Hash("Correct!1")
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{String: hashed, Valid: true}}, nil).AnyTimes()
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(0), nil)
-
-	if err := uc.SetAccountPassword(context.Background(), uid, "", "New!1pass"); err != nil {
-		t.Fatalf("set first password: %v", err)
+	for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType} {
+		repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: uid.String()}).Return(int64(1), nil)
+	}
+	if err := uc.SetAccountPassword(context.Background(), uid, "Correct!1", "New!1pass"); err != nil {
+		t.Fatalf("change: %v", err)
 	}
 }
 
@@ -161,6 +207,7 @@ func TestSetAccountPassword_RevokesOtherSessions(t *testing.T) {
 		Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{String: hashed, Valid: true}}, nil).Times(2)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	repo.EXPECT().DeleteUserSessionsExcept(gomock.Any(), postgres.DeleteUserSessionsExceptParams{UserID: uid, ID: current}).Return(int64(3), nil)
+	allowCodeRevocation(repo)
 
 	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: current, Role: rbac.RoleUser})
 	if err := uc.SetAccountPassword(ctx, uid, "Correct!1", "New!1pass"); err != nil {
@@ -196,13 +243,13 @@ func TestForgotPassword_StoresHashOfMailedCode(t *testing.T) {
 func TestApplyNewPassword_NoRows(t *testing.T) {
 	uc, repo, _, _ := newPwUC(t)
 	uid := uuid.Must(uuid.NewV7())
-	// GetUserByID succeeds twice (old-password check + aggregate load),
+	// GetUserByID succeeds (first-password check, reauthentication, aggregate load),
 	// then the post-conflict re-read misses: the user vanished (404).
-	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: pgtype.Text{}}, nil).Times(2)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: pgtype.Text{}}, nil).Times(3)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{}, pgx.ErrNoRows)
 
-	err := uc.SetAccountPassword(context.Background(), uid, "", "New!1pass")
+	err := uc.SetAccountPassword(recentSession(repo, uid, time.Minute), uid, "", "New!1pass")
 	if !errors.Is(err, userModel.ErrUserNotFound.Err()) {
 		t.Fatalf("want ErrUserNotFound, got %v", err)
 	}

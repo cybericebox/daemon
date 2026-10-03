@@ -169,6 +169,10 @@ func (f *fakeUC) DeleteAccount(
 	f.reauthPassword = password
 	return nil
 }
+func (f *fakeUC) StartGoogleLink(_ context.Context, _ uuid.UUID, password string) (string, string, error) {
+	f.reauthPassword = password
+	return "https://accounts.google/x", "state-xyz", nil
+}
 func (f *fakeUC) LinkGoogleToAccountFromOAuth(_ context.Context, _, _, _ string) error {
 	return f.linkErr
 }
@@ -642,7 +646,7 @@ func TestGoogleLinkRedirect_NoIdentity_401(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/link", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/google/link", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -653,7 +657,7 @@ func TestGoogleLinkRedirect_NoIdentity_401(t *testing.T) {
 // TestGoogleLinkRedirect_Returns307_SetsLinkSessionCookie asserts that the
 // googleLinkRedirect handler redirects to Google (307) and sets the
 // oauth_link_sid Lax cookie containing the current session value.
-func TestGoogleLinkRedirect_Returns307(t *testing.T) {
+func TestGoogleLink_ReturnsConsentURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	uid := uuid.Must(uuid.NewV7())
 	sid := uuid.Must(uuid.NewV7())
@@ -662,13 +666,13 @@ func TestGoogleLinkRedirect_Returns307(t *testing.T) {
 	h := authHandler.NewAuthAPIHandler(&fakeUC{}, &fakeProt{}, testAuthConfig)
 	h.Init(r.Group("api"), r.Group("api"))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/google/link", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/google/link", strings.NewReader(`{"CurrentPassword":"Secret!1"}`))
 	// Simulate the session cookie being present (same-site request).
 	req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "sess-value"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusTemporaryRedirect {
-		t.Fatalf("want 307, got %d", w.Code)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "accounts.google") {
+		t.Fatalf("want 200 with the consent URL, got %d: %s", w.Code, w.Body.String())
 	}
 	// Verify the Lax link-session cookie was set with the session value.
 	var linkSIDCookie *http.Cookie

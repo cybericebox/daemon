@@ -56,6 +56,7 @@ type (
 			oldPassword, newPassword string,
 		) error
 		GetGoogleLoginURL(redirect string) (string, string, error)
+		StartGoogleLink(ctx context.Context, userID uuid.UUID, currentPassword string) (string, string, error)
 		GoogleAuth(
 			ctx context.Context,
 			code, state string,
@@ -151,7 +152,7 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	sec.DELETE("account", self, h.deleteAccount)
 	sec.POST("account/avatar", self, h.uploadAvatar)
 	sec.DELETE("account/avatar", self, h.removeAvatar)
-	sec.GET("google/link", self, h.googleLinkRedirect)
+	sec.POST("google/link", self, h.googleLink)
 	sec.DELETE("google/link", self, h.unlinkGoogle)
 
 	pub.POST("account/email/confirm", h.confirmEmailChange)
