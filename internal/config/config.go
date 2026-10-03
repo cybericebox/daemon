@@ -309,6 +309,9 @@ type (
 		// from one of them; with none listed (the default) it is the connection's own address and the header
 		// is ignored, so a client cannot choose its address.
 		TrustedProxies []string `env:"TRUSTED_PROXIES"`
+		// HealthBind is the address the plain health listener (TLS mode only) and the optional internal listener
+		// bind to (HEALTH_BIND); the deploy sets it to the pod IP.
+		HealthBind string `env:"HEALTH_BIND" envDefault:"0.0.0.0"`
 		// MaxBodyBytes caps every request body; an upload route states its own larger cap.
 		MaxBodyBytes int64 `env:"MAX_REQUEST_BODY_BYTES" envDefault:"10485760"`
 	}
@@ -320,6 +323,14 @@ type (
 		WriteTimeout       time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
 		MaxHeaderMegabytes int           `env:"MAX_HEADER_MB" envDefault:"1"`
 		TLS                TLSConfig     `                                         envPrefix:"TLS_"`
+		// TLSPort is the listen port in TLS mode (the plain mode uses Port).
+		TLSPort string `env:"TLS_PORT" envDefault:"8443"`
+		// HealthPort is the plain-HTTP listener that serves only the health route; it runs in TLS mode, where the
+		// kubelet cannot present a client certificate.
+		HealthPort string `env:"HEALTH_PORT" envDefault:"8081"`
+		// InternalPort, when set, opens a second plain-HTTP listener on HEALTH_BIND with the same API handler for
+		// in-cluster callers (the event-frontend server rendering). Empty (default) is off.
+		InternalPort string `env:"INTERNAL_PORT"`
 	}
 
 	// TLSConfig is shared by the inbound HTTP server (presents CertFile/KeyFile;
@@ -334,6 +345,9 @@ type (
 		CertFile string `env:"CERT_FILE"`
 		KeyFile  string `env:"KEY_FILE"`
 		CAFile   string `env:"CA_FILE"`
+		// ClientAuth (server only) requires and verifies a client certificate against CAFile (mTLS, for
+		// Cloudflare Authenticated Origin Pulls). Needs Enabled.
+		ClientAuth bool `env:"CLIENT_AUTH" envDefault:"false"`
 	}
 
 	// MediaConfig bounds uploads and schedules unreferenced-file GC for the
@@ -557,6 +571,12 @@ func (c HTTPControllerConfig) Validate() error {
 	}
 	if c.MaxBodyBytes < 1 {
 		return errors.New("MAX_REQUEST_BODY_BYTES must be at least 1")
+	}
+	if c.Server.TLS.ClientAuth && !c.Server.TLS.Enabled {
+		return errors.New("HTTP_SERVER_TLS_CLIENT_AUTH needs HTTP_SERVER_TLS_ENABLED")
+	}
+	if c.Server.TLS.ClientAuth && c.Server.TLS.CAFile == "" {
+		return errors.New("HTTP_SERVER_TLS_CLIENT_AUTH needs HTTP_SERVER_TLS_CA_FILE")
 	}
 	return nil
 }
@@ -913,5 +933,9 @@ func (c *Config) populateForAllConfig() {
 	}
 	if c.HTTPController.Server.TLS.KeyFile == "" {
 		c.HTTPController.Server.TLS.KeyFile = "/certificates/tls.key"
+	}
+	// The client CA of the origin mTLS: the Cloudflare Authenticated Origin Pulls bundle the deploy mounts.
+	if c.HTTPController.Server.TLS.CAFile == "" {
+		c.HTTPController.Server.TLS.CAFile = "/aop/ca.crt"
 	}
 }

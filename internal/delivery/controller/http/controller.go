@@ -2,7 +2,10 @@ package http
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"net/netip"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -46,8 +49,29 @@ func hardenRouter(router *gin.Engine, cfg *config.HTTPControllerConfig) error {
 	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		return err
 	}
+	if cfg.Server.TLS.Enabled && cfg.Server.TLS.ClientAuth {
+		router.Use(originClientIP)
+	}
 	router.Use(middleware.BodyLimit(cfg.MaxBodyBytes), middleware.SecurityHeaders)
 	return nil
+}
+
+// originClientIP takes the client address from CF-Connecting-IP, but only on a connection whose client
+// certificate was verified (mTLS): then the peer is Cloudflare, which sets the header. On any other connection
+// (the plain internal listener, TLS without a verified chain) the header is spoofable and ignored, so
+// TRUSTED_PROXIES / X-Forwarded-For stay in charge. A missing or malformed value keeps the connection address.
+// The address replaces the host of RemoteAddr, so c.ClientIP(), the logs and everything else agree.
+func originClientIP(c *gin.Context) {
+	if state := c.Request.TLS; state != nil && len(state.VerifiedChains) > 0 {
+		if ip, err := netip.ParseAddr(strings.TrimSpace(c.GetHeader("CF-Connecting-IP"))); err == nil && ip.Zone() == "" {
+			_, port, splitErr := net.SplitHostPort(c.Request.RemoteAddr)
+			if splitErr != nil {
+				port = "0"
+			}
+			c.Request.RemoteAddr = net.JoinHostPort(ip.Unmap().String(), port)
+		}
+	}
+	c.Next()
 }
 
 // newRouter is gin.New with the one setting authorization depends on: handlers
@@ -116,7 +140,7 @@ func NewController(deps Dependencies) *Controller {
 	handler.NewAPIHandler(deps.UseCase, prot, deps.AuthConfig).Init(router)
 
 	return &Controller{
-		server: NewServer(&deps.Config.Server, router),
+		server: NewServer(&deps.Config.Server, deps.Config.HealthBind, router),
 	}
 }
 
