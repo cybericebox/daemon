@@ -32,7 +32,7 @@ func newUC2(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),

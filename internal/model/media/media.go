@@ -3,6 +3,7 @@
 package mediaModel
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -59,3 +60,61 @@ func BlobKey(contentHash string) string {
 func TmpKey(id uuid.UUID) string {
 	return "media/tmp/" + id.String()
 }
+
+// ChunkKey returns the S3 key of one received chunk of a resumable upload.
+func ChunkKey(uploadID uuid.UUID, index int) string {
+	return fmt.Sprintf("media/uploads/%s/%d", uploadID, index)
+}
+
+// Upload is a resumable chunked upload in progress: a file sent in order, in chunks of ChunkBytes (the last one
+// is shorter), through the API. Chunks are stored as temporary objects and assembled, size- and hash-checked when
+// the last one has arrived.
+type Upload struct {
+	ID             uuid.UUID
+	CreatedBy      uuid.UUID
+	Name           string
+	ContentType    string
+	SizeBytes      int64
+	ChunkBytes     int64
+	ChunksReceived int
+	CreatedAt      time.Time
+	ExpiresAt      time.Time
+}
+
+// NewUpload opens an upload. ttl is how long it waits for the next chunk.
+func NewUpload(id, createdBy uuid.UUID, name, contentType string, size, chunkBytes int64, ttl time.Duration, now time.Time) Upload {
+	return Upload{
+		ID: id, CreatedBy: createdBy, Name: name, ContentType: contentType, SizeBytes: size, ChunkBytes: chunkBytes,
+		CreatedAt: now, ExpiresAt: now.Add(ttl),
+	}
+}
+
+// ChunkCount is how many chunks the whole file takes.
+func (u Upload) ChunkCount() int {
+	return int((u.SizeBytes + u.ChunkBytes - 1) / u.ChunkBytes)
+}
+
+// ChunkSize is the exact size chunk index must have: ChunkBytes, or what is left for the last one.
+func (u Upload) ChunkSize(index int) int64 {
+	if index == u.ChunkCount()-1 {
+		return u.SizeBytes - int64(index)*u.ChunkBytes
+	}
+	return u.ChunkBytes
+}
+
+// Complete reports whether every chunk has arrived.
+func (u Upload) Complete() bool { return u.ChunksReceived >= u.ChunkCount() }
+
+// ReceivedBytes is how much of the file is stored: where a resumed upload continues.
+func (u Upload) ReceivedBytes() int64 {
+	if u.Complete() {
+		return u.SizeBytes
+	}
+	return int64(u.ChunksReceived) * u.ChunkBytes
+}
+
+// Expired reports whether the upload waited too long for its next chunk.
+func (u Upload) Expired(now time.Time) bool { return !now.Before(u.ExpiresAt) }
+
+// OwnedBy reports whether the upload was started by userID.
+func (u Upload) OwnedBy(userID uuid.UUID) bool { return u.CreatedBy == userID }

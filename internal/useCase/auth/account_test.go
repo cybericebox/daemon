@@ -28,7 +28,7 @@ func newAccountUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier) 
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
@@ -69,7 +69,7 @@ func TestDeleteAccount_SoftDeletesAndCutsLinks(t *testing.T) {
 			}
 			return 1, nil
 		})
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(2), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(2), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
 
 	if err := uc.DeleteAccount(context.Background(), uid, "Correct!1"); err != nil {
@@ -113,7 +113,7 @@ func TestDeleteAccount_LastSuperAdmin_Blocked(t *testing.T) {
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active", HashedPassword: hashedPassword(t, "Correct!1")}, nil).Times(2)
 	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(1), nil)
-	// no UpdateUser / DeleteUserSessions expectations: the cascade must not run
+	// no UpdateUser / RevokeUserSessions expectations: the cascade must not run
 
 	err := uc.DeleteAccount(context.Background(), uid, "Correct!1")
 	if !errors.Is(err, authModel.ErrLastSuperAdmin.Err()) {
@@ -130,7 +130,7 @@ func TestDeleteAccount_SuperAdminWithPeer_Allowed(t *testing.T) {
 		Return(postgres.User{ID: uid, Role: string(rbac.RoleSuperAdmin), Status: "active", HashedPassword: hashedPassword(t, "Correct!1")}, nil).Times(2)
 	repo.EXPECT().CountUsers(gomock.Any(), postgres.CountUsersParams{Roles: []string{string(rbac.RoleSuperAdmin)}, Status: "active"}).Return(int64(2), nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
 
 	if err := uc.DeleteAccount(context.Background(), uid, "Correct!1"); err != nil {
@@ -152,7 +152,7 @@ func TestDeleteInactiveAccount_StillInactive_Deletes(t *testing.T) {
 			}
 			return 1, nil
 		})
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(0), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(0), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
 
 	deleted, err := uc.DeleteInactiveAccount(context.Background(), uid, warnedAt)
@@ -168,7 +168,7 @@ func TestDeleteInactiveAccount_SeenAfterWarning_Keeps(t *testing.T) {
 	warnedAt := time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC)
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Status: "active", LastSeen: warnedAt.Add(time.Hour)}, nil)
-	// no UpdateUser / DeleteUserSessions expectations: nothing may change
+	// no UpdateUser / RevokeUserSessions expectations: nothing may change
 
 	deleted, err := uc.DeleteInactiveAccount(context.Background(), uid, warnedAt)
 	if err != nil || deleted {
@@ -208,7 +208,7 @@ func TestDeleteAccount_GoogleOnlyNeedsARecentSignIn(t *testing.T) {
 			repo.EXPECT().GetSessionByID(gomock.Any(), sid).Return(postgres.Session{ID: sid, UserID: uid, CreatedAt: time.Now().Add(-age), ExpiresAt: time.Now().Add(time.Hour)}, nil)
 			if name == "recent" {
 				repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-				repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
+				repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
 				repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
 				if err := uc.DeleteAccount(ctx, uid, ""); err != nil {
 					t.Fatalf("a recent sign-in must be enough: %v", err)

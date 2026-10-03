@@ -41,7 +41,7 @@ func newGoogleUC(t *testing.T, gu *oauth.GoogleUser) (*auth.AuthUseCase, *postgr
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	allowSetupLinkIssue(repo)
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
@@ -58,7 +58,7 @@ func newGoogleUCRedirect(t *testing.T, gu *oauth.GoogleUser, redirect string) (*
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	allowSetupLinkIssue(repo)
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
@@ -313,7 +313,7 @@ func TestGetGoogleLoginURL_Unconfigured(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	var nilClient *oauth.Client // typed nil — wraps nil in the interface
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
@@ -410,7 +410,7 @@ func TestLinkGoogleToSetup_EmailMatchIsCaseInsensitive(t *testing.T) {
 func TestBeginGoogleRegistration_UnverifiedEmailRefused(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),

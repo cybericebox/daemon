@@ -18,7 +18,7 @@ import (
 //     ErrObjectNotFound→404, ...), so "the same fact" needing two statuses is
 //     two different error vars by definition.
 //
-// AuthObjectCode — next free detail code: 30
+// AuthObjectCode — next free detail code: 31
 var (
 	// 401
 	// multi-site (category A): sign-in must be timing- and error-
@@ -117,6 +117,11 @@ var (
 	// sign-in from the last minutes; the client sends the person through sign-in again.
 	ErrAuthReauthRequired = err.ErrForbidden.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Sign in again to confirm this action").WithDetailCode(29)
+	// ErrAuthSessionsUnavailable: this replica could not read the list of revoked sessions for longer than
+	// SESSION_REVOCATION_STALE_AFTER and refuses signed-in requests rather than trust a stale list (HTTP 503).
+	ErrAuthSessionsUnavailable = err.ErrInternal.WithObjectCode(model.AuthObjectCode).
+					WithMessage("Sessions are temporarily unavailable").WithDetailCode(30).
+					WithHTTPCode(http.StatusServiceUnavailable)
 	ErrAuthInvalidEmail = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Invalid email address").WithDetailCode(26)
 )

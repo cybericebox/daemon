@@ -45,7 +45,7 @@ type probeProtector struct{}
 
 func (probeProtector) Authenticate(*gin.Context, string) {}
 func (probeProtector) DeAuthenticate(*gin.Context)       {}
-func (probeProtector) RequireRecaptcha(action string) gin.HandlerFunc {
+func (probeProtector) RequireCaptcha(action string) gin.HandlerFunc {
 	return func(c *gin.Context) { c.Set(probeRecaptchaKey, action) }
 }
 func (probeProtector) RequirePermission(required rbac.Permission) gin.HandlerFunc {

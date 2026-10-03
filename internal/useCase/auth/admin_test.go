@@ -28,7 +28,7 @@ func newAdminUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier) {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
@@ -319,7 +319,7 @@ func TestAdminDeleteUser_Success(t *testing.T) {
 			}
 			return 1, nil
 		})
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil)
 
 	if err := uc.DeleteUser(ctx, uid); err != nil {
@@ -389,7 +389,7 @@ func TestUpdateUserStatus_BlockedRevokesSessions(t *testing.T) {
 	ctx := adminCtx(rbac.RoleSuperAdmin)
 	uid := uuid.Must(uuid.NewV7())
 
-	// Both the aggregate write AND DeleteUserSessions must happen when blocking.
+	// Both the aggregate write AND RevokeUserSessions must happen when blocking.
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active"}, nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, arg postgres.UpdateUserParams) (int64, error) {
@@ -398,7 +398,7 @@ func TestUpdateUserStatus_BlockedRevokesSessions(t *testing.T) {
 			}
 			return 1, nil
 		})
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(2), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(2), nil)
 
 	if err := uc.UpdateUserStatus(ctx, uid, userModel.UserStatusBlocked); err != nil {
 		t.Fatalf("UpdateUserStatus(blocked): %v", err)

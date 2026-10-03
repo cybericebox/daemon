@@ -637,6 +637,18 @@ type MailSmtpConfig struct {
 	LastErrorAt        pgtype.Timestamptz `json:"last_error_at"`
 }
 
+type MediaUpload struct {
+	ID             uuid.UUID `json:"id"`
+	CreatedBy      uuid.UUID `json:"created_by"`
+	Name           string    `json:"name"`
+	ContentType    string    `json:"content_type"`
+	SizeBytes      int64     `json:"size_bytes"`
+	ChunkBytes     int64     `json:"chunk_bytes"`
+	ChunksReceived int32     `json:"chunks_received"`
+	CreatedAt      time.Time `json:"created_at"`
+	ExpiresAt      time.Time `json:"expires_at"`
+}
+
 type NotificationBroadcast struct {
 	ID             uuid.UUID          `json:"id"`
 	ScopeEventID   uuid.NullUUID      `json:"scope_event_id"`
@@ -871,6 +883,14 @@ type Session struct {
 	LastSeen  time.Time `json:"last_seen"`
 	Metadata  []byte    `json:"metadata"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type SessionRevocation struct {
+	Seq       int64     `json:"seq"`
+	SessionID uuid.UUID `json:"session_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	RevokedAt time.Time `json:"revoked_at"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type SignalHookExecution struct {

@@ -10,7 +10,7 @@ import (
 
 func newUCWithDomain(t *testing.T, domain string) *auth.AuthUseCase {
 	t.Helper()
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Config: config.AuthConfig{
 			Hosts: config.HostsConfig{
 				Main: domain, API: "api." + domain, ID: "id." + domain,

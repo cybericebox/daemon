@@ -49,72 +49,29 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 	return i, err
 }
 
-const deleteSession = `-- name: DeleteSession :execrows
+const deleteExpiredSessionRevocations = `-- name: DeleteExpiredSessionRevocations :execrows
 DELETE
-FROM sessions
-WHERE id = $1
+FROM session_revocations
+WHERE expires_at < now()
 `
 
-func (q *Queries) DeleteSession(ctx context.Context, id uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteSession, id)
+func (q *Queries) DeleteExpiredSessionRevocations(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredSessionRevocations)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const deleteUserSession = `-- name: DeleteUserSession :execrows
-DELETE
-FROM sessions
-WHERE id = $1
-  AND user_id = $2
+const getDatabaseTime = `-- name: GetDatabaseTime :one
+SELECT now()::timestamptz AS db_time
 `
 
-type DeleteUserSessionParams struct {
-	ID     uuid.UUID `json:"id"`
-	UserID uuid.UUID `json:"user_id"`
-}
-
-func (q *Queries) DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteUserSession, arg.ID, arg.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const deleteUserSessions = `-- name: DeleteUserSessions :execrows
-DELETE
-FROM sessions
-WHERE user_id = $1
-`
-
-func (q *Queries) DeleteUserSessions(ctx context.Context, userID uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteUserSessions, userID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const deleteUserSessionsExcept = `-- name: DeleteUserSessionsExcept :execrows
-DELETE
-FROM sessions
-WHERE user_id = $1
-  AND id <> $2
-`
-
-type DeleteUserSessionsExceptParams struct {
-	UserID uuid.UUID `json:"user_id"`
-	ID     uuid.UUID `json:"id"`
-}
-
-func (q *Queries) DeleteUserSessionsExcept(ctx context.Context, arg DeleteUserSessionsExceptParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteUserSessionsExcept, arg.UserID, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+func (q *Queries) GetDatabaseTime(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, getDatabaseTime)
+	var db_time time.Time
+	err := row.Scan(&db_time)
+	return db_time, err
 }
 
 const getSessionByID = `-- name: GetSessionByID :one
@@ -171,20 +128,279 @@ func (q *Queries) GetSessionsByUser(ctx context.Context, userID uuid.UUID) ([]Se
 	return items, nil
 }
 
-const touchSession = `-- name: TouchSession :execrows
-UPDATE sessions
-SET last_seen  = now(),
-    expires_at = $2
-WHERE id = $1
+const listActiveSessionRevocations = `-- name: ListActiveSessionRevocations :many
+SELECT seq, session_id, user_id, revoked_at, expires_at
+FROM session_revocations
+WHERE expires_at > now()
+ORDER BY seq
 `
 
-type TouchSessionParams struct {
-	ID        uuid.UUID `json:"id"`
+// What a replica loads before it serves: the revocations whose cookies could still be alive.
+func (q *Queries) ListActiveSessionRevocations(ctx context.Context) ([]SessionRevocation, error) {
+	rows, err := q.db.Query(ctx, listActiveSessionRevocations)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SessionRevocation{}
+	for rows.Next() {
+		var i SessionRevocation
+		if err := rows.Scan(
+			&i.Seq,
+			&i.SessionID,
+			&i.UserID,
+			&i.RevokedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionRevocationsSince = `-- name: ListSessionRevocationsSince :many
+SELECT seq, session_id, user_id, revoked_at, expires_at
+FROM session_revocations
+WHERE revoked_at > $1
+ORDER BY seq
+`
+
+// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
+func (q *Queries) ListSessionRevocationsSince(ctx context.Context, revokedAt time.Time) ([]SessionRevocation, error) {
+	rows, err := q.db.Query(ctx, listSessionRevocationsSince, revokedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SessionRevocation{}
+	for rows.Next() {
+		var i SessionRevocation
+		if err := rows.Scan(
+			&i.Seq,
+			&i.SessionID,
+			&i.UserID,
+			&i.RevokedAt,
+			&i.ExpiresAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeSession = `-- name: RevokeSession :many
+
+WITH gone AS (DELETE FROM sessions WHERE id = $3 RETURNING id, user_id, created_at, last_seen)
+INSERT
+INTO session_revocations (session_id, user_id, expires_at)
+SELECT id,
+       user_id,
+       LEAST(created_at + make_interval(secs => $1::float8),
+             last_seen + make_interval(secs => $2::float8) + interval '1 minute')
+FROM gone
+RETURNING session_id, expires_at
+`
+
+type RevokeSessionParams struct {
+	AbsoluteSecs float64   `json:"absolute_secs"`
+	IdleSecs     float64   `json:"idle_secs"`
+	ID           uuid.UUID `json:"id"`
+}
+
+type RevokeSessionRow struct {
+	SessionID uuid.UUID `json:"session_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// Ending a session deletes its row and writes the revocation row in ONE statement (a session never ends
+// without its revocation). expires_at is when the cookie would die by itself: the smaller of sign-in + absolute TTL
+// and last_seen + idle TTL + 1 min margin.
+func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) ([]RevokeSessionRow, error) {
+	rows, err := q.db.Query(ctx, revokeSession, arg.AbsoluteSecs, arg.IdleSecs, arg.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RevokeSessionRow{}
+	for rows.Next() {
+		var i RevokeSessionRow
+		if err := rows.Scan(&i.SessionID, &i.ExpiresAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeUserSession = `-- name: RevokeUserSession :many
+WITH gone AS (DELETE FROM sessions WHERE id = $3 AND sessions.user_id = $4 RETURNING id, user_id, created_at, last_seen)
+INSERT
+INTO session_revocations (session_id, user_id, expires_at)
+SELECT id,
+       user_id,
+       LEAST(created_at + make_interval(secs => $1::float8),
+             last_seen + make_interval(secs => $2::float8) + interval '1 minute')
+FROM gone
+RETURNING session_id, expires_at
+`
+
+type RevokeUserSessionParams struct {
+	AbsoluteSecs float64   `json:"absolute_secs"`
+	IdleSecs     float64   `json:"idle_secs"`
+	ID           uuid.UUID `json:"id"`
+	OwnerID      uuid.UUID `json:"owner_id"`
+}
+
+type RevokeUserSessionRow struct {
+	SessionID uuid.UUID `json:"session_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) RevokeUserSession(ctx context.Context, arg RevokeUserSessionParams) ([]RevokeUserSessionRow, error) {
+	rows, err := q.db.Query(ctx, revokeUserSession,
+		arg.AbsoluteSecs,
+		arg.IdleSecs,
+		arg.ID,
+		arg.OwnerID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RevokeUserSessionRow{}
+	for rows.Next() {
+		var i RevokeUserSessionRow
+		if err := rows.Scan(&i.SessionID, &i.ExpiresAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeUserSessions = `-- name: RevokeUserSessions :many
+WITH gone AS (DELETE FROM sessions WHERE sessions.user_id = $3 RETURNING id, user_id, created_at, last_seen)
+INSERT
+INTO session_revocations (session_id, user_id, expires_at)
+SELECT id,
+       user_id,
+       LEAST(created_at + make_interval(secs => $1::float8),
+             last_seen + make_interval(secs => $2::float8) + interval '1 minute')
+FROM gone
+RETURNING session_id, expires_at
+`
+
+type RevokeUserSessionsParams struct {
+	AbsoluteSecs float64   `json:"absolute_secs"`
+	IdleSecs     float64   `json:"idle_secs"`
+	OwnerID      uuid.UUID `json:"owner_id"`
+}
+
+type RevokeUserSessionsRow struct {
+	SessionID uuid.UUID `json:"session_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) ([]RevokeUserSessionsRow, error) {
+	rows, err := q.db.Query(ctx, revokeUserSessions, arg.AbsoluteSecs, arg.IdleSecs, arg.OwnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RevokeUserSessionsRow{}
+	for rows.Next() {
+		var i RevokeUserSessionsRow
+		if err := rows.Scan(&i.SessionID, &i.ExpiresAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeUserSessionsExcept = `-- name: RevokeUserSessionsExcept :many
+WITH gone AS (DELETE FROM sessions WHERE sessions.user_id = $3 AND id <> $4 RETURNING id, user_id, created_at, last_seen)
+INSERT
+INTO session_revocations (session_id, user_id, expires_at)
+SELECT id,
+       user_id,
+       LEAST(created_at + make_interval(secs => $1::float8),
+             last_seen + make_interval(secs => $2::float8) + interval '1 minute')
+FROM gone
+RETURNING session_id, expires_at
+`
+
+type RevokeUserSessionsExceptParams struct {
+	AbsoluteSecs float64   `json:"absolute_secs"`
+	IdleSecs     float64   `json:"idle_secs"`
+	OwnerID      uuid.UUID `json:"owner_id"`
+	ExceptID     uuid.UUID `json:"except_id"`
+}
+
+type RevokeUserSessionsExceptRow struct {
+	SessionID uuid.UUID `json:"session_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func (q *Queries) RevokeUserSessionsExcept(ctx context.Context, arg RevokeUserSessionsExceptParams) ([]RevokeUserSessionsExceptRow, error) {
+	rows, err := q.db.Query(ctx, revokeUserSessionsExcept,
+		arg.AbsoluteSecs,
+		arg.IdleSecs,
+		arg.OwnerID,
+		arg.ExceptID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RevokeUserSessionsExceptRow{}
+	for rows.Next() {
+		var i RevokeUserSessionsExceptRow
+		if err := rows.Scan(&i.SessionID, &i.ExpiresAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const touchSession = `-- name: TouchSession :execrows
+UPDATE sessions
+SET last_seen  = GREATEST(last_seen, $1),
+    expires_at = GREATEST(expires_at, $2)
+WHERE id = $3
+`
+
+type TouchSessionParams struct {
+	SeenAt    time.Time `json:"seen_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+	ID        uuid.UUID `json:"id"`
+}
+
+// last_seen is written at most once per 30 s window per session by the replica that serves it; GREATEST keeps a
+// late write from moving it back. The idle deadline follows it.
 func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error) {
-	result, err := q.db.Exec(ctx, touchSession, arg.ID, arg.ExpiresAt)
+	result, err := q.db.Exec(ctx, touchSession, arg.SeenAt, arg.ExpiresAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

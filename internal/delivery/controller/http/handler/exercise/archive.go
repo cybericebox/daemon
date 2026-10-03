@@ -15,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
@@ -141,7 +142,62 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, ctx.PostForm("password"))
+	h.importContents(ctx, claims.UserID, contents, ctx.PostForm("password"))
+}
+
+type importUploadedRequest struct {
+	// FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).
+	FileID   uuid.UUID `json:"FileID" binding:"required"`
+	Password string    `json:"Password"`
+}
+
+// importUploadedArchive godoc
+// @Summary  Import an exercise ZIP archive that went up in chunks
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    body  body  importUploadedRequest  true  "the uploaded file and the archive password"
+// @Success  200  {object}  response.Response{data=[]exerciseResponse}
+// @Failure  400  {object}  response.Response
+// @Router   /exercises/import/uploaded [post]
+func (h *Handler) importUploadedArchive(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	var req importUploadedRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	// Only a file the caller uploaded: another person's file is not found, like an absent one.
+	meta, err := h.useCase.GetFile(ctx, req.FileID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	if !meta.CreatedBy.Valid || meta.CreatedBy.UUID != claims.UserID {
+		response.AbortWithError(ctx, mediaModel.ErrFileNotFound.Err())
+		return
+	}
+	reader, _, err := h.useCase.StreamFile(ctx, req.FileID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	defer func() { _ = reader.Close() }()
+	contents, err := readArchiveUpload(reader)
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	h.importContents(ctx, claims.UserID, contents, req.Password)
+}
+
+// importContents expands the archive bytes and imports every exercise in them.
+func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents []byte, password string) {
+	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, password)
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
@@ -149,7 +205,7 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 	created := make([]exerciseResponse, 0, len(imports))
 	for _, item := range imports {
 		view, importErr := h.useCase.ImportExerciseArchive(ctx, exerciseUseCase.ImportExerciseInput{
-			Archive: item.Archive, Password: item.Password, CreatedBy: claims.UserID,
+			Archive: item.Archive, Password: item.Password, CreatedBy: createdBy,
 		})
 		if importErr != nil {
 			response.AbortWithError(ctx, importErr)

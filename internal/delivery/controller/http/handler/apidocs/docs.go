@@ -14375,6 +14375,60 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/import/uploaded": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Import an exercise ZIP archive that went up in chunks",
+                "parameters": [
+                    {
+                        "description": "the uploaded file and the archive password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.importUploadedRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.exerciseResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/proposals": {
             "get": {
                 "produces": [
@@ -14743,6 +14797,234 @@ const docTemplate = `{
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/uploads": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Start a resumable chunked file upload",
+                "parameters": [
+                    {
+                        "description": "file name, type and size",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.startUploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.uploadResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/uploads/{uploadID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Status of a chunked upload: where to continue",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload ID",
+                        "name": "uploadID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.uploadResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Drop a chunked upload and the chunks received so far",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload ID",
+                        "name": "uploadID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/uploads/{uploadID}/chunks/{index}": {
+            "put": {
+                "consumes": [
+                    "application/octet-stream"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Send chunk N (0-based) of a chunked upload; the body is the raw chunk",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload ID",
+                        "name": "uploadID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "chunk index, the next one in order",
+                        "name": "index",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.uploadResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/uploads/{uploadID}/complete": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Assemble a chunked upload and check its size and hash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "upload ID",
+                        "name": "uploadID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sha256 of the whole file",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.completeUploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.fileUploadResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -28026,6 +28308,18 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.completeUploadRequest": {
+            "type": "object",
+            "required": [
+                "SHA256"
+            ],
+            "properties": {
+                "SHA256": {
+                    "description": "SHA256 is the hex digest of the whole file, computed by the client.",
+                    "type": "string"
+                }
+            }
+        },
         "exercise.connectionDTO": {
             "type": "object",
             "properties": {
@@ -28849,6 +29143,21 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.importUploadedRequest": {
+            "type": "object",
+            "required": [
+                "FileID"
+            ],
+            "properties": {
+                "FileID": {
+                    "description": "FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).",
+                    "type": "string"
+                },
+                "Password": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.interfaceDTO": {
             "type": "object",
             "properties": {
@@ -29154,6 +29463,27 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.startUploadRequest": {
+            "type": "object",
+            "required": [
+                "Name",
+                "Size"
+            ],
+            "properties": {
+                "ContentType": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "Name": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "Size": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            }
+        },
         "exercise.taskDTO": {
             "type": "object",
             "properties": {
@@ -29243,6 +29573,37 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "exercise.uploadResponse": {
+            "type": "object",
+            "properties": {
+                "ChunkSize": {
+                    "description": "ChunkSize is the size of every chunk but the last.",
+                    "type": "integer"
+                },
+                "Chunks": {
+                    "description": "Chunks is how many chunks the file takes; ChunksReceived is where a resumed upload continues (the index of\nthe next chunk to send).",
+                    "type": "integer"
+                },
+                "ChunksReceived": {
+                    "type": "integer"
+                },
+                "ExpiresAt": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "ReceivedBytes": {
+                    "type": "integer"
+                },
+                "Size": {
+                    "type": "integer"
+                },
+                "UploadID": {
+                    "type": "string"
                 }
             }
         },

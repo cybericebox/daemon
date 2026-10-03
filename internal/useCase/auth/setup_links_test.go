@@ -52,7 +52,7 @@ func bareUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *token
 	t.Helper()
 	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo: repo, Token: tk, Password: password.New(password.Config{HashCost: 4}), Notifier: &fakeNotifier{},
 		Config: config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},
 	})

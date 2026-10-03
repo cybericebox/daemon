@@ -25,6 +25,7 @@ func TestCleanupOrphanFiles_RemovesBlobsFromStorage(t *testing.T) {
 		Config: config.MediaConfig{MaxUploadBytes: 1, GCGrace: 24 * time.Hour},
 	})
 
+	q.EXPECT().ListExpiredMediaUploads(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().DeleteUnreferencedFiles(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().ListOrphanBlobs(gomock.Any(), gomock.Any()).Return([]string{"dead-hash"}, nil)
 	q.EXPECT().DeleteBlob(gomock.Any(), "dead-hash").Return(int64(1), nil)
@@ -53,6 +54,7 @@ func TestCleanupOrphanFiles_SameGraceCutoffForFilesAndBlobs(t *testing.T) {
 	})
 
 	var filesCutoff, blobsCutoff time.Time
+	q.EXPECT().ListExpiredMediaUploads(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().DeleteUnreferencedFiles(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, createdBefore time.Time) ([]postgres.DeleteUnreferencedFilesRow, error) {
 			filesCutoff = createdBefore

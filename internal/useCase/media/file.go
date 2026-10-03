@@ -56,6 +56,19 @@ func (u *MediaUseCase) UploadFile(ctx context.Context, name, contentType string,
 	}
 
 	hash := hex.EncodeToString(hasher.Sum(nil))
+	return u.publish(ctx, fileID, tmpKey, name, contentType, counter.n, hash, createdBy)
+}
+
+// publish promotes the assembled tmp object to the content-addressed blob (server-side copy, skipped when the blob
+// already exists) and records the logical file row. The caller removes tmpKey.
+func (u *MediaUseCase) publish(
+	ctx context.Context,
+	fileID uuid.UUID,
+	tmpKey, name, contentType string,
+	size int64,
+	hash string,
+	createdBy uuid.UUID,
+) (mediaModel.File, error) {
 	blobKey := mediaModel.BlobKey(hash)
 	exists, err := u.storage.Stat(ctx, blobKey)
 	if err != nil {
@@ -71,7 +84,7 @@ func (u *MediaUseCase) UploadFile(ctx context.Context, name, contentType string,
 		ID:          fileID,
 		Name:        name,
 		ContentType: contentType,
-		SizeBytes:   counter.n,
+		SizeBytes:   size,
 		ContentHash: hash,
 		CreatedAt:   time.Now(),
 		CreatedBy:   uuid.NullUUID{UUID: createdBy, Valid: createdBy != uuid.Nil},

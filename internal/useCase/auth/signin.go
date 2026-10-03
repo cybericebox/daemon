@@ -12,8 +12,8 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
-	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
+	sessionPkg "github.com/cybericebox/daemon/internal/session"
 )
 
 // fakeHashedPassword is a valid bcrypt hash used for constant-time comparison
@@ -78,24 +78,21 @@ func (u *AuthUseCase) SignIn(
 }
 
 // createSession persists a new domain session (all defaults from the factory)
-// and mints the session cookie.
+// and mints the session cookie: an encrypted ticket with the session id, the user id, the sign-in time and the
+// expiry.
 func (u *AuthUseCase) createSession(
 	ctx context.Context,
 	userID uuid.UUID,
 	meta authModel.SessionMetadata,
 ) (string, error) {
-	session, err := u.sessions.Create(ctx, authModel.NewSession(userID, meta, u.cfg.SessionIdleTTL, time.Now()))
+	now := time.Now()
+	session, err := u.sessions.Create(ctx, authModel.NewSession(userID, meta, u.cfg.SessionIdleTTL, now))
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to create session").Err()
 	}
 
-	// The cookie lives for the absolute lifetime; the idle deadline slides in the database.
-	cookieExpires := session.ExpiresAt
-	if u.cfg.SessionAbsoluteTTL > 0 {
-		cookieExpires = session.CreatedAt.Add(u.cfg.SessionAbsoluteTTL)
-	}
 	u.evictOldestSessions(ctx, userID, session.ID)
-	cookie, err := u.token.GenerateSessionCookie(session.ID, cookieExpires)
+	cookie, err := u.rt.Codec.Seal(sessionPkg.NewTicket(session.ID, userID, now, u.lifetimes()))
 	if err != nil {
 		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to generate session cookie").Err()
 	}
@@ -130,52 +127,6 @@ func (u *AuthUseCase) trustedReturnTo(raw string) string {
 	return ""
 }
 
-// ValidateSessionCookie parses the session cookie (Stage 1) then loads the
-// session and user from the DB (Stage 2).
-func (u *AuthUseCase) ValidateSessionCookie(ctx context.Context, cookieValue string) (*SessionAuthResult, error) {
-	sessionID, err := u.token.ParseSessionCookie(cookieValue)
-	if err != nil {
-		return nil, authModel.ErrAuthInvalidSession.Err()
-	}
-	return u.resolveSession(ctx, sessionID)
-}
-
-// resolveSession loads the session + user, checks expiry, and builds claims.
-func (u *AuthUseCase) resolveSession(ctx context.Context, sessionID uuid.UUID) (*SessionAuthResult, error) {
-	session, err := u.sessions.GetByID(ctx, sessionID)
-	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			// 401, not 404: a valid cookie whose session row is gone is a dead
-			// credential — the client must be sent to sign-in. Deliberately the
-			// same client-facing error as an unparseable cookie (category A):
-			// a distinct code would confirm the session once existed. The real
-			// reason goes to server logs via WithError.
-			return nil, authModel.ErrAuthInvalidSession.
-				WithError(errors.New("session row not found (revoked or deleted)")).Err()
-		}
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get session").Err()
-	}
-	if session.IsExpired(time.Now()) || session.ExceedsAbsoluteLifetime(u.cfg.SessionAbsoluteTTL, time.Now()) {
-		return nil, authModel.ErrAuthSessionExpired.Err()
-	}
-	user, err := u.users.GetByID(ctx, session.UserID)
-	if err != nil {
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user for session").Err()
-	}
-	if err = refuseBlocked(&user); err != nil {
-		return nil, err
-	}
-
-	return &SessionAuthResult{
-		Claims: authModel.AuthClaims{
-			SessionID: session.ID,
-			UserID:    session.UserID,
-			Role:      rbac.Role(user.Role),
-		},
-		Session: &session,
-	}, nil
-}
-
 // evictOldestSessions keeps the account within SESSION_MAX_PER_USER: the sessions beyond the cap,
 // oldest first, are ended (never the one just created). Best effort: a failure here must not fail
 // the sign-in, and the next sign-in trims again.
@@ -197,7 +148,7 @@ func (u *AuthUseCase) evictOldestSessions(ctx context.Context, userID, keep uuid
 		if s.ID == keep {
 			continue
 		}
-		if _, err = u.sessions.DeleteForUser(ctx, s.ID, userID); err != nil {
+		if _, err = u.revokeOwned(ctx, s.ID, userID); err != nil {
 			log.Warn().Err(err).Str("user_id", userID.String()).Msg("Failed to evict a session over the cap")
 		}
 	}
