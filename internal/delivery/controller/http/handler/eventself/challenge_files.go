@@ -2,7 +2,6 @@ package eventself
 
 import (
 	"mime"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -54,5 +53,5 @@ func (h *Handler) downloadChallengeAttachment(ctx *gin.Context) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	ctx.DataFromReader(http.StatusOK, file.SizeBytes, contentType, reader, nil)
+	download.File(ctx, reader, file.SizeBytes, contentType)
 }

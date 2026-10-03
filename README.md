@@ -111,9 +111,11 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `SIGNUP_SETUP_TOKEN_TTL` | `24h` | Life of the setup link of someone who signed up (or came through Google) by themselves. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_SECRET` | none | Google OAuth client. |
 | `SUPER_ADMIN_EMAIL` | none | Email of the account that is promoted to super admin (at sign-up and at start-up; compared case-insensitively). Every start sets the role back, so a demotion made in the admin lasts only until the next restart: unset the variable to demote for good. |
-| `SESSION_IDLE_TTL` | `336h` | A session unused for this long ends (slides on every use). |
+| `SESSION_IDLE_TTL` | `12h` | The cookie lives this long after it was issued; a cookie in use is re-issued (once 1% of this time has passed since it was issued, with no Set-Cookie on other responses), so a session unused for this long ends. |
 | `SESSION_MAX_PER_USER` | `10` | Sessions one account keeps at once; signing in over the cap ends the oldest (0 = no cap). |
-| `SESSION_ABSOLUTE_TTL` | `720h` | A session ends this long after sign-in however busy it is (also the cookie lifetime). |
+| `SESSION_ABSOLUTE_TTL` | `168h` | A session ends this long after sign-in however busy it is (it caps every re-issued expiry). |
+| `SESSION_ENCRYPTION_KEY` | required | Secret. Seals the session cookie (AES-256-GCM): one 64-hex-char key, or a keyring of `id:hex` entries whose first key seals and every key opens (a rotation signs nobody out). Every replica must hold the same key. |
+| `SESSION_REVOCATION_STALE_AFTER` | `30s` | How long the poll of the revoked-session list may keep failing before the replica refuses signed-in requests (503) rather than trust a stale list. |
 | `TEMPORAL_CODE_TTL` | `1h` | Lifetime of one-time codes (confirmation, reset). |
 | `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH` | `8`, `72` | Password length bounds (bcrypt ignores bytes past 72). |
 | `PASSWORD_MIN_CAPITAL_LETTERS`, `PASSWORD_MIN_SMALL_LETTERS`, `PASSWORD_MIN_DIGITS`, `PASSWORD_MIN_SPECIAL_CHARACTERS` | `1`, `1`, `1`, `0` | Complexity policy, published at `GET /api/auth/password/policy`. |
@@ -122,6 +124,16 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `VPN_SECRETS_KEY` | none | One 64-hex-character key or a keyring. Seals stored VPN client configs. Empty disables their storage. |
 
 Generate a key with `openssl rand -hex 32`. Keep every key stable: changing one makes data sealed with it unreadable.
+
+### Sessions
+
+The cookie is the session: `__Host-session` (HttpOnly, Secure, SameSite=Strict, host-only on the API host) holds the session id, the user id, the sign-in time and the expiry, encrypted and authenticated with `SESSION_ENCRYPTION_KEY`. No role and no name. While the session is not revoked, no database read is needed to trust it. The earlier HMAC-signed cookies are not accepted: everyone signs in again after the upgrade.
+
+Per request, in this order: (1) decrypt the cookie and check its expiry, (2) look the session id up in the in-memory revocation set, (3) the per-user rate limit, (4) one query for the caller's global role and blocked flag. A garbage, expired or revoked cookie is a 401 that never touches the database. Event roles stay in the handlers.
+
+`last_seen` is written per session: the first request of a 30 s window writes it at once (asynchronously), later ones only update memory, and at the end of the window the latest time is written (`GREATEST`, never backward). The replica flushes what it holds on SIGTERM.
+
+Every end of a session (sign-out, "end this session", sign-out everywhere, password change, block, eviction beyond `SESSION_MAX_PER_USER`) deletes the session row and writes a row in `session_revocations` in one statement: `seq`, `session_id`, `user_id`, `revoked_at` (database time) and `expires_at` (when the cookie would die by itself: the smaller of sign-in + `SESSION_ABSOLUTE_TTL` and `last_seen` + `SESSION_IDLE_TTL` + 1 min). Every replica loads the unexpired rows before it serves and polls the table every second (`WHERE revoked_at > watermark - 10 s`; the overlap covers late commits, the session id dedupes). Revocation therefore reaches every replica within about a second. A replica whose poll fails for longer than `SESSION_REVOCATION_STALE_AFTER` answers signed-in requests with 503 until the poll recovers. A worker deletes rows past `expires_at`.
 
 ### Bot check (CAPTCHA_PROVIDER)
 

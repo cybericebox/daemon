@@ -223,7 +223,7 @@ func TestSignIn_EvictsTheOldestSessionsOverTheCap(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	pw := password.New(password.Config{HashCost: 4})
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo: repo, Token: token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}), Password: pw,
 		Config: config.AuthConfig{SessionIdleTTL: time.Hour, SessionMaxPerUser: 2, Hosts: testHosts("test")},
 	})
@@ -240,9 +240,9 @@ func TestSignIn_EvictsTheOldestSessionsOverTheCap(t *testing.T) {
 		{ID: old2, UserID: uid, CreatedAt: now.Add(-5 * time.Hour)},
 	}, nil)
 	var evicted []uuid.UUID
-	repo.EXPECT().DeleteUserSession(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(func(_ context.Context, p postgres.DeleteUserSessionParams) (int64, error) {
+	repo.EXPECT().RevokeUserSession(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(func(_ context.Context, p postgres.RevokeUserSessionParams) ([]postgres.RevokeUserSessionRow, error) {
 		evicted = append(evicted, p.ID)
-		return 1, nil
+		return []postgres.RevokeUserSessionRow{{SessionID: p.ID, ExpiresAt: time.Now().Add(time.Hour)}}, nil
 	})
 	if _, _, err := uc.SignIn(context.Background(), "a@b.test", "Secret!1", "", authModel.SessionMetadata{}); err != nil {
 		t.Fatal(err)

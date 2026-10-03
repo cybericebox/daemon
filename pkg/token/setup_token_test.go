@@ -76,31 +76,6 @@ func TestSetupToken_RoundTrip(t *testing.T) {
 			t.Fatal("expected error for expired setup token")
 		}
 	})
-
-	t.Run("setup_token_not_accepted_by_parse_session_cookie", func(t *testing.T) {
-		tok, err := c.GenerateSetupToken(uid)
-		if err != nil {
-			t.Fatalf("GenerateSetupToken: %v", err)
-		}
-		// ParseSessionCookie must reject a setup token (different aud, different structure).
-		_, err = c.ParseSessionCookie(tok)
-		if err == nil {
-			t.Fatal("ParseSessionCookie must not accept a setup token")
-		}
-	})
-
-	t.Run("session_cookie_not_accepted_by_parse_setup_token", func(t *testing.T) {
-		sessionID := uuid.Must(uuid.NewV7())
-		cookieTok, err := c.GenerateSessionCookie(sessionID, time.Now().Add(time.Hour))
-		if err != nil {
-			t.Fatalf("GenerateSessionCookie: %v", err)
-		}
-		// ParseSetupToken must reject a session cookie (wrong aud).
-		_, err = c.ParseSetupToken(cookieTok)
-		if err == nil {
-			t.Fatal("ParseSetupToken must not accept a session cookie token")
-		}
-	})
 }
 
 func TestSetupTokenUsesConfiguredTTL(t *testing.T) {

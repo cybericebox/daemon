@@ -217,6 +217,26 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 	return i, err
 }
 
+const getUserAccess = `-- name: GetUserAccess :one
+SELECT role, status
+FROM users
+WHERE id = $1
+  AND deleted_at IS NULL
+`
+
+type GetUserAccessRow struct {
+	Role   string `json:"role"`
+	Status string `json:"status"`
+}
+
+// The one query per signed-in request: the global role and the status (blocked) of the caller.
+func (q *Queries) GetUserAccess(ctx context.Context, id uuid.UUID) (GetUserAccessRow, error) {
+	row := q.db.QueryRow(ctx, getUserAccess, id)
+	var i GetUserAccessRow
+	err := row.Scan(&i.Role, &i.Status)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id, email, first_name, last_name, hashed_password, picture, role, status, email_confirmed, last_seen, updated_at, updated_by, created_at, tos_accepted_at, tos_version, deleted_at, inactivity_warned_at, personal_data_purged_at, invitation_sent_at
 FROM users
@@ -566,12 +586,17 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (int64, 
 
 const updateUserLastSeen = `-- name: UpdateUserLastSeen :execrows
 UPDATE users
-SET last_seen = now()
-WHERE id = $1
+SET last_seen = GREATEST(last_seen, $1)
+WHERE id = $2
 `
 
-func (q *Queries) UpdateUserLastSeen(ctx context.Context, id uuid.UUID) (int64, error) {
-	result, err := q.db.Exec(ctx, updateUserLastSeen, id)
+type UpdateUserLastSeenParams struct {
+	SeenAt time.Time `json:"seen_at"`
+	ID     uuid.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateUserLastSeen(ctx context.Context, arg UpdateUserLastSeenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateUserLastSeen, arg.SeenAt, arg.ID)
 	if err != nil {
 		return 0, err
 	}

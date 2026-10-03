@@ -34,7 +34,7 @@ func newPwUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *pass
 	allowSetupLinkIssue(repo)
 	pw := password.New(password.Config{HashCost: 4})
 	notifier := &fakeNotifier{}
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: pw,
@@ -113,7 +113,7 @@ func TestResetPassword_Success(t *testing.T) {
 	// been lost together with a stolen cookie).
 	// One link, one reset: the other reset codes of the account go with it.
 	repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: temporalCodeModel.PasswordResettingCodeType, UserID: uid.String()}).Return(int64(1), nil)
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(2), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(2), nil)
 
 	if err := uc.ResetPassword(context.Background(), bsCode, "Secret!1"); err != nil {
 		t.Fatalf("reset: %v", err)
@@ -144,7 +144,7 @@ func TestSetAccountPassword_FirstPassword(t *testing.T) {
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, HashedPassword: pgtype.Text{}}, nil)
 	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).Return(postgres.User{Status: "active"}, nil)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(0), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(0), nil)
 
 	if err := uc.SetAccountPassword(context.Background(), uid, "", "New!1pass"); err != nil {
 		t.Fatalf("set first password: %v", err)
@@ -160,7 +160,7 @@ func TestSetAccountPassword_RevokesOtherSessions(t *testing.T) {
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{String: hashed, Valid: true}}, nil).Times(2)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	repo.EXPECT().DeleteUserSessionsExcept(gomock.Any(), postgres.DeleteUserSessionsExceptParams{UserID: uid, ID: current}).Return(int64(3), nil)
+	repo.EXPECT().RevokeUserSessionsExcept(gomock.Any(), gomock.Any()).Return(revokedExceptRows(3), nil)
 
 	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: current, Role: rbac.RoleUser})
 	if err := uc.SetAccountPassword(ctx, uid, "Correct!1", "New!1pass"); err != nil {
@@ -215,7 +215,7 @@ func TestForgotPassword_MailWorkIsDeferredPastTheAnswer(t *testing.T) {
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	notifier := &fakeNotifier{}
 	var queued []func()
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:       repo,
 		Token:      token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password:   password.New(password.Config{HashCost: 4}),
@@ -247,7 +247,7 @@ func TestForgotPassword_UnknownAddressQueuesNothing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	jobs := 0
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo: repo, Token: token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}), Notifier: &fakeNotifier{},
 		Config:     config.AuthConfig{TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},

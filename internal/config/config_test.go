@@ -14,6 +14,8 @@ import (
 var testHosts = map[string]string{
 	"POSTGRES_PASSWORD": "test-password", "SUPPORT_EMAIL": "support@example.test", "MAIN_HOST": "example.test", "API_HOST": "api.example.test", "ID_HOST": "id.example.test",
 	"ADMIN_HOST": "admin.example.test", "EXERCISES_HOST": "exercises.example.test", "EVENT_DOMAIN": "example.test",
+	// The cookie key is required in every environment.
+	"SESSION_ENCRYPTION_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
 }
 
 func TestMain(m *testing.M) {
@@ -44,8 +46,8 @@ func TestAuthConfig_ParsedFromEnv(t *testing.T) {
 	if cfg.Auth.TokenSignature != "sig" {
 		t.Fatalf("TokenSignature: got %q", cfg.Auth.TokenSignature)
 	}
-	if cfg.Auth.SessionIdleTTL != 336*time.Hour {
-		t.Fatalf("SessionIdleTTL default: got %v want 336h", cfg.Auth.SessionIdleTTL)
+	if cfg.Auth.SessionIdleTTL != 12*time.Hour {
+		t.Fatalf("SessionIdleTTL default: got %v want 12h", cfg.Auth.SessionIdleTTL)
 	}
 	if cfg.Auth.TemporalCodeTTL != time.Hour {
 		t.Fatalf("TemporalCodeTTL default: got %v want 1h", cfg.Auth.TemporalCodeTTL)
@@ -326,7 +328,7 @@ func TestAuthWeaknesses(t *testing.T) {
 func TestSessionAndDocsDefaults(t *testing.T) {
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
 	cfg := MustGetConfig()
-	if cfg.Auth.SessionIdleTTL != 336*time.Hour || cfg.Auth.SessionAbsoluteTTL != 720*time.Hour || cfg.Auth.SignupSetupTokenTTL != 24*time.Hour {
+	if cfg.Auth.SessionIdleTTL != 12*time.Hour || cfg.Auth.SessionAbsoluteTTL != 168*time.Hour || cfg.Auth.SignupSetupTokenTTL != 24*time.Hour {
 		t.Fatalf("session defaults: idle %v absolute %v signup setup %v", cfg.Auth.SessionIdleTTL, cfg.Auth.SessionAbsoluteTTL, cfg.Auth.SignupSetupTokenTTL)
 	}
 	if cfg.Auth.SessionMaxPerUser != 10 {
@@ -416,6 +418,31 @@ func TestErrorJournalConfig_ValidateRejectsZero(t *testing.T) {
 		mutate(&c)
 		if c.Validate() == nil {
 			t.Errorf("%s: zero must be rejected", name)
+		}
+	}
+}
+
+func TestValidateSession(t *testing.T) {
+	good := AuthConfig{
+		SessionEncryptionKey:        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+		SessionIdleTTL:              12 * time.Hour,
+		SessionAbsoluteTTL:          168 * time.Hour,
+		SessionRevocationStaleAfter: 30 * time.Second,
+	}
+	if err := good.ValidateSession(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*AuthConfig){
+		"no key":            func(c *AuthConfig) { c.SessionEncryptionKey = "" },
+		"short key":         func(c *AuthConfig) { c.SessionEncryptionKey = "abcd" },
+		"idle too short":    func(c *AuthConfig) { c.SessionIdleTTL = time.Second },
+		"absolute < idle":   func(c *AuthConfig) { c.SessionAbsoluteTTL = time.Hour },
+		"stale limit small": func(c *AuthConfig) { c.SessionRevocationStaleAfter = time.Second },
+	} {
+		c := good
+		mutate(&c)
+		if c.ValidateSession() == nil {
+			t.Errorf("%s: want an error", name)
 		}
 	}
 }

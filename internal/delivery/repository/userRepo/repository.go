@@ -51,7 +51,8 @@ type Queries interface {
 	CountUsersActiveSince(ctx context.Context, lastSeen time.Time) (int64, error)
 	AvgDailyActiveSince(ctx context.Context, createdAt time.Time) (float64, error)
 	RegistrationsByDaySince(ctx context.Context, createdAt time.Time) ([]postgres.RegistrationsByDaySinceRow, error)
-	UpdateUserLastSeen(ctx context.Context, id uuid.UUID) (int64, error)
+	UpdateUserLastSeen(ctx context.Context, arg postgres.UpdateUserLastSeenParams) (int64, error)
+	GetUserAccess(ctx context.Context, id uuid.UUID) (postgres.GetUserAccessRow, error)
 	MarkUserInvitationSent(ctx context.Context, arg postgres.MarkUserInvitationSentParams) (int64, error)
 }
 
@@ -190,10 +191,25 @@ func (r *Repository) MarkInvitationSent(ctx context.Context, id uuid.UUID, at ti
 	return r.q.MarkUserInvitationSent(ctx, postgres.MarkUserInvitationSentParams{ID: id, SentAt: at})
 }
 
-// TouchLastSeen bumps the user's last_seen (async hot path). Excluded from the
+// TouchLastSeen moves the user's last_seen forward (the batched write; never backward). Excluded from the
 // whole-row UpdateUser column set so a full write cannot race it.
-func (r *Repository) TouchLastSeen(ctx context.Context, id uuid.UUID) (int64, error) {
-	return r.q.UpdateUserLastSeen(ctx, id)
+func (r *Repository) TouchLastSeen(ctx context.Context, id uuid.UUID, at time.Time) (int64, error) {
+	return r.q.UpdateUserLastSeen(ctx, postgres.UpdateUserLastSeenParams{ID: id, SeenAt: at})
+}
+
+// Access is what a request needs to know of its caller: the global role and the status.
+type Access struct {
+	Role   string
+	Status userModel.UserStatus
+}
+
+// GetAccess is the one query of a signed-in request (not found for a deleted account).
+func (r *Repository) GetAccess(ctx context.Context, id uuid.UUID) (Access, error) {
+	row, err := r.q.GetUserAccess(ctx, id)
+	if err != nil {
+		return Access{}, err
+	}
+	return Access{Role: row.Role, Status: userModel.UserStatus(row.Status)}, nil
 }
 
 // ── provider links (part of the User aggregate identity) ──

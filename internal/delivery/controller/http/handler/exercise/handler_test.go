@@ -167,12 +167,27 @@ func (f *fakeUC) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, med
 	}
 	return io.NopCloser(bytes.NewBufferString(f.streamedContent)), f.streamedFile, nil
 }
-func (f *fakeUC) MaxUploadBytes() int64                  { return f.maxUploadBytes }
-func (f *fakeUC) InfrastructureAvailable() bool          { return f.laboratoriesAvailable }
-func (f *fakeUC) MaxActiveTestDeploys() int              { return 2 }
-func (f *fakeUC) DevicePersistenceAllowed() bool         { return true }
-func (f *fakeUC) Policy() resourcesModel.Policy          { return resourcesModel.DefaultPolicy() }
-func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy { return f.flagPolicy }
+func (f *fakeUC) MaxUploadBytes() int64       { return f.maxUploadBytes }
+func (f *fakeUC) MaxSingleUploadBytes() int64 { return f.maxUploadBytes }
+func (f *fakeUC) UploadChunkBytes() int64     { return f.maxUploadBytes }
+func (f *fakeUC) StartUpload(context.Context, string, string, int64, uuid.UUID) (mediaModel.Upload, error) {
+	return mediaModel.Upload{}, nil
+}
+func (f *fakeUC) UploadStatus(context.Context, uuid.UUID, uuid.UUID) (mediaModel.Upload, error) {
+	return mediaModel.Upload{}, nil
+}
+func (f *fakeUC) PutChunk(context.Context, uuid.UUID, uuid.UUID, int, io.Reader) (mediaModel.Upload, error) {
+	return mediaModel.Upload{}, nil
+}
+func (f *fakeUC) CompleteUpload(context.Context, uuid.UUID, uuid.UUID, string) (mediaModel.File, error) {
+	return mediaModel.File{}, nil
+}
+func (f *fakeUC) AbortUpload(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+func (f *fakeUC) InfrastructureAvailable() bool                           { return f.laboratoriesAvailable }
+func (f *fakeUC) MaxActiveTestDeploys() int                               { return 2 }
+func (f *fakeUC) DevicePersistenceAllowed() bool                          { return true }
+func (f *fakeUC) Policy() resourcesModel.Policy                           { return resourcesModel.DefaultPolicy() }
+func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy                  { return f.flagPolicy }
 func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID) (exerciseModel.DeployHandle, error) {
 	return f.deployHandle, f.err
 }

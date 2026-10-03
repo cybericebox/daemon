@@ -25,6 +25,11 @@ type Queries interface {
 	DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]postgres.DeleteUnreferencedFilesRow, error)
 	ListOrphanBlobs(ctx context.Context, touchedBefore time.Time) ([]string, error)
 	DeleteBlob(ctx context.Context, contentHash string) (int64, error)
+	CreateMediaUpload(ctx context.Context, arg postgres.CreateMediaUploadParams) (postgres.MediaUpload, error)
+	GetMediaUpload(ctx context.Context, id uuid.UUID) (postgres.MediaUpload, error)
+	AdvanceMediaUpload(ctx context.Context, arg postgres.AdvanceMediaUploadParams) (int64, error)
+	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
+	ListExpiredMediaUploads(ctx context.Context, arg postgres.ListExpiredMediaUploadsParams) ([]postgres.MediaUpload, error)
 }
 
 type Repository struct {
@@ -114,4 +119,60 @@ func ToDomain(row postgres.File) mediaModel.File {
 		CreatedAt:   row.CreatedAt,
 		CreatedBy:   row.CreatedBy,
 	}
+}
+
+// ── resumable uploads ──
+
+func uploadToDomain(row postgres.MediaUpload) mediaModel.Upload {
+	return mediaModel.Upload{
+		ID: row.ID, CreatedBy: row.CreatedBy, Name: row.Name, ContentType: row.ContentType, SizeBytes: row.SizeBytes,
+		ChunkBytes: row.ChunkBytes, ChunksReceived: int(row.ChunksReceived), CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
+	}
+}
+
+// CreateUpload stores a new upload.
+func (r *Repository) CreateUpload(ctx context.Context, u mediaModel.Upload) (mediaModel.Upload, error) {
+	row, err := r.q.CreateMediaUpload(ctx, postgres.CreateMediaUploadParams{
+		ID: u.ID, CreatedBy: u.CreatedBy, Name: u.Name, ContentType: u.ContentType, SizeBytes: u.SizeBytes,
+		ChunkBytes: u.ChunkBytes, CreatedAt: u.CreatedAt, ExpiresAt: u.ExpiresAt,
+	})
+	if err != nil {
+		return mediaModel.Upload{}, err
+	}
+	return uploadToDomain(row), nil
+}
+
+// GetUpload loads an upload; not found propagates the raw repo error.
+func (r *Repository) GetUpload(ctx context.Context, id uuid.UUID) (mediaModel.Upload, error) {
+	row, err := r.q.GetMediaUpload(ctx, id)
+	if err != nil {
+		return mediaModel.Upload{}, err
+	}
+	return uploadToDomain(row), nil
+}
+
+// AdvanceUpload counts the next chunk as received, only when chunksReceived is still what the caller read; zero
+// rows means the client is out of step. The expiry moves forward with every chunk.
+func (r *Repository) AdvanceUpload(ctx context.Context, id, owner uuid.UUID, chunksReceived int, expiresAt time.Time) (int64, error) {
+	return r.q.AdvanceMediaUpload(ctx, postgres.AdvanceMediaUploadParams{
+		ID: id, CreatedBy: owner, ExpectedChunks: int32(chunksReceived), ExpiresAt: expiresAt,
+	})
+}
+
+// DeleteUpload drops the upload row.
+func (r *Repository) DeleteUpload(ctx context.Context, id uuid.UUID) (int64, error) {
+	return r.q.DeleteMediaUpload(ctx, id)
+}
+
+// ListExpiredUploads returns up to limit uploads that waited past the cutoff.
+func (r *Repository) ListExpiredUploads(ctx context.Context, cutoff time.Time, limit int) ([]mediaModel.Upload, error) {
+	rows, err := r.q.ListExpiredMediaUploads(ctx, postgres.ListExpiredMediaUploadsParams{ExpiresAt: cutoff, Limit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mediaModel.Upload, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, uploadToDomain(row))
+	}
+	return out, nil
 }

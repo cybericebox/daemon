@@ -15,6 +15,7 @@ import (
 
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
+	"github.com/cybericebox/daemon/pkg/secret"
 )
 
 type (
@@ -227,11 +228,17 @@ type (
 		TokenSignature string `env:"JWT_TOKEN_SIGNATURE"`
 		// SetupTokenTTL is the life of a setup link (account setup and invitations).
 		SetupTokenTTL time.Duration `env:"SETUP_TOKEN_TTL" envDefault:"168h"`
-		// SessionIdleTTL ends a session that was not used for this long (it slides on every use);
-		// SessionAbsoluteTTL ends it this long after sign-in however busy it is (the cookie's own
-		// lifetime). A stolen cookie therefore cannot be kept alive for ever by using it.
-		SessionIdleTTL     time.Duration `env:"SESSION_IDLE_TTL"     envDefault:"336h"`
-		SessionAbsoluteTTL time.Duration `env:"SESSION_ABSOLUTE_TTL" envDefault:"720h"`
+		// SessionIdleTTL is the life of a session cookie after it was issued: a cookie in use is re-issued, so the
+		// session ends this long after the last request. SessionAbsoluteTTL ends it this long after sign-in however
+		// busy it is. A stolen cookie therefore cannot be kept alive for ever by using it.
+		SessionIdleTTL     time.Duration `env:"SESSION_IDLE_TTL"     envDefault:"12h"`
+		SessionAbsoluteTTL time.Duration `env:"SESSION_ABSOLUTE_TTL" envDefault:"168h"`
+		// SessionEncryptionKey seals the session cookie (AES-256-GCM): one 64-hex-char key, or a keyring of
+		// id:hex entries whose first key seals and every key opens (rotation without signing everyone out). Secret.
+		SessionEncryptionKey string `env:"SESSION_ENCRYPTION_KEY"`
+		// SessionRevocationStaleAfter is how long the poll of the revoked-session list may keep failing before the
+		// replica refuses signed-in requests rather than trust a stale list.
+		SessionRevocationStaleAfter time.Duration `env:"SESSION_REVOCATION_STALE_AFTER" envDefault:"30s"`
 		// SessionMaxPerUser is how many sessions one account keeps at once; signing in over the cap
 		// ends the oldest. 0 means no cap.
 		SessionMaxPerUser int `env:"SESSION_MAX_PER_USER" envDefault:"10"`
@@ -332,8 +339,15 @@ type (
 	// MediaConfig bounds uploads and schedules unreferenced-file GC for the
 	// media subsystem (exercise attachments).
 	MediaConfig struct {
-		MaxUploadBytes int64         `env:"MAX_UPLOAD_BYTES" envDefault:"52428800"` // 50 MiB
-		GCGrace        time.Duration `env:"GC_GRACE"         envDefault:"24h"`
+		// MaxUploadBytes is the limit of one file (MEDIA_MAX_UPLOAD_BYTES). It is not bound by the request body
+		// limit: a file larger than one chunk goes up in chunks through the API.
+		MaxUploadBytes int64 `env:"MAX_UPLOAD_BYTES" envDefault:"536870912"` // 512 MiB
+		// UploadChunkBytes is the size of a chunk of a resumable upload, and the most a single-request upload may
+		// carry. At most 50 MiB: the edge limits a request body to 100 MB.
+		UploadChunkBytes int64 `env:"UPLOAD_CHUNK_BYTES" envDefault:"52428800"` // 50 MiB
+		// UploadTTL is how long an unfinished upload waits for its next chunk before it is dropped.
+		UploadTTL time.Duration `env:"UPLOAD_TTL"       envDefault:"24h"`
+		GCGrace   time.Duration `env:"GC_GRACE"         envDefault:"24h"`
 	}
 
 	// VPNConfig seals the stored VPN client configs (participants' and test deploys'
@@ -703,6 +717,44 @@ func (c RecaptchaConfig) Validate() error {
 	return nil
 }
 
+// MaxUploadChunkBytes is the largest chunk of a resumable upload: half of the 100 MB the edge allows in one
+// request body.
+const MaxUploadChunkBytes = 50 << 20
+
+// Validate checks the upload limits.
+func (c MediaConfig) Validate() error {
+	if c.MaxUploadBytes < 1 {
+		return errors.New("media: MEDIA_MAX_UPLOAD_BYTES must be at least 1")
+	}
+	if c.UploadChunkBytes < 1<<20 || c.UploadChunkBytes > MaxUploadChunkBytes {
+		return fmt.Errorf("media: MEDIA_UPLOAD_CHUNK_BYTES must be between 1 MiB and %d MiB", MaxUploadChunkBytes>>20)
+	}
+	if c.UploadTTL < time.Minute {
+		return errors.New("media: MEDIA_UPLOAD_TTL must be at least 1m")
+	}
+	return nil
+}
+
+// ValidateSession checks the session lifetimes and that the cookie key opens as a key or keyring.
+func (c AuthConfig) ValidateSession() error {
+	if c.SessionEncryptionKey == "" {
+		return errors.New("session: SESSION_ENCRYPTION_KEY is required (one 64-hex-char key, or a keyring of id:hex entries)")
+	}
+	if _, err := secret.New(c.SessionEncryptionKey); err != nil {
+		return fmt.Errorf("session: SESSION_ENCRYPTION_KEY is invalid (one 64-hex-char key, or a keyring of id:hex entries): %w", err)
+	}
+	if c.SessionIdleTTL < time.Minute {
+		return errors.New("session: SESSION_IDLE_TTL must be at least 1m")
+	}
+	if c.SessionAbsoluteTTL < c.SessionIdleTTL {
+		return errors.New("session: SESSION_ABSOLUTE_TTL must not be shorter than SESSION_IDLE_TTL")
+	}
+	if c.SessionRevocationStaleAfter < 5*time.Second {
+		return errors.New("session: SESSION_REVOCATION_STALE_AFTER must be at least 5s")
+	}
+	return nil
+}
+
 // MinSigningSecretBytes is the least a signing secret (JWT_TOKEN_SIGNATURE,
 // OAUTH_STATE_SIGNATURE) may be: an HMAC-SHA256 key shorter than its hash is
 // brute-forceable offline from one issued token.
@@ -792,6 +844,12 @@ func MustGetConfig() *Config {
 
 	if err = instance.Auth.ValidateCaptcha(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid bot check configuration")
+	}
+	if err = instance.Media.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid media configuration")
+	}
+	if err = instance.Auth.ValidateSession(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid session configuration")
 	}
 	for _, weakness := range instance.Auth.Weaknesses() {
 		if instance.Environment == Production {

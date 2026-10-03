@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -23,25 +22,43 @@ import (
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 )
 
-// fakeUseCase is a hand-written stand-in for the auth use case. The interface
-// only exposes ValidateSessionCookie/UpdateLastSeen/SignOut now — there is
-// exactly one credential (the session cookie), so the old local-token /
-// exchange-code / return-to methods no longer exist on IUseCase.
+// fakeUseCase is a hand-written stand-in for the auth use case: OpenSession fails with sessionErr (a garbage,
+// expired or revoked cookie), otherwise LoadCaller answers with loadErr or the claims of sessionResult. calls
+// records the order of the steps.
 type fakeUseCase struct {
 	sessionResult *authUseCase.SessionAuthResult
 	sessionErr    error
+	loadErr       error
+	reissue       string
+	calls         []string
 	auditEntries  []adminAuditUseCase.Entry
 }
 
-func (f *fakeUseCase) ValidateSessionCookie(
-	_ context.Context,
-	_ string,
-) (*authUseCase.SessionAuthResult, error) {
-	return f.sessionResult, f.sessionErr
+func (f *fakeUseCase) OpenSession(_ string) (authUseCase.SessionPass, error) {
+	f.calls = append(f.calls, "open")
+	if f.sessionErr != nil {
+		return authUseCase.SessionPass{}, f.sessionErr
+	}
+	pass := authUseCase.SessionPass{}
+	if f.sessionResult != nil {
+		pass.Ticket.SessionID, pass.Ticket.UserID = f.sessionResult.Claims.SessionID, f.sessionResult.Claims.UserID
+	}
+	return pass, nil
 }
 
-func (f *fakeUseCase) UpdateLastSeen(_ context.Context, _, _ uuid.UUID) error { return nil }
-func (f *fakeUseCase) SignOut(_ context.Context, _ uuid.UUID) error           { return nil }
+func (f *fakeUseCase) LoadCaller(_ context.Context, _ authUseCase.SessionPass) (authModel.AuthClaims, error) {
+	f.calls = append(f.calls, "load")
+	if f.loadErr != nil {
+		return authModel.AuthClaims{}, f.loadErr
+	}
+	return f.sessionResult.Claims, nil
+}
+
+func (f *fakeUseCase) ReissueCookie(_ authUseCase.SessionPass) (string, bool) {
+	return f.reissue, f.reissue != ""
+}
+
+func (f *fakeUseCase) SignOut(_ context.Context, _ uuid.UUID) error { return nil }
 func (f *fakeUseCase) RecordAdminAction(_ context.Context, entry adminAuditUseCase.Entry) error {
 	f.auditEntries = append(f.auditEntries, entry)
 	return nil
@@ -95,11 +112,6 @@ func TestRequireAuthentication_ValidSession_PopulatesContext(t *testing.T) {
 		&fakeUseCase{
 			sessionResult: &authUseCase.SessionAuthResult{
 				Claims: authModel.AuthClaims{SessionID: sid, UserID: uid, Role: "user"},
-				Session: &authModel.Session{
-					ID:        sid,
-					UserID:    uid,
-					ExpiresAt: time.Now().Add(time.Hour),
-				},
 			},
 		},
 	)
@@ -288,11 +300,6 @@ func TestRequirePermission(t *testing.T) {
 			&fakeUseCase{
 				sessionResult: &authUseCase.SessionAuthResult{
 					Claims: authModel.AuthClaims{SessionID: sid, UserID: uid, Role: role},
-					Session: &authModel.Session{
-						ID:        sid,
-						UserID:    uid,
-						ExpiresAt: time.Now().Add(time.Hour),
-					},
 				},
 			},
 		)
@@ -568,8 +575,7 @@ func TestRequirePermission_AsksTheLimiter(t *testing.T) {
 	limiter := &refusingLimiter{}
 	p := protection.New(protection.Dependencies{
 		UseCase: &fakeUseCase{sessionResult: &authUseCase.SessionAuthResult{
-			Claims:  authModel.AuthClaims{SessionID: sid, UserID: uid, Role: "user"},
-			Session: &authModel.Session{ID: sid, UserID: uid, ExpiresAt: time.Now().Add(time.Hour)},
+			Claims: authModel.AuthClaims{SessionID: sid, UserID: uid, Role: "user"},
 		}},
 		Config:  config.AuthConfig{Hosts: config.HostsConfig{API: "api.example.test"}},
 		Limiter: limiter,
@@ -584,5 +590,99 @@ func TestRequirePermission_AsksTheLimiter(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusTooManyRequests || reached || limiter.calls != 1 {
 		t.Fatalf("code %d, reached %v, limiter calls %d", w.Code, reached, limiter.calls)
+	}
+}
+
+// orderLimiter records into the use case's call log, so the test sees where the limiter sits between the steps.
+type orderLimiter struct{ uc *fakeUseCase }
+
+func (l orderLimiter) Check(_ *gin.Context, _ uuid.UUID, _ bool) bool {
+	l.uc.calls = append(l.uc.calls, "limit")
+	return true
+}
+
+func sessionRouter(p *protection.Protection, perm rbac.Permission) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	r.GET("/x", p.RequirePermission(perm), func(c *gin.Context) { c.Status(http.StatusOK) })
+	return r
+}
+
+func getWithCookie(r *gin.Engine) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "x"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func okResult() *authUseCase.SessionAuthResult {
+	return &authUseCase.SessionAuthResult{Claims: authModel.AuthClaims{
+		SessionID: uuid.Must(uuid.NewV7()), UserID: uuid.Must(uuid.NewV7()), Role: "user"}}
+}
+
+// The spec's order: decrypt and revocation, then the per-user limit, and only then the one database query.
+func TestRequestOrder_OpenThenLimitThenLoad(t *testing.T) {
+	uc := &fakeUseCase{sessionResult: okResult()}
+	p := protection.New(protection.Dependencies{UseCase: uc, Limiter: orderLimiter{uc}})
+	if w := getWithCookie(sessionRouter(p, rbac.PermSelf)); w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+	if got := strings.Join(uc.calls, ","); got != "open,limit,load" {
+		t.Fatalf("order %q, want open,limit,load", got)
+	}
+}
+
+// A dead cookie (garbage, expired, revoked) is a 401 that never reaches the limiter or the database.
+func TestDeadCookie_401WithoutLimiterOrLoad_AndTheCookieIsCleared(t *testing.T) {
+	uc := &fakeUseCase{sessionErr: authModel.ErrAuthInvalidSession.Err()}
+	p := protection.New(protection.Dependencies{UseCase: uc, Limiter: orderLimiter{uc}})
+	w := getWithCookie(sessionRouter(p, rbac.PermSelf))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
+	}
+	if got := strings.Join(uc.calls, ","); got != "open" {
+		t.Fatalf("calls %q: nothing after the cookie check may run", got)
+	}
+	if c := findCookie(w, authModel.SessionCookie); c == nil || c.MaxAge >= 0 {
+		t.Fatalf("a dead cookie must be cleared, got %+v", c)
+	}
+}
+
+// A blocked or removed account: the user query answers 401 and the cookie is cleared.
+func TestBlockedCaller_401(t *testing.T) {
+	uc := &fakeUseCase{sessionResult: okResult(), loadErr: authModel.ErrAuthInvalidSession.Err()}
+	p := protection.New(protection.Dependencies{UseCase: uc})
+	if w := getWithCookie(sessionRouter(p, rbac.PermSelf)); w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d", w.Code)
+	}
+}
+
+// A replica that cannot trust its revocation list answers 503 and keeps the cookie (the session is not dead).
+func TestStaleRevocationList_503KeepsTheCookie(t *testing.T) {
+	uc := &fakeUseCase{sessionErr: authModel.ErrAuthSessionsUnavailable.Err()}
+	p := protection.New(protection.Dependencies{UseCase: uc})
+	w := getWithCookie(sessionRouter(p, rbac.PermSelf))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d", w.Code)
+	}
+	if findCookie(w, authModel.SessionCookie) != nil {
+		t.Fatal("the cookie must stay")
+	}
+}
+
+// Set-Cookie only when the use case says the re-issue is due.
+func TestReissue_SetsCookieOnlyWhenDue(t *testing.T) {
+	uc := &fakeUseCase{sessionResult: okResult(), reissue: "fresh-ticket"}
+	p := protection.New(protection.Dependencies{UseCase: uc, Config: config.AuthConfig{SessionIdleTTL: 12 * 3600e9}})
+	w := getWithCookie(sessionRouter(p, rbac.PermSelf))
+	c := findCookie(w, authModel.SessionCookie)
+	if c == nil || c.Value != "fresh-ticket" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("re-issued cookie: %+v", c)
+	}
+	uc.reissue = ""
+	if w = getWithCookie(sessionRouter(p, rbac.PermSelf)); findCookie(w, authModel.SessionCookie) != nil {
+		t.Fatal("no Set-Cookie on other responses")
 	}
 }

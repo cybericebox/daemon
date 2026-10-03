@@ -18,6 +18,9 @@ type Querier interface {
 	// one link avoids a read/replace race when uploads finish concurrently.
 	AddFileReference(ctx context.Context, arg AddFileReferenceParams) error
 	AdvanceEventResultRevision(ctx context.Context, arg AdvanceEventResultRevisionParams) (AdvanceEventResultRevisionRow, error)
+	// A chunk is accepted only as the next one in order; zero rows means the client is out of step (it reads the
+	// status and continues from chunks_received). Every accepted chunk moves the expiry forward.
+	AdvanceMediaUpload(ctx context.Context, arg AdvanceMediaUploadParams) (int64, error)
 	// Overwrites the final row of a user x lab x access type with the collector's
 	// cumulative values. Totals never go down (a stale resend cannot lower them),
 	// first is min, last is max, first_responded_at the earliest answer.
@@ -188,6 +191,7 @@ type Querier interface {
 	CreateLabBinding(ctx context.Context, arg CreateLabBindingParams) (LabBinding, error)
 	// A no-op for an event that no longer exists (a stale group).
 	CreateLabTrafficCoverage(ctx context.Context, arg CreateLabTrafficCoverageParams) error
+	CreateMediaUpload(ctx context.Context, arg CreateMediaUploadParams) (MediaUpload, error)
 	// The hidden moderators team: captained by the event owner, admitted and
 	// locked, excluded from every participant, scoring and team-management read.
 	CreateModeratorsTeam(ctx context.Context, arg CreateModeratorsTeamParams) error
@@ -246,6 +250,7 @@ type Querier interface {
 	DeleteExerciseEventAccess(ctx context.Context, exerciseID uuid.UUID) error
 	DeleteExpiredRequestIdempotency(ctx context.Context, expiresAt time.Time) (int64, error)
 	DeleteExpiredResourceTestLabHolds(ctx context.Context, now time.Time) (int64, error)
+	DeleteExpiredSessionRevocations(ctx context.Context) (int64, error)
 	DeleteFileReferences(ctx context.Context, arg DeleteFileReferencesParams) (int64, error)
 	DeleteFileReferencesBatch(ctx context.Context, arg DeleteFileReferencesBatchParams) (int64, error)
 	DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error)
@@ -253,11 +258,11 @@ type Querier interface {
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
 	DeleteLabBindingsForChallenges(ctx context.Context, ids []uuid.UUID) error
 	DeleteLabGroupPlacement(ctx context.Context, labGroupName string) error
+	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteOwnedExerciseTestDeploy(ctx context.Context, arg DeleteOwnedExerciseTestDeployParams) (int64, error)
 	DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
-	DeleteSession(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSolveIntegrityReview(ctx context.Context, arg DeleteSolveIntegrityReviewParams) (int64, error)
 	// A snapshot is the agent's full picture: groups it no longer reports are gone.
@@ -272,9 +277,6 @@ type Querier interface {
 	DeleteUnreferencedFiles(ctx context.Context, createdBefore time.Time) ([]DeleteUnreferencedFilesRow, error)
 	DeleteUserProvider(ctx context.Context, arg DeleteUserProviderParams) (int64, error)
 	DeleteUserProviders(ctx context.Context, userID uuid.UUID) (int64, error)
-	DeleteUserSession(ctx context.Context, arg DeleteUserSessionParams) (int64, error)
-	DeleteUserSessions(ctx context.Context, userID uuid.UUID) (int64, error)
-	DeleteUserSessionsExcept(ctx context.Context, arg DeleteUserSessionsExceptParams) (int64, error)
 	DeleteUserVPNConfig(ctx context.Context, arg DeleteUserVPNConfigParams) (int64, error)
 	DetachEventExercise(ctx context.Context, arg DetachEventExerciseParams) (int64, error)
 	DiscardEventLandingDraft(ctx context.Context, eventID uuid.UUID) (int64, error)
@@ -318,6 +320,7 @@ type Querier interface {
 	GetActiveChannels(ctx context.Context, arg GetActiveChannelsParams) ([]string, error)
 	// The event's one working link (unrevoked and not expired).
 	GetActiveEventLiveScreenLink(ctx context.Context, arg GetActiveEventLiveScreenLinkParams) (EventLiveScreenLink, error)
+	GetDatabaseTime(ctx context.Context) (time.Time, error)
 	GetDispatch(ctx context.Context, id uuid.UUID) (GetDispatchRow, error)
 	GetDraftVersion(ctx context.Context, exerciseID uuid.UUID) (ExerciseVersion, error)
 	GetEarliestEventResultChangeRevision(ctx context.Context, eventID uuid.UUID) (int64, error)
@@ -457,6 +460,7 @@ type Querier interface {
 	// accounts created by the invitation itself (within a minute of it), and how
 	// many of them finished the registration; accounts purged unconfirmed are gone.
 	GetMailFunnels(ctx context.Context, arg GetMailFunnelsParams) (GetMailFunnelsRow, error)
+	GetMediaUpload(ctx context.Context, id uuid.UUID) (MediaUpload, error)
 	GetModeratorsTeam(ctx context.Context, eventID uuid.UUID) (EventTeam, error)
 	GetNotificationBroadcast(ctx context.Context, id uuid.UUID) (GetNotificationBroadcastRow, error)
 	GetNotificationSetting(ctx context.Context, arg GetNotificationSettingParams) (NotificationSetting, error)
@@ -535,6 +539,8 @@ type Querier interface {
 	GetTeamChallengeHints(ctx context.Context, arg GetTeamChallengeHintsParams) (GetTeamChallengeHintsRow, error)
 	GetTeamChallengeScoringContext(ctx context.Context, teamChallengeID uuid.UUID) (GetTeamChallengeScoringContextRow, error)
 	GetTemporalCodeByCode(ctx context.Context, code string) (TemporalCode, error)
+	// The one query per signed-in request: the global role and the status (blocked) of the caller.
+	GetUserAccess(ctx context.Context, id uuid.UUID) (GetUserAccessRow, error)
 	// The address arrives normalized (trimmed, lower case): the plain unique
 	// index on email does the lookup.
 	GetUserByEmail(ctx context.Context, email string) (User, error)
@@ -563,6 +569,8 @@ type Querier interface {
 	ListActiveBannersByUser(ctx context.Context, arg ListActiveBannersByUserParams) ([]ListActiveBannersByUserRow, error)
 	ListActiveFutureTimedEventFormAssignments(ctx context.Context, eventID uuid.UUID) ([]EventFormAssignment, error)
 	ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]ResourceTestLabHold, error)
+	// What a replica loads before it serves: the revocations whose cookies could still be alive.
+	ListActiveSessionRevocations(ctx context.Context) ([]SessionRevocation, error)
 	// One page of the journal, newest first, keyset-paged by (created_at, id).
 	// Every filter is optional. route and target_id are "contains" matches
 	// (strpos, so no LIKE escaping); target_kind matches the "kind:" token of the
@@ -874,6 +882,7 @@ type Querier interface {
 	// event) — for the others a catalog exercise is simply "published".
 	ListExercisesPage(ctx context.Context, arg ListExercisesPageParams) ([]ListExercisesPageRow, error)
 	ListExpiredExerciseTestDeploys(ctx context.Context, expiresAt time.Time) ([]ExerciseTestDeployment, error)
+	ListExpiredMediaUploads(ctx context.Context, arg ListExpiredMediaUploadsParams) ([]MediaUpload, error)
 	// Exercises whose versions reference a file (attachment download policy).
 	ListFileExerciseIDs(ctx context.Context, arg ListFileExerciseIDsParams) ([]uuid.UUID, error)
 	// Who uploaded each of the files: an exercise draft may attach only files its author uploaded or the exercise
@@ -1134,6 +1143,8 @@ type Querier interface {
 	ListResourceReservationsEndingAfter(ctx context.Context, afterAt time.Time) ([]ResourceReservation, error)
 	// The active reservations that share a slot with [from, to).
 	ListResourceReservationsInWindow(ctx context.Context, arg ListResourceReservationsInWindowParams) ([]ResourceReservation, error)
+	// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
+	ListSessionRevocationsSince(ctx context.Context, revokedAt time.Time) ([]SessionRevocation, error)
 	// scope_filter: 'platform' = platform banners, otherwise the Event id.
 	ListSiteBanners(ctx context.Context, scopeFilter string) ([]SiteBanner, error)
 	ListSolveIntegrityReviews(ctx context.Context, eventID uuid.UUID) ([]ListSolveIntegrityReviewsRow, error)
@@ -1360,6 +1371,13 @@ type Querier interface {
 	RetrySignalOutbox(ctx context.Context, arg RetrySignalOutboxParams) (int64, error)
 	// «Вимкнути»: the event has no working link afterwards.
 	RevokeEventLiveScreenLinks(ctx context.Context, arg RevokeEventLiveScreenLinksParams) (int64, error)
+	// Ending a session deletes its row and writes the revocation row in ONE statement (a session never ends
+	// without its revocation). expires_at is when the cookie would die by itself: the smaller of sign-in + absolute TTL
+	// and last_seen + idle TTL + 1 min margin.
+	RevokeSession(ctx context.Context, arg RevokeSessionParams) ([]RevokeSessionRow, error)
+	RevokeUserSession(ctx context.Context, arg RevokeUserSessionParams) ([]RevokeUserSessionRow, error)
+	RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) ([]RevokeUserSessionsRow, error)
+	RevokeUserSessionsExcept(ctx context.Context, arg RevokeUserSessionsExceptParams) ([]RevokeUserSessionsExceptRow, error)
 	RollbackEmailTemplate(ctx context.Context, arg RollbackEmailTemplateParams) (NotificationEmailTemplate, error)
 	RollbackInAppTemplate(ctx context.Context, arg RollbackInAppTemplateParams) (NotificationInAppTemplate, error)
 	SaveEventLandingDraft(ctx context.Context, arg SaveEventLandingDraftParams) (int64, error)
@@ -1422,6 +1440,8 @@ type Querier interface {
 	// A time only. The write is skipped while the stored time is under a minute
 	// old, so a burst of requests costs one row update.
 	TouchEventParticipantPresence(ctx context.Context, arg TouchEventParticipantPresenceParams) error
+	// last_seen is written at most once per 30 s window per session by the replica that serves it; GREATEST keeps a
+	// late write from moving it back. The idle deadline follows it.
 	TouchSession(ctx context.Context, arg TouchSessionParams) (int64, error)
 	TrimErrorSamples(ctx context.Context, arg TrimErrorSamplesParams) error
 	// max_team_size is supplied by the event config inside the same transaction.
@@ -1489,7 +1509,7 @@ type Querier interface {
 	// touch hot path — including it would race and lose updates) and created_at
 	// (immutable). updated_at comes from the domain (touch), not now().
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (int64, error)
-	UpdateUserLastSeen(ctx context.Context, id uuid.UUID) (int64, error)
+	UpdateUserLastSeen(ctx context.Context, arg UpdateUserLastSeenParams) (int64, error)
 	// attempts is the real number of delivery attempts of this run (dispatcher
 	// rounds plus an SMTP fallback), added to any earlier run of the same target.
 	UpsertDispatchTarget(ctx context.Context, arg UpsertDispatchTargetParams) error

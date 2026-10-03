@@ -26,9 +26,9 @@ Go 1.26 · Gin · pgx/v5 + sqlc · golang-migrate · River (jobs) · gomock · t
 
 - One whole-entity repository per aggregate (`userRepo`, `sessionRepo`): accepts/returns domain models; sqlc rows, `pgtype`, and JSON (de)serialization exist only inside it. Writes are ONE statement per aggregate (`UpdateUser`, `CreateSession`) — a single UPDATE is atomic, so no unit of work for single-aggregate flows.
 - Deliberate narrow-query exceptions (documented in each repo's package comment):
-  - `UpdateUserLastSeen` / `TouchSession` — async hot path (`protection.touchAsync`); they are excluded from the aggregate UPDATE column set so full-row writes cannot race them;
+  - `UpdateUserLastSeen` / `TouchSession` — the batched last_seen write (`session.Seen`); they are excluded from the aggregate UPDATE column set so full-row writes cannot race them;
   - reads for lists/stats (`ListUsersCursor`, `Count*`) — query-side shapes;
-  - `Delete*` — set operations, not aggregate mutations.
+  - `Delete*` — set operations, not aggregate mutations; `Revoke*` (sessions) delete the rows and write their `session_revocations` rows in one statement.
 - The `mutateUser` helper in `useCase/auth` is the canonical write path: fetch → mutate → whole update, guarded by an optimistic lock (`expected_updated_at` = the UpdatedAt loaded BEFORE the mutation). Zero rows → re-read to discriminate: row gone → `ErrUserNotFound` (404), row present → `ErrUserModified` (409, client reloads).
 - Multi-row aggregates stay in SQL: the notification template *version family* (draft/published/unpublished rows per type) enforces its invariants — one published per type, publish only from draft, rollback only from unpublished — atomically in the `Publish*`/`Rollback*` CTE queries. Do NOT re-implement these as Go fetch-mutate-write transitions (multi-row transactions, races, zero gain). The domain still owns the vocabulary: typed `TemplateStatus`, `NewDraft` factories, `IsDraft/IsPublished/IsUnpublished` predicates.
 
