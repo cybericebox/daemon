@@ -75,3 +75,25 @@ lint-routes:
 ## accounts and their password go to the gitignored .seed-credentials. See the README.
 seed:
 	@set -a; . ./.env; set +a; go run ./cmd/seed $(ARGS)
+
+# Branch cycle (scripts/dev.sh, the same in every repository), see CONTRIBUTING.md:
+#   make dev-start NAME=<x>      feature/<x> from the fresh develop
+#   make dev-push [MINOR=1] [LAB=...]   push, open or update the PR into develop, auto-merge when green
+#       LAB absent: go.mod keeps its laboratory pin; LAB= (empty): pin the commit ../laboratory is on;
+#       LAB=<commit|branch|vX.Y.Z>: pin that (see scripts/dev-pre-push.sh)
+#   make dev-done                back to develop, pull, delete the merged local branch
+#   make work                    ../go.work: build against the local ../laboratory (gitignored; CI never uses it)
+.PHONY: dev-start dev-push dev-done work
+dev-start:
+	@NAME='$(NAME)' scripts/dev.sh start
+
+dev-push:
+	@LAB_SET='$(if $(filter command line,$(origin LAB)),1)' LAB='$(LAB)' MINOR='$(MINOR)' scripts/dev.sh push
+
+dev-done:
+	@scripts/dev.sh done
+
+work:
+	@test -d ../laboratory || { echo "../laboratory is not checked out" >&2; exit 1; }
+	@test ! -e ../go.work || { echo "../go.work already exists" >&2; exit 1; }
+	@v=$$(.github/scripts/lab-pin.sh version); cd .. && go work init ./daemon ./laboratory && go work edit -replace "github.com/cybericebox/laboratory@$$v=./laboratory" && echo "../go.work created: the daemon builds against ../laboratory (rerun after changing the pin: rm ../go.work && make work)"

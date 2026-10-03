@@ -10,19 +10,17 @@ FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662
 ARG TARGETOS=linux
 ARG TARGETARCH
 WORKDIR /build
-COPY go.* ./
-# The backend imports the Laboratory agent contract through the local Go-module
-# replacement in go.mod.  Docker build contexts are isolated, so deployments
-# must supply this named context (Compose does so in infrastructure/local).
-COPY --from=laboratory go.mod /laboratory/go.mod
-# the agent contract and the small packages it and the backend share (vpnprobe, tlsreload, ...)
-COPY --from=laboratory pkg /laboratory/pkg
+COPY go.mod go.sum ./
+# The laboratory agent contract comes through go mod download, at the version go.mod pins (no replace, no go.work).
 RUN go mod download
 COPY . .
 COPY ./internal/delivery/repository/postgres/migrations /build/migrations
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o app -a -ldflags '-w -extldflags "-static"' ./cmd/daemon
 
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+# The laboratory version go.mod pins (CI passes it). infrastructure checks it against LABORATORY_IMAGE_TAG.
+ARG LABORATORY_VERSION=unknown
+LABEL org.cybericebox.laboratory.commit=$LABORATORY_VERSION
 # The daemon runs as an unprivileged user (no root inside the container). It therefore listens on 8080;
 # set HTTP_SERVER_PORT to change it.
 RUN addgroup -S -g 10001 app && adduser -S -D -u 10001 -G app app
