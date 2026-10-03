@@ -45,5 +45,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            cybericebox/daemon:develop
             cybericebox/daemon:${{ steps.meta.outputs.sha }}

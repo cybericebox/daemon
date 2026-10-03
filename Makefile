@@ -9,7 +9,7 @@ APIDOCS_DIR     := ./internal/delivery/controller/http/handler/apidocs
 .PHONY: swagger build vet test tidy run sqlcGenerate error-catalog seed
 
 sqlcGenerate:
-	@docker run --rm -v ./internal/delivery/repository/postgres:/src -w /src sqlc/sqlc generate
+	@docker run --rm -v ./internal/delivery/repository/postgres:/src -w /src sqlc/sqlc:1.31.1@sha256:70f53171d27b2424e9358869975455a6e955a5aa8e58a998a270a6e34e525537 generate
 
 ## error-catalog: regenerate error-catalog/errors.en.json (code → English message,
 ## the single source of truth frontends localize against). Run after adding or

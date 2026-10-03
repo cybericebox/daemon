@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version tag to publish (vX.Y.Z), also tagged latest
+        description: Version tag to publish (vX.Y.Z)
         required: true
       laboratory_ref:
         description: Ref of cybericebox/laboratory to build against
@@ -53,4 +53,3 @@ jobs:
           cache-to: type=gha,mode=max
           tags: |
             cybericebox/daemon:${{ steps.meta.outputs.version }}
-            cybericebox/daemon:latest
