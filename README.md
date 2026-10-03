@@ -85,9 +85,17 @@ All six hosts are bare host names (no scheme, port or path) under one registrabl
 | `HTTP_SERVER_MAX_HEADER_MB` | `1` | Max header size in MiB. |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` | Cap of every request body (10 MiB); an upload route states its own larger cap. |
 | `TRUSTED_PROXIES` | none | Comma-separated CIDRs or addresses of the proxies in front of the daemon (ingress, CDN). The client address is read from `X-Forwarded-For` only for requests from them; with none listed the connection address is used and the header is ignored. Behind a proxy set it, or every client shares the proxy address in the per-address limits. |
-| `HTTP_SERVER_TLS_ENABLED` | `false` | Serve HTTPS. |
+| `HTTP_SERVER_TLS_ENABLED` | `false` | Serve HTTPS (TLS 1.2+, HTTP/2) on `HTTP_SERVER_TLS_PORT` instead of plain HTTP on `HTTP_SERVER_PORT`. |
+| `HTTP_SERVER_TLS_PORT` | `8443` | HTTPS listen port. |
 | `HTTP_SERVER_TLS_CERT_FILE` | `/certificates/tls.crt` | Server certificate. |
-| `HTTP_SERVER_TLS_KEY_FILE` | `/certificates/tls.key` | Server key. |
+| `HTTP_SERVER_TLS_KEY_FILE` | `/certificates/tls.key` | Server key. The certificate and key are reread when either file changes (a renewal needs no restart); a broken renewal keeps the previous pair in service. |
+| `HTTP_SERVER_TLS_CLIENT_AUTH` | `false` | mTLS: require and verify a client certificate against `HTTP_SERVER_TLS_CA_FILE` (Cloudflare Authenticated Origin Pulls). No certificate or another CA: the handshake is refused. Needs `HTTP_SERVER_TLS_ENABLED`. |
+| `HTTP_SERVER_TLS_CA_FILE` | `/aop/ca.crt` | CA bundle the client certificate is verified against (used with client auth); reread when it changes. |
+| `HTTP_SERVER_HEALTH_PORT` | `8081` | TLS mode only: a plain-HTTP listener on `HEALTH_BIND` that serves only `GET /api/health` (the kubelet cannot present a client certificate). Never route it. |
+| `HEALTH_BIND` | `0.0.0.0` | Address of the health listener and of the internal listener; the deploy sets the pod IP. |
+| `HTTP_SERVER_INTERNAL_PORT` | none (off) | When set, a second plain-HTTP listener on `HEALTH_BIND` with the same API handler, for in-cluster callers (the event-frontend server rendering, `INTERNAL_API_ORIGIN`). Restrict who reaches it with a NetworkPolicy. |
+
+Client address: the only use is the session IP (login session, visible to the user only). With `HTTP_SERVER_TLS_CLIENT_AUTH` on, a request whose client certificate verified takes it from `CF-Connecting-IP` (a missing or invalid value falls back to the connection address); the header is never trusted on any other connection (plain, internal listener, mTLS off), where `TRUSTED_PROXIES` / `X-Forwarded-For` apply as before.
 
 ### Database
 
