@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/session"
 	"strings"
 	"time"
 
@@ -121,7 +122,9 @@ func (s *Seeder) Cleanup(ctx context.Context, opts Options) (CleanupReport, erro
 			if affected, updateErr := s.users.Update(ctx, user, expected); updateErr != nil || affected == 0 {
 				return report, fmt.Errorf("delete user %s: affected=%d err=%v", user.Email, affected, updateErr)
 			}
-			if _, err = sessions.DeleteAllForUser(ctx, user.ID); err != nil {
+			// The running replicas learn of it through the revocation list; the lifetimes are the generous ones (a
+			// longer row is harmless, a shorter one would let a cookie outlive its revocation).
+			if _, err = sessions.RevokeAllForUser(ctx, user.ID, seedSessionLifetimes); err != nil {
 				return report, fmt.Errorf("revoke sessions of %s: %w", user.Email, err)
 			}
 			if _, err = s.users.DeleteProviders(ctx, user.ID); err != nil {
@@ -139,3 +142,6 @@ func (s *Seeder) Cleanup(ctx context.Context, opts Options) (CleanupReport, erro
 	}
 	return report, nil
 }
+
+// seedSessionLifetimes are longer than any configured session lifetime.
+var seedSessionLifetimes = session.Lifetimes{Idle: 30 * 24 * time.Hour, Absolute: 30 * 24 * time.Hour}

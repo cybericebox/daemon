@@ -84,6 +84,15 @@ type (
 		// (see files.go), so an oversized upload is rejected before the
 		// multipart body is parsed, not after.
 		MaxUploadBytes() int64
+		// MaxSingleUploadBytes is the most one single-request upload may carry (one chunk at most).
+		MaxSingleUploadBytes() int64
+		// resumable chunked upload (a request body is limited at the edge)
+		UploadChunkBytes() int64
+		StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID) (mediaModel.Upload, error)
+		UploadStatus(ctx context.Context, id, owner uuid.UUID) (mediaModel.Upload, error)
+		PutChunk(ctx context.Context, id, owner uuid.UUID, index int, r io.Reader) (mediaModel.Upload, error)
+		CompleteUpload(ctx context.Context, id, owner uuid.UUID, wantSHA256 string) (mediaModel.File, error)
+		AbortUpload(ctx context.Context, id, owner uuid.UUID) error
 		// W4: data-dependent authorization and ownership
 		AuthorizeExercise(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, action exerciseUseCase.Action) (exerciseUseCase.Access, error)
 		AuthorizeFileUpload(ctx context.Context, actor exerciseUseCase.Actor) error
@@ -130,6 +139,14 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// named wildcard (":id") was already claimed at that position.
 		ex.POST("files", self, h.uploadFile)
 		ex.GET("files/:fileID", self, h.downloadFile)
+		// resumable chunked upload: chunks of at most 50 MiB through the API, in order
+		ex.POST("uploads", self, h.startUpload)
+		ex.GET("uploads/:uploadID", self, h.uploadStatus)
+		ex.PUT("uploads/:uploadID/chunks/:index", self, h.putUploadChunk)
+		ex.POST("uploads/:uploadID/complete", self, h.completeUpload)
+		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
+		// a ZIP archive that went up in chunks
+		ex.POST("import/uploaded", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
 		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)
 		ex.POST("import", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
 		ex.GET("capabilities", self, h.capabilities)

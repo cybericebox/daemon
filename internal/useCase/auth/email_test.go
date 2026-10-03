@@ -32,7 +32,7 @@ func newEmailUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *f
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	notifier := &fakeNotifier{}
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
@@ -125,7 +125,7 @@ func TestConfirmEmailChange_Success(t *testing.T) {
 	// The Google identity vouched for the old address: it is unlinked.
 	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
 	// M1: the recovery address changed — every session ends.
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(1), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(1), nil)
 
 	if err := uc.ConfirmEmailChange(context.Background(), bsCode); err != nil {
 		t.Fatalf("confirm: %v", err)

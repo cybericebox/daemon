@@ -14,8 +14,7 @@ import (
 
 // SessionAuthResult is returned by ValidateSessionCookie.
 type SessionAuthResult struct {
-	Claims  authModel.AuthClaims
-	Session *authModel.Session
+	Claims authModel.AuthClaims
 }
 
 // SessionInfo is the account "Sessions" view of one active session.

@@ -19,6 +19,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
 	jobsRegistry "github.com/cybericebox/daemon/internal/jobs"
 	errorjournalJob "github.com/cybericebox/daemon/internal/jobs/errorjournal"
 	"github.com/cybericebox/daemon/internal/limits"
@@ -26,9 +27,11 @@ import (
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
+	"github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/internal/useCase"
 	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
+	"github.com/cybericebox/daemon/pkg/secret"
 	"github.com/cybericebox/daemon/pkg/telegram"
 	"github.com/cybericebox/daemon/pkg/worker"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
@@ -72,6 +75,22 @@ func Run(cfg *config.Config) {
 		log.Fatal().Err(err).Msg("Invalid device resources settings")
 	}
 
+	// ── sessions ──
+	// The cookie is the session: it is decrypted with this key and trusted while its session is not in the
+	// revocation set every replica polls. The set is loaded before the replica serves.
+	sessionCipher, err := secret.New(cfg.Auth.SessionEncryptionKey)
+	if err != nil {
+		log.Fatal().Err(err).Msg("SESSION_ENCRYPTION_KEY is invalid")
+	}
+	sessions := session.NewRuntime(session.RuntimeConfig{
+		Sealer:     sessionCipher,
+		Source:     sessionRepo.New(repo.Queries),
+		StaleAfter: cfg.Auth.SessionRevocationStaleAfter,
+	})
+	if err = sessions.Start(runtimeCtx); err != nil {
+		log.Fatal().Err(err).Msg("Failed to load the revoked sessions")
+	}
+
 	// ── useCases ──
 	deps := useCase.Dependencies{
 		Repo:             repo,
@@ -82,6 +101,7 @@ func Run(cfg *config.Config) {
 		Token:            cls.tokenClient,
 		Password:         cls.passwordClient,
 		AuthConfig:       cfg.Auth,
+		Sessions:         sessions,
 		MediaConfig:      cfg.Media,
 		ExerciseConfig:   cfg.Exercise,
 		ResourcesPolicy:  resourcesPolicy,
@@ -228,6 +248,8 @@ func Run(cfg *config.Config) {
 
 	wc.Stop(shutdownCtx)
 	ctrl.Stop(shutdownCtx)
+	// The requests are done: write the last_seen times still held in memory.
+	sessions.Stop(shutdownCtx)
 	// The writer drains what the last requests and jobs reported.
 	select {
 	case <-journalDone:

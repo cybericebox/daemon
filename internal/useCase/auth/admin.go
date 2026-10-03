@@ -276,7 +276,7 @@ func (u *AuthUseCase) UpdateUserStatus(ctx context.Context, userID uuid.UUID, st
 	// When blocking a user, immediately revoke all their active sessions so
 	// existing cookies stop working at the next validation round-trip.
 	if status == userModel.UserStatusBlocked {
-		if _, err := u.sessions.DeleteAllForUser(ctx, userID); err != nil {
+		if _, err := u.revokeAll(ctx, userID); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to revoke sessions for blocked user").Err()
 		}
 	}

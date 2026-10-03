@@ -27,6 +27,10 @@ func (u *MediaUseCase) CleanupOrphanFiles(ctx context.Context) error {
 	if !u.storageConfigured {
 		return nil // nothing uploaded ever — nothing to collect
 	}
+	// Resumable uploads that waited too long for their next chunk go first, with the chunks stored so far.
+	if err := u.CleanupExpiredUploads(ctx); err != nil {
+		return err
+	}
 	cutoff := time.Now().Add(-u.cfg.GCGrace)
 	if err := u.files.DeleteUnreferenced(ctx, cutoff); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete unreferenced files").Err()

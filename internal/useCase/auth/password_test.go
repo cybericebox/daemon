@@ -34,7 +34,7 @@ func newPwUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *pass
 	allowSetupLinkIssue(repo)
 	pw := password.New(password.Config{HashCost: 4})
 	notifier := &fakeNotifier{}
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: pw,
@@ -116,7 +116,7 @@ func TestResetPassword_Success(t *testing.T) {
 	for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType} {
 		repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: uid.String()}).Return(int64(1), nil)
 	}
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(2), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(2), nil)
 
 	if err := uc.ResetPassword(context.Background(), bsCode, "Secret!1"); err != nil {
 		t.Fatalf("reset: %v", err)
@@ -158,7 +158,7 @@ func TestSetAccountPassword_FirstPassword(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{}}, nil).AnyTimes()
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	repo.EXPECT().DeleteUserSessionsExcept(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	repo.EXPECT().RevokeUserSessionsExcept(gomock.Any(), gomock.Any()).Return(revokedExceptRows(0), nil)
 	allowCodeRevocation(repo)
 
 	if err := uc.SetAccountPassword(recentSession(repo, uid, time.Minute), uid, "", "New!1pass"); err != nil {
@@ -188,7 +188,7 @@ func TestSetAccountPassword_RevokesPendingCodes(t *testing.T) {
 	hashed, _ := pw.Hash("Correct!1")
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{String: hashed, Valid: true}}, nil).AnyTimes()
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	repo.EXPECT().DeleteUserSessions(gomock.Any(), uid).Return(int64(0), nil)
+	repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(0), nil)
 	for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType} {
 		repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: uid.String()}).Return(int64(1), nil)
 	}
@@ -206,7 +206,7 @@ func TestSetAccountPassword_RevokesOtherSessions(t *testing.T) {
 	repo.EXPECT().GetUserByID(gomock.Any(), uid).
 		Return(postgres.User{ID: uid, Status: "active", HashedPassword: pgtype.Text{String: hashed, Valid: true}}, nil).Times(2)
 	repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	repo.EXPECT().DeleteUserSessionsExcept(gomock.Any(), postgres.DeleteUserSessionsExceptParams{UserID: uid, ID: current}).Return(int64(3), nil)
+	repo.EXPECT().RevokeUserSessionsExcept(gomock.Any(), gomock.Any()).Return(revokedExceptRows(3), nil)
 	allowCodeRevocation(repo)
 
 	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: current, Role: rbac.RoleUser})
@@ -262,7 +262,7 @@ func TestForgotPassword_MailWorkIsDeferredPastTheAnswer(t *testing.T) {
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	notifier := &fakeNotifier{}
 	var queued []func()
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:       repo,
 		Token:      token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password:   password.New(password.Config{HashCost: 4}),
@@ -294,7 +294,7 @@ func TestForgotPassword_UnknownAddressQueuesNothing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	jobs := 0
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo: repo, Token: token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}), Notifier: &fakeNotifier{},
 		Config:     config.AuthConfig{TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")},

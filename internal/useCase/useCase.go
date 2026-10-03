@@ -30,6 +30,7 @@ import (
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
+	"github.com/cybericebox/daemon/internal/session"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
 	errorJournalUseCase "github.com/cybericebox/daemon/internal/useCase/errorJournal"
@@ -94,12 +95,14 @@ type (
 		EnqueuerFactory worker.IEnqueuerFactory
 		// SMTPEnv is the bootstrap SMTP_* transport (used while the database
 		// holds no platform mail settings).
-		SMTPEnv        config.SMTPConfig
-		OAuth          *oauth.Client
-		Storage        *storage.Client
-		Token          *token.Client
-		Password       *password.Client
-		AuthConfig     config.AuthConfig
+		SMTPEnv    config.SMTPConfig
+		OAuth      *oauth.Client
+		Storage    *storage.Client
+		Token      *token.Client
+		Password   *password.Client
+		AuthConfig config.AuthConfig
+		// Sessions is the cookie codec, the revoked-session set and the last_seen batching of this replica.
+		Sessions       *session.Runtime
 		MediaConfig    config.MediaConfig
 		ExerciseConfig config.ExerciseConfig
 		// ResourcesPolicy is the platform's device resources settings (presets, frame, ceiling); zero: the
@@ -305,6 +308,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Storage:  deps.Storage,
 			Avatar:   mediaUC,
 			Config:   deps.AuthConfig,
+			Sessions: deps.Sessions,
 
 			SetupTokens: setupTokens,
 		},

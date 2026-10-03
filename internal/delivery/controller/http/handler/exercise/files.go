@@ -54,7 +54,7 @@ func (h *Handler) uploadFile(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	bodyCap := h.useCase.MaxUploadBytes() + multipartOverheadSlack
+	bodyCap := h.useCase.MaxSingleUploadBytes() + multipartOverheadSlack
 	middleware.LimitBody(ctx, bodyCap)
 	fh, err := ctx.FormFile("file")
 	if err != nil {
@@ -140,5 +140,5 @@ func (h *Handler) downloadFile(ctx *gin.Context) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	ctx.DataFromReader(http.StatusOK, f.SizeBytes, contentType, rc, nil)
+	download.File(ctx, rc, f.SizeBytes, contentType)
 }

@@ -4885,6 +4885,14 @@ definitions:
         maxLength: 500
         type: string
     type: object
+  exercise.completeUploadRequest:
+    properties:
+      SHA256:
+        description: SHA256 is the hex digest of the whole file, computed by the client.
+        type: string
+    required:
+    - SHA256
+    type: object
   exercise.connectionDTO:
     properties:
       Endpoints:
@@ -5446,6 +5454,16 @@ definitions:
       Text:
         type: string
     type: object
+  exercise.importUploadedRequest:
+    properties:
+      FileID:
+        description: FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).
+        type: string
+      Password:
+        type: string
+    required:
+    - FileID
+    type: object
   exercise.interfaceDTO:
     properties:
       IP:
@@ -5646,6 +5664,21 @@ definitions:
           type: string
         type: array
     type: object
+  exercise.startUploadRequest:
+    properties:
+      ContentType:
+        maxLength: 255
+        type: string
+      Name:
+        maxLength: 255
+        type: string
+      Size:
+        minimum: 1
+        type: integer
+    required:
+    - Name
+    - Size
+    type: object
   exercise.taskDTO:
     properties:
       Attachments:
@@ -5711,6 +5744,29 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  exercise.uploadResponse:
+    properties:
+      ChunkSize:
+        description: ChunkSize is the size of every chunk but the last.
+        type: integer
+      Chunks:
+        description: |-
+          Chunks is how many chunks the file takes; ChunksReceived is where a resumed upload continues (the index of
+          the next chunk to send).
+        type: integer
+      ChunksReceived:
+        type: integer
+      ExpiresAt:
+        type: string
+      Name:
+        type: string
+      ReceivedBytes:
+        type: integer
+      Size:
+        type: integer
+      UploadID:
+        type: string
     type: object
   exercise.variantDTO:
     properties:
@@ -18955,6 +19011,38 @@ paths:
       summary: Import an exercise ZIP archive
       tags:
       - exercises
+  /exercises/import/uploaded:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: the uploaded file and the archive password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.importUploadedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.exerciseResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Import an exercise ZIP archive that went up in chunks
+      tags:
+      - exercises
   /exercises/proposals:
     get:
       parameters:
@@ -19185,6 +19273,143 @@ paths:
                   $ref: '#/definitions/resourceCalendar.testLabRoomDTO'
               type: object
       summary: Does a test laboratory fit now
+      tags:
+      - exercises
+  /exercises/uploads:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: file name, type and size
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.startUploadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.uploadResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Start a resumable chunked file upload
+      tags:
+      - exercises
+  /exercises/uploads/{uploadID}:
+    delete:
+      parameters:
+      - description: upload ID
+        in: path
+        name: uploadID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Drop a chunked upload and the chunks received so far
+      tags:
+      - exercises
+    get:
+      parameters:
+      - description: upload ID
+        in: path
+        name: uploadID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.uploadResponse'
+              type: object
+      summary: 'Status of a chunked upload: where to continue'
+      tags:
+      - exercises
+  /exercises/uploads/{uploadID}/chunks/{index}:
+    put:
+      consumes:
+      - application/octet-stream
+      parameters:
+      - description: upload ID
+        in: path
+        name: uploadID
+        required: true
+        type: string
+      - description: chunk index, the next one in order
+        in: path
+        name: index
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.uploadResponse'
+              type: object
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Send chunk N (0-based) of a chunked upload; the body is the raw chunk
+      tags:
+      - exercises
+  /exercises/uploads/{uploadID}/complete:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: upload ID
+        in: path
+        name: uploadID
+        required: true
+        type: string
+      - description: sha256 of the whole file
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.completeUploadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.fileUploadResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Assemble a chunked upload and check its size and hash
       tags:
       - exercises
   /infrastructure/agents:

@@ -31,27 +31,33 @@ const maxRecaptchaBodyBytes = 64 << 10
 // siteVerifyURL is a variable so a test can point it at a local server.
 var siteVerifyURL = "https://www.google.com/recaptcha/api/siteverify"
 
-// RequireRecaptcha verifies the request's reCAPTCHA token for the given action.
-// Verification is always enforced; the mode is selected by ProjectID:
-// set → Enterprise, unset → classic v3.
-func (p *Protection) RequireRecaptcha(action string) gin.HandlerFunc {
+// RequireCaptcha verifies the request's bot-check token for the given action with the platform's provider
+// (CAPTCHA_PROVIDER). Verification is always enforced. The token travels in the JSON body as RecaptchaToken
+// whichever provider issued it (the field keeps its first name).
+func (p *Protection) RequireCaptcha(action string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		token, err := p.getRecaptchaToken(ctx)
 		if err != nil {
 			response.AbortWithError(ctx, authModel.ErrAuthNoRecaptchaToken.Err())
 			return
 		}
-
-		verify := p.verifyRecaptchaToken
-		if p.recaptcha.ProjectID != "" {
-			verify = p.verifyRecaptchaEnterpriseToken
-		}
-		if err = verify(ctx, token, action); err != nil {
+		if err = p.captcha.Verify(ctx, token, action); err != nil {
 			response.AbortWithError(ctx, err)
 			return
 		}
 		ctx.Next()
 	}
+}
+
+// recaptchaVerifier is the reCAPTCHA provider: the mode is selected by ProjectID, set → Enterprise,
+// unset → classic v3.
+type recaptchaVerifier struct{ p *Protection }
+
+func (v recaptchaVerifier) Verify(ctx context.Context, token, action string) error {
+	if v.p.recaptcha.ProjectID != "" {
+		return v.p.verifyRecaptchaEnterpriseToken(ctx, token, action)
+	}
+	return v.p.verifyRecaptchaToken(ctx, token, action)
 }
 
 type recaptchaTokenRequest struct {

@@ -30,7 +30,7 @@ func newSignupUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 	allowSetupLinkIssue(repo)
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
 	notifier := &fakeNotifier{}
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    tk,
 		Password: password.New(password.Config{HashCost: 4}),

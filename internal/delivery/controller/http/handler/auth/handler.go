@@ -102,7 +102,7 @@ type (
 	IProtection interface {
 		Authenticate(ctx *gin.Context, value string)
 		DeAuthenticate(ctx *gin.Context)
-		RequireRecaptcha(action string) gin.HandlerFunc
+		RequireCaptcha(action string) gin.HandlerFunc
 		RequirePermission(required rbac.Permission) gin.HandlerFunc
 	}
 )
@@ -120,14 +120,14 @@ func (h *Handler) Init(public, secured *gin.RouterGroup) {
 	selfCheck := middleware.RateLimitPerUser(lim.AccountActions, lim.AccountActionsWindow)
 
 	pub := public.Group("auth")
-	pub.POST("sign-in", h.prot.RequireRecaptcha("signIn"), h.signIn)
-	pub.POST("sign-up", h.prot.RequireRecaptcha("signUp"), h.signUp)
+	pub.POST("sign-in", h.prot.RequireCaptcha("signIn"), h.signIn)
+	pub.POST("sign-up", h.prot.RequireCaptcha("signUp"), h.signUp)
 	pub.GET("setup", h.getSetup)
 	pub.POST("setup", h.completeSetup)
 
 	password := pub.Group("password")
 	password.GET("policy", h.passwordPolicy)
-	password.POST("reset-request", h.prot.RequireRecaptcha("forgotPassword"), h.requestPasswordReset)
+	password.POST("reset-request", h.prot.RequireCaptcha("forgotPassword"), h.requestPasswordReset)
 	password.POST("reset", h.resetPassword)
 	password.POST("change", h.prot.RequirePermission(rbac.PermSelf), selfCheck, h.changePassword)
 

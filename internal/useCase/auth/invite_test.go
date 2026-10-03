@@ -33,7 +33,7 @@ func newInviteUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *
 		notifier.marked = append(notifier.marked, p.ID)
 		return 1, nil
 	}).AnyTimes()
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"}),
 		Password: password.New(password.Config{HashCost: 4}),
