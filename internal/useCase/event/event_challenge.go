@@ -397,6 +397,10 @@ func (u *EventUseCase) UpdateEventChallengeRelations(ctx context.Context, eventI
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to update challenge relations").Err()
 	}
+	// The lab ACL honours the prerequisite locks, so the teams recompute it.
+	if u.supportsLabAccessPolicy() {
+		return u.RequestEventLabAccessSyncs(ctx, eventID)
+	}
 	return nil
 }
 

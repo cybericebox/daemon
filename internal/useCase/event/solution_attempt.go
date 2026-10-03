@@ -115,6 +115,11 @@ func (u *EventUseCase) DecideSolutionAttempt(ctx context.Context, eventID, attem
 	if err != nil {
 		return SolutionAttemptDecisionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record result change").Err()
 	}
+	if afterSolved != (beforeChallenge.SolvedAt != nil) {
+		if err = u.requestLabAccessSyncInTransaction(txCtx, txRepo, target.EventTeamID, time.Now()); err != nil {
+			return SolutionAttemptDecisionView{}, err
+		}
+	}
 	if err = unit.Save(); err != nil {
 		return SolutionAttemptDecisionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to decide challenge attempt").Err()
 	}

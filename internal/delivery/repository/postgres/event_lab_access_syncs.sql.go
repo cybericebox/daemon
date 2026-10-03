@@ -123,10 +123,25 @@ func (q *Queries) ListEventLabAccessClients(ctx context.Context, eventTeamID uui
 const listEventLabAccessLabs = `-- name: ListEventLabAccessLabs :many
 SELECT lb.lab_group_name,
        lb.lab_name,
-       CASE WHEN lb.readiness = 1 AND tc.readiness = 2 THEN true ELSE false END AS available
+       CASE WHEN lb.readiness = 1 AND tc.readiness = 2
+                AND (team.moderators
+                    OR (ec.published
+                        AND ee.status <> 2
+                        AND NOT EXISTS (SELECT 1
+                                        FROM event_challenge_prerequisites prerequisite
+                                        WHERE prerequisite.challenge_id = tc.event_challenge_id
+                                          AND NOT EXISTS (SELECT 1
+                                                          FROM team_challenges own
+                                                          JOIN team_challenge_solves solved ON solved.team_challenge_id = own.id
+                                                          WHERE own.event_team_id = tc.event_team_id
+                                                            AND own.event_challenge_id = prerequisite.prerequisite_challenge_id))))
+           THEN true ELSE false END AS available
 FROM lab_bindings lb
 JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
                        AND tc.event_challenge_id = lb.event_challenge_id
+JOIN event_teams team ON team.id = lb.event_team_id
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_exercises ee ON ee.id = ec.event_exercise_id
 WHERE lb.event_team_id = $1
   AND lb.readiness <> 3
 ORDER BY lb.lab_name
@@ -138,6 +153,9 @@ type ListEventLabAccessLabsRow struct {
 	Available    bool   `json:"available"`
 }
 
+// A lab is open to a team's members only when the same locks as the lab link hold: the task is published, its
+// set is not detached and every prerequisite is solved by the team. The hidden moderators team tests tasks
+// before they are shown, so it keeps the readiness rule alone.
 func (q *Queries) ListEventLabAccessLabs(ctx context.Context, eventTeamID uuid.UUID) ([]ListEventLabAccessLabsRow, error) {
 	rows, err := q.db.Query(ctx, listEventLabAccessLabs, eventTeamID)
 	if err != nil {

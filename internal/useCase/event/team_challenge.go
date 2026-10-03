@@ -240,6 +240,12 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 			return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record result change").Err()
 		}
 		first = !wasSolved
+		// A first solve may unlock the lab of a task that has it as prerequisite.
+		if afterSolved && !wasSolved {
+			if err = u.requestLabAccessSyncInTransaction(txCtx, txRepo, teamID, now); err != nil {
+				return SubmitChallengeResult{}, err
+			}
+		}
 	}
 	body, marshalErr := json.Marshal(storedChallengeSubmissionResult{Correct: correct, FirstSolve: first})
 	if marshalErr != nil {
