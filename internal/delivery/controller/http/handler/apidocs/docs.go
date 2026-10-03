@@ -1471,23 +1471,54 @@ const docTemplate = `{
             }
         },
         "/auth/google/link": {
-            "get": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "auth"
                 ],
-                "summary": "Begin linking Google to the authenticated account (redirects to Google OAuth)",
+                "summary": "Begin linking Google to the authenticated account (the owner is confirmed first)",
+                "parameters": [
+                    {
+                        "description": "current password (accounts without a password need a recent sign-in instead)",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/auth.reauthRequest"
+                        }
+                    }
+                ],
                 "responses": {
-                    "307": {
-                        "description": "Temporary Redirect"
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.googleLinkResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
                     },
-                    "401": {
-                        "description": "Unauthorized",
+                    "400": {
+                        "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
                     },
-                    "500": {
-                        "description": "Internal Server Error",
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -20883,6 +20914,14 @@ const docTemplate = `{
                 }
             }
         },
+        "auth.googleLinkResponse": {
+            "type": "object",
+            "properties": {
+                "Url": {
+                    "type": "string"
+                }
+            }
+        },
         "auth.passwordPolicyResponse": {
             "type": "object",
             "properties": {
@@ -32930,7 +32969,9 @@ const docTemplate = `{
             "properties": {
                 "DurationMinutes": {
                     "description": "DurationMinutes is 15 to 480.",
-                    "type": "integer"
+                    "type": "integer",
+                    "maximum": 480,
+                    "minimum": 0
                 },
                 "LargestDevice": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
