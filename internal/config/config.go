@@ -36,6 +36,7 @@ type (
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
 		Limits         LimitsConfig         `                                   envPrefix:"LIMIT_"`
 		RateLimit      RateLimitConfig      `                                   envPrefix:"RATE_LIMIT_"`
+		DOS            DOSConfig            `                                   envPrefix:"DOS_"`
 		Retention      RetentionConfig      `                                   envPrefix:"RETENTION_"`
 		LabAccess      LabAccessConfig      `                                   envPrefix:"LAB_ACCESS_"`
 		LabSession     LabSessionConfig     `                                   envPrefix:"LAB_SESSION_"`
@@ -241,7 +242,9 @@ type (
 		TemporalCodeTTL     time.Duration   `env:"TEMPORAL_CODE_TTL"   envDefault:"1h"`
 		SuperAdminEmail     string          `env:"SUPER_ADMIN_EMAIL"`
 		OAuth               OAuthConfig     `                                            envPrefix:""`
+		Captcha             CaptchaConfig   `                                            envPrefix:"CAPTCHA_"`
 		Recaptcha           RecaptchaConfig `                                            envPrefix:"RECAPTCHA_"`
+		Turnstile           TurnstileConfig `                                            envPrefix:"TURNSTILE_"`
 		Password            PasswordConfig  `                                            envPrefix:"PASSWORD_"`
 	}
 
@@ -270,6 +273,18 @@ type (
 	OAuthProviderConfig struct {
 		ClientID     string `env:"CLIENT_ID"`
 		ClientSecret string `env:"SECRET"`
+	}
+
+	// CaptchaConfig picks the one bot check of the whole platform: the sign-in, sign-up and password-reset
+	// forms and the client token all use it. CAPTCHA_PROVIDER is turnstile | recaptcha | none (none is local
+	// development and tests only).
+	CaptchaConfig struct {
+		Provider string `env:"PROVIDER" envDefault:"recaptcha"`
+	}
+
+	// TurnstileConfig is the Cloudflare Turnstile secret; the site key lives in the frontends.
+	TurnstileConfig struct {
+		Secret string `env:"SECRET"`
 	}
 
 	RecaptchaConfig struct {
@@ -646,6 +661,29 @@ func (c ExerciseConfig) Validate() error {
 	return nil
 }
 
+const (
+	CaptchaTurnstile = "turnstile"
+	CaptchaRecaptcha = "recaptcha"
+	CaptchaNone      = "none"
+)
+
+// ValidateCaptcha checks the provider name and that the chosen provider has its secrets. Only the chosen provider's
+// keys are required.
+func (c AuthConfig) ValidateCaptcha() error {
+	switch c.Captcha.Provider {
+	case CaptchaTurnstile:
+		if c.Turnstile.Secret == "" {
+			return errors.New("captcha: CAPTCHA_PROVIDER=turnstile requires TURNSTILE_SECRET")
+		}
+		return nil
+	case CaptchaRecaptcha:
+		return c.Recaptcha.Validate()
+	case CaptchaNone:
+		return nil
+	}
+	return fmt.Errorf("captcha: CAPTCHA_PROVIDER must be turnstile, recaptcha or none, got %q", c.Captcha.Provider)
+}
+
 // Validate ensures exactly one reCAPTCHA mode is fully configured. The mode is
 // selected by ProjectID: set → Enterprise (needs APIKey + SiteKey); unset →
 // classic v3 (needs SecretKey). reCAPTCHA is mandatory in every environment.
@@ -692,7 +730,10 @@ func (c AuthConfig) Weaknesses() []string {
 	if c.OAuth.StateSignature != "" && c.OAuth.StateSignature == c.TokenSignature {
 		out = append(out, "OAUTH_STATE_SIGNATURE must differ from JWT_TOKEN_SIGNATURE")
 	}
-	if c.Recaptcha.Score < MinRecaptchaScore {
+	if c.Captcha.Provider == CaptchaNone {
+		out = append(out, "CAPTCHA_PROVIDER=none turns the bot check off; use turnstile or recaptcha")
+	}
+	if c.Captcha.Provider != CaptchaTurnstile && c.Captcha.Provider != CaptchaNone && c.Recaptcha.Score < MinRecaptchaScore {
 		out = append(out, fmt.Sprintf("RECAPTCHA_SCORE must be at least %.1f", MinRecaptchaScore))
 	}
 	return out
@@ -750,8 +791,8 @@ func MustGetConfig() *Config {
 
 	instance.populateForAllConfig()
 
-	if err = instance.Auth.Recaptcha.Validate(); err != nil {
-		log.Fatal().Err(err).Msg("Config: invalid reCAPTCHA configuration")
+	if err = instance.Auth.ValidateCaptcha(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid bot check configuration")
 	}
 	for _, weakness := range instance.Auth.Weaknesses() {
 		if instance.Environment == Production {
@@ -782,6 +823,9 @@ func MustGetConfig() *Config {
 	}
 	if err = instance.RateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid rate limit configuration")
+	}
+	if err = instance.DOS.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid DoS protection configuration")
 	}
 	if err = instance.FlagRateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid flag rate limit configuration")

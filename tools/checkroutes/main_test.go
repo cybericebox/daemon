@@ -50,7 +50,7 @@ func TestAllowlistedPublicPathPasses(t *testing.T) {
 	got := parse(t, `package x
 func (h *H) Init(r *gin.RouterGroup) {
 	pub := r.Group("auth")
-	pub.POST("sign-in", h.prot.RequireRecaptcha("signIn"), h.signIn)
+	pub.POST("sign-in", h.prot.RequireCaptcha("signIn"), h.signIn)
 	google := pub.Group("google")
 	google.GET("callback", h.cb)
 }`)
@@ -64,7 +64,7 @@ func (h *H) Init(r *gin.RouterGroup) {
 func TestRecaptchaOnlyOnPrivatePathIsViolation(t *testing.T) {
 	got := parse(t, `package x
 func (h *H) Init(r *gin.RouterGroup) {
-	r.POST("admin-thing", h.prot.RequireRecaptcha("x"), h.doAdmin)
+	r.POST("admin-thing", h.prot.RequireCaptcha("x"), h.doAdmin)
 }`)
 	if len(got) != 1 {
 		t.Fatalf("want 1 violation, got %v", got)

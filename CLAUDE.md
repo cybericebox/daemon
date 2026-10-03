@@ -46,7 +46,7 @@ Go 1.26 · Gin · pgx/v5 + sqlc · golang-migrate · River (jobs) · gomock · t
 
 - Request identity travels as ONE bundle: `rbac.Claims{SessionID, UserID, Role}` via `ContextWithCurrentUserSession` / `CurrentUserSessionFromContext`. No granular per-field producers or getters — do not reintroduce them. `authModel.AuthClaims` is a type alias of `rbac.Claims` (the struct lives in rbac to avoid the auth→rbac import cycle).
 - Permissions are dotted namespaces with prefix coverage; super_admin holds `"*"`. Role inheritance resolves in `rbac`'s `init()` — never read `Role.Permissions()` during package-var initialization.
-- Route gating is `RequirePermission(perm)` only, and it is the SINGLE authorization point: use cases do NOT re-check static permissions (data-dependent policy — per-setting `RequiredPermission`, `CanAssignRole`, domain invariants — stays in use cases). `tools/checkroutes` (in `make vet`) fails on any handler route without a gate unless it is explicitly allowlisted as public; `RequireRecaptcha` does not count as a gate. `PermSelf` marks authenticated self-service routes.
+- Route gating is `RequirePermission(perm)` only, and it is the SINGLE authorization point: use cases do NOT re-check static permissions (data-dependent policy — per-setting `RequiredPermission`, `CanAssignRole`, domain invariants — stays in use cases). `tools/checkroutes` (in `make vet`) fails on any handler route without a gate unless it is explicitly allowlisted as public; `RequireCaptcha` does not count as a gate. `PermSelf` marks authenticated self-service routes.
 
 ## Testing
 

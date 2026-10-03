@@ -22,14 +22,14 @@ func newRecaptchaProt(cfg config.RecaptchaConfig) *protection.Protection {
 	)
 }
 
-func TestRequireRecaptcha_AlwaysEnforces(t *testing.T) {
+func TestRequireCaptcha_AlwaysEnforces(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	p := newRecaptchaProt(
 		config.RecaptchaConfig{},
 	) // empty config — bypass removed, always enforces
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	r.POST("/x", p.RequireRecaptcha("signIn"), func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.POST("/x", p.RequireCaptcha("signIn"), func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(`{"RecaptchaToken":""}`))
 	w := httptest.NewRecorder()
@@ -39,12 +39,12 @@ func TestRequireRecaptcha_AlwaysEnforces(t *testing.T) {
 	}
 }
 
-func TestRequireRecaptcha_MissingToken(t *testing.T) {
+func TestRequireCaptcha_MissingToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	p := newRecaptchaProt(config.RecaptchaConfig{SecretKey: "s"}) // configured → enforce
 	r := gin.New()
 	r.Use(response.WithErrorHandler)
-	r.POST("/x", p.RequireRecaptcha("signIn"), func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.POST("/x", p.RequireCaptcha("signIn"), func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()

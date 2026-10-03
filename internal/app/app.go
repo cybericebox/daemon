@@ -203,6 +203,7 @@ func Run(cfg *config.Config) {
 			HTTPControllerConfig: cfg.HTTPController,
 			AuthConfig:           cfg.Auth,
 			RateLimit:            cfg.RateLimit,
+			DOS:                  cfg.DOS,
 			ErrorJournal:         ucs.Journal,
 		},
 	)
