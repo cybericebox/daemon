@@ -194,6 +194,9 @@ func (u *ResourceCalendarUseCase) ReleaseTestLab(ctx context.Context, id uuid.UU
 // CheckTestLabRoom answers, without holding anything, whether a test laboratory fits now and, if not, when the
 // nearest free window starts (the author's "book a window" offer).
 func (u *ResourceCalendarUseCase) CheckTestLabRoom(ctx context.Context, owner uuid.UUID, size, device Amount, lease time.Duration) (TestLabRoom, error) {
+	if lease > calModel.MaxBooking {
+		return TestLabRoom{}, calModel.ErrBookingInvalid.WithContext("reason", "lease too long").Err()
+	}
 	now := u.now().UTC()
 	lease = u.leaseOf(lease)
 	states, err := u.agentStates(ctx, now)

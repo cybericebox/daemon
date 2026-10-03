@@ -380,10 +380,10 @@ GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
 POST   /api/exercises/proposals/:proposalID/reject | gate: exercises.publish | layers: -
 GET    /api/exercises/tags | gate: self | layers: -
-GET    /api/exercises/test-labs/bookings | gate: self | layers: -
-POST   /api/exercises/test-labs/bookings | gate: self | layers: -
-DELETE /api/exercises/test-labs/bookings/:bookingID | gate: self | layers: -
-GET    /api/exercises/test-labs/room | gate: self | layers: -
+GET    /api/exercises/test-labs/bookings | gate: self | layers: resourceCalendar.requireTestLabAuthor
+POST   /api/exercises/test-labs/bookings | gate: self | layers: resourceCalendar.requireTestLabAuthor
+DELETE /api/exercises/test-labs/bookings/:bookingID | gate: self | layers: resourceCalendar.requireTestLabAuthor
+GET    /api/exercises/test-labs/room | gate: self | layers: resourceCalendar.requireTestLabAuthor
 GET    /api/infrastructure/agents | gate: infrastructure.read | layers: -
 POST   /api/infrastructure/agents | gate: infrastructure.write | layers: -
 DELETE /api/infrastructure/agents/:agentID | gate: infrastructure.write | layers: -

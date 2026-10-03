@@ -578,3 +578,10 @@ func TestReservationHasNoBufferUnlessTheAdminSetsOne(t *testing.T) {
 	assert.Equal(t, int64(9200), res.Reservation.Size.CPUMillicores)
 	assert.Equal(t, 15, res.Reservation.BufferPercent)
 }
+
+func TestTestLabRoomRejectsALeaseAboveTheBookingMaximum(t *testing.T) {
+	h := newHarness(t)
+	_, err := h.uc.CheckTestLabRoom(context.Background(), uuid.Must(uuid.NewV7()), Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30}, Amount{}, calModel.MaxBooking+time.Minute)
+	require.Error(t, err)
+	assert.True(t, is(err, calModel.ErrBookingInvalid), "%v", err)
+}

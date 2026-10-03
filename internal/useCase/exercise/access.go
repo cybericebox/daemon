@@ -101,6 +101,24 @@ func (u *ExerciseUseCase) AuthorizeExercise(ctx context.Context, actor Actor, id
 	return Access{}, nil
 }
 
+// RequireTestLabAuthor lets through who may run a test deploy: exercises.write, or a manage membership of an
+// event that has infrastructure. The test-lab room check and bookings are for these authors only.
+func (u *ExerciseUseCase) RequireTestLabAuthor(ctx context.Context, actor Actor) error {
+	if actor.has(rbac.PermExercisesWrite) {
+		return nil
+	}
+	memberships, err := u.exercises.Memberships(ctx, actor.UserID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event memberships").Err()
+	}
+	for _, m := range memberships {
+		if canManage(m.Role) && m.InfrastructureAllowed {
+			return nil
+		}
+	}
+	return exerciseModel.ErrExerciseForbidden.Err()
+}
+
 func canManage(role int16) bool {
 	return eventManagerModel.Role(role) == eventManagerModel.RoleOwner || eventManagerModel.Role(role) == eventManagerModel.RoleManager
 }
