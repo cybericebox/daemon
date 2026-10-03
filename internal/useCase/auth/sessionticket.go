@@ -58,7 +58,7 @@ func (u *AuthUseCase) LoadCaller(ctx context.Context, pass SessionPass) (authMod
 			WithError(errors.New("user of the session is blocked")).Err()
 	}
 	u.rt.Seen.Touch(pass.Ticket.SessionID, pass.Ticket.UserID)
-	return authModel.AuthClaims{SessionID: pass.Ticket.SessionID, UserID: pass.Ticket.UserID, Role: rbac.Role(access.Role)}, nil
+	return authModel.AuthClaims{SessionID: pass.Ticket.SessionID, UserID: pass.Ticket.UserID, Role: rbac.Role(access.Role), SignedInAt: pass.Ticket.SignedInAt}, nil
 }
 
 // ReissueCookie returns a new cookie with a new expiry once 1% of the idle TTL has passed since this one was

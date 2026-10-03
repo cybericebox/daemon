@@ -94,11 +94,8 @@ func (u *AuthUseCase) reauthenticate(ctx context.Context, userID uuid.UUID, curr
 	if !ok || claims.SessionID == uuid.Nil {
 		return authModel.ErrAuthReauthRequired.Err()
 	}
-	session, err := u.sessions.GetByID(ctx, claims.SessionID)
-	if err != nil {
-		return authModel.ErrAuthReauthRequired.WithError(err).Err()
-	}
-	if time.Since(session.CreatedAt) > recentSignInWindow {
+	// SignedInAt comes from the session cookie: the moment of the sign-in, which a re-issue keeps.
+	if claims.SignedInAt.IsZero() || time.Since(claims.SignedInAt) > recentSignInWindow {
 		return authModel.ErrAuthReauthRequired.Err()
 	}
 	return nil

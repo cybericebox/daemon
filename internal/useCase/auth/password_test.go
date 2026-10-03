@@ -149,8 +149,7 @@ func allowCodeRevocation(repo *postgresMocks.MockQuerier) {
 // recentSession is a signed-in context whose session started age ago.
 func recentSession(repo *postgresMocks.MockQuerier, uid uuid.UUID, age time.Duration) context.Context {
 	sid := uuid.Must(uuid.NewV7())
-	repo.EXPECT().GetSessionByID(gomock.Any(), sid).Return(postgres.Session{ID: sid, UserID: uid, CreatedAt: time.Now().Add(-age), ExpiresAt: time.Now().Add(time.Hour)}, nil).AnyTimes()
-	return rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: sid, Role: rbac.RoleUser})
+	return rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: uid, SessionID: sid, Role: rbac.RoleUser, SignedInAt: time.Now().Add(-age)})
 }
 
 func TestSetAccountPassword_FirstPassword(t *testing.T) {
