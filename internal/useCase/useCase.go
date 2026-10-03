@@ -6,6 +6,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
+	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/errorJournalRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
@@ -364,6 +365,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{
 			Repo: deps.Repo, Notifier: notificationDispatcher, Enqueue: broadcastEnqueue(deps.EnqueuerFactory.NewEnqueuer()),
 			EventDomain: deps.AuthConfig.Hosts.EventDomain,
+			Images:      emailUseCase.NewBroadcastImages(mediaUC, emailTemplateRepo.New(deps.Repo), emailTemplateRepo.New(deps.Repo)),
 		}),
 		bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{Repo: deps.Repo}),
 		journalUC,

@@ -166,8 +166,8 @@ type Journal struct {
 	refusals map[string]*refusalFold
 	// kindMessaged is when the last message of a noisy kind (403) was sent, for every group of it.
 	kindMessaged map[errorJournal.Kind]time.Time
-	offline  map[string]*offlineState
-	certLast map[string]time.Time
+	offline      map[string]*offlineState
+	certLast     map[string]time.Time
 }
 
 // refusalFold counts the repeats of one 403 fingerprint inside its window.

@@ -282,3 +282,51 @@ func TestTemplateImages_StreamForEvent(t *testing.T) {
 	_, _, err := imgs.StreamForEvent(ctx, src, uuid.Must(uuid.NewV7()), png)
 	assert.True(t, mediaModel.ErrFileNotFound.Err().Is(err), "other event: %v", err)
 }
+
+// M10: a broadcast body embeds only files of its scope: an event broadcast what an event template may, a platform
+// broadcast the platform templates' images and the sender's own uploads.
+func TestTemplateImages_ValidateBroadcastBody(t *testing.T) {
+	m := newFakeTemplateMedia()
+	actor := uuid.Must(uuid.NewV7())
+	platformFile := m.addFile("image/png", 3) // referenced by a platform template
+	eventFile := m.addFile("image/png", 3)    // referenced by the event's own template
+	foreign := m.addFile("image/png", 3)      // someone else's avatar
+	own := m.addFile("image/png", 3)          // fresh upload of the sender
+	f := m.files[own]
+	f.CreatedBy = uuid.NullUUID{UUID: actor, Valid: true}
+	m.files[own] = f
+	eventID := uuid.Must(uuid.NewV7())
+	src := &fakeEventImages{usable: map[uuid.UUID][]uuid.UUID{uuid.Nil: {platformFile}, eventID: {platformFile, eventFile}}}
+	imgs := emailUseCase.NewTemplateImages(m, fakePresets{})
+	ctx := context.Background()
+
+	for name, tc := range map[string]struct {
+		scope *uuid.UUID
+		file  uuid.UUID
+		ok    bool
+	}{
+		"platform template image":     {nil, platformFile, true},
+		"platform sender upload":      {nil, own, true},
+		"platform foreign file":       {nil, foreign, false},
+		"platform event-only image":   {nil, eventFile, false},
+		"event own image":             {&eventID, eventFile, true},
+		"event platform image":        {&eventID, platformFile, true},
+		"event foreign file":          {&eventID, foreign, false},
+		"event sender's fresh upload": {&eventID, own, false},
+	} {
+		err := imgs.ValidateBroadcastBody(ctx, src, tc.scope, actor, imageBody(tc.file.String()))
+		if tc.ok {
+			assert.NoError(t, err, name)
+		} else {
+			assert.True(t, notificationModel.ErrTemplateImageInvalid.Err().Is(err), "%s: %v", name, err)
+		}
+	}
+
+	// A file that is not a PNG/JPEG never passes, whoever owns it.
+	pdf := m.addFile("application/pdf", 3)
+	f = m.files[pdf]
+	f.CreatedBy = uuid.NullUUID{UUID: actor, Valid: true}
+	m.files[pdf] = f
+	err := imgs.ValidateBroadcastBody(ctx, src, nil, actor, imageBody(pdf.String()))
+	assert.True(t, notificationModel.ErrTemplateImageInvalid.Err().Is(err), "pdf: %v", err)
+}
