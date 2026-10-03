@@ -37,7 +37,7 @@ var pathArg = map[string]int{
 // publicRoutes are the registrations deliberately reachable without a
 // permission gate, keyed "METHOD receiver/path" so a literal ("reset",
 // "callback", "") on another group or with another method is NOT whitelisted.
-// RequireRecaptcha does NOT count as a gate — it is bot protection, not
+// RequireCaptcha does NOT count as a gate — it is bot protection, not
 // authorization — so recaptcha-only routes are listed here too.
 var publicRoutes = map[string]bool{
 	"POST pub/sign-in":                   true, // recaptcha-gated credential entry

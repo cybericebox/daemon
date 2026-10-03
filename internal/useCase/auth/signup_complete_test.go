@@ -28,7 +28,7 @@ func newCompleteUC(t *testing.T, superAdminEmail string) (*auth.AuthUseCase, *po
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	allowSetupLinkIssue(repo)
 	tk := token.MustNew(token.Config{TokenSignature: "test-signing-key-that-is-long-enough"})
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
 		Token:    tk,
 		Password: password.New(password.Config{HashCost: 4}),

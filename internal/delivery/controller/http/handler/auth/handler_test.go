@@ -202,7 +202,7 @@ func (f *fakeProt) Authenticate(ctx *gin.Context, value string) {
 func (fakeProt) DeAuthenticate(ctx *gin.Context) { ctx.Status(http.StatusOK) }
 
 // slice 3 fakeProt addition — pass-through recaptcha middleware
-func (fakeProt) RequireRecaptcha(string) gin.HandlerFunc {
+func (fakeProt) RequireCaptcha(string) gin.HandlerFunc {
 	return func(c *gin.Context) { c.Next() }
 }
 

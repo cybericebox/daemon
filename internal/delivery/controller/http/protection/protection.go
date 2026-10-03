@@ -27,11 +27,12 @@ import (
 
 // IUseCase is the auth port the middleware depends on.
 type IUseCase interface {
-	ValidateSessionCookie(
-		ctx context.Context,
-		cookieValue string,
-	) (*authUseCase.SessionAuthResult, error)
-	UpdateLastSeen(ctx context.Context, sessionID, userID uuid.UUID) error
+	// OpenSession decrypts the cookie, checks its expiry and the revocation set; it never touches the database.
+	OpenSession(cookieValue string) (authUseCase.SessionPass, error)
+	// LoadCaller is the one query of a request: the caller's global role and blocked flag.
+	LoadCaller(ctx context.Context, pass authUseCase.SessionPass) (authModel.AuthClaims, error)
+	// ReissueCookie returns a new cookie once 1% of the idle TTL has passed since this one was issued.
+	ReissueCookie(pass authUseCase.SessionPass) (string, bool)
 	SignOut(ctx context.Context, sessionID uuid.UUID) error
 	RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 }
@@ -47,6 +48,7 @@ type Protection struct {
 	hosts     config.HostsConfig
 	ttl       time.Duration
 	recaptcha config.RecaptchaConfig
+	captcha   CaptchaVerifier
 
 	recaptchaMu     sync.Mutex
 	recaptchaClient *recaptcha.Client
@@ -57,24 +59,28 @@ type Dependencies struct {
 	Config  config.AuthConfig
 	// Limiter counts every gated request in the caller's bucket; nil limits nothing.
 	Limiter Limiter
+	// Captcha overrides the verifier chosen by Config.Captcha.Provider (tests).
+	Captcha CaptchaVerifier
 }
 
 func New(deps Dependencies) *Protection {
-	return &Protection{
+	p := &Protection{
 		limiter:   deps.Limiter,
 		useCase:   deps.UseCase,
 		hosts:     deps.Config.Hosts,
 		ttl:       cookieLifetime(deps.Config),
 		recaptcha: deps.Config.Recaptcha,
 	}
+	p.captcha = deps.Captcha
+	if p.captcha == nil {
+		p.captcha = p.newCaptchaVerifier(deps.Config)
+	}
+	return p
 }
 
-// cookieLifetime is how long the browser keeps the session cookie: the absolute
-// session lifetime (the idle deadline is enforced server-side).
+// cookieLifetime is how long the browser keeps the session cookie: the idle TTL, which every re-issue starts
+// again (the expiry inside the cookie is what the server enforces).
 func cookieLifetime(cfg config.AuthConfig) time.Duration {
-	if cfg.SessionAbsoluteTTL > 0 {
-		return cfg.SessionAbsoluteTTL
-	}
 	return cfg.SessionIdleTTL
 }
 
@@ -97,18 +103,14 @@ func (p *Protection) RequireAPIHost(ctx *gin.Context) {
 func (p *Protection) RequirePermission(required rbac.Permission) gin.HandlerFunc {
 	silentAuthCheck := required.RequireAuthentication() == false
 	return func(ctx *gin.Context) {
-		p.checkAuthentication(ctx, silentAuthCheck)
-		if ctx.IsAborted() {
-			// checkAuthentication already aborted (hard-401 case) — the
+		if !p.authenticate(ctx, silentAuthCheck) {
+			// authenticate already aborted (hard-401 case, or the limiter) — the
 			// deferred global error handler will write the response; don't
 			// let the permission check below run and race it with a 403.
 			return
 		}
 
-		claims, authenticated := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-		if p.limiter != nil && !p.limiter.Check(ctx, claims.UserID, authenticated) {
-			return
-		}
+		_, authenticated := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 		if !rbac.HasPermissionInContext(ctx.Request.Context(), required) &&
 			(authenticated || !rbac.RolePublic.HasPermission(required)) {
 			// The journal records which permission refused: refusals point at wrong permissions.
@@ -190,75 +192,81 @@ func (p *Protection) signInURL() string {
 	return p.hosts.IDURL(SignInPath)
 }
 
-// resolveAuth validates the request's session cookie and returns the identity
-// claims. There is exactly one credential now, valid across every frontend
-// origin — which caller may do what is enforced by RBAC permissions and the
-// CORS/Origin allowlist, not by which cookie is present.
-func (p *Protection) resolveAuth(ctx *gin.Context) (authModel.AuthClaims, error) {
+// authenticate resolves the caller of a request in the order of the session spec, so a dead cookie costs no
+// database work and a flood of a user's requests stops before the first query:
+//
+//  1. decrypt the cookie and check its expiry; 2. look the session up in the in-memory revocation set (garbage,
+//     expired or revoked: 401, no database); 3. the per-user rate limit; 4. one query for the caller's role and
+//     blocked flag.
+//
+// On success it injects the identity into the request context and re-issues the cookie when due. silent controls
+// the failure behavior: false (the permission requires authentication) aborts with the error's own status and the
+// X-Sign-In-URL header so the client can redirect; true (the permission is public-optional) lets the request
+// continue as an anonymous one. It reports false when the request was aborted.
+func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	cookie := getCookie(ctx, authModel.SessionCookie)
 	if cookie == "" {
-		return authModel.AuthClaims{}, authModel.ErrAuthMissingSessionCookie.Err()
-	}
-	res, err := p.useCase.ValidateSessionCookie(ctx.Request.Context(), cookie)
-	if err != nil {
-		if isUnauthorized(err) {
-			p.clearSessionCookie(ctx)
+		if silent {
+			return p.countAnonymous(ctx)
 		}
-		return authModel.AuthClaims{}, err
+		return p.refuse(ctx, authModel.ErrAuthMissingSessionCookie.Err())
 	}
-	return res.Claims, nil
-}
-
-// checkAuthentication validates the session cookie and, on success, injects
-// userID / role / sessionID into the request context (rbac seam). It is not a
-// standalone middleware — RequirePermission calls it internally, once per
-// request, before checking HasPermissionInContext. silent controls the
-// failure behavior: false (the permission requires authentication) aborts
-// with the session-validation error's own status (401 for an invalid,
-// expired, or revoked session) and the X-Sign-In-URL header so the client
-// can redirect; true (the permission is public-optional, i.e. RolePublic
-// already covers it) just logs and lets the request continue unauthenticated.
-func (p *Protection) checkAuthentication(ctx *gin.Context, silent bool) {
-	claims, err := p.resolveAuth(ctx)
+	pass, err := p.useCase.OpenSession(cookie)
+	if err != nil {
+		return p.failed(ctx, err, silent)
+	}
+	if p.limiter != nil && !p.limiter.Check(ctx, pass.Ticket.UserID, true) {
+		return false
+	}
+	claims, err := p.useCase.LoadCaller(ctx.Request.Context(), pass)
 	if err != nil {
 		if silent {
-			log.Debug().Err(err).Caller().Msg("Silent auth check failed")
-			return
+			return p.failedSilently(ctx, err)
 		}
-		// Advertise the sign-in URL so the client can redirect on 401 without
-		// computing the address itself (harmless on the success path).
-		if isUnauthorized(err) {
-			ctx.Header(SignInURLHeader, p.signInURL())
-		}
-		response.AbortWithError(ctx, err)
-		return
+		return p.failed(ctx, err, false)
 	}
-	p.injectContext(ctx, claims)
+	ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), claims))
+	if value, ok := p.useCase.ReissueCookie(pass); ok {
+		setCookie(ctx, authModel.SessionCookie, value, http.SameSiteStrictMode, p.ttl)
+	}
+	return true
+}
+
+// countAnonymous counts a request without identity in the anonymous bucket.
+func (p *Protection) countAnonymous(ctx *gin.Context) bool {
+	return p.limiter == nil || p.limiter.Check(ctx, uuid.Nil, false)
+}
+
+// failed handles a cookie that did not pass: a dead cookie is cleared; a silent route goes on anonymous, any
+// other aborts with the error.
+func (p *Protection) failed(ctx *gin.Context, err error, silent bool) bool {
+	if isUnauthorized(err) {
+		p.clearSessionCookie(ctx)
+	}
+	if silent {
+		return p.failedSilently(ctx, err)
+	}
+	return p.refuse(ctx, err)
+}
+
+func (p *Protection) failedSilently(ctx *gin.Context, err error) bool {
+	log.Debug().Err(err).Caller().Msg("Silent auth check failed")
+	return p.countAnonymous(ctx)
+}
+
+// refuse aborts the request with err, advertising the sign-in URL on a 401 so the client can redirect without
+// computing the address itself.
+func (p *Protection) refuse(ctx *gin.Context, err error) bool {
+	if isUnauthorized(err) {
+		ctx.Header(SignInURLHeader, p.signInURL())
+	}
+	response.AbortWithError(ctx, err)
+	return false
 }
 
 func isUnauthorized(err error) bool {
 	var classified appErr.Error
 	return errors.As(err, &classified) && classified.StatusCode().HTTPCode() == http.StatusUnauthorized
-}
-
-// injectContext writes identity into the request context and fires an async last-seen touch.
-func (p *Protection) injectContext(ctx *gin.Context, claims authModel.AuthClaims) {
-	ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), claims))
-	p.touchAsync(claims.SessionID, claims.UserID)
-}
-
-func (p *Protection) touchAsync(sessionID, userID uuid.UUID) {
-	go func() {
-		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := p.useCase.UpdateLastSeen(c, sessionID, userID); err != nil {
-			log.Debug().
-				Err(err).
-				Str("sessionID", sessionID.String()).
-				Str("userID", userID.String()).
-				Msg("Failed to update last_seen")
-		}
-	}()
 }
 
 // ── cookie helpers ─────────────────────────────────────────────────────────

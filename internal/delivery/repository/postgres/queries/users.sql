@@ -45,8 +45,15 @@ WHERE id = $1
 
 -- name: UpdateUserLastSeen :execrows
 UPDATE users
-SET last_seen = now()
-WHERE id = $1;
+SET last_seen = GREATEST(last_seen, sqlc.arg(seen_at))
+WHERE id = sqlc.arg(id);
+
+-- name: GetUserAccess :one
+-- The one query per signed-in request: the global role and the status (blocked) of the caller.
+SELECT role, status
+FROM users
+WHERE id = $1
+  AND deleted_at IS NULL;
 
 -- name: MarkUserInvitationSent :execrows
 -- Narrow write outside the aggregate UPDATE set (like last_seen): the last

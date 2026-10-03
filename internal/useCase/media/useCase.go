@@ -66,3 +66,15 @@ func isStorageConfigured(s IStorage) bool {
 func (u *MediaUseCase) MaxUploadBytes() int64 {
 	return u.cfg.MaxUploadBytes
 }
+
+// MaxSingleUploadBytes is the most one single-request upload may carry: a file larger than one chunk goes up in
+// chunks (the edge limits a request body to 100 MB).
+func (u *MediaUseCase) MaxSingleUploadBytes() int64 {
+	if u.cfg.UploadChunkBytes > 0 && u.cfg.UploadChunkBytes < u.cfg.MaxUploadBytes {
+		return u.cfg.UploadChunkBytes
+	}
+	return u.cfg.MaxUploadBytes
+}
+
+// UploadChunkBytes is the size of a chunk of a resumable upload.
+func (u *MediaUseCase) UploadChunkBytes() int64 { return u.cfg.UploadChunkBytes }

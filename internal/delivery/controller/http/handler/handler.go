@@ -71,7 +71,7 @@ type (
 	Protector interface {
 		Authenticate(ctx *gin.Context, value string)
 		DeAuthenticate(ctx *gin.Context)
-		RequireRecaptcha(action string) gin.HandlerFunc
+		RequireCaptcha(action string) gin.HandlerFunc
 		RequirePermission(required rbac.Permission) gin.HandlerFunc
 	}
 )
@@ -83,6 +83,7 @@ func NewAPIHandler(useCase IUseCase, prot Protector, cfg config.AuthConfig) *Han
 func (h *Handler) Init(router *gin.Engine) {
 	baseAPI := router.Group("api")
 	{
+
 		platformSettings.NewSettingAPIHandler(h.useCase, h.prot).Init(baseAPI)
 		adminAuditHandler.New(h.useCase, h.prot).Init(baseAPI)
 		errorJournalHandler.New(h.useCase, h.prot).Init(baseAPI)

@@ -138,9 +138,9 @@ func (u *AuthUseCase) checkCurrentPassword(userID uuid.UUID, plain, hashed strin
 func (u *AuthUseCase) revokeSessions(ctx context.Context, userID, keep uuid.UUID) error {
 	var err error
 	if keep == uuid.Nil {
-		_, err = u.sessions.DeleteAllForUser(ctx, userID)
+		_, err = u.revokeAll(ctx, userID)
 	} else {
-		_, err = u.sessions.DeleteForUserExcept(ctx, userID, keep)
+		_, err = u.revokeAllExcept(ctx, userID, keep)
 	}
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to revoke sessions").Err()

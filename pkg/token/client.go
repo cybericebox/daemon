@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -52,61 +51,6 @@ func MustNew(cfg Config) *Client {
 		panic(err)
 	}
 	return c
-}
-
-// ── Session cookie (the single platform credential, host-only on api.<domain>) ─
-
-type sessionClaims struct {
-	jwt.RegisteredClaims
-}
-
-// GenerateSessionCookie issues a signed JWT for the session. expiresAt is baked
-// in so Stage-1 validation can reject expired cookies without a DB hit.
-func (c *Client) GenerateSessionCookie(sessionID uuid.UUID, expiresAt time.Time) (string, error) {
-	claims := sessionClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    c.issuer,
-			Subject:   sessionID.String(),
-			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        uuid.Must(uuid.NewV7()).String(),
-		},
-	}
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := tok.SignedString(c.signKey)
-	if err != nil {
-		return "", fmt.Errorf("token: sign session cookie: %w", err)
-	}
-	return signed, nil
-}
-
-// ParseSessionCookie validates HMAC signature + expiry and returns the session ID.
-// Session cookies carry no audience claim; tokens with an audience (e.g. a setup
-// token) are rejected to prevent cross-purpose replay.
-func (c *Client) ParseSessionCookie(tokenStr string) (uuid.UUID, error) {
-	tok, err := jwt.ParseWithClaims(
-		tokenStr,
-		&sessionClaims{},
-		c.keyFunc,
-		jwt.WithIssuer(c.issuer),
-		jwt.WithExpirationRequired(),
-	)
-	if err != nil {
-		return uuid.Nil, ErrInvalidToken
-	}
-	claims, ok := tok.Claims.(*sessionClaims)
-	if !ok || !tok.Valid {
-		return uuid.Nil, ErrInvalidToken
-	}
-	// Reject tokens that carry an audience claim — session cookies are unscoped.
-	if len(claims.Audience) > 0 {
-		return uuid.Nil, ErrInvalidToken
-	}
-	id, err := uuid.FromString(claims.Subject)
-	if err != nil {
-		return uuid.Nil, ErrInvalidToken
-	}
-	return id, nil
 }
 
 func (c *Client) keyFunc(t *jwt.Token) (interface{}, error) {

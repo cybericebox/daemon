@@ -21,6 +21,7 @@ import (
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
+	"github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/pkg/oauth"
 	"github.com/cybericebox/daemon/pkg/password"
 )
@@ -36,8 +37,6 @@ type IRepository interface {
 
 // ITokenClient is the crypto port (satisfied by *token.Client).
 type ITokenClient interface {
-	GenerateSessionCookie(sessionID uuid.UUID, expiresAt time.Time) (string, error)
-	ParseSessionCookie(tokenStr string) (uuid.UUID, error)
 	ISetupTokenSigner
 }
 
@@ -95,6 +94,7 @@ type AuthUseCase struct {
 	storageConfigured bool
 	avatar            IAvatarStorage
 	cfg               config.AuthConfig
+	rt                *session.Runtime
 	inboxRequests     IInboxRequests // nil until wired
 	limits            *authLimits
 	background        func(func())
@@ -125,6 +125,8 @@ type Dependencies struct {
 	Storage  IStorageClient
 	Avatar   IAvatarStorage
 	Config   config.AuthConfig
+	// Sessions is the cookie codec, the revoked-session set and the last_seen batching of this replica.
+	Sessions *session.Runtime
 	// Background runs the work a public request must not wait for (nil: a goroutine). Tests pass a
 	// synchronous runner.
 	Background func(func())
@@ -152,7 +154,7 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 	if setupTokens == nil {
 		setupTokens = NewSetupTokenStore(deps.Repo, deps.Token)
 	}
-	return &AuthUseCase{
+	uc := &AuthUseCase{
 		setupTokens:       setupTokens,
 		sessions:          sessionRepo.New(deps.Repo),
 		users:             userRepo.New(deps.Repo),
@@ -166,9 +168,14 @@ func NewAuthUseCase(deps Dependencies) *AuthUseCase {
 		storageConfigured: isStorageConfigured(deps.Storage),
 		avatar:            deps.Avatar,
 		cfg:               deps.Config,
+		rt:                deps.Sessions,
 		limits:            newAuthLimits(),
 		background:        deps.Background,
 	}
+	if deps.Sessions != nil && deps.Sessions.Seen != nil {
+		deps.Sessions.Seen.SetWriter(uc)
+	}
+	return uc
 }
 
 // isStorageConfigured mirrors isOAuthConfigured: true only for a non-nil
@@ -255,7 +262,7 @@ func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, a
 	}); err != nil {
 		return err
 	}
-	if _, err := u.sessions.DeleteAllForUser(ctx, userID); err != nil {
+	if _, err := u.revokeAll(ctx, userID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete user sessions").Err()
 	}
 	if _, err := u.users.DeleteProviders(ctx, userID); err != nil {

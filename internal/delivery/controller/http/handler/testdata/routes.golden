@@ -376,6 +376,7 @@ POST   /api/exercises/files | gate: self | layers: -
 GET    /api/exercises/files/:fileID | gate: self | layers: -
 GET    /api/exercises/flag-policy | gate: self | layers: -
 POST   /api/exercises/import | gate: exercises.write | layers: -
+POST   /api/exercises/import/uploaded | gate: exercises.write | layers: -
 GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
 POST   /api/exercises/proposals/:proposalID/reject | gate: exercises.publish | layers: -
@@ -384,6 +385,11 @@ GET    /api/exercises/test-labs/bookings | gate: self | layers: -
 POST   /api/exercises/test-labs/bookings | gate: self | layers: -
 DELETE /api/exercises/test-labs/bookings/:bookingID | gate: self | layers: -
 GET    /api/exercises/test-labs/room | gate: self | layers: -
+POST   /api/exercises/uploads | gate: self | layers: -
+DELETE /api/exercises/uploads/:uploadID | gate: self | layers: -
+GET    /api/exercises/uploads/:uploadID | gate: self | layers: -
+PUT    /api/exercises/uploads/:uploadID/chunks/:index | gate: self | layers: -
+POST   /api/exercises/uploads/:uploadID/complete | gate: self | layers: -
 GET    /api/infrastructure/agents | gate: infrastructure.read | layers: -
 POST   /api/infrastructure/agents | gate: infrastructure.write | layers: -
 DELETE /api/infrastructure/agents/:agentID | gate: infrastructure.write | layers: -

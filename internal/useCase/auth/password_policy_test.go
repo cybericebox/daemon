@@ -8,7 +8,7 @@ import (
 )
 
 func TestPasswordPolicy_ReflectsPasswordClientComplexity(t *testing.T) {
-	uc := auth.NewAuthUseCase(auth.Dependencies{
+	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Password: password.New(password.Config{
 			HashCost: 4,
 			Complexity: password.ComplexityConfig{
