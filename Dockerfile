@@ -34,5 +34,5 @@ COPY --from=builder /build/app /app/app
 
 USER 10001:10001
 ENTRYPOINT ["/app/app"]
-# 8443: TLS mode (HTTP_SERVER_TLS_ENABLED); 8081: plain health port in TLS mode; 8080: plain mode.
+# 8080: plain HTTP; 8443: HTTPS (HTTP_SERVER_TLS_CERT_FILE/KEY_FILE); 8081: the optional health port (HTTP_SERVER_HEALTH_PORT).
 EXPOSE 8080 8443 8081

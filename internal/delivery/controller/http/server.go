@@ -19,10 +19,11 @@ import (
 )
 
 type (
-	// Server runs the API listener and, around it, the optional extra ones:
-	//   - plain mode: the API on Port;
-	//   - TLS mode: the API on TLSPort (HTTP/2, optional client certificate) plus a plain listener on
-	//     HEALTH_BIND:HealthPort that serves only the health route (the kubelet cannot present a client cert);
+	// Server runs the API listeners, each optional:
+	//   - Port set: the API in plain HTTP (the default);
+	//   - TLS cert and key set: the API on HTTPSPort (HTTP/2, optional or required client certificate);
+	//   - HealthPort set: a plain listener on HEALTH_BIND that serves only the health route (the kubelet cannot
+	//     present a client certificate);
 	//   - InternalPort set: a plain listener on HEALTH_BIND with the same API handler for in-cluster callers.
 	Server struct {
 		listeners []*listener
@@ -126,23 +127,34 @@ func (pr *poolReloader) get() (*x509.CertPool, error) {
 	return nil, fmt.Errorf("client CA bundle %s: %w", pr.file, err)
 }
 
-// newTLSConfig builds the server TLS config: TLS 1.2+, HTTP/2, the certificate reloaded on change and, with
-// client auth, a required and verified client certificate whose CA bundle is reloaded on change too. With
-// client auth on and no usable bundle, every handshake fails (closed, never open).
-func newTLSConfig(cfg *config.TLSConfig) *tls.Config {
+// newTLSConfig builds the server TLS config: the configured minimum version, HTTP/2, the certificate reloaded on change and, with
+// client auth "require" a required and verified client certificate, with "optional" a verified one when
+// presented; the CA bundle is reloaded on change too. With client auth on and no usable bundle, every handshake
+// fails (closed, never open).
+func newTLSConfig(cfg *config.HTTPServerTLSConfig) *tls.Config {
 	cr := newCertReloader(cfg.CertFile, cfg.KeyFile)
 	if _, err := cr.GetCertificate(nil); err != nil {
 		log.Error().Err(err).Msg("Failed loading initial certificate")
 	}
+	minVersion := uint16(tls.VersionTLS12)
+	if cfg.MinVersion == "1.3" {
+		minVersion = tls.VersionTLS13
+	}
 	base := &tls.Config{
-		MinVersion:     tls.VersionTLS12,
+		MinVersion:     minVersion,
 		NextProtos:     []string{"h2", "http/1.1"},
 		GetCertificate: cr.GetCertificate,
 	}
-	if !cfg.ClientAuth {
+	var mode tls.ClientAuthType
+	switch cfg.ClientAuth {
+	case "require":
+		mode = tls.RequireAndVerifyClientCert
+	case "optional":
+		mode = tls.VerifyClientCertIfGiven
+	default:
 		return base
 	}
-	pr := &poolReloader{file: cfg.CAFile}
+	pr := &poolReloader{file: cfg.ClientCAFile}
 	if _, err := pr.get(); err != nil {
 		log.Error().Err(err).Msg("Failed loading the client CA bundle: every connection will be refused until it loads")
 	}
@@ -153,7 +165,7 @@ func newTLSConfig(cfg *config.TLSConfig) *tls.Config {
 		}
 		perConn := base.Clone()
 		perConn.GetConfigForClient = nil
-		perConn.ClientAuth = tls.RequireAndVerifyClientCert
+		perConn.ClientAuth = mode
 		perConn.ClientCAs = pool
 		return perConn, nil
 	}
@@ -181,13 +193,14 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 		}
 	}
 	s := &Server{}
-	if cfg.TLS.Enabled {
-		s.listeners = append(s.listeners,
-			&listener{name: "HTTPS", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.TLSPort), handler, newTLSConfig(&cfg.TLS)), tls: true},
-			&listener{name: "health", srv: newHTTP(net.JoinHostPort(healthBind, cfg.HealthPort), healthHandler(), nil)},
-		)
-	} else {
+	if cfg.Port != "" {
 		s.listeners = append(s.listeners, &listener{name: "HTTP", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.Port), handler, nil)})
+	}
+	if cfg.TLSEnabled() {
+		s.listeners = append(s.listeners, &listener{name: "HTTPS", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.HTTPSPort), handler, newTLSConfig(&cfg.TLS)), tls: true})
+	}
+	if cfg.HealthPort != "" {
+		s.listeners = append(s.listeners, &listener{name: "health", srv: newHTTP(net.JoinHostPort(healthBind, cfg.HealthPort), healthHandler(), nil)})
 	}
 	if cfg.InternalPort != "" {
 		s.listeners = append(s.listeners, &listener{name: "internal", srv: newHTTP(net.JoinHostPort(healthBind, cfg.InternalPort), handler, nil)})

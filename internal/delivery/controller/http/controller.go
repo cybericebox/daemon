@@ -49,7 +49,7 @@ func hardenRouter(router *gin.Engine, cfg *config.HTTPControllerConfig) error {
 	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
 		return err
 	}
-	if cfg.Server.TLS.Enabled && cfg.Server.TLS.ClientAuth {
+	if cfg.Server.ClientAuthOn() {
 		router.Use(originClientIP)
 	}
 	router.Use(middleware.BodyLimit(cfg.MaxBodyBytes), middleware.SecurityHeaders)
@@ -57,7 +57,7 @@ func hardenRouter(router *gin.Engine, cfg *config.HTTPControllerConfig) error {
 }
 
 // originClientIP takes the client address from CF-Connecting-IP, but only on a connection whose client
-// certificate was verified (mTLS): then the peer is Cloudflare, which sets the header. On any other connection
+// certificate was verified (client auth "require", or "optional" with a presented and verified chain): then the peer is Cloudflare, which sets the header. On any other connection
 // (the plain internal listener, TLS without a verified chain) the header is spoofable and ignored, so
 // TRUSTED_PROXIES / X-Forwarded-For stay in charge. A missing or malformed value keeps the connection address.
 // The address replaces the host of RemoteAddr, so c.ClientIP(), the logs and everything else agree.
