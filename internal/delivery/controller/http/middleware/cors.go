@@ -24,6 +24,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/clienttoken"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 )
 
@@ -65,7 +66,7 @@ func HandleCORS(policy OriginPolicy) gin.HandlerFunc {
 		// Cross-origin JS may read only the headers listed here: the sign-in
 		// redirect URL, Content-Disposition (export archive filename) and
 		// Retry-After (flag submission rate limit).
-		ctx.Header("Access-Control-Expose-Headers", protection.SignInURLHeader+", Content-Disposition, Retry-After")
+		ctx.Header("Access-Control-Expose-Headers", protection.SignInURLHeader+", Content-Disposition, Retry-After, "+clienttoken.RequiredHeader)
 
 		if ctx.Request.Method == http.MethodOptions {
 			ctx.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")

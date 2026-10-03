@@ -48,6 +48,7 @@ POST   /api/auth/sign-in | gate: - | layers: recaptcha
 POST   /api/auth/sign-out | gate: self | layers: -
 POST   /api/auth/sign-up | gate: - | layers: recaptcha
 GET    /api/banners | gate: banners.view(public) | layers: -
+POST   /api/client-token | gate: - | layers: -
 GET    /api/events | gate: events.read | layers: -
 POST   /api/events | gate: events.write | layers: -
 DELETE /api/events/:id | gate: events.write | layers: -

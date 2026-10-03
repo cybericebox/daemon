@@ -22,6 +22,7 @@ type (
 		HTTPControllerConfig config.HTTPControllerConfig
 		AuthConfig           config.AuthConfig
 		RateLimit            config.RateLimitConfig
+		DOS                  config.DOSConfig
 		// ErrorJournal captures HTTP errors; nil captures nothing.
 		ErrorJournal errjournal.Sink
 	}
@@ -35,6 +36,7 @@ func NewController(deps Dependencies) *Controller {
 				UseCase:      deps.UseCase,
 				AuthConfig:   deps.AuthConfig,
 				RateLimit:    deps.RateLimit,
+				DOS:          deps.DOS,
 				ErrorJournal: deps.ErrorJournal,
 			},
 		),

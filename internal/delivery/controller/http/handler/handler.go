@@ -71,8 +71,9 @@ type (
 	Protector interface {
 		Authenticate(ctx *gin.Context, value string)
 		DeAuthenticate(ctx *gin.Context)
-		RequireRecaptcha(action string) gin.HandlerFunc
+		RequireCaptcha(action string) gin.HandlerFunc
 		RequirePermission(required rbac.Permission) gin.HandlerFunc
+		IssueClientToken(ctx *gin.Context)
 	}
 )
 
@@ -83,6 +84,9 @@ func NewAPIHandler(useCase IUseCase, prot Protector, cfg config.AuthConfig) *Han
 func (h *Handler) Init(router *gin.Engine) {
 	baseAPI := router.Group("api")
 	{
+		// The client token of DOS_PROTECTION=on: the one anonymous route a browser may call without it.
+		baseAPI.POST("client-token", h.prot.IssueClientToken)
+
 		platformSettings.NewSettingAPIHandler(h.useCase, h.prot).Init(baseAPI)
 		adminAuditHandler.New(h.useCase, h.prot).Init(baseAPI)
 		errorJournalHandler.New(h.useCase, h.prot).Init(baseAPI)

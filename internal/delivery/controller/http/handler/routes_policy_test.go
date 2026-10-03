@@ -45,7 +45,8 @@ type probeProtector struct{}
 
 func (probeProtector) Authenticate(*gin.Context, string) {}
 func (probeProtector) DeAuthenticate(*gin.Context)       {}
-func (probeProtector) RequireRecaptcha(action string) gin.HandlerFunc {
+func (probeProtector) IssueClientToken(*gin.Context)     {}
+func (probeProtector) RequireCaptcha(action string) gin.HandlerFunc {
 	return func(c *gin.Context) { c.Set(probeRecaptchaKey, action) }
 }
 func (probeProtector) RequirePermission(required rbac.Permission) gin.HandlerFunc {
@@ -245,6 +246,7 @@ var publicRoutes = map[string]string{
 	"GET /api/auth/google/register":         "OAuth registration redirect",
 	"GET /api/auth/google/setup":            "OAuth setup-link redirect; the email must match the account",
 	"GET /api/auth/google/callback":         "OAuth callback; state cookie double-submit",
+	"POST /api/client-token":                "client token of DOS_PROTECTION=on; the provider's bot check, limited by the no-token bucket",
 	"GET /api/events/upcoming":              "landing card of the nearest published event (public data only)",
 }
 
