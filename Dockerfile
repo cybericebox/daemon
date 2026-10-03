@@ -15,15 +15,14 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY ./internal/delivery/repository/postgres/migrations /build/migrations
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o app -a -ldflags '-w -extldflags "-static"' ./cmd/daemon
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags '-s -w' -o app ./cmd/daemon
 
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 # The laboratory version go.mod pins (CI passes it). infrastructure checks it against LABORATORY_IMAGE_TAG.
 ARG LABORATORY_VERSION=unknown
 LABEL org.cybericebox.laboratory.commit=$LABORATORY_VERSION
-# The daemon runs as an unprivileged user (no root inside the container). It therefore listens on 8080;
-# set HTTP_SERVER_PORT to change it.
-RUN addgroup -S -g 10001 app && adduser -S -D -u 10001 -G app app
+# The daemon runs as an unprivileged user (UID 10001, no root inside the container; the numeric USER needs no passwd
+# entry). It therefore listens on 8080; set HTTP_SERVER_PORT to change it.
 ENV HTTP_SERVER_PORT=8080
 WORKDIR /app
 
