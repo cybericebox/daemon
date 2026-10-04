@@ -4573,6 +4573,21 @@ func (mr *MockQuerierMockRecorder) GetTeamChallenge(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamChallenge", reflect.TypeOf((*MockQuerier)(nil).GetTeamChallenge), ctx, arg)
 }
 
+// GetTeamChallengeAttemptLimit mocks base method.
+func (m *MockQuerier) GetTeamChallengeAttemptLimit(ctx context.Context, teamChallengeID uuid.UUID) (postgres.GetTeamChallengeAttemptLimitRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTeamChallengeAttemptLimit", ctx, teamChallengeID)
+	ret0, _ := ret[0].(postgres.GetTeamChallengeAttemptLimitRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTeamChallengeAttemptLimit indicates an expected call of GetTeamChallengeAttemptLimit.
+func (mr *MockQuerierMockRecorder) GetTeamChallengeAttemptLimit(ctx, teamChallengeID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamChallengeAttemptLimit", reflect.TypeOf((*MockQuerier)(nil).GetTeamChallengeAttemptLimit), ctx, teamChallengeID)
+}
+
 // GetTeamChallengeAttemptWindow mocks base method.
 func (m *MockQuerier) GetTeamChallengeAttemptWindow(ctx context.Context, arg postgres.GetTeamChallengeAttemptWindowParams) (postgres.GetTeamChallengeAttemptWindowRow, error) {
 	m.ctrl.T.Helper()
@@ -7942,6 +7957,21 @@ func (m *MockQuerier) ListTeamBoardChallenges(ctx context.Context, arg postgres.
 func (mr *MockQuerierMockRecorder) ListTeamBoardChallenges(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeamBoardChallenges", reflect.TypeOf((*MockQuerier)(nil).ListTeamBoardChallenges), ctx, arg)
+}
+
+// ListTeamChallengeAttemptLimits mocks base method.
+func (m *MockQuerier) ListTeamChallengeAttemptLimits(ctx context.Context, eventTeamID uuid.UUID) ([]postgres.ListTeamChallengeAttemptLimitsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTeamChallengeAttemptLimits", ctx, eventTeamID)
+	ret0, _ := ret[0].([]postgres.ListTeamChallengeAttemptLimitsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTeamChallengeAttemptLimits indicates an expected call of ListTeamChallengeAttemptLimits.
+func (mr *MockQuerierMockRecorder) ListTeamChallengeAttemptLimits(ctx, eventTeamID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeamChallengeAttemptLimits", reflect.TypeOf((*MockQuerier)(nil).ListTeamChallengeAttemptLimits), ctx, eventTeamID)
 }
 
 // ListTeamChallengePrerequisites mocks base method.

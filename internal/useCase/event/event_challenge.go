@@ -147,6 +147,9 @@ func (u *EventUseCase) UpdateEventChallenge(ctx context.Context, eventID, eventE
 		return EventChallengeView{}, err
 	}
 	challenge.SetHintsEnabled(in.HintsEnabled)
+	if err = challenge.SetMaxFlagAttempts(in.MaxFlagAttempts.Or(challenge.MaxFlagAttempts)); err != nil {
+		return EventChallengeView{}, err
+	}
 	// Visibility is per set (SetEventExerciseVisibility); a task keeps it.
 	updated, err := u.eventChallenges.Update(ctx, challenge)
 	if err != nil {
@@ -444,7 +447,7 @@ func prerequisiteReachesTarget(edges map[uuid.UUID][]uuid.UUID, current, target 
 }
 
 func toEventChallengeView(value eventChallengeModel.EventChallenge, prerequisiteIDs ...[]uuid.UUID) EventChallengeView {
-	view := EventChallengeView{ID: value.ID, TaskID: value.TaskID, GroupID: value.GroupID, Order: value.Order, BoardOrder: value.BoardOrder, Points: value.Points, ScoringOverride: value.ScoringOverride, HintsEnabled: value.HintsEnabled, Published: value.Published, Snapshot: value.Snapshot,
+	view := EventChallengeView{ID: value.ID, TaskID: value.TaskID, GroupID: value.GroupID, Order: value.Order, BoardOrder: value.BoardOrder, Points: value.Points, ScoringOverride: value.ScoringOverride, HintsEnabled: value.HintsEnabled, MaxFlagAttempts: value.MaxFlagAttempts, Published: value.Published, Snapshot: value.Snapshot,
 		Hints: make([]ChallengeHintView, 0, len(value.Hints))}
 	for _, hint := range value.Hints {
 		cost, _ := value.HintCost(hint.ID)

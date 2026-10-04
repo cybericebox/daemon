@@ -531,6 +531,10 @@ type Querier interface {
 	// Rate limit: the same window over every challenge of one team.
 	GetTeamAttemptWindow(ctx context.Context, arg GetTeamAttemptWindowParams) (GetTeamAttemptWindowRow, error)
 	GetTeamChallenge(ctx context.Context, arg GetTeamChallengeParams) (GetTeamChallengeRow, error)
+	// The flag attempt limit of one team challenge (the task's own value, else the event's; NULL = unlimited) and the
+	// wrong submissions counted against it. Only wrong attempts received before the first effective correct one count:
+	// once a task is solved nothing more is counted, and after an annulment those later attempts stay uncounted.
+	GetTeamChallengeAttemptLimit(ctx context.Context, teamChallengeID uuid.UUID) (GetTeamChallengeAttemptLimitRow, error)
 	// Rate limit: the latest attempts (at most row_limit) of one team challenge
 	// received after since, and the oldest of them — when it leaves the window
 	// the next attempt is allowed.
@@ -1173,6 +1177,8 @@ type Querier interface {
 	// static event); board_position: the place inside the group, the order the
 	// manage page sets (board_order), then by set attach time and set order.
 	ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoardChallengesParams) ([]ListTeamBoardChallengesRow, error)
+	// GetTeamChallengeAttemptLimit for every limited team challenge of one team (the participant board).
+	ListTeamChallengeAttemptLimits(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamChallengeAttemptLimitsRow, error)
 	// Every prerequisite edge of the team's assigned challenges, named by the
 	// team's own snapshot of the prerequisite (fallback: the board snapshot) and
 	// marked solved when the team solved it.

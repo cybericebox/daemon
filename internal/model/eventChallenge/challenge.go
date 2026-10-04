@@ -10,6 +10,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
@@ -28,6 +29,8 @@ type EventChallenge struct {
 	Points          int32
 	ScoringOverride *eventModel.ScoringProfile
 	HintsEnabled    bool
+	// MaxFlagAttempts overrides the event's limit of wrong submissions per team for this task; nil uses the event's.
+	MaxFlagAttempts *int32
 	Published       bool
 	Snapshot        json.RawMessage
 	// Hints is the canonical hint list of the task (text and level of the
@@ -176,5 +179,19 @@ func (c *EventChallenge) SetScoringOverride(profile *eventModel.ScoringProfile) 
 }
 
 func (c *EventChallenge) SetHintsEnabled(enabled bool) { c.HintsEnabled = enabled }
+
+// SetMaxFlagAttempts sets (or clears with nil) the task's own attempt limit.
+func (c *EventChallenge) SetMaxFlagAttempts(limit *int32) error {
+	if err := challengeAttempt.CheckAttemptLimit(limit); err != nil {
+		return err
+	}
+	if limit == nil {
+		c.MaxFlagAttempts = nil
+		return nil
+	}
+	value := *limit
+	c.MaxFlagAttempts = &value
+	return nil
+}
 
 func (c *EventChallenge) SetPublished(published bool) { c.Published = published }

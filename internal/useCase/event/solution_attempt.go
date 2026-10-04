@@ -43,7 +43,7 @@ func (u *EventUseCase) ListSolutionAttempts(ctx context.Context, f ListSolutionA
 	}
 	items := make([]SolutionAttemptView, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, SolutionAttemptView{ID: row.ID, EventTeamID: row.EventTeamID, TeamName: row.TeamName, TeamChallengeID: row.TeamChallengeID, EventChallengeID: row.EventChallengeID, ChallengeName: row.ChallengeName, EventExerciseID: row.EventExerciseID, UserID: row.UserID, ParticipantName: row.ParticipantName, Answer: row.Answer, ExpectedFlag: row.ExpectedFlag, AutomaticCorrect: row.AutomaticCorrect, Decision: row.Decision, DecisionReason: row.DecisionReason, DecidedBy: row.DecidedBy, DecidedAt: row.DecidedAt, Correct: row.Correct, ReceivedAt: row.ReceivedAt, Points: row.Points})
+		items = append(items, SolutionAttemptView{ID: row.ID, EventTeamID: row.EventTeamID, TeamName: row.TeamName, TeamChallengeID: row.TeamChallengeID, EventChallengeID: row.EventChallengeID, ChallengeName: row.ChallengeName, EventExerciseID: row.EventExerciseID, UserID: row.UserID, ParticipantName: row.ParticipantName, Answer: row.Answer, ExpectedFlag: row.ExpectedFlag, AutomaticCorrect: row.AutomaticCorrect, Decision: row.Decision, DecisionReason: row.DecisionReason, DecidedBy: row.DecidedBy, DecidedAt: row.DecidedAt, Correct: row.Correct, ReceivedAt: row.ReceivedAt, Points: row.Points, AttemptsAllowed: row.AttemptsAllowed, AttemptsUsed: row.AttemptsUsed})
 	}
 	total, err := u.attempts.Count(ctx, filter)
 	if err != nil {

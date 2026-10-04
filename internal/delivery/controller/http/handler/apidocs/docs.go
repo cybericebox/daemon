@@ -22092,6 +22092,10 @@ const docTemplate = `{
                     "description": "InfrastructureAllowed is the admin's creation-time decision (read-only).",
                     "type": "boolean"
                 },
+                "MaxFlagAttempts": {
+                    "description": "MaxFlagAttempts: wrong flag submissions allowed per team and task; null = unlimited. A task may override it.",
+                    "type": "integer"
+                },
                 "MaxTeamSize": {
                     "type": "integer"
                 },
@@ -22308,6 +22312,10 @@ const docTemplate = `{
                 },
                 "ID": {
                     "type": "string"
+                },
+                "MaxFlagAttempts": {
+                    "description": "MaxFlagAttempts is the task's own limit of wrong submissions per team; null = the event's value.",
+                    "type": "integer"
                 },
                 "Order": {
                     "type": "integer"
@@ -24034,6 +24042,13 @@ const docTemplate = `{
                 "Answer": {
                     "type": "string"
                 },
+                "AttemptsAllowed": {
+                    "description": "AttemptsAllowed is the task's flag attempt limit for the team (null = unlimited); AttemptsUsed its wrong\nsubmissions counted against it.",
+                    "type": "integer"
+                },
+                "AttemptsUsed": {
+                    "type": "integer"
+                },
                 "AutomaticCorrect": {
                     "type": "boolean"
                 },
@@ -24534,6 +24549,10 @@ const docTemplate = `{
                 "HintsDisabled": {
                     "type": "boolean"
                 },
+                "MaxFlagAttempts": {
+                    "description": "MaxFlagAttempts omitted keeps the current value; null clears it (unlimited); otherwise 1..1000.",
+                    "type": "integer"
+                },
                 "MaxTeamSize": {
                     "type": "integer"
                 },
@@ -24597,6 +24616,10 @@ const docTemplate = `{
             "properties": {
                 "HintsEnabled": {
                     "type": "boolean"
+                },
+                "MaxFlagAttempts": {
+                    "description": "MaxFlagAttempts omitted keeps the current override; null clears it (the event value applies); otherwise 1..1000.",
+                    "type": "integer"
                 },
                 "Points": {
                     "type": "integer"
@@ -27494,6 +27517,9 @@ const docTemplate = `{
         "eventself.ownChallengeResponse": {
             "type": "object",
             "properties": {
+                "AttemptsLeft": {
+                    "type": "integer"
+                },
                 "ContentUpdatedAt": {
                     "type": "string"
                 },
@@ -27537,6 +27563,10 @@ const docTemplate = `{
                 "Locked": {
                     "description": "Locked: a prerequisite is unsolved; Snapshot then holds only name and\ndifficulty and Files is empty.",
                     "type": "boolean"
+                },
+                "MaxAttempts": {
+                    "description": "MaxAttempts / AttemptsLeft: the team's wrong flag submissions allowed on this task and what remains; both\nnull when unlimited or already solved. At AttemptsLeft 0 submissions are refused.",
+                    "type": "integer"
                 },
                 "Order": {
                     "type": "integer"

@@ -135,6 +135,7 @@ func (r *Repository) Create(ctx context.Context, c eventConfigModel.EventConfig)
 		ShowFinishCountdown:       c.Countdown.ShowFinish,
 		FinishCountdownMinutes:    c.Countdown.FinishMinutes,
 		TaskRevealMode:            string(revealModeOrDefault(c.TaskRevealMode)),
+		MaxFlagAttempts:           nullableInt32(c.MaxFlagAttempts),
 	})
 	if err != nil {
 		return eventConfigModel.EventConfig{}, err
@@ -190,6 +191,7 @@ func (r *Repository) Update(ctx context.Context, c eventConfigModel.EventConfig,
 		ShowFinishCountdown:       c.Countdown.ShowFinish,
 		FinishCountdownMinutes:    c.Countdown.FinishMinutes,
 		TaskRevealMode:            string(revealModeOrDefault(c.TaskRevealMode)),
+		MaxFlagAttempts:           nullableInt32(c.MaxFlagAttempts),
 	})
 }
 
@@ -231,6 +233,7 @@ func ToDomain(row postgres.EventConfig) eventConfigModel.EventConfig {
 		ShowDifficulty:         row.ShowDifficulty,
 		HintsDisabled:          row.HintsDisabled,
 		HintChargeMode:         eventConfigModel.HintChargeMode(row.HintChargeMode),
+		MaxFlagAttempts:        int32FromDB(row.MaxFlagAttempts),
 		StandTiming:            standTimingFromDB(row.StandDeployLeadMinutes, row.StandTeardownDelayMinutes),
 		Results:                resultsFromDB(row),
 		Countdown:              countdownFromDB(row),

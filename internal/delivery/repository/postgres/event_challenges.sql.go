@@ -19,7 +19,7 @@ INSERT INTO event_challenges (id, event_exercise_id, task_id, order_index, point
 VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, $9,
         COALESCE($10::jsonb, '[]'::jsonb), COALESCE($11::jsonb, '{}'::jsonb))
-RETURNING id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order
+RETURNING id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts
 `
 
 type CreateEventChallengeParams struct {
@@ -70,6 +70,7 @@ func (q *Queries) CreateEventChallenge(ctx context.Context, arg CreateEventChall
 		&i.Hints,
 		&i.HintCosts,
 		&i.BoardOrder,
+		&i.MaxFlagAttempts,
 	)
 	return i, err
 }
@@ -114,7 +115,7 @@ func (q *Queries) DeleteTeamChallengesForChallenges(ctx context.Context, ids []u
 }
 
 const getEventChallengeByID = `-- name: GetEventChallengeByID :one
-SELECT id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order
+SELECT id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts
 FROM event_challenges
 WHERE id = $1
   AND event_exercise_id = $2
@@ -147,12 +148,13 @@ func (q *Queries) GetEventChallengeByID(ctx context.Context, arg GetEventChallen
 		&i.Hints,
 		&i.HintCosts,
 		&i.BoardOrder,
+		&i.MaxFlagAttempts,
 	)
 	return i, err
 }
 
 const getEventChallengeForEvent = `-- name: GetEventChallengeForEvent :one
-SELECT ec.id, ec.event_exercise_id, ec.task_id, ec.order_index, ec.points, ec.hints_enabled, ec.published, ec.snapshot, ec.created_at, ec.group_id, ec.scoring_mode, ec.dynamic_algorithm, ec.dynamic_min_points, ec.dynamic_max_points, ec.dynamic_floor_at_percent, ec.hints, ec.hint_costs, ec.board_order
+SELECT ec.id, ec.event_exercise_id, ec.task_id, ec.order_index, ec.points, ec.hints_enabled, ec.published, ec.snapshot, ec.created_at, ec.group_id, ec.scoring_mode, ec.dynamic_algorithm, ec.dynamic_min_points, ec.dynamic_max_points, ec.dynamic_floor_at_percent, ec.hints, ec.hint_costs, ec.board_order, ec.max_flag_attempts
 FROM event_challenges ec
 JOIN event_exercises ee ON ee.id = ec.event_exercise_id
 WHERE ec.id = $1
@@ -186,6 +188,7 @@ func (q *Queries) GetEventChallengeForEvent(ctx context.Context, arg GetEventCha
 		&i.Hints,
 		&i.HintCosts,
 		&i.BoardOrder,
+		&i.MaxFlagAttempts,
 	)
 	return i, err
 }
@@ -256,7 +259,7 @@ func (q *Queries) IsEventChallengePublished(ctx context.Context, id uuid.UUID) (
 }
 
 const listEventChallenges = `-- name: ListEventChallenges :many
-SELECT id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order
+SELECT id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts
 FROM event_challenges
 WHERE event_exercise_id = $1
 ORDER BY order_index ASC
@@ -290,6 +293,7 @@ func (q *Queries) ListEventChallenges(ctx context.Context, eventExerciseID uuid.
 			&i.Hints,
 			&i.HintCosts,
 			&i.BoardOrder,
+			&i.MaxFlagAttempts,
 		); err != nil {
 			return nil, err
 		}
@@ -526,18 +530,20 @@ const updateEventChallenge = `-- name: UpdateEventChallenge :one
 UPDATE event_challenges
 SET points = $1,
     hints_enabled = $2,
-    published = $3
-WHERE id = $4
-  AND event_exercise_id = $5
-RETURNING id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order
+    published = $3,
+    max_flag_attempts = $4
+WHERE id = $5
+  AND event_exercise_id = $6
+RETURNING id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts
 `
 
 type UpdateEventChallengeParams struct {
-	Points          int32     `json:"points"`
-	HintsEnabled    bool      `json:"hints_enabled"`
-	Published       bool      `json:"published"`
-	ID              uuid.UUID `json:"id"`
-	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	Points          int32       `json:"points"`
+	HintsEnabled    bool        `json:"hints_enabled"`
+	Published       bool        `json:"published"`
+	MaxFlagAttempts pgtype.Int4 `json:"max_flag_attempts"`
+	ID              uuid.UUID   `json:"id"`
+	EventExerciseID uuid.UUID   `json:"event_exercise_id"`
 }
 
 func (q *Queries) UpdateEventChallenge(ctx context.Context, arg UpdateEventChallengeParams) (EventChallenge, error) {
@@ -545,6 +551,7 @@ func (q *Queries) UpdateEventChallenge(ctx context.Context, arg UpdateEventChall
 		arg.Points,
 		arg.HintsEnabled,
 		arg.Published,
+		arg.MaxFlagAttempts,
 		arg.ID,
 		arg.EventExerciseID,
 	)
@@ -568,6 +575,7 @@ func (q *Queries) UpdateEventChallenge(ctx context.Context, arg UpdateEventChall
 		&i.Hints,
 		&i.HintCosts,
 		&i.BoardOrder,
+		&i.MaxFlagAttempts,
 	)
 	return i, err
 }
@@ -611,7 +619,7 @@ SET scoring_mode = $1,
     dynamic_floor_at_percent = $5
 WHERE id = $6
   AND event_exercise_id = $7
-RETURNING id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order
+RETURNING id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts
 `
 
 type UpdateEventChallengeScoringParams struct {
@@ -654,6 +662,7 @@ func (q *Queries) UpdateEventChallengeScoring(ctx context.Context, arg UpdateEve
 		&i.Hints,
 		&i.HintCosts,
 		&i.BoardOrder,
+		&i.MaxFlagAttempts,
 	)
 	return i, err
 }

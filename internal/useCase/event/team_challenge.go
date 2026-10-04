@@ -176,7 +176,7 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 			return SubmitChallengeResult{}, err
 		}
 	}
-	if err = throttleSubmission(txCtx, challengeAttemptRepo.New(txRepo), eventID, teamID, tc.EventChallengeID, tc.ID, in.ReceivedAt); err != nil {
+	if err = throttleSubmission(txCtx, challengeAttemptRepo.New(txRepo), eventID, teamID, tc.EventChallengeID, tc.ID, in.ReceivedAt, !moderators); err != nil {
 		return SubmitChallengeResult{}, err
 	}
 	correct := canonicalAnswer == tc.ExpectedFlag
@@ -268,9 +268,23 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 // stored. Locking the team challenge serializes concurrent submissions of one
 // challenge, so a burst cannot pass the count before any of it is recorded;
 // the looser team-wide limit may overshoot by the parallel requests at most.
-func throttleSubmission(ctx context.Context, attempts *challengeAttemptRepo.Repository, eventID, teamID, challengeID, teamChallengeID uuid.UUID, now time.Time) error {
+// With enforceAttemptLimit the task's flag attempt limit is checked first, on the locked row, so parallel wrong
+// answers cannot pass it together; a submission refused by the rate limit is not stored and so never counts.
+// Moderators testing on their board are not limited.
+func throttleSubmission(ctx context.Context, attempts *challengeAttemptRepo.Repository, eventID, teamID, challengeID, teamChallengeID uuid.UUID, now time.Time, enforceAttemptLimit bool) error {
 	if _, err := attempts.LockTeamChallenge(ctx, eventID, teamID, challengeID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to lock team challenge").Err()
+	}
+	if enforceAttemptLimit {
+		state, err := attempts.AttemptLimit(ctx, teamChallengeID)
+		if err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to count wrong challenge attempts").Err()
+		}
+		if !state.Solved {
+			if err = challengeAttempt.CheckAttemptsLeft(state.Max, state.Wrong); err != nil {
+				return err
+			}
+		}
 	}
 	window, err := attempts.ChallengeWindow(ctx, teamChallengeID, challengeAttempt.ChallengeRateLimit, now)
 	if err != nil {
