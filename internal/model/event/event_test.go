@@ -1,6 +1,7 @@
 package eventModel
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -53,6 +54,30 @@ func TestNewEvent_RejectsBadTag(t *testing.T) {
 		if _, err := NewEvent(tag, "Winter", from, until, someUser, fixedNow); err == nil {
 			t.Fatalf("expected ErrEventTagInvalid for tag %q", tag)
 		}
+	}
+}
+
+func TestNewEvent_RejectsReservedTag(t *testing.T) {
+	for _, tag := range []string{"api", "admin", "exercises", "labs", "vpn", "ctl", "www"} {
+		_, err := NewEvent(tag, "Winter", from, until, someUser, fixedNow)
+		if !errors.Is(err, ErrEventTagReserved.Err()) {
+			t.Fatalf("tag %q: want ErrEventTagReserved, got %v", tag, err)
+		}
+	}
+}
+
+func TestUpdateEvent_RenameToReservedTagIsRefused(t *testing.T) {
+	e, _ := NewEvent("winter", "Winter", from, until, someUser, fixedNow)
+	if err := e.UpdateEvent("api", "Winter", from, until, someUser, fixedNow); err == nil {
+		t.Fatal("renaming to a reserved tag must be refused")
+	}
+	if e.Tag != "winter" {
+		t.Fatalf("the tag must stay untouched, got %q", e.Tag)
+	}
+	// An event that already holds a reserved tag (made before the rule) stays editable under it.
+	old := Event{Tag: "www"}
+	if err := old.UpdateEvent("www", "Renamed", from, until, someUser, fixedNow); err != nil {
+		t.Fatalf("keeping its own tag: %v", err)
 	}
 }
 

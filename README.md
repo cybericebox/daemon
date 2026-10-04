@@ -56,7 +56,7 @@ cybericebox/
 make run-local   # sources ./.env, then go run ./cmd/daemon
 ```
 
-The daemon reads configuration from the process environment only (there is no `.env` loader in the binary), so `make run-local` sources the file first. Migrations are applied on boot with golang-migrate. In `ENV=development` they are read from `internal/delivery/repository/postgres/migrations`; in any other environment from `migrations` next to the binary.
+The daemon reads configuration from the process environment only (there is no `.env` loader in the binary), so `make run-local` sources the file first. Migrations are applied on boot with golang-migrate. In `ENV=development` (set it in `.env` for a local run; the default is `production`) they are read from `internal/delivery/repository/postgres/migrations`; in any other environment from `migrations` next to the binary.
 
 The service answers only on the `API_HOST` host. For local work route that host to the process (for example with a hosts entry or the local edge proxy), or send the `Host` header explicitly. `GET /api/health` is a public liveness probe.
 
@@ -64,36 +64,36 @@ The service answers only on the `API_HOST` host. For local work route that host 
 
 All settings are environment variables. Values below are placeholders; durations use Go syntax (`30s`, `24h`). A bot check is mandatory in production (`CAPTCHA_PROVIDER` other than `none`).
 
+The image takes the minimum: `DOMAIN`, `SUPPORT_EMAIL`, `POSTGRES_PASSWORD` and the secret keys (plus the external endpoints, the first admin and the bot check keys); everything else has a default that suits any deployment. Some former settings are constants now and are no longer read: the listen host (`0.0.0.0`), the header cap (1 MiB), the SMTP reply-to pair (`SUPPORT_EMAIL` is the default Reply-To; the admin mail settings override it), the revoked-session poll limit (30s), the resumable upload chunk (50 MiB) and its TTL (24h), the mail limiter internals and caps, the email image limits, the error journal queue, sample and watch mechanics, and `CALENDAR_TEST_LAB_LEASE` (the test lab lease is `EXERCISE_TEST_DEPLOY_TTL`). The contact, privacy and security mailboxes (`contact@`, `privacy@`, `security@<DOMAIN>`) are derived in the frontends; the daemon needs none of them.
+
 ### General and HTTP server
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ENV` | `development` | `development`, `stage` or `production`. Development runs Gin in debug mode with console logs; other values run release mode with JSON logs (debug level on stage, info on production). Swagger UI is served unless `production`. |
+| `ENV` | `production` | `production`, `stage` or `development`. Development (set it in the local `.env`) runs Gin in debug mode with console logs; other values run release mode with JSON logs (debug level on stage, info on production). Swagger UI is served unless `production`. |
 | `DOMAIN` | required | The one base domain (`cybericebox.com`), a bare lower case host name. Every host derives from it; there are no per-host settings: landing and mail footer links `DOMAIN`, API `api.<DOMAIN>` (the host this service answers on; the OAuth redirect URI is `https://api.<DOMAIN>/api/auth/<provider>/callback`), sign-in app `id.<DOMAIN>`, `admin.<DOMAIN>`, `exercises.<DOMAIN>`, event sites `<tag>.<DOMAIN>`. |
 | `SUPPORT_EMAIL` | required | Default Reply-To of all mail and the contact in the mail footer (`support@cybericebox.com`). |
 
-The daemon refuses to start without a valid `DOMAIN`. The labels `api`, `id`, `admin`, `exercises`, `labs`, `vpn`, `ctl` and `www` are reserved and never an event tag. CORS allows exactly the frontend hosts, the landing host and `https://<tag>.<DOMAIN>`. The same rule is in the frontends (`deploy/base-domain.sh`, `hosts.ts`) and in infrastructure (`cibconf.py`); `internal/config/testdata/base-domain-vectors.json` holds the shared test vectors, and its copies in the other repositories must stay identical.
+The daemon refuses to start without a valid `DOMAIN`. The labels `api`, `id`, `admin`, `exercises`, `labs`, `vpn`, `ctl` and `www` are reserved: creating or renaming an event to one of them is refused with error code `21142` (`Event tag is reserved for a platform address`). CORS allows exactly the frontend hosts, the landing host and `https://<tag>.<DOMAIN>`. The same rule is in the frontends (`deploy/base-domain.sh`, `hosts.ts`) and in infrastructure (`cibconf.py`); `internal/config/testdata/base-domain-vectors.json` holds the shared test vectors, and its copies in the other repositories must stay identical.
 
-| `HTTP_SERVER_HOST` | `0.0.0.0` | Listen host. |
-| `HTTP_SERVER_PORT` | `80` | Plain-HTTP listener (the default mode). Set to an empty value to turn it off (TLS only); with it empty and TLS off the daemon refuses to start. |
+| `HTTP_SERVER_PORT` | `8080`, none when TLS is on | Plain-HTTP listener. Unset it is off when TLS is on (the standard container: HTTPS only) and `8080` otherwise (unprivileged). Set to an empty value to turn it off; with it empty and TLS off the daemon refuses to start. |
 | `HTTP_SERVER_READ_TIMEOUT` | `10s` | Read timeout. |
 | `HTTP_SERVER_WRITE_TIMEOUT` | `10s` | Write timeout. |
-| `HTTP_SERVER_MAX_HEADER_MB` | `1` | Max header size in MiB. |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` | Cap of every request body (10 MiB); an upload route states its own larger cap. |
 | `TRUSTED_PROXIES` | none | Comma-separated CIDRs or addresses of the proxies in front of the daemon (ingress, CDN). The client address is read from `X-Forwarded-For` only for requests from them; with none listed the connection address is used and the header is ignored. Behind a proxy set it, or every client shares the proxy address in the per-address limits. |
 | `HTTP_SERVER_HTTPS_PORT` | `8443` | TLS listener (HTTP/2); runs only when both `HTTP_SERVER_TLS_CERT_FILE` and `HTTP_SERVER_TLS_KEY_FILE` are set. |
-| `HTTP_SERVER_TLS_CERT_FILE` | none | PEM server certificate chain. Both cert and key set: TLS on; exactly one set: the daemon refuses to start. |
-| `HTTP_SERVER_TLS_KEY_FILE` | none | PEM server key. The certificate, key and client CA are reread when a file changes (a renewal needs no restart); a broken renewal keeps the previous one in service. |
+| `HTTP_SERVER_TLS_CERT_FILE` | `/tls/tls.crt` when it and the key exist | PEM server certificate chain. Both cert and key set: TLS on; exactly one set: the daemon refuses to start. |
+| `HTTP_SERVER_TLS_KEY_FILE` | `/tls/tls.key` when it and the certificate exist | PEM server key. The certificate, key and client CA are reread when a file changes (a renewal needs no restart); a broken renewal keeps the previous one in service. |
 | `HTTP_SERVER_TLS_MIN_VERSION` | `1.2` | Lowest TLS version: `1.2` or `1.3`. |
-| `HTTP_SERVER_TLS_CLIENT_CA_FILE` | none | PEM bundle of the roots (and intermediates) that signed the client certificates (for example the Cloudflare Authenticated Origin Pulls CA). |
-| `HTTP_SERVER_TLS_CLIENT_AUTH` | `off` | `off`, `optional` (a presented certificate is verified, none is fine; a presented one that does not verify is refused) or `require` (no valid certificate: the handshake is refused). `optional` and `require` need TLS on and `HTTP_SERVER_TLS_CLIENT_CA_FILE`, else the daemon refuses to start. |
-| `HTTP_SERVER_HEALTH_PORT` | none (off) | When set, an extra plain-HTTP listener on `HEALTH_BIND` that serves only `GET /api/health` (the kubelet cannot present a client certificate). Never route it. |
+| `HTTP_SERVER_TLS_CLIENT_CA_FILE` | `/aop/ca.crt` when TLS is on and it exists | PEM bundle of the roots (and intermediates) that signed the client certificates (for example the Cloudflare Authenticated Origin Pulls CA). |
+| `HTTP_SERVER_TLS_CLIENT_AUTH` | `require` when the default CA file was found, else `off` | `off`, `optional` (a presented certificate is verified, none is fine; a presented one that does not verify is refused) or `require` (no valid certificate: the handshake is refused). `optional` and `require` need TLS on and `HTTP_SERVER_TLS_CLIENT_CA_FILE`, else the daemon refuses to start. |
+| `HTTP_SERVER_HEALTH_PORT` | `8081` in the image, none (off) otherwise | When set, an extra plain-HTTP listener on `HEALTH_BIND` that serves only `GET /api/health` (the kubelet cannot present a client certificate). Never route it. |
 | `HEALTH_BIND` | `0.0.0.0` | Address of the health listener and of the internal listener; the deploy sets the pod IP. |
 | `HTTP_SERVER_INTERNAL_PORT` | none (off) | When set, a second plain-HTTP listener on `HEALTH_BIND` with the same API handler, for in-cluster callers (the event-frontend server rendering, `INTERNAL_API_ORIGIN`). Restrict who reaches it with a NetworkPolicy. |
 
 Client address: the only use is the session IP (login session, visible to the user only). A request whose client certificate was verified (`HTTP_SERVER_TLS_CLIENT_AUTH` `require`, or `optional` with a presented and verified certificate) takes it from `CF-Connecting-IP` (a missing or invalid value falls back to the connection address); the header is never trusted on any other connection (plain, internal listener, no or unverified certificate), where `TRUSTED_PROXIES` / `X-Forwarded-For` apply as before.
 
-Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `HTTP_SERVER_HTTPS_PORT`), `HTTP_SERVER_TLS_CLIENT_AUTH` as a boolean (now `off|optional|require`), `HTTP_SERVER_TLS_CA_FILE` (now `HTTP_SERVER_TLS_CLIENT_CA_FILE`), and the built-in `/certificates/*` and `/aop/ca.crt` defaults; `HTTP_SERVER_HEALTH_PORT` is no longer `8081` by default.
+Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `HTTP_SERVER_HTTPS_PORT`), `HTTP_SERVER_TLS_CLIENT_AUTH` as a boolean (now `off|optional|require`), `HTTP_SERVER_TLS_CA_FILE` (now `HTTP_SERVER_TLS_CLIENT_CA_FILE`), and the built-in `/certificates/*` and `/aop/ca.crt` defaults; `HTTP_SERVER_HEALTH_PORT` is `8081` in the image (a local run has none). The TLS paths and client auth now default as the table says, so the deploy passes none of the listener settings; the settings stay overridable (an explicitly set value, even an empty one, always wins).
 
 ### Database
 
@@ -103,7 +103,7 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `POSTGRES_PORT` | `5432` | Port. |
 | `POSTGRES_USER` | `postgres` | User. |
 | `POSTGRES_PASSWORD` | required | Password; there is no default and the daemon does not start without it. |
-| `POSTGRES_DB` | `cybericebox_dev` | Database name. |
+| `POSTGRES_DB` | `cybericebox` | Database name (the one the deploy creates; a local run sets its own). |
 | `POSTGRES_SSL_MODE` | `verify-full` | pgx `sslmode`. The default encrypts and checks the server certificate and name; set another mode (for example `disable` for a local development database) only for a trusted network. |
 
 ### Authentication and secrets
@@ -121,7 +121,6 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `SESSION_MAX_PER_USER` | `10` | Sessions one account keeps at once; signing in over the cap ends the oldest (0 = no cap). |
 | `SESSION_ABSOLUTE_TTL` | `168h` | A session ends this long after sign-in however busy it is (it caps every re-issued expiry). |
 | `SESSION_ENCRYPTION_KEY` | required | Secret. Seals the session cookie (AES-256-GCM): one 64-hex-char key, or a keyring of `id:hex` entries whose first key seals and every key opens (a rotation signs nobody out). Every replica must hold the same key. |
-| `SESSION_REVOCATION_STALE_AFTER` | `30s` | How long the poll of the revoked-session list may keep failing before the replica refuses signed-in requests (503) rather than trust a stale list. |
 | `TEMPORAL_CODE_TTL` | `1h` | Lifetime of one-time codes (confirmation, reset). |
 | `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH` | `8`, `72` | Password length bounds (bcrypt ignores bytes past 72). |
 | `PASSWORD_MIN_CAPITAL_LETTERS`, `PASSWORD_MIN_SMALL_LETTERS`, `PASSWORD_MIN_DIGITS`, `PASSWORD_MIN_SPECIAL_CHARACTERS` | `1`, `1`, `1`, `0` | Complexity policy, published at `GET /api/auth/password/policy`. |
@@ -139,7 +138,7 @@ Per request, in this order: (1) decrypt the cookie and check its expiry, (2) loo
 
 `last_seen` is written per session: the first request of a 30 s window writes it at once (asynchronously), later ones only update memory, and at the end of the window the latest time is written (`GREATEST`, never backward). The replica flushes what it holds on SIGTERM.
 
-Every end of a session (sign-out, "end this session", sign-out everywhere, password change, block, eviction beyond `SESSION_MAX_PER_USER`) deletes the session row and writes a row in `session_revocations` in one statement: `seq`, `session_id`, `user_id`, `revoked_at` (database time) and `expires_at` (when the cookie would die by itself: the smaller of sign-in + `SESSION_ABSOLUTE_TTL` and `last_seen` + `SESSION_IDLE_TTL` + 1 min). Every replica loads the unexpired rows before it serves and polls the table every second (`WHERE revoked_at > watermark - 10 s`; the overlap covers late commits, the session id dedupes). Revocation therefore reaches every replica within about a second. A replica whose poll fails for longer than `SESSION_REVOCATION_STALE_AFTER` answers signed-in requests with 503 until the poll recovers. A worker deletes rows past `expires_at`.
+Every end of a session (sign-out, "end this session", sign-out everywhere, password change, block, eviction beyond `SESSION_MAX_PER_USER`) deletes the session row and writes a row in `session_revocations` in one statement: `seq`, `session_id`, `user_id`, `revoked_at` (database time) and `expires_at` (when the cookie would die by itself: the smaller of sign-in + `SESSION_ABSOLUTE_TTL` and `last_seen` + `SESSION_IDLE_TTL` + 1 min). Every replica loads the unexpired rows before it serves and polls the table every second (`WHERE revoked_at > watermark - 10 s`; the overlap covers late commits, the session id dedupes). Revocation therefore reaches every replica within about a second. A replica whose poll fails for longer than 30 s answers signed-in requests with 503 until the poll recovers. A worker deletes rows past `expires_at`.
 
 ### Bot check (CAPTCHA_PROVIDER)
 
@@ -168,7 +167,6 @@ Sender and transport settings live in the database: SMTP providers are managed i
 | `SMTP_INSECURE` | `false` | Let the env transport continue without TLS when the server does not offer STARTTLS (development mail catcher only). |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | none | SMTP credentials. |
 | `SMTP_SENDER_NAME`, `SMTP_SENDER_EMAIL` | none | Default sender. |
-| `SMTP_REPLY_TO_NAME`, `SMTP_REPLY_TO_EMAIL` | none | Default reply-to. |
 | `SMTP_MAX_PER_SECOND` | `0` | Provider send rate limit; 0 is unlimited. |
 | `SMTP_DAILY_QUOTA` | `0` | Provider daily quota; 0 is unlimited. |
 
@@ -217,7 +215,7 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EXERCISE_MAX_ACTIVE_TEST_DEPLOYS` | `3` | Test labs one user may run at the same time (1 to 20). |
 | `EXERCISE_STAND_DEPLOY_BUDGET` | `200` | Lab deploy calls to an agent per event and pass (1 to 5000). Only protects the agent API from a burst; launch pacing is done by the laboratory operator. |
 | `EXERCISE_STAND_PREWARM_LEAD` | `30m` | How long before the stand deploy time the images are prewarmed in the platform image cache; `0` turns it off (max 24h). |
-| `EXERCISE_TEST_DEPLOY_TTL` / `_MAX` | `2h` / `8h` | Lease of a catalog author's test lab, and the longest it lives from its start however often extended. |
+| `EXERCISE_TEST_DEPLOY_TTL` / `_MAX` | `2h` / `8h` | Lease of a test lab (a catalog author's, and any test laboratory whose caller names none), and the longest it lives from its start however often extended. |
 | `RESOURCES_PRESETS` | `nano=32Mi,micro=64Mi,small=128Mi,standard=256Mi,medium=512Mi,large=1Gi,xlarge=2Gi,max=4Gi` | The allowed device sizes an author picks (`id=memory`, Kubernetes quantities). The ids are translated by the frontends. Memory is binary and is the packing dimension: every size divides the next larger one, so packing leaves no hole. The CPU of a size follows from its memory, 1000m per 4Gi rounded down (32Mi gets 7m, 64Mi 15m, 1Gi 250m, 4Gi 1000m); it is not configured. A block is the smallest size, and `Blocks` counts in it. There is no custom size. |
 | `RESOURCES_DEFAULT_PRESET` | `micro` | The size of a device that picked none. |
 | `RESOURCES_FRAME_PRESET` | `large` | The largest size a device gets without an approval. A laboratory whose device maximum is below it, or that allows fewer than 32 devices per lab, does not meet the platform requirements and is not used. |
@@ -244,7 +242,6 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 | `CALENDAR_LEAD_MARGIN` | `30m` | Added before the stand deploy lead: the capacity must be connected that much earlier (0 to 24h). |
 | `CALENDAR_SEARCH_HORIZON` | `168h` | How far ahead the nearest free window of a test lab is looked for (1h to 2160h). |
 | `CALENDAR_AGENT_FRESH` | `15m` | How recent an agent's capacity read must be for it to count as connected (6m to 24h). |
-| `CALENDAR_TEST_LAB_LEASE` | `2h` | The lease a test lab is admitted for when its caller names none (15m to 24h). |
 
 ### Outgoing mail security
 
@@ -260,11 +257,6 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 | `SMTP_ALLOWED_PORTS` | `25,465,587,2525` | Ports an organizer may use for an event SMTP. |
 | `SSE_MAX_LIFETIME` | `30m` | Longest life of one event stream; the client reconnects. |
 | `LIVE_SCREEN_LINK_MAX_TTL` | `1440h` | Cap of «until the event ends» for a live screen link. |
-| `MAIL_MAX_RATE_WAIT` | `20s` | Longest a mail worker waits for its turn before the message is deferred. |
-| `MAIL_QUOTA_RETRY_AFTER` | `10m` | How long a message waits when the daily quota is used. |
-| `MAIL_QUOTA_RECHECK` | `30s` | How often the delivered count is re-read. |
-| `MAIL_QUOTA_WINDOW` | `24h` | Window of the daily quota. |
-| `MAIL_MAX_PER_SECOND_LIMIT` / `MAIL_DAILY_QUOTA_LIMIT` | `10000` / `1000000000` | Upper bounds an admin may set for a provider limit. |
 | `AVATAR_MAX_BYTES` | `5242880` | Avatar size. |
 | `IMAGE_MAX_PIXELS` | `16000000` | Most pixels (width times height) of an uploaded picture; a larger one is refused at upload. |
 | `FLAG_ANSWER_MAX_BYTES` | `512` | Longest answer to a task that is accepted; a longer one is refused before it is stored. |
@@ -272,9 +264,6 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 | `EVENT_PREVIEW_PICTURE_MAX_BYTES` | `5242880` | Event preview picture. |
 | `EVENT_CONTENT_IMAGE_MAX_BYTES` | `5242880` | Image in event page content. |
 | `LIVE_LOGO_MAX_BYTES` | `1048576` | Live screen logo. |
-| `EMAIL_IMAGE_UPLOAD_MAX_BYTES` | `10485760` | Raw upload of an email template image. |
-| `EMAIL_IMAGE_MAX_BYTES` | `307200` | Email template image after processing. |
-| `EMAIL_IMAGE_MAX_WIDTH` / `EMAIL_IMAGE_MAX_PIXELS` | `1200` / `24000000` | Width after downscale, and the decoded pixel cap. |
 
 ### Error journal
 
@@ -285,17 +274,13 @@ Notifications go to the Telegram chat ids and the e-mail list that super admins 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | none | Secret. The one Telegram bot; empty switches the Telegram channel off (chat ids are kept, nothing is sent). Never logged. |
-| `ERROR_JOURNAL_SAMPLES_PER_GROUP` | `5` | Recent samples kept per error group. |
 | `ERROR_JOURNAL_RETENTION` | `720h` | How long groups, samples and 404 counters are kept; a daily job deletes older ones. |
 | `ERROR_JOURNAL_NOTIFY_COOLDOWN` | `15m` | Least time between two messages about one fingerprint. |
 | `ERROR_JOURNAL_SPIKE_THRESHOLD` / `ERROR_JOURNAL_SPIKE_WINDOW` | `20` / `5m` | Occurrences of a known fingerprint within the window that count as a spike (messaged for 5xx and 429). |
-| `ERROR_JOURNAL_BUFFER_SIZE` | `1024` | Capture queue; events beyond it are dropped (counted in the log) instead of slowing a request down. |
-| `ERROR_JOURNAL_NOT_FOUND_FLUSH_INTERVAL` | `10s` | How often the in-memory 404 counters are written. |
 | `ERROR_JOURNAL_QUEUE_STALL_AFTER` | `5m` | A job ready to run that waits longer than this means the workers stalled. |
 | `ERROR_JOURNAL_QUEUE_BACKLOG_LIMIT` | `1000` | More waiting jobs than this is a growing queue. |
 | `ERROR_JOURNAL_CERT_EXPIRY_WARN` | `336h` | A laboratory agent certificate that ends within this is reported. |
 | `ERROR_JOURNAL_AGENT_OFFLINE_AFTER` | `2m` | A laboratory agent unreachable this long is reported offline. |
-| `ERROR_JOURNAL_WATCH_INTERVAL` | `1m` | How often the queue and certificate checks run. |
 
 Every request and response carries an `X-Request-ID` header (a client's own id is kept when it is 8-64 letters, digits, `.`, `_` or `-`); the journal stores it with the sample.
 

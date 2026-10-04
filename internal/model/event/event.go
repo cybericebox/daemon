@@ -20,6 +20,24 @@ const (
 
 var tagPattern = regexp.MustCompile(`^[a-z0-9]+$`)
 
+// reservedTags are the labels of the fixed platform subdomains (the app hosts and the laboratory names): an
+// event can never take one of them as its tag, so <tag>.DOMAIN never collides with them.
+var reservedTags = map[string]bool{
+	"api": true, "id": true, "admin": true, "exercises": true, "labs": true, "vpn": true, "ctl": true, "www": true,
+}
+
+// IsReservedTag reports whether tag is the label of a fixed platform subdomain.
+func IsReservedTag(tag string) bool { return reservedTags[tag] }
+
+// ReservedTags returns the reserved event tags (a copy).
+func ReservedTags() map[string]bool {
+	tags := make(map[string]bool, len(reservedTags))
+	for t := range reservedTags {
+		tags[t] = true
+	}
+	return tags
+}
+
 // EventStatus is the read-only lifecycle position derived from the window.
 type EventStatus int32
 
@@ -111,6 +129,10 @@ func (e *Event) UpdateEvent(tag, name string, availableFrom, archiveAt time.Time
 	tag = strings.TrimSpace(tag)
 	if len(tag) < tagMinLen || len(tag) > tagMaxLen || !tagPattern.MatchString(tag) {
 		return ErrEventTagInvalid.Err()
+	}
+	// A tag that is already the event's own stays editable (an event created before the reservation keeps working).
+	if reservedTags[tag] && tag != e.Tag {
+		return ErrEventTagReserved.Err()
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {

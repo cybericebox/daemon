@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
+
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 )
 
 // HostsConfig names every public host of the platform. DOMAIN is the only input: every host derives
@@ -105,20 +107,8 @@ func (h HostsConfig) APIURL(path string) string { return URL(h.API, path) }
 // EventURL is the home page of the event site with tag.
 func (h HostsConfig) EventURL(tag string) string { return URL(tag+"."+h.EventDomain, "/") }
 
-// reservedEventTags are the labels of the fixed platform subdomains (the app hosts and the laboratory
-// names): an event can never take one of them as its tag, so <tag>.DOMAIN never collides with them.
-var reservedEventTags = map[string]bool{
-	"api": true, "id": true, "admin": true, "exercises": true, "labs": true, "vpn": true, "ctl": true, "www": true,
-}
-
-// ReservedEventTags returns the reserved event tags (a copy).
-func (h HostsConfig) ReservedEventTags() map[string]bool {
-	tags := make(map[string]bool, len(reservedEventTags))
-	for t := range reservedEventTags {
-		tags[t] = true
-	}
-	return tags
-}
+// ReservedEventTags returns the reserved event tags (a copy): see eventModel.ReservedTags.
+func (h HostsConfig) ReservedEventTags() map[string]bool { return eventModel.ReservedTags() }
 
 // IsPlatformHost reports whether host is one of the platform hosts (the five named hosts, or an
 // event site under EventDomain).
@@ -144,14 +134,14 @@ func (h HostsConfig) IsFrontendOrigin(host string) bool {
 
 func (h HostsConfig) isEventSite(host string) bool {
 	label, ok := strings.CutSuffix(host, "."+h.EventDomain)
-	return ok && label != "" && !strings.Contains(label, ".") && !reservedEventTags[label]
+	return ok && label != "" && !strings.Contains(label, ".") && !eventModel.IsReservedTag(label)
 }
 
 // EventTag returns the event tag of an event site host.
 func (h HostsConfig) EventTag(host string) (string, bool) {
 	host = strings.ToLower(host)
 	label, ok := strings.CutSuffix(host, "."+h.EventDomain)
-	if !ok || label == "" || strings.Contains(label, ".") || reservedEventTags[label] {
+	if !ok || label == "" || strings.Contains(label, ".") || eventModel.IsReservedTag(label) {
 		return "", false
 	}
 	return label, true

@@ -12,6 +12,8 @@ import (
 // testHosts is the set every test config starts with: the domain is required, so MustGetConfig
 // stops without it.
 var testHosts = map[string]string{
+	// The image default is production (weak test secrets stop it); the tests run as a developer does.
+	"ENV":               "development",
 	"POSTGRES_PASSWORD": "test-password", "SUPPORT_EMAIL": "support@example.test", "DOMAIN": "example.test",
 	// The cookie key is required in every environment.
 	"SESSION_ENCRYPTION_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
@@ -391,9 +393,8 @@ func TestErrorJournalConfig_DefaultsAndEnv(t *testing.T) {
 
 	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
 	t.Setenv("ERROR_JOURNAL_RETENTION", "48h")
-	t.Setenv("ERROR_JOURNAL_SAMPLES_PER_GROUP", "9")
 	cfg = MustGetConfig()
-	if cfg.Telegram.BotToken != "123:abc" || cfg.ErrorJournal.Retention != 48*time.Hour || cfg.ErrorJournal.SamplesPerGroup != 9 {
+	if cfg.Telegram.BotToken != "123:abc" || cfg.ErrorJournal.Retention != 48*time.Hour {
 		t.Fatalf("error journal env: got %+v / token set %v", cfg.ErrorJournal, cfg.Telegram.BotToken != "")
 	}
 }

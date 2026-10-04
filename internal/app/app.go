@@ -105,7 +105,7 @@ func Run(cfg *config.Config) {
 		MediaConfig:      cfg.Media,
 		ExerciseConfig:   cfg.Exercise,
 		ResourcesPolicy:  resourcesPolicy,
-		Calendar:         calendarConfig(cfg.Calendar),
+		Calendar:         calendarConfig(cfg.Calendar, cfg.Exercise),
 		SMTPAllowedPorts: cfg.Tunables.SMTPAllowedPorts,
 		RetentionPolicy:  cfg.Retention.Policy(),
 		ExerciseCipher:   cls.exerciseCipher,
@@ -263,10 +263,11 @@ func Run(cfg *config.Config) {
 	}
 }
 
-// calendarConfig hands the resource calendar settings to the use case.
-func calendarConfig(c config.CalendarConfig) calendarUseCase.Config {
+// calendarConfig hands the resource calendar settings to the use case. The lease of a test laboratory is the
+// exercise setting EXERCISE_TEST_DEPLOY_TTL: one setting for the one lease.
+func calendarConfig(c config.CalendarConfig, ex config.ExerciseConfig) calendarUseCase.Config {
 	return calendarUseCase.Config{
 		BufferPercent: c.BufferPercent, TailGap: c.TailGap, LeadMargin: c.LeadMargin, SearchHorizon: c.SearchHorizon,
-		AgentFresh: c.AgentFresh, TestLabLease: c.TestLabLease,
+		AgentFresh: c.AgentFresh, TestLabLease: ex.TestDeployTTL,
 	}
 }

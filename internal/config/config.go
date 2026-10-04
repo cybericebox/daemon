@@ -21,13 +21,14 @@ import (
 
 type (
 	Config struct {
-		// Environment (ENV): development (default) | stage | production. It also
+		// Environment (ENV): production (default) | stage | development. It also
 		// sets gin and log output (SetupLogger, middleware.ForMode): development
 		// runs gin debug mode with the [GIN-debug] route dump, gin's coloured
 		// request lines and console logs; any other value runs gin release mode
 		// and logs everything, requests included, as zerolog JSON (debug level
-		// on stage, info on production).
-		Environment    string               `env:"ENV" envDefault:"development"`
+		// on stage, info on production). The image default is the safe one: a local
+		// run sets ENV=development in daemon/.env.
+		Environment    string               `env:"ENV" envDefault:"production"`
 		HTTPController HTTPControllerConfig `                                   envPrefix:""`
 		Infrastructure InfrastructureConfig `                                   envPrefix:""`
 		Auth           AuthConfig           `                                   envPrefix:""`
@@ -60,7 +61,7 @@ type (
 	// admin settings.
 	ErrorJournalConfig struct {
 		// SamplesPerGroup is how many recent samples each error group keeps.
-		SamplesPerGroup int `env:"SAMPLES_PER_GROUP" envDefault:"5"`
+		SamplesPerGroup int
 		// Retention is how long groups, samples and 404 counters are kept before the purge deletes them.
 		Retention time.Duration `env:"RETENTION" envDefault:"720h"`
 		// NotifyCooldown is the least time between two messages about one fingerprint: a storm becomes one
@@ -71,9 +72,9 @@ type (
 		SpikeWindow    time.Duration `env:"SPIKE_WINDOW"    envDefault:"5m"`
 		// BufferSize is the capture queue; events beyond it are dropped (counted in the log) rather than
 		// slowing a request down.
-		BufferSize int `env:"BUFFER_SIZE" envDefault:"1024"`
+		BufferSize int
 		// NotFoundFlushInterval is how often the in-memory 404 counters are written.
-		NotFoundFlushInterval time.Duration `env:"NOT_FOUND_FLUSH_INTERVAL" envDefault:"10s"`
+		NotFoundFlushInterval time.Duration
 		// QueueStallAfter: a job ready to run that waits longer than this means the workers stalled.
 		// QueueBacklogLimit: more waiting jobs than this is a growing queue.
 		QueueStallAfter   time.Duration `env:"QUEUE_STALL_AFTER"   envDefault:"5m"`
@@ -83,7 +84,7 @@ type (
 		// AgentOfflineAfter: a laboratory agent unreachable this long is reported offline.
 		AgentOfflineAfter time.Duration `env:"AGENT_OFFLINE_AFTER" envDefault:"2m"`
 		// WatchInterval is how often the queue and certificate checks run.
-		WatchInterval time.Duration `env:"WATCH_INTERVAL" envDefault:"1m"`
+		WatchInterval time.Duration
 	}
 
 	// LabAccessConfig sets how long the lab access tokens (the /_auth links) of the laboratory L7
@@ -153,12 +154,12 @@ type (
 		// The mail send limiter: the longest a worker waits for its turn, how long a message waits
 		// when the daily quota is used, how often the delivered count is re-read, the quota window,
 		// and the upper bounds an admin may set for the provider limits.
-		MailMaxRateWait       time.Duration `env:"MAIL_MAX_RATE_WAIT"       envDefault:"20s"`
-		MailQuotaRetryAfter   time.Duration `env:"MAIL_QUOTA_RETRY_AFTER"   envDefault:"10m"`
-		MailQuotaRecheck      time.Duration `env:"MAIL_QUOTA_RECHECK"       envDefault:"30s"`
-		MailQuotaWindow       time.Duration `env:"MAIL_QUOTA_WINDOW"        envDefault:"24h"`
-		MailMaxPerSecondLimit float64       `env:"MAIL_MAX_PER_SECOND_LIMIT" envDefault:"10000"`
-		MailDailyQuotaLimit   int           `env:"MAIL_DAILY_QUOTA_LIMIT"   envDefault:"1000000000"`
+		MailMaxRateWait       time.Duration
+		MailQuotaRetryAfter   time.Duration
+		MailQuotaRecheck      time.Duration
+		MailQuotaWindow       time.Duration
+		MailMaxPerSecondLimit float64
+		MailDailyQuotaLimit   int
 
 		// FlagAnswerMaxBytes is the longest answer to a task that is accepted; a longer one is refused before it is stored.
 		FlagAnswerMaxBytes int `env:"FLAG_ANSWER_MAX_BYTES" envDefault:"512"`
@@ -173,10 +174,10 @@ type (
 		EventContentImageMaxBytes   int   `env:"EVENT_CONTENT_IMAGE_MAX_BYTES"   envDefault:"5242880"`
 		LiveLogoMaxBytes            int   `env:"LIVE_LOGO_MAX_BYTES"             envDefault:"1048576"`
 		// Email template images: the raw upload, the processed image, its width and the decoded pixels.
-		EmailImageUploadMaxBytes int `env:"EMAIL_IMAGE_UPLOAD_MAX_BYTES" envDefault:"10485760"`
-		EmailImageMaxBytes       int `env:"EMAIL_IMAGE_MAX_BYTES"        envDefault:"307200"`
-		EmailImageMaxWidth       int `env:"EMAIL_IMAGE_MAX_WIDTH"        envDefault:"1200"`
-		EmailImageMaxPixels      int `env:"EMAIL_IMAGE_MAX_PIXELS"       envDefault:"24000000"`
+		EmailImageUploadMaxBytes int
+		EmailImageMaxBytes       int
+		EmailImageMaxWidth       int
+		EmailImageMaxPixels      int
 	}
 
 	// StorageConfig holds the S3/MinIO object store used for user avatars.
@@ -191,14 +192,16 @@ type (
 	}
 
 	SMTPConfig struct {
-		Host         string `env:"HOST"`
-		Port         int    `env:"PORT"           envDefault:"587"`
-		Username     string `env:"USERNAME"`
-		Password     string `env:"PASSWORD"`
-		SenderName   string `env:"SENDER_NAME"`
-		SenderEmail  string `env:"SENDER_EMAIL"`
-		ReplyToName  string `env:"REPLY_TO_NAME"`
-		ReplyToEmail string `env:"REPLY_TO_EMAIL"`
+		Host        string `env:"HOST"`
+		Port        int    `env:"PORT"           envDefault:"587"`
+		Username    string `env:"USERNAME"`
+		Password    string `env:"PASSWORD"`
+		SenderName  string `env:"SENDER_NAME"`
+		SenderEmail string `env:"SENDER_EMAIL"`
+		// ReplyToName and ReplyToEmail have no env input: SUPPORT_EMAIL is the default Reply-To of all mail and
+		// the admin mail settings override it. They stay in the struct for the settings merge.
+		ReplyToName  string
+		ReplyToEmail string
 		// MaxPerSecond and DailyQuota are the provider send limits of the env
 		// transport (Amazon SES: Sending quota); 0 = no limit.
 		MaxPerSecond float64 `env:"MAX_PER_SECOND"`
@@ -214,10 +217,10 @@ type (
 		User string `env:"USER"     envDefault:"postgres"`
 		// Password has no default: a database with a well-known password is not a default to ship.
 		Password string `env:"PASSWORD,required"`
-		Database string `env:"DB"       envDefault:"cybericebox_dev"`
+		Database string `env:"DB"       envDefault:"cybericebox"`
 		// SSLMode defaults to verify-full: the connection is encrypted and the server's certificate and name are
 		// checked. An operator that talks to a database on a trusted local network sets another mode (disable
-		// for a development database).
+		// for a development database). The database name defaults to the one the deploy creates (cybericebox).
 		SSLMode        string `env:"SSL_MODE" envDefault:"verify-full"`
 		MigrationsPath string // derived in populateForAllConfig
 	}
@@ -239,7 +242,7 @@ type (
 		SessionEncryptionKey string `env:"SESSION_ENCRYPTION_KEY"`
 		// SessionRevocationStaleAfter is how long the poll of the revoked-session list may keep failing before the
 		// replica refuses signed-in requests rather than trust a stale list.
-		SessionRevocationStaleAfter time.Duration `env:"SESSION_REVOCATION_STALE_AFTER" envDefault:"30s"`
+		SessionRevocationStaleAfter time.Duration
 		// SessionMaxPerUser is how many sessions one account keeps at once; signing in over the cap
 		// ends the oldest. 0 means no cap.
 		SessionMaxPerUser int `env:"SESSION_MAX_PER_USER" envDefault:"10"`
@@ -318,18 +321,19 @@ type (
 	}
 
 	HTTPServerConfig struct {
-		Host string `env:"HOST" envDefault:"0.0.0.0"`
-		// Port is the plain-HTTP listener (HTTP_SERVER_PORT, default 80 when unset); set but empty turns it off
-		// (TLS only). The default is applied in populateForAllConfig: the env tag cannot tell unset from empty.
+		Host string
+		// Port is the plain-HTTP listener (HTTP_SERVER_PORT). Unset it is off when TLS is on (TLS only) and 8080
+		// otherwise; set but empty turns it off. The default is applied in populateForAllConfig: the env tag
+		// cannot tell unset from empty.
 		Port               string        `env:"PORT"`
 		ReadTimeout        time.Duration `env:"READ_TIMEOUT"  envDefault:"10s"`
 		WriteTimeout       time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
-		MaxHeaderMegabytes int           `env:"MAX_HEADER_MB" envDefault:"1"`
-		// HTTPSPort is the TLS listener; it runs only when TLS.CertFile and TLS.KeyFile are both set.
+		MaxHeaderMegabytes int
+		// HTTPSPort is the TLS listener (default 8443); it runs only when TLS.CertFile and TLS.KeyFile are both set.
 		HTTPSPort string              `env:"HTTPS_PORT" envDefault:"8443"`
 		TLS       HTTPServerTLSConfig `                  envPrefix:"TLS_"`
 		// HealthPort, when set, opens an extra plain-HTTP listener on HEALTH_BIND that serves only the health
-		// route (kubelet probes cannot present a client certificate). Empty (default) is off.
+		// route (kubelet probes cannot present a client certificate). The image sets it to 8081; empty is off.
 		HealthPort string `env:"HEALTH_PORT"`
 		// InternalPort, when set, opens a second plain-HTTP listener on HEALTH_BIND with the same API handler for
 		// in-cluster callers (the event-frontend server rendering). Empty (default) is off.
@@ -337,7 +341,10 @@ type (
 	}
 
 	// HTTPServerTLSConfig is the optional TLS of the HTTP server (HTTP_SERVER_TLS_*): on only when the
-	// certificate and the key are both set.
+	// certificate and the key are both set. Unset, they default to DefaultTLSCertFile and DefaultTLSKeyFile
+	// when both files exist, and the client CA to DefaultClientCAFile when that file exists (client
+	// certificates are then required): a container with the secrets mounted at the standard paths needs no
+	// setting at all.
 	HTTPServerTLSConfig struct {
 		CertFile string `env:"CERT_FILE"`
 		KeyFile  string `env:"KEY_FILE"`
@@ -357,9 +364,9 @@ type (
 		MaxUploadBytes int64 `env:"MAX_UPLOAD_BYTES" envDefault:"536870912"` // 512 MiB
 		// UploadChunkBytes is the size of a chunk of a resumable upload, and the most a single-request upload may
 		// carry. At most 50 MiB: the edge limits a request body to 100 MB.
-		UploadChunkBytes int64 `env:"UPLOAD_CHUNK_BYTES" envDefault:"52428800"` // 50 MiB
+		UploadChunkBytes int64 // 50 MiB
 		// UploadTTL is how long an unfinished upload waits for its next chunk before it is dropped.
-		UploadTTL time.Duration `env:"UPLOAD_TTL"       envDefault:"24h"`
+		UploadTTL time.Duration
 		GCGrace   time.Duration `env:"GC_GRACE"         envDefault:"24h"`
 	}
 
@@ -407,8 +414,6 @@ type (
 		// AgentFresh is how recent the capacity read of an agent must be for it to count as connected (agents
 		// are read at least every 5 minutes).
 		AgentFresh time.Duration `env:"AGENT_FRESH" envDefault:"15m"`
-		// TestLabLease is the lease a test laboratory is admitted for when its caller names none.
-		TestLabLease time.Duration `env:"TEST_LAB_LEASE" envDefault:"2h"`
 	}
 
 	// ExerciseConfig holds catalog secret handling and flag generation policy.
@@ -694,8 +699,6 @@ func (c CalendarConfig) Validate() error {
 		return errors.New("calendar: CALENDAR_SEARCH_HORIZON must be between 1h and 2160h")
 	case c.AgentFresh < 6*time.Minute || c.AgentFresh > 24*time.Hour:
 		return errors.New("calendar: CALENDAR_AGENT_FRESH must be between 6m and 24h")
-	case c.TestLabLease < 15*time.Minute || c.TestLabLease > 24*time.Hour:
-		return errors.New("calendar: CALENDAR_TEST_LAB_LEASE must be between 15m and 24h")
 	}
 	return nil
 }
@@ -946,9 +949,16 @@ func (c *Config) populateForAllConfig() {
 	// The API docs describe every route, internal ones included: development only (not stage either).
 	c.HTTPController.EnableSwaggerDocs = c.Environment == Development
 
-	// HTTP_SERVER_PORT: unset is 80, set but empty is "no plain listener" (the env tag default cannot tell them apart).
+	c.applyFixed()
+	c.HTTPController.Server.applyTLSDefaults()
+
+	// HTTP_SERVER_PORT: unset is "no plain listener" under TLS and 8080 otherwise; set but empty is "no plain
+	// listener" too (the env tag default cannot tell them apart).
 	if _, set := os.LookupEnv("HTTP_SERVER_PORT"); !set {
-		c.HTTPController.Server.Port = "80"
+		c.HTTPController.Server.Port = "8080"
+		if c.HTTPController.Server.TLSEnabled() {
+			c.HTTPController.Server.Port = ""
+		}
 	}
 
 	if c.Environment == Development {
