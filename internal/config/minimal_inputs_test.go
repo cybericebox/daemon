@@ -41,37 +41,44 @@ func TestPostgresDatabaseDefaultIsTheDeployedOne(t *testing.T) {
 	}
 }
 
-// The knobs that were removed are constants now: the environment no longer reaches them.
-func TestRemovedKnobsAreFixed(t *testing.T) {
+// The former constants are optional settings again: the old defaults hold, an environment value overrides.
+func TestFormerConstantsAreOptionalSettings(t *testing.T) {
 	setTestHosts(t)
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
-	for _, name := range []string{
-		"HTTP_SERVER_HOST", "HTTP_SERVER_MAX_HEADER_MB", "SMTP_REPLY_TO_NAME", "SMTP_REPLY_TO_EMAIL",
-		"SESSION_REVOCATION_STALE_AFTER", "MEDIA_UPLOAD_CHUNK_BYTES", "MEDIA_UPLOAD_TTL", "CALENDAR_TEST_LAB_LEASE",
-		"MAIL_MAX_RATE_WAIT", "MAIL_QUOTA_RETRY_AFTER", "MAIL_QUOTA_RECHECK", "MAIL_QUOTA_WINDOW",
-		"MAIL_MAX_PER_SECOND_LIMIT", "MAIL_DAILY_QUOTA_LIMIT", "EMAIL_IMAGE_UPLOAD_MAX_BYTES", "EMAIL_IMAGE_MAX_BYTES",
-		"EMAIL_IMAGE_MAX_WIDTH", "EMAIL_IMAGE_MAX_PIXELS", "ERROR_JOURNAL_SAMPLES_PER_GROUP", "ERROR_JOURNAL_BUFFER_SIZE",
-		"ERROR_JOURNAL_NOT_FOUND_FLUSH_INTERVAL", "ERROR_JOURNAL_WATCH_INTERVAL",
-	} {
-		t.Setenv(name, "1")
-	}
 	cfg := MustGetConfig()
 	if cfg.HTTPController.Server.Host != "0.0.0.0" || cfg.HTTPController.Server.MaxHeaderMegabytes != 1 ||
 		cfg.Infrastructure.SMTP.ReplyToName != "" || cfg.Infrastructure.SMTP.ReplyToEmail != "" ||
 		cfg.Auth.SessionRevocationStaleAfter != 30*time.Second ||
 		cfg.Media.UploadChunkBytes != 50<<20 || cfg.Media.UploadTTL != 24*time.Hour {
-		t.Fatalf("fixed values were overridden: %+v", cfg.HTTPController.Server)
+		t.Fatalf("defaults drifted: %+v", cfg.HTTPController.Server)
 	}
 	tn := cfg.Tunables
 	if tn.MailMaxRateWait != 20*time.Second || tn.MailQuotaRetryAfter != 10*time.Minute || tn.MailQuotaRecheck != 30*time.Second ||
 		tn.MailQuotaWindow != 24*time.Hour || tn.MailMaxPerSecondLimit != 10000 || tn.MailDailyQuotaLimit != 1_000_000_000 ||
 		tn.EmailImageUploadMaxBytes != 10<<20 || tn.EmailImageMaxBytes != 300<<10 || tn.EmailImageMaxWidth != 1200 ||
 		tn.EmailImageMaxPixels != 24_000_000 {
-		t.Fatalf("fixed tunables were overridden: %+v", tn)
+		t.Fatalf("tunable defaults drifted: %+v", tn)
 	}
 	ej := cfg.ErrorJournal
 	if ej.SamplesPerGroup != 5 || ej.BufferSize != 1024 || ej.NotFoundFlushInterval != 10*time.Second || ej.WatchInterval != time.Minute {
-		t.Fatalf("fixed error journal values were overridden: %+v", ej)
+		t.Fatalf("error journal defaults drifted: %+v", ej)
+	}
+
+	t.Setenv("HTTP_SERVER_MAX_HEADER_MB", "2")
+	t.Setenv("SMTP_REPLY_TO_EMAIL", "help@example.test")
+	t.Setenv("SMTP_REPLY_TO_NAME", "Help")
+	t.Setenv("MAIL_QUOTA_WINDOW", "12h")
+	t.Setenv("EMAIL_IMAGE_MAX_WIDTH", "800")
+	t.Setenv("ERROR_JOURNAL_BUFFER_SIZE", "64")
+	t.Setenv("MEDIA_UPLOAD_CHUNK_BYTES", "10485760")
+	cfg = MustGetConfig()
+	if cfg.HTTPController.Server.MaxHeaderMegabytes != 2 || cfg.Infrastructure.SMTP.ReplyToEmail != "help@example.test" ||
+		cfg.Infrastructure.SMTP.ReplyToName != "Help" || cfg.Tunables.MailQuotaWindow != 12*time.Hour ||
+		cfg.Tunables.EmailImageMaxWidth != 800 || cfg.ErrorJournal.BufferSize != 64 || cfg.Media.UploadChunkBytes != 10<<20 {
+		t.Fatal("environment overrides are not read")
+	}
+	if (MediaConfig{MaxUploadBytes: 1, UploadChunkBytes: MaxUploadChunkBytes + 1, UploadTTL: time.Hour}).Validate() == nil {
+		t.Fatal("a chunk above the 50 MiB edge cap must be refused")
 	}
 }
 

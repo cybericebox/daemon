@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
@@ -30,6 +31,10 @@ type HostsConfig struct {
 	Exercises string `env:"-"`
 	// EventDomain holds the event sites: <tag>.<EventDomain>; it is DOMAIN.
 	EventDomain string `env:"-"`
+	// ExtraReservedTags (EVENT_RESERVED_TAGS_EXTRA, comma-separated, default empty) are labels that belong to
+	// other components of the deployment (the laboratory names labs, vpn, ctl): they join the fixed reserved
+	// tags (api, id, admin, exercises, www). Each is a lower case DNS label.
+	ExtraReservedTags []string `env:"EVENT_RESERVED_TAGS_EXTRA"`
 }
 
 // hostDerivations is the base-domain rule: each host key with the prefix put before DOMAIN.
@@ -40,6 +45,8 @@ var hostDerivations = []struct{ Key, Prefix string }{
 	{"MAIN_HOST", ""}, {"API_HOST", "api."}, {"ID_HOST", "id."}, {"ADMIN_HOST", "admin."},
 	{"EXERCISES_HOST", "exercises."}, {"EVENT_DOMAIN", ""}, {"COOKIE_DOMAIN", ""},
 }
+
+var labelPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
 var domainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 
@@ -67,6 +74,11 @@ func (h *HostsConfig) Validate() error {
 	}
 	if _, err := publicsuffix.EffectiveTLDPlusOne(h.Domain); err != nil {
 		return fmt.Errorf("DOMAIN must sit under a registrable domain: %q", h.Domain)
+	}
+	for _, tag := range h.ExtraReservedTags {
+		if !labelPattern.MatchString(tag) {
+			return fmt.Errorf("EVENT_RESERVED_TAGS_EXTRA: %q is not a lower case DNS label", tag)
+		}
 	}
 	h.Main, h.API, h.ID, h.Admin, h.Exercises, h.EventDomain = got["MAIN_HOST"], got["API_HOST"], got["ID_HOST"], got["ADMIN_HOST"], got["EXERCISES_HOST"], got["EVENT_DOMAIN"]
 	return nil
@@ -107,8 +119,18 @@ func (h HostsConfig) APIURL(path string) string { return URL(h.API, path) }
 // EventURL is the home page of the event site with tag.
 func (h HostsConfig) EventURL(tag string) string { return URL(tag+"."+h.EventDomain, "/") }
 
-// ReservedEventTags returns the reserved event tags (a copy): see eventModel.ReservedTags.
-func (h HostsConfig) ReservedEventTags() map[string]bool { return eventModel.ReservedTags() }
+// ReservedEventTags returns the reserved event tags, fixed and extra (a copy).
+func (h HostsConfig) ReservedEventTags() map[string]bool {
+	tags := eventModel.ReservedTags()
+	for _, t := range h.ExtraReservedTags {
+		tags[t] = true
+	}
+	return tags
+}
+
+func (h HostsConfig) reserved(label string) bool {
+	return eventModel.IsReservedTag(label) || slices.Contains(h.ExtraReservedTags, label)
+}
 
 // IsPlatformHost reports whether host is one of the platform hosts (the five named hosts, or an
 // event site under EventDomain).
@@ -134,14 +156,14 @@ func (h HostsConfig) IsFrontendOrigin(host string) bool {
 
 func (h HostsConfig) isEventSite(host string) bool {
 	label, ok := strings.CutSuffix(host, "."+h.EventDomain)
-	return ok && label != "" && !strings.Contains(label, ".") && !eventModel.IsReservedTag(label)
+	return ok && label != "" && !strings.Contains(label, ".") && !h.reserved(label)
 }
 
 // EventTag returns the event tag of an event site host.
 func (h HostsConfig) EventTag(host string) (string, bool) {
 	host = strings.ToLower(host)
 	label, ok := strings.CutSuffix(host, "."+h.EventDomain)
-	if !ok || label == "" || strings.Contains(label, ".") || eventModel.IsReservedTag(label) {
+	if !ok || label == "" || strings.Contains(label, ".") || h.reserved(label) {
 		return "", false
 	}
 	return label, true

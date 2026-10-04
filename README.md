@@ -64,7 +64,7 @@ The service answers only on the `API_HOST` host. For local work route that host 
 
 All settings are environment variables. Values below are placeholders; durations use Go syntax (`30s`, `24h`). A bot check is mandatory in production (`CAPTCHA_PROVIDER` other than `none`).
 
-The image takes the minimum: `DOMAIN`, `SUPPORT_EMAIL`, `POSTGRES_PASSWORD` and the secret keys (plus the external endpoints, the first admin and the bot check keys); everything else has a default that suits any deployment. Some former settings are constants now and are no longer read: the listen host (`0.0.0.0`), the header cap (1 MiB), the SMTP reply-to pair (`SUPPORT_EMAIL` is the default Reply-To; the admin mail settings override it), the revoked-session poll limit (30s), the resumable upload chunk (50 MiB) and its TTL (24h), the mail limiter internals and caps, the email image limits, the error journal queue, sample and watch mechanics, and `CALENDAR_TEST_LAB_LEASE` (the test lab lease is `EXERCISE_TEST_DEPLOY_TTL`). The contact, privacy and security mailboxes (`contact@`, `privacy@`, `security@<DOMAIN>`) are derived in the frontends; the daemon needs none of them.
+The image takes the minimum: `DOMAIN`, `SUPPORT_EMAIL`, `POSTGRES_PASSWORD` and the secret keys (plus the external endpoints, the first admin and the bot check keys). Every other variable below is optional with the default shown: it can be overridden without a rebuild, and our deployment templates do not list it. The test lab lease has one setting, `EXERCISE_TEST_DEPLOY_TTL` (the former `CALENDAR_TEST_LAB_LEASE` is gone). The contact, privacy and security mailboxes belong to the frontends; the daemon needs none of them.
 
 ### General and HTTP server
 
@@ -74,11 +74,13 @@ The image takes the minimum: `DOMAIN`, `SUPPORT_EMAIL`, `POSTGRES_PASSWORD` and 
 | `DOMAIN` | required | The one base domain (`cybericebox.com`), a bare lower case host name. Every host derives from it; there are no per-host settings: landing and mail footer links `DOMAIN`, API `api.<DOMAIN>` (the host this service answers on; the OAuth redirect URI is `https://api.<DOMAIN>/api/auth/<provider>/callback`), sign-in app `id.<DOMAIN>`, `admin.<DOMAIN>`, `exercises.<DOMAIN>`, event sites `<tag>.<DOMAIN>`. |
 | `SUPPORT_EMAIL` | required | Default Reply-To of all mail and the contact in the mail footer (`support@cybericebox.com`). |
 
-The daemon refuses to start without a valid `DOMAIN`. The labels `api`, `id`, `admin`, `exercises`, `labs`, `vpn`, `ctl` and `www` are reserved: creating or renaming an event to one of them is refused with error code `21142` (`Event tag is reserved for a platform address`). CORS allows exactly the frontend hosts, the landing host and `https://<tag>.<DOMAIN>`. The same rule is in the frontends (`deploy/base-domain.sh`, `hosts.ts`) and in infrastructure (`cibconf.py`); `internal/config/testdata/base-domain-vectors.json` holds the shared test vectors, and its copies in the other repositories must stay identical.
+The daemon refuses to start without a valid `DOMAIN`. The labels `api`, `id`, `admin`, `exercises` and `www` are reserved in code, and `EVENT_RESERVED_TAGS_EXTRA` (comma-separated lower case DNS labels, default empty; the deployment passes `labs,vpn,ctl`, which belong to the laboratory) adds more; a bad label stops the start. Creating or renaming an event to a reserved tag is refused with error code `21142` (`Event tag is reserved for a platform address`). CORS allows exactly the frontend hosts, the landing host and `https://<tag>.<DOMAIN>`. The same rule is in the frontends (`deploy/base-domain.sh`, `hosts.ts`) and in infrastructure (`cibconf.py`); `internal/config/testdata/base-domain-vectors.json` holds the shared test vectors, and its copies in the other repositories must stay identical.
 
+| `HTTP_SERVER_HOST` | `0.0.0.0` | Listen host. |
 | `HTTP_SERVER_PORT` | `8080`, none when TLS is on | Plain-HTTP listener. Unset it is off when TLS is on (the standard container: HTTPS only) and `8080` otherwise (unprivileged). Set to an empty value to turn it off; with it empty and TLS off the daemon refuses to start. |
 | `HTTP_SERVER_READ_TIMEOUT` | `10s` | Read timeout. |
 | `HTTP_SERVER_WRITE_TIMEOUT` | `10s` | Write timeout. |
+| `HTTP_SERVER_MAX_HEADER_MB` | `1` | Max header size in MiB. |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` | Cap of every request body (10 MiB); an upload route states its own larger cap. |
 | `TRUSTED_PROXIES` | none | Comma-separated CIDRs or addresses of the proxies in front of the daemon (ingress, CDN). The client address is read from `X-Forwarded-For` only for requests from them; with none listed the connection address is used and the header is ignored. Behind a proxy set it, or every client shares the proxy address in the per-address limits. |
 | `HTTP_SERVER_HTTPS_PORT` | `8443` | TLS listener (HTTP/2); runs only when both `HTTP_SERVER_TLS_CERT_FILE` and `HTTP_SERVER_TLS_KEY_FILE` are set. |
@@ -121,6 +123,7 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `SESSION_MAX_PER_USER` | `10` | Sessions one account keeps at once; signing in over the cap ends the oldest (0 = no cap). |
 | `SESSION_ABSOLUTE_TTL` | `168h` | A session ends this long after sign-in however busy it is (it caps every re-issued expiry). |
 | `SESSION_ENCRYPTION_KEY` | required | Secret. Seals the session cookie (AES-256-GCM): one 64-hex-char key, or a keyring of `id:hex` entries whose first key seals and every key opens (a rotation signs nobody out). Every replica must hold the same key. |
+| `SESSION_REVOCATION_STALE_AFTER` | `30s` | How long the poll of the revoked-session list may keep failing before the replica refuses signed-in requests (503) rather than trust a stale list. |
 | `TEMPORAL_CODE_TTL` | `1h` | Lifetime of one-time codes (confirmation, reset). |
 | `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH` | `8`, `72` | Password length bounds (bcrypt ignores bytes past 72). |
 | `PASSWORD_MIN_CAPITAL_LETTERS`, `PASSWORD_MIN_SMALL_LETTERS`, `PASSWORD_MIN_DIGITS`, `PASSWORD_MIN_SPECIAL_CHARACTERS` | `1`, `1`, `1`, `0` | Complexity policy, published at `GET /api/auth/password/policy`. |
@@ -167,6 +170,7 @@ Sender and transport settings live in the database: SMTP providers are managed i
 | `SMTP_INSECURE` | `false` | Let the env transport continue without TLS when the server does not offer STARTTLS (development mail catcher only). |
 | `SMTP_USERNAME`, `SMTP_PASSWORD` | none | SMTP credentials. |
 | `SMTP_SENDER_NAME`, `SMTP_SENDER_EMAIL` | none | Default sender. |
+| `SMTP_REPLY_TO_NAME`, `SMTP_REPLY_TO_EMAIL` | none | Reply-To of the env provider (a provider saved in the admin mail settings has its own); empty falls back to `SUPPORT_EMAIL`. |
 | `SMTP_MAX_PER_SECOND` | `0` | Provider send rate limit; 0 is unlimited. |
 | `SMTP_DAILY_QUOTA` | `0` | Provider daily quota; 0 is unlimited. |
 
@@ -182,6 +186,8 @@ S3-compatible store (MinIO, AWS S3) for user avatars. An empty `STORAGE_ENDPOINT
 | `STORAGE_REGION` | `us-east-1` | Region. |
 | `STORAGE_USE_SSL` | `false` | Use TLS to the store. |
 | `MEDIA_MAX_UPLOAD_BYTES` | `52428800` | Upload size limit (50 MiB). |
+| `MEDIA_UPLOAD_CHUNK_BYTES` | `52428800` | Chunk of a resumable upload and the most one request may carry; between 1 MiB and 50 MiB (the edge allows a 100 MB body). |
+| `MEDIA_UPLOAD_TTL` | `24h` | How long an unfinished upload waits for its next chunk. |
 | `MEDIA_GC_GRACE` | `24h` | How long an unreferenced file is kept before garbage collection. |
 
 ### Laboratory agents
@@ -257,6 +263,11 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 | `SMTP_ALLOWED_PORTS` | `25,465,587,2525` | Ports an organizer may use for an event SMTP. |
 | `SSE_MAX_LIFETIME` | `30m` | Longest life of one event stream; the client reconnects. |
 | `LIVE_SCREEN_LINK_MAX_TTL` | `1440h` | Cap of «until the event ends» for a live screen link. |
+| `MAIL_MAX_RATE_WAIT` | `20s` | Longest a mail worker waits for its turn before the message is deferred. |
+| `MAIL_QUOTA_RETRY_AFTER` | `10m` | How long a message waits when the daily quota is used. |
+| `MAIL_QUOTA_RECHECK` | `30s` | How often the delivered count is re-read. |
+| `MAIL_QUOTA_WINDOW` | `24h` | Window of the daily quota. |
+| `MAIL_MAX_PER_SECOND_LIMIT` / `MAIL_DAILY_QUOTA_LIMIT` | `10000` / `1000000000` | Upper bounds an admin may set for a provider limit. |
 | `AVATAR_MAX_BYTES` | `5242880` | Avatar size. |
 | `IMAGE_MAX_PIXELS` | `16000000` | Most pixels (width times height) of an uploaded picture; a larger one is refused at upload. |
 | `FLAG_ANSWER_MAX_BYTES` | `512` | Longest answer to a task that is accepted; a longer one is refused before it is stored. |
@@ -264,6 +275,9 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 | `EVENT_PREVIEW_PICTURE_MAX_BYTES` | `5242880` | Event preview picture. |
 | `EVENT_CONTENT_IMAGE_MAX_BYTES` | `5242880` | Image in event page content. |
 | `LIVE_LOGO_MAX_BYTES` | `1048576` | Live screen logo. |
+| `EMAIL_IMAGE_UPLOAD_MAX_BYTES` | `10485760` | Raw upload of an email template image. |
+| `EMAIL_IMAGE_MAX_BYTES` | `307200` | Email template image after processing. |
+| `EMAIL_IMAGE_MAX_WIDTH` / `EMAIL_IMAGE_MAX_PIXELS` | `1200` / `24000000` | Width after downscale, and the decoded pixel cap. |
 
 ### Error journal
 
@@ -274,13 +288,17 @@ Notifications go to the Telegram chat ids and the e-mail list that super admins 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | none | Secret. The one Telegram bot; empty switches the Telegram channel off (chat ids are kept, nothing is sent). Never logged. |
+| `ERROR_JOURNAL_SAMPLES_PER_GROUP` | `5` | Recent samples kept per error group. |
 | `ERROR_JOURNAL_RETENTION` | `720h` | How long groups, samples and 404 counters are kept; a daily job deletes older ones. |
 | `ERROR_JOURNAL_NOTIFY_COOLDOWN` | `15m` | Least time between two messages about one fingerprint. |
 | `ERROR_JOURNAL_SPIKE_THRESHOLD` / `ERROR_JOURNAL_SPIKE_WINDOW` | `20` / `5m` | Occurrences of a known fingerprint within the window that count as a spike (messaged for 5xx and 429). |
+| `ERROR_JOURNAL_BUFFER_SIZE` | `1024` | Capture queue; events beyond it are dropped (counted in the log) instead of slowing a request down. |
+| `ERROR_JOURNAL_NOT_FOUND_FLUSH_INTERVAL` | `10s` | How often the in-memory 404 counters are written. |
 | `ERROR_JOURNAL_QUEUE_STALL_AFTER` | `5m` | A job ready to run that waits longer than this means the workers stalled. |
 | `ERROR_JOURNAL_QUEUE_BACKLOG_LIMIT` | `1000` | More waiting jobs than this is a growing queue. |
 | `ERROR_JOURNAL_CERT_EXPIRY_WARN` | `336h` | A laboratory agent certificate that ends within this is reported. |
 | `ERROR_JOURNAL_AGENT_OFFLINE_AFTER` | `2m` | A laboratory agent unreachable this long is reported offline. |
+| `ERROR_JOURNAL_WATCH_INTERVAL` | `1m` | How often the queue and certificate checks run. |
 
 Every request and response carries an `X-Request-ID` header (a client's own id is kept when it is 8-64 letters, digits, `.`, `_` or `-`); the journal stores it with the sample.
 

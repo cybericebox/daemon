@@ -58,11 +58,19 @@ func TestNewEvent_RejectsBadTag(t *testing.T) {
 }
 
 func TestNewEvent_RejectsReservedTag(t *testing.T) {
-	for _, tag := range []string{"api", "admin", "exercises", "labs", "vpn", "ctl", "www"} {
+	SetExtraReservedTags([]string{"labs", "vpn", "ctl"})
+	defer SetExtraReservedTags(nil)
+	for _, tag := range []string{"api", "admin", "exercises", "www", "labs", "vpn", "ctl"} {
 		_, err := NewEvent(tag, "Winter", from, until, someUser, fixedNow)
 		if !errors.Is(err, ErrEventTagReserved.Err()) {
 			t.Fatalf("tag %q: want ErrEventTagReserved, got %v", tag, err)
 		}
+	}
+}
+
+func TestNewEvent_ExtraTagsAreOrdinaryUntilConfigured(t *testing.T) {
+	if _, err := NewEvent("labs", "Labs", from, until, someUser, fixedNow); err != nil {
+		t.Fatalf("labs is free without EVENT_RESERVED_TAGS_EXTRA: %v", err)
 	}
 }
 
