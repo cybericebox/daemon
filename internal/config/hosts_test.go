@@ -1,6 +1,9 @@
 package config
 
 import (
+	"encoding/json"
+	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -113,6 +116,71 @@ func TestOriginAllowed(t *testing.T) {
 	} {
 		if _, got := h.OriginAllowed(origin); got != want {
 			t.Errorf("OriginAllowed(%q)=%v want %v", origin, got, want)
+		}
+	}
+}
+
+// TestResolveHostsVectors runs the shared base-domain vectors (the same file lives in every repository).
+func TestResolveHostsVectors(t *testing.T) {
+	raw, err := os.ReadFile("testdata/base-domain-vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors struct {
+		Cases []struct {
+			Name          string            `json:"name"`
+			Env           map[string]string `json:"env"`
+			Expect        map[string]string `json:"expect"`
+			ErrorContains []string          `json:"error_contains"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(raw, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	if len(vectors.Cases) == 0 {
+		t.Fatal("no cases")
+	}
+	for _, c := range vectors.Cases {
+		t.Run(c.Name, func(t *testing.T) {
+			got, err := ResolveHosts(c.Env)
+			if c.ErrorContains != nil {
+				if err == nil {
+					t.Fatalf("want an error, got %v", got)
+				}
+				for _, s := range c.ErrorContains {
+					if !strings.Contains(err.Error(), s) {
+						t.Errorf("error %q lacks %q", err, s)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, c.Expect) {
+				t.Fatalf("got %v, want %v", got, c.Expect)
+			}
+		})
+	}
+}
+
+func TestHostsValidateDerivesFromDomain(t *testing.T) {
+	h := HostsConfig{Domain: "example.org", API: "backend.example.org"}
+	if err := h.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	want := HostsConfig{Domain: "example.org", Main: "example.org", API: "backend.example.org", ID: "id.example.org",
+		Admin: "admin.example.org", Exercises: "exercises.example.org", EventDomain: "example.org"}
+	if h != want {
+		t.Fatalf("got %+v, want %+v", h, want)
+	}
+	for name, h := range map[string]HostsConfig{
+		"nothing set":  {},
+		"bad domain":   {Domain: "https://example.org"},
+		"host missing": {Main: "example.org", API: "api.example.org", ID: "id.example.org", Admin: "admin.example.org", EventDomain: "example.org"},
+	} {
+		if err := h.Validate(); err == nil {
+			t.Errorf("%s: want an error", name)
 		}
 	}
 }

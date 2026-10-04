@@ -3,32 +3,88 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"golang.org/x/net/publicsuffix"
 )
 
-// HostsConfig names every public host of the platform. All of them are required: a missing one stops
-// the start. They have to share one registrable domain, so the host-only session cookie of the API
-// stays same-site for every frontend (SameSite=Strict).
+// HostsConfig names every public host of the platform. Each one is required, either set itself or
+// derived from DOMAIN (see ResolveHosts): neither stops the start. They have to share one registrable
+// domain, so the host-only session cookie of the API stays same-site for every frontend
+// (SameSite=Strict).
 type HostsConfig struct {
+	// Domain is the base domain every host that is not set is derived from.
+	Domain string `env:"DOMAIN"`
 	// Main is the landing host (mail footer links).
-	Main string `env:"MAIN_HOST,required"`
+	Main string `env:"MAIN_HOST"`
 	// API is the only Host this service answers on; the OAuth redirect URI and the public API base URL
 	// are built from it.
-	API string `env:"API_HOST,required"`
+	API string `env:"API_HOST"`
 	// ID is the sign-in app host: sign-in, setup and confirmation links point at it.
-	ID string `env:"ID_HOST,required"`
+	ID string `env:"ID_HOST"`
 	// Admin and Exercises are the admin and the exercise catalog app hosts.
-	Admin     string `env:"ADMIN_HOST,required"`
-	Exercises string `env:"EXERCISES_HOST,required"`
+	Admin     string `env:"ADMIN_HOST"`
+	Exercises string `env:"EXERCISES_HOST"`
 	// EventDomain holds the event sites: <tag>.<EventDomain>.
-	EventDomain string `env:"EVENT_DOMAIN,required"`
+	EventDomain string `env:"EVENT_DOMAIN"`
 }
 
-// Validate normalises the hosts (lower case) and checks that each is a bare host name under one
-// registrable domain.
+// hostDerivations is the base-domain rule: the host keys in the order they are checked, each with
+// the prefix put before DOMAIN when the key has no value. COOKIE_DOMAIN is for the frontends; the
+// daemon does not use it but resolves it so the rule is the same everywhere. Every implementation
+// runs testdata/base-domain-vectors.json (identical copies in every repository).
+var hostDerivations = []struct{ Key, Prefix string }{
+	{"MAIN_HOST", ""}, {"API_HOST", "api."}, {"ID_HOST", "id."}, {"ADMIN_HOST", "admin."},
+	{"EXERCISES_HOST", "exercises."}, {"EVENT_DOMAIN", ""}, {"COOKIE_DOMAIN", ""},
+}
+
+var domainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
+
+// ResolveHosts applies the base-domain rule to env (key to value, an empty value counts as unset):
+// DOMAIN, when set, must be a bare lower case host name; every host key without a value becomes
+// <prefix>DOMAIN; a value that is set always wins. A host with no value and no DOMAIN is an error.
+func ResolveHosts(env map[string]string) (map[string]string, error) {
+	domain := env["DOMAIN"]
+	if domain != "" && (len(domain) > 253 || !domainPattern.MatchString(domain)) {
+		return nil, fmt.Errorf("DOMAIN must be a bare lower case host name (no scheme, port or path), got %q", domain)
+	}
+	out := make(map[string]string, len(hostDerivations))
+	for _, d := range hostDerivations {
+		v := env[d.Key]
+		if v == "" {
+			if domain == "" {
+				return nil, fmt.Errorf("%s is required (set it, or set DOMAIN and it is derived)", d.Key)
+			}
+			v = d.Prefix + domain
+		}
+		out[d.Key] = v
+	}
+	return out, nil
+}
+
+// resolve fills every host that is empty from Domain (the rule of ResolveHosts, for the six hosts
+// the daemon uses).
+func (h *HostsConfig) resolve() error {
+	got, err := ResolveHosts(map[string]string{
+		"DOMAIN": h.Domain, "MAIN_HOST": h.Main, "API_HOST": h.API, "ID_HOST": h.ID,
+		"ADMIN_HOST": h.Admin, "EXERCISES_HOST": h.Exercises, "EVENT_DOMAIN": h.EventDomain,
+		// Not used by the daemon, so it never makes the start fail.
+		"COOKIE_DOMAIN": "-",
+	})
+	if err != nil {
+		return err
+	}
+	h.Main, h.API, h.ID, h.Admin, h.Exercises, h.EventDomain = got["MAIN_HOST"], got["API_HOST"], got["ID_HOST"], got["ADMIN_HOST"], got["EXERCISES_HOST"], got["EVENT_DOMAIN"]
+	return nil
+}
+
+// Validate derives the hosts that are not set from DOMAIN, normalises the hosts (lower case) and
+// checks that each is a bare host name under one registrable domain.
 func (h *HostsConfig) Validate() error {
+	if err := h.resolve(); err != nil {
+		return err
+	}
 	fields := []struct {
 		env string
 		val *string
