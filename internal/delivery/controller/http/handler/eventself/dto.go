@@ -26,6 +26,10 @@ type ownChallengeResponse struct {
 	ContentUpdatedAt *time.Time      `json:"ContentUpdatedAt"`
 	Infrastructure   bool            `json:"Infrastructure"`
 	HintsEnabled     bool            `json:"HintsEnabled"`
+	// MaxAttempts / AttemptsLeft: the team's wrong flag submissions allowed on this task and what remains; both
+	// null when unlimited or already solved. At AttemptsLeft 0 submissions are refused.
+	MaxAttempts  *int32 `json:"MaxAttempts"`
+	AttemptsLeft *int32 `json:"AttemptsLeft"`
 	// Locked: a prerequisite is unsolved; Snapshot then holds only name and
 	// difficulty and Files is empty.
 	Locked        bool                            `json:"Locked"`
@@ -262,7 +266,7 @@ type labAccessResponse struct {
 
 func toOwnChallengeResponse(v eventUseCase.OwnChallengeView) ownChallengeResponse {
 	out := ownChallengeResponse{ID: v.ID, EventChallengeID: v.EventChallengeID, Snapshot: v.Snapshot, Readiness: int16(v.Readiness), SolvedAt: v.SolvedAt, Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder,
-		ContentUpdatedAt: v.ContentUpdatedAt, Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, Locked: v.Locked, SolveCount: v.SolveCount,
+		ContentUpdatedAt: v.ContentUpdatedAt, Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, MaxAttempts: v.MaxAttempts, AttemptsLeft: v.AttemptsLeft, Locked: v.Locked, SolveCount: v.SolveCount,
 		Prerequisites: make([]challengePrerequisiteResponse, 0, len(v.Prerequisites)), Files: make([]challengeFileResponse, 0, len(v.Files)),
 		Hints: ToOwnHintResponses(v.Hints), HintCostTotal: v.HintCostTotal}
 	for _, p := range v.Prerequisites {

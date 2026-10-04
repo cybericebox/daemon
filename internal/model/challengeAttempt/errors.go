@@ -8,7 +8,7 @@ import (
 )
 
 // EventChallengeObjectCode is shared with eventChallenge, teamChallenge and
-// eventChallengeGroup; attempts use 20+ — next free detail code: 38.
+// eventChallengeGroup; attempts use 20+ — next free detail code: 40.
 
 var ErrAttemptInvalid = err.ErrInvalidData.WithObjectCode(model.EventChallengeObjectCode).
 	WithMessage("Challenge attempt data is invalid").WithDetailCode(20)
@@ -48,3 +48,12 @@ var ErrAnswerTooLong = err.ErrInvalidData.WithObjectCode(model.EventChallengeObj
 var ErrTooManyAttempts = err.ErrConflict.WithObjectCode(model.EventChallengeObjectCode).
 	WithMessage("Too many flag submissions, try again later").WithDetailCode(34).
 	WithHTTPCode(http.StatusTooManyRequests)
+
+// ErrAttemptLimitInvalid: a max-flag-attempts value is not a whole number from 1 to MaxAttemptLimit.
+var ErrAttemptLimitInvalid = err.ErrInvalidData.WithObjectCode(model.EventChallengeObjectCode).
+	WithMessage("The maximum number of flag attempts is invalid").WithDetailCode(38)
+
+// ErrAttemptLimitReached: the team used all its wrong attempts on the task (HTTP 409). It is returned before any
+// flag check, so the answer is neither compared nor stored.
+var ErrAttemptLimitReached = err.ErrConflict.WithObjectCode(model.EventChallengeObjectCode).
+	WithMessage("No flag attempts left for this task").WithDetailCode(39)

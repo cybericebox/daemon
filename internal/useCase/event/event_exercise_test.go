@@ -424,6 +424,7 @@ func TestSubmitChallenge_RecordsFirstCorrectSolve(t *testing.T) {
 // expectAttemptWindows stubs the rate-limit lock and both window counts.
 func expectAttemptWindows(q *postgresMocks.MockQuerier, eventID, teamID, challengeID, teamChallengeID uuid.UUID, now time.Time, challengeAttempts, teamAttempts int64) {
 	q.EXPECT().LockEventTeamChallenge(gomock.Any(), postgres.LockEventTeamChallengeParams{EventID: eventID, EventTeamID: teamID, EventChallengeID: challengeID}).Return(teamChallengeID, nil)
+	q.EXPECT().GetTeamChallengeAttemptLimit(gomock.Any(), teamChallengeID).Return(postgres.GetTeamChallengeAttemptLimitRow{}, nil).AnyTimes()
 	q.EXPECT().GetTeamChallengeAttemptWindow(gomock.Any(), postgres.GetTeamChallengeAttemptWindowParams{TeamChallengeID: teamChallengeID, Since: now.Add(-30 * time.Second), RowLimit: 5}).Return(postgres.GetTeamChallengeAttemptWindowRow{Attempts: challengeAttempts, Oldest: now.Add(-20 * time.Second)}, nil)
 	if challengeAttempts < 5 {
 		q.EXPECT().GetTeamAttemptWindow(gomock.Any(), postgres.GetTeamAttemptWindowParams{EventID: eventID, EventTeamID: teamID, Since: now.Add(-time.Minute), RowLimit: 20}).Return(postgres.GetTeamAttemptWindowRow{Attempts: teamAttempts, Oldest: now.Add(-15 * time.Second)}, nil)

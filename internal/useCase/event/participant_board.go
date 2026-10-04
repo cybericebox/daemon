@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"encoding/json"
+	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	"io"
 	"time"
 
@@ -33,6 +34,9 @@ func (u *EventUseCase) ListOwnChallenges(ctx context.Context, eventID, userID uu
 	if err = u.fillFileSizes(ctx, views); err != nil {
 		return nil, err
 	}
+	if err = u.fillAttemptsLeft(ctx, teamID, views); err != nil {
+		return nil, err
+	}
 	accessible, cutoff, err := u.boardResultsCutoff(ctx, eventID, userID)
 	if err != nil || !accessible {
 		return views, err
@@ -46,6 +50,20 @@ func (u *EventUseCase) ListOwnChallenges(ctx context.Context, eventID, userID uu
 		views[i].SolveCount = &count
 	}
 	return views, nil
+}
+
+// fillAttemptsLeft sets the flag attempts the team has left on each limited, unsolved task of its board.
+func (u *EventUseCase) fillAttemptsLeft(ctx context.Context, teamID uuid.UUID, views []OwnChallengeView) error {
+	limits, err := u.attempts.AttemptLimits(ctx, teamID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get flag attempt limits").Err()
+	}
+	for i := range views {
+		if state, limited := limits[views[i].ID]; limited && !state.Solved {
+			views[i].MaxAttempts, views[i].AttemptsLeft = state.Max, challengeAttempt.AttemptsLeft(state.Max, state.Wrong)
+		}
+	}
+	return nil
 }
 
 // ListChallengeSolves lists one page of who solved one challenge of the

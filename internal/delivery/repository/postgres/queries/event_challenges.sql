@@ -32,7 +32,8 @@ SELECT published FROM event_challenges WHERE id = sqlc.arg(id);
 UPDATE event_challenges
 SET points = sqlc.arg(points),
     hints_enabled = sqlc.arg(hints_enabled),
-    published = sqlc.arg(published)
+    published = sqlc.arg(published),
+    max_flag_attempts = sqlc.narg(max_flag_attempts)
 WHERE id = sqlc.arg(id)
   AND event_exercise_id = sqlc.arg(event_exercise_id)
 RETURNING *;

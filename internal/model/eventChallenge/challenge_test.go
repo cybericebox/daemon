@@ -66,3 +66,28 @@ func TestSnapshotForTask_CarriesPlaceholders(t *testing.T) {
 		t.Fatalf("empty placeholders must be omitted: %s", plain)
 	}
 }
+
+func TestSetMaxFlagAttempts(t *testing.T) {
+	challenge, err := eventChallengeModel.New(uuid.Must(uuid.NewV7()), exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Difficulty: exerciseModel.DifficultyEasy}, 0, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if challenge.MaxFlagAttempts != nil {
+		t.Fatal("a new task has no override")
+	}
+	three := int32(3)
+	if err = challenge.SetMaxFlagAttempts(&three); err != nil || challenge.MaxFlagAttempts == nil || *challenge.MaxFlagAttempts != 3 {
+		t.Fatalf("set: %v %v", challenge.MaxFlagAttempts, err)
+	}
+	three = 9
+	if *challenge.MaxFlagAttempts != 3 {
+		t.Fatal("the task must not alias the caller's value")
+	}
+	zero := int32(0)
+	if err = challenge.SetMaxFlagAttempts(&zero); err == nil || *challenge.MaxFlagAttempts != 3 {
+		t.Fatalf("zero must be refused and keep the value: %v", err)
+	}
+	if err = challenge.SetMaxFlagAttempts(nil); err != nil || challenge.MaxFlagAttempts != nil {
+		t.Fatalf("clear: %v %v", challenge.MaxFlagAttempts, err)
+	}
+}

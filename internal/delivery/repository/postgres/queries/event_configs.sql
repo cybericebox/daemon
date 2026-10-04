@@ -12,10 +12,10 @@ INSERT INTO event_configs (event_id, participation, registration, scoreboard_vis
                            results_live_freeze, results_chart_enabled, results_chart_teams,
                            results_rows_limit, hint_charge_mode,
                            show_start_countdown, show_finish_countdown, finish_countdown_minutes,
-                           task_reveal_mode)
+                           task_reveal_mode, max_flag_attempts)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
         $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-        $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36) RETURNING *;
+        $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37) RETURNING *;
 
 -- name: GetEventConfig :one
 SELECT *
@@ -60,7 +60,8 @@ SET participation            = $2,
     show_start_countdown         = $32,
     show_finish_countdown        = $33,
     finish_countdown_minutes     = $34,
-    task_reveal_mode             = $35
+    task_reveal_mode             = $35,
+    max_flag_attempts            = $36
 WHERE event_id = $1
   AND updated_at IS NOT DISTINCT FROM sqlc.arg(expected_updated_at);
 

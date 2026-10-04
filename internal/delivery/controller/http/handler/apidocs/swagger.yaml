@@ -673,6 +673,10 @@ definitions:
       InfrastructureAllowed:
         description: InfrastructureAllowed is the admin's creation-time decision (read-only).
         type: boolean
+      MaxFlagAttempts:
+        description: 'MaxFlagAttempts: wrong flag submissions allowed per team and
+          task; null = unlimited. A task may override it.'
+        type: integer
       MaxTeamSize:
         type: integer
       MaxTeams:
@@ -823,6 +827,10 @@ definitions:
         type: boolean
       ID:
         type: string
+      MaxFlagAttempts:
+        description: MaxFlagAttempts is the task's own limit of wrong submissions
+          per team; null = the event's value.
+        type: integer
       Order:
         type: integer
       Points:
@@ -1979,6 +1987,13 @@ definitions:
     properties:
       Answer:
         type: string
+      AttemptsAllowed:
+        description: |-
+          AttemptsAllowed is the task's flag attempt limit for the team (null = unlimited); AttemptsUsed its wrong
+          submissions counted against it.
+        type: integer
+      AttemptsUsed:
+        type: integer
       AutomaticCorrect:
         type: boolean
       ChallengeName:
@@ -2310,6 +2325,10 @@ definitions:
         type: string
       HintsDisabled:
         type: boolean
+      MaxFlagAttempts:
+        description: MaxFlagAttempts omitted keeps the current value; null clears
+          it (unlimited); otherwise 1..1000.
+        type: integer
       MaxTeamSize:
         type: integer
       MaxTeams:
@@ -2355,6 +2374,10 @@ definitions:
     properties:
       HintsEnabled:
         type: boolean
+      MaxFlagAttempts:
+        description: MaxFlagAttempts omitted keeps the current override; null clears
+          it (the event value applies); otherwise 1..1000.
+        type: integer
       Points:
         type: integer
     type: object
@@ -4299,6 +4322,8 @@ definitions:
     type: object
   eventself.ownChallengeResponse:
     properties:
+      AttemptsLeft:
+        type: integer
       ContentUpdatedAt:
         type: string
       EventChallengeID:
@@ -4332,6 +4357,11 @@ definitions:
           Locked: a prerequisite is unsolved; Snapshot then holds only name and
           difficulty and Files is empty.
         type: boolean
+      MaxAttempts:
+        description: |-
+          MaxAttempts / AttemptsLeft: the team's wrong flag submissions allowed on this task and what remains; both
+          null when unlimited or already solved. At AttemptsLeft 0 submissions are refused.
+        type: integer
       Order:
         type: integer
       Points:

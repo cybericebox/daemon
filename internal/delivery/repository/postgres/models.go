@@ -171,6 +171,7 @@ type EventChallenge struct {
 	Hints                 []byte        `json:"hints"`
 	HintCosts             []byte        `json:"hint_costs"`
 	BoardOrder            pgtype.Int4   `json:"board_order"`
+	MaxFlagAttempts       pgtype.Int4   `json:"max_flag_attempts"`
 }
 
 type EventChallengeGroup struct {
@@ -226,6 +227,7 @@ type EventConfig struct {
 	CapacityAvgTaskCpuMillicores int32              `json:"capacity_avg_task_cpu_millicores"`
 	CapacityAvgTaskMemoryBytes   int64              `json:"capacity_avg_task_memory_bytes"`
 	TaskRevealMode               string             `json:"task_reveal_mode"`
+	MaxFlagAttempts              pgtype.Int4        `json:"max_flag_attempts"`
 }
 
 type EventExercise struct {

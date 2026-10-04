@@ -29,6 +29,48 @@ type Queries interface {
 	GetEventAttemptsStamp(context.Context, uuid.UUID) (postgres.GetEventAttemptsStampRow, error)
 	GetTeamChallengeAttemptWindow(context.Context, postgres.GetTeamChallengeAttemptWindowParams) (postgres.GetTeamChallengeAttemptWindowRow, error)
 	GetTeamAttemptWindow(context.Context, postgres.GetTeamAttemptWindowParams) (postgres.GetTeamAttemptWindowRow, error)
+	GetTeamChallengeAttemptLimit(context.Context, uuid.UUID) (postgres.GetTeamChallengeAttemptLimitRow, error)
+	ListTeamChallengeAttemptLimits(context.Context, uuid.UUID) ([]postgres.ListTeamChallengeAttemptLimitsRow, error)
+}
+
+// LimitState is where a team stands against the flag attempt limit of one task: Max is the effective limit (the
+// task's own, else the event's; nil = unlimited), Wrong the counted wrong submissions, Solved whether the team
+// already solved the task (nothing is counted or limited after that).
+type LimitState struct {
+	Max    *int32
+	Wrong  int64
+	Solved bool
+}
+
+func limitState(max pgtype.Int4, wrong int64, solved bool) LimitState {
+	state := LimitState{Wrong: wrong, Solved: solved}
+	if max.Valid {
+		value := max.Int32
+		state.Max = &value
+	}
+	return state
+}
+
+// AttemptLimit reads the attempt limit state of one team challenge.
+func (r *Repository) AttemptLimit(ctx context.Context, teamChallengeID uuid.UUID) (LimitState, error) {
+	row, err := r.q.GetTeamChallengeAttemptLimit(ctx, teamChallengeID)
+	if err != nil {
+		return LimitState{}, err
+	}
+	return limitState(row.MaxAttempts, row.Wrong, row.Solved), nil
+}
+
+// AttemptLimits reads the state of every limited team challenge of a team, keyed by team challenge ID.
+func (r *Repository) AttemptLimits(ctx context.Context, teamID uuid.UUID) (map[uuid.UUID]LimitState, error) {
+	rows, err := r.q.ListTeamChallengeAttemptLimits(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]LimitState, len(rows))
+	for _, row := range rows {
+		out[row.TeamChallengeID] = limitState(row.MaxAttempts, row.Wrong, row.Solved)
+	}
+	return out, nil
 }
 
 // Window is the rate-limit view of recent submissions: how many of the
@@ -160,6 +202,10 @@ type SolutionAttempt struct {
 	// Points is set only on the attempt that solved the task (the earliest
 	// effective correct one): the task's live points for that team.
 	Points *int32
+	// AttemptsAllowed is the effective flag attempt limit of the task (nil = unlimited) and AttemptsUsed the
+	// team's counted wrong submissions on it.
+	AttemptsAllowed *int32
+	AttemptsUsed    int64
 }
 
 func (r *Repository) List(ctx context.Context, f ListFilter) ([]SolutionAttempt, error) {
@@ -174,6 +220,7 @@ func (r *Repository) List(ctx context.Context, f ListFilter) ([]SolutionAttempt,
 	out := make([]SolutionAttempt, 0, len(rows))
 	for _, row := range rows {
 		item := SolutionAttempt{ID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, TeamName: row.TeamName, TeamChallengeID: row.TeamChallengeID, EventChallengeID: row.EventChallengeID, ChallengeName: row.ChallengeName, EventExerciseID: row.EventExerciseID, UserID: row.UserID, ParticipantName: row.ParticipantName, Answer: row.Answer, ExpectedFlag: row.ExpectedFlag, AutomaticCorrect: row.AutomaticCorrect, Correct: row.Correct, Decision: challengeAttempt.Decision(row.Decision), ReceivedAt: row.ReceivedAt}
+		item.AttemptsAllowed, item.AttemptsUsed = limitState(row.AttemptsAllowed, row.AttemptsUsed, false).Max, row.AttemptsUsed
 		if row.Scored {
 			points := row.Points
 			item.Points = &points

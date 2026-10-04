@@ -135,6 +135,7 @@ type EventConfigView struct {
 	ShowDifficulty         bool
 	HintsDisabled          bool
 	HintChargeMode         eventConfigModel.HintChargeMode
+	MaxFlagAttempts        *int32
 	Countdown              eventConfigModel.CountdownSettings
 	TaskRevealMode         eventConfigModel.TaskRevealMode
 	Theme                  eventConfigModel.Theme
@@ -283,6 +284,7 @@ func toEventConfigView(c eventConfigModel.EventConfig) EventConfigView {
 		ShowDifficulty:         c.ShowDifficulty,
 		HintsDisabled:          c.HintsDisabled,
 		HintChargeMode:         c.HintChargeMode,
+		MaxFlagAttempts:        c.MaxFlagAttempts,
 		Countdown:              c.Countdown,
 		TaskRevealMode:         c.TaskRevealMode,
 		Theme:                  c.Theme,
@@ -562,6 +564,8 @@ type EventChallengeView struct {
 	Points          int32
 	ScoringOverride *eventModel.ScoringProfile
 	HintsEnabled    bool
+	// MaxFlagAttempts is the task's own limit; nil uses the event's.
+	MaxFlagAttempts *int32
 	Published       bool
 	Availability    ChallengeAvailability
 	Snapshot        json.RawMessage
@@ -600,6 +604,9 @@ type OwnChallengeView struct {
 	ContentUpdatedAt *time.Time
 	Infrastructure   bool
 	HintsEnabled     bool
+	// MaxAttempts is the effective limit of wrong flag submissions for the team and AttemptsLeft what remains of
+	// it; both nil when unlimited or already solved.
+	MaxAttempts, AttemptsLeft *int32
 	// Locked: some prerequisite is not solved by the team (never on the
 	// moderators board).
 	Locked        bool
@@ -878,6 +885,10 @@ type SolutionAttemptView struct {
 	Correct                                                                     bool
 	ReceivedAt                                                                  time.Time
 	Points                                                                      *int32
+	// AttemptsAllowed is the task's effective flag attempt limit (nil = unlimited); AttemptsUsed the team's
+	// counted wrong submissions on it.
+	AttemptsAllowed *int32
+	AttemptsUsed    int64
 }
 
 type SolutionAttemptsListResult struct {

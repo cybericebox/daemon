@@ -88,12 +88,16 @@ type solutionAttemptResponse struct {
 	ReceivedAt       time.Time  `json:"ReceivedAt"`
 	// Points the attempt brought: set only on the attempt that solved the task.
 	Points *int32 `json:"Points"`
+	// AttemptsAllowed is the task's flag attempt limit for the team (null = unlimited); AttemptsUsed its wrong
+	// submissions counted against it.
+	AttemptsAllowed *int32 `json:"AttemptsAllowed"`
+	AttemptsUsed    int64  `json:"AttemptsUsed"`
 }
 
 // toSolutionAttemptResponse leaves Answer and ExpectedFlag null for callers
 // who may not see them (event viewers).
 func toSolutionAttemptResponse(v eventUseCase.SolutionAttemptView, withAnswers bool) solutionAttemptResponse {
-	out := solutionAttemptResponse{ID: v.ID, EventTeamID: v.EventTeamID, TeamName: v.TeamName, TeamChallengeID: v.TeamChallengeID, EventChallengeID: v.EventChallengeID, ChallengeName: v.ChallengeName, EventExerciseID: v.EventExerciseID, UserID: v.UserID, ParticipantName: v.ParticipantName, AutomaticCorrect: v.AutomaticCorrect, Decision: v.Decision.String(), DecisionReason: v.DecisionReason, DecidedBy: v.DecidedBy, DecidedAt: v.DecidedAt, Correct: v.Correct, ReceivedAt: v.ReceivedAt, Points: v.Points}
+	out := solutionAttemptResponse{ID: v.ID, EventTeamID: v.EventTeamID, TeamName: v.TeamName, TeamChallengeID: v.TeamChallengeID, EventChallengeID: v.EventChallengeID, ChallengeName: v.ChallengeName, EventExerciseID: v.EventExerciseID, UserID: v.UserID, ParticipantName: v.ParticipantName, AutomaticCorrect: v.AutomaticCorrect, Decision: v.Decision.String(), DecisionReason: v.DecisionReason, DecidedBy: v.DecidedBy, DecidedAt: v.DecidedAt, Correct: v.Correct, ReceivedAt: v.ReceivedAt, Points: v.Points, AttemptsAllowed: v.AttemptsAllowed, AttemptsUsed: v.AttemptsUsed}
 	if withAnswers {
 		answer, expected := v.Answer, v.ExpectedFlag
 		out.Answer, out.ExpectedFlag = &answer, &expected
@@ -370,6 +374,8 @@ type configResponse struct {
 	HintsDisabled          bool      `json:"HintsDisabled"`
 	// HintChargeMode: reward (A, default) | balance (B).
 	HintChargeMode string `json:"HintChargeMode"`
+	// MaxFlagAttempts: wrong flag submissions allowed per team and task; null = unlimited. A task may override it.
+	MaxFlagAttempts *int32 `json:"MaxFlagAttempts"`
 	// Participant countdown on the challenges and results pages.
 	ShowStartCountdown     bool  `json:"ShowStartCountdown"`
 	ShowFinishCountdown    bool  `json:"ShowFinishCountdown"`
@@ -405,6 +411,8 @@ type updateConfigRequest struct {
 	HintsDisabled  *bool `json:"HintsDisabled"`
 	// HintChargeMode omitted keeps the current value: reward | balance.
 	HintChargeMode *string `json:"HintChargeMode"`
+	// MaxFlagAttempts omitted keeps the current value; null clears it (unlimited); otherwise 1..1000.
+	MaxFlagAttempts eventUseCase.OptionalLimit `json:"MaxFlagAttempts" swaggertype:"integer"`
 	// Countdown fields omitted keep the current value.
 	ShowStartCountdown     *bool  `json:"ShowStartCountdown"`
 	ShowFinishCountdown    *bool  `json:"ShowFinishCountdown"`
@@ -664,15 +672,17 @@ type publishedExercisePreviewResponse struct {
 }
 
 type eventChallengeResponse struct {
-	ID              uuid.UUID                     `json:"ID"`
-	TaskID          uuid.UUID                     `json:"TaskID"`
-	GroupID         *uuid.UUID                    `json:"GroupID"`
-	PrerequisiteIDs []uuid.UUID                   `json:"PrerequisiteIDs"`
-	Order           int32                         `json:"Order"`
-	BoardOrder      *int32                        `json:"BoardOrder"`
-	Points          int32                         `json:"Points"`
-	ScoringOverride *scoringProfileResponse       `json:"ScoringOverride"`
-	HintsEnabled    bool                          `json:"HintsEnabled"`
+	ID              uuid.UUID               `json:"ID"`
+	TaskID          uuid.UUID               `json:"TaskID"`
+	GroupID         *uuid.UUID              `json:"GroupID"`
+	PrerequisiteIDs []uuid.UUID             `json:"PrerequisiteIDs"`
+	Order           int32                   `json:"Order"`
+	BoardOrder      *int32                  `json:"BoardOrder"`
+	Points          int32                   `json:"Points"`
+	ScoringOverride *scoringProfileResponse `json:"ScoringOverride"`
+	HintsEnabled    bool                    `json:"HintsEnabled"`
+	// MaxFlagAttempts is the task's own limit of wrong submissions per team; null = the event's value.
+	MaxFlagAttempts *int32                        `json:"MaxFlagAttempts"`
 	Published       bool                          `json:"Published"`
 	Availability    challengeAvailabilityResponse `json:"Availability"`
 	Snapshot        json.RawMessage               `json:"Snapshot" swaggertype:"object"`
@@ -691,6 +701,8 @@ type challengeAvailabilityResponse struct {
 type updateEventChallengeRequest struct {
 	Points       int32 `json:"Points"`
 	HintsEnabled bool  `json:"HintsEnabled"`
+	// MaxFlagAttempts omitted keeps the current override; null clears it (the event value applies); otherwise 1..1000.
+	MaxFlagAttempts eventUseCase.OptionalLimit `json:"MaxFlagAttempts" swaggertype:"integer"`
 }
 
 type reorderEventChallengesRequest struct {
@@ -753,6 +765,7 @@ func toConfigResponse(v eventUseCase.EventConfigView) configResponse {
 		ShowDifficulty:         v.ShowDifficulty,
 		HintsDisabled:          v.HintsDisabled,
 		HintChargeMode:         HintChargeModeName(v.HintChargeMode),
+		MaxFlagAttempts:        v.MaxFlagAttempts,
 		ShowStartCountdown:     v.Countdown.ShowStart,
 		ShowFinishCountdown:    v.Countdown.ShowFinish,
 		FinishCountdownMinutes: v.Countdown.FinishMinutes,
@@ -782,6 +795,7 @@ func (r updateConfigRequest) toInput() eventUseCase.UpdateConfigInput {
 		ShowDifficulty:         r.ShowDifficulty,
 		HintsDisabled:          r.HintsDisabled,
 		HintChargeMode:         parseHintChargeMode(r.HintChargeMode),
+		MaxFlagAttempts:        r.MaxFlagAttempts,
 		ShowStartCountdown:     r.ShowStartCountdown,
 		ShowFinishCountdown:    r.ShowFinishCountdown,
 		FinishCountdownMinutes: r.FinishCountdownMinutes,
@@ -883,7 +897,7 @@ func (r replaceEventExerciseRequest) toInput() eventUseCase.ReplaceEventExercise
 }
 
 func (r updateEventChallengeRequest) toInput() eventUseCase.UpdateEventChallengeInput {
-	return eventUseCase.UpdateEventChallengeInput{Points: r.Points, HintsEnabled: r.HintsEnabled}
+	return eventUseCase.UpdateEventChallengeInput{Points: r.Points, HintsEnabled: r.HintsEnabled, MaxFlagAttempts: r.MaxFlagAttempts}
 }
 
 func (r reorderEventChallengesRequest) toInput() eventUseCase.ReorderEventChallengesInput {
@@ -932,7 +946,7 @@ func toEventChallengeResponse(v eventUseCase.EventChallengeView) eventChallengeR
 		override = &scoringProfileResponse{Mode: int16(p.Mode), MinPoints: p.MinPoints, MaxPoints: p.MaxPoints, FloorAtPercent: p.FloorAtPercent}
 	}
 	availability := v.Availability
-	return eventChallengeResponse{ID: v.ID, TaskID: v.TaskID, GroupID: v.GroupID, PrerequisiteIDs: v.PrerequisiteIDs, Order: v.Order, BoardOrder: v.BoardOrder, Points: v.Points, ScoringOverride: override, HintsEnabled: v.HintsEnabled, Published: v.Published, Availability: challengeAvailabilityResponse{Preparing: availability.Preparing, Ready: availability.Ready, Available: availability.Available, Failed: availability.Failed, Total: availability.Total}, Snapshot: v.Snapshot, Hints: toChallengeHintResponses(v.Hints)}
+	return eventChallengeResponse{ID: v.ID, TaskID: v.TaskID, GroupID: v.GroupID, PrerequisiteIDs: v.PrerequisiteIDs, Order: v.Order, BoardOrder: v.BoardOrder, Points: v.Points, ScoringOverride: override, HintsEnabled: v.HintsEnabled, MaxFlagAttempts: v.MaxFlagAttempts, Published: v.Published, Availability: challengeAvailabilityResponse{Preparing: availability.Preparing, Ready: availability.Ready, Available: availability.Available, Failed: availability.Failed, Total: availability.Total}, Snapshot: v.Snapshot, Hints: toChallengeHintResponses(v.Hints)}
 }
 
 func toChallengeHintResponses(hints []eventUseCase.ChallengeHintView) []challengeHintResponse {

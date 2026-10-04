@@ -53,11 +53,21 @@ SELECT ca.id,
        ca.decided_at,
        ca.received_at,
        (score.team_challenge_id IS NOT NULL)::bool AS scored,
-       COALESCE(score.points, 0)::integer AS points
+       COALESCE(score.points, 0)::integer AS points,
+       COALESCE(ec.max_flag_attempts, cfg.max_flag_attempts) AS attempts_allowed,
+       used.wrong::bigint AS attempts_used
 FROM effective_challenge_attempts ca
 JOIN event_teams t ON t.id = ca.event_team_id
 JOIN team_challenges tc ON tc.id = ca.team_challenge_id
 JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+LEFT JOIN event_configs cfg ON cfg.event_id = ca.event_id
+CROSS JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE NOT x.effective_correct AND (x.first_correct IS NULL OR x.received_at < x.first_correct)) AS wrong
+    FROM (SELECT a.effective_correct, a.received_at,
+                 min(a.received_at) FILTER (WHERE a.effective_correct) OVER () AS first_correct
+          FROM effective_challenge_attempts a
+          WHERE a.team_challenge_id = ca.team_challenge_id) x
+) used
 JOIN event_exercises ee ON ee.id = ec.event_exercise_id
 JOIN users u ON u.id = ca.user_id
 LEFT JOIN event_solved_scores_at(sqlc.arg(event_id)::uuid, NULL, NULL) score
@@ -213,3 +223,43 @@ FROM (SELECT ca.received_at
       ORDER BY ca.received_at DESC
       LIMIT sqlc.arg(row_limit)) recent;
 
+
+-- name: GetTeamChallengeAttemptLimit :one
+-- The flag attempt limit of one team challenge (the task's own value, else the event's; NULL = unlimited) and the
+-- wrong submissions counted against it. Only wrong attempts received before the first effective correct one count:
+-- once a task is solved nothing more is counted, and after an annulment those later attempts stay uncounted.
+SELECT COALESCE(ec.max_flag_attempts, cfg.max_flag_attempts) AS max_attempts,
+       s.wrong::bigint AS wrong,
+       s.solved::bool AS solved
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+LEFT JOIN event_configs cfg ON cfg.event_id = tc.event_id
+CROSS JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE NOT x.effective_correct AND (x.first_correct IS NULL OR x.received_at < x.first_correct)) AS wrong,
+           COALESCE(bool_or(x.first_correct IS NOT NULL), false) AS solved
+    FROM (SELECT a.effective_correct, a.received_at,
+                 min(a.received_at) FILTER (WHERE a.effective_correct) OVER () AS first_correct
+          FROM effective_challenge_attempts a
+          WHERE a.team_challenge_id = tc.id) x
+) s
+WHERE tc.id = sqlc.arg(team_challenge_id);
+
+-- name: ListTeamChallengeAttemptLimits :many
+-- GetTeamChallengeAttemptLimit for every limited team challenge of one team (the participant board).
+SELECT tc.id AS team_challenge_id,
+       COALESCE(ec.max_flag_attempts, cfg.max_flag_attempts) AS max_attempts,
+       s.wrong::bigint AS wrong,
+       s.solved::bool AS solved
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+LEFT JOIN event_configs cfg ON cfg.event_id = tc.event_id
+CROSS JOIN LATERAL (
+    SELECT count(*) FILTER (WHERE NOT x.effective_correct AND (x.first_correct IS NULL OR x.received_at < x.first_correct)) AS wrong,
+           COALESCE(bool_or(x.first_correct IS NOT NULL), false) AS solved
+    FROM (SELECT a.effective_correct, a.received_at,
+                 min(a.received_at) FILTER (WHERE a.effective_correct) OVER () AS first_correct
+          FROM effective_challenge_attempts a
+          WHERE a.team_challenge_id = tc.id) x
+) s
+WHERE tc.event_team_id = sqlc.arg(event_team_id)
+  AND COALESCE(ec.max_flag_attempts, cfg.max_flag_attempts) IS NOT NULL;

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 )
 
@@ -80,7 +81,10 @@ type EventConfig struct {
 	HintsDisabled  bool
 	// HintChargeMode: how unlocked hint costs are charged (W4).
 	HintChargeMode HintChargeMode
-	Theme          Theme
+	// MaxFlagAttempts is the wrong flag submissions a team may make per task; nil is unlimited. A task can
+	// override it.
+	MaxFlagAttempts *int32
+	Theme           Theme
 	// StandTiming schedules team stands; it only matters when the admin
 	// allowed infrastructure challenges on the event.
 	StandTiming eventStandModel.Timing
@@ -124,6 +128,7 @@ type ConfigInput struct {
 	ShowDifficulty         bool
 	HintsDisabled          bool
 	HintChargeMode         HintChargeMode
+	MaxFlagAttempts        *int32
 	Countdown              CountdownSettings
 }
 
@@ -229,7 +234,11 @@ func (c *EventConfig) Update(in ConfigInput, now time.Time, by uuid.UUID) error 
 	if !in.Countdown.valid() {
 		return ErrCountdownSettingsInvalid.Err()
 	}
+	if err := challengeAttempt.CheckAttemptLimit(in.MaxFlagAttempts); err != nil {
+		return err
+	}
 	c.HintChargeMode = in.HintChargeMode
+	c.MaxFlagAttempts = cloneLimit(in.MaxFlagAttempts)
 	c.Countdown = in.Countdown
 	c.touch(now, by)
 	return nil

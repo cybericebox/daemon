@@ -1,6 +1,7 @@
 package event
 
 import (
+	"encoding/json"
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
 	"time"
 
@@ -122,6 +123,8 @@ type UpdateConfigInput struct {
 	HintsDisabled  *bool
 	// HintChargeMode nil keeps the current value.
 	HintChargeMode *eventConfigModel.HintChargeMode
+	// MaxFlagAttempts left unset keeps the current value; set to null clears it (unlimited).
+	MaxFlagAttempts OptionalLimit
 	// TaskRevealMode nil keeps the current value; a change is accepted until the event starts.
 	TaskRevealMode *eventConfigModel.TaskRevealMode
 	// Countdown fields nil keep the current value.
@@ -146,6 +149,7 @@ func (in UpdateConfigInput) toConfigInput(current eventConfigModel.EventConfig) 
 	if in.HintChargeMode != nil {
 		hintChargeMode = *in.HintChargeMode
 	}
+	maxFlagAttempts := in.MaxFlagAttempts.Or(current.MaxFlagAttempts)
 	countdown := current.Countdown
 	if in.ShowStartCountdown != nil {
 		countdown.ShowStart = *in.ShowStartCountdown
@@ -169,6 +173,7 @@ func (in UpdateConfigInput) toConfigInput(current eventConfigModel.EventConfig) 
 		ShowDifficulty:         showDifficulty,
 		HintsDisabled:          hintsDisabled,
 		HintChargeMode:         hintChargeMode,
+		MaxFlagAttempts:        maxFlagAttempts,
 		Countdown:              countdown,
 	}
 }
@@ -243,6 +248,29 @@ type ReplaceEventExerciseInput struct {
 type UpdateEventChallengeInput struct {
 	Points       int32
 	HintsEnabled bool
+	// MaxFlagAttempts left unset keeps the current override; set to null clears it (the event value applies).
+	MaxFlagAttempts OptionalLimit
+}
+
+// OptionalLimit is a nullable number that tells "not sent" from "sent as null": a PUT from an older client that
+// omits the field must not clear a limit.
+type OptionalLimit struct {
+	Set   bool
+	Value *int32
+}
+
+// UnmarshalJSON marks the value as sent; null leaves Value nil.
+func (o *OptionalLimit) UnmarshalJSON(data []byte) error {
+	o.Set = true
+	return json.Unmarshal(data, &o.Value)
+}
+
+// Or is the sent value, or fallback when the field was not sent.
+func (o OptionalLimit) Or(fallback *int32) *int32 {
+	if !o.Set {
+		return fallback
+	}
+	return o.Value
 }
 
 // HintCostInput overrides (Cost) or resets (nil) one hint's cost.

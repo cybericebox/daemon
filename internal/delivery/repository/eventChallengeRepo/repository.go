@@ -131,7 +131,7 @@ func (r *Repository) Published(ctx context.Context, id uuid.UUID) (bool, error) 
 }
 
 func (r *Repository) Update(ctx context.Context, value eventChallengeModel.EventChallenge) (eventChallengeModel.EventChallenge, error) {
-	row, err := r.q.UpdateEventChallenge(ctx, postgres.UpdateEventChallengeParams{ID: value.ID, EventExerciseID: value.EventExerciseID, Points: value.Points, HintsEnabled: value.HintsEnabled, Published: value.Published})
+	row, err := r.q.UpdateEventChallenge(ctx, postgres.UpdateEventChallengeParams{ID: value.ID, EventExerciseID: value.EventExerciseID, Points: value.Points, HintsEnabled: value.HintsEnabled, Published: value.Published, MaxFlagAttempts: nullableInt32(value.MaxFlagAttempts)})
 	if err != nil {
 		return eventChallengeModel.EventChallenge{}, err
 	}
@@ -200,7 +200,7 @@ func ToDomain(row postgres.EventChallenge) eventChallengeModel.EventChallenge {
 		boardOrder = &value
 	}
 	hints, costs := UnmarshalHints(row.Hints, row.HintCosts)
-	return eventChallengeModel.EventChallenge{ID: row.ID, EventExerciseID: row.EventExerciseID, TaskID: row.TaskID, GroupID: groupID, Order: row.OrderIndex, BoardOrder: boardOrder, Points: row.Points, ScoringOverride: override, HintsEnabled: row.HintsEnabled, Published: row.Published, Snapshot: row.Snapshot, Hints: hints, HintCosts: costs, CreatedAt: row.CreatedAt}
+	return eventChallengeModel.EventChallenge{ID: row.ID, EventExerciseID: row.EventExerciseID, TaskID: row.TaskID, GroupID: groupID, Order: row.OrderIndex, BoardOrder: boardOrder, Points: row.Points, ScoringOverride: override, HintsEnabled: row.HintsEnabled, MaxFlagAttempts: limitFromDB(row.MaxFlagAttempts), Published: row.Published, Snapshot: row.Snapshot, Hints: hints, HintCosts: costs, CreatedAt: row.CreatedAt}
 }
 
 func marshalHints(value eventChallengeModel.EventChallenge) ([]byte, []byte, error) {
@@ -324,4 +324,19 @@ func (r *Repository) UnpublishAll(ctx context.Context, eventExerciseID uuid.UUID
 // MaxOrder is the highest board order of a revision (-1 when empty).
 func (r *Repository) MaxOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error) {
 	return r.q.MaxEventChallengeOrder(ctx, eventExerciseID)
+}
+
+func nullableInt32(value *int32) pgtype.Int4 {
+	if value == nil {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: *value, Valid: true}
+}
+
+func limitFromDB(value pgtype.Int4) *int32 {
+	if !value.Valid {
+		return nil
+	}
+	limit := value.Int32
+	return &limit
 }
