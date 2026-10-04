@@ -130,3 +130,31 @@ func TestTLSDefaultsFollowTheMountedFiles(t *testing.T) {
 		t.Fatalf("an explicit empty certificate turns TLS off: %+v", s.TLS)
 	}
 }
+
+func TestValidateFiles(t *testing.T) {
+	tls := func(cert, key, ca, auth string) HTTPServerConfig {
+		var s HTTPServerConfig
+		s.TLS.CertFile, s.TLS.KeyFile, s.TLS.ClientCAFile, s.TLS.ClientAuth, s.TLS.MinVersion = cert, key, ca, auth, "1.2"
+		return s
+	}
+	withFiles(t, "/tls/tls.crt", "/tls/tls.key", "/aop/ca.crt")
+	if err := tls("/tls/tls.crt", "/tls/tls.key", "/aop/ca.crt", "require").ValidateFiles(); err != nil {
+		t.Fatalf("files present: %v", err)
+	}
+	if err := tls("", "", "", "off").ValidateFiles(); err != nil {
+		t.Fatalf("plain HTTP needs no file: %v", err)
+	}
+	if tls("/tls/tls.crt", "/tls/tls.key", "/aop/ca.crt", "require").Mode() != "https+client-auth-require" ||
+		tls("/tls/tls.crt", "/tls/tls.key", "", "off").Mode() != "https" || tls("", "", "", "off").Mode() != "http" {
+		t.Fatal("the mode names are wrong")
+	}
+	if err := tls("/nowhere/tls.crt", "/tls/tls.key", "", "off").ValidateFiles(); err == nil {
+		t.Fatal("an explicit certificate path that does not exist is an error")
+	}
+	if err := tls("/tls/tls.crt", "/nowhere/tls.key", "", "off").ValidateFiles(); err == nil {
+		t.Fatal("an explicit key path that does not exist is an error")
+	}
+	if err := tls("/tls/tls.crt", "/tls/tls.key", "/nowhere/ca.crt", "optional").ValidateFiles(); err == nil {
+		t.Fatal("client auth without the CA file is an error")
+	}
+}

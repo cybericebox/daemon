@@ -26,6 +26,7 @@ func TestHTTPServerConfig_DefaultsArePlainOnly(t *testing.T) {
 
 func TestHTTPServerConfig_ParsedFromEnv(t *testing.T) {
 	setTestHosts(t)
+	withFiles(t, "/tls/tls.crt", "/tls/tls.key", "/x/ca.pem")
 	t.Setenv("RECAPTCHA_SECRET", "r")
 	t.Setenv("HTTP_SERVER_PORT", "")
 	t.Setenv("HTTP_SERVER_HTTPS_PORT", "9443")
