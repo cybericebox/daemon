@@ -9,31 +9,31 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// HostsConfig names every public host of the platform. Each one is required, either set itself or
-// derived from DOMAIN (see ResolveHosts): neither stops the start. They have to share one registrable
-// domain, so the host-only session cookie of the API stays same-site for every frontend
+// HostsConfig names every public host of the platform. DOMAIN is the only input: every host derives
+// from it (see ResolveHosts) and there are no per-host settings, so all hosts always share one
+// registrable domain and the host-only session cookie of the API stays same-site for every frontend
 // (SameSite=Strict).
 type HostsConfig struct {
-	// Domain is the base domain every host that is not set is derived from.
-	Domain string `env:"DOMAIN"`
-	// Main is the landing host (mail footer links).
-	Main string `env:"MAIN_HOST"`
+	// Domain is the base domain (env DOMAIN, required).
+	Domain string `env:"DOMAIN,required"`
+	// Main is the landing host (mail footer links): DOMAIN.
+	Main string `env:"-"`
 	// API is the only Host this service answers on; the OAuth redirect URI and the public API base URL
-	// are built from it.
-	API string `env:"API_HOST"`
-	// ID is the sign-in app host: sign-in, setup and confirmation links point at it.
-	ID string `env:"ID_HOST"`
-	// Admin and Exercises are the admin and the exercise catalog app hosts.
-	Admin     string `env:"ADMIN_HOST"`
-	Exercises string `env:"EXERCISES_HOST"`
-	// EventDomain holds the event sites: <tag>.<EventDomain>.
-	EventDomain string `env:"EVENT_DOMAIN"`
+	// are built from it: api.DOMAIN.
+	API string `env:"-"`
+	// ID is the sign-in app host: sign-in, setup and confirmation links point at it: id.DOMAIN.
+	ID string `env:"-"`
+	// Admin and Exercises are the admin and the exercise catalog app hosts: admin.DOMAIN, exercises.DOMAIN.
+	Admin     string `env:"-"`
+	Exercises string `env:"-"`
+	// EventDomain holds the event sites: <tag>.<EventDomain>; it is DOMAIN.
+	EventDomain string `env:"-"`
 }
 
-// hostDerivations is the base-domain rule: the host keys in the order they are checked, each with
-// the prefix put before DOMAIN when the key has no value. COOKIE_DOMAIN is for the frontends; the
-// daemon does not use it but resolves it so the rule is the same everywhere. Every implementation
-// runs testdata/base-domain-vectors.json (identical copies in every repository).
+// hostDerivations is the base-domain rule: each host key with the prefix put before DOMAIN.
+// COOKIE_DOMAIN is for the frontends; the daemon does not use it but resolves it so the rule is the
+// same everywhere. Every implementation runs testdata/base-domain-vectors.json (identical copies in
+// every repository).
 var hostDerivations = []struct{ Key, Prefix string }{
 	{"MAIN_HOST", ""}, {"API_HOST", "api."}, {"ID_HOST", "id."}, {"ADMIN_HOST", "admin."},
 	{"EXERCISES_HOST", "exercises."}, {"EVENT_DOMAIN", ""}, {"COOKIE_DOMAIN", ""},
@@ -41,77 +41,32 @@ var hostDerivations = []struct{ Key, Prefix string }{
 
 var domainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 
-// ResolveHosts applies the base-domain rule to env (key to value, an empty value counts as unset):
-// DOMAIN, when set, must be a bare lower case host name; every host key without a value becomes
-// <prefix>DOMAIN; a value that is set always wins. A host with no value and no DOMAIN is an error.
-func ResolveHosts(env map[string]string) (map[string]string, error) {
-	domain := env["DOMAIN"]
-	if domain != "" && (len(domain) > 253 || !domainPattern.MatchString(domain)) {
+// ResolveHosts applies the base-domain rule: domain must be set and be a bare lower case host name,
+// and every host is <prefix>DOMAIN.
+func ResolveHosts(domain string) (map[string]string, error) {
+	if domain == "" {
+		return nil, fmt.Errorf("DOMAIN is required")
+	}
+	if len(domain) > 253 || !domainPattern.MatchString(domain) {
 		return nil, fmt.Errorf("DOMAIN must be a bare lower case host name (no scheme, port or path), got %q", domain)
 	}
 	out := make(map[string]string, len(hostDerivations))
 	for _, d := range hostDerivations {
-		v := env[d.Key]
-		if v == "" {
-			if domain == "" {
-				return nil, fmt.Errorf("%s is required (set it, or set DOMAIN and it is derived)", d.Key)
-			}
-			v = d.Prefix + domain
-		}
-		out[d.Key] = v
+		out[d.Key] = d.Prefix + domain
 	}
 	return out, nil
 }
 
-// resolve fills every host that is empty from Domain (the rule of ResolveHosts, for the six hosts
-// the daemon uses).
-func (h *HostsConfig) resolve() error {
-	got, err := ResolveHosts(map[string]string{
-		"DOMAIN": h.Domain, "MAIN_HOST": h.Main, "API_HOST": h.API, "ID_HOST": h.ID,
-		"ADMIN_HOST": h.Admin, "EXERCISES_HOST": h.Exercises, "EVENT_DOMAIN": h.EventDomain,
-		// Not used by the daemon, so it never makes the start fail.
-		"COOKIE_DOMAIN": "-",
-	})
+// Validate derives every host from Domain and checks that Domain sits under a registrable domain.
+func (h *HostsConfig) Validate() error {
+	got, err := ResolveHosts(h.Domain)
 	if err != nil {
 		return err
 	}
+	if _, err := publicsuffix.EffectiveTLDPlusOne(h.Domain); err != nil {
+		return fmt.Errorf("DOMAIN must sit under a registrable domain: %q", h.Domain)
+	}
 	h.Main, h.API, h.ID, h.Admin, h.Exercises, h.EventDomain = got["MAIN_HOST"], got["API_HOST"], got["ID_HOST"], got["ADMIN_HOST"], got["EXERCISES_HOST"], got["EVENT_DOMAIN"]
-	return nil
-}
-
-// Validate derives the hosts that are not set from DOMAIN, normalises the hosts (lower case) and
-// checks that each is a bare host name under one registrable domain.
-func (h *HostsConfig) Validate() error {
-	if err := h.resolve(); err != nil {
-		return err
-	}
-	fields := []struct {
-		env string
-		val *string
-	}{
-		{"MAIN_HOST", &h.Main}, {"API_HOST", &h.API}, {"ID_HOST", &h.ID},
-		{"ADMIN_HOST", &h.Admin}, {"EXERCISES_HOST", &h.Exercises}, {"EVENT_DOMAIN", &h.EventDomain},
-	}
-	registrable := ""
-	for _, f := range fields {
-		v := strings.ToLower(strings.TrimSpace(*f.val))
-		if v == "" || strings.ContainsAny(v, "/:@?# ") || strings.HasPrefix(v, ".") || strings.HasSuffix(v, ".") {
-			return fmt.Errorf("%s must be a bare host name (no scheme, port or path), got %q", f.env, *f.val)
-		}
-		if u, err := url.Parse("https://" + v); err != nil || u.Hostname() != v {
-			return fmt.Errorf("%s is not a valid host name: %q", f.env, *f.val)
-		}
-		reg, err := publicsuffix.EffectiveTLDPlusOne(v)
-		if err != nil {
-			return fmt.Errorf("%s must sit under a registrable domain: %q", f.env, v)
-		}
-		if registrable == "" {
-			registrable = reg
-		} else if reg != registrable {
-			return fmt.Errorf("%s (%s) must share the registrable domain %s with the other hosts", f.env, v, registrable)
-		}
-		*f.val = v
-	}
 	return nil
 }
 
@@ -150,14 +105,17 @@ func (h HostsConfig) APIURL(path string) string { return URL(h.API, path) }
 // EventURL is the home page of the event site with tag.
 func (h HostsConfig) EventURL(tag string) string { return URL(tag+"."+h.EventDomain, "/") }
 
-// ReservedEventTags are the first labels of the platform hosts that sit under EventDomain: an event
-// can never take one of them as its tag.
+// reservedEventTags are the labels of the fixed platform subdomains (the app hosts and the laboratory
+// names): an event can never take one of them as its tag, so <tag>.DOMAIN never collides with them.
+var reservedEventTags = map[string]bool{
+	"api": true, "id": true, "admin": true, "exercises": true, "labs": true, "vpn": true, "ctl": true, "www": true,
+}
+
+// ReservedEventTags returns the reserved event tags (a copy).
 func (h HostsConfig) ReservedEventTags() map[string]bool {
-	tags := map[string]bool{}
-	for _, host := range []string{h.Main, h.API, h.ID, h.Admin, h.Exercises} {
-		if label, ok := strings.CutSuffix(host, "."+h.EventDomain); ok && label != "" {
-			tags[strings.SplitN(label, ".", 2)[0]] = true
-		}
+	tags := make(map[string]bool, len(reservedEventTags))
+	for t := range reservedEventTags {
+		tags[t] = true
 	}
 	return tags
 }
@@ -186,14 +144,14 @@ func (h HostsConfig) IsFrontendOrigin(host string) bool {
 
 func (h HostsConfig) isEventSite(host string) bool {
 	label, ok := strings.CutSuffix(host, "."+h.EventDomain)
-	return ok && label != "" && !strings.Contains(label, ".") && !h.ReservedEventTags()[label]
+	return ok && label != "" && !strings.Contains(label, ".") && !reservedEventTags[label]
 }
 
 // EventTag returns the event tag of an event site host.
 func (h HostsConfig) EventTag(host string) (string, bool) {
 	host = strings.ToLower(host)
 	label, ok := strings.CutSuffix(host, "."+h.EventDomain)
-	if !ok || label == "" || strings.Contains(label, ".") || h.ReservedEventTags()[label] {
+	if !ok || label == "" || strings.Contains(label, ".") || reservedEventTags[label] {
 		return "", false
 	}
 	return label, true

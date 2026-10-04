@@ -9,11 +9,10 @@ import (
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 )
 
-// testHosts is the host set every test config starts with: the hosts are required, so MustGetConfig
-// stops without them.
+// testHosts is the set every test config starts with: the domain is required, so MustGetConfig
+// stops without it.
 var testHosts = map[string]string{
-	"POSTGRES_PASSWORD": "test-password", "SUPPORT_EMAIL": "support@example.test", "MAIN_HOST": "example.test", "API_HOST": "api.example.test", "ID_HOST": "id.example.test",
-	"ADMIN_HOST": "admin.example.test", "EXERCISES_HOST": "exercises.example.test", "EVENT_DOMAIN": "example.test",
+	"POSTGRES_PASSWORD": "test-password", "SUPPORT_EMAIL": "support@example.test", "DOMAIN": "example.test",
 	// The cookie key is required in every environment.
 	"SESSION_ENCRYPTION_KEY": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
 }
@@ -447,18 +446,14 @@ func TestValidateSession(t *testing.T) {
 	}
 }
 
-// A base domain alone is enough: every host not set is derived, and a host that is set wins.
+// The base domain is the only host input: every host derives from it.
 func TestMustGetConfig_HostsFromDomain(t *testing.T) {
 	setTestHosts(t)
-	for _, k := range []string{"MAIN_HOST", "ID_HOST", "ADMIN_HOST", "EXERCISES_HOST", "EVENT_DOMAIN"} {
-		t.Setenv(k, "")
-	}
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
 	t.Setenv("DOMAIN", "base.example")
-	t.Setenv("API_HOST", "backend.base.example")
 	cfg := MustGetConfig()
 	h := cfg.Auth.Hosts
-	if h.Main != "base.example" || h.API != "backend.base.example" || h.ID != "id.base.example" || h.Admin != "admin.base.example" ||
+	if h.Main != "base.example" || h.API != "api.base.example" || h.ID != "id.base.example" || h.Admin != "admin.base.example" ||
 		h.Exercises != "exercises.base.example" || h.EventDomain != "base.example" {
 		t.Fatalf("Hosts: got %+v", h)
 	}

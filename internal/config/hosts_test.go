@@ -16,29 +16,28 @@ func validHosts() HostsConfig {
 }
 
 func TestHostsValidate(t *testing.T) {
-	h := validHosts()
-	h.Main = " CyberIceBox.com "
-	if err := h.Validate(); err != nil || h.Main != "cybericebox.com" {
-		t.Fatalf("a valid set is normalised: err %v main %q", err, h.Main)
+	h := HostsConfig{Domain: "cybericebox.com"}
+	if err := h.Validate(); err != nil || h != validHosts2() {
+		t.Fatalf("every host derives from the domain: err %v, got %+v", err, h)
 	}
-	for name, mutate := range map[string]func(*HostsConfig){
-		"scheme":    func(h *HostsConfig) { h.API = "https://api.cybericebox.com" },
-		"port":      func(h *HostsConfig) { h.ID = "id.cybericebox.com:443" },
-		"empty":     func(h *HostsConfig) { h.Admin = "" },
-		"other dom": func(h *HostsConfig) { h.Exercises = "exercises.example.org" },
-		"suffix":    func(h *HostsConfig) { h.EventDomain = "com" },
+	for name, domain := range map[string]string{
+		"empty": "", "scheme": "https://cybericebox.com", "port": "cybericebox.com:443", "upper": "CyberIceBox.com", "suffix": "com",
 	} {
-		h := validHosts()
-		mutate(&h)
+		h := HostsConfig{Domain: domain}
 		if err := h.Validate(); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
 	}
-	h = validHosts()
-	h.Main, h.API, h.ID, h.Admin, h.Exercises, h.EventDomain = "a.pp.ua", "api.a.pp.ua", "id.a.pp.ua", "admin.a.pp.ua", "ex.a.pp.ua", "events.a.pp.ua"
-	if err := h.Validate(); err != nil {
-		t.Fatalf("a multi-label public suffix is handled: %v", err)
+	h = HostsConfig{Domain: "a.pp.ua"}
+	if err := h.Validate(); err != nil || h.API != "api.a.pp.ua" {
+		t.Fatalf("a multi-label public suffix is handled: %v %+v", err, h)
 	}
+}
+
+func validHosts2() HostsConfig {
+	h := validHosts()
+	h.Domain = "cybericebox.com"
+	return h
 }
 
 func TestHostsLinksAndOrigins(t *testing.T) {
@@ -79,8 +78,8 @@ func TestHostsLinksAndOrigins(t *testing.T) {
 
 func TestHostsOutsideEventDomain(t *testing.T) {
 	h := HostsConfig{Main: "x.test", API: "api.x.test", ID: "id.x.test", Admin: "admin.x.test", Exercises: "ex.x.test", EventDomain: "events.x.test"}
-	if len(h.ReservedEventTags()) != 0 {
-		t.Fatalf("no platform host sits under the event domain: %v", h.ReservedEventTags())
+	if !h.ReservedEventTags()["api"] {
+		t.Fatalf("the fixed tags stay reserved: %v", h.ReservedEventTags())
 	}
 	if h.IsFrontendOrigin("events.x.test") || !h.IsFrontendOrigin("a.events.x.test") || !strings.HasSuffix(h.EventURL("a"), "a.events.x.test/") {
 		t.Fatal("the event domain apex is not a frontend; its labels are event sites")
@@ -129,7 +128,7 @@ func TestResolveHostsVectors(t *testing.T) {
 	var vectors struct {
 		Cases []struct {
 			Name          string            `json:"name"`
-			Env           map[string]string `json:"env"`
+			Domain        string            `json:"domain"`
 			Expect        map[string]string `json:"expect"`
 			ErrorContains []string          `json:"error_contains"`
 		} `json:"cases"`
@@ -142,7 +141,7 @@ func TestResolveHostsVectors(t *testing.T) {
 	}
 	for _, c := range vectors.Cases {
 		t.Run(c.Name, func(t *testing.T) {
-			got, err := ResolveHosts(c.Env)
+			got, err := ResolveHosts(c.Domain)
 			if c.ErrorContains != nil {
 				if err == nil {
 					t.Fatalf("want an error, got %v", got)
@@ -164,23 +163,24 @@ func TestResolveHostsVectors(t *testing.T) {
 	}
 }
 
-func TestHostsValidateDerivesFromDomain(t *testing.T) {
-	h := HostsConfig{Domain: "example.org", API: "backend.example.org"}
+// The fixed subdomains stay refused as event tags, whatever the domain is.
+func TestReservedEventTagsAreFixed(t *testing.T) {
+	h := HostsConfig{Domain: "example.test"}
 	if err := h.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	want := HostsConfig{Domain: "example.org", Main: "example.org", API: "backend.example.org", ID: "id.example.org",
-		Admin: "admin.example.org", Exercises: "exercises.example.org", EventDomain: "example.org"}
-	if h != want {
-		t.Fatalf("got %+v, want %+v", h, want)
-	}
-	for name, h := range map[string]HostsConfig{
-		"nothing set":  {},
-		"bad domain":   {Domain: "https://example.org"},
-		"host missing": {Main: "example.org", API: "api.example.org", ID: "id.example.org", Admin: "admin.example.org", EventDomain: "example.org"},
-	} {
-		if err := h.Validate(); err == nil {
-			t.Errorf("%s: want an error", name)
+	for _, tag := range []string{"api", "id", "admin", "exercises", "labs", "vpn", "ctl", "www"} {
+		if !h.ReservedEventTags()[tag] {
+			t.Errorf("%s must be reserved", tag)
 		}
+		if _, ok := h.EventTag(tag + ".example.test"); ok {
+			t.Errorf("%s.example.test must not be an event site", tag)
+		}
+		if h.IsFrontendOrigin(tag+".example.test") && tag != "id" && tag != "admin" && tag != "exercises" {
+			t.Errorf("%s.example.test must not be a frontend origin", tag)
+		}
+	}
+	if tag, ok := h.EventTag("spring.example.test"); !ok || tag != "spring" {
+		t.Fatalf("EventTag: %q %v", tag, ok)
 	}
 }

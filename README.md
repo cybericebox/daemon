@@ -69,15 +69,10 @@ All settings are environment variables. Values below are placeholders; durations
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `ENV` | `development` | `development`, `stage` or `production`. Development runs Gin in debug mode with console logs; other values run release mode with JSON logs (debug level on stage, info on production). Swagger UI is served unless `production`. |
-| `DOMAIN` | required unless every host below is set | Base domain (`cybericebox.com`), a bare lower case host name. Every host below that is not set is derived from it; a host that is set always wins. |
-| `MAIN_HOST` | `DOMAIN` | Landing host (`cybericebox.com`); mail footer links and the support mailbox domain. |
-| `API_HOST` | `api.<DOMAIN>` | Host this service answers on; the OAuth redirect URI is `https://<API_HOST>/api/auth/<provider>/callback`. |
-| `ID_HOST` | `id.<DOMAIN>` | Sign-in app host: sign-in, setup, confirmation and invitation links point at it. |
-| `ADMIN_HOST`, `EXERCISES_HOST` | `admin.<DOMAIN>`, `exercises.<DOMAIN>` | Admin and exercise catalog app hosts. |
+| `DOMAIN` | required | The one base domain (`cybericebox.com`), a bare lower case host name. Every host derives from it; there are no per-host settings: landing and mail footer links `DOMAIN`, API `api.<DOMAIN>` (the host this service answers on; the OAuth redirect URI is `https://api.<DOMAIN>/api/auth/<provider>/callback`), sign-in app `id.<DOMAIN>`, `admin.<DOMAIN>`, `exercises.<DOMAIN>`, event sites `<tag>.<DOMAIN>`. |
 | `SUPPORT_EMAIL` | required | Default Reply-To of all mail and the contact in the mail footer (`support@cybericebox.com`). |
-| `EVENT_DOMAIN` | `DOMAIN` | Event sites are `<tag>.<EVENT_DOMAIN>`; the first labels of the hosts above that sit under it are reserved as tags. |
 
-Neither `DOMAIN` nor an explicit value for a host stops the start. All six hosts are bare host names (no scheme, port or path) under one registrable domain (SameSite=Strict); the daemon refuses to start otherwise. CORS allows exactly the frontend hosts, `MAIN_HOST` and `https://*.<EVENT_DOMAIN>`. The same rule is in the frontends (`deploy/base-domain.sh`) and in infrastructure (`cibconf.py`); `internal/config/testdata/base-domain-vectors.json` holds the shared test vectors, and its copies in the other repositories must stay identical.
+The daemon refuses to start without a valid `DOMAIN`. The labels `api`, `id`, `admin`, `exercises`, `labs`, `vpn`, `ctl` and `www` are reserved and never an event tag. CORS allows exactly the frontend hosts, the landing host and `https://<tag>.<DOMAIN>`. The same rule is in the frontends (`deploy/base-domain.sh`, `hosts.ts`) and in infrastructure (`cibconf.py`); `internal/config/testdata/base-domain-vectors.json` holds the shared test vectors, and its copies in the other repositories must stay identical.
 
 | `HTTP_SERVER_HOST` | `0.0.0.0` | Listen host. |
 | `HTTP_SERVER_PORT` | `80` | Plain-HTTP listener (the default mode). Set to an empty value to turn it off (TLS only); with it empty and TLS off the daemon refuses to start. |
