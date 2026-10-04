@@ -69,6 +69,20 @@ func (u *AuthUseCase) registerOrNotify(ctx context.Context, emailAddr, returnTo 
 	return u.sendContinueRegistration(ctx, userID, emailAddr, user.FirstName, returnTo)
 }
 
+// issueSetupLink issues a single-use setup token for an incomplete account living ttl (<= 0: the
+// default) and returns the setup link (with return_to when returnTo is non-empty). It sends nothing.
+func (u *AuthUseCase) issueSetupLink(ctx context.Context, userID uuid.UUID, ttl time.Duration, returnTo string) (string, error) {
+	setupToken, err := u.setupTokens.GenerateSetupToken(ctx, userID, ttl)
+	if err != nil {
+		return "", err
+	}
+	link := u.cfg.Hosts.IDURL(fmt.Sprintf("/setup?token=%s", setupToken))
+	if returnTo != "" {
+		link += "&return_to=" + url.QueryEscape(returnTo)
+	}
+	return link, nil
+}
+
 // sendContinueRegistration issues a setup token for an incomplete account and
 // emails the setup link (with return_to when returnTo is non-empty).
 func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.UUID, emailAddr, name, returnTo string) error {
@@ -77,14 +91,9 @@ func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.
 	if !u.mailAllowed(mailKindSignUp, emailAddr) {
 		return nil
 	}
-	setupToken, err := u.setupTokens.GenerateSetupToken(ctx, userID, u.cfg.SignupSetupTokenTTL)
+	link, err := u.issueSetupLink(ctx, userID, u.cfg.SignupSetupTokenTTL, returnTo)
 	if err != nil {
 		return err
-	}
-
-	link := u.cfg.Hosts.IDURL(fmt.Sprintf("/setup?token=%s", setupToken))
-	if returnTo != "" {
-		link += "&return_to=" + url.QueryEscape(returnTo)
 	}
 	if err = u.notifier.Notify(ctx, userID, notificationPayloads.ContinueRegistrationPayload{
 		Name:            name,

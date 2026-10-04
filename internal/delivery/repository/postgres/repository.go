@@ -3,6 +3,10 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -106,5 +110,44 @@ func (r *PostgresRepository) Migrate() error {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to run migrations").Err()
 	}
 
+	return nil
+}
+
+// SchemaCurrent reports an error unless the database is at the newest migration of the migrations
+// directory (and not half-applied). Unlike Migrate it changes nothing: the one-off commands that must
+// not migrate use it to refuse to run against an old schema.
+func (r *PostgresRepository) SchemaCurrent() error {
+	entries, err := os.ReadDir(r.cfg.MigrationsPath)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the migrations directory").Err()
+	}
+	var latest uint64
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".up.sql") {
+			continue
+		}
+		version, _, _ := strings.Cut(name, "_")
+		n, perr := strconv.ParseUint(version, 10, 64)
+		if perr != nil {
+			continue
+		}
+		latest = max(latest, n)
+	}
+
+	db := stdlib.OpenDBFromPool(r.pool)
+	defer func() { _ = db.Close() }()
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{MigrationsTable: migrationTable})
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to init migrate driver").Err()
+	}
+	current, dirty, err := driver.Version()
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the schema version").Err()
+	}
+	if dirty || current < 0 || uint64(current) != latest {
+		return model.ErrPlatform.WithError(fmt.Errorf("schema version %d (dirty: %t), expected %d", current, dirty, latest)).
+			WithMessage("The database schema is not current: start the backend first so it migrates").Err()
+	}
 	return nil
 }
