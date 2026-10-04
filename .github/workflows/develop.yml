@@ -49,5 +49,5 @@ jobs:
           build-args: LABORATORY_VERSION=${{ steps.lab.outputs.version }}
           push: true
           platforms: linux/amd64,linux/arm64
-          cache-from: type=registry,ref=${{ matrix.image }}:buildcache
+          cache-from: type=registry,ref=${{ matrix.image }}:buildcache-develop
           tags: ${{ matrix.image }}:${{ steps.meta.outputs.sha }}
