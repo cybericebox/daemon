@@ -14,6 +14,7 @@ import (
 	"github.com/caarlos0/env/v11"
 	"github.com/rs/zerolog/log"
 
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 	"github.com/cybericebox/daemon/pkg/secret"
@@ -61,7 +62,7 @@ type (
 	// admin settings.
 	ErrorJournalConfig struct {
 		// SamplesPerGroup is how many recent samples each error group keeps.
-		SamplesPerGroup int
+		SamplesPerGroup int `env:"SAMPLES_PER_GROUP" envDefault:"5"`
 		// Retention is how long groups, samples and 404 counters are kept before the purge deletes them.
 		Retention time.Duration `env:"RETENTION" envDefault:"720h"`
 		// NotifyCooldown is the least time between two messages about one fingerprint: a storm becomes one
@@ -72,9 +73,9 @@ type (
 		SpikeWindow    time.Duration `env:"SPIKE_WINDOW"    envDefault:"5m"`
 		// BufferSize is the capture queue; events beyond it are dropped (counted in the log) rather than
 		// slowing a request down.
-		BufferSize int
+		BufferSize int `env:"BUFFER_SIZE" envDefault:"1024"`
 		// NotFoundFlushInterval is how often the in-memory 404 counters are written.
-		NotFoundFlushInterval time.Duration
+		NotFoundFlushInterval time.Duration `env:"NOT_FOUND_FLUSH_INTERVAL" envDefault:"10s"`
 		// QueueStallAfter: a job ready to run that waits longer than this means the workers stalled.
 		// QueueBacklogLimit: more waiting jobs than this is a growing queue.
 		QueueStallAfter   time.Duration `env:"QUEUE_STALL_AFTER"   envDefault:"5m"`
@@ -84,7 +85,7 @@ type (
 		// AgentOfflineAfter: a laboratory agent unreachable this long is reported offline.
 		AgentOfflineAfter time.Duration `env:"AGENT_OFFLINE_AFTER" envDefault:"2m"`
 		// WatchInterval is how often the queue and certificate checks run.
-		WatchInterval time.Duration
+		WatchInterval time.Duration `env:"WATCH_INTERVAL" envDefault:"1m"`
 	}
 
 	// LabAccessConfig sets how long the lab access tokens (the /_auth links) of the laboratory L7
@@ -154,12 +155,12 @@ type (
 		// The mail send limiter: the longest a worker waits for its turn, how long a message waits
 		// when the daily quota is used, how often the delivered count is re-read, the quota window,
 		// and the upper bounds an admin may set for the provider limits.
-		MailMaxRateWait       time.Duration
-		MailQuotaRetryAfter   time.Duration
-		MailQuotaRecheck      time.Duration
-		MailQuotaWindow       time.Duration
-		MailMaxPerSecondLimit float64
-		MailDailyQuotaLimit   int
+		MailMaxRateWait       time.Duration `env:"MAIL_MAX_RATE_WAIT"       envDefault:"20s"`
+		MailQuotaRetryAfter   time.Duration `env:"MAIL_QUOTA_RETRY_AFTER"   envDefault:"10m"`
+		MailQuotaRecheck      time.Duration `env:"MAIL_QUOTA_RECHECK"       envDefault:"30s"`
+		MailQuotaWindow       time.Duration `env:"MAIL_QUOTA_WINDOW"        envDefault:"24h"`
+		MailMaxPerSecondLimit float64       `env:"MAIL_MAX_PER_SECOND_LIMIT" envDefault:"10000"`
+		MailDailyQuotaLimit   int           `env:"MAIL_DAILY_QUOTA_LIMIT"   envDefault:"1000000000"`
 
 		// FlagAnswerMaxBytes is the longest answer to a task that is accepted; a longer one is refused before it is stored.
 		FlagAnswerMaxBytes int `env:"FLAG_ANSWER_MAX_BYTES" envDefault:"512"`
@@ -174,10 +175,10 @@ type (
 		EventContentImageMaxBytes   int   `env:"EVENT_CONTENT_IMAGE_MAX_BYTES"   envDefault:"5242880"`
 		LiveLogoMaxBytes            int   `env:"LIVE_LOGO_MAX_BYTES"             envDefault:"1048576"`
 		// Email template images: the raw upload, the processed image, its width and the decoded pixels.
-		EmailImageUploadMaxBytes int
-		EmailImageMaxBytes       int
-		EmailImageMaxWidth       int
-		EmailImageMaxPixels      int
+		EmailImageUploadMaxBytes int `env:"EMAIL_IMAGE_UPLOAD_MAX_BYTES" envDefault:"10485760"`
+		EmailImageMaxBytes       int `env:"EMAIL_IMAGE_MAX_BYTES"        envDefault:"307200"`
+		EmailImageMaxWidth       int `env:"EMAIL_IMAGE_MAX_WIDTH"        envDefault:"1200"`
+		EmailImageMaxPixels      int `env:"EMAIL_IMAGE_MAX_PIXELS"       envDefault:"24000000"`
 	}
 
 	// StorageConfig holds the S3/MinIO object store used for user avatars.
@@ -198,10 +199,10 @@ type (
 		Password    string `env:"PASSWORD"`
 		SenderName  string `env:"SENDER_NAME"`
 		SenderEmail string `env:"SENDER_EMAIL"`
-		// ReplyToName and ReplyToEmail have no env input: SUPPORT_EMAIL is the default Reply-To of all mail and
-		// the admin mail settings override it. They stay in the struct for the settings merge.
-		ReplyToName  string
-		ReplyToEmail string
+		// ReplyToName and ReplyToEmail are the Reply-To of the env provider, like the Reply-To of a provider saved
+		// in the admin mail settings; empty (the default) falls back to SUPPORT_EMAIL.
+		ReplyToName  string `env:"REPLY_TO_NAME"`
+		ReplyToEmail string `env:"REPLY_TO_EMAIL"`
 		// MaxPerSecond and DailyQuota are the provider send limits of the env
 		// transport (Amazon SES: Sending quota); 0 = no limit.
 		MaxPerSecond float64 `env:"MAX_PER_SECOND"`
@@ -242,7 +243,7 @@ type (
 		SessionEncryptionKey string `env:"SESSION_ENCRYPTION_KEY"`
 		// SessionRevocationStaleAfter is how long the poll of the revoked-session list may keep failing before the
 		// replica refuses signed-in requests rather than trust a stale list.
-		SessionRevocationStaleAfter time.Duration
+		SessionRevocationStaleAfter time.Duration `env:"SESSION_REVOCATION_STALE_AFTER" envDefault:"30s"`
 		// SessionMaxPerUser is how many sessions one account keeps at once; signing in over the cap
 		// ends the oldest. 0 means no cap.
 		SessionMaxPerUser int `env:"SESSION_MAX_PER_USER" envDefault:"10"`
@@ -321,14 +322,14 @@ type (
 	}
 
 	HTTPServerConfig struct {
-		Host string
+		Host string `env:"HOST" envDefault:"0.0.0.0"`
 		// Port is the plain-HTTP listener (HTTP_SERVER_PORT). Unset it is off when TLS is on (TLS only) and 8080
 		// otherwise; set but empty turns it off. The default is applied in populateForAllConfig: the env tag
 		// cannot tell unset from empty.
 		Port               string        `env:"PORT"`
 		ReadTimeout        time.Duration `env:"READ_TIMEOUT"  envDefault:"10s"`
 		WriteTimeout       time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
-		MaxHeaderMegabytes int
+		MaxHeaderMegabytes int           `env:"MAX_HEADER_MB" envDefault:"1"`
 		// HTTPSPort is the TLS listener (default 8443); it runs only when TLS.CertFile and TLS.KeyFile are both set.
 		HTTPSPort string              `env:"HTTPS_PORT" envDefault:"8443"`
 		TLS       HTTPServerTLSConfig `                  envPrefix:"TLS_"`
@@ -364,9 +365,9 @@ type (
 		MaxUploadBytes int64 `env:"MAX_UPLOAD_BYTES" envDefault:"536870912"` // 512 MiB
 		// UploadChunkBytes is the size of a chunk of a resumable upload, and the most a single-request upload may
 		// carry. At most 50 MiB: the edge limits a request body to 100 MB.
-		UploadChunkBytes int64 // 50 MiB
+		UploadChunkBytes int64 `env:"UPLOAD_CHUNK_BYTES" envDefault:"52428800"` // 50 MiB
 		// UploadTTL is how long an unfinished upload waits for its next chunk before it is dropped.
-		UploadTTL time.Duration
+		UploadTTL time.Duration `env:"UPLOAD_TTL"       envDefault:"24h"`
 		GCGrace   time.Duration `env:"GC_GRACE"         envDefault:"24h"`
 	}
 
@@ -887,6 +888,7 @@ func MustGetConfig() *Config {
 	if err = instance.Auth.Hosts.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid host configuration")
 	}
+	eventModel.SetExtraReservedTags(instance.Auth.Hosts.ExtraReservedTags)
 	if addr, perr := mail.ParseAddress(instance.Auth.SupportEmail); perr != nil || addr.Address != instance.Auth.SupportEmail {
 		log.Fatal().Msg("Config: SUPPORT_EMAIL must be a bare email address")
 	}
@@ -953,7 +955,6 @@ func (c *Config) populateForAllConfig() {
 	// The API docs describe every route, internal ones included: development only (not stage either).
 	c.HTTPController.EnableSwaggerDocs = c.Environment == Development
 
-	c.applyFixed()
 	c.HTTPController.Server.applyTLSDefaults()
 
 	// HTTP_SERVER_PORT: unset is "no plain listener" under TLS and 8080 otherwise; set but empty is "no plain

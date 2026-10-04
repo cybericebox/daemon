@@ -20,19 +20,33 @@ const (
 
 var tagPattern = regexp.MustCompile(`^[a-z0-9]+$`)
 
-// reservedTags are the labels of the fixed platform subdomains (the app hosts and the laboratory names): an
-// event can never take one of them as its tag, so <tag>.DOMAIN never collides with them.
-var reservedTags = map[string]bool{
-	"api": true, "id": true, "admin": true, "exercises": true, "labs": true, "vpn": true, "ctl": true, "www": true,
+// reservedTags are the labels of the platform's own subdomains (the app hosts and www): an event can never take
+// one of them as its tag, so <tag>.DOMAIN never collides with them. extraReservedTags are the labels other
+// components own (the laboratory names labs, vpn, ctl): the deployment names them (EVENT_RESERVED_TAGS_EXTRA).
+var (
+	reservedTags      = map[string]bool{"api": true, "id": true, "admin": true, "exercises": true, "www": true}
+	extraReservedTags = map[string]bool{}
+)
+
+// SetExtraReservedTags replaces the deployment's extra reserved tags. Call it once at start, before serving.
+func SetExtraReservedTags(tags []string) {
+	extra := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		extra[t] = true
+	}
+	extraReservedTags = extra
 }
 
-// IsReservedTag reports whether tag is the label of a fixed platform subdomain.
-func IsReservedTag(tag string) bool { return reservedTags[tag] }
+// IsReservedTag reports whether tag is a fixed or extra reserved label.
+func IsReservedTag(tag string) bool { return reservedTags[tag] || extraReservedTags[tag] }
 
-// ReservedTags returns the reserved event tags (a copy).
+// ReservedTags returns the reserved event tags, fixed and extra (a copy).
 func ReservedTags() map[string]bool {
-	tags := make(map[string]bool, len(reservedTags))
+	tags := make(map[string]bool, len(reservedTags)+len(extraReservedTags))
 	for t := range reservedTags {
+		tags[t] = true
+	}
+	for t := range extraReservedTags {
 		tags[t] = true
 	}
 	return tags
@@ -131,7 +145,7 @@ func (e *Event) UpdateEvent(tag, name string, availableFrom, archiveAt time.Time
 		return ErrEventTagInvalid.Err()
 	}
 	// A tag that is already the event's own stays editable (an event created before the reservation keeps working).
-	if reservedTags[tag] && tag != e.Tag {
+	if IsReservedTag(tag) && tag != e.Tag {
 		return ErrEventTagReserved.Err()
 	}
 	name = strings.TrimSpace(name)

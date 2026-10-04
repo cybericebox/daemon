@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	"os"
 	"reflect"
 	"strings"
@@ -17,7 +18,7 @@ func validHosts() HostsConfig {
 
 func TestHostsValidate(t *testing.T) {
 	h := HostsConfig{Domain: "cybericebox.com"}
-	if err := h.Validate(); err != nil || h != validHosts2() {
+	if err := h.Validate(); err != nil || !reflect.DeepEqual(h, validHosts2()) {
 		t.Fatalf("every host derives from the domain: err %v, got %+v", err, h)
 	}
 	for name, domain := range map[string]string{
@@ -163,13 +164,14 @@ func TestResolveHostsVectors(t *testing.T) {
 	}
 }
 
-// The fixed subdomains stay refused as event tags, whatever the domain is.
-func TestReservedEventTagsAreFixed(t *testing.T) {
-	h := HostsConfig{Domain: "example.test"}
+// The platform's own subdomains stay refused as event tags, whatever the domain is; the deployment adds the
+// laboratory names through EVENT_RESERVED_TAGS_EXTRA.
+func TestReservedEventTagsAreFixedPlusExtra(t *testing.T) {
+	h := HostsConfig{Domain: "example.test", ExtraReservedTags: []string{"labs", "vpn", "ctl"}}
 	if err := h.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	for _, tag := range []string{"api", "id", "admin", "exercises", "labs", "vpn", "ctl", "www"} {
+	for _, tag := range []string{"api", "id", "admin", "exercises", "www", "labs", "vpn", "ctl"} {
 		if !h.ReservedEventTags()[tag] {
 			t.Errorf("%s must be reserved", tag)
 		}
@@ -182,5 +184,37 @@ func TestReservedEventTagsAreFixed(t *testing.T) {
 	}
 	if tag, ok := h.EventTag("spring.example.test"); !ok || tag != "spring" {
 		t.Fatalf("EventTag: %q %v", tag, ok)
+	}
+	// Without the extras the laboratory names are ordinary tags.
+	plain := HostsConfig{Domain: "example.test"}
+	if plain.ReservedEventTags()["labs"] {
+		t.Fatal("labs is reserved only through EVENT_RESERVED_TAGS_EXTRA")
+	}
+}
+
+func TestExtraReservedTagsFormat(t *testing.T) {
+	for _, bad := range []string{"Labs", "a.b", "-x", "x-", "", "a b", "lab_s"} {
+		h := HostsConfig{Domain: "example.test", ExtraReservedTags: []string{bad}}
+		if h.Validate() == nil {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+	h := HostsConfig{Domain: "example.test", ExtraReservedTags: []string{"labs", "my-lab", "x1"}}
+	if err := h.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestExtraReservedTagsFromEnv(t *testing.T) {
+	setTestHosts(t)
+	t.Setenv("RECAPTCHA_SECRET", "r")
+	t.Setenv("EVENT_RESERVED_TAGS_EXTRA", "labs,vpn,ctl")
+	cfg := MustGetConfig()
+	defer eventModel.SetExtraReservedTags(nil)
+	if got := cfg.Auth.Hosts.ExtraReservedTags; len(got) != 3 || got[2] != "ctl" {
+		t.Fatalf("extra tags: %v", got)
+	}
+	if !eventModel.IsReservedTag("vpn") {
+		t.Fatal("the event model must refuse the extra tags too")
 	}
 }
