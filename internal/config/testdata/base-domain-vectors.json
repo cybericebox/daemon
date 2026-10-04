@@ -1,0 +1,380 @@
+{
+  "doc": "Shared test vectors of the base-domain rule. Input: env (DOMAIN plus explicit host overrides). Output: expect (the 7 resolved hosts) or error_contains (substrings the error message must contain). An empty string counts as unset. The copies of this file (daemon/internal/config/testdata, infrastructure/cloud/scripts/tests, every frontend tests/) must stay identical; every implementation (hosts.go, cibconf.py, deploy/base-domain.sh) runs all cases.",
+  "hosts": [
+    "MAIN_HOST",
+    "API_HOST",
+    "ID_HOST",
+    "ADMIN_HOST",
+    "EXERCISES_HOST",
+    "EVENT_DOMAIN",
+    "COOKIE_DOMAIN"
+  ],
+  "derive": {
+    "MAIN_HOST": "DOMAIN",
+    "API_HOST": "api.DOMAIN",
+    "ID_HOST": "id.DOMAIN",
+    "ADMIN_HOST": "admin.DOMAIN",
+    "EXERCISES_HOST": "exercises.DOMAIN",
+    "EVENT_DOMAIN": "DOMAIN",
+    "COOKIE_DOMAIN": "DOMAIN"
+  },
+  "cases": [
+    {
+      "name": "all derived",
+      "env": {
+        "DOMAIN": "example.com"
+      },
+      "expect": {
+        "MAIN_HOST": "example.com",
+        "API_HOST": "api.example.com",
+        "ID_HOST": "id.example.com",
+        "ADMIN_HOST": "admin.example.com",
+        "EXERCISES_HOST": "exercises.example.com",
+        "EVENT_DOMAIN": "example.com",
+        "COOKIE_DOMAIN": "example.com"
+      }
+    },
+    {
+      "name": "subdomain as base",
+      "env": {
+        "DOMAIN": "lab.example.org"
+      },
+      "expect": {
+        "MAIN_HOST": "lab.example.org",
+        "API_HOST": "api.lab.example.org",
+        "ID_HOST": "id.lab.example.org",
+        "ADMIN_HOST": "admin.lab.example.org",
+        "EXERCISES_HOST": "exercises.lab.example.org",
+        "EVENT_DOMAIN": "lab.example.org",
+        "COOKIE_DOMAIN": "lab.example.org"
+      }
+    },
+    {
+      "name": "single label",
+      "env": {
+        "DOMAIN": "localhost"
+      },
+      "expect": {
+        "MAIN_HOST": "localhost",
+        "API_HOST": "api.localhost",
+        "ID_HOST": "id.localhost",
+        "ADMIN_HOST": "admin.localhost",
+        "EXERCISES_HOST": "exercises.localhost",
+        "EVENT_DOMAIN": "localhost",
+        "COOKIE_DOMAIN": "localhost"
+      }
+    },
+    {
+      "name": "digits and hyphens",
+      "env": {
+        "DOMAIN": "my-site1.example.co.uk"
+      },
+      "expect": {
+        "MAIN_HOST": "my-site1.example.co.uk",
+        "API_HOST": "api.my-site1.example.co.uk",
+        "ID_HOST": "id.my-site1.example.co.uk",
+        "ADMIN_HOST": "admin.my-site1.example.co.uk",
+        "EXERCISES_HOST": "exercises.my-site1.example.co.uk",
+        "EVENT_DOMAIN": "my-site1.example.co.uk",
+        "COOKIE_DOMAIN": "my-site1.example.co.uk"
+      }
+    },
+    {
+      "name": "explicit API_HOST wins",
+      "env": {
+        "DOMAIN": "example.com",
+        "API_HOST": "backend.other.net"
+      },
+      "expect": {
+        "MAIN_HOST": "example.com",
+        "API_HOST": "backend.other.net",
+        "ID_HOST": "id.example.com",
+        "ADMIN_HOST": "admin.example.com",
+        "EXERCISES_HOST": "exercises.example.com",
+        "EVENT_DOMAIN": "example.com",
+        "COOKIE_DOMAIN": "example.com"
+      }
+    },
+    {
+      "name": "explicit MAIN_HOST wins",
+      "env": {
+        "DOMAIN": "example.com",
+        "MAIN_HOST": "www.example.com"
+      },
+      "expect": {
+        "MAIN_HOST": "www.example.com",
+        "API_HOST": "api.example.com",
+        "ID_HOST": "id.example.com",
+        "ADMIN_HOST": "admin.example.com",
+        "EXERCISES_HOST": "exercises.example.com",
+        "EVENT_DOMAIN": "example.com",
+        "COOKIE_DOMAIN": "example.com"
+      }
+    },
+    {
+      "name": "explicit event domain and cookie domain win",
+      "env": {
+        "DOMAIN": "example.com",
+        "EVENT_DOMAIN": "events.example.com",
+        "COOKIE_DOMAIN": "example.net"
+      },
+      "expect": {
+        "MAIN_HOST": "example.com",
+        "API_HOST": "api.example.com",
+        "ID_HOST": "id.example.com",
+        "ADMIN_HOST": "admin.example.com",
+        "EXERCISES_HOST": "exercises.example.com",
+        "EVENT_DOMAIN": "events.example.com",
+        "COOKIE_DOMAIN": "example.net"
+      }
+    },
+    {
+      "name": "every host explicit, no DOMAIN",
+      "env": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "x-id-host.other.net",
+        "ADMIN_HOST": "x-admin-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net"
+      },
+      "expect": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "x-id-host.other.net",
+        "ADMIN_HOST": "x-admin-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net"
+      }
+    },
+    {
+      "name": "every host explicit, DOMAIN ignored",
+      "env": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "x-id-host.other.net",
+        "ADMIN_HOST": "x-admin-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net",
+        "DOMAIN": "example.com"
+      },
+      "expect": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "x-id-host.other.net",
+        "ADMIN_HOST": "x-admin-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net"
+      }
+    },
+    {
+      "name": "empty value counts as unset",
+      "env": {
+        "DOMAIN": "example.com",
+        "API_HOST": "",
+        "ID_HOST": ""
+      },
+      "expect": {
+        "MAIN_HOST": "example.com",
+        "API_HOST": "api.example.com",
+        "ID_HOST": "id.example.com",
+        "ADMIN_HOST": "admin.example.com",
+        "EXERCISES_HOST": "exercises.example.com",
+        "EVENT_DOMAIN": "example.com",
+        "COOKIE_DOMAIN": "example.com"
+      }
+    },
+    {
+      "name": "one empty host derived beside explicit ones",
+      "env": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "",
+        "ADMIN_HOST": "x-admin-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net",
+        "DOMAIN": "example.com"
+      },
+      "expect": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "id.example.com",
+        "ADMIN_HOST": "x-admin-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net"
+      }
+    },
+    {
+      "name": "nothing set",
+      "env": {},
+      "error_contains": [
+        "MAIN_HOST",
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "one host missing, no DOMAIN",
+      "env": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "x-id-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net"
+      },
+      "error_contains": [
+        "ADMIN_HOST",
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "empty DOMAIN and no hosts",
+      "env": {
+        "DOMAIN": ""
+      },
+      "error_contains": [
+        "MAIN_HOST",
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: scheme",
+      "env": {
+        "DOMAIN": "https://example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: path",
+      "env": {
+        "DOMAIN": "example.com/app"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: port",
+      "env": {
+        "DOMAIN": "example.com:8443"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: uppercase",
+      "env": {
+        "DOMAIN": "Example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: leading hyphen",
+      "env": {
+        "DOMAIN": "-a.example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: trailing hyphen",
+      "env": {
+        "DOMAIN": "a-.example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: space",
+      "env": {
+        "DOMAIN": "exa mple.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: trailing dot",
+      "env": {
+        "DOMAIN": "example.com."
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: leading dot",
+      "env": {
+        "DOMAIN": ".example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: empty label",
+      "env": {
+        "DOMAIN": "a..example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: underscore",
+      "env": {
+        "DOMAIN": "ex_ample.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: wildcard",
+      "env": {
+        "DOMAIN": "*.example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: slash only",
+      "env": {
+        "DOMAIN": "example.com/"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN even when every host is explicit",
+      "env": {
+        "MAIN_HOST": "x-main-host.other.net",
+        "API_HOST": "x-api-host.other.net",
+        "ID_HOST": "x-id-host.other.net",
+        "ADMIN_HOST": "x-admin-host.other.net",
+        "EXERCISES_HOST": "x-exercises-host.other.net",
+        "EVENT_DOMAIN": "x-event-domain.other.net",
+        "COOKIE_DOMAIN": "x-cookie-domain.other.net",
+        "DOMAIN": "https://example.com"
+      },
+      "error_contains": [
+        "DOMAIN"
+      ]
+    }
+  ]
+}
