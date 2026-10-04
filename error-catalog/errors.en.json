@@ -117,6 +117,7 @@
   "21134": "Choose how long the live screen link works; «until the event ends» needs a future finish",
   "21138": "A Live logo must be an SVG, PNG or WebP image",
   "21139": "A Live logo must be at most 1 MB",
+  "21142": "Event tag is reserved for a platform address",
   "21202": "Participation type is invalid",
   "21203": "Registration type is invalid",
   "21204": "Visibility value is invalid",

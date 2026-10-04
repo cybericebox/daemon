@@ -22,8 +22,10 @@ FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659ecea
 ARG LABORATORY_VERSION=unknown
 LABEL org.cybericebox.laboratory.commit=$LABORATORY_VERSION
 # The daemon runs as an unprivileged user (UID 10001, no root inside the container; the numeric USER needs no passwd
-# entry). It therefore listens on 8080; set HTTP_SERVER_PORT to change it.
-ENV HTTP_SERVER_PORT=8080
+# entry). Without TLS material it listens on plain 8080 (HTTP_SERVER_PORT changes it). With /tls/tls.crt and
+# /tls/tls.key mounted it serves HTTPS on 8443 only, and with /aop/ca.crt too it requires client certificates:
+# the deploy passes none of these. The health listener is on 8081.
+ENV HTTP_SERVER_HEALTH_PORT=8081
 WORKDIR /app
 
 # db migration files (applied on boot)
@@ -34,5 +36,5 @@ COPY --from=builder /build/app /app/app
 
 USER 10001:10001
 ENTRYPOINT ["/app/app"]
-# 8080: plain HTTP; 8443: HTTPS (HTTP_SERVER_TLS_CERT_FILE/KEY_FILE); 8081: the optional health port (HTTP_SERVER_HEALTH_PORT).
+# 8080: plain HTTP (no TLS files); 8443: HTTPS (/tls/tls.crt, /tls/tls.key); 8081: the health port (HTTP_SERVER_HEALTH_PORT).
 EXPOSE 8080 8443 8081

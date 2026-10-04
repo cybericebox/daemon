@@ -31,6 +31,9 @@ var (
 
 	ErrEventTagInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
 				WithMessage("Event tag is invalid").WithDetailCode(4)
+	// The tag is one of the fixed platform subdomains (api, id, admin, exercises, labs, vpn, ctl, www).
+	ErrEventTagReserved = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
+				WithMessage("Event tag is reserved for a platform address").WithDetailCode(42)
 	ErrEventDatesInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
 				WithMessage("Event archive time must be after availability time").WithDetailCode(5)
 	ErrEventNameTooLong = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
