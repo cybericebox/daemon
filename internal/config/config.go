@@ -911,6 +911,10 @@ func MustGetConfig() *Config {
 	if err = instance.HTTPController.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid HTTP controller configuration")
 	}
+	if err = instance.HTTPController.Server.ValidateFiles(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid TLS files")
+	}
+	log.Info().Str("mode", instance.HTTPController.Server.Mode()).Msg("Config: listener mode")
 	if err = instance.Tunables.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid limits and timings")
 	}
