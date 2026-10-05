@@ -6774,6 +6774,36 @@ func (mr *MockQuerierMockRecorder) ListExercisesPage(ctx, arg any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExercisesPage", reflect.TypeOf((*MockQuerier)(nil).ListExercisesPage), ctx, arg)
 }
 
+// ListExistingEventIDs mocks base method.
+func (m *MockQuerier) ListExistingEventIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExistingEventIDs", ctx, ids)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExistingEventIDs indicates an expected call of ListExistingEventIDs.
+func (mr *MockQuerierMockRecorder) ListExistingEventIDs(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExistingEventIDs", reflect.TypeOf((*MockQuerier)(nil).ListExistingEventIDs), ctx, ids)
+}
+
+// ListExistingEventTeamIDs mocks base method.
+func (m *MockQuerier) ListExistingEventTeamIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExistingEventTeamIDs", ctx, ids)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExistingEventTeamIDs indicates an expected call of ListExistingEventTeamIDs.
+func (mr *MockQuerierMockRecorder) ListExistingEventTeamIDs(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExistingEventTeamIDs", reflect.TypeOf((*MockQuerier)(nil).ListExistingEventTeamIDs), ctx, ids)
+}
+
 // ListExpiredExerciseTestDeploys mocks base method.
 func (m *MockQuerier) ListExpiredExerciseTestDeploys(ctx context.Context, expiresAt time.Time) ([]postgres.ExerciseTestDeployment, error) {
 	m.ctrl.T.Helper()
@@ -8167,6 +8197,21 @@ func (m *MockQuerier) ListTeamScoreTimeline(ctx context.Context, eventTeamID uui
 func (mr *MockQuerierMockRecorder) ListTeamScoreTimeline(ctx, eventTeamID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTeamScoreTimeline", reflect.TypeOf((*MockQuerier)(nil).ListTeamScoreTimeline), ctx, eventTeamID)
+}
+
+// ListTestDeployGroupNames mocks base method.
+func (m *MockQuerier) ListTestDeployGroupNames(ctx context.Context, names []string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTestDeployGroupNames", ctx, names)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTestDeployGroupNames indicates an expected call of ListTestDeployGroupNames.
+func (mr *MockQuerierMockRecorder) ListTestDeployGroupNames(ctx, names any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTestDeployGroupNames", reflect.TypeOf((*MockQuerier)(nil).ListTestDeployGroupNames), ctx, names)
 }
 
 // ListUserEventMemberships mocks base method.

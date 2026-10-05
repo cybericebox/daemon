@@ -45,6 +45,7 @@ type fakeAgent struct {
 	strict bool
 	// listErr fails ListLabGroups.
 	listErr                                      error
+	listSelector                                 string
 	renewCSR, rotateKeyID, rotatePub, removedKey string
 	keyErr                                       error
 }
@@ -75,6 +76,7 @@ func (f *fakeAgent) CreateLabGroups(_ context.Context, in *labpb.CreateLabGroups
 }
 
 func (f *fakeAgent) ListLabGroups(_ context.Context, in *labpb.ListRequest, _ ...grpc.CallOption) (*labpb.LabGroupList, error) {
+	f.listSelector = in.GetSelector()
 	if f.listErr != nil {
 		return nil, f.listErr
 	}

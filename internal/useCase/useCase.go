@@ -219,6 +219,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			FlagRandomBytes:          deps.ExerciseConfig.FlagRandomBytes,
 			StandDeployBudget:        deps.ExerciseConfig.StandDeployBudget,
 			StandPrewarmLead:         deps.ExerciseConfig.StandPrewarmLead,
+			LabSweepGrace:            deps.ExerciseConfig.LabSweepGrace,
 			Media:                    mediaUC,
 			BrandMedia:               mediaUC,
 			PublicAPIBaseURL:         deps.AuthConfig.Hosts.APIURL(""),

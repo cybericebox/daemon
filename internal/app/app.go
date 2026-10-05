@@ -208,7 +208,7 @@ func Run(cfg *config.Config) {
 		log.Error().Err(err).Msg("Failed to promote designated super admin")
 	}
 	// job worker registry
-	wr := jobsRegistry.NewWorkerRegistry(ucs, true)
+	wr := jobsRegistry.NewWorkerRegistry(ucs, true, cfg.Exercise.LabSweepInterval)
 
 	// ── jobs ──
 	// The full ucs aggregate is handed to every worker registrar; each worker

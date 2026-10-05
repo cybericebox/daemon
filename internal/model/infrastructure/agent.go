@@ -196,6 +196,27 @@ const (
 	KindTest  = "test"
 )
 
+// LabGroupInfo is one lab group as the platform sees it in the infrastructure (the orphan sweep).
+type LabGroupInfo struct {
+	// Agent is the registry id of the agent that holds the group.
+	Agent  uuid.UUID
+	Name   string
+	Labels map[string]string
+	// CreatedAt is zero when the agent does not report it.
+	CreatedAt time.Time
+	Phase     string
+}
+
+// LabGroupSweeper is the optional agent capability behind the orphan lab group sweep.
+type LabGroupSweeper interface {
+	// ListSweepableGroups lists, on every agent, the groups of kind stand or test that this platform
+	// instance created. The agent answers only for the tenant of the client certificate. An agent that
+	// cannot be read is skipped (its groups are simply not offered), and failed counts those agents.
+	ListSweepableGroups(ctx context.Context) (groups []LabGroupInfo, failed int, err error)
+	// DestroyLabGroupOn deletes the group on the agent that was listed with it. A group that is gone is fine.
+	DestroyLabGroupOn(ctx context.Context, agent uuid.UUID, group string) error
+}
+
 // LabMeta is what a deploy tells the infrastructure about a lab besides its topology.
 type LabMeta struct {
 	// Labels go onto the lab (the instance label is added by the adapter); GroupLabels onto its group.

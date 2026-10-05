@@ -898,6 +898,10 @@ type Querier interface {
 	// copy counts only for readers who may see it (admins, members of the owner
 	// event) — for the others a catalog exercise is simply "published".
 	ListExercisesPage(ctx context.Context, arg ListExercisesPageParams) ([]ListExercisesPageRow, error)
+	// Which of the given events still exist (the periodic orphan LabGroup sweep).
+	ListExistingEventIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
+	// Which of the given teams still exist (the periodic orphan LabGroup sweep).
+	ListExistingEventTeamIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
 	ListExpiredExerciseTestDeploys(ctx context.Context, expiresAt time.Time) ([]ExerciseTestDeployment, error)
 	ListExpiredMediaUploads(ctx context.Context, arg ListExpiredMediaUploadsParams) ([]MediaUpload, error)
 	// Exercises whose versions reference a file (attachment download policy).
@@ -1205,6 +1209,9 @@ type Querier interface {
 	// Includes balance-mode hint penalties (negative points) so the running
 	// total matches the scoreboard.
 	ListTeamScoreTimeline(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamScoreTimelineRow, error)
+	// Which of the given LabGroup names still hold at least one test deploy row, expired or not
+	// (an expired row is cleaned up by the test deploy job, not by the sweep).
+	ListTestDeployGroupNames(ctx context.Context, names []string) ([]string, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
 	// First and last name of the authors an exercise response shows (never the email).
