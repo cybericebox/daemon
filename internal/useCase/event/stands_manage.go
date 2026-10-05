@@ -188,7 +188,7 @@ func (u *EventUseCase) UpdateEventStandSettings(ctx context.Context, eventID uui
 	return u.GetEventStands(ctx, eventID)
 }
 
-// RecreateTeamStand replaces every Lab of one team stand. The LabGroup and so
+// RecreateTeamStand replaces every Lab of one team stand (one per exercise, shared by its tasks). The LabGroup and so
 // every issued VPN configuration survive; the team loses Lab routes until the
 // new Labs are ready, and not yet published infrastructure challenges wait.
 // The team's failed-laboratory request is closed as fixed by the caller.
@@ -219,7 +219,14 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	if err != nil {
 		return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list team stand labs").Err()
 	}
+	// The tasks of an exercise share one Lab: each Lab is deleted once.
+	deleted := make(map[[2]string]struct{}, len(labs))
 	for _, lab := range labs {
+		key := [2]string{lab.LabGroupName, lab.LabName}
+		if _, done := deleted[key]; done {
+			continue
+		}
+		deleted[key] = struct{}{}
 		if err = deleter.DeleteLab(ctx, lab.LabGroupName, lab.LabName); err != nil {
 			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to delete team stand lab").Err()
 		}
@@ -236,7 +243,7 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	generation := current.LabGeneration
 	for _, lab := range labs {
 		next := lab.Generation + 1
-		if _, err = bindings.Recreate(txCtx, lab, labBindingModel.LabName(lab.EventChallengeID, next)); err != nil {
+		if _, err = bindings.Recreate(txCtx, lab, labBindingModel.NextLabName(lab.LabName, next), next); err != nil {
 			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to recreate team stand lab").Err()
 		}
 		if next > generation {

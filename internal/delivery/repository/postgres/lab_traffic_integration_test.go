@@ -32,7 +32,17 @@ func ltSeed(t *testing.T, db *testhelpers.TestDB, tag string) ltFixture {
 	}
 	other := mustSeedUser(t, db, tag+"-other@test.test")
 	rtExec(t, db, `INSERT INTO event_participants (event_id, user_id, status, created_at, team_id, team_role) VALUES ($1, $2, 2, $3, $4, 1)`, f.event, other, anStart, f.team)
-	return ltFixture{anFixture: f, group: group, lab: labBindingModel.LabName(f.challenge, 0), other: other}
+	return ltFixture{anFixture: f, group: group, lab: labBindingModel.LabName(uuid.Must(uuid.NewV7()), 0, 0), other: other}
+}
+
+// ltSeedBound is ltSeed with the team's lab bound to the seeded challenge, which is how traffic on the lab is
+// attributed to a task.
+func ltSeedBound(t *testing.T, db *testhelpers.TestDB, tag string) ltFixture {
+	t.Helper()
+	f := ltSeed(t, db, tag)
+	rtExec(t, db, `INSERT INTO lab_bindings (id, event_id, event_team_id, event_challenge_id, lab_group_name, lab_name, created_at, deployed_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, uuid.Must(uuid.NewV7()), f.event, f.team, f.challenge, f.group, f.lab, anStart)
+	return f
 }
 
 func ms(t time.Time) int64 { return t.UnixMilli() }
@@ -109,7 +119,7 @@ func newIngest(db *testhelpers.TestDB) *labMonitoring.TrafficIngest {
 func TestLabTraffic_UpsertIsMinMaxSumAndIdempotent(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
-	f := ltSeed(t, db, "ltupsert")
+	f := ltSeedBound(t, db, "ltupsert")
 	client := labBindingModel.ParticipantClientName(f.user)
 	first, responded := anStart.Add(1*time.Minute), anStart.Add(2*time.Minute)
 
@@ -164,7 +174,7 @@ func TestLabTraffic_UpsertIsMinMaxSumAndIdempotent(t *testing.T) {
 func TestLabTraffic_DropsWhatItCannotAttribute(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
-	f := ltSeed(t, db, "ltdrop")
+	f := ltSeedBound(t, db, "ltdrop")
 	outsider := uuid.Must(uuid.NewV7())
 	at := anStart.Add(time.Minute)
 
@@ -190,7 +200,7 @@ func TestLabTraffic_DropsWhatItCannotAttribute(t *testing.T) {
 
 func TestLabTraffic_UsersOfATeamAreSeparateRows(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
-	f := ltSeed(t, db, "ltusers")
+	f := ltSeedBound(t, db, "ltusers")
 	at := anStart.Add(time.Minute)
 	report := f.report("boot-1", anStart, anStart.Add(5*time.Minute),
 		ltRow{subject: labBindingModel.ParticipantClientName(f.user), attempts: 2, first: at, last: at},
@@ -208,7 +218,7 @@ func TestLabTraffic_UsersOfATeamAreSeparateRows(t *testing.T) {
 func TestLabTraffic_CoverageExtendsAndSplitsOnAGap(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
-	f := ltSeed(t, db, "ltcover")
+	f := ltSeedBound(t, db, "ltcover")
 	// Idle reports (no ledger) still extend the covered span.
 	for _, to := range []int{1, 2, 3} {
 		r := f.report("boot-1", anStart, anStart.Add(time.Duration(to)*time.Minute))
@@ -307,7 +317,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, uuid.Must(uuid.NewV7()), f.event, f.te
 func TestLabTraffic_RetentionAndAccountDeletion(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
-	f := ltSeed(t, db, "ltretention")
+	f := ltSeedBound(t, db, "ltretention")
 	at := anStart.Add(time.Minute)
 	report := f.report("boot-1", anStart, anStart.Add(5*time.Minute),
 		ltRow{subject: labBindingModel.ParticipantClientName(f.user), attempts: 2, first: at, last: at, responded: at},

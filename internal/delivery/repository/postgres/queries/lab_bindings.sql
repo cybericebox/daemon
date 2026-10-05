@@ -78,45 +78,71 @@ WHERE lab_group_name = sqlc.arg(lab_group_name)
 
 -- name: ListPendingEventLabBindings :many
 -- Stand engine work queue: every not yet ready Lab of one event together with
--- the pinned version and variant needed to resolve its topology.
-SELECT lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
-       lb.generation, lb.deployed_at, lb.created_at,
-       tc.variant_index, ee.exercise_version_id
-FROM lab_bindings lb
-JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
-                       AND tc.event_challenge_id = lb.event_challenge_id
-JOIN event_challenges ec ON ec.id = lb.event_challenge_id
-JOIN event_exercises ee ON ee.id = ec.event_exercise_id
-WHERE lb.event_id = sqlc.arg(event_id)
-  AND lb.readiness = 0
-  -- Labs of a later stage wait until their deploy lead before they open.
-  AND ee.id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[])
-ORDER BY lb.created_at, lb.id;
+-- the pinned version and variant needed to resolve its topology. The bindings
+-- of one exercise share a Lab, so each Lab is listed once, by its first binding.
+SELECT pending.id, pending.event_team_id, pending.event_challenge_id, pending.lab_group_name, pending.lab_name,
+       pending.generation, pending.deployed_at, pending.created_at,
+       pending.variant_index, pending.exercise_version_id, pending.event_exercise_id
+FROM (
+    SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
+           lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
+           lb.generation, lb.deployed_at, lb.created_at,
+           tc.variant_index, ee.exercise_version_id, ee.id AS event_exercise_id
+    FROM lab_bindings lb
+    JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
+                           AND tc.event_challenge_id = lb.event_challenge_id
+    JOIN event_challenges ec ON ec.id = lb.event_challenge_id
+    JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+    WHERE lb.event_id = sqlc.arg(event_id)
+      AND lb.readiness = 0
+      -- Labs of a later stage wait until their deploy lead before they open.
+      AND ee.id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[])
+    ORDER BY lb.event_team_id, lb.lab_name, lb.created_at, lb.id
+) pending
+ORDER BY pending.created_at, pending.id;
 
 -- name: MarkLabBindingDeployed :execrows
-UPDATE lab_bindings
+-- The Lab is shared by every binding of the exercise: all of them are marked.
+UPDATE lab_bindings lb
 SET deployed_at = sqlc.arg(deployed_at)
-WHERE id = sqlc.arg(id)
-  AND generation = sqlc.arg(generation)
-  AND readiness = 0
-  AND deployed_at IS NULL;
+FROM lab_bindings leader
+WHERE leader.id = sqlc.arg(id)
+  AND leader.generation = sqlc.arg(generation)
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 0
+  AND lb.deployed_at IS NULL;
 
 -- name: MarkLabBindingFailedWithReason :execrows
-UPDATE lab_bindings
+UPDATE lab_bindings lb
 SET readiness = 2,
     failure_reason = sqlc.arg(failure_reason)
-WHERE id = sqlc.arg(id)
-  AND generation = sqlc.arg(generation)
-  AND readiness = 0;
+FROM lab_bindings leader
+WHERE leader.id = sqlc.arg(id)
+  AND leader.generation = sqlc.arg(generation)
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 0;
 
 -- name: MarkStandLabReady :one
--- A ready Lab makes its preparing team challenge ready in the same statement.
--- Returns the number of bindings changed (0 = stale generation or repeat).
-WITH lab AS (
+-- A ready Lab makes the preparing team challenges of every binding that shares
+-- it ready in the same statement. Returns the number of bindings changed
+-- (0 = stale generation or repeat).
+WITH leader AS (
+    SELECT first.event_team_id, first.lab_group_name, first.lab_name
+    FROM lab_bindings first
+    WHERE first.id = sqlc.arg(id)
+      AND first.generation = sqlc.arg(generation)
+      AND first.readiness = 0
+), lab AS (
     UPDATE lab_bindings binding
     SET readiness = 1
-    WHERE binding.id = sqlc.arg(id)
-      AND binding.generation = sqlc.arg(generation)
+    FROM leader
+    WHERE binding.event_team_id = leader.event_team_id
+      AND binding.lab_group_name = leader.lab_group_name
+      AND binding.lab_name = leader.lab_name
       AND binding.readiness = 0
     RETURNING binding.event_team_id, binding.event_challenge_id
 ), challenge AS (
@@ -139,9 +165,10 @@ ORDER BY lab_name;
 
 -- name: RecreateLabBinding :execrows
 -- A recreated Lab moves to the next generation under a new name, so the
--- asynchronously deleted previous Lab never collides, and deploys again.
+-- asynchronously deleted previous Lab never collides, and deploys again. Every
+-- binding of the exercise is moved to the same name and generation.
 UPDATE lab_bindings
-SET generation = generation + 1,
+SET generation = sqlc.arg(next_generation),
     lab_name = sqlc.arg(lab_name),
     readiness = 0,
     deployed_at = NULL,
@@ -149,6 +176,28 @@ SET generation = generation + 1,
 WHERE id = sqlc.arg(id)
   AND generation = sqlc.arg(generation)
   AND readiness <> 3;
+
+-- name: ListLegacyLabBindings :many
+-- Bindings still on a per-challenge Lab name (c-<challenge>), with what the
+-- shared name is derived from.
+SELECT lb.*, ec.event_exercise_id, tc.variant_index
+FROM lab_bindings lb
+JOIN event_challenges ec ON ec.id = lb.event_challenge_id
+JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
+                       AND tc.event_challenge_id = lb.event_challenge_id
+WHERE lb.event_id = sqlc.arg(event_id)
+  AND lb.lab_name LIKE 'c-%'
+  AND lb.readiness <> 3
+ORDER BY lb.event_team_id, ec.event_exercise_id, lb.created_at, lb.id;
+
+-- name: ListLabBindingChallenges :many
+-- The challenges that share one Lab of a team.
+SELECT event_challenge_id
+FROM lab_bindings
+WHERE event_team_id = sqlc.arg(event_team_id)
+  AND lab_group_name = sqlc.arg(lab_group_name)
+  AND lab_name = sqlc.arg(lab_name)
+ORDER BY event_challenge_id;
 
 -- name: ResetUnpublishedTeamChallengesForRecreate :exec
 -- Not yet published infrastructure challenges wait for the recreated Lab;

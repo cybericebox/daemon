@@ -95,6 +95,11 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 		return err
 	}
 	var errs []error
+	if e.InfrastructureAllowed && u.laboratoriesUsable(ctx) {
+		if err = u.moveLegacyStandLabs(ctx, e); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	if err = u.prepareMissingAssignments(ctx, e, now); err != nil {
 		errs = append(errs, err)
 	}
@@ -200,7 +205,9 @@ func (u *EventUseCase) prepareMissingAssignments(ctx context.Context, e eventMod
 // prepareTeamAssignment pins one team's variant of one active exercise and
 // classifies every challenge in the same transaction: a static challenge is
 // ready at once; an infrastructure one gets its pending Lab binding (only
-// when the event allows infrastructure; otherwise it is never shown).
+// when the event allows infrastructure; otherwise it is never shown). The
+// tasks of the exercise attach to one Lab: every binding carries the same Lab
+// name, derived from the event exercise and the variant.
 func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.Event, assignment eventStandRepo.Assignment, now time.Time) error {
 	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
 	if err != nil {
@@ -268,7 +275,7 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		} else if !repositoryTools.IsObjectNotFoundError(getErr) {
 			return model.ErrPlatform.WithError(getErr).WithMessage("Failed to get lab binding").Err()
 		}
-		group, lab, nameErr := labBindingModel.Names(e.ID, team.ID, challenge.ID)
+		group, lab, nameErr := labBindingModel.Names(e.ID, team.ID, attachment.ID, variantIndex)
 		if nameErr != nil {
 			return nameErr
 		}
@@ -310,6 +317,78 @@ func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallenge
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithError(err).WithMessage("Failed to materialize team challenge").Err()
 	}
 	return value, nil
+}
+
+// moveLegacyStandLabs retires the per-task Labs (c-<challenge>) a stand had before the tasks of an exercise
+// shared one Lab: the old Labs of a team are deleted and its bindings of that exercise move, together, to one
+// next-generation shared Lab, which the engine then deploys with every task's flag. A pass that fails halfway
+// resumes on the next one.
+func (u *EventUseCase) moveLegacyStandLabs(ctx context.Context, e eventModel.Event) error {
+	legacy, err := u.labBindings.ListLegacy(ctx, e.ID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to list per-task stand labs").Err()
+	}
+	if len(legacy) == 0 {
+		return nil
+	}
+	deleter, ok := u.infra.(standLabDeleter)
+	if !ok {
+		return nil
+	}
+	type setKey struct{ team, exercise uuid.UUID }
+	sets := map[setKey][]labBindingRepo.LegacyBinding{}
+	var order []setKey
+	for _, item := range legacy {
+		key := setKey{item.Binding.EventTeamID, item.EventExerciseID}
+		if _, seen := sets[key]; !seen {
+			order = append(order, key)
+		}
+		sets[key] = append(sets[key], item)
+	}
+	var errs []error
+	for _, key := range order {
+		if err = u.moveLegacySet(ctx, deleter, sets[key]); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+func (u *EventUseCase) moveLegacySet(ctx context.Context, deleter standLabDeleter, items []labBindingRepo.LegacyBinding) error {
+	var generation int32
+	for _, item := range items {
+		generation = max(generation, item.Binding.Generation)
+	}
+	generation++
+	name := labBindingModel.LabName(items[0].EventExerciseID, items[0].VariantIndex, generation)
+	deleted := map[string]struct{}{}
+	for _, item := range items {
+		if _, done := deleted[item.Binding.LabName]; done {
+			continue
+		}
+		deleted[item.Binding.LabName] = struct{}{}
+		if err := deleter.DeleteLab(ctx, item.Binding.LabGroupName, item.Binding.LabName); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to delete per-task stand lab").Err()
+		}
+	}
+	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	bindings := labBindingRepo.New(txRepo)
+	for _, item := range items {
+		if _, err = bindings.Recreate(txCtx, item.Binding, name, generation); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to move stand lab binding").Err()
+		}
+	}
+	if err = bindings.ResetUnpublishedForRecreate(txCtx, items[0].Binding.EventTeamID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to reset team challenges").Err()
+	}
+	if err = unit.Save(); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to move stand lab").Err()
+	}
+	return nil
 }
 
 // FlagLinkResolver is the optional part of the topology resolver that names the
@@ -434,8 +513,8 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 }
 
 // standLabMeta tells the infrastructure what a team's Lab is: labels to select it by event, team
-// and task, and, for an event that locks its rosters at the start, the task as its deploy group,
-// so the same task comes up for every team in one go. A rolling event has no such moment: its
+// and exercise (the Lab is shared by the tasks of the exercise), and, for an event that locks its rosters at
+// the start, the exercise as its deploy group, so the same exercise comes up for every team in one go. A rolling event has no such moment: its
 // Labs are independent.
 func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab) infraModel.LabMeta {
 	binding := lab.Binding
@@ -444,7 +523,7 @@ func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab) infraModel.
 			infraModel.LabelKind:    infraModel.KindStand,
 			infraModel.LabelEvent:   e.ID.String(),
 			infraModel.LabelTeam:    binding.EventTeamID.String(),
-			infraModel.LabelTask:    binding.EventChallengeID.String(),
+			infraModel.LabelTask:    lab.EventExerciseID.String(),
 			infraModel.LabelVersion: lab.ExerciseVersionID.String(),
 		},
 		GroupLabels: map[string]string{
@@ -454,7 +533,7 @@ func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab) infraModel.
 		},
 	}
 	if e.Lifecycle.JoinPolicy == eventModel.JoinPolicyLockedAtStart {
-		meta.DeployGroup = binding.EventChallengeID.String()
+		meta.DeployGroup = lab.EventExerciseID.String()
 	}
 	return meta
 }
