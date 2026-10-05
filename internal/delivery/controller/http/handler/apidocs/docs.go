@@ -13946,14 +13946,14 @@ const docTemplate = `{
         },
         "/exercises/deploys": {
             "get": {
-                "description": "Only the caller's own, not expired. Optional filters narrow by exercise, version and variant. Each item names the flag-linked tasks; flag values are never returned.",
+                "description": "Only the caller's own, until they are removed: a deploy whose lease is over but is not removed yet has Expired=true (it still runs and can be ended). Optional filters narrow by exercise, version and variant. Each item names the flag-linked tasks; flag values are never returned.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "exercises"
                 ],
-                "summary": "List the caller's active test deploys",
+                "summary": "List the caller's test deploys",
                 "parameters": [
                     {
                         "type": "string",
@@ -28972,6 +28972,10 @@ const docTemplate = `{
                 },
                 "ExerciseID": {
                     "type": "string"
+                },
+                "Expired": {
+                    "description": "Expired: the lease is over but the lab is not removed yet; it still runs and can be ended.",
+                    "type": "boolean"
                 },
                 "ExpiresAt": {
                     "type": "string"

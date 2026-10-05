@@ -11,3 +11,6 @@ func SetGroupWait(max, start, ceiling time.Duration) func() {
 	testGroupWaitMax, testGroupWaitStart, testGroupWaitCeiling = max, start, ceiling
 	return func() { testGroupWaitMax, testGroupWaitStart, testGroupWaitCeiling = m, s, c }
 }
+
+// SetClock fixes the time of the lease checks.
+func (u *ExerciseUseCase) SetClock(now func() time.Time) { u.clock = now }

@@ -12,6 +12,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/challengeAttemptRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
@@ -129,6 +130,8 @@ func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uui
 }
 
 type EventUseCase struct {
+	// labCleanupWake runs the queued laboratory group teardown now instead of at the next periodic tick; nil: no wake.
+	labCleanupWake func(context.Context) error
 	// resourceGate checks a new task of a running event against the event's resource reservation; nil: unchecked.
 	resourceGate      ResourceGate
 	observations      *eventLabObservationRepo.Repository
@@ -355,6 +358,22 @@ type StandInbox interface {
 // SetStandInbox wires the stand inbox after the dispatcher exists.
 func (u *EventUseCase) SetStandInbox(inbox StandInbox) {
 	u.standInbox = inbox
+}
+
+// SetLabCleanupWake wires the immediate start of the laboratory cleanup job after a cleanup request is queued.
+// The periodic pass stays: it picks up whatever the wake misses or the agent could not delete yet.
+func (u *EventUseCase) SetLabCleanupWake(wake func(context.Context) error) {
+	u.labCleanupWake = wake
+}
+
+// wakeLabCleanup asks for a cleanup pass after the request is committed; best effort, the periodic pass retries.
+func (u *EventUseCase) wakeLabCleanup(ctx context.Context) {
+	if u.labCleanupWake == nil {
+		return
+	}
+	if err := u.labCleanupWake(context.WithoutCancel(ctx)); err != nil {
+		log.Warn().Err(err).Msg("Failed to wake the laboratory cleanup; the periodic pass handles it")
+	}
 }
 
 func (u *EventUseCase) SetInvitationNotifier(notifier InvitationNotifier) {

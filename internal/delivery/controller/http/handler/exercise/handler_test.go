@@ -1278,6 +1278,28 @@ func TestDeployStatus_ReportsVPNConnectionAndSolvedTasks(t *testing.T) {
 	}
 }
 
+func TestListDeploys_ReportsAnExpiredLabStillRunning(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	dead := exerciseModel.TestDeploy{ID: uuid.Must(uuid.NewV7()), LabName: "l-dead", Expired: true}
+	uc := &fakeUC{testDeploys: []exerciseModel.TestDeploy{dead}}
+	w := httptest.NewRecorder()
+	newEngine(uc, uid).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var env struct {
+		Data []struct {
+			Expired bool `json:"Expired"`
+		} `json:"Data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if len(env.Data) != 1 || !env.Data[0].Expired {
+		t.Fatalf("the expired lab must be listed with Expired=true: %s", w.Body.String())
+	}
+}
+
 func TestListDeploys_FiltersAndNeverReturnsFlagValues(t *testing.T) {
 	uid, exID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	keep := exerciseModel.TestDeploy{LabName: "l-abc", ID: uuid.Must(uuid.NewV7()), VersionID: uuid.Must(uuid.NewV7()), VariantID: uuid.Must(uuid.NewV7()),

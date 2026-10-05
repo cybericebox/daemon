@@ -547,6 +547,42 @@ func TestDeleteEvent_Success(t *testing.T) {
 	}
 }
 
+func TestDeleteEvent_WakesTheLabCleanupAfterTheCommit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := newUC(q)
+	id := uuid.Must(uuid.NewV7())
+	wakes := 0
+	uc.SetLabCleanupWake(func(context.Context) error { wakes++; return nil })
+
+	q.EXPECT().ArchiveEventExercises(gomock.Any(), gomock.Any()).Return(nil)
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).Return(int64(2), nil)
+	q.EXPECT().DeleteEvent(gomock.Any(), id).Return(int64(1), nil)
+
+	if err := uc.DeleteEvent(context.Background(), id); err != nil {
+		t.Fatalf("DeleteEvent: %v", err)
+	}
+	if wakes != 1 {
+		t.Fatalf("the cleanup job must be woken once the request is committed, woke %d times", wakes)
+	}
+}
+
+func TestDeleteEvent_NotFound_DoesNotWakeTheLabCleanup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := newUC(q)
+	id := uuid.Must(uuid.NewV7())
+	uc.SetLabCleanupWake(func(context.Context) error { t.Fatal("nothing was queued, nothing to wake"); return nil })
+
+	q.EXPECT().ArchiveEventExercises(gomock.Any(), gomock.Any()).Return(nil)
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	q.EXPECT().DeleteEvent(gomock.Any(), id).Return(int64(0), nil)
+
+	if err := uc.DeleteEvent(context.Background(), id); err == nil {
+		t.Fatal("want not found")
+	}
+}
+
 func TestDeleteEvent_NotFound_Returns404(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)

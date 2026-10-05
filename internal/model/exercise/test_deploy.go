@@ -16,4 +16,6 @@ type TestDeploy struct {
 	Solved []uuid.UUID
 	// ExerciseID is the exercise of VersionID; filled when deploys are listed, not stored.
 	ExerciseID uuid.UUID
+	// Expired is true when the lease is over but the lab is not removed yet (filled when deploys are listed, not stored).
+	Expired bool
 }

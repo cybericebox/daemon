@@ -25,6 +25,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/resourcecalendar"
 	"github.com/cybericebox/daemon/internal/jobs/resultchangegc"
 	"github.com/cybericebox/daemon/internal/jobs/signalprocessing"
+	"github.com/cybericebox/daemon/internal/jobs/testdeployexpiry"
 	"github.com/cybericebox/daemon/internal/jobs/testdeploygc"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 )
@@ -46,6 +47,7 @@ type (
 		eventmailJob.IUseCase
 		resultchangegcJob.IUseCase
 		testdeploygcJob.IUseCase
+		testdeployexpiryJob.IUseCase
 		labcleanupJob.IUseCase
 		labgroupsweepJob.IUseCase
 		labaccesssyncJob.IUseCase
@@ -97,6 +99,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	river.AddWorker(workers, eventmailJob.NewWorker(wr.uc))
 	if wr.laboratoriesEnabled {
 		river.AddWorker(workers, testdeploygcJob.NewWorker(wr.uc))
+		river.AddWorker(workers, testdeployexpiryJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labcleanupJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labgroupsweepJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labaccesssyncJob.NewWorker(wr.uc))
@@ -161,7 +164,9 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 	}
 	if wr.laboratoriesEnabled {
 		jobs = append(jobs,
-			river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
+			// Test labs end at their lease through a scheduled TestDeployExpiryArgs job; this sweep is the safety
+			// net (a lost job, a restart before the insert) and retries the labs whose agent deletion failed.
+			river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 			river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabCleanupArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 			river.NewPeriodicJob(river.PeriodicInterval(2*time.Second), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabAccessSyncArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 			// Orphan lab groups (a deleted event or team, an expired test lab): one pass at a time, never retried.

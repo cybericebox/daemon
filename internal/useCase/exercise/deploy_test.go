@@ -744,19 +744,24 @@ func TestDeployVariantTest_InjectsResolvedTaskFlagsIntoLinkedDevices(t *testing.
 	}
 }
 
-func TestListTestDeploys_ScopesToTheExerciseAndDropsExpired(t *testing.T) {
+func TestListTestDeploys_ScopesToTheExerciseAndKeepsExpiredUntilRemoved(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	owner, exerciseID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	live := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), ExpiresAt: time.Now().Add(time.Hour)}
-	dead := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), ExpiresAt: time.Now().Add(-time.Minute)}
+	now := time.Date(2026, 10, 5, 16, 20, 0, 0, time.UTC)
+	live := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), ExpiresAt: now.Add(time.Hour)}
+	dead := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), ExpiresAt: now.Add(-time.Minute)}
 	q.EXPECT().ListOwnedExerciseTestDeploysForExercise(gomock.Any(), postgres.ListOwnedExerciseTestDeploysForExerciseParams{CreatedBy: owner, ExerciseID: exerciseID}).
 		Return([]postgres.ExerciseTestDeployment{live, dead}, nil)
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{ExerciseID: exerciseID}, nil).AnyTimes()
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+	uc.SetClock(func() time.Time { return now })
 	got, err := uc.ListTestDeploys(context.Background(), owner, exerciseID)
-	if err != nil || len(got) != 1 || got[0].ID != live.ID {
+	if err != nil || len(got) != 2 || got[0].ID != live.ID || got[1].ID != dead.ID {
 		t.Fatalf("got %+v, %v", got, err)
+	}
+	if got[0].Expired || !got[1].Expired {
+		t.Fatalf("only the deploy past its lease is expired: %+v", got)
 	}
 	if got[0].ExerciseID != exerciseID {
 		t.Fatalf("a listed deploy names its exercise: %+v", got[0])
