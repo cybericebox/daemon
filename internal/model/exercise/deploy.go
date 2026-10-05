@@ -18,6 +18,8 @@ const (
 	DeployPhaseProvisioning = "Provisioning"
 	DeployPhaseReady        = "Ready"
 	DeployPhaseFailed       = "Failed"
+	// DeployPhaseRemoving: the lease is over or the author ended the lab; it is being removed and the row stays until it is gone.
+	DeployPhaseRemoving = "Removing"
 	// DeployPhaseQueued: the operator's launch pacing has not admitted the lab yet.
 	DeployPhaseQueued = "Queued"
 )
@@ -94,6 +96,8 @@ type LabDeployStatus struct {
 	// ExpiresAt is the end of the lease and Expired says it is over while the lab is not removed yet; filled by the use case.
 	ExpiresAt time.Time
 	Expired   bool
+	// Removing: the lab is being removed (its lease is over); the row goes once the agent no longer has it.
+	Removing bool
 }
 
 // LabDeployedDevice is one materialised device's readiness. Reason is the

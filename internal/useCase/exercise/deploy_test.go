@@ -569,6 +569,7 @@ func TestDestroyDeployTest_DropsTheStoredConfig(t *testing.T) {
 	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	row := postgres.ExerciseTestDeployment{ID: deployID, GroupName: "tu-group", LabName: "l-one", CreatedBy: userID}
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), userID).Return([]postgres.ExerciseTestDeployment{row}, nil)
 	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	store := &fakeVPNStore{}
@@ -592,6 +593,7 @@ func TestDestroyDeployTest_KeepsTheGroupWhileAnotherLabRuns(t *testing.T) {
 	row := postgres.ExerciseTestDeployment{ID: deployID, GroupName: "tu-group", LabName: "l-one", CreatedBy: userID}
 	other := postgres.ExerciseTestDeployment{ID: otherID, GroupName: "tu-group", LabName: "l-two", CreatedBy: userID}
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), userID).Return([]postgres.ExerciseTestDeployment{row, other}, nil)
 	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	store := &fakeVPNStore{}
@@ -996,25 +998,149 @@ func terminatingErr() error {
 	return &infraModel.TerminatingError{Message: "LabGroup tu-x is still being deleted", RetryAfter: time.Second}
 }
 
-func TestDeployVariantTest_WaitsWhileTheAuthorsGroupIsBeingDeleted(t *testing.T) {
-	defer exercise.SetGroupWait(2*time.Second, time.Millisecond, 5*time.Millisecond)()
-	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "wg-new"}, deployErrs: []error{terminatingErr(), terminatingErr()}}
-	uc, owner, ver, variant := groupWaitFixture(t, infra, &fakeVPNStore{})
-	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant); err != nil {
-		t.Fatalf("deploy must wait for the deletion and succeed: %v", err)
-	}
-	if infra.deployCalls != 3 {
-		t.Fatalf("deploy calls = %d, want 3", infra.deployCalls)
-	}
-}
-
-func TestDeployVariantTest_GroupStillDeletingAfterTheWait_IsARetryableConflict(t *testing.T) {
-	defer exercise.SetGroupWait(20*time.Millisecond, time.Millisecond, 5*time.Millisecond)()
+func TestDeployVariantTest_GroupBeingDeleted_AnswersBusyAtOnceWithoutWaiting(t *testing.T) {
 	infra := &fakeInfra{deployErr: terminatingErr()}
 	uc, owner, ver, variant := groupWaitFixture(t, infra, &fakeVPNStore{})
+	start := time.Now()
 	_, err := uc.DeployVariantTest(context.Background(), owner, ver, variant)
 	if !errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
 		t.Fatalf("want the group-busy domain error, got %v", err)
+	}
+	if infra.deployCalls != 1 || time.Since(start) > time.Second {
+		t.Fatalf("the deploy must not wait for the deletion: calls=%d after %s", infra.deployCalls, time.Since(start))
+	}
+}
+
+// presenceInfra adds the agent's view of what still exists to fakeInfra.
+type presenceInfra struct {
+	*fakeInfra
+	groupExists, labExists bool
+}
+
+func (p *presenceInfra) LabGroupExists(context.Context, string) (bool, error) {
+	return p.groupExists, nil
+}
+func (p *presenceInfra) LabExists(context.Context, string, string) (bool, error) {
+	return p.labExists, nil
+}
+
+func removingRow(owner uuid.UUID) (postgres.ExerciseTestDeployment, uuid.UUID) {
+	id := uuid.Must(uuid.NewV7())
+	return postgres.ExerciseTestDeployment{ID: id, GroupName: "tu-" + owner.String(), LabName: "l-x", CreatedBy: owner, ExpiresAt: time.Now().Add(-time.Minute)}, id
+}
+
+func TestEndExpiredTestDeploy_KeepsTheRowUntilTheGroupIsGone(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	owner := uuid.Must(uuid.NewV7())
+	row, id := removingRow(owner)
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil).AnyTimes()
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return([]postgres.ExerciseTestDeployment{row}, nil).AnyTimes()
+	infra := &presenceInfra{fakeInfra: &fakeInfra{}, groupExists: true}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+
+	// The agent accepted the deletion but the group is still terminating: no DeleteOwned is expected.
+	if err := uc.EndExpiredTestDeploy(context.Background(), owner, id); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	if infra.destroyed == "" {
+		t.Fatal("the deletion must be requested")
+	}
+
+	// The group is gone: the row goes now.
+	infra.groupExists = false
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
+	if err := uc.EndExpiredTestDeploy(context.Background(), owner, id); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+}
+
+func TestDestroyDeployTest_MarksRemovingKeepsRowAndIsIdempotent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	owner := uuid.Must(uuid.NewV7())
+	row, id := removingRow(owner)
+	row.ExpiresAt = time.Now().Add(time.Hour) // the lease still runs
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	var ended time.Time
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.ExtendOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+			ended = arg.ExpiresAt
+			row.ExpiresAt = arg.ExpiresAt
+			return row, nil
+		})
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).DoAndReturn(
+		func(context.Context, uuid.UUID) ([]postgres.ExerciseTestDeployment, error) {
+			return []postgres.ExerciseTestDeployment{row}, nil
+		}).AnyTimes()
+	infra := &presenceInfra{fakeInfra: &fakeInfra{}, groupExists: true}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+
+	if err := uc.DestroyDeployTest(context.Background(), owner, id); err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	if ended.IsZero() || ended.After(time.Now()) {
+		t.Fatalf("the lease must end now, got %s", ended)
+	}
+	// A repeated DELETE finds the row (already expired) and just asks again; the row is still not removed.
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	if err := uc.DestroyDeployTest(context.Background(), owner, id); err != nil {
+		t.Fatalf("repeated destroy: %v", err)
+	}
+	// Once the group is gone the next DELETE removes the row.
+	infra.groupExists = false
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+	if err := uc.DestroyDeployTest(context.Background(), owner, id); err != nil {
+		t.Fatalf("final destroy: %v", err)
+	}
+}
+
+func TestListTestDeploys_ExpiredRowIsRemoving(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	owner := uuid.Must(uuid.NewV7())
+	row, _ := removingRow(owner)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return([]postgres.ExerciseTestDeployment{row}, nil)
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{}, errors.New("none")).AnyTimes()
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+	items, err := uc.ListTestDeploys(context.Background(), owner, uuid.Nil)
+	if err != nil || len(items) != 1 || !items[0].Expired || !items[0].Removing {
+		t.Fatalf("an expired lab must be listed as Expired and Removing: %+v %v", items, err)
+	}
+}
+
+func TestDeployTestStatus_ExpiredRowAnswersRemoving(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	owner := uuid.Must(uuid.NewV7())
+	row, id := removingRow(owner)
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseReady, Ready: true}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	st, err := uc.DeployTestStatus(context.Background(), owner, id)
+	if err != nil || !st.Expired || !st.Removing || st.Phase != exerciseModel.DeployPhaseRemoving {
+		t.Fatalf("want Removing status, got %+v %v", st, err)
+	}
+}
+
+func TestDeployVariantTest_OnlyRemovingLabsLeft_AnswersBusyWithoutCallingTheAgent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	owner := uuid.Must(uuid.NewV7())
+	row, _ := removingRow(owner)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return([]postgres.ExerciseTestDeployment{row}, nil).AnyTimes()
+	versionID, variantID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil).AnyTimes()
+	infra := &presenceInfra{fakeInfra: &fakeInfra{}, groupExists: true}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	_, err := uc.DeployVariantTest(context.Background(), owner, versionID, variantID)
+	if !errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
+		t.Fatalf("want the group-busy domain error, got %v", err)
+	}
+	if infra.deployCalls != 0 {
+		t.Fatalf("the agent must not be called: %d", infra.deployCalls)
 	}
 }
 

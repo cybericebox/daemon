@@ -558,3 +558,21 @@ func TestEnsureVPNGroupAdoptsAnExistingGroupWithAnotherSpec(t *testing.T) {
 		t.Fatal("a group the agent does not list is not adopted")
 	}
 }
+
+func TestLabGroupExistsFollowsTheAgentsKnowledge(t *testing.T) {
+	f := &fakeAgent{groups: readyGroup(), strict: true}
+	c := newClient(f)
+	if ok, err := c.LabGroupExists(context.Background(), "event-team"); err != nil || !ok {
+		t.Fatalf("a known group exists: %v %v", ok, err)
+	}
+	if ok, err := c.LabGroupExists(context.Background(), "gone"); err != nil || ok {
+		t.Fatalf("an unknown group is gone: %v %v", ok, err)
+	}
+	if ok, err := c.LabExists(context.Background(), "gone", "l-1"); err != nil || ok {
+		t.Fatalf("a Lab of a gone group is gone: %v %v", ok, err)
+	}
+	f.listErr = errors.New("agent down")
+	if _, err := c.LabGroupExists(context.Background(), "event-team"); err == nil {
+		t.Fatal("an unreachable agent is an error, not a gone group")
+	}
+}

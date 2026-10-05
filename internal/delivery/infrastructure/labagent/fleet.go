@@ -385,6 +385,35 @@ func (f *Fleet) LabClientHandshake(ctx context.Context, group, client string) (t
 	return c.LabClientHandshake(ctx, group, client)
 }
 
+// LabGroupExists asks the agent that holds the group. A group without placement is gone; once the agent no
+// longer knows a group, its placement is released as well.
+func (f *Fleet) LabGroupExists(ctx context.Context, group string) (bool, error) {
+	c, err := f.route(ctx, group)
+	if errors.Is(err, errNoPlacement) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	exists, err := c.LabGroupExists(ctx, group)
+	if err == nil && !exists && f.store != nil && len(f.Members()) > 1 {
+		err = f.store.Release(ctx, group)
+	}
+	return exists, err
+}
+
+// LabExists asks the agent that holds the group; a group without placement has no Lab.
+func (f *Fleet) LabExists(ctx context.Context, group, lab string) (bool, error) {
+	c, err := f.route(ctx, group)
+	if errors.Is(err, errNoPlacement) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return c.LabExists(ctx, group, lab)
+}
+
 func (f *Fleet) GetVPNClientSubnet(ctx context.Context, group string) (string, error) {
 	c, err := f.route(ctx, group)
 	if err != nil {

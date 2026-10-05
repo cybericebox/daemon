@@ -113,34 +113,22 @@ const vpnConnectedWindow = 3 * time.Minute
 // testLabOperationTimeout bounds one deploy or teardown, agent calls included.
 const testLabOperationTimeout = 60 * time.Second
 
-// The author's group is deleted with their last lab and that takes seconds; a deploy that meets the
-// deletion waits for it (with a growing pause) instead of failing. Bounded below the operation timeout.
-var (
-	testGroupWaitMax     = 45 * time.Second
-	testGroupWaitStart   = 500 * time.Millisecond
-	testGroupWaitCeiling = 4 * time.Second
-)
-
-// deployLabWaitingForGroup deploys the Lab, waiting while the author's previous group is still being
-// deleted. If the wait runs out it answers a retryable domain conflict, never a platform error.
-func (u *ExerciseUseCase) deployLabWaitingForGroup(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
-	deadline := time.Now().Add(testGroupWaitMax)
-	pause := testGroupWaitStart
-	for {
-		err := u.infra.DeployLab(ctx, group, lab, meta, topo)
-		if _, terminating := infraModel.AsTerminating(err); err == nil || !terminating {
-			return err
-		}
-		if time.Now().Add(pause).After(deadline) {
-			return exerciseModel.ErrTestDeployGroupBusy.Err()
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(pause):
-		}
-		pause = min(pause*2, testGroupWaitCeiling)
+// deployLab stands the Lab up. A group that is still being deleted is never waited for (the request would
+// hold the author's lock and the HTTP call): the author gets a retryable domain conflict at once.
+func (u *ExerciseUseCase) deployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
+	err := u.infra.DeployLab(ctx, group, lab, meta, topo)
+	if _, terminating := infraModel.AsTerminating(err); terminating {
+		return exerciseModel.ErrTestDeployGroupBusy.Err()
 	}
+	return err
+}
+
+// labPresence is the optional port that tells whether a group or a Lab still exists on its agent. The agent
+// deletes asynchronously (finalizers), so an accepted deletion is not a gone Lab. Without it the deletion
+// is taken as done at once.
+type labPresence interface {
+	LabGroupExists(ctx context.Context, group string) (bool, error)
+	LabExists(ctx context.Context, group, lab string) (bool, error)
 }
 
 // The defaults of EXERCISE_TEST_DEPLOY_TTL and EXERCISE_TEST_DEPLOY_TTL_MAX, used while the config is unset.
@@ -254,19 +242,26 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		if err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
 		}
-		if u.activeCount(existing, now) >= u.MaxActiveTestDeploys() {
+		// A lab whose lease is over stays as a row until its Lab is really gone; the ones already gone are dropped now.
+		existing = u.dropGoneTestLabs(ctx, repo, existing)
+		active := u.activeLabs(existing, now)
+		if len(active) >= u.MaxActiveTestDeploys() {
 			return false, exerciseModel.ErrTestDeployActiveExists.Err()
+		}
+		if len(existing) > 0 && len(active) == 0 {
+			// Only labs that are being removed are left: their group is going away, a new group cannot be made yet.
+			return false, exerciseModel.ErrTestDeployGroupBusy.Err()
 		}
 		if _, err = repo.Create(ctx, deploy); err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
 		}
 		first := len(existing) == 0
-		if err = u.provisionTestLab(ctx, deploy, topo, existing, first); err != nil {
+		if err = u.provisionTestLab(ctx, deploy, topo, active, first); err != nil {
 			// The group or the lab may be half created. A canceled request must not prevent the cleanup;
 			// if it fails, the lease is kept so the periodic expiry pass can retry it.
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 			defer cancel()
-			if cleanupErr := u.removeTestLab(cleanupCtx, deploy, existing, first); cleanupErr != nil {
+			if cleanupErr := u.removeTestLab(cleanupCtx, deploy, active, first); cleanupErr != nil {
 				return true, model.ErrPlatform.WithError(errors.Join(err, cleanupErr)).WithMessage("Failed to deploy variant lab").Err()
 			}
 			_, _ = repo.DeleteOwned(cleanupCtx, deploy.ID, ownerID)
@@ -331,6 +326,64 @@ func labNames(items []exerciseModel.TestDeploy, skip uuid.UUID, extra ...string)
 	return append(names, extra...)
 }
 
+// activeLabs are the deploys whose lease still runs.
+func (u *ExerciseUseCase) activeLabs(items []exerciseModel.TestDeploy, now time.Time) []exerciseModel.TestDeploy {
+	out := make([]exerciseModel.TestDeploy, 0, len(items))
+	for _, item := range items {
+		if !testDeployExpired(item, now) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// testLabGone says the deploy's Lab no longer exists on its agent. While another lab of the author runs, the
+// group stays and only the Lab can vanish; with the last one the group (its namespace) is what must be gone.
+// An error or an agent that cannot tell reads as not gone; without the port the deletion counts as done.
+func (u *ExerciseUseCase) testLabGone(ctx context.Context, deploy exerciseModel.TestDeploy, all []exerciseModel.TestDeploy) bool {
+	presence, ok := u.infra.(labPresence)
+	if !ok {
+		return true
+	}
+	var exists bool
+	var err error
+	if len(u.activeLabs(withoutDeploy(all, deploy.ID), u.timeNow())) > 0 {
+		exists, err = presence.LabExists(ctx, deploy.GroupName, deploy.LabName)
+	} else {
+		exists, err = presence.LabGroupExists(ctx, deploy.GroupName)
+	}
+	return err == nil && !exists
+}
+
+func withoutDeploy(items []exerciseModel.TestDeploy, id uuid.UUID) []exerciseModel.TestDeploy {
+	out := make([]exerciseModel.TestDeploy, 0, len(items))
+	for _, item := range items {
+		if item.ID != id {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// dropGoneTestLabs deletes the rows of removed labs (lease over, Lab gone) and returns the rows left (the lock is held).
+func (u *ExerciseUseCase) dropGoneTestLabs(ctx context.Context, repo *testDeployRepo.Repository, items []exerciseModel.TestDeploy) []exerciseModel.TestDeploy {
+	if u.infra == nil {
+		return items
+	}
+	now := u.timeNow()
+	left := make([]exerciseModel.TestDeploy, 0, len(items))
+	for _, item := range items {
+		if testDeployExpired(item, now) && u.testLabGone(ctx, item, items) {
+			if _, err := repo.DeleteOwned(ctx, item.ID, item.CreatedBy); err == nil {
+				u.releaseTestLab(ctx, item.ID)
+				continue
+			}
+		}
+		left = append(left, item)
+	}
+	return left
+}
+
 // provisionTestLab stands one Lab up in the author's group. The group policy is default-deny for
 // the VPN and, in per-user mode, for the proxy, and it is replaced as a whole, so it lists every
 // Lab of the author. The group's client and its config are made once, with the first Lab; later
@@ -347,7 +400,7 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 		// The group is created now, so a config stored for an earlier group is stale: never keep it.
 		u.dropAuthorConfig(ctx, deploy.CreatedBy)
 	}
-	if err := u.deployLabWaitingForGroup(ctx, deploy.GroupName, deploy.LabName, testLabMeta(deploy), topo); err != nil {
+	if err := u.deployLab(ctx, deploy.GroupName, deploy.LabName, testLabMeta(deploy), topo); err != nil {
 		return err
 	}
 	if err := u.infra.ReconcileLabGroupAccess(ctx, deploy.GroupName, []labAccessModel.ClientPolicy{{Name: client, AllowedLabs: labNames(existing, uuid.Nil, deploy.LabName)}}); err != nil {
@@ -433,10 +486,16 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
 	expired := testDeployExpired(deploy, u.timeNow())
 	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
-	if err != nil {
+	if err != nil && !expired {
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
 	}
+	if err != nil {
+		status = exerciseModel.LabDeployStatus{} // being removed: the agent may no longer know the Lab
+	}
 	status.ExpiresAt, status.Expired = deploy.ExpiresAt, expired
+	if expired {
+		status.Phase, status.Removing = exerciseModel.DeployPhaseRemoving, true
+	}
 	// The agent's own view of the shared tester client carries the key placeholder and
 	// no access; only the author's config, stored with this deploy, is ever handed out.
 	status.VPNConfig = ""
@@ -548,7 +607,7 @@ func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deploy
 }
 
 // DestroyDeployTest tears a test deploy down: its Lab, and the author's whole group with the VPN
-// config when it was their last Lab.
+// config when it was their last Lab. The row stays (Removing) until they are really gone; repeating it is harmless.
 func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployID uuid.UUID) error {
 	if u.infra == nil {
 		return infraModel.ErrInfrastructureUnavailable.Err()
@@ -561,20 +620,44 @@ func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployI
 			}
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 		}
-		return false, u.endTestLab(ctx, repo, deploy)
+		// The lease ends now: the lab reads as Removing and the expiry pass keeps retrying if the agent fails.
+		if !testDeployExpired(deploy, u.timeNow()) {
+			if deploy, err = repo.ExtendOwned(ctx, deployID, userID, u.timeNow()); err != nil {
+				return false, model.ErrPlatform.WithError(err).WithMessage("Failed to end test deploy").Err()
+			}
+		}
+		return true, u.endTestLab(ctx, repo, deploy)
 	})
 }
 
-// endTestLab removes one Lab of an author (the lock is held) and its row.
+// endTestLab removes one Lab of an author (the lock is held). The agent deletes asynchronously, so the row
+// stays (the lab reads as Expired and Removing) until the Lab or, with the author's last one, the group is
+// really gone; a repeated call asks the agent again, which is harmless, and drops the row once it is.
 func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) error {
 	all, err := repo.ListOwned(ctx, deploy.CreatedBy)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list test deployments").Err()
 	}
-	if err = u.removeTestLab(ctx, deploy, all, len(all) <= 1); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy deploy").Err()
+	now := u.timeNow()
+	others := u.activeLabs(withoutDeploy(all, deploy.ID), now)
+	if _, tracked := u.infra.(labPresence); tracked && u.testLabGone(ctx, deploy, all) {
+		return u.finishTestLab(ctx, repo, deploy)
 	}
-	if _, err = repo.DeleteOwned(ctx, deploy.ID, deploy.CreatedBy); err != nil {
+	if err = u.removeTestLab(ctx, deploy, others, len(others) == 0); err != nil {
+		// A group that is already being deleted is the removal in progress, not a failure.
+		if _, terminating := infraModel.AsTerminating(err); !terminating {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy deploy").Err()
+		}
+	}
+	if !u.testLabGone(ctx, deploy, all) {
+		return nil
+	}
+	return u.finishTestLab(ctx, repo, deploy)
+}
+
+// finishTestLab drops the row of a lab that is gone and frees its resources.
+func (u *ExerciseUseCase) finishTestLab(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) error {
+	if _, err := repo.DeleteOwned(ctx, deploy.ID, deploy.CreatedBy); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to remove test deploy").Err()
 	}
 	u.releaseTestLab(ctx, deploy.ID)
@@ -645,6 +728,7 @@ func (u *ExerciseUseCase) ListTestDeploys(ctx context.Context, ownerID, exercise
 	out := make([]exerciseModel.TestDeploy, 0, len(items))
 	for _, item := range items {
 		item.Expired = testDeployExpired(item, now)
+		item.Removing = item.Expired // an expired lab is being removed: the expiry pass keeps the row until it is gone
 		if version, verr := u.exercises.GetVersion(ctx, item.VersionID); verr == nil {
 			item.ExerciseID = version.ExerciseID
 		}

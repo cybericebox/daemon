@@ -142,6 +142,31 @@ func (c *Client) getGroup(ctx context.Context, group string) (*labpb.LabGroup, e
 	return list.GetItems()[0], nil
 }
 
+// LabGroupExists says the agent still knows the group: a group being deleted still exists until its
+// finalizers are done (its namespace is gone with it).
+func (c *Client) LabGroupExists(ctx context.Context, group string) (bool, error) {
+	if _, err := c.getGroup(ctx, group); err != nil {
+		if errors.Is(err, errNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
+// LabExists says the agent still has the Lab; a missing group means it has not.
+func (c *Client) LabExists(ctx context.Context, group, lab string) (bool, error) {
+	exists, err := c.LabGroupExists(ctx, group)
+	if err != nil || !exists {
+		return false, err
+	}
+	list, err := c.ListLabs(ctx, &labpb.ListRequest{Items: []*labpb.ItemRef{{LabGroup: group, Name: lab}}})
+	if err != nil {
+		return false, fmt.Errorf("get lab: %w", err)
+	}
+	return len(list.GetItems()) > 0, nil
+}
+
 // GetVPNClientSubnet reads the operator's published subnet for the team's
 // tunnel-only connection check. No public interface address is inferred.
 func (c *Client) GetVPNClientSubnet(ctx context.Context, group string) (string, error) {
