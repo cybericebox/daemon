@@ -32,7 +32,13 @@ func (q *Queries) CountPlatformTestLabs(ctx context.Context, now time.Time) (Cou
 }
 
 const getPlatformTestLab = `-- name: GetPlatformTestLab :one
-SELECT id, group_name, lab_name, created_by FROM exercise_test_deployments WHERE id = $1
+SELECT d.id, d.group_name, d.lab_name, d.created_by,
+       COALESCE((SELECT jsonb_agg(jsonb_build_object('id', device.value -> 'id', 'name', device.value -> 'name', 'type', device.value -> 'type') ORDER BY device.ord)
+                 FROM exercise_versions v,
+                      jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+                      jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) WITH ORDINALITY AS device(value, ord)
+                 WHERE v.id = d.version_id AND variant ->> 'id' = d.variant_id::text), '[]'::jsonb)::jsonb AS devices
+FROM exercise_test_deployments d WHERE d.id = $1
 `
 
 type GetPlatformTestLabRow struct {
@@ -40,8 +46,10 @@ type GetPlatformTestLabRow struct {
 	GroupName string    `json:"group_name"`
 	LabName   string    `json:"lab_name"`
 	CreatedBy uuid.UUID `json:"created_by"`
+	Devices   []byte    `json:"devices"`
 }
 
+// devices: the logical devices (id, name, type, never images or variables) of the topology the lab was deployed from.
 func (q *Queries) GetPlatformTestLab(ctx context.Context, id uuid.UUID) (GetPlatformTestLabRow, error) {
 	row := q.db.QueryRow(ctx, getPlatformTestLab, id)
 	var i GetPlatformTestLabRow
@@ -50,6 +58,7 @@ func (q *Queries) GetPlatformTestLab(ctx context.Context, id uuid.UUID) (GetPlat
 		&i.GroupName,
 		&i.LabName,
 		&i.CreatedBy,
+		&i.Devices,
 	)
 	return i, err
 }

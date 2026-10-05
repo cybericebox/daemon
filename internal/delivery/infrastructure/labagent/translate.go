@@ -2,8 +2,6 @@ package labagent
 
 import (
 	"encoding/json"
-	"strconv"
-	"strings"
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
@@ -136,24 +134,9 @@ func BuildLabSpec(t exerciseModel.Topology) (specJSON []byte, env []*labpb.Devic
 	}
 
 	nameByID := make(map[string]string, len(t.Devices))
-	usedLabNames := make(map[string]bool, len(t.Devices))
-	for _, d := range t.Devices {
-		if !d.Type.IsForwarding() {
-			usedLabNames[d.Name] = true
-		}
-	}
-	for _, d := range t.Devices {
-		labName := d.Name
-		if d.Type.IsForwarding() {
-			// "sw-" + 32 hex = 35 chars: fits the lab device name limit.
-			base := "sw-" + strings.ReplaceAll(d.ID.String(), "-", "")
-			labName = base
-			for i := 0; usedLabNames[labName]; i++ {
-				suffix := strconv.Itoa(i)
-				labName = base[:len(base)-len(suffix)] + suffix
-			}
-			usedLabNames[labName] = true
-		}
+	labNames := exerciseModel.LabDeviceNames(t.Devices)
+	for i, d := range t.Devices {
+		labName := labNames[i]
 		nameByID[d.ID.String()] = labName
 		spec.Devices = append(spec.Devices, buildDevice(d, labName))
 		if de := buildDeviceEnv(d); de != nil {

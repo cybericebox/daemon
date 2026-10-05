@@ -6737,6 +6737,10 @@ definitions:
     type: object
   labview.DeviceResponse:
     properties:
+      LogicalName:
+        description: LogicalName is the device name in the exercise topology; empty
+          when unknown.
+        type: string
       Name:
         type: string
       Ready:
@@ -6749,6 +6753,10 @@ definitions:
         description: Scheduling is null when the scheduler does not track the device.
       Snapshot:
         $ref: '#/definitions/labview.SnapshotResponse'
+      Type:
+        description: 'Type is the device type: container, unmanaged-switch, hub, vpn
+          or internet; empty when unknown.'
+        type: string
     type: object
   labview.FailureResponse:
     properties:

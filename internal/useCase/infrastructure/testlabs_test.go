@@ -3,6 +3,7 @@ package infrastructure
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,5 +218,47 @@ func TestTestLabDeviceActionsNeedAnAgentThatCanDoThem(t *testing.T) {
 	none, _ := newTestLabs(t, nil, nil)
 	if err := none.RescueTestLabDevice(context.Background(), uuid.Must(uuid.NewV7()), "web", true); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
 		t.Fatalf("err = %v, want unavailable", err)
+	}
+}
+
+func TestGetTestLabDetailNamesTheTopologyDevices(t *testing.T) {
+	sw := uuid.Must(uuid.NewV7())
+	hexName := "sw-" + strings.ReplaceAll(sw.String(), "-", "")
+	agent := fakeLabAgent{statuses: map[string]exerciseModel.LabDeployStatus{"t-x": {Phase: exerciseModel.DeployPhaseReady}}}
+	uc, q := newTestLabs(t, agent, nil)
+	id := uuid.Must(uuid.NewV7())
+	devices := `[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"web","type":"container"},{"id":"` + sw.String() + `","name":"sw","type":"unmanaged-switch"}]`
+	q.EXPECT().GetPlatformTestLab(gomock.Any(), id).Return(postgres.GetPlatformTestLabRow{ID: id, GroupName: "t-x", LabName: "lab-1", Devices: []byte(devices)}, nil)
+	detail, err := uc.GetTestLabDetail(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := detail.Topology["web"]; got != (TopologyDevice{Name: "web", Type: exerciseModel.DeviceTypeContainer}) {
+		t.Fatalf("web = %+v", got)
+	}
+	if got := detail.Topology[hexName]; got != (TopologyDevice{Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch}) {
+		t.Fatalf("switch = %+v in %v", got, detail.Topology)
+	}
+}
+
+func TestListTestLabsShowsNoQueueOnceEveryPodIsDispatched(t *testing.T) {
+	agent := fakeLabAgent{statuses: map[string]exerciseModel.LabDeployStatus{
+		"t-done":   {Ready: true, Phase: exerciseModel.DeployPhaseReady, Queue: &exerciseModel.LabQueue{Position: 0, Length: 1, Pods: 3, Pending: 0}},
+		"t-queued": {Phase: exerciseModel.DeployPhaseQueued, Queue: &exerciseModel.LabQueue{Position: 2, Length: 4, Pods: 3, Pending: 3}},
+	}}
+	uc, q := newTestLabs(t, agent, nil)
+	q.EXPECT().ListPlatformTestLabs(gomock.Any(), gomock.Any()).Return([]postgres.ListPlatformTestLabsRow{
+		{ID: uuid.Must(uuid.NewV7()), GroupName: "t-done", ExpiresAt: fixedNow.Add(time.Hour)},
+		{ID: uuid.Must(uuid.NewV7()), GroupName: "t-queued", ExpiresAt: fixedNow.Add(time.Hour)},
+	}, nil)
+	page, err := uc.ListTestLabs(context.Background(), "", 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Items[0].Status != TestLabReady || page.Items[0].Queue != nil {
+		t.Fatalf("done = %+v", page.Items[0])
+	}
+	if page.Items[1].Queue == nil || page.Items[1].Queue.Position != 2 {
+		t.Fatalf("queued = %+v", page.Items[1])
 	}
 }

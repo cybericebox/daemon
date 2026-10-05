@@ -5,6 +5,7 @@ package platformStandRepo
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 type Queries interface {
@@ -54,6 +56,8 @@ type (
 		GroupName string
 		LabName   string
 		OwnerID   uuid.UUID
+		// Devices are the logical devices (id, name, type only) of the topology the lab was deployed from.
+		Devices []exerciseModel.Device
 	}
 
 	// TestLabCounts split the test labs by lease.
@@ -192,7 +196,12 @@ func (r *Repository) GetTestLab(ctx context.Context, id uuid.UUID) (TestLabRef, 
 	if err != nil {
 		return TestLabRef{}, err
 	}
-	return TestLabRef{ID: row.ID, GroupName: row.GroupName, LabName: row.LabName, OwnerID: row.CreatedBy}, nil
+	ref := TestLabRef{ID: row.ID, GroupName: row.GroupName, LabName: row.LabName, OwnerID: row.CreatedBy}
+	// Names and types are a hint for the screen: a topology that cannot be read leaves them out.
+	if json.Unmarshal(row.Devices, &ref.Devices) != nil {
+		ref.Devices = nil
+	}
+	return ref, nil
 }
 
 // CountTestLabs counts the test labs whose lease is running and those still waiting for cleanup.

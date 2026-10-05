@@ -895,7 +895,13 @@ func (h *Handler) getTestLabDetail(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, testLabDetailResponse{ID: v.ID, GroupName: v.GroupName, Status: v.Status, Live: labview.Status(v.Live)})
+	live := labview.Status(v.Live)
+	topology := make(map[string]labview.DeviceInfo, len(v.Topology))
+	for name, d := range v.Topology {
+		topology[name] = labview.DeviceInfo{Name: d.Name, Type: string(d.Type)}
+	}
+	labview.AnnotateDevices(&live, topology)
+	response.AbortWithData(ctx, testLabDetailResponse{ID: v.ID, GroupName: v.GroupName, Status: v.Status, Live: live})
 }
 
 // resetTestLabDevice godoc

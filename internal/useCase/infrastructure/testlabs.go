@@ -91,6 +91,14 @@ type (
 		// Status is one of the TestLab* states.
 		Status string
 		Live   exerciseModel.LabDeployStatus
+		// Topology is the exercise topology device behind every lab device, by the device's name in the lab.
+		Topology map[string]TopologyDevice
+	}
+
+	// TopologyDevice is a device of the exercise topology: its logical name and type.
+	TopologyDevice struct {
+		Name string
+		Type exerciseModel.DeviceType
 	}
 
 	TestLabsPage struct {
@@ -148,7 +156,10 @@ func (u *TestLabsUseCase) fillStatuses(ctx context.Context, views []TestLabView)
 			}
 			views[i].Status = testLabState(status)
 			views[i].Resources = statusResources(status)
-			views[i].Queue = status.Queue
+			// A lab whose pods are all dispatched (position 0) no longer waits, so it shows no queue.
+			if status.Queue != nil && status.Queue.Position > 0 {
+				views[i].Queue = status.Queue
+			}
 			views[i].ImageWarning = status.ImageWarning != "" || status.GroupImageWarning != ""
 		}()
 	}
@@ -223,7 +234,16 @@ func (u *TestLabsUseCase) GetTestLabDetail(ctx context.Context, id uuid.UUID) (T
 	if err != nil {
 		return TestLabDetail{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read test laboratory status").Err()
 	}
-	return TestLabDetail{ID: ref.ID, GroupName: ref.GroupName, LabName: ref.LabName, Status: testLabState(status), Live: status}, nil
+	return TestLabDetail{ID: ref.ID, GroupName: ref.GroupName, LabName: ref.LabName, Status: testLabState(status), Live: status, Topology: topologyByLabName(ref.Devices)}, nil
+}
+
+// topologyByLabName keys the topology devices by the name they have inside the lab.
+func topologyByLabName(devices []exerciseModel.Device) map[string]TopologyDevice {
+	out := make(map[string]TopologyDevice, len(devices))
+	for i, name := range exerciseModel.LabDeviceNames(devices) {
+		out[name] = TopologyDevice{Name: devices[i].Name, Type: devices[i].Type}
+	}
+	return out
 }
 
 // ResetTestLabDevice discards the snapshots of one device of a test lab and restarts it from its base image.
