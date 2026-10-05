@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cybericebox/daemon/internal/model"
 	yzip "github.com/yeka/zip"
@@ -309,11 +310,9 @@ func importedName(base string, attempt int) string {
 	if attempt == 0 {
 		return base
 	}
+	// Counted in characters, like the name limit: cutting bytes split a Cyrillic letter and Postgres refused the name.
 	suffix := fmt.Sprintf(" (imported %d)", attempt)
-	maxBase := 50 - len(suffix)
-	if len(base) > maxBase {
-		base = strings.TrimSpace(base[:maxBase])
-	}
+	base = strings.TrimSpace(truncateRunes(base, 50-utf8.RuneCountInString(suffix)))
 	return base + suffix
 }
 

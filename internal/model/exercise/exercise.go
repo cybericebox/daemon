@@ -6,6 +6,7 @@ package exerciseModel
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofrs/uuid"
 )
@@ -177,10 +178,10 @@ func (e *Exercise) UpdateIdentity(name, description string, tags []string, updat
 		return err
 	}
 	name = strings.TrimSpace(name)
-	if len(name) < nameMinLen || len(name) > nameMaxLen {
+	if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
 		return ErrExerciseNameInvalid.Err()
 	}
-	if len(description) > descriptionMaxLen {
+	if utf8.RuneCountInString(description) > descriptionMaxLen {
 		return ErrExerciseDescriptionTooLong.Err()
 	}
 	normalized, ok := normalizeTags(tags)
