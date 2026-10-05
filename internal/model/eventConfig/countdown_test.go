@@ -11,7 +11,7 @@ import (
 
 func TestNewEventConfigCountdownDefaults(t *testing.T) {
 	c := eventConfigModel.NewEventConfig(uuid.Must(uuid.NewV7()), cfgNow)
-	want := eventConfigModel.CountdownSettings{ShowStart: true, ShowFinish: true, FinishMinutes: 10}
+	want := eventConfigModel.CountdownSettings{ShowStart: true, ShowFinish: true, FinishMinutes: 10, FinishMode: eventConfigModel.FinishBeforeEnd}
 	if c.Countdown != want {
 		t.Fatalf("countdown defaults = %+v, want %+v", c.Countdown, want)
 	}

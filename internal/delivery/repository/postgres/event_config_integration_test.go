@@ -67,7 +67,7 @@ func TestEventConfigCreateGetRoundTrip(t *testing.T) {
 	if err := cfg.Update(in, ecNow, actorID); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if err := cfg.SetStandTiming(eventStandModel.Timing{DeployLeadMinutes: 45, TeardownDelayMinutes: 15}, ecNow, actorID); err != nil {
+	if err := cfg.SetStandTiming(eventStandModel.Timing{TeardownDelayMinutes: 15}, ecNow, actorID); err != nil {
 		t.Fatalf("SetStandTiming: %v", err)
 	}
 
@@ -87,7 +87,7 @@ func TestEventConfigCreateGetRoundTrip(t *testing.T) {
 	if created.PreviewDescription != in.PreviewDescription || created.PreviewPicture != in.PreviewPicture {
 		t.Fatalf("unexpected preview fields: %+v", created)
 	}
-	if created.StandTiming.DeployLeadMinutes != 45 || created.StandTiming.TeardownDelayMinutes != 15 {
+	if created.StandTiming.TeardownDelayMinutes != 15 {
 		t.Fatalf("create did not persist stand timing: %+v", created.StandTiming)
 	}
 	if !created.CreatedAt.Equal(ecNow) || !created.UpdatedAt.Equal(ecNow) {
@@ -153,7 +153,7 @@ func TestEventConfigUpdate_OptimisticLock(t *testing.T) {
 	if err = fresh.Update(in, ecNow.Add(time.Hour), actorID); err != nil {
 		t.Fatalf("Update (fresh): %v", err)
 	}
-	if err = fresh.SetStandTiming(eventStandModel.Timing{DeployLeadMinutes: 90, TeardownDelayMinutes: 30}, ecNow.Add(time.Hour), actorID); err != nil {
+	if err = fresh.SetStandTiming(eventStandModel.Timing{TeardownDelayMinutes: 30}, ecNow.Add(time.Hour), actorID); err != nil {
 		t.Fatalf("SetStandTiming (fresh): %v", err)
 	}
 	affected, err := repo.Update(ctx, fresh, created.UpdatedAt)
@@ -161,7 +161,7 @@ func TestEventConfigUpdate_OptimisticLock(t *testing.T) {
 		t.Fatalf("first write: affected=%d err=%v", affected, err)
 	}
 	got, err := repo.Get(ctx, event.ID)
-	if err != nil || got.StandTiming.DeployLeadMinutes != 90 {
+	if err != nil || got.StandTiming.TeardownDelayMinutes != 30 {
 		t.Fatalf("stand timing did not survive update: %+v, %v", got, err)
 	}
 
@@ -179,7 +179,7 @@ func TestEventConfigUpdate_OptimisticLock(t *testing.T) {
 		t.Fatalf("stale snapshot must not overwrite (lost update), affected=%d", affected)
 	}
 	got, err = repo.Get(ctx, event.ID)
-	if err != nil || got.StandTiming.DeployLeadMinutes != 90 || got.PreviewDescription != "v2" {
+	if err != nil || got.StandTiming.TeardownDelayMinutes != 30 || got.PreviewDescription != "v2" {
 		t.Fatalf("stale update changed the config: %+v, %v", got, err)
 	}
 }

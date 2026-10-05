@@ -88,4 +88,34 @@ var (
 				WithMessage("Answer file not found").WithDetailCode(31)
 	ErrAnswerFileUnavailable = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
 					WithMessage("The answer references a file that cannot be used").WithDetailCode(32)
+
+	// Event stages (docs/specs/event-stages.md). EventObjectCode detail codes 43-52.
+	ErrEventStageNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventObjectCode).
+				WithMessage("Event stage not found").WithDetailCode(43)
+	// ErrEventStageInvalid: the name or the times of a stage are not valid.
+	ErrEventStageInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
+				WithMessage("Event stage name or times are invalid").WithDetailCode(44)
+	// ErrEventStageOverlap: the stage would overlap another stage of the event.
+	ErrEventStageOverlap = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+				WithMessage("Event stage overlaps another stage").WithDetailCode(45)
+	ErrEventStageNameExists = err.ErrObjectExists.WithObjectCode(model.EventObjectCode).
+				WithMessage("Event stage with this name already exists").WithDetailCode(46)
+	// ErrEventStageAnchor: the first stage opens with the event and the last closes with it.
+	ErrEventStageAnchor = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
+				WithMessage("The first stage opens at the event start and the last closes at the event finish").WithDetailCode(47)
+	// ErrEventStageClosedLocked: a closed stage accepts only a new name and nothing new in it.
+	ErrEventStageClosedLocked = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+					WithMessage("The stage is closed and cannot be changed").WithDetailCode(48)
+	// ErrEventStageOpenedLocked: once a stage has opened, its opening time stays and nothing is removed from it.
+	ErrEventStageOpenedLocked = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+					WithMessage("The stage has opened: nothing can be removed from it or moved out of it").WithDetailCode(49)
+	// ErrEventStageNotDeletable: only an upcoming stage without sets can be deleted.
+	ErrEventStageNotDeletable = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+					WithMessage("Only an upcoming stage without sets can be deleted").WithDetailCode(50)
+	// ErrEventStageNeedsFinish: stages need a scheduled event finish.
+	ErrEventStageNeedsFinish = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+					WithMessage("Stages need a scheduled event start and finish").WithDetailCode(51)
+	// ErrEventStageNotOpen: only an open stage can be closed now.
+	ErrEventStageNotOpen = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+				WithMessage("Only an open stage can be closed now").WithDetailCode(52)
 )

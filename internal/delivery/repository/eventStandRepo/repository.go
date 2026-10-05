@@ -29,7 +29,7 @@ type Queries interface {
 	GetModeratorsTeam(ctx context.Context, eventID uuid.UUID) (postgres.EventTeam, error)
 	GetStandTeam(ctx context.Context, arg postgres.GetStandTeamParams) (postgres.EventTeam, error)
 	ListMissingTeamAssignments(ctx context.Context, arg postgres.ListMissingTeamAssignmentsParams) ([]postgres.ListMissingTeamAssignmentsRow, error)
-	ListStandTeams(ctx context.Context, eventID uuid.UUID) ([]postgres.ListStandTeamsRow, error)
+	ListStandTeams(ctx context.Context, arg postgres.ListStandTeamsParams) ([]postgres.ListStandTeamsRow, error)
 	CreateEventTeamStand(ctx context.Context, arg postgres.CreateEventTeamStandParams) (int64, error)
 	UpdateEventTeamStand(ctx context.Context, arg postgres.UpdateEventTeamStandParams) (int64, error)
 	RemoveEventTeamStands(ctx context.Context, arg postgres.RemoveEventTeamStandsParams) error
@@ -146,8 +146,13 @@ func (r *Repository) ListMissingAssignments(ctx context.Context, eventID uuid.UU
 	return out, nil
 }
 
-func (r *Repository) ListTeams(ctx context.Context, eventID uuid.UUID) ([]Team, error) {
-	rows, err := r.q.ListStandTeams(ctx, eventID)
+// ListTeams lists the stand candidates with their lab counters; notDue are the sets whose labs are not due yet
+// (a later stage), which the counters skip.
+func (r *Repository) ListTeams(ctx context.Context, eventID uuid.UUID, notDue []uuid.UUID) ([]Team, error) {
+	if notDue == nil {
+		notDue = []uuid.UUID{}
+	}
+	rows, err := r.q.ListStandTeams(ctx, postgres.ListStandTeamsParams{EventID: eventID, NotDueExerciseIds: notDue})
 	if err != nil {
 		return nil, err
 	}

@@ -119,7 +119,6 @@ func (r *Repository) Create(ctx context.Context, c eventConfigModel.EventConfig)
 		AccentLive:                c.Theme.AccentLive,
 		ThemeVersion:              c.Theme.Version,
 		AllowPseudonyms:           c.AllowPseudonyms,
-		StandDeployLeadMinutes:    c.StandTiming.DeployLeadMinutes,
 		StandTeardownDelayMinutes: c.StandTiming.TeardownDelayMinutes,
 		ShowDifficulty:            c.ShowDifficulty,
 		HintsDisabled:             c.HintsDisabled,
@@ -136,6 +135,7 @@ func (r *Repository) Create(ctx context.Context, c eventConfigModel.EventConfig)
 		FinishCountdownMinutes:    c.Countdown.FinishMinutes,
 		TaskRevealMode:            string(revealModeOrDefault(c.TaskRevealMode)),
 		MaxFlagAttempts:           nullableInt32(c.MaxFlagAttempts),
+		FinishCountdownMode:       finishModeToDB(c.Countdown.Mode()),
 	})
 	if err != nil {
 		return eventConfigModel.EventConfig{}, err
@@ -175,7 +175,6 @@ func (r *Repository) Update(ctx context.Context, c eventConfigModel.EventConfig,
 		AccentLive:                c.Theme.AccentLive,
 		ThemeVersion:              c.Theme.Version,
 		AllowPseudonyms:           c.AllowPseudonyms,
-		StandDeployLeadMinutes:    c.StandTiming.DeployLeadMinutes,
 		StandTeardownDelayMinutes: c.StandTiming.TeardownDelayMinutes,
 		ShowDifficulty:            c.ShowDifficulty,
 		HintsDisabled:             c.HintsDisabled,
@@ -192,6 +191,7 @@ func (r *Repository) Update(ctx context.Context, c eventConfigModel.EventConfig,
 		FinishCountdownMinutes:    c.Countdown.FinishMinutes,
 		TaskRevealMode:            string(revealModeOrDefault(c.TaskRevealMode)),
 		MaxFlagAttempts:           nullableInt32(c.MaxFlagAttempts),
+		FinishCountdownMode:       finishModeToDB(c.Countdown.Mode()),
 	})
 }
 
@@ -234,7 +234,7 @@ func ToDomain(row postgres.EventConfig) eventConfigModel.EventConfig {
 		HintsDisabled:          row.HintsDisabled,
 		HintChargeMode:         eventConfigModel.HintChargeMode(row.HintChargeMode),
 		MaxFlagAttempts:        int32FromDB(row.MaxFlagAttempts),
-		StandTiming:            standTimingFromDB(row.StandDeployLeadMinutes, row.StandTeardownDelayMinutes),
+		StandTiming:            standTimingFromDB(row.StandTeardownDelayMinutes),
 		Results:                resultsFromDB(row),
 		Countdown:              countdownFromDB(row),
 		TaskRevealMode:         revealModeOrDefault(eventConfigModel.TaskRevealMode(row.TaskRevealMode)),
@@ -254,12 +254,24 @@ func revealModeOrDefault(m eventConfigModel.TaskRevealMode) eventConfigModel.Tas
 }
 
 // standTimingFromDB forgives zero-valued generated test rows by using the
-// migration defaults; real rows always carry the checked columns.
-func standTimingFromDB(lead, delay int32) eventStandModel.Timing {
-	if lead == 0 {
-		return eventStandModel.DefaultTiming()
+// migration default; real rows always carry the checked column.
+func standTimingFromDB(delay int32) eventStandModel.Timing {
+	return eventStandModel.Timing{TeardownDelayMinutes: delay}
+}
+
+// finishModeToDB stores the finish countdown mode: 0 before_end, 1 from_start.
+func finishModeToDB(mode eventConfigModel.FinishCountdownMode) int16 {
+	if mode == eventConfigModel.FinishFromStart {
+		return 1
 	}
-	return eventStandModel.Timing{DeployLeadMinutes: lead, TeardownDelayMinutes: delay}
+	return 0
+}
+
+func finishModeFromDB(value int16) eventConfigModel.FinishCountdownMode {
+	if value == 1 {
+		return eventConfigModel.FinishFromStart
+	}
+	return eventConfigModel.FinishBeforeEnd
 }
 
 func nullableTime(value *time.Time) pgtype.Timestamptz {
@@ -293,5 +305,5 @@ func countdownFromDB(row postgres.EventConfig) eventConfigModel.CountdownSetting
 	if row.FinishCountdownMinutes == 0 {
 		return eventConfigModel.DefaultCountdownSettings()
 	}
-	return eventConfigModel.CountdownSettings{ShowStart: row.ShowStartCountdown, ShowFinish: row.ShowFinishCountdown, FinishMinutes: row.FinishCountdownMinutes}
+	return eventConfigModel.CountdownSettings{ShowStart: row.ShowStartCountdown, ShowFinish: row.ShowFinishCountdown, FinishMinutes: row.FinishCountdownMinutes, FinishMode: finishModeFromDB(row.FinishCountdownMode)}
 }

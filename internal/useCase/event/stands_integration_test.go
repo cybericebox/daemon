@@ -517,7 +517,7 @@ func (f *standFixture) attach(t *testing.T, infrastructure bool) uuid.UUID {
 	if infrastructure {
 		name = "Infrastructure stand task"
 	}
-	value, err := exerciseModel.NewExercise(name, "desc", []string{"web"}, uuid.Nil, now)
+	value, err := exerciseModel.NewExercise(name+" "+uuid.Must(uuid.NewV4()).String()[:8], "desc", []string{"web"}, uuid.Nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,6 +529,7 @@ func (f *standFixture) attach(t *testing.T, infrastructure bool) uuid.UUID {
 		ID: uuid.Must(uuid.NewV7()), Name: "Find the flag", Description: json.RawMessage(`{"blocks":[]}`),
 		Difficulty: exerciseModel.DifficultyEasy, Flag: []string{"ICE{x}"},
 	}}}
+	variant.Topology.Devices = []exerciseModel.Device{} // stored as [], never null, like a real exercise
 	if infrastructure {
 		variant.Topology.Devices = []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web"}}
 		f.infraTaskID, f.infraDevice = variant.Tasks[0].ID, variant.Topology.Devices[0].ID
@@ -710,15 +711,16 @@ func TestStandEngine_PrewarmsTheEventImagesBeforeTheDeployWindow(t *testing.T) {
 	f := newStandFixture(t)
 	ctx := context.Background()
 
-	// Start in 70 minutes: the deploy window (30 minutes before) opens in 40, the prewarm window
-	// (30 minutes before that) in 10 minutes.
+	// The deploy lead is computed: a small workload gives the 10 minute floor plus the 5 minute image pre-pull, so
+	// the stands deploy 15 minutes before the start and the prewarm window (30 minutes before that) opens 45
+	// minutes before the start. Start in 70 minutes: it opens in 25 minutes.
 	f.shiftLifecycle(t, 70*time.Minute, 3*time.Hour)
 	f.pass(t)
 	if len(f.agent.prewarmCalls) != 0 {
 		t.Fatalf("prewarm too early: %v", f.agent.prewarmCalls)
 	}
 
-	f.shiftLifecycle(t, 50*time.Minute, 3*time.Hour)
+	f.shiftLifecycle(t, 40*time.Minute, 3*time.Hour)
 	f.pass(t)
 	if len(f.agent.prewarmCalls) != 1 || strings.Join(f.agent.prewarmCalls[0], ",") != "nginx:1,postgres:16" {
 		t.Fatalf("prewarm calls = %v, want the sorted distinct images of every variant once", f.agent.prewarmCalls)

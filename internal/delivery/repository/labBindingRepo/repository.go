@@ -24,7 +24,7 @@ type Queries interface {
 	QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Time) error
 	ListPendingLabGroupCleanupRequests(ctx context.Context) ([]string, error)
 	MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg postgres.MarkLabGroupCleanupRequestDestroyedParams) (int64, error)
-	ListPendingEventLabBindings(ctx context.Context, eventID uuid.UUID) ([]postgres.ListPendingEventLabBindingsRow, error)
+	ListPendingEventLabBindings(ctx context.Context, arg postgres.ListPendingEventLabBindingsParams) ([]postgres.ListPendingEventLabBindingsRow, error)
 	MarkLabBindingDeployed(ctx context.Context, arg postgres.MarkLabBindingDeployedParams) (int64, error)
 	MarkLabBindingFailedWithReason(ctx context.Context, arg postgres.MarkLabBindingFailedWithReasonParams) (int64, error)
 	MarkStandLabReady(ctx context.Context, arg postgres.MarkStandLabReadyParams) (int64, error)
@@ -109,9 +109,13 @@ func (r *Repository) Create(ctx context.Context, value labBindingModel.Binding) 
 	return ToDomain(row), true, nil
 }
 
-// ListPending returns every pending Lab of an event, oldest first.
-func (r *Repository) ListPending(ctx context.Context, eventID uuid.UUID) ([]PendingLab, error) {
-	rows, err := r.q.ListPendingEventLabBindings(ctx, eventID)
+// ListPending returns every pending Lab of an event, oldest first, except the labs of the sets in notDue (a later
+// stage whose deploy lead has not come).
+func (r *Repository) ListPending(ctx context.Context, eventID uuid.UUID, notDue []uuid.UUID) ([]PendingLab, error) {
+	if notDue == nil {
+		notDue = []uuid.UUID{}
+	}
+	rows, err := r.q.ListPendingEventLabBindings(ctx, postgres.ListPendingEventLabBindingsParams{EventID: eventID, NotDueExerciseIds: notDue})
 	if err != nil {
 		return nil, err
 	}

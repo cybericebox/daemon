@@ -79,6 +79,8 @@ JOIN event_challenges ec ON ec.id = lb.event_challenge_id
 JOIN event_exercises ee ON ee.id = ec.event_exercise_id
 WHERE lb.event_id = sqlc.arg(event_id)
   AND lb.readiness = 0
+  -- Labs of a later stage wait until their deploy lead before they open.
+  AND ee.id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[])
 ORDER BY lb.created_at, lb.id;
 
 -- name: MarkLabBindingDeployed :execrows

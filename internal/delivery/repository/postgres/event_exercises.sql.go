@@ -37,7 +37,7 @@ INSERT INTO event_exercises (id, event_id, exercise_id, exercise_version_id, var
 VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, $9,
         $10, $11)
-RETURNING id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by
+RETURNING id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by, stage_id
 `
 
 type CreateEventExerciseParams struct {
@@ -84,6 +84,7 @@ func (q *Queries) CreateEventExercise(ctx context.Context, arg CreateEventExerci
 		&i.SupersededAt,
 		&i.DetachedAt,
 		&i.DetachedBy,
+		&i.StageID,
 	)
 	return i, err
 }
@@ -223,7 +224,7 @@ func (q *Queries) FindEventFork(ctx context.Context, arg FindEventForkParams) (E
 }
 
 const getEventExerciseByID = `-- name: GetEventExerciseByID :one
-SELECT id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by
+SELECT id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by, stage_id
 FROM event_exercises
 WHERE id = $1
   AND event_id = $2
@@ -252,6 +253,7 @@ func (q *Queries) GetEventExerciseByID(ctx context.Context, arg GetEventExercise
 		&i.SupersededAt,
 		&i.DetachedAt,
 		&i.DetachedBy,
+		&i.StageID,
 	)
 	return i, err
 }
@@ -384,7 +386,7 @@ func (q *Queries) ListEventCatalogTags(ctx context.Context, arg ListEventCatalog
 
 const listEventExerciseDetails = `-- name: ListEventExerciseDetails :many
 SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mode, ee.fixed_variant_index,
-       ee.revision, ee.status, ee.replaces_event_exercise_id, ee.superseded_at, ee.detached_at, ee.created_at,
+       ee.revision, ee.status, ee.replaces_event_exercise_id, ee.superseded_at, ee.detached_at, ee.created_at, ee.stage_id,
        ex.name::text AS exercise_name,
        ex.scope,
        ex.published_version_id AS latest_version_id,
@@ -433,6 +435,7 @@ type ListEventExerciseDetailsRow struct {
 	SupersededAt              pgtype.Timestamptz `json:"superseded_at"`
 	DetachedAt                pgtype.Timestamptz `json:"detached_at"`
 	CreatedAt                 time.Time          `json:"created_at"`
+	StageID                   uuid.NullUUID      `json:"stage_id"`
 	ExerciseName              string             `json:"exercise_name"`
 	Scope                     int16              `json:"scope"`
 	LatestVersionID           uuid.NullUUID      `json:"latest_version_id"`
@@ -476,6 +479,7 @@ func (q *Queries) ListEventExerciseDetails(ctx context.Context, eventID uuid.UUI
 			&i.SupersededAt,
 			&i.DetachedAt,
 			&i.CreatedAt,
+			&i.StageID,
 			&i.ExerciseName,
 			&i.Scope,
 			&i.LatestVersionID,
@@ -504,7 +508,7 @@ func (q *Queries) ListEventExerciseDetails(ctx context.Context, eventID uuid.UUI
 }
 
 const listEventExercises = `-- name: ListEventExercises :many
-SELECT id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by
+SELECT id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by, stage_id
 FROM event_exercises
 WHERE event_id = $1
 ORDER BY created_at ASC, id ASC
@@ -534,6 +538,7 @@ func (q *Queries) ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]
 			&i.SupersededAt,
 			&i.DetachedAt,
 			&i.DetachedBy,
+			&i.StageID,
 		); err != nil {
 			return nil, err
 		}
@@ -576,7 +581,7 @@ SET exercise_id         = $1,
 WHERE id = $3
   AND event_id = $4
   AND status = 0
-RETURNING id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by
+RETURNING id, event_id, exercise_id, exercise_version_id, variant_mode, fixed_variant_index, created_at, created_by, revision, status, replaces_event_exercise_id, superseded_at, detached_at, detached_by, stage_id
 `
 
 type UpdateEventExerciseSourceParams struct {
@@ -611,6 +616,7 @@ func (q *Queries) UpdateEventExerciseSource(ctx context.Context, arg UpdateEvent
 		&i.SupersededAt,
 		&i.DetachedAt,
 		&i.DetachedBy,
+		&i.StageID,
 	)
 	return i, err
 }

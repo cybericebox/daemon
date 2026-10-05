@@ -27,7 +27,7 @@ func TestModeratorsBoardShowsPreparedChallengesUnlocked(t *testing.T) {
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, CreatedAt: time.Now()}, nil)
 	q.EXPECT().GetModeratorsTeam(gomock.Any(), eventID).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Moderators: true}, nil).Times(2)
 	full := []byte(`{"name":"Web","description":{"blocks":[]},"difficulty":1}`)
-	q.EXPECT().ListTeamBoardChallenges(gomock.Any(), postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: false}).Return([]postgres.ListTeamBoardChallengesRow{
+	q.EXPECT().ListTeamBoardChallenges(gomock.Any(), gomock.Any()).Return([]postgres.ListTeamBoardChallengesRow{
 		{EventChallengeID: ready, Readiness: int16(teamChallengeModel.ReadinessReady), Snapshot: full},
 		{EventChallengeID: published, Readiness: int16(teamChallengeModel.ReadinessPublished), Published: true, Snapshot: full},
 		{EventChallengeID: preparing, Readiness: int16(teamChallengeModel.ReadinessPreparing), Snapshot: full},

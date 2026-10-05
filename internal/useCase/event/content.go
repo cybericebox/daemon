@@ -316,7 +316,7 @@ func (u *EventUseCase) GetPublicEventPage(ctx context.Context, eventID uuid.UUID
 		return PublicEventPageView{}, eventContentModel.ErrPageInvalid.WithError(err).Err()
 	}
 	if page.Visibility == eventContentModel.PageVisibilityParticipant && content.Variables["event.runtimeOpen"] == true && teamID != nil && documentUsesVariable(page.Document, "event.availableChallengeCount") {
-		challenges, listErr := u.teamChallenges.ListPublished(ctx, *teamID)
+		challenges, listErr := u.teamChallenges.ListPublished(ctx, *teamID, time.Now())
 		if listErr != nil {
 			return PublicEventPageView{}, model.ErrPlatform.WithError(listErr).WithMessage("Failed to count available team challenges").Err()
 		}

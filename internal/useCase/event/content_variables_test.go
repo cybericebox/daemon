@@ -254,7 +254,7 @@ func TestParticipantPageCountsOnlyOwnAccessibleChallenges(t *testing.T) {
 				EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), TeamID: uuid.NullUUID{UUID: teamID, Valid: true},
 			}, nil)
 			if tc.want > 0 {
-				q.EXPECT().ListTeamBoardChallenges(gomock.Any(), postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: true}).Return([]postgres.ListTeamBoardChallengesRow{
+				q.EXPECT().ListTeamBoardChallenges(gomock.Any(), gomock.Any()).Return([]postgres.ListTeamBoardChallengesRow{
 					{Readiness: int16(teamChallengeModel.ReadinessPublished)},
 					{Readiness: int16(teamChallengeModel.ReadinessPreparing)},
 				}, nil)

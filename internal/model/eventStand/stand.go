@@ -43,10 +43,7 @@ func (s Status) String() string {
 }
 
 const (
-	DefaultDeployLeadMinutes    int32 = 30
 	DefaultTeardownDelayMinutes int32 = 60
-	minDeployLeadMinutes        int32 = 5
-	maxDeployLeadMinutes        int32 = 1440
 	maxTeardownDelayMinutes     int32 = 10080
 
 	// reasonMaxLen keeps agent error text readable in lists and notifications.
@@ -58,28 +55,21 @@ const (
 // (EVENT_STAND_DEPLOY_TIMEOUT, set once at start).
 var DeployTimeout = 20 * time.Minute
 
-// Timing is the event's stand schedule: deploy N minutes before the start and
-// tear down N minutes after the effective finish.
+// Timing is the event's stand schedule: tear down N minutes after the effective finish. The deploy lead is not a
+// setting: the platform computes it (ComputeLead).
 type Timing struct {
-	DeployLeadMinutes    int32
 	TeardownDelayMinutes int32
 }
 
 func DefaultTiming() Timing {
-	return Timing{DeployLeadMinutes: DefaultDeployLeadMinutes, TeardownDelayMinutes: DefaultTeardownDelayMinutes}
+	return Timing{TeardownDelayMinutes: DefaultTeardownDelayMinutes}
 }
 
-func NewTiming(deployLeadMinutes, teardownDelayMinutes int32) (Timing, error) {
-	if deployLeadMinutes < minDeployLeadMinutes || deployLeadMinutes > maxDeployLeadMinutes ||
-		teardownDelayMinutes < 0 || teardownDelayMinutes > maxTeardownDelayMinutes {
+func NewTiming(teardownDelayMinutes int32) (Timing, error) {
+	if teardownDelayMinutes < 0 || teardownDelayMinutes > maxTeardownDelayMinutes {
 		return Timing{}, ErrStandSettingsInvalid.Err()
 	}
-	return Timing{DeployLeadMinutes: deployLeadMinutes, TeardownDelayMinutes: teardownDelayMinutes}, nil
-}
-
-// DeployAt is the instant stands start deploying for an event starting at start.
-func (t Timing) DeployAt(start time.Time) time.Time {
-	return start.Add(-time.Duration(t.DeployLeadMinutes) * time.Minute)
+	return Timing{TeardownDelayMinutes: teardownDelayMinutes}, nil
 }
 
 // TeardownAt is nil for an event without a finish: its stands live until

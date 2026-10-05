@@ -76,8 +76,8 @@ func (u *EventUseCase) prewarmEventImages(ctx context.Context, now time.Time) {
 	if paused {
 		return
 	}
-	// The stand window opens at start minus the deploy lead; shifting the clock by the prewarm lead
-	// selects the events whose prewarm window is open.
+	// The stand window opens at most MaxLead before the start; shifting the clock by the prewarm lead selects the
+	// events that may be in their prewarm window, which prewarmOneEvent narrows by the computed lead.
 	eventIDs, err := u.stands.ListEvents(ctx, now.Add(u.prewarmLead))
 	if err != nil {
 		log.Error().Err(err).Msg("Image prewarm: failed to list events")
@@ -99,7 +99,17 @@ func (u *EventUseCase) prewarmOneEvent(ctx context.Context, prewarmer infraModel
 	if err != nil {
 		return err
 	}
-	if !e.InfrastructureAllowed || !e.Lifecycle.Configured || !now.Before(e.Lifecycle.StartAt) {
+	if !e.InfrastructureAllowed || !e.Lifecycle.Configured {
+		return nil
+	}
+	// Before the event: from prewarmLead ahead of the first deploy until the start. After it: the images of the
+	// next stage are pulled from prewarmLead ahead of that stage's deploy (the pre-pull trigger).
+	schedule := u.standSchedule(ctx, e, now)
+	if now.Before(e.Lifecycle.StartAt) {
+		if now.Before(schedule.InitialDeployAt.Add(-u.prewarmLead)) {
+			return nil
+		}
+	} else if schedule.NextDueAt == nil || now.Before(schedule.NextDueAt.Add(-u.prewarmLead)) {
 		return nil
 	}
 	images, err := u.eventImages(ctx, eventID, now)

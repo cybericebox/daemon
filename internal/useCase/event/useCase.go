@@ -28,6 +28,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventNotificationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventResultRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
@@ -89,6 +90,7 @@ type IRepository interface {
 	labAccessSyncRepo.Queries
 	eventLabObservationRepo.Queries
 	eventStandRepo.Queries
+	eventStageRepo.Queries
 	teamChallengeRepo.Queries
 	exerciseRepo.Queries
 	signalOutboxRepo.CreateQueries
@@ -158,6 +160,7 @@ type EventUseCase struct {
 	labAccessSyncs           *labAccessSyncRepo.Repository
 	labObservations          *eventLabObservationRepo.Repository
 	stands                   *eventStandRepo.Repository
+	stages                   *eventStageRepo.Repository
 	infra                    Infrastructure
 	infrastructureCapability InfrastructureCapability
 	topologies               TopologyResolver
@@ -284,7 +287,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		standDeployBudget:        standDeployBudget,
 		prewarmLead:              deps.StandPrewarmLead,
 		prewarm:                  newPrewarmState(),
-		placement:                &placementCache{need: map[uuid.UUID]cachedNeed{}},
+		placement:                &placementCache{need: map[uuid.UUID]cachedNeed{}, plans: map[uuid.UUID]cachedLeadPlan{}},
 		events:                   eventRepo.New(deps.Repo),
 		configs:                  eventConfigRepo.New(deps.Repo),
 		participants:             participantRepo.New(deps.Repo),
@@ -308,6 +311,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		labAccessSyncs:           labAccessSyncRepo.New(deps.Repo),
 		labObservations:          eventLabObservationRepo.New(deps.Repo),
 		stands:                   eventStandRepo.New(deps.Repo),
+		stages:                   eventStageRepo.New(deps.Repo),
 		infra:                    deps.Infra,
 		infrastructureCapability: deps.InfrastructureCapability,
 		topologies:               deps.Topologies,

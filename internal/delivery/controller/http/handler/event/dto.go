@@ -380,6 +380,9 @@ type configResponse struct {
 	ShowStartCountdown     bool  `json:"ShowStartCountdown"`
 	ShowFinishCountdown    bool  `json:"ShowFinishCountdown"`
 	FinishCountdownMinutes int32 `json:"FinishCountdownMinutes"`
+	// FinishCountdownMode: before_end (the time-left countdown shows during the last FinishCountdownMinutes) |
+	// from_start (from the start of the current stage, of the event without stages).
+	FinishCountdownMode string `json:"FinishCountdownMode"`
 	// TaskRevealMode: all_ready (a task is revealed when it is ready for every team, the default) |
 	// as_ready (per team, as soon as its lab is ready). Changeable until the event starts.
 	TaskRevealMode string `json:"TaskRevealMode"`
@@ -417,6 +420,8 @@ type updateConfigRequest struct {
 	ShowStartCountdown     *bool  `json:"ShowStartCountdown"`
 	ShowFinishCountdown    *bool  `json:"ShowFinishCountdown"`
 	FinishCountdownMinutes *int32 `json:"FinishCountdownMinutes"`
+	// FinishCountdownMode omitted keeps the current value: before_end | from_start.
+	FinishCountdownMode *string `json:"FinishCountdownMode"`
 	// TaskRevealMode omitted keeps the current value: all_ready | as_ready. Changing it after the event
 	// starts is refused (400, 21222); an unknown value is 400 (21221).
 	TaskRevealMode *string `json:"TaskRevealMode"`
@@ -544,6 +549,8 @@ type eventExerciseResponse struct {
 	SupersededAt      *time.Time `json:"SupersededAt"`
 	DetachedAt        *time.Time `json:"DetachedAt"`
 	CreatedAt         time.Time  `json:"CreatedAt"`
+	// StageID is the stage the set belongs to; null lives for the whole event.
+	StageID *uuid.UUID `json:"StageID"`
 	// W4: «версія N» is the catalog version ordinal, not the event revision.
 	Scope               string                     `json:"Scope"`
 	VersionNumber       int32                      `json:"VersionNumber"`
@@ -769,6 +776,7 @@ func toConfigResponse(v eventUseCase.EventConfigView) configResponse {
 		ShowStartCountdown:     v.Countdown.ShowStart,
 		ShowFinishCountdown:    v.Countdown.ShowFinish,
 		FinishCountdownMinutes: v.Countdown.FinishMinutes,
+		FinishCountdownMode:    string(v.Countdown.Mode()),
 		TaskRevealMode:         string(v.TaskRevealMode),
 		Theme:                  v.Theme,
 		UpdatedAt:              v.UpdatedAt,
@@ -799,6 +807,7 @@ func (r updateConfigRequest) toInput() eventUseCase.UpdateConfigInput {
 		ShowStartCountdown:     r.ShowStartCountdown,
 		ShowFinishCountdown:    r.ShowFinishCountdown,
 		FinishCountdownMinutes: r.FinishCountdownMinutes,
+		FinishCountdownMode:    parseFinishCountdownMode(r.FinishCountdownMode),
 		TaskRevealMode:         parseTaskRevealMode(r.TaskRevealMode),
 	}
 }
@@ -925,7 +934,7 @@ func (r updateEventChallengeRelationsRequest) toInput() eventUseCase.UpdateEvent
 }
 
 func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResponse {
-	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt,
+	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt, StageID: v.StageID,
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
 		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
@@ -1033,4 +1042,14 @@ func toResourcePlanResponse(p eventUseCase.EventResourcePlan) eventResourcePlanR
 		})
 	}
 	return out
+}
+
+// parseFinishCountdownMode keeps an omitted mode as nil (the current value); an unknown name stays as sent and is
+// refused by the config validation.
+func parseFinishCountdownMode(raw *string) *eventConfigModel.FinishCountdownMode {
+	if raw == nil {
+		return nil
+	}
+	mode := eventConfigModel.FinishCountdownMode(*raw)
+	return &mode
 }

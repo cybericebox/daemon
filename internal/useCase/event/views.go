@@ -462,6 +462,8 @@ type EventExerciseView struct {
 	SupersededAt      *time.Time
 	DetachedAt        *time.Time
 	CreatedAt         time.Time
+	// StageID is the stage the set belongs to; nil lives for the whole event.
+	StageID *uuid.UUID
 
 	// W4: catalog versions and ownership (manage list).
 	Scope               string // catalog | event
@@ -588,6 +590,8 @@ type ChallengeAvailability struct {
 type SubmitChallengeResult struct {
 	Correct    bool
 	FirstSolve bool
+	// Practice: the answer came after a returnable stage closed; it was verified but is not rated.
+	Practice bool
 }
 
 type OwnChallengeView struct {
@@ -623,6 +627,48 @@ type OwnChallengeView struct {
 	// BoardPublished is the board publication (meaningful on the moderators
 	// board, always true on the participant board).
 	BoardPublished bool
+	// StageID is the stage of the task's set, nil for a whole-event set. Closed: the stage closed and is not
+	// returnable (visible, no submissions, hints or lab). Practice: solved after a returnable stage closed, which
+	// the rating does not count.
+	StageID  *uuid.UUID
+	Closed   bool
+	Practice bool
+}
+
+// BoardStageView is an opened stage on the participant board (an upcoming stage is never sent).
+type BoardStageView struct {
+	ID         uuid.UUID
+	Name       string
+	OpensAt    time.Time
+	ClosesAt   time.Time
+	Returnable bool
+	State      eventModel.StageState
+}
+
+// CurrentStageView is the stage that is open now. EndsAt is set only while the stage countdown is visible (the
+// last stage ends with the event, so it has none: its countdown is the event's; the mode and minutes of the
+// event's countdown settings decide the rest).
+type CurrentStageView struct {
+	ID      uuid.UUID
+	Name    string
+	OpensAt time.Time
+	EndsAt  *time.Time
+	// Last: the stage ends with the event.
+	Last bool
+}
+
+// OwnBoardView is the participant board with its stage context. The client refetches at NextChangeAt and counts
+// down against ServerNow, so it holds no stage logic of its own.
+type OwnBoardView struct {
+	Challenges []OwnChallengeView
+	Stages     []BoardStageView
+	ServerNow  time.Time
+	// CurrentStage is nil outside a stage (no stages, a break, before the first one).
+	CurrentStage *CurrentStageView
+	// NextOpensAt is the start of the next stage, only during a break.
+	NextOpensAt *time.Time
+	// NextChangeAt is the nearest stage boundary after ServerNow.
+	NextChangeAt *time.Time
 }
 
 type ChallengePrerequisiteView struct {
@@ -816,6 +862,8 @@ type TeamResultAttemptView struct {
 	AutomaticCorrect, Correct                                  bool
 	Decision                                                   challengeAttemptModel.Decision
 	ReceivedAt                                                 time.Time
+	// Practice: made after a returnable stage closed; shown to the team, never rated.
+	Practice bool
 }
 
 type OwnTeamResultsView struct {

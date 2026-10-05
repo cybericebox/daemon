@@ -160,7 +160,7 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to start team laboratory group services").Err()
 		}
 	}
-	if affected, markErr := u.labAccessSyncs.MarkApplied(ctx, sync.TeamID, sync.DesiredRevision, sync.RuntimeOpen, sync.VPNEnabled, time.Now()); markErr != nil {
+	if affected, markErr := u.labAccessSyncs.MarkApplied(ctx, sync.TeamID, sync.DesiredRevision, sync.RuntimeOpen, sync.VPNEnabled, sync.StageEpoch, time.Now()); markErr != nil {
 		return model.ErrPlatform.WithError(markErr).WithMessage("Failed to acknowledge laboratory access policy").Err()
 	} else if affected == 0 {
 		// Desired state changed while the agent was applying the old replacement;

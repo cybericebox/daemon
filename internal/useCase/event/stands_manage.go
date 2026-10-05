@@ -100,7 +100,8 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 	if err != nil {
 		return StandsView{}, err
 	}
-	teams, err := u.stands.ListTeams(ctx, eventID)
+	schedule := u.standSchedule(ctx, e, time.Now())
+	teams, err := u.stands.ListTeams(ctx, eventID, schedule.NotDue)
 	if err != nil {
 		return StandsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}
@@ -121,7 +122,7 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 		Items:                 make([]StandTeamView, 0, len(teams)),
 	}
 	if e.Lifecycle.Configured {
-		deployAt := config.StandTiming.DeployAt(e.Lifecycle.StartAt)
+		deployAt := schedule.InitialDeployAt
 		view.DeployAt = &deployAt
 		view.TeardownAt = config.StandTiming.TeardownAt(e.Lifecycle.EffectiveFinishAt())
 	}
@@ -269,7 +270,7 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 }
 
 func (u *EventUseCase) standTeam(ctx context.Context, eventID, teamID uuid.UUID) (eventStandRepo.Team, error) {
-	teams, err := u.stands.ListTeams(ctx, eventID)
+	teams, err := u.stands.ListTeams(ctx, eventID, nil)
 	if err != nil {
 		return eventStandRepo.Team{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}

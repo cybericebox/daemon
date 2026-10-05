@@ -224,17 +224,20 @@ func (q *Queries) GetTeamChallenge(ctx context.Context, arg GetTeamChallengePara
 const getTeamChallengeHints = `-- name: GetTeamChallengeHints :one
 SELECT tc.id, tc.event_id, tc.event_team_id, tc.event_challenge_id, tc.readiness, tc.hints AS team_hints,
        ec.hints AS board_hints, ec.hint_costs, ec.hints_enabled, ec.published,
-       (solved.solved_at IS NOT NULL)::boolean AS solved
+       (solved.solved_at IS NOT NULL)::boolean AS solved,
+       event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, $1::timestamptz) AS stage_phase
 FROM team_challenges tc
 JOIN event_challenges ec ON ec.id = tc.event_challenge_id
 JOIN event_exercises ee ON ee.id = ec.event_exercise_id AND ee.status <> 2
+LEFT JOIN event_stages stage ON stage.id = ee.stage_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
-WHERE tc.event_team_id = $1
-  AND tc.event_challenge_id = $2
+WHERE tc.event_team_id = $2
+  AND tc.event_challenge_id = $3
 FOR UPDATE OF tc
 `
 
 type GetTeamChallengeHintsParams struct {
+	At               time.Time `json:"at"`
 	EventTeamID      uuid.UUID `json:"event_team_id"`
 	EventChallengeID uuid.UUID `json:"event_challenge_id"`
 }
@@ -251,11 +254,12 @@ type GetTeamChallengeHintsRow struct {
 	HintsEnabled     bool      `json:"hints_enabled"`
 	Published        bool      `json:"published"`
 	Solved           bool      `json:"solved"`
+	StagePhase       int16     `json:"stage_phase"`
 }
 
 // One assignment's hint texts plus the board's canonical hints and costs.
 func (q *Queries) GetTeamChallengeHints(ctx context.Context, arg GetTeamChallengeHintsParams) (GetTeamChallengeHintsRow, error) {
-	row := q.db.QueryRow(ctx, getTeamChallengeHints, arg.EventTeamID, arg.EventChallengeID)
+	row := q.db.QueryRow(ctx, getTeamChallengeHints, arg.At, arg.EventTeamID, arg.EventChallengeID)
 	var i GetTeamChallengeHintsRow
 	err := row.Scan(
 		&i.ID,
@@ -269,6 +273,7 @@ func (q *Queries) GetTeamChallengeHints(ctx context.Context, arg GetTeamChalleng
 		&i.HintsEnabled,
 		&i.Published,
 		&i.Solved,
+		&i.StagePhase,
 	)
 	return i, err
 }
@@ -517,6 +522,9 @@ const listTeamBoardChallenges = `-- name: ListTeamBoardChallenges :many
 SELECT tc.id, tc.event_id, tc.event_team_id, tc.event_challenge_id, tc.variant_index,
        tc.snapshot, tc.expected_flag, tc.readiness, solved.solved_at, tc.created_at,
        tc.content_updated_at, tc.hints AS team_hints,
+       ee.stage_id,
+       event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, $1::timestamptz) AS stage_phase,
+       (practice.team_challenge_id IS NOT NULL)::boolean AS practice_solved,
        (CASE WHEN e.static_points IS NOT NULL AND e.scoring_mode = 0
                   AND (e.force_event_scoring OR ec.scoring_mode IS NULL)
              THEN e.static_points ELSE ec.points END)::integer AS points,
@@ -536,12 +544,18 @@ JOIN event_exercises ee ON ee.id = ec.event_exercise_id AND ee.status <> 2
 JOIN events e ON e.id = tc.event_id
 LEFT JOIN event_challenge_groups ecg ON ecg.id = ec.group_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
-WHERE tc.event_team_id = $1
-  AND (ec.published OR NOT $2::boolean)
+LEFT JOIN team_challenge_practice_solves practice ON practice.team_challenge_id = tc.id
+LEFT JOIN event_stages stage ON stage.id = ee.stage_id
+WHERE tc.event_team_id = $2
+  AND (ec.published OR NOT $3::boolean)
+  -- A task of an upcoming stage is hidden from participants entirely; the moderators board keeps everything.
+  AND (NOT $3::boolean
+    OR event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, $1::timestamptz) <> 0)
 ORDER BY group_order ASC, board_position ASC
 `
 
 type ListTeamBoardChallengesParams struct {
+	At            time.Time `json:"at"`
 	EventTeamID   uuid.UUID `json:"event_team_id"`
 	PublishedOnly bool      `json:"published_only"`
 }
@@ -559,6 +573,9 @@ type ListTeamBoardChallengesRow struct {
 	CreatedAt        time.Time          `json:"created_at"`
 	ContentUpdatedAt pgtype.Timestamptz `json:"content_updated_at"`
 	TeamHints        []byte             `json:"team_hints"`
+	StageID          uuid.NullUUID      `json:"stage_id"`
+	StagePhase       int16              `json:"stage_phase"`
+	PracticeSolved   bool               `json:"practice_solved"`
 	Points           int32              `json:"points"`
 	OrderIndex       int32              `json:"order_index"`
 	GroupID          uuid.NullUUID      `json:"group_id"`
@@ -580,7 +597,7 @@ type ListTeamBoardChallengesRow struct {
 // static event); board_position: the place inside the group, the order the
 // manage page sets (board_order), then by set attach time and set order.
 func (q *Queries) ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoardChallengesParams) ([]ListTeamBoardChallengesRow, error) {
-	rows, err := q.db.Query(ctx, listTeamBoardChallenges, arg.EventTeamID, arg.PublishedOnly)
+	rows, err := q.db.Query(ctx, listTeamBoardChallenges, arg.At, arg.EventTeamID, arg.PublishedOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -601,6 +618,9 @@ func (q *Queries) ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoard
 			&i.CreatedAt,
 			&i.ContentUpdatedAt,
 			&i.TeamHints,
+			&i.StageID,
+			&i.StagePhase,
+			&i.PracticeSolved,
 			&i.Points,
 			&i.OrderIndex,
 			&i.GroupID,

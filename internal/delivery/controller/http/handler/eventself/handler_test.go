@@ -389,8 +389,8 @@ func (fakeUseCase) UnlockHint(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, 
 func (fakeUseCase) SubmitChallenge(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, eventUseCase.SubmitChallengeInput) (eventUseCase.SubmitChallengeResult, error) {
 	return eventUseCase.SubmitChallengeResult{}, nil
 }
-func (fakeUseCase) ListOwnChallenges(context.Context, uuid.UUID, uuid.UUID) ([]eventUseCase.OwnChallengeView, error) {
-	return nil, nil
+func (fakeUseCase) ListOwnBoard(context.Context, uuid.UUID, uuid.UUID) (eventUseCase.OwnBoardView, error) {
+	return eventUseCase.OwnBoardView{}, nil
 }
 func (f fakeUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID, access eventUseCase.ResultsAccess, liveScreen bool) (eventUseCase.ResultsSnapshotView, error) {
 	if f.results != nil {

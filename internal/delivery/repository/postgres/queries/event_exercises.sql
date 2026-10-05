@@ -90,7 +90,7 @@ LIMIT 1;
 -- query: names, scope, catalog version numbers (ordinal among published
 -- versions), newer versions, fork source, infrastructure, counts.
 SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mode, ee.fixed_variant_index,
-       ee.revision, ee.status, ee.replaces_event_exercise_id, ee.superseded_at, ee.detached_at, ee.created_at,
+       ee.revision, ee.status, ee.replaces_event_exercise_id, ee.superseded_at, ee.detached_at, ee.created_at, ee.stage_id,
        ex.name::text AS exercise_name,
        ex.scope,
        ex.published_version_id AS latest_version_id,

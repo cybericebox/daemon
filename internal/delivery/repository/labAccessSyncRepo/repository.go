@@ -29,6 +29,8 @@ type Sync struct {
 	UpdatedAt                        time.Time
 	RuntimeOpen                      bool
 	VPNEnabled                       bool
+	// StageEpoch is how many stage boundaries of the event have passed: a change wakes the sync.
+	StageEpoch int32
 }
 
 type Lab struct {
@@ -58,13 +60,13 @@ func (r *Repository) ListDirty(ctx context.Context, limit int32) ([]Sync, error)
 	}
 	out := make([]Sync, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Sync{TeamID: row.EventTeamID, EventID: row.EventID, DesiredRevision: row.DesiredRevision, AppliedRevision: row.AppliedRevision, UpdatedAt: row.UpdatedAt, RuntimeOpen: row.RuntimeOpen, VPNEnabled: row.VpnEnabled})
+		out = append(out, Sync{TeamID: row.EventTeamID, EventID: row.EventID, DesiredRevision: row.DesiredRevision, AppliedRevision: row.AppliedRevision, UpdatedAt: row.UpdatedAt, RuntimeOpen: row.RuntimeOpen, VPNEnabled: row.VpnEnabled, StageEpoch: row.StageEpoch})
 	}
 	return out, nil
 }
 
-func (r *Repository) MarkApplied(ctx context.Context, teamID uuid.UUID, desired int64, runtimeOpen, vpnEnabled bool, now time.Time) (int64, error) {
-	return r.q.MarkEventLabAccessSyncApplied(ctx, postgres.MarkEventLabAccessSyncAppliedParams{EventTeamID: teamID, DesiredRevision: desired, RuntimeOpen: runtimeOpen, VpnEnabled: vpnEnabled, UpdatedAt: now})
+func (r *Repository) MarkApplied(ctx context.Context, teamID uuid.UUID, desired int64, runtimeOpen, vpnEnabled bool, stageEpoch int32, now time.Time) (int64, error) {
+	return r.q.MarkEventLabAccessSyncApplied(ctx, postgres.MarkEventLabAccessSyncAppliedParams{EventTeamID: teamID, DesiredRevision: desired, RuntimeOpen: runtimeOpen, VpnEnabled: vpnEnabled, StageEpoch: stageEpoch, UpdatedAt: now})
 }
 
 func (r *Repository) Clients(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {

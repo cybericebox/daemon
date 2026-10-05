@@ -131,6 +131,8 @@ type UpdateConfigInput struct {
 	ShowStartCountdown     *bool
 	ShowFinishCountdown    *bool
 	FinishCountdownMinutes *int32
+	// FinishCountdownMode nil keeps the current value: before_end | from_start.
+	FinishCountdownMode *eventConfigModel.FinishCountdownMode
 }
 
 func (in UpdateConfigInput) toConfigInput(current eventConfigModel.EventConfig) eventConfigModel.ConfigInput {
@@ -159,6 +161,9 @@ func (in UpdateConfigInput) toConfigInput(current eventConfigModel.EventConfig) 
 	}
 	if in.FinishCountdownMinutes != nil {
 		countdown.FinishMinutes = *in.FinishCountdownMinutes
+	}
+	if in.FinishCountdownMode != nil {
+		countdown.FinishMode = *in.FinishCountdownMode
 	}
 	return eventConfigModel.ConfigInput{
 		Registration:           in.Registration,

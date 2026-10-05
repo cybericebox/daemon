@@ -19,6 +19,7 @@ type Queries interface {
 	ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]postgres.EventExercise, error)
 	UpdateEventExerciseSource(ctx context.Context, arg postgres.UpdateEventExerciseSourceParams) (postgres.EventExercise, error)
 	DetachEventExercise(ctx context.Context, arg postgres.DetachEventExerciseParams) (int64, error)
+	SetEventExerciseStage(ctx context.Context, arg postgres.SetEventExerciseStageParams) (postgres.EventExercise, error)
 	DeleteEventExercise(ctx context.Context, arg postgres.DeleteEventExerciseParams) (int64, error)
 	EventExerciseHasAttempts(ctx context.Context, eventExerciseID uuid.UUID) (bool, error)
 	EventHasActiveExerciseFamily(ctx context.Context, arg postgres.EventHasActiveExerciseFamilyParams) (bool, error)
@@ -109,7 +110,24 @@ func ToDomain(row postgres.EventExercise) eventExerciseModel.EventExercise {
 		value := row.DetachedAt.Time
 		detachedAt = &value
 	}
-	return eventExerciseModel.EventExercise{ID: row.ID, EventID: row.EventID, ExerciseID: row.ExerciseID, ExerciseVersionID: row.ExerciseVersionID, VariantMode: eventExerciseModel.VariantMode(row.VariantMode), FixedVariantIndex: fixed, Revision: row.Revision, Status: eventExerciseModel.Status(row.Status), ReplacesID: replaces, SupersededAt: supersededAt, DetachedAt: detachedAt, CreatedAt: row.CreatedAt, CreatedBy: row.CreatedBy}
+	return eventExerciseModel.EventExercise{ID: row.ID, EventID: row.EventID, ExerciseID: row.ExerciseID, ExerciseVersionID: row.ExerciseVersionID, VariantMode: eventExerciseModel.VariantMode(row.VariantMode), FixedVariantIndex: fixed, Revision: row.Revision, Status: eventExerciseModel.Status(row.Status), ReplacesID: replaces, SupersededAt: supersededAt, DetachedAt: detachedAt, CreatedAt: row.CreatedAt, CreatedBy: row.CreatedBy, StageID: stageIDFromDB(row.StageID)}
+}
+
+func stageIDFromDB(value uuid.NullUUID) *uuid.UUID {
+	if !value.Valid {
+		return nil
+	}
+	id := value.UUID
+	return &id
+}
+
+// SetStage attaches the set to a stage (nil: the whole event); ErrNoRows when it is not active.
+func (r *Repository) SetStage(ctx context.Context, eventID, id uuid.UUID, stageID *uuid.UUID) (eventExerciseModel.EventExercise, error) {
+	row, err := r.q.SetEventExerciseStage(ctx, postgres.SetEventExerciseStageParams{ID: id, EventID: eventID, StageID: nullableUUID(stageID)})
+	if err != nil {
+		return eventExerciseModel.EventExercise{}, err
+	}
+	return ToDomain(row), nil
 }
 
 // UpdateSource switches an active attachment to another exercise version in
@@ -170,7 +188,7 @@ func (r *Repository) Details(ctx context.Context, eventID uuid.UUID) ([]Detail, 
 	for _, row := range rows {
 		link := ToDomain(postgres.EventExercise{ID: row.ID, EventID: row.EventID, ExerciseID: row.ExerciseID, ExerciseVersionID: row.ExerciseVersionID, VariantMode: row.VariantMode,
 			FixedVariantIndex: row.FixedVariantIndex, Revision: row.Revision, Status: row.Status, ReplacesEventExerciseID: row.ReplacesEventExerciseID,
-			SupersededAt: row.SupersededAt, DetachedAt: row.DetachedAt, CreatedAt: row.CreatedAt})
+			SupersededAt: row.SupersededAt, DetachedAt: row.DetachedAt, CreatedAt: row.CreatedAt, StageID: row.StageID})
 		out = append(out, Detail{EventExercise: link, ExerciseName: row.ExerciseName, Scope: row.Scope, LatestVersionID: row.LatestVersionID,
 			VersionNumber: row.VersionNumber, LatestVersionNumber: row.LatestVersionNumber, ForkedFromExerciseID: row.ForkedFromExerciseID,
 			ForkedFromVersionID: row.ForkedFromVersionID, SourceName: row.SourceName, SourceLatestVersionID: row.SourceLatestVersionID,

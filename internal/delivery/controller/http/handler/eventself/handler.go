@@ -83,7 +83,7 @@ type (
 		DisbandTeam(ctx context.Context, eventID, teamID, captainID uuid.UUID) error
 		SubmitChallenge(ctx context.Context, eventID, userID, challengeID uuid.UUID, in eventUseCase.SubmitChallengeInput) (eventUseCase.SubmitChallengeResult, error)
 		UnlockHint(ctx context.Context, eventID, userID, challengeID, hintID uuid.UUID) (eventUseCase.OwnHintView, error)
-		ListOwnChallenges(ctx context.Context, eventID, userID uuid.UUID) ([]eventUseCase.OwnChallengeView, error)
+		ListOwnBoard(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.OwnBoardView, error)
 		StreamOwnChallengeAttachment(ctx context.Context, eventID, userID, challengeID, fileID uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 		OpenOwnChallenge(ctx context.Context, eventID, userID, challengeID uuid.UUID) error
 		ListChallengeSolves(ctx context.Context, eventID, userID, challengeID, cursor uuid.UUID, pageSize int) (eventUseCase.ChallengeSolvesPage, error)
@@ -589,7 +589,7 @@ func (h *Handler) submitChallenge(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, submitChallengeResponse{Correct: v.Correct, FirstSolve: v.FirstSolve})
+	response.AbortWithData(ctx, submitChallengeResponse{Correct: v.Correct, FirstSolve: v.FirstSolve, Practice: v.Practice})
 }
 
 // unlockHint godoc
@@ -629,11 +629,11 @@ func (h *Handler) unlockHint(ctx *gin.Context) {
 }
 
 // listOwnChallenges godoc
-// @Summary List published challenges assigned to the caller's team
+// @Summary The caller's team board: published challenges and the stage context
 // @Tags events-self
 // @Produce json
 // @Param id path string true "event ID"
-// @Success 200 {object} response.Response{data=[]ownChallengeResponse}
+// @Success 200 {object} response.Response{data=ownBoardResponse}
 // @Router /events/{id}/teams/challenges/mine [get]
 func (h *Handler) listOwnChallenges(ctx *gin.Context) {
 	eventID, ok := eventIDFromPath(ctx)
@@ -644,16 +644,12 @@ func (h *Handler) listOwnChallenges(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	items, err := h.useCase.ListOwnChallenges(ctx, eventID, claims.UserID)
+	board, err := h.useCase.ListOwnBoard(ctx, eventID, claims.UserID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	out := make([]ownChallengeResponse, 0, len(items))
-	for _, item := range items {
-		out = append(out, toOwnChallengeResponse(item))
-	}
-	response.AbortWithData(ctx, out)
+	response.AbortWithData(ctx, toOwnBoardResponse(board))
 }
 
 // ownResults godoc

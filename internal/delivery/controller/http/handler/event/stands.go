@@ -17,14 +17,14 @@ import (
 )
 
 type standsResponse struct {
-	InfrastructureAllowed bool                 `json:"InfrastructureAllowed"`
-	LaboratoriesAvailable bool                 `json:"LaboratoriesAvailable"`
-	DeployLeadMinutes     int32                `json:"DeployLeadMinutes"`
-	TeardownDelayMinutes  int32                `json:"TeardownDelayMinutes"`
-	DeployAt              *time.Time           `json:"DeployAt"`
-	TeardownAt            *time.Time           `json:"TeardownAt"`
-	ChallengesOpened      bool                 `json:"ChallengesOpened"`
-	Summary               standSummaryResponse `json:"Summary"`
+	InfrastructureAllowed bool  `json:"InfrastructureAllowed"`
+	LaboratoriesAvailable bool  `json:"LaboratoriesAvailable"`
+	TeardownDelayMinutes  int32 `json:"TeardownDelayMinutes"`
+	// DeployAt is when the first labs start deploying: the event start minus the lead the platform computes.
+	DeployAt         *time.Time           `json:"DeployAt"`
+	TeardownAt       *time.Time           `json:"TeardownAt"`
+	ChallengesOpened bool                 `json:"ChallengesOpened"`
+	Summary          standSummaryResponse `json:"Summary"`
 	// Prewarm is the state of the image cache for the event's images; null while nothing was prewarmed.
 	Prewarm *standPrewarmResponse `json:"Prewarm"`
 	Items   []standTeamResponse   `json:"Items"`
@@ -74,7 +74,6 @@ type standLabResponse struct {
 }
 
 type standSettingsRequest struct {
-	DeployLeadMinutes    int32 `json:"DeployLeadMinutes"`
 	TeardownDelayMinutes int32 `json:"TeardownDelayMinutes"`
 }
 
@@ -116,8 +115,8 @@ type standVPNConfigResponse struct {
 func toStandsResponse(v eventUseCase.StandsView) standsResponse {
 	out := standsResponse{
 		InfrastructureAllowed: v.InfrastructureAllowed, LaboratoriesAvailable: v.LaboratoriesAvailable,
-		DeployLeadMinutes: v.Timing.DeployLeadMinutes, TeardownDelayMinutes: v.Timing.TeardownDelayMinutes,
-		DeployAt: v.DeployAt, TeardownAt: v.TeardownAt, ChallengesOpened: v.ChallengesOpened,
+		TeardownDelayMinutes: v.Timing.TeardownDelayMinutes,
+		DeployAt:             v.DeployAt, TeardownAt: v.TeardownAt, ChallengesOpened: v.ChallengesOpened,
 		Summary: standSummaryResponse{Total: v.Summary.Total, NotDeployed: v.Summary.NotDeployed, Creating: v.Summary.Creating,
 			Ready: v.Summary.Ready, Failed: v.Summary.Failed, Removed: v.Summary.Removed},
 		Items: make([]standTeamResponse, 0, len(v.Items)),
@@ -221,7 +220,7 @@ func (h *Handler) updateStandSettings(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	v, err := h.useCase.UpdateEventStandSettings(ctx, eventID, eventStandModel.Timing{DeployLeadMinutes: req.DeployLeadMinutes, TeardownDelayMinutes: req.TeardownDelayMinutes}, claims.UserID)
+	v, err := h.useCase.UpdateEventStandSettings(ctx, eventID, eventStandModel.Timing{TeardownDelayMinutes: req.TeardownDelayMinutes}, claims.UserID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
