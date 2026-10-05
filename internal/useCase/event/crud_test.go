@@ -534,6 +534,12 @@ func TestDeleteEvent_Success(t *testing.T) {
 		}
 		return nil
 	})
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.QueueEventLabGroupCleanupParams) (int64, error) {
+		if arg.EventID != id {
+			t.Fatalf("cleanup queued for %s, want %s", arg.EventID, id)
+		}
+		return 2, nil
+	})
 	q.EXPECT().DeleteEvent(gomock.Any(), id).Return(int64(1), nil)
 
 	if err := uc.DeleteEvent(context.Background(), id); err != nil {
@@ -548,6 +554,7 @@ func TestDeleteEvent_NotFound_Returns404(t *testing.T) {
 	id := uuid.Must(uuid.NewV7())
 
 	q.EXPECT().ArchiveEventExercises(gomock.Any(), gomock.Any()).Return(nil)
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	q.EXPECT().DeleteEvent(gomock.Any(), id).Return(int64(0), nil)
 
 	err := uc.DeleteEvent(context.Background(), id)

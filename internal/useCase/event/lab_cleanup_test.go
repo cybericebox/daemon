@@ -2,6 +2,7 @@ package event_test
 
 import (
 	"context"
+	"errors"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"testing"
 
@@ -69,5 +70,42 @@ func TestCleanupQueuedLabGroups_RetriesDurableTeamDeletionRequests(t *testing.T)
 	}
 	if len(infra.groups) != 1 || infra.groups[0] != "e-team-a" {
 		t.Fatalf("destroy calls = %#v, want exactly e-team-a once", infra.groups)
+	}
+}
+
+type flakyCleanupInfrastructure struct {
+	recordingCleanupInfrastructure
+	failures int
+}
+
+func (f *flakyCleanupInfrastructure) DestroyLabGroup(ctx context.Context, group string) error {
+	if f.failures > 0 {
+		f.failures--
+		return errors.New("agent unavailable")
+	}
+	return f.recordingCleanupInfrastructure.DestroyLabGroup(ctx, group)
+}
+
+// A deleted event's group is only requested once (queued with the delete); an
+// agent error leaves the request pending and the next pass destroys it, then
+// marks it done, so repeated passes never re-destroy.
+func TestCleanupQueuedLabGroups_AgentErrorIsRetriedForDeletedEvent(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	infra := &flakyCleanupInfrastructure{failures: 1}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: infra})
+
+	group := "e-deleted-event-t-team"
+	q.EXPECT().ListPendingLabGroupCleanupRequests(gomock.Any()).Return([]string{group}, nil).Times(2)
+	q.EXPECT().MarkLabGroupCleanupRequestDestroyed(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
+
+	if err := uc.CleanupQueuedLabGroups(context.Background()); err == nil {
+		t.Fatal("agent error must be returned so the job is retried")
+	}
+	if err := uc.CleanupQueuedLabGroups(context.Background()); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if len(infra.groups) != 1 || infra.groups[0] != group {
+		t.Fatalf("destroy calls = %#v, want %s once", infra.groups, group)
 	}
 }

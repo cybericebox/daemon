@@ -81,6 +81,7 @@ func TestTagListener_CreateUpdateDeleteInvalidate(t *testing.T) {
 	}
 
 	q.EXPECT().ArchiveEventExercises(gomock.Any(), gomock.Any()).Return(nil)
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	q.EXPECT().DeleteEvent(gomock.Any(), created.ID).Return(int64(1), nil)
 	if err = uc.DeleteEvent(context.Background(), created.ID); err != nil {
 		t.Fatalf("DeleteEvent: %v", err)
@@ -99,6 +100,7 @@ func TestTagListener_FailedWritesDoNotInvalidate(t *testing.T) {
 	id := uuid.Must(uuid.NewV7())
 
 	q.EXPECT().ArchiveEventExercises(gomock.Any(), gomock.Any()).Return(nil)
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).Return(int64(0), nil)
 	q.EXPECT().DeleteEvent(gomock.Any(), id).Return(int64(0), nil)
 	if err := uc.DeleteEvent(context.Background(), id); err == nil {
 		t.Fatal("want not found")

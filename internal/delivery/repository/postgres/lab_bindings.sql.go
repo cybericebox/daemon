@@ -393,6 +393,30 @@ func (q *Queries) MarkStandLabReady(ctx context.Context, arg MarkStandLabReadyPa
 	return column_1, err
 }
 
+const queueEventLabGroupCleanup = `-- name: QueueEventLabGroupCleanup :execrows
+INSERT INTO lab_group_cleanup_requests (lab_group_name, event_id, requested_at)
+SELECT lab_group_name(team.event_id, team.id),
+       team.event_id, $1
+FROM event_teams team
+WHERE team.event_id = $2
+ON CONFLICT (lab_group_name) DO NOTHING
+`
+
+type QueueEventLabGroupCleanupParams struct {
+	RequestedAt time.Time `json:"requested_at"`
+	EventID     uuid.UUID `json:"event_id"`
+}
+
+// Event deletion: queue every team LabGroup of the event (VPN-only groups
+// included) so the teardown survives the cascading removal of the event.
+func (q *Queries) QueueEventLabGroupCleanup(ctx context.Context, arg QueueEventLabGroupCleanupParams) (int64, error) {
+	result, err := q.db.Exec(ctx, queueEventLabGroupCleanup, arg.RequestedAt, arg.EventID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const queueTeamLabGroupCleanup = `-- name: QueueTeamLabGroupCleanup :execrows
 INSERT INTO lab_group_cleanup_requests (lab_group_name, event_id, requested_at)
 SELECT lab_group_name(team.event_id, team.id),

@@ -20,6 +20,7 @@ type Queries interface {
 	UpdateLabBindingReadiness(ctx context.Context, arg postgres.UpdateLabBindingReadinessParams) (int64, error)
 	ListWithdrawnLabBindings(ctx context.Context, now pgtype.Timestamptz) ([]postgres.LabBinding, error)
 	MarkLabBindingDestroyed(ctx context.Context, id uuid.UUID) (int64, error)
+	QueueEventLabGroupCleanup(ctx context.Context, arg postgres.QueueEventLabGroupCleanupParams) (int64, error)
 	QueueTeamLabGroupCleanup(ctx context.Context, arg postgres.QueueTeamLabGroupCleanupParams) (int64, error)
 	QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Time) error
 	ListPendingLabGroupCleanupRequests(ctx context.Context) ([]string, error)
@@ -77,6 +78,15 @@ func (r *Repository) MarkDestroyed(ctx context.Context, id uuid.UUID) (int64, er
 func (r *Repository) QueueTeamCleanup(ctx context.Context, teamID uuid.UUID, requestedAt time.Time) (int64, error) {
 	return r.q.QueueTeamLabGroupCleanup(ctx, postgres.QueueTeamLabGroupCleanupParams{
 		EventTeamID: teamID,
+		RequestedAt: requestedAt,
+	})
+}
+
+// QueueEventCleanup durably requests the teardown of every team LabGroup of
+// an event; it must run in the same transaction that deletes the event.
+func (r *Repository) QueueEventCleanup(ctx context.Context, eventID uuid.UUID, requestedAt time.Time) (int64, error) {
+	return r.q.QueueEventLabGroupCleanup(ctx, postgres.QueueEventLabGroupCleanupParams{
+		EventID:     eventID,
 		RequestedAt: requestedAt,
 	})
 }
