@@ -136,6 +136,7 @@ type EventUseCase struct {
 	prewarmLead       time.Duration
 	prewarm           *prewarmState
 	placement         *placementCache
+	labAccessBackoff  *labAccessBackoff
 	events            *eventRepo.Repository
 	configs           *eventConfigRepo.Repository
 	participants      *participantRepo.Repository
@@ -287,6 +288,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		standDeployBudget:        standDeployBudget,
 		prewarmLead:              deps.StandPrewarmLead,
 		prewarm:                  newPrewarmState(),
+		labAccessBackoff:         newLabAccessBackoff(),
 		placement:                &placementCache{need: map[uuid.UUID]cachedNeed{}, plans: map[uuid.UUID]cachedLeadPlan{}},
 		events:                   eventRepo.New(deps.Repo),
 		configs:                  eventConfigRepo.New(deps.Repo),

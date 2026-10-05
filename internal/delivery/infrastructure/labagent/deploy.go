@@ -114,8 +114,21 @@ func (c *Client) ensureGroup(ctx context.Context, group string, labels map[strin
 	if err != nil {
 		return agentErr("create lab group", err)
 	}
-	return oneResult("create lab group", res.GetResults())
+	err = oneResult("create lab group", res.GetResults())
+	if err == nil || !strings.Contains(err.Error(), groupSpecDiffers) {
+		return err
+	}
+	// The group exists with another spec: its sizes were planned when it was created, and its
+	// suspended / VPN-disabled flags are owned by the access sync (SetLabGroup*), so a create
+	// request cannot match them and never will. Adopt it as it is, instead of failing forever.
+	if _, getErr := c.getGroup(ctx, group); getErr != nil {
+		return err
+	}
+	return nil
 }
+
+// groupSpecDiffers is the agent's answer to a create of a group that exists with another spec.
+const groupSpecDiffers = "already exists with a different spec"
 
 // getGroup reads one group; a group the agent does not know is errNotFound.
 func (c *Client) getGroup(ctx context.Context, group string) (*labpb.LabGroup, error) {

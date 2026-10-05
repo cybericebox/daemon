@@ -41,6 +41,20 @@ func (p OriginPolicy) Allowed(ctx context.Context, origin string) (reason string
 	return "", true
 }
 
+// UnknownEventSite reports whether origin is a well-formed event site (<tag>.<EVENT_DOMAIN>) of an event
+// that does not exist (deleted, or never was). Such a caller addressed an event tenant that is not there,
+// which the API answers like every other missing event: 404, not the 403 of a foreign origin.
+func (p OriginPolicy) UnknownEventSite(ctx context.Context, origin string) bool {
+	if p.Tags == nil {
+		return false
+	}
+	if _, ok := p.Hosts.OriginAllowed(origin); !ok {
+		return false
+	}
+	tag, isEventSite := p.Hosts.EventTag(originHost(origin))
+	return isEventSite && !p.Tags.EventTagExists(ctx, tag)
+}
+
 // EventTagCache answers TagChecker from a small in-memory cache over a lookup: a known tag is
 // remembered for a minute, an unknown one for ten seconds (a new event is accepted within that, and
 // a flood of random subdomains costs at most one lookup per tag per ten seconds, not one per request).

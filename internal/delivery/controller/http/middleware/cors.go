@@ -55,6 +55,12 @@ func HandleCORS(policy OriginPolicy) gin.HandlerFunc {
 				Str("method", ctx.Request.Method).
 				Str("path", ctx.Request.URL.Path).
 				Msg("CORS: origin rejected (403) — not on the platform domain allowlist")
+			if policy.UnknownEventSite(ctx.Request.Context(), origin) {
+				// The event of this site is gone: a missing tenant is 404 everywhere, never a 403 that
+				// tells it apart from an unpublished event.
+				response.AbortWithNotFound(ctx)
+				return
+			}
 			response.AbortWithForbidden(ctx)
 			return
 		}
