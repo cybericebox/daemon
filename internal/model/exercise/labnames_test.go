@@ -22,7 +22,9 @@ func TestLabDeviceNamesKeepContainersAndHashSwitches(t *testing.T) {
 }
 
 func TestLabDeviceNamesAvoidsTakenNames(t *testing.T) {
-	id := uuid.Must(uuid.NewV7())
+	// A fixed id that does not end in "0": a random one ended in "0" one time in 16, so the
+	// first free suffix was "1" and the assertion below failed.
+	id := uuid.Must(uuid.FromString("01a10b00-0000-7000-8000-000000000001"))
 	taken := "sw-" + strings.ReplaceAll(id.String(), "-", "")
 	names := exerciseModel.LabDeviceNames([]exerciseModel.Device{
 		{ID: uuid.Must(uuid.NewV7()), Name: taken, Type: exerciseModel.DeviceTypeContainer},
