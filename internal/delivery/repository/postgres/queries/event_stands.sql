@@ -93,11 +93,11 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
                                                team.admission_locked, team.member_count))::boolean AS admitted,
        stand.status AS stand_status, stand.reason AS stand_reason, stand.generation AS stand_generation,
        stand.updated_at AS stand_updated_at,
-       (SELECT count(*) FROM lab_bindings lb
+       (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb
         JOIN event_challenges due_ec ON due_ec.id = lb.event_challenge_id
         WHERE lb.event_team_id = team.id AND lb.readiness = 0
           AND due_ec.event_exercise_id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[]))::bigint AS pending_labs,
-       (SELECT count(*) FROM lab_bindings lb WHERE lb.event_team_id = team.id AND lb.readiness = 2)::bigint AS failed_labs,
+       (SELECT count(DISTINCT lb.lab_name) FROM lab_bindings lb WHERE lb.event_team_id = team.id AND lb.readiness = 2)::bigint AS failed_labs,
        COALESCE((SELECT min(lb.failure_reason) FROM lab_bindings lb
                  WHERE lb.event_team_id = team.id AND lb.readiness = 2), '')::text AS failure_reason,
        (SELECT COALESCE(max(lb.generation), 0) FROM lab_bindings lb WHERE lb.event_team_id = team.id)::integer AS lab_generation,

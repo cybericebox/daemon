@@ -27,6 +27,8 @@ func (r *Runner) WithTraffic(sink TrafficSink) *Runner {
 // TrafficStore is what the ingest needs from storage.
 type TrafficStore interface {
 	IsUserInTeam(ctx context.Context, eventID, teamID, userID uuid.UUID) (bool, error)
+	// LabChallenges names the tasks that share the team's Lab: a Lab belongs to an exercise, not to a task.
+	LabChallenges(ctx context.Context, teamID uuid.UUID, group, lab string) ([]uuid.UUID, error)
 	ApplyTouch(ctx context.Context, touch labTraffic.Touch) error
 	RecordCoverage(ctx context.Context, eventID, teamID uuid.UUID, surface labTraffic.Surface, source, bootID string, span labTraffic.Coverage) error
 }
@@ -37,6 +39,11 @@ const (
 )
 
 type memberKey struct{ event, team, user uuid.UUID }
+
+type labKey struct {
+	team       uuid.UUID
+	group, lab string
+}
 
 type appliedKey struct {
 	event, team, user, challenge uuid.UUID
@@ -56,12 +63,13 @@ type TrafficIngest struct {
 
 	members map[memberKey]time.Time
 	applied map[appliedKey]appliedRow
+	labs    map[labKey][]uuid.UUID
 }
 
 func NewTrafficIngest(store TrafficStore) *TrafficIngest {
 	return &TrafficIngest{
 		store: store, now: func() time.Time { return time.Now().UTC() },
-		members: map[memberKey]time.Time{}, applied: map[appliedKey]appliedRow{},
+		members: map[memberKey]time.Time{}, applied: map[appliedKey]appliedRow{}, labs: map[labKey][]uuid.UUID{},
 	}
 }
 
@@ -71,6 +79,9 @@ func NewTrafficIngest(store TrafficStore) *TrafficIngest {
 func (t *TrafficIngest) ApplyTraffic(ctx context.Context, reports []*labpb.TrafficReport) error {
 	if len(t.applied) > maxCacheEntries {
 		t.applied = map[appliedKey]appliedRow{}
+	}
+	if len(t.labs) > maxCacheEntries {
+		t.labs = map[labKey][]uuid.UUID{}
 	}
 	if len(t.members) > maxCacheEntries {
 		t.members = map[memberKey]time.Time{}
@@ -117,20 +128,35 @@ func (t *TrafficIngest) applyReport(ctx context.Context, report *labpb.TrafficRe
 
 	now := t.now()
 	for _, row := range report.GetLedger() {
-		if err := t.applyRow(ctx, eventID, teamID, surface, row, now); err != nil {
+		if err := t.applyRow(ctx, eventID, teamID, report.GetLabGroupName(), surface, row, now); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (t *TrafficIngest) applyRow(ctx context.Context, eventID, teamID uuid.UUID, surface labTraffic.Surface, row *labpb.TrafficTouch, now time.Time) error {
+// challengesOf resolves a lab name to the tasks that share it. Only a found Lab is remembered.
+func (t *TrafficIngest) challengesOf(ctx context.Context, teamID uuid.UUID, group, lab string) ([]uuid.UUID, error) {
+	key := labKey{teamID, group, lab}
+	if ids, ok := t.labs[key]; ok {
+		return ids, nil
+	}
+	ids, err := t.store.LabChallenges(ctx, teamID, group, lab)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) > 0 {
+		t.labs[key] = ids
+	}
+	return ids, nil
+}
+
+func (t *TrafficIngest) applyRow(ctx context.Context, eventID, teamID uuid.UUID, group string, surface labTraffic.Surface, row *labpb.TrafficTouch, now time.Time) error {
 	userID, ok := labTraffic.UserFromSubject(surface, row.GetSubject())
 	if !ok {
 		return nil
 	}
-	challengeID, _, ok := labBindingModel.ParseLabName(row.GetLabName())
-	if !ok {
+	if row.GetLabName() == "" {
 		return nil
 	}
 	if row.GetAttempts() <= 0 || row.GetFirstSeenUnixMs() <= 0 {
@@ -144,6 +170,19 @@ func (t *TrafficIngest) applyRow(ctx context.Context, eventID, teamID uuid.UUID,
 		return nil
 	}
 
+	challenges, err := t.challengesOf(ctx, teamID, group, row.GetLabName())
+	if err != nil {
+		return err
+	}
+	for _, challengeID := range challenges {
+		if err := t.applyChallenge(ctx, eventID, teamID, userID, challengeID, surface, row); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *TrafficIngest) applyChallenge(ctx context.Context, eventID, teamID, userID, challengeID uuid.UUID, surface labTraffic.Surface, row *labpb.TrafficTouch) error {
 	key := appliedKey{eventID, teamID, userID, challengeID, surface}
 	first, last := time.UnixMilli(row.GetFirstSeenUnixMs()).UTC(), time.UnixMilli(row.GetLastSeenUnixMs()).UTC()
 	if last.Before(first) {

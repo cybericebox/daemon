@@ -18,12 +18,17 @@ type fakeTrafficStore struct {
 	members   map[uuid.UUID]bool
 	memberHit int
 	touches   []labTraffic.Touch
-	coverage  []labTraffic.Coverage
+	// challenges are the tasks that share the lab, by lab name.
+	challenges map[string][]uuid.UUID
+	coverage   []labTraffic.Coverage
 }
 
 func (s *fakeTrafficStore) IsUserInTeam(_ context.Context, _, _, user uuid.UUID) (bool, error) {
 	s.memberHit++
 	return s.members[user], nil
+}
+func (s *fakeTrafficStore) LabChallenges(_ context.Context, _ uuid.UUID, _, lab string) ([]uuid.UUID, error) {
+	return s.challenges[lab], nil
 }
 func (s *fakeTrafficStore) ApplyTouch(_ context.Context, t labTraffic.Touch) error {
 	s.touches = append(s.touches, t)
@@ -42,7 +47,7 @@ type trafficFixture struct {
 func newTrafficFixture() trafficFixture {
 	f := trafficFixture{event: uuid.Must(uuid.NewV7()), team: uuid.Must(uuid.NewV7()), challenge: uuid.Must(uuid.NewV7()), user: uuid.Must(uuid.NewV7())}
 	f.group, _ = labBindingModel.GroupName(f.event, f.team)
-	f.lab = labBindingModel.LabName(f.challenge, 2)
+	f.lab = labBindingModel.LabName(uuid.Must(uuid.NewV7()), 0, 2)
 	return f
 }
 
@@ -58,7 +63,7 @@ func (f trafficFixture) report(boot string, attempts int64) *labpb.TrafficReport
 
 func TestTrafficIngestResolvesIdentitiesFromNames(t *testing.T) {
 	f := newTrafficFixture()
-	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}}
+	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}, challenges: map[string][]uuid.UUID{f.lab: {f.challenge}}}
 	if err := NewTrafficIngest(store).ApplyTraffic(context.Background(), []*labpb.TrafficReport{f.report("b1", 3)}); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +84,7 @@ func TestTrafficIngestResolvesIdentitiesFromNames(t *testing.T) {
 
 func TestTrafficIngestSkipsUnchangedStateAndCachesMembership(t *testing.T) {
 	f := newTrafficFixture()
-	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}}
+	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}, challenges: map[string][]uuid.UUID{f.lab: {f.challenge}}}
 	ingest := NewTrafficIngest(store)
 	for i := 0; i < 3; i++ {
 		if err := ingest.ApplyTraffic(context.Background(), []*labpb.TrafficReport{f.report("b1", 3)}); err != nil {
@@ -102,7 +107,7 @@ func TestTrafficIngestSkipsUnchangedStateAndCachesMembership(t *testing.T) {
 
 func TestTrafficIngestDropsWhatIsNotAnEventParticipant(t *testing.T) {
 	f := newTrafficFixture()
-	store := &fakeTrafficStore{members: map[uuid.UUID]bool{}}
+	store := &fakeTrafficStore{members: map[uuid.UUID]bool{}, challenges: map[string][]uuid.UUID{f.lab: {f.challenge}}}
 	tester := f.report("b1", 1)
 	tester.Ledger[0].Subject = "tester"
 	stray := f.report("b1", 1)
@@ -121,7 +126,7 @@ func TestTrafficIngestDropsWhatIsNotAnEventParticipant(t *testing.T) {
 
 func TestProxyReportsAreWebTouchesOfALabGroupClient(t *testing.T) {
 	f := newTrafficFixture()
-	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}}
+	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}, challenges: map[string][]uuid.UUID{f.lab: {f.challenge}}}
 	r := f.report("b1", 5)
 	r.Kind, r.Source = "proxy", "proxy-abc"
 	r.Ledger[0].Subject, r.Ledger[0].Device, r.Ledger[0].DstIp, r.Ledger[0].DstPort = labBindingModel.ParticipantClientName(f.user), "web", "", 0
@@ -137,7 +142,7 @@ func TestProxyReportsAreWebTouchesOfALabGroupClient(t *testing.T) {
 // and anything that is not an event team group are dropped here, not counted.
 func TestProxyReportsOfATestDeployGroupAreNotCounted(t *testing.T) {
 	f := newTrafficFixture()
-	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}}
+	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}, challenges: map[string][]uuid.UUID{f.lab: {f.challenge}}}
 	r := f.report("b1", 5)
 	r.Kind, r.Source = "proxy", "proxy-abc"
 	r.LabGroupName = "t-" + uuid.Must(uuid.NewV7()).String()
@@ -189,4 +194,32 @@ type recordingSink struct{ calls int }
 func (s *recordingSink) ApplyTraffic(context.Context, []*labpb.TrafficReport) error {
 	s.calls++
 	return nil
+}
+
+// The tasks of an exercise share one Lab: its traffic counts for every one of them.
+func TestTrafficIngestAttributesASharedLabToEveryTask(t *testing.T) {
+	f := newTrafficFixture()
+	second, third := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}, challenges: map[string][]uuid.UUID{f.lab: {f.challenge, second, third}}}
+	if err := NewTrafficIngest(store).ApplyTraffic(context.Background(), []*labpb.TrafficReport{f.report("b1", 3)}); err != nil {
+		t.Fatal(err)
+	}
+	got := map[uuid.UUID]int64{}
+	for _, touch := range store.touches {
+		got[touch.EventChallengeID] = touch.Attempts
+	}
+	if len(got) != 3 || got[f.challenge] != 3 || got[second] != 3 || got[third] != 3 {
+		t.Fatalf("touches = %v", got)
+	}
+}
+
+func TestTrafficIngestDropsAnUnboundLab(t *testing.T) {
+	f := newTrafficFixture()
+	store := &fakeTrafficStore{members: map[uuid.UUID]bool{f.user: true}}
+	if err := NewTrafficIngest(store).ApplyTraffic(context.Background(), []*labpb.TrafficReport{f.report("b1", 3)}); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.touches) != 0 {
+		t.Fatalf("touches = %v", store.touches)
+	}
 }

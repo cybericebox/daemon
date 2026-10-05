@@ -928,12 +928,17 @@ type Querier interface {
 	// Pending, not yet announced invitations of started events; the use case
 	// applies the exact expiry rule of the event lifecycle.
 	ListInvitationExpiryCandidates(ctx context.Context, nowAt time.Time) ([]ListInvitationExpiryCandidatesRow, error)
+	// The challenges that share one Lab of a team.
+	ListLabBindingChallenges(ctx context.Context, arg ListLabBindingChallengesParams) ([]uuid.UUID, error)
 	// Spans of a team that overlap [since, until].
 	ListLabTrafficCoverage(ctx context.Context, arg ListLabTrafficCoverageParams) ([]ListLabTrafficCoverageRow, error)
 	ListLatestEventLabObservations(ctx context.Context, eventID uuid.UUID) ([]EventLabObservation, error)
 	ListLatestPlatformLabCapacityObservations(ctx context.Context) ([]PlatformLabCapacityObservation, error)
 	// Latest registration-form answer per listed user (moderation list columns).
 	ListLatestRegistrationAnswersForUsers(ctx context.Context, arg ListLatestRegistrationAnswersForUsersParams) ([]ListLatestRegistrationAnswersForUsersRow, error)
+	// Bindings still on a per-challenge Lab name (c-<challenge>), with what the
+	// shared name is derived from.
+	ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) ([]ListLegacyLabBindingsRow, error)
 	// Hints opened per team and the points they cost. Without the balance mode a
 	// hint is charged only from the reward of a later solve of its challenge.
 	ListManageHintTotals(ctx context.Context, eventID uuid.UUID) ([]ListManageHintTotalsRow, error)
@@ -990,7 +995,8 @@ type Querier interface {
 	ListParticipationSolves(ctx context.Context, arg ListParticipationSolvesParams) ([]ListParticipationSolvesRow, error)
 	ListPendingEventFormDeliveries(ctx context.Context, arg ListPendingEventFormDeliveriesParams) ([]ListPendingEventFormDeliveriesRow, error)
 	// Stand engine work queue: every not yet ready Lab of one event together with
-	// the pinned version and variant needed to resolve its topology.
+	// the pinned version and variant needed to resolve its topology. The bindings
+	// of one exercise share a Lab, so each Lab is listed once, by its first binding.
 	ListPendingEventLabBindings(ctx context.Context, arg ListPendingEventLabBindingsParams) ([]ListPendingEventLabBindingsRow, error)
 	ListPendingLabGroupCleanupRequests(ctx context.Context) ([]string, error)
 	ListPendingTeamInvitations(ctx context.Context, arg ListPendingTeamInvitationsParams) ([]ListPendingTeamInvitationsRow, error)
@@ -1261,13 +1267,15 @@ type Querier interface {
 	MarkInAppRead(ctx context.Context, arg MarkInAppReadParams) (int64, error)
 	MarkInactivityWarned(ctx context.Context, arg MarkInactivityWarnedParams) (int64, error)
 	MarkInvitationExpiredNotified(ctx context.Context, arg MarkInvitationExpiredNotifiedParams) (int64, error)
+	// The Lab is shared by every binding of the exercise: all of them are marked.
 	MarkLabBindingDeployed(ctx context.Context, arg MarkLabBindingDeployedParams) (int64, error)
 	MarkLabBindingDestroyed(ctx context.Context, id uuid.UUID) (int64, error)
 	MarkLabBindingFailedWithReason(ctx context.Context, arg MarkLabBindingFailedWithReasonParams) (int64, error)
 	MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg MarkLabGroupCleanupRequestDestroyedParams) (int64, error)
 	MarkPlatformSMTPUsed(ctx context.Context, arg MarkPlatformSMTPUsedParams) error
-	// A ready Lab makes its preparing team challenge ready in the same statement.
-	// Returns the number of bindings changed (0 = stale generation or repeat).
+	// A ready Lab makes the preparing team challenges of every binding that shares
+	// it ready in the same statement. Returns the number of bindings changed
+	// (0 = stale generation or repeat).
 	MarkStandLabReady(ctx context.Context, arg MarkStandLabReadyParams) (int64, error)
 	// Narrow write outside the aggregate UPDATE set (like last_seen): the last
 	// time an invitation email was queued for a still unconfirmed account; the
@@ -1355,7 +1363,8 @@ type Querier interface {
 	// On withdrawal, make those groups eligible for the same durable cleanup job.
 	QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Time) error
 	// A recreated Lab moves to the next generation under a new name, so the
-	// asynchronously deleted previous Lab never collides, and deploys again.
+	// asynchronously deleted previous Lab never collides, and deploys again. Every
+	// binding of the exercise is moved to the same name and generation.
 	RecreateLabBinding(ctx context.Context, arg RecreateLabBindingParams) (int64, error)
 	// Rebuilds an event's 5-minute buckets from the sources: attempts (and the
 	// effectively correct ones, after manual decisions), solves and task opens.

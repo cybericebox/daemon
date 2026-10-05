@@ -143,9 +143,21 @@ func (a *standAgent) setAll(state map[string]bool) {
 }
 
 // standTopologies serves the fixture's one device and the task linked to it.
-type standTopologies struct{ deviceID, taskID uuid.UUID }
+type standTopologies struct {
+	deviceID, taskID uuid.UUID
+	sets             *standSets
+}
 
-func (s standTopologies) ResolveDeployedTopology(context.Context, uuid.UUID, int32) (exerciseModel.Topology, error) {
+// standSets holds the multi-task sets a test attached, by pinned version id.
+type standSets struct {
+	topology map[uuid.UUID]exerciseModel.Topology
+	links    map[uuid.UUID][]exerciseModel.FlagLink
+}
+
+func (s standTopologies) ResolveDeployedTopology(_ context.Context, versionID uuid.UUID, _ int32) (exerciseModel.Topology, error) {
+	if topology, ok := s.sets.topology[versionID]; ok {
+		return topology, nil
+	}
 	return exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: s.deviceID, Name: "web"}}}, nil
 }
 
@@ -153,7 +165,10 @@ func (s standTopologies) ResolveVersionTopologies(context.Context, uuid.UUID) ([
 	return []exerciseModel.Topology{{Devices: []exerciseModel.Device{{ID: s.deviceID, Name: "web", Image: "nginx:1"}, {ID: uuid.Must(uuid.NewV7()), Name: "db", Image: "postgres:16"}}}, {Devices: []exerciseModel.Device{{Name: "web", Image: "nginx:1"}}}}, nil
 }
 
-func (s standTopologies) ResolveDeployedFlagLinks(context.Context, uuid.UUID, int32) ([]exerciseModel.FlagLink, error) {
+func (s standTopologies) ResolveDeployedFlagLinks(_ context.Context, versionID uuid.UUID, _ int32) ([]exerciseModel.FlagLink, error) {
+	if links, ok := s.sets.links[versionID]; ok {
+		return append([]exerciseModel.FlagLink(nil), links...), nil
+	}
 	return []exerciseModel.FlagLink{{TaskID: s.taskID, DeviceID: s.deviceID, Var: "TASK_FLAG"}}, nil
 }
 
@@ -170,6 +185,7 @@ type standFixture struct {
 	blueID, redID, smallID    uuid.UUID
 	staticChallenge, infraOne uuid.UUID
 	infraTaskID, infraDevice  uuid.UUID
+	sets                      *standSets
 }
 
 // journalCollector stands in for the error journal and keeps what is reported.
@@ -444,7 +460,7 @@ func newStandFixture(t *testing.T) *standFixture {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
 	now := time.Now()
-	f := &standFixture{db: db, agent: newStandAgent()}
+	f := &standFixture{db: db, agent: newStandAgent(), sets: &standSets{topology: map[uuid.UUID]exerciseModel.Topology{}, links: map[uuid.UUID][]exerciseModel.FlagLink{}}}
 	users := userRepo.New(db.Queries)
 	newUser := func(email string) uuid.UUID {
 		u, err := users.Create(ctx, userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), email, now))
@@ -499,7 +515,7 @@ func newStandFixture(t *testing.T) *standFixture {
 	f.infraOne = f.attach(t, true)
 	f.uc = event.NewEventUseCase(event.Dependencies{
 		Repo: db.Queries, UoW: postgres.NewUnitOfWorker[event.IRepository](postgres.NewUoWFactory(db.Pool)),
-		Infra: f.agent, InfrastructureCapability: standCapability{}, Topologies: standTopologies{deviceID: f.infraDevice, taskID: f.infraTaskID},
+		Infra: f.agent, InfrastructureCapability: standCapability{}, Topologies: standTopologies{deviceID: f.infraDevice, taskID: f.infraTaskID, sets: f.sets},
 		SignalPublishers: event.NewOutboxSignalPublisherFactory(time.Now),
 		StandPrewarmLead: 30 * time.Minute, StandDeployBudget: 200,
 	})
@@ -761,7 +777,7 @@ func TestStandEngine_PrewarmsTheEventImagesBeforeTheDeployWindow(t *testing.T) {
 	f.agent.mu.Unlock()
 	f.uc = event.NewEventUseCase(event.Dependencies{
 		Repo: f.db.Queries, UoW: postgres.NewUnitOfWorker[event.IRepository](postgres.NewUoWFactory(f.db.Pool)),
-		Infra: f.agent, InfrastructureCapability: standCapability{}, Topologies: standTopologies{deviceID: f.infraDevice, taskID: f.infraTaskID},
+		Infra: f.agent, InfrastructureCapability: standCapability{}, Topologies: standTopologies{deviceID: f.infraDevice, taskID: f.infraTaskID, sets: f.sets},
 		SignalPublishers: event.NewOutboxSignalPublisherFactory(time.Now), StandPrewarmLead: 30 * time.Minute,
 	})
 	f.pass(t)

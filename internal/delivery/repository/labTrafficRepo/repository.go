@@ -24,6 +24,7 @@ type Queries interface {
 	SummarizeLabTouches(context.Context, postgres.SummarizeLabTouchesParams) ([]postgres.SummarizeLabTouchesRow, error)
 	GetLabDeployedSince(context.Context, postgres.GetLabDeployedSinceParams) (time.Time, error)
 	IsUserInEventTeam(context.Context, postgres.IsUserInEventTeamParams) (bool, error)
+	ListLabBindingChallenges(context.Context, postgres.ListLabBindingChallengesParams) ([]uuid.UUID, error)
 }
 
 type Repository struct{ q Queries }
@@ -36,6 +37,11 @@ var zeroTime = time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
 // IsUserInTeam reports whether the user is a participant of the event team.
 func (r *Repository) IsUserInTeam(ctx context.Context, eventID, teamID, userID uuid.UUID) (bool, error) {
 	return r.q.IsUserInEventTeam(ctx, postgres.IsUserInEventTeamParams{EventID: eventID, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}, UserID: userID})
+}
+
+// LabChallenges returns the challenges that share a team's Lab (the tasks of one exercise).
+func (r *Repository) LabChallenges(ctx context.Context, teamID uuid.UUID, group, lab string) ([]uuid.UUID, error) {
+	return r.q.ListLabBindingChallenges(ctx, postgres.ListLabBindingChallengesParams{EventTeamID: teamID, LabGroupName: group, LabName: lab})
 }
 
 // ApplyTouch stores the collector's cumulative values for a user, lab and

@@ -6,49 +6,55 @@ import (
 	"github.com/gofrs/uuid"
 )
 
-func TestNamesUseChallengeIdentity(t *testing.T) {
-	eventID := uuid.Must(uuid.NewV7())
-	teamID := uuid.Must(uuid.NewV7())
-	firstChallengeID := uuid.Must(uuid.NewV7())
-	secondChallengeID := uuid.Must(uuid.NewV7())
-
-	firstGroup, firstLab, err := Names(eventID, teamID, firstChallengeID)
+func TestNamesUseExerciseAndVariantIdentity(t *testing.T) {
+	eventID, teamID, exerciseID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	group, lab, err := Names(eventID, teamID, exerciseID, 1)
 	if err != nil {
-		t.Fatalf("first Names: %v", err)
+		t.Fatalf("Names: %v", err)
 	}
-	secondGroup, secondLab, err := Names(eventID, teamID, secondChallengeID)
-	if err != nil {
-		t.Fatalf("second Names: %v", err)
+	if want, _ := GroupName(eventID, teamID); group != want {
+		t.Fatalf("group = %q, want the team group %q", group, want)
 	}
-	if firstGroup != secondGroup {
-		t.Fatalf("groups = %q, %q; one team must retain one LabGroup", firstGroup, secondGroup)
+	if lab != "x-"+ShortID(exerciseID)+"-v1" {
+		t.Fatalf("lab = %q", lab)
 	}
-	if group, err := GroupName(eventID, teamID); err != nil || group != firstGroup {
-		t.Fatalf("early VPN group = %q, %v; want %q", group, err, firstGroup)
+	// Every task of the exercise asks for the same name: no challenge is involved.
+	_, again, _ := Names(eventID, teamID, exerciseID, 1)
+	if again != lab {
+		t.Fatalf("lab = %q then %q; the tasks of one exercise must share a Lab", lab, again)
 	}
-	if firstLab == secondLab {
-		t.Fatalf("labs = %q, %q; distinct challenges must have distinct Labs", firstLab, secondLab)
+	_, other, _ := Names(eventID, teamID, uuid.Must(uuid.NewV7()), 1)
+	_, otherVariant, _ := Names(eventID, teamID, exerciseID, 2)
+	if other == lab || otherVariant == lab {
+		t.Fatal("another exercise or variant must get another Lab")
 	}
-	if firstLab != "c-"+firstChallengeID.String() {
-		t.Fatalf("first lab = %q, want challenge-derived name", firstLab)
+	if _, _, err = Names(eventID, teamID, uuid.Nil, 0); err == nil {
+		t.Fatal("a nil exercise must be rejected")
 	}
 }
 
 func TestLabNameChangesPerGeneration(t *testing.T) {
-	challengeID := uuid.Must(uuid.FromString("01900000-0000-7000-8000-000000000001"))
-	if got := LabName(challengeID, 0); got != "c-01900000-0000-7000-8000-000000000001" {
-		t.Fatalf("generation 0 = %q; it must keep the legacy name", got)
-	}
-	if got := LabName(challengeID, 2); got != "c-01900000-0000-7000-8000-000000000001-g2" {
+	exerciseID := uuid.Must(uuid.NewV7())
+	base := LabName(exerciseID, 3, 0)
+	if got := LabName(exerciseID, 3, 2); got != base+"-g2" {
 		t.Fatalf("generation 2 = %q", got)
 	}
-	if len(LabName(challengeID, 99999)) > 63 {
+	if got := NextLabName(base, 1); got != base+"-g1" {
+		t.Fatalf("next of base = %q", got)
+	}
+	if got := NextLabName(base+"-g1", 2); got != base+"-g2" {
+		t.Fatalf("next of g1 = %q", got)
+	}
+	if len(LabName(exerciseID, 2147483647, 2147483647)) > 63 {
 		t.Fatal("Lab names must stay valid Kubernetes names")
+	}
+	if !IsLegacyLabName("c-"+exerciseID.String()) || IsLegacyLabName(base) {
+		t.Fatal("legacy detection")
 	}
 }
 
-func TestParseGroupAndLabNamesInvertTheBuilders(t *testing.T) {
-	event, team, challenge := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+func TestParseGroupNameInvertsTheBuilder(t *testing.T) {
+	event, team := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	group, err := GroupName(event, team)
 	if err != nil {
 		t.Fatal(err)
@@ -57,20 +63,9 @@ func TestParseGroupAndLabNamesInvertTheBuilders(t *testing.T) {
 	if !ok || gotEvent != event || gotTeam != team {
 		t.Fatalf("ParseGroupName(%q) = %v %v %v", group, gotEvent, gotTeam, ok)
 	}
-	for _, generation := range []int32{0, 1, 7} {
-		gotChallenge, gotGeneration, ok := ParseLabName(LabName(challenge, generation))
-		if !ok || gotChallenge != challenge || gotGeneration != generation {
-			t.Fatalf("generation %d: got %v %d %v", generation, gotChallenge, gotGeneration, ok)
-		}
-	}
 	for _, bad := range []string{"", "e-", "test-abc", "e-" + event.String(), "e-x-t-y", "e-" + event.String() + "-t-"} {
 		if _, _, ok := ParseGroupName(bad); ok {
 			t.Errorf("ParseGroupName(%q) accepted", bad)
-		}
-	}
-	for _, bad := range []string{"", "c-", "c-nope", "c-" + challenge.String() + "-g0", "c-" + challenge.String() + "-gx", "web"} {
-		if _, _, ok := ParseLabName(bad); ok {
-			t.Errorf("ParseLabName(%q) accepted", bad)
 		}
 	}
 }

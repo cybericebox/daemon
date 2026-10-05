@@ -78,8 +78,16 @@ func (r *Repository) Labs(ctx context.Context, teamID uuid.UUID) ([]Lab, error) 
 	if err != nil {
 		return nil, err
 	}
+	// The tasks of an exercise share one Lab: it is listed once and is open while any of its tasks is.
 	out := make([]Lab, 0, len(rows))
+	index := make(map[Lab]int, len(rows))
 	for _, row := range rows {
+		key := Lab{Group: row.LabGroupName, Name: row.LabName}
+		if at, seen := index[key]; seen {
+			out[at].Available = out[at].Available || row.Available
+			continue
+		}
+		index[key] = len(out)
 		out = append(out, Lab{Group: row.LabGroupName, Name: row.LabName, Available: row.Available})
 	}
 	return out, nil

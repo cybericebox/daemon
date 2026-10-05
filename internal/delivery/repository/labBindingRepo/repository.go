@@ -31,6 +31,8 @@ type Queries interface {
 	MarkStandLabReady(ctx context.Context, arg postgres.MarkStandLabReadyParams) (int64, error)
 	ListTeamInfrastructureLabs(ctx context.Context, eventTeamID uuid.UUID) ([]postgres.LabBinding, error)
 	RecreateLabBinding(ctx context.Context, arg postgres.RecreateLabBindingParams) (int64, error)
+	ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) ([]postgres.ListLegacyLabBindingsRow, error)
+	ListLabBindingChallenges(ctx context.Context, arg postgres.ListLabBindingChallengesParams) ([]uuid.UUID, error)
 	ResetUnpublishedTeamChallengesForRecreate(ctx context.Context, eventTeamID uuid.UUID) error
 	MarkEventLabBindingsDestroyed(ctx context.Context, eventID uuid.UUID) error
 	ListExistingEventIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
@@ -44,6 +46,7 @@ type PendingLab struct {
 	Binding           labBindingModel.Binding
 	VariantIndex      int32
 	ExerciseVersionID uuid.UUID
+	EventExerciseID   uuid.UUID
 }
 
 func (r *Repository) UpdateReadiness(ctx context.Context, id uuid.UUID, expected, next labBindingModel.Readiness) (int64, error) {
@@ -141,28 +144,29 @@ func (r *Repository) ListPending(ctx context.Context, eventID uuid.UUID, notDue 
 			at := row.DeployedAt.Time
 			binding.DeployedAt = &at
 		}
-		out = append(out, PendingLab{Binding: binding, VariantIndex: row.VariantIndex, ExerciseVersionID: row.ExerciseVersionID})
+		out = append(out, PendingLab{Binding: binding, VariantIndex: row.VariantIndex, ExerciseVersionID: row.ExerciseVersionID, EventExerciseID: row.EventExerciseID})
 	}
 	return out, nil
 }
 
-// MarkDeployed records that the agent accepted this generation's Lab.
+// MarkDeployed records that the agent accepted this generation's Lab. The Lab
+// is shared by every binding of the exercise, so all of them are marked.
 func (r *Repository) MarkDeployed(ctx context.Context, value labBindingModel.Binding, at time.Time) (bool, error) {
 	affected, err := r.q.MarkLabBindingDeployed(ctx, postgres.MarkLabBindingDeployedParams{ID: value.ID, Generation: value.Generation, DeployedAt: pgtype.Timestamptz{Time: at, Valid: true}})
-	return affected == 1, err
+	return affected > 0, err
 }
 
 // MarkFailed fails this generation's pending Lab with a reason.
 func (r *Repository) MarkFailed(ctx context.Context, value labBindingModel.Binding, reason string) (bool, error) {
 	affected, err := r.q.MarkLabBindingFailedWithReason(ctx, postgres.MarkLabBindingFailedWithReasonParams{ID: value.ID, Generation: value.Generation, FailureReason: pgtype.Text{String: reason, Valid: true}})
-	return affected == 1, err
+	return affected > 0, err
 }
 
 // MarkReady marks this generation's Lab ready and its preparing team
 // challenge ready in one statement.
 func (r *Repository) MarkReady(ctx context.Context, value labBindingModel.Binding) (bool, error) {
 	affected, err := r.q.MarkStandLabReady(ctx, postgres.MarkStandLabReadyParams{ID: value.ID, Generation: value.Generation})
-	return affected == 1, err
+	return affected > 0, err
 }
 
 // ListTeamLive returns the team's Labs that were not destroyed.
@@ -178,10 +182,39 @@ func (r *Repository) ListTeamLive(ctx context.Context, teamID uuid.UUID) ([]labB
 	return out, nil
 }
 
-// Recreate moves one Lab to the next generation under labName.
-func (r *Repository) Recreate(ctx context.Context, value labBindingModel.Binding, labName string) (bool, error) {
-	affected, err := r.q.RecreateLabBinding(ctx, postgres.RecreateLabBindingParams{ID: value.ID, Generation: value.Generation, LabName: labName})
+// Recreate moves one binding to the given generation under labName. Every
+// binding that shares a Lab is moved to the same name and generation.
+func (r *Repository) Recreate(ctx context.Context, value labBindingModel.Binding, labName string, generation int32) (bool, error) {
+	affected, err := r.q.RecreateLabBinding(ctx, postgres.RecreateLabBindingParams{ID: value.ID, Generation: value.Generation, LabName: labName, NextGeneration: generation})
 	return affected == 1, err
+}
+
+// LegacyBinding is a binding still on a per-challenge Lab name.
+type LegacyBinding struct {
+	Binding         labBindingModel.Binding
+	EventExerciseID uuid.UUID
+	VariantIndex    int32
+}
+
+// ListLegacy returns the live bindings of an event that are still on a per-challenge Lab name.
+func (r *Repository) ListLegacy(ctx context.Context, eventID uuid.UUID) ([]LegacyBinding, error) {
+	rows, err := r.q.ListLegacyLabBindings(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LegacyBinding, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, LegacyBinding{
+			Binding:         ToDomain(postgres.LabBinding{ID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, LabGroupName: row.LabGroupName, LabName: row.LabName, CreatedAt: row.CreatedAt, Readiness: row.Readiness, EventChallengeID: row.EventChallengeID, Generation: row.Generation, DeployedAt: row.DeployedAt, FailureReason: row.FailureReason}),
+			EventExerciseID: row.EventExerciseID, VariantIndex: row.VariantIndex,
+		})
+	}
+	return out, nil
+}
+
+// LabChallenges returns the challenges that share one Lab of a team.
+func (r *Repository) LabChallenges(ctx context.Context, teamID uuid.UUID, group, lab string) ([]uuid.UUID, error) {
+	return r.q.ListLabBindingChallenges(ctx, postgres.ListLabBindingChallengesParams{EventTeamID: teamID, LabGroupName: group, LabName: lab})
 }
 
 // ResetUnpublishedForRecreate returns not yet published infrastructure

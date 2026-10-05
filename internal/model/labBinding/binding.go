@@ -39,29 +39,43 @@ func New(eventID, teamID, challengeID uuid.UUID, group, lab string, now time.Tim
 	return Binding{ID: uuid.Must(uuid.NewV7()), EventID: eventID, EventTeamID: teamID, EventChallengeID: challengeID, LabGroupName: group, LabName: lab, CreatedAt: now, Readiness: ReadinessPending}, nil
 }
 
-// Names derives stable infrastructure handles. They intentionally include the
-// immutable event challenge, so each task gets one agent Lab while retries
-// retain the same handles.
-func Names(eventID, teamID, eventChallengeID uuid.UUID) (group, lab string, err error) {
-	if eventID == uuid.Nil || teamID == uuid.Nil || eventChallengeID == uuid.Nil {
+// Names derives stable infrastructure handles. The Lab belongs to the event
+// exercise and the variant the team was given, so every task of the set shares
+// one Lab; retries retain the same handles.
+func Names(eventID, teamID, eventExerciseID uuid.UUID, variantIndex int32) (group, lab string, err error) {
+	if eventID == uuid.Nil || teamID == uuid.Nil || eventExerciseID == uuid.Nil || variantIndex < 0 {
 		return "", "", ErrLabBindingInvalid.Err()
 	}
 	group, err = GroupName(eventID, teamID)
 	if err != nil {
 		return "", "", err
 	}
-	return group, LabName(eventChallengeID, 0), nil
+	return group, LabName(eventExerciseID, variantIndex, 0), nil
 }
 
-// LabName is the agent Lab name of one generation. Generation 0 keeps the
+// LabName is the agent Lab name of one generation of an exercise's variant:
+// x-<event exercise>-v<variant>[-g<generation>]. Generation 0 keeps the
 // original name; a recreated Lab gets a new one because deleting the previous
-// Lab is asynchronous in the agent.
-func LabName(eventChallengeID uuid.UUID, generation int32) string {
+// Lab is asynchronous in the agent. At most 2+25+2+10+2+10 characters, inside
+// the 63 of a Kubernetes name.
+func LabName(eventExerciseID uuid.UUID, variantIndex, generation int32) string {
+	name := "x-" + ShortID(eventExerciseID) + "-v" + strconv.Itoa(int(variantIndex))
 	if generation == 0 {
-		return "c-" + eventChallengeID.String()
+		return name
 	}
-	return "c-" + eventChallengeID.String() + "-g" + strconv.Itoa(int(generation))
+	return name + "-g" + strconv.Itoa(int(generation))
 }
+
+// NextLabName is the name of the next generation of a Lab, whatever its current
+// generation is.
+func NextLabName(current string, generation int32) string {
+	base, _, _ := strings.Cut(current, "-g")
+	return base + "-g" + strconv.Itoa(int(generation))
+}
+
+// IsLegacyLabName reports a per-challenge Lab name (c-<challenge>[-g<n>]) from
+// before a Lab was shared by the tasks of an exercise.
+func IsLegacyLabName(name string) bool { return strings.HasPrefix(name, "c-") }
 
 // GroupName is shared by early VPN issuance and later challenge Lab deployment:
 // e-<event>-t-<team> with both ids as 25-character base36 (the same encoding as a
@@ -93,25 +107,4 @@ func ParseGroupName(name string) (eventID, teamID uuid.UUID, ok bool) {
 		return uuid.Nil, uuid.Nil, false
 	}
 	return eventID, teamID, true
-}
-
-// ParseLabName is the inverse of LabName for every generation.
-func ParseLabName(name string) (eventChallengeID uuid.UUID, generation int32, ok bool) {
-	rest, found := strings.CutPrefix(name, "c-")
-	if !found {
-		return uuid.Nil, 0, false
-	}
-	idPart, genPart, hasGeneration := strings.Cut(rest, "-g")
-	eventChallengeID, err := uuid.FromString(idPart)
-	if err != nil || eventChallengeID == uuid.Nil {
-		return uuid.Nil, 0, false
-	}
-	if hasGeneration {
-		n, err := strconv.ParseInt(genPart, 10, 32)
-		if err != nil || n <= 0 {
-			return uuid.Nil, 0, false
-		}
-		generation = int32(n)
-	}
-	return eventChallengeID, generation, true
 }

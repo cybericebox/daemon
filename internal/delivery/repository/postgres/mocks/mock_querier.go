@@ -6984,6 +6984,21 @@ func (mr *MockQuerierMockRecorder) ListInvitationExpiryCandidates(ctx, nowAt any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListInvitationExpiryCandidates", reflect.TypeOf((*MockQuerier)(nil).ListInvitationExpiryCandidates), ctx, nowAt)
 }
 
+// ListLabBindingChallenges mocks base method.
+func (m *MockQuerier) ListLabBindingChallenges(ctx context.Context, arg postgres.ListLabBindingChallengesParams) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLabBindingChallenges", ctx, arg)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLabBindingChallenges indicates an expected call of ListLabBindingChallenges.
+func (mr *MockQuerierMockRecorder) ListLabBindingChallenges(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabBindingChallenges", reflect.TypeOf((*MockQuerier)(nil).ListLabBindingChallenges), ctx, arg)
+}
+
 // ListLabTrafficCoverage mocks base method.
 func (m *MockQuerier) ListLabTrafficCoverage(ctx context.Context, arg postgres.ListLabTrafficCoverageParams) ([]postgres.ListLabTrafficCoverageRow, error) {
 	m.ctrl.T.Helper()
@@ -7042,6 +7057,21 @@ func (m *MockQuerier) ListLatestRegistrationAnswersForUsers(ctx context.Context,
 func (mr *MockQuerierMockRecorder) ListLatestRegistrationAnswersForUsers(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLatestRegistrationAnswersForUsers", reflect.TypeOf((*MockQuerier)(nil).ListLatestRegistrationAnswersForUsers), ctx, arg)
+}
+
+// ListLegacyLabBindings mocks base method.
+func (m *MockQuerier) ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) ([]postgres.ListLegacyLabBindingsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLegacyLabBindings", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListLegacyLabBindingsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLegacyLabBindings indicates an expected call of ListLegacyLabBindings.
+func (mr *MockQuerierMockRecorder) ListLegacyLabBindings(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLegacyLabBindings", reflect.TypeOf((*MockQuerier)(nil).ListLegacyLabBindings), ctx, eventID)
 }
 
 // ListManageHintTotals mocks base method.

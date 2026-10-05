@@ -87,20 +87,127 @@ func (q *Queries) GetLabBinding(ctx context.Context, arg GetLabBindingParams) (L
 	return i, err
 }
 
-const listPendingEventLabBindings = `-- name: ListPendingEventLabBindings :many
-SELECT lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
-       lb.generation, lb.deployed_at, lb.created_at,
-       tc.variant_index, ee.exercise_version_id
+const listLabBindingChallenges = `-- name: ListLabBindingChallenges :many
+SELECT event_challenge_id
+FROM lab_bindings
+WHERE event_team_id = $1
+  AND lab_group_name = $2
+  AND lab_name = $3
+ORDER BY event_challenge_id
+`
+
+type ListLabBindingChallengesParams struct {
+	EventTeamID  uuid.UUID `json:"event_team_id"`
+	LabGroupName string    `json:"lab_group_name"`
+	LabName      string    `json:"lab_name"`
+}
+
+// The challenges that share one Lab of a team.
+func (q *Queries) ListLabBindingChallenges(ctx context.Context, arg ListLabBindingChallengesParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listLabBindingChallenges, arg.EventTeamID, arg.LabGroupName, arg.LabName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var event_challenge_id uuid.UUID
+		if err := rows.Scan(&event_challenge_id); err != nil {
+			return nil, err
+		}
+		items = append(items, event_challenge_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLegacyLabBindings = `-- name: ListLegacyLabBindings :many
+SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, ec.event_exercise_id, tc.variant_index
 FROM lab_bindings lb
+JOIN event_challenges ec ON ec.id = lb.event_challenge_id
 JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
                        AND tc.event_challenge_id = lb.event_challenge_id
-JOIN event_challenges ec ON ec.id = lb.event_challenge_id
-JOIN event_exercises ee ON ee.id = ec.event_exercise_id
 WHERE lb.event_id = $1
-  AND lb.readiness = 0
-  -- Labs of a later stage wait until their deploy lead before they open.
-  AND ee.id <> ALL ($2::uuid[])
-ORDER BY lb.created_at, lb.id
+  AND lb.lab_name LIKE 'c-%'
+  AND lb.readiness <> 3
+ORDER BY lb.event_team_id, ec.event_exercise_id, lb.created_at, lb.id
+`
+
+type ListLegacyLabBindingsRow struct {
+	ID               uuid.UUID          `json:"id"`
+	EventID          uuid.UUID          `json:"event_id"`
+	EventTeamID      uuid.UUID          `json:"event_team_id"`
+	LabGroupName     string             `json:"lab_group_name"`
+	LabName          string             `json:"lab_name"`
+	CreatedAt        time.Time          `json:"created_at"`
+	Readiness        int16              `json:"readiness"`
+	EventChallengeID uuid.UUID          `json:"event_challenge_id"`
+	Generation       int32              `json:"generation"`
+	DeployedAt       pgtype.Timestamptz `json:"deployed_at"`
+	FailureReason    pgtype.Text        `json:"failure_reason"`
+	EventExerciseID  uuid.UUID          `json:"event_exercise_id"`
+	VariantIndex     int32              `json:"variant_index"`
+}
+
+// Bindings still on a per-challenge Lab name (c-<challenge>), with what the
+// shared name is derived from.
+func (q *Queries) ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) ([]ListLegacyLabBindingsRow, error) {
+	rows, err := q.db.Query(ctx, listLegacyLabBindings, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLegacyLabBindingsRow{}
+	for rows.Next() {
+		var i ListLegacyLabBindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.EventTeamID,
+			&i.LabGroupName,
+			&i.LabName,
+			&i.CreatedAt,
+			&i.Readiness,
+			&i.EventChallengeID,
+			&i.Generation,
+			&i.DeployedAt,
+			&i.FailureReason,
+			&i.EventExerciseID,
+			&i.VariantIndex,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingEventLabBindings = `-- name: ListPendingEventLabBindings :many
+SELECT pending.id, pending.event_team_id, pending.event_challenge_id, pending.lab_group_name, pending.lab_name,
+       pending.generation, pending.deployed_at, pending.created_at,
+       pending.variant_index, pending.exercise_version_id, pending.event_exercise_id
+FROM (
+    SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
+           lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
+           lb.generation, lb.deployed_at, lb.created_at,
+           tc.variant_index, ee.exercise_version_id, ee.id AS event_exercise_id
+    FROM lab_bindings lb
+    JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
+                           AND tc.event_challenge_id = lb.event_challenge_id
+    JOIN event_challenges ec ON ec.id = lb.event_challenge_id
+    JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+    WHERE lb.event_id = $1
+      AND lb.readiness = 0
+      -- Labs of a later stage wait until their deploy lead before they open.
+      AND ee.id <> ALL ($2::uuid[])
+    ORDER BY lb.event_team_id, lb.lab_name, lb.created_at, lb.id
+) pending
+ORDER BY pending.created_at, pending.id
 `
 
 type ListPendingEventLabBindingsParams struct {
@@ -119,10 +226,12 @@ type ListPendingEventLabBindingsRow struct {
 	CreatedAt         time.Time          `json:"created_at"`
 	VariantIndex      int32              `json:"variant_index"`
 	ExerciseVersionID uuid.UUID          `json:"exercise_version_id"`
+	EventExerciseID   uuid.UUID          `json:"event_exercise_id"`
 }
 
 // Stand engine work queue: every not yet ready Lab of one event together with
-// the pinned version and variant needed to resolve its topology.
+// the pinned version and variant needed to resolve its topology. The bindings
+// of one exercise share a Lab, so each Lab is listed once, by its first binding.
 func (q *Queries) ListPendingEventLabBindings(ctx context.Context, arg ListPendingEventLabBindingsParams) ([]ListPendingEventLabBindingsRow, error) {
 	rows, err := q.db.Query(ctx, listPendingEventLabBindings, arg.EventID, arg.NotDueExerciseIds)
 	if err != nil {
@@ -143,6 +252,7 @@ func (q *Queries) ListPendingEventLabBindings(ctx context.Context, arg ListPendi
 			&i.CreatedAt,
 			&i.VariantIndex,
 			&i.ExerciseVersionID,
+			&i.EventExerciseID,
 		); err != nil {
 			return nil, err
 		}
@@ -279,12 +389,16 @@ func (q *Queries) MarkEventLabBindingsDestroyed(ctx context.Context, eventID uui
 }
 
 const markLabBindingDeployed = `-- name: MarkLabBindingDeployed :execrows
-UPDATE lab_bindings
+UPDATE lab_bindings lb
 SET deployed_at = $1
-WHERE id = $2
-  AND generation = $3
-  AND readiness = 0
-  AND deployed_at IS NULL
+FROM lab_bindings leader
+WHERE leader.id = $2
+  AND leader.generation = $3
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 0
+  AND lb.deployed_at IS NULL
 `
 
 type MarkLabBindingDeployedParams struct {
@@ -293,6 +407,7 @@ type MarkLabBindingDeployedParams struct {
 	Generation int32              `json:"generation"`
 }
 
+// The Lab is shared by every binding of the exercise: all of them are marked.
 func (q *Queries) MarkLabBindingDeployed(ctx context.Context, arg MarkLabBindingDeployedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markLabBindingDeployed, arg.DeployedAt, arg.ID, arg.Generation)
 	if err != nil {
@@ -317,12 +432,16 @@ func (q *Queries) MarkLabBindingDestroyed(ctx context.Context, id uuid.UUID) (in
 }
 
 const markLabBindingFailedWithReason = `-- name: MarkLabBindingFailedWithReason :execrows
-UPDATE lab_bindings
+UPDATE lab_bindings lb
 SET readiness = 2,
     failure_reason = $1
-WHERE id = $2
-  AND generation = $3
-  AND readiness = 0
+FROM lab_bindings leader
+WHERE leader.id = $2
+  AND leader.generation = $3
+  AND lb.event_team_id = leader.event_team_id
+  AND lb.lab_group_name = leader.lab_group_name
+  AND lb.lab_name = leader.lab_name
+  AND lb.readiness = 0
 `
 
 type MarkLabBindingFailedWithReasonParams struct {
@@ -360,11 +479,19 @@ func (q *Queries) MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg M
 }
 
 const markStandLabReady = `-- name: MarkStandLabReady :one
-WITH lab AS (
+WITH leader AS (
+    SELECT first.event_team_id, first.lab_group_name, first.lab_name
+    FROM lab_bindings first
+    WHERE first.id = $1
+      AND first.generation = $2
+      AND first.readiness = 0
+), lab AS (
     UPDATE lab_bindings binding
     SET readiness = 1
-    WHERE binding.id = $1
-      AND binding.generation = $2
+    FROM leader
+    WHERE binding.event_team_id = leader.event_team_id
+      AND binding.lab_group_name = leader.lab_group_name
+      AND binding.lab_name = leader.lab_name
       AND binding.readiness = 0
     RETURNING binding.event_team_id, binding.event_challenge_id
 ), challenge AS (
@@ -384,8 +511,9 @@ type MarkStandLabReadyParams struct {
 	Generation int32     `json:"generation"`
 }
 
-// A ready Lab makes its preparing team challenge ready in the same statement.
-// Returns the number of bindings changed (0 = stale generation or repeat).
+// A ready Lab makes the preparing team challenges of every binding that shares
+// it ready in the same statement. Returns the number of bindings changed
+// (0 = stale generation or repeat).
 func (q *Queries) MarkStandLabReady(ctx context.Context, arg MarkStandLabReadyParams) (int64, error) {
 	row := q.db.QueryRow(ctx, markStandLabReady, arg.ID, arg.Generation)
 	var column_1 int64
@@ -462,26 +590,33 @@ func (q *Queries) QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Tim
 
 const recreateLabBinding = `-- name: RecreateLabBinding :execrows
 UPDATE lab_bindings
-SET generation = generation + 1,
-    lab_name = $1,
+SET generation = $1,
+    lab_name = $2,
     readiness = 0,
     deployed_at = NULL,
     failure_reason = NULL
-WHERE id = $2
-  AND generation = $3
+WHERE id = $3
+  AND generation = $4
   AND readiness <> 3
 `
 
 type RecreateLabBindingParams struct {
-	LabName    string    `json:"lab_name"`
-	ID         uuid.UUID `json:"id"`
-	Generation int32     `json:"generation"`
+	NextGeneration int32     `json:"next_generation"`
+	LabName        string    `json:"lab_name"`
+	ID             uuid.UUID `json:"id"`
+	Generation     int32     `json:"generation"`
 }
 
 // A recreated Lab moves to the next generation under a new name, so the
-// asynchronously deleted previous Lab never collides, and deploys again.
+// asynchronously deleted previous Lab never collides, and deploys again. Every
+// binding of the exercise is moved to the same name and generation.
 func (q *Queries) RecreateLabBinding(ctx context.Context, arg RecreateLabBindingParams) (int64, error) {
-	result, err := q.db.Exec(ctx, recreateLabBinding, arg.LabName, arg.ID, arg.Generation)
+	result, err := q.db.Exec(ctx, recreateLabBinding,
+		arg.NextGeneration,
+		arg.LabName,
+		arg.ID,
+		arg.Generation,
+	)
 	if err != nil {
 		return 0, err
 	}
