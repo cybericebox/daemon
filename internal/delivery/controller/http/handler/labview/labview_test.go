@@ -38,3 +38,18 @@ func TestStatusMapsQueueSnapshotAndWarnings(t *testing.T) {
 		t.Errorf("queue = %+v", never.Queue)
 	}
 }
+
+func TestAnnotateDevicesFillsTypeAndLogicalName(t *testing.T) {
+	s := StatusResponse{Devices: []DeviceResponse{{Name: "web"}, {Name: "sw-abc"}, {Name: "vpn"}, {Name: "mystery"}}}
+	AnnotateDevices(&s, map[string]DeviceInfo{"web": {Name: "web", Type: "container"}, "sw-abc": {Name: "sw", Type: "unmanaged-switch"}})
+	got := [][2]string{}
+	for _, d := range s.Devices {
+		got = append(got, [2]string{d.Type, d.LogicalName})
+	}
+	want := [][2]string{{"container", "web"}, {"unmanaged-switch", "sw"}, {"vpn", ""}, {"", ""}}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("device %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}

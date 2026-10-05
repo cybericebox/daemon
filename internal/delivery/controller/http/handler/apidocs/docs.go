@@ -31259,6 +31259,10 @@ const docTemplate = `{
         "labview.DeviceResponse": {
             "type": "object",
             "properties": {
+                "LogicalName": {
+                    "description": "LogicalName is the device name in the exercise topology; empty when unknown.",
+                    "type": "string"
+                },
                 "Name": {
                     "type": "string"
                 },
@@ -31278,6 +31282,10 @@ const docTemplate = `{
                 },
                 "Snapshot": {
                     "$ref": "#/definitions/labview.SnapshotResponse"
+                },
+                "Type": {
+                    "description": "Type is the device type: container, unmanaged-switch, hub, vpn or internet; empty when unknown.",
+                    "type": "string"
                 }
             }
         },

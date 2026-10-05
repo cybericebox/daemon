@@ -69,6 +69,10 @@ type (
 		Name   string `json:"Name"`
 		Ready  bool   `json:"Ready"`
 		Reason string `json:"Reason"`
+		// Type is the device type: container, unmanaged-switch, hub, vpn or internet; empty when unknown.
+		Type string `json:"Type,omitempty"`
+		// LogicalName is the device name in the exercise topology; empty when unknown.
+		LogicalName string `json:"LogicalName,omitempty"`
 		// Scheduling is null when the scheduler does not track the device.
 		Scheduling *SchedulingResponse `json:"Scheduling"`
 		Snapshot   *SnapshotResponse   `json:"Snapshot"`
@@ -146,4 +150,32 @@ func optionalTime(t time.Time) *time.Time {
 		return nil
 	}
 	return &t
+}
+
+// DeviceInfo is what the exercise topology says about one lab device.
+type DeviceInfo struct {
+	Name string
+	Type string
+}
+
+// Gateway device names the lab operator reserves for the lab's VPN and internet gateways.
+const (
+	gatewayVPN      = "vpn"
+	gatewayInternet = "internet"
+)
+
+// AnnotateDevices fills the type and the logical name of every device from the topology, keyed by
+// the device name in the lab. A device the topology does not know keeps them empty, except the
+// reserved VPN and internet gateways, which have no topology device and get their own type.
+func AnnotateDevices(s *StatusResponse, topology map[string]DeviceInfo) {
+	for i := range s.Devices {
+		d := &s.Devices[i]
+		if info, ok := topology[d.Name]; ok {
+			d.Type, d.LogicalName = info.Type, info.Name
+			continue
+		}
+		if d.Name == gatewayVPN || d.Name == gatewayInternet {
+			d.Type = d.Name
+		}
+	}
 }

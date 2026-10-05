@@ -513,6 +513,7 @@ type Querier interface {
 	GetPlatformOverviewUsers(ctx context.Context, arg GetPlatformOverviewUsersParams) (GetPlatformOverviewUsersRow, error)
 	GetPlatformSMTPProvider(ctx context.Context, id uuid.UUID) (MailSmtpConfig, error)
 	GetPlatformSettingByKey(ctx context.Context, key string) (AppSetting, error)
+	// devices: the logical devices (id, name, type, never images or variables) of the topology the lab was deployed from.
 	GetPlatformTestLab(ctx context.Context, id uuid.UUID) (GetPlatformTestLabRow, error)
 	// Sign-in methods of the current accounts, exclusive groups: password only
 	// (a password, no provider), Google only (a linked provider, no password),
