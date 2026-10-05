@@ -18,4 +18,6 @@ type TestDeploy struct {
 	ExerciseID uuid.UUID
 	// Expired is true when the lease is over but the lab is not removed yet (filled when deploys are listed, not stored).
 	Expired bool
+	// Removing is true while the lab is being removed: the lease is over and the agent still has it (filled when listed, not stored).
+	Removing bool
 }

@@ -17,7 +17,9 @@ type deployListItem struct {
 	ExpiresAt time.Time `json:"ExpiresAt"`
 	CreatedAt time.Time `json:"CreatedAt"`
 	// Expired: the lease is over but the lab is not removed yet; it still runs and can be ended.
-	Expired    bool   `json:"Expired"`
+	Expired bool `json:"Expired"`
+	// Removing: the lab is being removed; it stays in the list until it is really gone.
+	Removing   bool   `json:"Removing"`
 	ExerciseID string `json:"ExerciseID"`
 	VersionID  string `json:"VersionID"`
 	VariantID  string `json:"VariantID"`
@@ -33,7 +35,7 @@ func deployListItemOf(d exerciseModel.TestDeploy) deployListItem {
 	for _, f := range d.Flags {
 		tasks = append(tasks, deployTaskResponse{TaskID: f.TaskID.String(), Name: f.Name})
 	}
-	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, Expired: d.Expired, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Tasks: tasks}
+	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, Expired: d.Expired, Removing: d.Removing, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Tasks: tasks}
 }
 
 func solvedIDs(ids []uuid.UUID) []string {
@@ -83,6 +85,8 @@ type (
 		// ExpiresAt is the end of the lease; Expired: it is over but the lab is not removed yet (it can only be ended).
 		ExpiresAt time.Time `json:"ExpiresAt"`
 		Expired   bool      `json:"Expired"`
+		// Removing: the lab is being removed (Phase is "Removing"); the answer stays 200 until it is gone, then 404.
+		Removing bool `json:"Removing"`
 	}
 
 	deployDeviceResponse struct {
@@ -125,7 +129,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
-	out.ExpiresAt, out.Expired = s.ExpiresAt, s.Expired
+	out.ExpiresAt, out.Expired, out.Removing = s.ExpiresAt, s.Expired, s.Removing
 	if !s.VPNLastHandshake.IsZero() {
 		t := s.VPNLastHandshake
 		out.VPNLastHandshake = &t
