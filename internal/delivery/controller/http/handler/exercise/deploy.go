@@ -76,6 +76,8 @@ type (
 		SolvedTaskIDs []string `json:"SolvedTaskIDs"`
 		// VPNLastHandshake is the client's last handshake; absent when it never connected.
 		VPNLastHandshake *time.Time `json:"VPNLastHandshake,omitempty"`
+		// VPNProbeURL is the tester page served inside the tunnel by the lab group's VPN pod; absent until known.
+		VPNProbeURL string `json:"VPNProbeURL,omitempty"`
 	}
 
 	deployDeviceResponse struct {
@@ -117,6 +119,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 	}
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
 	out.VPNConnected = s.VPNConnected
+	out.VPNProbeURL = s.VPNProbeURL
 	if !s.VPNLastHandshake.IsZero() {
 		t := s.VPNLastHandshake
 		out.VPNLastHandshake = &t

@@ -1253,26 +1253,27 @@ func TestDeployStatus_Returns200(t *testing.T) {
 func TestDeployStatus_ReportsVPNConnectionAndSolvedTasks(t *testing.T) {
 	uid, solved := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	at := time.Date(2026, 9, 30, 12, 0, 5, 0, time.UTC)
-	uc := &fakeUC{deployStatus: exerciseModel.LabDeployStatus{Phase: "Ready", VPNConnected: true, VPNLastHandshake: at, SolvedTasks: []uuid.UUID{solved}}}
+	uc := &fakeUC{deployStatus: exerciseModel.LabDeployStatus{Phase: "Ready", VPNConnected: true, VPNLastHandshake: at, VPNProbeURL: "http://10.200.4.1:8088/", SolvedTasks: []uuid.UUID{solved}}}
 	w := httptest.NewRecorder()
 	newEngine(uc, uid).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String(), nil))
 	var env struct {
 		Data struct {
 			VPNConnected     bool
 			VPNLastHandshake *time.Time
+			VPNProbeURL      string
 			SolvedTaskIDs    []string
 		}
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
 		t.Fatal(err)
 	}
-	if !env.Data.VPNConnected || env.Data.VPNLastHandshake == nil || !env.Data.VPNLastHandshake.Equal(at) || len(env.Data.SolvedTaskIDs) != 1 || env.Data.SolvedTaskIDs[0] != solved.String() {
+	if !env.Data.VPNConnected || env.Data.VPNLastHandshake == nil || !env.Data.VPNLastHandshake.Equal(at) || env.Data.VPNProbeURL != "http://10.200.4.1:8088/" || len(env.Data.SolvedTaskIDs) != 1 || env.Data.SolvedTaskIDs[0] != solved.String() {
 		t.Errorf("vpn wrong: %s", w.Body.String())
 	}
 	uc.deployStatus = exerciseModel.LabDeployStatus{Phase: "Ready"}
 	w = httptest.NewRecorder()
 	newEngine(uc, uid).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String(), nil))
-	if strings.Contains(w.Body.String(), "VPNLastHandshake") || !strings.Contains(w.Body.String(), `"SolvedTaskIDs":[]`) {
+	if strings.Contains(w.Body.String(), "VPNLastHandshake") || strings.Contains(w.Body.String(), "VPNProbeURL") || !strings.Contains(w.Body.String(), `"SolvedTaskIDs":[]`) {
 		t.Errorf("a never connected client has no handshake: %s", w.Body.String())
 	}
 }

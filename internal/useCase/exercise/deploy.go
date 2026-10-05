@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/cybericebox/laboratory/pkg/vpnprobe"
 	"github.com/gofrs/uuid"
 
 	testDeployRepo "github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
@@ -446,7 +448,22 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 		status.VPNLastHandshake = handshake
 		status.VPNConnected = time.Since(handshake) <= vpnConnectedWindow
 	}
+	// The tester page address is a hint too: the same gateway the event path derives from the group's client subnet.
+	if status.Ready {
+		if reader, ok := u.infra.(vpnSubnetReader); ok {
+			if subnet, subErr := reader.GetVPNClientSubnet(ctx, deploy.GroupName); subErr == nil {
+				if ip, ipErr := vpnprobe.GatewayIP(subnet); ipErr == nil {
+					status.VPNProbeURL = fmt.Sprintf("http://%s:%d/", ip, vpnprobe.Port)
+				}
+			}
+		}
+	}
 	return status, nil
+}
+
+// vpnSubnetReader is the optional port that reads a group's published VPN client subnet.
+type vpnSubnetReader interface {
+	GetVPNClientSubnet(context.Context, string) (string, error)
 }
 
 // CheckTestFlag tells the author of a test deploy whether a flag they found

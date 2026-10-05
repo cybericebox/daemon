@@ -49,6 +49,9 @@ type fakeInfra struct {
 	deletedClients  []string
 	deleteLabErr    error
 	handshakeErr    error
+	subnet          string
+	subnetErr       error
+	subnetGroup     string
 	handshakeClient string
 }
 
@@ -93,6 +96,10 @@ func (f *fakeInfra) DeleteLabClient(_ context.Context, group, client string) err
 func (f *fakeInfra) LabClientHandshake(_ context.Context, _, client string) (time.Time, error) {
 	f.handshakeClient = client
 	return f.handshake, f.handshakeErr
+}
+func (f *fakeInfra) GetVPNClientSubnet(_ context.Context, group string) (string, error) {
+	f.subnetGroup = group
+	return f.subnet, f.subnetErr
 }
 func (f *fakeInfra) ReconcileLabGroupAccess(_ context.Context, group string, policies []labAccessModel.ClientPolicy) error {
 	f.policyGroup, f.policies = group, policies
@@ -1029,5 +1036,40 @@ func TestDeployVariantTest_RecreatedGroupWithoutConfigLeavesNoStaleOne(t *testin
 	}
 	if len(store.deleted) == 0 {
 		t.Fatal("the stale config of the old group must be deleted")
+	}
+}
+
+func TestDeployTestStatus_ProbeURLFromTheGroupsClientSubnetOnlyWhenReady(t *testing.T) {
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, tc := range []struct {
+		name   string
+		phase  string
+		ready  bool
+		subnet string
+		err    error
+		want   string
+	}{
+		{"ready", "Ready", true, "10.200.4.0/29", nil, "http://10.200.4.1:8088/"},
+		{"not ready", "Pending", false, "10.200.4.0/29", nil, ""},
+		{"subnet failure does not break polling", "Ready", true, "", errors.New("agent down"), ""},
+		{"bad subnet", "Ready", true, "nonsense", nil, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			q := postgresMocks.NewMockQuerier(ctrl)
+			q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, GroupName: "t-group", CreatedBy: userID}, nil)
+			infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Phase: tc.phase, Ready: tc.ready}, subnet: tc.subnet, subnetErr: tc.err}
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+			st, err := uc.DeployTestStatus(context.Background(), userID, deployID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.VPNProbeURL != tc.want {
+				t.Errorf("probe url %q, want %q", st.VPNProbeURL, tc.want)
+			}
+			if tc.ready && infra.subnetGroup != "t-group" {
+				t.Errorf("subnet must be read for the deploy's group: %q", infra.subnetGroup)
+			}
+		})
 	}
 }
