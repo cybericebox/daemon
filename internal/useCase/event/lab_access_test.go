@@ -334,3 +334,32 @@ func TestReconcilePendingLabAccessKeepsRevisionDirtyWhileGroupTerminating(t *tes
 		t.Fatalf("terminating error must reach the worker unchanged in kind, got %v", err)
 	}
 }
+
+func TestReconcilePendingLabAccess_FailingTeamBacksOffAndDoesNotBlockOthers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	infra := &recordingLabAccessInfra{err: errors.New("agent down")}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: infra})
+	eventID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	otherTeam := uuid.Must(uuid.NewV7())
+	now := time.Now()
+	rows := []postgres.ListDirtyEventLabAccessSyncsRow{
+		{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, UpdatedAt: now, RuntimeOpen: true, VpnEnabled: true},
+		{EventTeamID: otherTeam, EventID: eventID, DesiredRevision: 2, UpdatedAt: now, RuntimeOpen: true, VpnEnabled: false},
+	}
+	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return(rows, nil).Times(2)
+	// first pass: the failing team is tried once, the next team still runs
+	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return(nil, nil).Times(1)
+	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil).Times(1)
+	q.EXPECT().ListEventLabAccessClients(gomock.Any(), otherTeam).Return(nil, nil).Times(2)
+	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), otherTeam).Return(nil, nil).Times(2)
+	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(2)
+
+	if err := uc.ReconcilePendingLabAccess(context.Background()); err == nil {
+		t.Fatal("the failing team's error is reported")
+	}
+	// second pass right away: the failing team waits out its backoff (no new agent call, no new error)
+	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
+		t.Fatalf("a team in backoff is skipped silently: %v", err)
+	}
+}

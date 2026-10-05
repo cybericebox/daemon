@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -71,12 +72,26 @@ func (u *EventUseCase) ReconcilePendingLabAccess(ctx context.Context) error {
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list pending laboratory access syncs").Err()
 	}
+	now := time.Now()
+	var errs []error
 	for _, sync := range dirty {
-		if err = u.reconcileLabAccess(ctx, sync); err != nil {
-			return err
+		if !u.labAccessBackoff.ready(sync.TeamID, now) {
+			continue
 		}
+		if err = u.reconcileLabAccess(ctx, sync); err != nil {
+			if _, terminating := infraModel.AsTerminating(err); terminating || errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
+				return err
+			}
+			// One failing team neither blocks the others nor is retried on every
+			// pass: it waits out a growing delay, so its error reaches the journal
+			// once per delay instead of once per pass.
+			u.labAccessBackoff.fail(sync.TeamID, now)
+			errs = append(errs, err)
+			continue
+		}
+		u.labAccessBackoff.succeed(sync.TeamID)
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyncModel.Sync) error {
@@ -185,4 +200,49 @@ func requestLabAccessSyncInTransaction(ctx context.Context, repo *labAccessSyncM
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to request laboratory access sync").Err()
 	}
 	return nil
+}
+
+const (
+	labAccessBackoffMin = 10 * time.Second
+	labAccessBackoffMax = 5 * time.Minute
+)
+
+// labAccessBackoff is the per-team retry delay of failing access syncs. It is
+// in memory only: a restart retries everything once, which is harmless.
+type labAccessBackoff struct {
+	mu    sync.Mutex
+	state map[uuid.UUID]labAccessBackoffState
+}
+
+type labAccessBackoffState struct {
+	failures int
+	until    time.Time
+}
+
+func newLabAccessBackoff() *labAccessBackoff {
+	return &labAccessBackoff{state: map[uuid.UUID]labAccessBackoffState{}}
+}
+
+func (b *labAccessBackoff) ready(team uuid.UUID, now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	st, ok := b.state[team]
+	return !ok || !now.Before(st.until)
+}
+
+func (b *labAccessBackoff) fail(team uuid.UUID, now time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	st := b.state[team]
+	delay := labAccessBackoffMin << min(st.failures, 10)
+	if delay > labAccessBackoffMax {
+		delay = labAccessBackoffMax
+	}
+	b.state[team] = labAccessBackoffState{failures: st.failures + 1, until: now.Add(delay)}
+}
+
+func (b *labAccessBackoff) succeed(team uuid.UUID) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.state, team)
 }

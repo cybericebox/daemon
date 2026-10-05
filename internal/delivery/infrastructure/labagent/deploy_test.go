@@ -541,3 +541,20 @@ func TestKeyUpkeepCallsTheAgentAndTreatsAGoneKeyAsRemoved(t *testing.T) {
 		t.Fatal("a failed renewal is an error")
 	}
 }
+
+// A group the stand engine created with other sizes, or the access sync suspended, differs from what
+// every later ensure sends; ensure must adopt it, not fail forever.
+func TestEnsureVPNGroupAdoptsAnExistingGroupWithAnotherSpec(t *testing.T) {
+	f := &fakeAgent{groups: readyGroup(), itemState: labpb.ItemState_ITEM_STATE_FAILED, itemError: "LabGroup event-team already exists with a different spec"}
+	if err := newClient(f).EnsureVPNGroup(context.Background(), "event-team"); err != nil {
+		t.Fatalf("an existing group is adopted: %v", err)
+	}
+	if err := newClient(f).DeployLab(context.Background(), "event-team", "c-1", infraModel.LabMeta{}, exerciseModel.Topology{}); err == nil || !strings.Contains(err.Error(), "create lab") {
+		// the group is adopted; only the lab create (which also answers FAILED here) fails
+		t.Fatalf("DeployLab should get past the group: %v", err)
+	}
+	f = &fakeAgent{itemState: labpb.ItemState_ITEM_STATE_FAILED, itemError: "LabGroup event-team already exists with a different spec"}
+	if err := newClient(f).EnsureVPNGroup(context.Background(), "event-team"); err == nil {
+		t.Fatal("a group the agent does not list is not adopted")
+	}
+}

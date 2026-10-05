@@ -1,6 +1,7 @@
 package middleware_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -126,5 +127,32 @@ func TestHandle_ExposesSignInURLAndContentDisposition(t *testing.T) {
 
 	if got := w.Header().Get("Access-Control-Expose-Headers"); got != "X-Sign-In-URL, Content-Disposition, Retry-After" {
 		t.Fatalf("Access-Control-Expose-Headers = %q, want %q", got, "X-Sign-In-URL, Content-Disposition, Retry-After")
+	}
+}
+
+type tagSet map[string]bool
+
+func (s tagSet) EventTagExists(_ context.Context, tag string) bool { return s[tag] }
+
+// An event site whose event is gone is a missing tenant (404, like the tenant resolver says), a foreign
+// origin stays 403, and an existing event passes on to the handler.
+func TestHandleCORS_MissingEventSiteIs404NotForbidden(t *testing.T) {
+	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "events.example.test"}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.HandleCORS(middleware.OriginPolicy{Hosts: hosts, Tags: tagSet{"alive1": true}}))
+	r.GET("/api/events/self/public-info", func(c *gin.Context) { c.Status(http.StatusOK) })
+	for origin, want := range map[string]int{
+		"https://alive1.events.example.test": http.StatusOK,
+		"https://gone22.events.example.test": http.StatusNotFound,
+		"https://evil.test":                  http.StatusForbidden,
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/events/self/public-info", nil)
+		req.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != want {
+			t.Errorf("origin %s: status = %d, want %d", origin, w.Code, want)
+		}
 	}
 }
