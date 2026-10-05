@@ -25,4 +25,7 @@ var (
 						WithMessage("Group order must contain every challenge of the group exactly once").WithDetailCode(35)
 	ErrEventChallengePrerequisitesInvalid = err.ErrInvalidData.WithObjectCode(model.EventChallengeObjectCode).
 						WithMessage("Challenge prerequisites must be distinct challenges from the same board revision").WithDetailCode(8)
+	// ErrEventChallengeStageClosed: the task's stage has closed and is not returnable.
+	ErrEventChallengeStageClosed = err.ErrConflict.WithObjectCode(model.EventChallengeObjectCode).
+					WithMessage("The stage of this task is closed").WithDetailCode(40)
 )

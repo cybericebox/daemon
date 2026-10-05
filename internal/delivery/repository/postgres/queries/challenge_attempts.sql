@@ -1,7 +1,8 @@
 -- name: CreateChallengeAttempt :one
-INSERT INTO challenge_attempts (id, event_id, event_team_id, team_challenge_id, user_id, answer, correct, received_at, created_at)
+INSERT INTO challenge_attempts (id, event_id, event_team_id, team_challenge_id, user_id, answer, correct, received_at, created_at,
+                                practice)
 VALUES (sqlc.arg(id), sqlc.arg(event_id), sqlc.arg(event_team_id), sqlc.arg(team_challenge_id), sqlc.arg(user_id),
-        sqlc.arg(answer), sqlc.arg(correct), sqlc.arg(received_at), sqlc.arg(created_at))
+        sqlc.arg(answer), sqlc.arg(correct), sqlc.arg(received_at), sqlc.arg(created_at), sqlc.arg(practice))
 RETURNING *;
 
 -- name: GetEventSolutionAttemptCursor :one
@@ -111,8 +112,9 @@ SELECT ca.id,
        ca.decision_reason,
        ca.decided_by,
        ca.decided_at,
-       ca.received_at
-FROM effective_challenge_attempts ca
+       ca.received_at,
+       ca.practice
+FROM effective_challenge_attempts_all ca
 JOIN users u ON u.id = ca.user_id
 JOIN team_challenges tc ON tc.id = ca.team_challenge_id
 JOIN event_challenges ec ON ec.id = tc.event_challenge_id
@@ -153,10 +155,14 @@ SELECT tc.event_id,
        e.force_event_scoring,
        e.start_at,
        e.finish_at,
+       stage.opens_at AS stage_opens_at,
+       stage.closes_at AS stage_closes_at,
        population.units_count
 FROM team_challenges tc
 JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_exercises ee ON ee.id = ec.event_exercise_id
 JOIN events e ON e.id = tc.event_id
+LEFT JOIN event_stages stage ON stage.id = ee.stage_id
 LEFT JOIN event_scoring_populations population ON population.event_id = e.id
 WHERE tc.id = sqlc.arg(team_challenge_id);
 
@@ -263,3 +269,9 @@ CROSS JOIN LATERAL (
 ) s
 WHERE tc.event_team_id = sqlc.arg(event_team_id)
   AND COALESCE(ec.max_flag_attempts, cfg.max_flag_attempts) IS NOT NULL;
+
+-- name: UpsertTeamChallengePracticeSolve :exec
+-- A correct answer after a returnable stage closed: shown to the team, never rated.
+INSERT INTO team_challenge_practice_solves (team_challenge_id, solved_at)
+VALUES (sqlc.arg(team_challenge_id), sqlc.arg(solved_at))
+ON CONFLICT (team_challenge_id) DO NOTHING;

@@ -154,6 +154,7 @@ PUT    /api/events/:id/manage/exercises/:exerciseID/challenges/scoring | gate: s
 POST   /api/events/:id/manage/exercises/:exerciseID/fork | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/replace | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/revert | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/exercises/:exerciseID/stage | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/update | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/exercises/:exerciseID/visibility | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/forms | gate: self | layers: event.requireRead
@@ -259,6 +260,10 @@ PATCH  /api/events/:id/manage/solution-attempts/:attemptID/decision | gate: self
 POST   /api/events/:id/manage/solution-attempts/annul | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/solution-attempts/export.csv | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/solution-attempts/live | gate: self | layers: event.requireRead
+GET    /api/events/:id/manage/stages | gate: self | layers: event.requireRead
+POST   /api/events/:id/manage/stages | gate: self | layers: event.requireManage
+DELETE /api/events/:id/manage/stages/:stageID | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/stages/:stageID | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/team-fields | gate: self | layers: event.requireRead
 PUT    /api/events/:id/manage/team-fields | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/teams | gate: self | layers: event.requireRead

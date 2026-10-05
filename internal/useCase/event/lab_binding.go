@@ -13,6 +13,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -101,6 +102,19 @@ func (u *EventUseCase) requireOwnAvailableChallenge(ctx context.Context, eventID
 	}
 	if set.Status == eventExerciseModel.StatusDetached {
 		return participantModel.Participant{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
+	}
+	// The stage gate of the lab link and status: an upcoming stage hides the task, a closed one has no lab access.
+	if set.StageID != nil {
+		stage, stageErr := u.stages.Get(ctx, eventID, *set.StageID)
+		if stageErr != nil {
+			return participantModel.Participant{}, model.ErrPlatform.WithError(stageErr).WithMessage("Failed to get event stage").Err()
+		}
+		switch eventModel.StagePhaseAt(&stage, time.Now()) {
+		case eventModel.StagePhaseUpcoming:
+			return participantModel.Participant{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
+		case eventModel.StagePhaseClosed:
+			return participantModel.Participant{}, eventChallengeModel.ErrEventChallengeStageClosed.Err()
+		}
 	}
 	if err = requirePrerequisitesSolved(ctx, u.eventChallenges, u.teamChallenges, *p.TeamID, tc.EventChallengeID); err != nil {
 		return participantModel.Participant{}, err

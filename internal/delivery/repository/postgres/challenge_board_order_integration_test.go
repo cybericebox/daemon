@@ -51,7 +51,7 @@ func boardChallenge(t *testing.T, q *postgres.Queries, link postgres.EventExerci
 
 func boardNames(t *testing.T, q *postgres.Queries, teamID uuid.UUID) ([]string, []int32, []int32) {
 	t.Helper()
-	rows, err := q.ListTeamBoardChallenges(context.Background(), postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: true})
+	rows, err := q.ListTeamBoardChallenges(context.Background(), postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: true, At: time.Now()})
 	if err != nil {
 		t.Fatalf("list board: %v", err)
 	}

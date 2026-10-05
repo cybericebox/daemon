@@ -80,6 +80,12 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	if err != nil {
 		return err
 	}
+	// The deploy lead is computed from the workload (the stand window only brackets it): nothing happens before
+	// the first labs are due. The sets of a later stage wait for their own lead (schedule.NotDue).
+	schedule := u.standSchedule(ctx, e, now)
+	if now.Before(schedule.InitialDeployAt) {
+		return nil
+	}
 	if teardownAt := config.StandTiming.TeardownAt(e.Lifecycle.EffectiveFinishAt()); teardownAt != nil && !now.Before(*teardownAt) {
 		return u.tearDownEventStands(ctx, e, now)
 	}
@@ -96,11 +102,11 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	allReady := false
 	if e.InfrastructureAllowed {
 		if u.laboratoriesUsable(ctx) {
-			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, now); err != nil {
+			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, now, schedule.NotDue); err != nil {
 				errs = append(errs, err)
 			}
 		}
-		if allReady, err = u.assessStands(ctx, e, now); err != nil {
+		if allReady, err = u.assessStands(ctx, e, now, schedule.NotDue); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -320,9 +326,9 @@ type topologyKey struct {
 // deployAndObserveStandLabs deploys each pending Lab once and then observes
 // it until the agent reports it ready or failed. It returns the teams whose
 // Labs became ready, so their access policy is re-derived.
-func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventModel.Event, now time.Time) (map[uuid.UUID]struct{}, error) {
+func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID) (map[uuid.UUID]struct{}, error) {
 	ready := map[uuid.UUID]struct{}{}
-	pending, err := u.labBindings.ListPending(ctx, e.ID)
+	pending, err := u.labBindings.ListPending(ctx, e.ID, notDue)
 	if err != nil {
 		return ready, model.ErrPlatform.WithError(err).WithMessage("Failed to list pending stand labs").Err()
 	}
@@ -487,8 +493,8 @@ func (u *EventUseCase) withTeamFlags(ctx context.Context, lab labBindingRepo.Pen
 
 // assessStands persists every candidate's stand status and reports whether
 // all admitted teams and the moderators team are ready at once.
-func (u *EventUseCase) assessStands(ctx context.Context, e eventModel.Event, now time.Time) (bool, error) {
-	teams, err := u.stands.ListTeams(ctx, e.ID)
+func (u *EventUseCase) assessStands(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID) (bool, error) {
+	teams, err := u.stands.ListTeams(ctx, e.ID, notDue)
 	if err != nil {
 		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}

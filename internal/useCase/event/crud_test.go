@@ -428,6 +428,7 @@ func TestUpdateEventLifecycle_WritesCanonicalRuntime(t *testing.T) {
 	q.EXPECT().GetEventConfig(gomock.Any(), id).Return(postgres.EventConfig{
 		EventID: id, Participation: pgtype.Int2{Int16: 1, Valid: true},
 	}, nil)
+	q.EXPECT().ListEventStages(gomock.Any(), id).Return(nil, nil)
 	q.EXPECT().UpdateEventLifecycle(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.UpdateEventLifecycleParams) (int64, error) {
 			if arg.ID != id || arg.JoinPolicy != int16(eventModel.JoinPolicyRolling) {

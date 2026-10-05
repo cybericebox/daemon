@@ -38,7 +38,7 @@ func TestUnlockHint_BalanceModeChargesOverrideAndRecalculates(t *testing.T) {
 		Return(postgres.EventParticipant{EventID: f.eventID, UserID: f.userID, Status: 2, TeamID: uuid.NullUUID{UUID: f.teamID, Valid: true}, CreatedAt: f.now}, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), f.eventID).Return(startedEvent(f.eventID, f.now), nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), f.eventID).Return(postgres.EventConfig{EventID: f.eventID, HintChargeMode: 1}, nil)
-	q.EXPECT().GetTeamChallengeHints(gomock.Any(), postgres.GetTeamChallengeHintsParams{EventTeamID: f.teamID, EventChallengeID: f.challengeID}).
+	q.EXPECT().GetTeamChallengeHints(gomock.Any(), gomock.Any()).
 		Return(postgres.GetTeamChallengeHintsRow{ID: f.teamChallengeID, EventID: f.eventID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Readiness: 2,
 			TeamHints: []byte(`[{"id":"` + f.hintID.String() + `","text":"Variant text"}]`), BoardHints: []byte(`[{"id":"` + f.hintID.String() + `","cost":20,"text":"Canonical"}]`),
 			HintCosts: []byte(`{"` + f.hintID.String() + `":35}`), HintsEnabled: true, Published: true}, nil)

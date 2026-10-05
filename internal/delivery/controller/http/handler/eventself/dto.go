@@ -40,6 +40,58 @@ type ownChallengeResponse struct {
 	// Hints (hints enabled): Content only once the team unlocked the hint.
 	Hints         []ownHintResponse `json:"Hints"`
 	HintCostTotal int32             `json:"HintCostTotal"`
+	// StageID is the stage of the task's set (null: the whole event). Closed: the stage closed and is not
+	// returnable (visible, no submissions or hints). Practice: solved after a returnable stage closed; the rating
+	// does not count it.
+	StageID  *uuid.UUID `json:"StageID"`
+	Closed   bool       `json:"Closed"`
+	Practice bool       `json:"Practice"`
+}
+
+type boardStageResponse struct {
+	ID         uuid.UUID `json:"ID"`
+	Name       string    `json:"Name"`
+	OpensAt    time.Time `json:"OpensAt"`
+	ClosesAt   time.Time `json:"ClosesAt"`
+	Returnable bool      `json:"Returnable"`
+	// State: open | closed (upcoming stages are never sent).
+	State string `json:"State"`
+}
+
+type currentStageResponse struct {
+	ID      uuid.UUID `json:"ID"`
+	Name    string    `json:"Name"`
+	OpensAt time.Time `json:"OpensAt"`
+	// EndsAt is sent only while the stage countdown is visible; never for the last stage (it ends with the event).
+	EndsAt *time.Time `json:"EndsAt"`
+	Last   bool       `json:"Last"`
+}
+
+// ownBoardResponse is the participant board: the tasks and the stage context. The client counts down against
+// ServerNow and refetches at NextChangeAt.
+type ownBoardResponse struct {
+	Challenges   []ownChallengeResponse `json:"Challenges"`
+	Stages       []boardStageResponse   `json:"Stages"`
+	ServerNow    time.Time              `json:"ServerNow"`
+	CurrentStage *currentStageResponse  `json:"CurrentStage"`
+	// NextOpensAt is the start of the next stage, only during a break.
+	NextOpensAt  *time.Time `json:"NextOpensAt"`
+	NextChangeAt *time.Time `json:"NextChangeAt"`
+}
+
+func toOwnBoardResponse(v eventUseCase.OwnBoardView) ownBoardResponse {
+	out := ownBoardResponse{Challenges: make([]ownChallengeResponse, 0, len(v.Challenges)), Stages: make([]boardStageResponse, 0, len(v.Stages)),
+		ServerNow: v.ServerNow, NextOpensAt: v.NextOpensAt, NextChangeAt: v.NextChangeAt}
+	for _, item := range v.Challenges {
+		out.Challenges = append(out.Challenges, toOwnChallengeResponse(item))
+	}
+	for _, stage := range v.Stages {
+		out.Stages = append(out.Stages, boardStageResponse{ID: stage.ID, Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt, Returnable: stage.Returnable, State: string(stage.State)})
+	}
+	if c := v.CurrentStage; c != nil {
+		out.CurrentStage = &currentStageResponse{ID: c.ID, Name: c.Name, OpensAt: c.OpensAt, EndsAt: c.EndsAt, Last: c.Last}
+	}
+	return out
 }
 
 // ownHintResponse: participants see the price, never the hint level (that is
@@ -140,6 +192,8 @@ type teamResultAttemptResponse struct {
 	AutomaticCorrect, Correct                                  bool
 	Decision                                                   string
 	ReceivedAt                                                 time.Time
+	// Practice: made after a returnable stage closed; never rated.
+	Practice bool
 }
 type ownTeamResultsResponse struct {
 	Entry    scoreboardEntryResponse
@@ -266,7 +320,7 @@ type labAccessResponse struct {
 
 func toOwnChallengeResponse(v eventUseCase.OwnChallengeView) ownChallengeResponse {
 	out := ownChallengeResponse{ID: v.ID, EventChallengeID: v.EventChallengeID, Snapshot: v.Snapshot, Readiness: int16(v.Readiness), SolvedAt: v.SolvedAt, Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder,
-		ContentUpdatedAt: v.ContentUpdatedAt, Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, MaxAttempts: v.MaxAttempts, AttemptsLeft: v.AttemptsLeft, Locked: v.Locked, SolveCount: v.SolveCount,
+		ContentUpdatedAt: v.ContentUpdatedAt, Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, MaxAttempts: v.MaxAttempts, AttemptsLeft: v.AttemptsLeft, Locked: v.Locked, SolveCount: v.SolveCount, StageID: v.StageID, Closed: v.Closed, Practice: v.Practice,
 		Prerequisites: make([]challengePrerequisiteResponse, 0, len(v.Prerequisites)), Files: make([]challengeFileResponse, 0, len(v.Files)),
 		Hints: ToOwnHintResponses(v.Hints), HintCostTotal: v.HintCostTotal}
 	for _, p := range v.Prerequisites {
@@ -297,7 +351,7 @@ func toOwnTeamResultsResponse(v eventUseCase.OwnTeamResultsView) ownTeamResultsR
 	}
 	attempts := make([]teamResultAttemptResponse, 0, len(v.Attempts))
 	for _, x := range v.Attempts {
-		attempts = append(attempts, teamResultAttemptResponse{ID: x.ID, EventTeamID: x.EventTeamID, UserID: x.UserID, TeamChallengeID: x.TeamChallengeID, EventChallengeID: x.EventChallengeID, ParticipantName: x.ParticipantName, Answer: x.Answer, AutomaticCorrect: x.AutomaticCorrect, Correct: x.Correct, Decision: x.Decision.String(), ReceivedAt: x.ReceivedAt})
+		attempts = append(attempts, teamResultAttemptResponse{ID: x.ID, EventTeamID: x.EventTeamID, UserID: x.UserID, TeamChallengeID: x.TeamChallengeID, EventChallengeID: x.EventChallengeID, ParticipantName: x.ParticipantName, Answer: x.Answer, AutomaticCorrect: x.AutomaticCorrect, Correct: x.Correct, Decision: x.Decision.String(), ReceivedAt: x.ReceivedAt, Practice: x.Practice})
 	}
 	return ownTeamResultsResponse{Entry: toScoreboardEntryResponse(v.Entry), Timeline: timeline, Attempts: attempts}
 }
@@ -339,6 +393,8 @@ type eventInfoResponse struct {
 	ShowStartCountdown     bool  `json:"ShowStartCountdown"`
 	ShowFinishCountdown    bool  `json:"ShowFinishCountdown"`
 	FinishCountdownMinutes int32 `json:"FinishCountdownMinutes"`
+	// FinishCountdownMode: before_end | from_start (see the manage config).
+	FinishCountdownMode string `json:"FinishCountdownMode"`
 }
 
 type participantEventInfoResponse struct {
@@ -418,6 +474,8 @@ type publicEventInfoResponse struct {
 	ShowStartCountdown     bool  `json:"ShowStartCountdown"`
 	ShowFinishCountdown    bool  `json:"ShowFinishCountdown"`
 	FinishCountdownMinutes int32 `json:"FinishCountdownMinutes"`
+	// FinishCountdownMode: before_end | from_start (see the manage config).
+	FinishCountdownMode string `json:"FinishCountdownMode"`
 }
 
 func toPublicEventInfoResponse(v eventUseCase.EventInfoView) publicEventInfoResponse {
@@ -437,7 +495,7 @@ func toPublicEventInfoResponse(v eventUseCase.EventInfoView) publicEventInfoResp
 		PreviewDescription:  v.PreviewDescription, PreviewPicture: v.PreviewPicture,
 		LogoURL:            v.LogoURL,
 		Theme:              v.Theme,
-		ShowStartCountdown: v.Countdown.ShowStart, ShowFinishCountdown: v.Countdown.ShowFinish, FinishCountdownMinutes: v.Countdown.FinishMinutes,
+		ShowStartCountdown: v.Countdown.ShowStart, ShowFinishCountdown: v.Countdown.ShowFinish, FinishCountdownMinutes: v.Countdown.FinishMinutes, FinishCountdownMode: string(v.Countdown.Mode()),
 	}
 }
 
@@ -463,7 +521,7 @@ func toEventInfoResponse(v eventUseCase.EventInfoView) eventInfoResponse {
 		PreviewPicture:      v.PreviewPicture,
 		LogoURL:             v.LogoURL,
 		Theme:               v.Theme,
-		ShowStartCountdown:  v.Countdown.ShowStart, ShowFinishCountdown: v.Countdown.ShowFinish, FinishCountdownMinutes: v.Countdown.FinishMinutes,
+		ShowStartCountdown:  v.Countdown.ShowStart, ShowFinishCountdown: v.Countdown.ShowFinish, FinishCountdownMinutes: v.Countdown.FinishMinutes, FinishCountdownMode: string(v.Countdown.Mode()),
 	}
 }
 
@@ -581,6 +639,8 @@ type submitChallengeRequest struct {
 type submitChallengeResponse struct {
 	Correct    bool `json:"Correct"`
 	FirstSolve bool `json:"FirstSolve"`
+	// Practice: the answer came after a returnable stage closed; verified, not rated.
+	Practice bool `json:"Practice"`
 }
 
 type ownTeamResponse struct {

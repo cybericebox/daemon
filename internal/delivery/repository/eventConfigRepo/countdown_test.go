@@ -9,7 +9,7 @@ import (
 
 func TestToDomainCountdown(t *testing.T) {
 	got := ToDomain(postgres.EventConfig{ShowStartCountdown: false, ShowFinishCountdown: true, FinishCountdownMinutes: 25}).Countdown
-	if want := (eventConfigModel.CountdownSettings{ShowFinish: true, FinishMinutes: 25}); got != want {
+	if want := (eventConfigModel.CountdownSettings{ShowFinish: true, FinishMinutes: 25, FinishMode: eventConfigModel.FinishBeforeEnd}); got != want {
 		t.Fatalf("countdown = %+v, want %+v", got, want)
 	}
 	// Zero-valued generated rows fall back to the migration defaults.

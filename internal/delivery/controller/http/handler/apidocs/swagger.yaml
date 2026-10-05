@@ -665,6 +665,11 @@ definitions:
         type: string
       FinishCountdownMinutes:
         type: integer
+      FinishCountdownMode:
+        description: |-
+          FinishCountdownMode: before_end (the time-left countdown shows during the last FinishCountdownMinutes) |
+          from_start (from the start of the current stage, of the event without stages).
+        type: string
       HintChargeMode:
         description: 'HintChargeMode: reward (A, default) | balance (B).'
         type: string
@@ -748,6 +753,17 @@ definitions:
         type: string
       Tag:
         type: string
+    type: object
+  event.createEventStageRequest:
+    properties:
+      ClosesAt:
+        type: string
+      Name:
+        type: string
+      OpensAt:
+        type: string
+      Returnable:
+        type: boolean
     type: object
   event.createManagedTeamRequest:
     properties:
@@ -1018,6 +1034,10 @@ definitions:
         description: 'W4: «версія N» is the catalog version ordinal, not the event
           revision.'
         type: string
+      StageID:
+        description: StageID is the stage the set belongs to; null lives for the whole
+          event.
+        type: string
       Status:
         type: integer
       SupersededAt:
@@ -1246,6 +1266,28 @@ definitions:
       Tag:
         type: string
       UpdatedAt:
+        type: string
+    type: object
+  event.eventStageResponse:
+    properties:
+      ClosesAt:
+        type: string
+      First:
+        description: 'First opens with the event and Last closes with it: those two
+          times are the event''s own.'
+        type: boolean
+      ID:
+        type: string
+      Last:
+        type: boolean
+      Name:
+        type: string
+      OpensAt:
+        type: string
+      Returnable:
+        type: boolean
+      State:
+        description: 'State is computed from time: upcoming | open | closed.'
         type: string
     type: object
   event.hintCostRequest:
@@ -1938,6 +1980,12 @@ definitions:
       UpdatedAt:
         type: string
     type: object
+  event.setEventExerciseStageRequest:
+    properties:
+      StageID:
+        description: StageID null puts the set back on the whole event.
+        type: string
+    type: object
   event.setEventExerciseVisibilityRequest:
     properties:
       Published:
@@ -2122,8 +2170,6 @@ definitions:
     type: object
   event.standSettingsRequest:
     properties:
-      DeployLeadMinutes:
-        type: integer
       TeardownDelayMinutes:
         type: integer
     type: object
@@ -2183,9 +2229,9 @@ definitions:
       ChallengesOpened:
         type: boolean
       DeployAt:
+        description: 'DeployAt is when the first labs start deploying: the event start
+          minus the lead the platform computes.'
         type: string
-      DeployLeadMinutes:
-        type: integer
       InfrastructureAllowed:
         type: boolean
       Items:
@@ -2320,6 +2366,10 @@ definitions:
         type: boolean
       FinishCountdownMinutes:
         type: integer
+      FinishCountdownMode:
+        description: 'FinishCountdownMode omitted keeps the current value: before_end
+          | from_start.'
+        type: string
       HintChargeMode:
         description: 'HintChargeMode omitted keeps the current value: reward | balance.'
         type: string
@@ -2412,6 +2462,20 @@ definitions:
         type: integer
       StaticPoints:
         type: integer
+    type: object
+  event.updateEventStageRequest:
+    properties:
+      CloseNow:
+        description: CloseNow ends an open stage now («Закрити зараз»).
+        type: boolean
+      ClosesAt:
+        type: string
+      Name:
+        type: string
+      OpensAt:
+        type: string
+      Returnable:
+        type: boolean
     type: object
   event.updateHintCostsRequest:
     properties:
@@ -4130,6 +4194,22 @@ definitions:
       size:
         type: integer
     type: object
+  eventself.boardStageResponse:
+    properties:
+      ClosesAt:
+        type: string
+      ID:
+        type: string
+      Name:
+        type: string
+      OpensAt:
+        type: string
+      Returnable:
+        type: boolean
+      State:
+        description: 'State: open | closed (upcoming stages are never sent).'
+        type: string
+    type: object
   eventself.capabilityResponse:
     properties:
       Allowed:
@@ -4179,6 +4259,21 @@ definitions:
       Name:
         type: string
     type: object
+  eventself.currentStageResponse:
+    properties:
+      EndsAt:
+        description: EndsAt is sent only while the stage countdown is visible; never
+          for the last stage (it ends with the event).
+        type: string
+      ID:
+        type: string
+      Last:
+        type: boolean
+      Name:
+        type: string
+      OpensAt:
+        type: string
+    type: object
   eventself.eventInfoResponse:
     properties:
       CanViewParticipants:
@@ -4189,6 +4284,10 @@ definitions:
         type: string
       FinishCountdownMinutes:
         type: integer
+      FinishCountdownMode:
+        description: 'FinishCountdownMode: before_end | from_start (see the manage
+          config).'
+        type: string
       FinishTime:
         type: string
       LogoURL:
@@ -4320,10 +4419,32 @@ definitions:
           type: integer
         type: array
     type: object
+  eventself.ownBoardResponse:
+    properties:
+      Challenges:
+        items:
+          $ref: '#/definitions/eventself.ownChallengeResponse'
+        type: array
+      CurrentStage:
+        $ref: '#/definitions/eventself.currentStageResponse'
+      NextChangeAt:
+        type: string
+      NextOpensAt:
+        description: NextOpensAt is the start of the next stage, only during a break.
+        type: string
+      ServerNow:
+        type: string
+      Stages:
+        items:
+          $ref: '#/definitions/eventself.boardStageResponse'
+        type: array
+    type: object
   eventself.ownChallengeResponse:
     properties:
       AttemptsLeft:
         type: integer
+      Closed:
+        type: boolean
       ContentUpdatedAt:
         type: string
       EventChallengeID:
@@ -4366,6 +4487,8 @@ definitions:
         type: integer
       Points:
         type: integer
+      Practice:
+        type: boolean
       Prerequisites:
         items:
           $ref: '#/definitions/eventself.challengePrerequisiteResponse'
@@ -4379,6 +4502,12 @@ definitions:
           caller.
         type: integer
       SolvedAt:
+        type: string
+      StageID:
+        description: |-
+          StageID is the stage of the task's set (null: the whole event). Closed: the stage closed and is not
+          returnable (visible, no submissions or hints). Practice: solved after a returnable stage closed; the rating
+          does not count it.
         type: string
     type: object
   eventself.ownHintResponse:
@@ -4643,6 +4772,10 @@ definitions:
         type: string
       FinishCountdownMinutes:
         type: integer
+      FinishCountdownMode:
+        description: 'FinishCountdownMode: before_end | from_start (see the manage
+          config).'
+        type: string
       FinishTime:
         type: string
       LogoURL:
@@ -4793,6 +4926,10 @@ definitions:
       Correct:
         type: boolean
       FirstSolve:
+        type: boolean
+      Practice:
+        description: 'Practice: the answer came after a returnable stage closed; verified,
+          not rated.'
         type: boolean
     type: object
   eventself.submitEventFormResponseRequest:
@@ -13293,6 +13430,45 @@ paths:
         source'
       tags:
       - events
+  /events/{id}/manage/exercises/{exerciseID}/stage:
+    put:
+      consumes:
+      - application/json
+      description: Before a stage opens everything is free; once it has opened nothing
+        is moved out of it (stage_opened_locked) and a closed stage accepts nothing
+        new (stage_closed_locked).
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: event exercise attachment ID
+        in: path
+        name: exerciseID
+        required: true
+        type: string
+      - description: stage
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.setEventExerciseStageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.eventExerciseResponse'
+              type: object
+      summary: Attach an exercise set to a stage (or to the whole event)
+      tags:
+      - events
   /events/{id}/manage/exercises/{exerciseID}/update:
     post:
       consumes:
@@ -16010,6 +16186,125 @@ paths:
       summary: Stream attempts journal changes (new attempts or decisions)
       tags:
       - events
+  /events/{id}/manage/stages:
+    get:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/event.eventStageResponse'
+                  type: array
+              type: object
+      summary: List the stages of an event with their computed state
+      tags:
+      - events
+    post:
+      consumes:
+      - application/json
+      description: The first stage is the whole event window; a later stage opens
+        where asked and closes with the event, ending the previous last stage where
+        it opens. Needs a scheduled event finish.
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: stage
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.createEventStageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.eventStageResponse'
+              type: object
+      summary: Add a stage to an event
+      tags:
+      - events
+  /events/{id}/manage/stages/{stageID}:
+    delete:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: stage ID
+        in: path
+        name: stageID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Delete an upcoming stage that holds no sets
+      tags:
+      - events
+    put:
+      consumes:
+      - application/json
+      description: 'Upcoming: everything. Open: name, Returnable and ClosesAt (in
+        the future), or CloseNow. Closed: only the name. Errors: stage_closed_locked,
+        stage_opened_locked.'
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: stage ID
+        in: path
+        name: stageID
+        required: true
+        type: string
+      - description: changes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.updateEventStageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.eventStageResponse'
+              type: object
+      summary: Update a stage by what its state allows
+      tags:
+      - events
   /events/{id}/manage/team-fields:
     get:
       parameters:
@@ -17395,11 +17690,9 @@ paths:
             - $ref: '#/definitions/response.Response'
             - properties:
                 data:
-                  items:
-                    $ref: '#/definitions/eventself.ownChallengeResponse'
-                  type: array
+                  $ref: '#/definitions/eventself.ownBoardResponse'
               type: object
-      summary: List published challenges assigned to the caller's team
+      summary: 'The caller''s team board: published challenges and the stage context'
       tags:
       - events-self
   /events/{id}/teams/join:

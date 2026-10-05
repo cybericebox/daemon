@@ -96,7 +96,7 @@ func TestEventLabAccessSyncDetectsVPNSettingChanges(t *testing.T) {
 		if err != nil || len(rows) != 1 || rows[0].TeamID != team.ID || rows[0].VPNEnabled != want {
 			t.Fatalf("dirty rows=%+v err=%v want VPN=%t", rows, err, want)
 		}
-		if _, err := syncs.MarkApplied(ctx, team.ID, rows[0].DesiredRevision, rows[0].RuntimeOpen, rows[0].VPNEnabled, time.Now()); err != nil {
+		if _, err := syncs.MarkApplied(ctx, team.ID, rows[0].DesiredRevision, rows[0].RuntimeOpen, rows[0].VPNEnabled, rows[0].StageEpoch, time.Now()); err != nil {
 			t.Fatal(err)
 		}
 	}

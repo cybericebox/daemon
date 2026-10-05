@@ -244,7 +244,7 @@ func (f fakeEvents) GetByID(_ context.Context, id uuid.UUID) (eventModel.Event, 
 type fakeConfigs struct{}
 
 func (fakeConfigs) Get(context.Context, uuid.UUID) (eventConfigModel.EventConfig, error) {
-	return eventConfigModel.EventConfig{StandTiming: eventStandModel.Timing{DeployLeadMinutes: 30}}, nil
+	return eventConfigModel.EventConfig{StandTiming: eventStandModel.DefaultTiming()}, nil
 }
 
 type fakePlanner struct{ need Need }

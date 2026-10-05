@@ -14,6 +14,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -119,7 +120,7 @@ func (u *EventUseCase) attachableVersion(ctx context.Context, eventID, versionID
 }
 
 func toEventExerciseView(value eventExerciseModel.EventExercise) EventExerciseView {
-	return EventExerciseView{ID: value.ID, ExerciseID: value.ExerciseID, ExerciseVersionID: value.ExerciseVersionID, VariantMode: value.VariantMode, FixedVariantIndex: value.FixedVariantIndex, Revision: value.Revision, Status: value.Status, ReplacesID: value.ReplacesID, SupersededAt: value.SupersededAt, DetachedAt: value.DetachedAt, CreatedAt: value.CreatedAt}
+	return EventExerciseView{ID: value.ID, ExerciseID: value.ExerciseID, ExerciseVersionID: value.ExerciseVersionID, VariantMode: value.VariantMode, FixedVariantIndex: value.FixedVariantIndex, Revision: value.Revision, Status: value.Status, ReplacesID: value.ReplacesID, SupersededAt: value.SupersededAt, DetachedAt: value.DetachedAt, CreatedAt: value.CreatedAt, StageID: value.StageID}
 }
 
 // ListEventExercises returns every attachment with names, catalog version
@@ -536,6 +537,18 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to refresh event challenge").Err()
 		}
 	}
+	// A task cannot leave a set of a stage that has opened, and none can join one of a closed stage.
+	added := false
+	for _, task := range tasks {
+		added = added || !existing[task.ID]
+	}
+	stage, err := u.stageOfSet(ctx, eventStageRepo.New(repo), link)
+	if err != nil {
+		return eventExerciseModel.EventExercise{}, err
+	}
+	if err = eventModel.CheckSetChange(stage, added, len(removed) > 0, now); err != nil {
+		return eventExerciseModel.EventExercise{}, err
+	}
 	attempted, err := challenges.WithAttempts(ctx, removed)
 	if err != nil {
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to check challenge attempts").Err()
@@ -691,6 +704,14 @@ func (u *EventUseCase) DetachEventExercise(ctx context.Context, eventID, eventEx
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event exercise").Err()
 	}
 	if err = link.EnsureActive(); err != nil {
+		return err
+	}
+	// Detaching removes the set from its stage: refused once the stage has opened.
+	stage, err := u.stageOfSet(txCtx, eventStageRepo.New(txRepo), link)
+	if err != nil {
+		return err
+	}
+	if err = eventModel.CheckSetChange(stage, false, true, time.Now()); err != nil {
 		return err
 	}
 	attempted, err := attachments.HasAttempts(txCtx, link.ID)

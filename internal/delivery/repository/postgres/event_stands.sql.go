@@ -404,18 +404,18 @@ func (q *Queries) ListModeratorsTeamChallenges(ctx context.Context, eventID uuid
 const listStandEvents = `-- name: ListStandEvents :many
 SELECT event.id
 FROM events event
-JOIN event_configs config ON config.event_id = event.id
 LEFT JOIN event_stand_rollouts rollout ON rollout.event_id = event.id
 WHERE event.lifecycle_configured
   AND (event.archive_at IS NULL OR $1::timestamptz < event.archive_at)
   AND (event.withdraw_at IS NULL OR $1::timestamptz < event.withdraw_at)
-  AND event.start_at - make_interval(mins => config.stand_deploy_lead_minutes) <= $1::timestamptz
+  AND event.start_at - make_interval(mins => 240) <= $1::timestamptz
   AND rollout.torn_down_at IS NULL
 ORDER BY event.start_at, event.id
 `
 
-// Events inside the stand window: configured, live, past start minus the
-// deploy lead, and not yet torn down. The schedule is re-derived every tick,
+// Events inside the stand window: configured, live, past start minus the longest
+// possible deploy lead (the lead itself is computed per event, so the engine
+// narrows it), and not yet torn down. The schedule is re-derived every tick,
 // so lifecycle and setting changes need no rescheduling.
 func (q *Queries) ListStandEvents(ctx context.Context, now time.Time) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, listStandEvents, now)
@@ -444,7 +444,10 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
                                                team.admission_locked, team.member_count))::boolean AS admitted,
        stand.status AS stand_status, stand.reason AS stand_reason, stand.generation AS stand_generation,
        stand.updated_at AS stand_updated_at,
-       (SELECT count(*) FROM lab_bindings lb WHERE lb.event_team_id = team.id AND lb.readiness = 0)::bigint AS pending_labs,
+       (SELECT count(*) FROM lab_bindings lb
+        JOIN event_challenges due_ec ON due_ec.id = lb.event_challenge_id
+        WHERE lb.event_team_id = team.id AND lb.readiness = 0
+          AND due_ec.event_exercise_id <> ALL ($1::uuid[]))::bigint AS pending_labs,
        (SELECT count(*) FROM lab_bindings lb WHERE lb.event_team_id = team.id AND lb.readiness = 2)::bigint AS failed_labs,
        COALESCE((SELECT min(lb.failure_reason) FROM lab_bindings lb
                  WHERE lb.event_team_id = team.id AND lb.readiness = 2), '')::text AS failure_reason,
@@ -454,18 +457,24 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
         JOIN event_challenges challenge ON challenge.event_exercise_id = exercise.id
         WHERE exercise.event_id = team.event_id
           AND exercise.status = 0
+          AND exercise.id <> ALL ($1::uuid[])
           AND NOT EXISTS (SELECT 1 FROM team_challenges assignment
                           WHERE assignment.event_team_id = team.id
                             AND assignment.event_challenge_id = challenge.id))::bigint AS missing_assignments
 FROM event_teams team
 LEFT JOIN event_team_stands stand ON stand.event_team_id = team.id
-WHERE team.event_id = $1
+WHERE team.event_id = $2
   AND (team.moderators OR stand.event_team_id IS NOT NULL
     OR (event_team_admitted(team.event_id, team.individual, team.admitted_manually,
                             team.admission_locked, team.member_count)
         AND event_team_stand_wanted(team.event_id, team.formed_at)))
 ORDER BY team.moderators DESC, public_name, team.id
 `
+
+type ListStandTeamsParams struct {
+	NotDueExerciseIds []uuid.UUID `json:"not_due_exercise_ids"`
+	EventID           uuid.UUID   `json:"event_id"`
+}
 
 type ListStandTeamsRow struct {
 	ID                 uuid.UUID          `json:"id"`
@@ -487,9 +496,11 @@ type ListStandTeamsRow struct {
 }
 
 // Stand candidates (admitted teams, the moderators team and any team that
-// already has a stand) with their persisted stand and Lab counters.
-func (q *Queries) ListStandTeams(ctx context.Context, eventID uuid.UUID) ([]ListStandTeamsRow, error) {
-	rows, err := q.db.Query(ctx, listStandTeams, eventID)
+// already has a stand) with their persisted stand and Lab counters. The counters
+// skip the sets whose labs are not due yet (a later stage), so the event-start
+// barrier never waits for them.
+func (q *Queries) ListStandTeams(ctx context.Context, arg ListStandTeamsParams) ([]ListStandTeamsRow, error) {
+	rows, err := q.db.Query(ctx, listStandTeams, arg.NotDueExerciseIds, arg.EventID)
 	if err != nil {
 		return nil, err
 	}

@@ -15,6 +15,7 @@ import (
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
+	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	eventTeamModel "github.com/cybericebox/daemon/internal/model/eventTeam"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -50,6 +51,70 @@ func (u *EventUseCase) ListOwnChallenges(ctx context.Context, eventID, userID uu
 		views[i].SolveCount = &count
 	}
 	return views, nil
+}
+
+// ListOwnBoard is the participant board with its stage context: the stages that have opened, the one that is open
+// now with its countdown, the break countdown and the next boundary to refetch at.
+func (u *EventUseCase) ListOwnBoard(ctx context.Context, eventID, userID uuid.UUID) (OwnBoardView, error) {
+	now := time.Now()
+	challenges, err := u.ListOwnChallenges(ctx, eventID, userID)
+	if err != nil {
+		return OwnBoardView{}, err
+	}
+	stages, err := u.stages.List(ctx, eventID)
+	if err != nil {
+		return OwnBoardView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
+	}
+	config, err := u.configs.Get(ctx, eventID)
+	if err != nil {
+		return OwnBoardView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
+	}
+	return buildOwnBoard(challenges, stages, config.Countdown, now), nil
+}
+
+// buildOwnBoard derives the stage context of the board at a moment (see OwnBoardView).
+func buildOwnBoard(challenges []OwnChallengeView, stages []eventModel.Stage, countdown eventConfigModel.CountdownSettings, now time.Time) OwnBoardView {
+	view := OwnBoardView{Challenges: challenges, ServerNow: now, Stages: make([]BoardStageView, 0, len(stages))}
+	opened := 0
+	for i, stage := range stages {
+		if boundary := stage.NextChangeAt(now); boundary != nil && (view.NextChangeAt == nil || boundary.Before(*view.NextChangeAt)) {
+			view.NextChangeAt = boundary
+		}
+		if !stage.Opened(now) {
+			continue
+		}
+		opened++
+		view.Stages = append(view.Stages, BoardStageView{ID: stage.ID, Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt, Returnable: stage.Returnable, State: stage.State(now)})
+		if stage.State(now) != eventModel.StageOpen {
+			continue
+		}
+		last := i == len(stages)-1
+		current := &CurrentStageView{ID: stage.ID, Name: stage.Name, OpensAt: stage.OpensAt, Last: last}
+		if !last && countdown.ShowFinish && stageCountdownVisible(countdown, stage, now) {
+			ends := stage.ClosesAt
+			current.EndsAt = &ends
+		}
+		view.CurrentStage = current
+	}
+	if view.CurrentStage == nil && opened > 0 {
+		for _, stage := range stages {
+			if stage.OpensAt.After(now) {
+				next := stage.OpensAt
+				view.NextOpensAt = &next
+				break
+			}
+		}
+	}
+	return view
+}
+
+// stageCountdownVisible resolves the finish countdown mode for the end of a stage: before_end shows it during the
+// last FinishMinutes, from_start from the stage's beginning.
+func stageCountdownVisible(countdown eventConfigModel.CountdownSettings, stage eventModel.Stage, now time.Time) bool {
+	if countdown.Mode() == eventConfigModel.FinishFromStart {
+		return true
+	}
+	return !now.Before(stage.ClosesAt.Add(-time.Duration(countdown.FinishMinutes) * time.Minute))
 }
 
 // fillAttemptsLeft sets the flag attempts the team has left on each limited, unsolved task of its board.
@@ -231,7 +296,7 @@ func (u *EventUseCase) ownBoard(ctx context.Context, eventID, userID uuid.UUID, 
 	if err = u.requireChallengeBoardVisible(ctx, eventID); err != nil {
 		return uuid.Nil, nil, err
 	}
-	rows, err := u.teamChallenges.ListPublished(ctx, *p.TeamID)
+	rows, err := u.teamChallenges.ListPublished(ctx, *p.TeamID, time.Now())
 	if err != nil {
 		return uuid.Nil, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list team challenges").Err()
 	}
@@ -261,7 +326,7 @@ func (u *EventUseCase) ownBoard(ctx context.Context, eventID, userID uuid.UUID, 
 }
 
 func (u *EventUseCase) moderatorsBoard(ctx context.Context, teamID uuid.UUID) ([]OwnChallengeView, error) {
-	rows, err := u.teamChallenges.ListBoard(ctx, teamID)
+	rows, err := u.teamChallenges.ListBoard(ctx, teamID, time.Now())
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list moderators team challenges").Err()
 	}
@@ -294,6 +359,7 @@ func boardViews(rows []teamChallengeRepo.PublishedChallenge, prerequisites map[u
 			ID: challenge.ID, EventChallengeID: challenge.EventChallengeID, Snapshot: challenge.Snapshot, Readiness: challenge.Readiness,
 			SolvedAt: challenge.SolvedAt, Points: row.Points, Order: row.Order, GroupID: row.GroupID, GroupName: row.GroupName, GroupOrder: row.GroupOrder,
 			ContentUpdatedAt: row.ContentUpdatedAt, Infrastructure: row.Infrastructure, HintsEnabled: row.HintsEnabled, BoardPublished: row.Published,
+			StageID: row.StageID, Closed: row.StagePhase == eventModel.StagePhaseClosed, Practice: row.PracticeSolved,
 			Prerequisites: make([]ChallengePrerequisiteView, 0), Files: make([]ChallengeFileView, 0),
 		}
 		solved := make([]bool, 0, len(prerequisites[challenge.EventChallengeID]))

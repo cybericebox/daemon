@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 )
 
@@ -38,10 +39,8 @@ type EventReservationInput struct {
 func (u *ResourceCalendarUseCase) eventWindow(ctx context.Context, e eventModel.Event, in EventReservationInput, tail time.Duration) (calModel.Window, error) {
 	var start, end time.Time
 	if e.Lifecycle.Configured {
-		lead := 30 * time.Minute
-		if cfg, err := u.configs.Get(ctx, e.ID); err == nil {
-			lead = time.Duration(cfg.StandTiming.DeployLeadMinutes) * time.Minute
-		}
+		// The deploy lead is computed by the stand engine from the workload; the window is planned with a fixed one.
+		lead := eventStandModel.PlanningLead
 		start = e.Lifecycle.StartAt.Add(-lead - u.cfg.LeadMargin)
 		if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil {
 			end = *finish

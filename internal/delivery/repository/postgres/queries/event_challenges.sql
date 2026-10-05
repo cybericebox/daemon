@@ -28,6 +28,16 @@ WHERE ec.id = sqlc.arg(id)
 -- name: IsEventChallengePublished :one
 SELECT published FROM event_challenges WHERE id = sqlc.arg(id);
 
+-- name: GetEventChallengeAccess :one
+-- Publication and the stage phase of the task's set at the given moment (the request time), for the submission gate.
+SELECT ec.published,
+       ee.stage_id,
+       event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, sqlc.arg(at)::timestamptz) AS phase
+FROM event_challenges ec
+JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+LEFT JOIN event_stages stage ON stage.id = ee.stage_id
+WHERE ec.id = sqlc.arg(id);
+
 -- name: UpdateEventChallenge :one
 UPDATE event_challenges
 SET points = sqlc.arg(points),

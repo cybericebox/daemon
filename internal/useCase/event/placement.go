@@ -16,8 +16,9 @@ import (
 const placementNeedTTL = time.Minute
 
 type placementCache struct {
-	mu   sync.Mutex
-	need map[uuid.UUID]cachedNeed
+	mu    sync.Mutex
+	need  map[uuid.UUID]cachedNeed
+	plans map[uuid.UUID]cachedLeadPlan
 }
 
 type cachedNeed struct {

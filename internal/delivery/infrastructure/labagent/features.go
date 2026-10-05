@@ -276,3 +276,17 @@ func setGroupSizes(item *labpb.LabGroupItem, sizes infraModel.GroupSizes) {
 		item.GatewaySize = &labpb.PodSize{CpuMillicores: sizes.Gateway.CPUMillicores, MemoryBytes: sizes.Gateway.MemoryBytes}
 	}
 }
+
+// SchedulerMaxPods is the pods the agents that are used start at once, summed; 0 when some agent has no limit or
+// none has reported (the launch then needs one wave).
+func (f *Fleet) SchedulerMaxPods() int {
+	total := 0
+	for _, m := range f.eligible() {
+		feat := m.Features.Get()
+		if feat == nil || !feat.Scheduler.Enabled || feat.Scheduler.MaxPods <= 0 {
+			return 0
+		}
+		total += int(feat.Scheduler.MaxPods)
+	}
+	return total
+}

@@ -13,6 +13,9 @@ type Attempt struct {
 	Answer                                            string
 	Correct                                           bool
 	ReceivedAt, CreatedAt                             time.Time
+	// Practice marks a submission made after a returnable stage closed: verified and shown to the team, but kept
+	// out of every rating read.
+	Practice bool
 }
 
 // MaxAnswerBytes is the longest answer accepted (FLAG_ANSWER_MAX_BYTES, set once at start).

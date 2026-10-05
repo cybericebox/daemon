@@ -12,24 +12,21 @@ import (
 var standNow = time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 
 func TestNewTimingValidatesBounds(t *testing.T) {
-	if _, err := NewTiming(5, 0); err != nil {
-		t.Fatalf("lower bounds rejected: %v", err)
+	if _, err := NewTiming(0); err != nil {
+		t.Fatalf("lower bound rejected: %v", err)
 	}
-	if _, err := NewTiming(1440, 10080); err != nil {
-		t.Fatalf("upper bounds rejected: %v", err)
+	if _, err := NewTiming(10080); err != nil {
+		t.Fatalf("upper bound rejected: %v", err)
 	}
-	for _, c := range [][2]int32{{4, 0}, {1441, 0}, {30, -1}, {30, 10081}} {
-		if _, err := NewTiming(c[0], c[1]); !errors.Is(err, ErrStandSettingsInvalid.Err()) {
-			t.Fatalf("NewTiming(%d,%d) = %v, want settings invalid", c[0], c[1], err)
+	for _, delay := range []int32{-1, 10081} {
+		if _, err := NewTiming(delay); !errors.Is(err, ErrStandSettingsInvalid.Err()) {
+			t.Fatalf("NewTiming(%d) = %v, want settings invalid", delay, err)
 		}
 	}
 }
 
-func TestTimingInstants(t *testing.T) {
-	timing := Timing{DeployLeadMinutes: 30, TeardownDelayMinutes: 60}
-	if got := timing.DeployAt(standNow); !got.Equal(standNow.Add(-30 * time.Minute)) {
-		t.Fatalf("DeployAt = %v", got)
-	}
+func TestTimingTeardown(t *testing.T) {
+	timing := Timing{TeardownDelayMinutes: 60}
 	if timing.TeardownAt(nil) != nil {
 		t.Fatal("an event without finish must never be torn down by the schedule")
 	}

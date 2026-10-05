@@ -264,7 +264,7 @@ func (c *EventConfig) SetTaskRevealMode(mode TaskRevealMode, started bool, now t
 // SetStandTiming changes only the stand schedule, so saving it from the
 // «Стенди» page cannot overwrite concurrent general-setting changes.
 func (c *EventConfig) SetStandTiming(timing eventStandModel.Timing, now time.Time, by uuid.UUID) error {
-	validated, err := eventStandModel.NewTiming(timing.DeployLeadMinutes, timing.TeardownDelayMinutes)
+	validated, err := eventStandModel.NewTiming(timing.TeardownDelayMinutes)
 	if err != nil {
 		return err
 	}

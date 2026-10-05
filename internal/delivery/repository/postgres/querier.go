@@ -83,6 +83,8 @@ type Querier interface {
 	CountEventParticipantsTable(ctx context.Context, arg CountEventParticipantsTableParams) (int64, error)
 	CountEventRegistrationAnswers(ctx context.Context, eventID uuid.UUID) (int64, error)
 	CountEventSolutionAttempts(ctx context.Context, arg CountEventSolutionAttemptsParams) (int64, error)
+	// Every set that still points at the stage (detached ones too: the foreign key would refuse the delete).
+	CountEventStageSets(ctx context.Context, stageID uuid.NullUUID) (int32, error)
 	CountEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error)
 	// Mirrors ListEventTeams' search, admission and field filters for the management list.
 	CountEventTeamsFiltered(ctx context.Context, arg CountEventTeamsFilteredParams) (int64, error)
@@ -155,6 +157,7 @@ type Querier interface {
 	// A new page is unpublished: its columns mirror the draft (reserving the slug).
 	CreateEventPage(ctx context.Context, arg CreateEventPageParams) (EventPage, error)
 	CreateEventResultChange(ctx context.Context, arg CreateEventResultChangeParams) (EventResultChange, error)
+	CreateEventStage(ctx context.Context, arg CreateEventStageParams) (EventStage, error)
 	CreateEventTeam(ctx context.Context, arg CreateEventTeamParams) (EventTeam, error)
 	CreateEventTeamStand(ctx context.Context, arg CreateEventTeamStandParams) (int64, error)
 	// Timestamps come from the domain factory, not DB defaults.
@@ -242,6 +245,7 @@ type Querier interface {
 	DeleteEventResultChangesBefore(ctx context.Context, before time.Time) (int64, error)
 	DeleteEventSMTPConfig(ctx context.Context, scopeEventID uuid.NullUUID) error
 	DeleteEventSignalNotificationSubscription(ctx context.Context, arg DeleteEventSignalNotificationSubscriptionParams) (int64, error)
+	DeleteEventStage(ctx context.Context, arg DeleteEventStageParams) (int64, error)
 	// participant.team_id is ON DELETE SET NULL, so deleting a disbanded team
 	// atomically detaches every remaining member at the database level.
 	DeleteEventTeam(ctx context.Context, arg DeleteEventTeamParams) (int64, error)
@@ -342,6 +346,8 @@ type Querier interface {
 	// The organizer's estimate of tasks that are not final yet. A narrow pair of queries: the
 	// whole-aggregate write above never touches these columns.
 	GetEventCapacityEstimate(ctx context.Context, eventID uuid.UUID) (GetEventCapacityEstimateRow, error)
+	// Publication and the stage phase of the task's set at the given moment (the request time), for the submission gate.
+	GetEventChallengeAccess(ctx context.Context, arg GetEventChallengeAccessParams) (GetEventChallengeAccessRow, error)
 	GetEventChallengeByID(ctx context.Context, arg GetEventChallengeByIDParams) (EventChallenge, error)
 	GetEventChallengeForEvent(ctx context.Context, arg GetEventChallengeForEventParams) (EventChallenge, error)
 	GetEventConfig(ctx context.Context, eventID uuid.UUID) (EventConfig, error)
@@ -393,6 +399,7 @@ type Querier interface {
 	// Locking the team challenge serializes a manual verdict with submission-time
 	// scoring, so the derived solved_at remains a faithful projection.
 	GetEventSolutionAttemptForDecision(ctx context.Context, arg GetEventSolutionAttemptForDecisionParams) (GetEventSolutionAttemptForDecisionRow, error)
+	GetEventStage(ctx context.Context, arg GetEventStageParams) (EventStage, error)
 	GetEventStandRollout(ctx context.Context, eventID uuid.UUID) (EventStandRollout, error)
 	GetEventTeamAdmitted(ctx context.Context, arg GetEventTeamAdmittedParams) (bool, error)
 	// The hidden moderators team is invisible to every participant and team
@@ -780,6 +787,8 @@ type Querier interface {
 	// table as of that moment (freeze), plus every solve of include_team.
 	ListEventScoreboard(ctx context.Context, arg ListEventScoreboardParams) ([]ListEventScoreboardRow, error)
 	ListEventSolutionAttempts(ctx context.Context, arg ListEventSolutionAttemptsParams) ([]ListEventSolutionAttemptsRow, error)
+	// Order is time: stages never overlap.
+	ListEventStages(ctx context.Context, eventID uuid.UUID) ([]EventStage, error)
 	ListEventStandLabs(ctx context.Context, eventID uuid.UUID) ([]ListEventStandLabsRow, error)
 	// Every event manager (read or write access) and every active platform
 	// administrator receives stand failures, once each.
@@ -977,7 +986,7 @@ type Querier interface {
 	ListPendingEventFormDeliveries(ctx context.Context, arg ListPendingEventFormDeliveriesParams) ([]ListPendingEventFormDeliveriesRow, error)
 	// Stand engine work queue: every not yet ready Lab of one event together with
 	// the pinned version and variant needed to resolve its topology.
-	ListPendingEventLabBindings(ctx context.Context, eventID uuid.UUID) ([]ListPendingEventLabBindingsRow, error)
+	ListPendingEventLabBindings(ctx context.Context, arg ListPendingEventLabBindingsParams) ([]ListPendingEventLabBindingsRow, error)
 	ListPendingLabGroupCleanupRequests(ctx context.Context) ([]string, error)
 	ListPendingTeamInvitations(ctx context.Context, arg ListPendingTeamInvitationsParams) ([]ListPendingTeamInvitationsRow, error)
 	// Active platform administrators (super admins and admins; read-only admin
@@ -1158,13 +1167,16 @@ type Querier interface {
 	// scope_filter: 'platform' = platform banners, otherwise the Event id.
 	ListSiteBanners(ctx context.Context, scopeFilter string) ([]SiteBanner, error)
 	ListSolveIntegrityReviews(ctx context.Context, eventID uuid.UUID) ([]ListSolveIntegrityReviewsRow, error)
-	// Events inside the stand window: configured, live, past start minus the
-	// deploy lead, and not yet torn down. The schedule is re-derived every tick,
+	// Events inside the stand window: configured, live, past start minus the longest
+	// possible deploy lead (the lead itself is computed per event, so the engine
+	// narrows it), and not yet torn down. The schedule is re-derived every tick,
 	// so lifecycle and setting changes need no rescheduling.
 	ListStandEvents(ctx context.Context, now time.Time) ([]uuid.UUID, error)
 	// Stand candidates (admitted teams, the moderators team and any team that
-	// already has a stand) with their persisted stand and Lab counters.
-	ListStandTeams(ctx context.Context, eventID uuid.UUID) ([]ListStandTeamsRow, error)
+	// already has a stand) with their persisted stand and Lab counters. The counters
+	// skip the sets whose labs are not due yet (a later stage), so the event-start
+	// barrier never waits for them.
+	ListStandTeams(ctx context.Context, arg ListStandTeamsParams) ([]ListStandTeamsRow, error)
 	ListSuperAdminEmails(ctx context.Context) ([]string, error)
 	// Active super admins: the only role that sees and decides infrastructure (resource requests and alarms,
 	// elevations).
@@ -1413,6 +1425,7 @@ type Querier interface {
 	SetEventChallengeOrder(ctx context.Context, arg SetEventChallengeOrderParams) (int64, error)
 	// A set is shown or hidden as a whole: its tasks share one infrastructure.
 	SetEventExerciseChallengesPublished(ctx context.Context, arg SetEventExerciseChallengesPublishedParams) error
+	SetEventExerciseStage(ctx context.Context, arg SetEventExerciseStageParams) (EventExercise, error)
 	// Moves a still pending event invitation to a team (moderator team builder).
 	SetEventParticipantInvitedTeam(ctx context.Context, arg SetEventParticipantInvitedTeamParams) (int64, error)
 	// A pseudonym that spells another participant's real name (case and spacing
@@ -1496,6 +1509,7 @@ type Querier interface {
 	// Event managers may change only the participant-visible name.
 	UpdateEventPublicName(ctx context.Context, arg UpdateEventPublicNameParams) (int64, error)
 	UpdateEventScoringProfile(ctx context.Context, arg UpdateEventScoringProfileParams) (int64, error)
+	UpdateEventStage(ctx context.Context, arg UpdateEventStageParams) (EventStage, error)
 	UpdateEventTeam(ctx context.Context, arg UpdateEventTeamParams) (int64, error)
 	// fields_missing is written together with the answers when known (NULL keeps it).
 	UpdateEventTeamExtraFields(ctx context.Context, arg UpdateEventTeamExtraFieldsParams) (int64, error)
@@ -1560,6 +1574,8 @@ type Querier interface {
 	UpsertPlatformSignalNotificationDefault(ctx context.Context, arg UpsertPlatformSignalNotificationDefaultParams) (PlatformSignalNotificationDefault, error)
 	// Only a team task of the event may be reviewed: no row when it is not.
 	UpsertSolveIntegrityReview(ctx context.Context, arg UpsertSolveIntegrityReviewParams) (uuid.UUID, error)
+	// A correct answer after a returnable stage closed: shown to the team, never rated.
+	UpsertTeamChallengePracticeSolve(ctx context.Context, arg UpsertTeamChallengePracticeSolveParams) error
 	UpsertTeamChallengeSolve(ctx context.Context, arg UpsertTeamChallengeSolveParams) error
 	UpsertUserSetting(ctx context.Context, arg UpsertUserSettingParams) error
 	// Store (or replace) a user's VPN config for a scope. The unique

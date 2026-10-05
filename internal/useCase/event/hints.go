@@ -66,7 +66,7 @@ func (u *EventUseCase) UnlockHint(ctx context.Context, eventID, userID, challeng
 		return OwnHintView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
 	}
 	teamChallenges := teamChallengeRepo.New(txRepo)
-	state, err := teamChallenges.HintState(txCtx, *p.TeamID, challengeID)
+	state, err := teamChallenges.HintState(txCtx, *p.TeamID, challengeID, now)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return OwnHintView{}, eventChallengeModel.ErrEventChallengeNotFound.Err()
@@ -75,6 +75,14 @@ func (u *EventUseCase) UnlockHint(ctx context.Context, eventID, userID, challeng
 	}
 	if state.EventID != eventID || state.Readiness != teamChallengeModel.ReadinessPublished || !state.Published {
 		return OwnHintView{}, eventChallengeModel.ErrEventChallengeNotFound.Err()
+	}
+	// The stage gate: an upcoming stage hides the task, a closed one refuses hints for good, and after a returnable
+	// stage ended an unlock is free (the rating is frozen).
+	switch state.StagePhase {
+	case eventModel.StagePhaseUpcoming:
+		return OwnHintView{}, eventChallengeModel.ErrEventChallengeNotFound.Err()
+	case eventModel.StagePhaseClosed:
+		return OwnHintView{}, eventChallengeModel.ErrEventChallengeStageClosed.Err()
 	}
 	if !state.HintsEnabled || config.HintsDisabled {
 		return OwnHintView{}, eventChallengeModel.ErrEventChallengeHintsDisabled.Err()
@@ -96,7 +104,7 @@ func (u *EventUseCase) UnlockHint(ctx context.Context, eventID, userID, challeng
 	if !found || !hasText {
 		return OwnHintView{}, eventChallengeModel.ErrEventChallengeHintNotFound.Err()
 	}
-	if state.Solved || status == eventModel.LifecycleFinished {
+	if state.Solved || status == eventModel.LifecycleFinished || state.StagePhase == eventModel.StagePhaseEndedReturnable {
 		cost = 0
 	}
 	unlock, err := teamChallenges.Unlock(txCtx, state, hintID, userID, now, cost)

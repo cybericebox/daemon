@@ -1,15 +1,15 @@
 -- name: ListStandEvents :many
--- Events inside the stand window: configured, live, past start minus the
--- deploy lead, and not yet torn down. The schedule is re-derived every tick,
+-- Events inside the stand window: configured, live, past start minus the longest
+-- possible deploy lead (the lead itself is computed per event, so the engine
+-- narrows it), and not yet torn down. The schedule is re-derived every tick,
 -- so lifecycle and setting changes need no rescheduling.
 SELECT event.id
 FROM events event
-JOIN event_configs config ON config.event_id = event.id
 LEFT JOIN event_stand_rollouts rollout ON rollout.event_id = event.id
 WHERE event.lifecycle_configured
   AND (event.archive_at IS NULL OR sqlc.arg(now)::timestamptz < event.archive_at)
   AND (event.withdraw_at IS NULL OR sqlc.arg(now)::timestamptz < event.withdraw_at)
-  AND event.start_at - make_interval(mins => config.stand_deploy_lead_minutes) <= sqlc.arg(now)::timestamptz
+  AND event.start_at - make_interval(mins => 240) <= sqlc.arg(now)::timestamptz
   AND rollout.torn_down_at IS NULL
 ORDER BY event.start_at, event.id;
 
@@ -84,14 +84,19 @@ ORDER BY event_team_id, event_exercise_id;
 
 -- name: ListStandTeams :many
 -- Stand candidates (admitted teams, the moderators team and any team that
--- already has a stand) with their persisted stand and Lab counters.
+-- already has a stand) with their persisted stand and Lab counters. The counters
+-- skip the sets whose labs are not due yet (a later stage), so the event-start
+-- barrier never waits for them.
 SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
        event_team_public_name(team.individual, team.event_id, team.captain_id, team.name)::text AS public_name,
        (team.moderators OR event_team_admitted(team.event_id, team.individual, team.admitted_manually,
                                                team.admission_locked, team.member_count))::boolean AS admitted,
        stand.status AS stand_status, stand.reason AS stand_reason, stand.generation AS stand_generation,
        stand.updated_at AS stand_updated_at,
-       (SELECT count(*) FROM lab_bindings lb WHERE lb.event_team_id = team.id AND lb.readiness = 0)::bigint AS pending_labs,
+       (SELECT count(*) FROM lab_bindings lb
+        JOIN event_challenges due_ec ON due_ec.id = lb.event_challenge_id
+        WHERE lb.event_team_id = team.id AND lb.readiness = 0
+          AND due_ec.event_exercise_id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[]))::bigint AS pending_labs,
        (SELECT count(*) FROM lab_bindings lb WHERE lb.event_team_id = team.id AND lb.readiness = 2)::bigint AS failed_labs,
        COALESCE((SELECT min(lb.failure_reason) FROM lab_bindings lb
                  WHERE lb.event_team_id = team.id AND lb.readiness = 2), '')::text AS failure_reason,
@@ -101,6 +106,7 @@ SELECT team.id, team.name, team.individual, team.moderators, team.captain_id,
         JOIN event_challenges challenge ON challenge.event_exercise_id = exercise.id
         WHERE exercise.event_id = team.event_id
           AND exercise.status = 0
+          AND exercise.id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[])
           AND NOT EXISTS (SELECT 1 FROM team_challenges assignment
                           WHERE assignment.event_team_id = team.id
                             AND assignment.event_challenge_id = challenge.id))::bigint AS missing_assignments

@@ -65,16 +65,16 @@ func TestStandTimingDefaultsAndValidation(t *testing.T) {
 	if c.StandTiming != eventStandModel.DefaultTiming() {
 		t.Fatalf("stand timing default = %+v", c.StandTiming)
 	}
-	if err := c.SetStandTiming(eventStandModel.Timing{DeployLeadMinutes: 45, TeardownDelayMinutes: 0}, cfgNow.Add(time.Minute), uuid.Nil); err != nil {
+	if err := c.SetStandTiming(eventStandModel.Timing{TeardownDelayMinutes: 0}, cfgNow.Add(time.Minute), uuid.Nil); err != nil {
 		t.Fatal(err)
 	}
-	if c.StandTiming.DeployLeadMinutes != 45 || c.StandTiming.TeardownDelayMinutes != 0 || !c.UpdatedAt.Equal(cfgNow.Add(time.Minute)) {
+	if c.StandTiming.TeardownDelayMinutes != 0 || !c.UpdatedAt.Equal(cfgNow.Add(time.Minute)) {
 		t.Fatalf("stand timing not applied: %+v", c)
 	}
-	if err := c.SetStandTiming(eventStandModel.Timing{DeployLeadMinutes: 1}, cfgNow.Add(2*time.Minute), uuid.Nil); !errors.Is(err, eventStandModel.ErrStandSettingsInvalid.Err()) {
-		t.Fatalf("invalid lead accepted: %v", err)
+	if err := c.SetStandTiming(eventStandModel.Timing{TeardownDelayMinutes: -1}, cfgNow.Add(2*time.Minute), uuid.Nil); !errors.Is(err, eventStandModel.ErrStandSettingsInvalid.Err()) {
+		t.Fatalf("invalid delay accepted: %v", err)
 	}
-	if c.StandTiming.DeployLeadMinutes != 45 {
+	if c.StandTiming.TeardownDelayMinutes != 0 {
 		t.Fatal("a rejected timing must leave the config untouched")
 	}
 }

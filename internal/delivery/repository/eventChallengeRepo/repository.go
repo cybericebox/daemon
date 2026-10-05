@@ -22,6 +22,7 @@ type Queries interface {
 	GetEventChallengeByID(ctx context.Context, arg postgres.GetEventChallengeByIDParams) (postgres.EventChallenge, error)
 	GetEventChallengeForEvent(ctx context.Context, arg postgres.GetEventChallengeForEventParams) (postgres.EventChallenge, error)
 	IsEventChallengePublished(ctx context.Context, id uuid.UUID) (bool, error)
+	GetEventChallengeAccess(ctx context.Context, arg postgres.GetEventChallengeAccessParams) (postgres.GetEventChallengeAccessRow, error)
 	UpdateEventChallenge(ctx context.Context, arg postgres.UpdateEventChallengeParams) (postgres.EventChallenge, error)
 	UpdateEventChallengeScoring(ctx context.Context, arg postgres.UpdateEventChallengeScoringParams) (postgres.EventChallenge, error)
 	VacateEventChallengeOrders(ctx context.Context, eventExerciseID uuid.UUID) error
@@ -124,6 +125,21 @@ func (r *Repository) GetForEvent(ctx context.Context, eventID, id uuid.UUID) (ev
 		return eventChallengeModel.EventChallenge{}, err
 	}
 	return ToDomain(row), nil
+}
+
+// Access is whether a task is published and the phase of its set's stage at a moment (open without a stage).
+type Access struct {
+	Published bool
+	Phase     eventModel.StagePhase
+}
+
+// Access reads publication and the stage phase at the given moment (the request time).
+func (r *Repository) Access(ctx context.Context, id uuid.UUID, at time.Time) (Access, error) {
+	row, err := r.q.GetEventChallengeAccess(ctx, postgres.GetEventChallengeAccessParams{ID: id, At: at})
+	if err != nil {
+		return Access{}, err
+	}
+	return Access{Published: row.Published, Phase: eventModel.StagePhase(row.Phase)}, nil
 }
 
 func (r *Repository) Published(ctx context.Context, id uuid.UUID) (bool, error) {

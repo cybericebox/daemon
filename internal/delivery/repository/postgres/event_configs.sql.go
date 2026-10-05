@@ -20,16 +20,16 @@ INSERT INTO event_configs (event_id, participation, registration, scoreboard_vis
                            max_team_size, min_team_size, max_teams,
                            brand_color, accent_color, accent_light, accent_dark,
                            accent_live, theme_version, allow_pseudonyms,
-                           stand_deploy_lead_minutes, stand_teardown_delay_minutes,
+                           stand_teardown_delay_minutes,
                            show_difficulty, hints_disabled,
                            results_freeze_enabled, results_freeze_minutes, results_opened_at,
                            results_live_freeze, results_chart_enabled, results_chart_teams,
                            results_rows_limit, hint_charge_mode,
                            show_start_countdown, show_finish_countdown, finish_countdown_minutes,
-                           task_reveal_mode, max_flag_attempts)
+                           task_reveal_mode, max_flag_attempts, finish_countdown_mode)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
         $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-        $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37) RETURNING event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_deploy_lead_minutes, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts
+        $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37) RETURNING event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts, finish_countdown_mode
 `
 
 type CreateEventConfigParams struct {
@@ -53,7 +53,6 @@ type CreateEventConfigParams struct {
 	AccentLive                string             `json:"accent_live"`
 	ThemeVersion              int64              `json:"theme_version"`
 	AllowPseudonyms           bool               `json:"allow_pseudonyms"`
-	StandDeployLeadMinutes    int32              `json:"stand_deploy_lead_minutes"`
 	StandTeardownDelayMinutes int32              `json:"stand_teardown_delay_minutes"`
 	ShowDifficulty            bool               `json:"show_difficulty"`
 	HintsDisabled             bool               `json:"hints_disabled"`
@@ -70,6 +69,7 @@ type CreateEventConfigParams struct {
 	FinishCountdownMinutes    int32              `json:"finish_countdown_minutes"`
 	TaskRevealMode            string             `json:"task_reveal_mode"`
 	MaxFlagAttempts           pgtype.Int4        `json:"max_flag_attempts"`
+	FinishCountdownMode       int16              `json:"finish_countdown_mode"`
 }
 
 // Timestamps come from the domain factory. participation is null at creation.
@@ -95,7 +95,6 @@ func (q *Queries) CreateEventConfig(ctx context.Context, arg CreateEventConfigPa
 		arg.AccentLive,
 		arg.ThemeVersion,
 		arg.AllowPseudonyms,
-		arg.StandDeployLeadMinutes,
 		arg.StandTeardownDelayMinutes,
 		arg.ShowDifficulty,
 		arg.HintsDisabled,
@@ -112,6 +111,7 @@ func (q *Queries) CreateEventConfig(ctx context.Context, arg CreateEventConfigPa
 		arg.FinishCountdownMinutes,
 		arg.TaskRevealMode,
 		arg.MaxFlagAttempts,
+		arg.FinishCountdownMode,
 	)
 	var i EventConfig
 	err := row.Scan(
@@ -135,7 +135,6 @@ func (q *Queries) CreateEventConfig(ctx context.Context, arg CreateEventConfigPa
 		&i.AccentLive,
 		&i.ThemeVersion,
 		&i.AllowPseudonyms,
-		&i.StandDeployLeadMinutes,
 		&i.StandTeardownDelayMinutes,
 		&i.ShowDifficulty,
 		&i.ResultsFreezeEnabled,
@@ -155,6 +154,7 @@ func (q *Queries) CreateEventConfig(ctx context.Context, arg CreateEventConfigPa
 		&i.CapacityAvgTaskMemoryBytes,
 		&i.TaskRevealMode,
 		&i.MaxFlagAttempts,
+		&i.FinishCountdownMode,
 	)
 	return i, err
 }
@@ -181,7 +181,7 @@ func (q *Queries) GetEventCapacityEstimate(ctx context.Context, eventID uuid.UUI
 }
 
 const getEventConfig = `-- name: GetEventConfig :one
-SELECT event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_deploy_lead_minutes, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts
+SELECT event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts, finish_countdown_mode
 FROM event_configs
 WHERE event_id = $1
 `
@@ -210,7 +210,6 @@ func (q *Queries) GetEventConfig(ctx context.Context, eventID uuid.UUID) (EventC
 		&i.AccentLive,
 		&i.ThemeVersion,
 		&i.AllowPseudonyms,
-		&i.StandDeployLeadMinutes,
 		&i.StandTeardownDelayMinutes,
 		&i.ShowDifficulty,
 		&i.ResultsFreezeEnabled,
@@ -230,6 +229,7 @@ func (q *Queries) GetEventConfig(ctx context.Context, eventID uuid.UUID) (EventC
 		&i.CapacityAvgTaskMemoryBytes,
 		&i.TaskRevealMode,
 		&i.MaxFlagAttempts,
+		&i.FinishCountdownMode,
 	)
 	return i, err
 }
@@ -282,23 +282,23 @@ SET participation            = $2,
     accent_live             = $17,
     theme_version           = $18,
     allow_pseudonyms        = $19,
-    stand_deploy_lead_minutes    = $20,
-    stand_teardown_delay_minutes = $21,
-    show_difficulty              = $22,
-    hints_disabled                   = $23,
-    results_freeze_enabled       = $24,
-    results_freeze_minutes       = $25,
-    results_opened_at            = $26,
-    results_live_freeze          = $27,
-    results_chart_enabled        = $28,
-    results_chart_teams          = $29,
-    results_rows_limit           = $30,
-    hint_charge_mode             = $31,
-    show_start_countdown         = $32,
-    show_finish_countdown        = $33,
-    finish_countdown_minutes     = $34,
-    task_reveal_mode             = $35,
-    max_flag_attempts            = $36
+    stand_teardown_delay_minutes = $20,
+    show_difficulty              = $21,
+    hints_disabled                   = $22,
+    results_freeze_enabled       = $23,
+    results_freeze_minutes       = $24,
+    results_opened_at            = $25,
+    results_live_freeze          = $26,
+    results_chart_enabled        = $27,
+    results_chart_teams          = $28,
+    results_rows_limit           = $29,
+    hint_charge_mode             = $30,
+    show_start_countdown         = $31,
+    show_finish_countdown        = $32,
+    finish_countdown_minutes     = $33,
+    task_reveal_mode             = $34,
+    max_flag_attempts            = $35,
+    finish_countdown_mode        = $36
 WHERE event_id = $1
   AND updated_at IS NOT DISTINCT FROM $37
 `
@@ -323,7 +323,6 @@ type UpdateEventConfigParams struct {
 	AccentLive                string             `json:"accent_live"`
 	ThemeVersion              int64              `json:"theme_version"`
 	AllowPseudonyms           bool               `json:"allow_pseudonyms"`
-	StandDeployLeadMinutes    int32              `json:"stand_deploy_lead_minutes"`
 	StandTeardownDelayMinutes int32              `json:"stand_teardown_delay_minutes"`
 	ShowDifficulty            bool               `json:"show_difficulty"`
 	HintsDisabled             bool               `json:"hints_disabled"`
@@ -340,6 +339,7 @@ type UpdateEventConfigParams struct {
 	FinishCountdownMinutes    int32              `json:"finish_countdown_minutes"`
 	TaskRevealMode            string             `json:"task_reveal_mode"`
 	MaxFlagAttempts           pgtype.Int4        `json:"max_flag_attempts"`
+	FinishCountdownMode       int16              `json:"finish_countdown_mode"`
 	ExpectedUpdatedAt         pgtype.Timestamptz `json:"expected_updated_at"`
 }
 
@@ -367,7 +367,6 @@ func (q *Queries) UpdateEventConfig(ctx context.Context, arg UpdateEventConfigPa
 		arg.AccentLive,
 		arg.ThemeVersion,
 		arg.AllowPseudonyms,
-		arg.StandDeployLeadMinutes,
 		arg.StandTeardownDelayMinutes,
 		arg.ShowDifficulty,
 		arg.HintsDisabled,
@@ -384,6 +383,7 @@ func (q *Queries) UpdateEventConfig(ctx context.Context, arg UpdateEventConfigPa
 		arg.FinishCountdownMinutes,
 		arg.TaskRevealMode,
 		arg.MaxFlagAttempts,
+		arg.FinishCountdownMode,
 		arg.ExpectedUpdatedAt,
 	)
 	if err != nil {

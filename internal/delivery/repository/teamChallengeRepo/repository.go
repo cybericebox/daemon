@@ -10,6 +10,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 )
@@ -55,6 +56,11 @@ type PublishedChallenge struct {
 	Published bool
 	// Infrastructure: the assignment has a Lab binding.
 	Infrastructure bool
+	// StageID/StagePhase: the stage of the task's set and its phase at the time the board was read (open without a
+	// stage). PracticeSolved: a correct answer given after a returnable stage closed (never rated).
+	StageID        *uuid.UUID
+	StagePhase     eventModel.StagePhase
+	PracticeSolved bool
 	// BoardHints/HintCosts: the event challenge's hints and cost overrides;
 	// the team's own texts are in Challenge.Hints.
 	BoardHints []eventChallengeModel.Hint
@@ -117,18 +123,18 @@ func (r *Repository) List(ctx context.Context, teamID uuid.UUID) ([]teamChalleng
 }
 
 // ListPublished returns the participant board: board-published assignments.
-func (r *Repository) ListPublished(ctx context.Context, teamID uuid.UUID) ([]PublishedChallenge, error) {
-	return r.listBoard(ctx, teamID, true)
+func (r *Repository) ListPublished(ctx context.Context, teamID uuid.UUID, at time.Time) ([]PublishedChallenge, error) {
+	return r.listBoard(ctx, teamID, true, at)
 }
 
 // ListBoard returns every assignment of the team, published on the board or
 // not (the moderators board).
-func (r *Repository) ListBoard(ctx context.Context, teamID uuid.UUID) ([]PublishedChallenge, error) {
-	return r.listBoard(ctx, teamID, false)
+func (r *Repository) ListBoard(ctx context.Context, teamID uuid.UUID, at time.Time) ([]PublishedChallenge, error) {
+	return r.listBoard(ctx, teamID, false, at)
 }
 
-func (r *Repository) listBoard(ctx context.Context, teamID uuid.UUID, publishedOnly bool) ([]PublishedChallenge, error) {
-	rows, err := r.q.ListTeamBoardChallenges(ctx, postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: publishedOnly})
+func (r *Repository) listBoard(ctx context.Context, teamID uuid.UUID, publishedOnly bool, at time.Time) ([]PublishedChallenge, error) {
+	rows, err := r.q.ListTeamBoardChallenges(ctx, postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: publishedOnly, At: at})
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +153,13 @@ func (r *Repository) listBoard(ctx context.Context, teamID uuid.UUID, publishedO
 		challenge := toDomain(row.ID, row.EventID, row.EventTeamID, row.EventChallengeID, row.VariantIndex, row.Snapshot, row.ExpectedFlag, row.Readiness, row.SolvedAt, row.CreatedAt)
 		challenge.Hints = UnmarshalHints(row.TeamHints)
 		boardHints, costs := eventChallengeRepo.UnmarshalHints(row.BoardHints, row.HintCosts)
+		var stageID *uuid.UUID
+		if row.StageID.Valid {
+			id := row.StageID.UUID
+			stageID = &id
+		}
 		out = append(out, PublishedChallenge{
+			StageID: stageID, StagePhase: eventModel.StagePhase(row.StagePhase), PracticeSolved: row.PracticeSolved,
 			Challenge: challenge, BoardHints: boardHints, HintCosts: costs,
 			Points: row.Points, Order: row.BoardPosition, GroupID: groupID, GroupName: row.GroupName, GroupOrder: row.GroupOrder,
 			ContentUpdatedAt: contentUpdatedAt, HintsEnabled: row.HintsEnabled, Published: row.Published, Infrastructure: row.Infrastructure,
@@ -341,17 +353,19 @@ type HintState struct {
 	HintsEnabled     bool
 	Published        bool
 	Solved           bool
+	// StagePhase is the phase of the task's set at the time the state was read.
+	StagePhase eventModel.StagePhase
 }
 
-func (r *Repository) HintState(ctx context.Context, teamID, challengeID uuid.UUID) (HintState, error) {
-	row, err := r.q.GetTeamChallengeHints(ctx, postgres.GetTeamChallengeHintsParams{EventTeamID: teamID, EventChallengeID: challengeID})
+func (r *Repository) HintState(ctx context.Context, teamID, challengeID uuid.UUID, at time.Time) (HintState, error) {
+	row, err := r.q.GetTeamChallengeHints(ctx, postgres.GetTeamChallengeHintsParams{EventTeamID: teamID, EventChallengeID: challengeID, At: at})
 	if err != nil {
 		return HintState{}, err
 	}
 	boardHints, costs := eventChallengeRepo.UnmarshalHints(row.BoardHints, row.HintCosts)
 	return HintState{TeamChallengeID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID,
 		Readiness: teamChallengeModel.Readiness(row.Readiness), TeamHints: UnmarshalHints(row.TeamHints), BoardHints: boardHints, HintCosts: costs,
-		HintsEnabled: row.HintsEnabled, Published: row.Published, Solved: row.Solved}, nil
+		HintsEnabled: row.HintsEnabled, Published: row.Published, Solved: row.Solved, StagePhase: eventModel.StagePhase(row.StagePhase)}, nil
 }
 
 // HintUnlock is one team's unlock of one hint.

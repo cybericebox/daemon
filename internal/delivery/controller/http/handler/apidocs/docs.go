@@ -6705,6 +6705,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/exercises/{exerciseID}/stage": {
+            "put": {
+                "description": "Before a stage opens everything is free; once it has opened nothing is moved out of it (stage_opened_locked) and a closed stage accepts nothing new (stage_closed_locked).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Attach an exercise set to a stage (or to the whole event)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "event exercise attachment ID",
+                        "name": "exerciseID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "stage",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.setEventExerciseStageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.eventExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/exercises/{exerciseID}/update": {
             "post": {
                 "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.",
@@ -11021,6 +11081,193 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/stages": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "List the stages of an event with their computed state",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/event.eventStageResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "The first stage is the whole event window; a later stage opens where asked and closes with the event, ending the previous last stage where it opens. Needs a scheduled event finish.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Add a stage to an event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "stage",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.createEventStageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.eventStageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/stages/{stageID}": {
+            "put": {
+                "description": "Upcoming: everything. Open: name, Returnable and ClosesAt (in the future), or CloseNow. Closed: only the name. Errors: stage_closed_locked, stage_opened_locked.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Update a stage by what its state allows",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "stage ID",
+                        "name": "stageID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "changes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.updateEventStageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.eventStageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Delete an upcoming stage that holds no sets",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "stage ID",
+                        "name": "stageID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/team-fields": {
             "get": {
                 "produces": [
@@ -12538,7 +12785,7 @@ const docTemplate = `{
                 "tags": [
                     "events-self"
                 ],
-                "summary": "List published challenges assigned to the caller's team",
+                "summary": "The caller's team board: published challenges and the stage context",
                 "parameters": [
                     {
                         "type": "string",
@@ -12560,10 +12807,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/eventself.ownChallengeResponse"
-                                            }
+                                            "$ref": "#/definitions/eventself.ownBoardResponse"
                                         }
                                     }
                                 }
@@ -22081,6 +22325,10 @@ const docTemplate = `{
                 "FinishCountdownMinutes": {
                     "type": "integer"
                 },
+                "FinishCountdownMode": {
+                    "description": "FinishCountdownMode: before_end (the time-left countdown shows during the last FinishCountdownMinutes) |\nfrom_start (from the start of the current stage, of the event without stages).",
+                    "type": "string"
+                },
                 "HintChargeMode": {
                     "description": "HintChargeMode: reward (A, default) | balance (B).",
                     "type": "string"
@@ -22195,6 +22443,23 @@ const docTemplate = `{
                 },
                 "Tag": {
                     "type": "string"
+                }
+            }
+        },
+        "event.createEventStageRequest": {
+            "type": "object",
+            "properties": {
+                "ClosesAt": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "OpensAt": {
+                    "type": "string"
+                },
+                "Returnable": {
+                    "type": "boolean"
                 }
             }
         },
@@ -22588,6 +22853,10 @@ const docTemplate = `{
                     "description": "W4: «версія N» is the catalog version ordinal, not the event revision.",
                     "type": "string"
                 },
+                "StageID": {
+                    "description": "StageID is the stage the set belongs to; null lives for the whole event.",
+                    "type": "string"
+                },
                 "Status": {
                     "type": "integer"
                 },
@@ -22923,6 +23192,37 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "UpdatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.eventStageResponse": {
+            "type": "object",
+            "properties": {
+                "ClosesAt": {
+                    "type": "string"
+                },
+                "First": {
+                    "description": "First opens with the event and Last closes with it: those two times are the event's own.",
+                    "type": "boolean"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Last": {
+                    "type": "boolean"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "OpensAt": {
+                    "type": "string"
+                },
+                "Returnable": {
+                    "type": "boolean"
+                },
+                "State": {
+                    "description": "State is computed from time: upcoming | open | closed.",
                     "type": "string"
                 }
             }
@@ -23965,6 +24265,15 @@ const docTemplate = `{
                 }
             }
         },
+        "event.setEventExerciseStageRequest": {
+            "type": "object",
+            "properties": {
+                "StageID": {
+                    "description": "StageID null puts the set back on the whole event.",
+                    "type": "string"
+                }
+            }
+        },
         "event.setEventExerciseVisibilityRequest": {
             "type": "object",
             "properties": {
@@ -24244,9 +24553,6 @@ const docTemplate = `{
         "event.standSettingsRequest": {
             "type": "object",
             "properties": {
-                "DeployLeadMinutes": {
-                    "type": "integer"
-                },
                 "TeardownDelayMinutes": {
                     "type": "integer"
                 }
@@ -24334,10 +24640,8 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "DeployAt": {
+                    "description": "DeployAt is when the first labs start deploying: the event start minus the lead the platform computes.",
                     "type": "string"
-                },
-                "DeployLeadMinutes": {
-                    "type": "integer"
                 },
                 "InfrastructureAllowed": {
                     "type": "boolean"
@@ -24542,6 +24846,10 @@ const docTemplate = `{
                 "FinishCountdownMinutes": {
                     "type": "integer"
                 },
+                "FinishCountdownMode": {
+                    "description": "FinishCountdownMode omitted keeps the current value: before_end | from_start.",
+                    "type": "string"
+                },
                 "HintChargeMode": {
                     "description": "HintChargeMode omitted keeps the current value: reward | balance.",
                     "type": "string"
@@ -24672,6 +24980,27 @@ const docTemplate = `{
                 },
                 "StaticPoints": {
                     "type": "integer"
+                }
+            }
+        },
+        "event.updateEventStageRequest": {
+            "type": "object",
+            "properties": {
+                "CloseNow": {
+                    "description": "CloseNow ends an open stage now («Закрити зараз»).",
+                    "type": "boolean"
+                },
+                "ClosesAt": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "OpensAt": {
+                    "type": "string"
+                },
+                "Returnable": {
+                    "type": "boolean"
                 }
             }
         },
@@ -27227,6 +27556,30 @@ const docTemplate = `{
                 }
             }
         },
+        "eventself.boardStageResponse": {
+            "type": "object",
+            "properties": {
+                "ClosesAt": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "OpensAt": {
+                    "type": "string"
+                },
+                "Returnable": {
+                    "type": "boolean"
+                },
+                "State": {
+                    "description": "State: open | closed (upcoming stages are never sent).",
+                    "type": "string"
+                }
+            }
+        },
         "eventself.capabilityResponse": {
             "type": "object",
             "properties": {
@@ -27300,6 +27653,27 @@ const docTemplate = `{
                 }
             }
         },
+        "eventself.currentStageResponse": {
+            "type": "object",
+            "properties": {
+                "EndsAt": {
+                    "description": "EndsAt is sent only while the stage countdown is visible; never for the last stage (it ends with the event).",
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Last": {
+                    "type": "boolean"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "OpensAt": {
+                    "type": "string"
+                }
+            }
+        },
         "eventself.eventInfoResponse": {
             "type": "object",
             "properties": {
@@ -27314,6 +27688,10 @@ const docTemplate = `{
                 },
                 "FinishCountdownMinutes": {
                     "type": "integer"
+                },
+                "FinishCountdownMode": {
+                    "description": "FinishCountdownMode: before_end | from_start (see the manage config).",
+                    "type": "string"
                 },
                 "FinishTime": {
                     "type": "string"
@@ -27514,11 +27892,44 @@ const docTemplate = `{
                 }
             }
         },
+        "eventself.ownBoardResponse": {
+            "type": "object",
+            "properties": {
+                "Challenges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventself.ownChallengeResponse"
+                    }
+                },
+                "CurrentStage": {
+                    "$ref": "#/definitions/eventself.currentStageResponse"
+                },
+                "NextChangeAt": {
+                    "type": "string"
+                },
+                "NextOpensAt": {
+                    "description": "NextOpensAt is the start of the next stage, only during a break.",
+                    "type": "string"
+                },
+                "ServerNow": {
+                    "type": "string"
+                },
+                "Stages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventself.boardStageResponse"
+                    }
+                }
+            }
+        },
         "eventself.ownChallengeResponse": {
             "type": "object",
             "properties": {
                 "AttemptsLeft": {
                     "type": "integer"
+                },
+                "Closed": {
+                    "type": "boolean"
                 },
                 "ContentUpdatedAt": {
                     "type": "string"
@@ -27574,6 +27985,9 @@ const docTemplate = `{
                 "Points": {
                     "type": "integer"
                 },
+                "Practice": {
+                    "type": "boolean"
+                },
                 "Prerequisites": {
                     "type": "array",
                     "items": {
@@ -27591,6 +28005,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "SolvedAt": {
+                    "type": "string"
+                },
+                "StageID": {
+                    "description": "StageID is the stage of the task's set (null: the whole event). Closed: the stage closed and is not\nreturnable (visible, no submissions or hints). Practice: solved after a returnable stage closed; the rating\ndoes not count it.",
                     "type": "string"
                 }
             }
@@ -27976,6 +28394,10 @@ const docTemplate = `{
                 "FinishCountdownMinutes": {
                     "type": "integer"
                 },
+                "FinishCountdownMode": {
+                    "description": "FinishCountdownMode: before_end | from_start (see the manage config).",
+                    "type": "string"
+                },
                 "FinishTime": {
                     "type": "string"
                 },
@@ -28190,6 +28612,10 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "FirstSolve": {
+                    "type": "boolean"
+                },
+                "Practice": {
+                    "description": "Practice: the answer came after a returnable stage closed; verified, not rated.",
                     "type": "boolean"
                 }
             }

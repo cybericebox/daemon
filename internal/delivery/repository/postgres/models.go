@@ -41,6 +41,7 @@ type ChallengeAttempt struct {
 	Correct         bool      `json:"correct"`
 	ReceivedAt      time.Time `json:"received_at"`
 	CreatedAt       time.Time `json:"created_at"`
+	Practice        bool      `json:"practice"`
 }
 
 type ChallengeAttemptDecision struct {
@@ -208,7 +209,6 @@ type EventConfig struct {
 	AccentLive                   string             `json:"accent_live"`
 	ThemeVersion                 int64              `json:"theme_version"`
 	AllowPseudonyms              bool               `json:"allow_pseudonyms"`
-	StandDeployLeadMinutes       int32              `json:"stand_deploy_lead_minutes"`
 	StandTeardownDelayMinutes    int32              `json:"stand_teardown_delay_minutes"`
 	ShowDifficulty               bool               `json:"show_difficulty"`
 	ResultsFreezeEnabled         bool               `json:"results_freeze_enabled"`
@@ -228,6 +228,7 @@ type EventConfig struct {
 	CapacityAvgTaskMemoryBytes   int64              `json:"capacity_avg_task_memory_bytes"`
 	TaskRevealMode               string             `json:"task_reveal_mode"`
 	MaxFlagAttempts              pgtype.Int4        `json:"max_flag_attempts"`
+	FinishCountdownMode          int16              `json:"finish_countdown_mode"`
 }
 
 type EventExercise struct {
@@ -245,6 +246,7 @@ type EventExercise struct {
 	SupersededAt            pgtype.Timestamptz `json:"superseded_at"`
 	DetachedAt              pgtype.Timestamptz `json:"detached_at"`
 	DetachedBy              uuid.NullUUID      `json:"detached_by"`
+	StageID                 uuid.NullUUID      `json:"stage_id"`
 }
 
 type EventFormAnswer struct {
@@ -297,12 +299,13 @@ type EventFormVersion struct {
 }
 
 type EventLabAccessSync struct {
-	EventTeamID     uuid.UUID `json:"event_team_id"`
-	DesiredRevision int64     `json:"desired_revision"`
-	AppliedRevision int64     `json:"applied_revision"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	RuntimeOpen     bool      `json:"runtime_open"`
-	VpnEnabled      bool      `json:"vpn_enabled"`
+	EventTeamID       uuid.UUID `json:"event_team_id"`
+	DesiredRevision   int64     `json:"desired_revision"`
+	AppliedRevision   int64     `json:"applied_revision"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	RuntimeOpen       bool      `json:"runtime_open"`
+	VpnEnabled        bool      `json:"vpn_enabled"`
+	AppliedStageEpoch int32     `json:"applied_stage_epoch"`
 }
 
 type EventLabObservation struct {
@@ -390,6 +393,17 @@ type EventScoringPopulation struct {
 	EventID    uuid.UUID `json:"event_id"`
 	UnitsCount int32     `json:"units_count"`
 	CapturedAt time.Time `json:"captured_at"`
+}
+
+type EventStage struct {
+	ID         uuid.UUID `json:"id"`
+	EventID    uuid.UUID `json:"event_id"`
+	Name       string    `json:"name"`
+	OpensAt    time.Time `json:"opens_at"`
+	ClosesAt   time.Time `json:"closes_at"`
+	Returnable bool      `json:"returnable"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type EventStandRollout struct {

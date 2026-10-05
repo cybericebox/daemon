@@ -98,8 +98,15 @@ JOIN event_challenges ec ON ec.id = lb.event_challenge_id
 JOIN event_exercises ee ON ee.id = ec.event_exercise_id
 WHERE lb.event_id = $1
   AND lb.readiness = 0
+  -- Labs of a later stage wait until their deploy lead before they open.
+  AND ee.id <> ALL ($2::uuid[])
 ORDER BY lb.created_at, lb.id
 `
+
+type ListPendingEventLabBindingsParams struct {
+	EventID           uuid.UUID   `json:"event_id"`
+	NotDueExerciseIds []uuid.UUID `json:"not_due_exercise_ids"`
+}
 
 type ListPendingEventLabBindingsRow struct {
 	ID                uuid.UUID          `json:"id"`
@@ -116,8 +123,8 @@ type ListPendingEventLabBindingsRow struct {
 
 // Stand engine work queue: every not yet ready Lab of one event together with
 // the pinned version and variant needed to resolve its topology.
-func (q *Queries) ListPendingEventLabBindings(ctx context.Context, eventID uuid.UUID) ([]ListPendingEventLabBindingsRow, error) {
-	rows, err := q.db.Query(ctx, listPendingEventLabBindings, eventID)
+func (q *Queries) ListPendingEventLabBindings(ctx context.Context, arg ListPendingEventLabBindingsParams) ([]ListPendingEventLabBindingsRow, error) {
+	rows, err := q.db.Query(ctx, listPendingEventLabBindings, arg.EventID, arg.NotDueExerciseIds)
 	if err != nil {
 		return nil, err
 	}

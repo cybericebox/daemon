@@ -172,6 +172,11 @@ type (
 		ReorderChallengeGroups(ctx context.Context, eventID uuid.UUID, in eventUseCase.ReorderChallengeGroupsInput) error
 		ReorderGroupChallenges(ctx context.Context, eventID uuid.UUID, in eventUseCase.ReorderGroupChallengesInput) error
 		SetEventExerciseVisibility(ctx context.Context, eventID, eventExerciseID uuid.UUID, published bool) error
+		SetEventExerciseStage(ctx context.Context, eventID, eventExerciseID uuid.UUID, stageID *uuid.UUID) (eventUseCase.EventExerciseView, error)
+		ListEventStages(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.EventStageView, error)
+		CreateEventStage(ctx context.Context, eventID uuid.UUID, in eventUseCase.CreateStageInput) (eventUseCase.EventStageView, error)
+		UpdateEventStage(ctx context.Context, eventID, stageID uuid.UUID, in eventUseCase.UpdateStageInput) (eventUseCase.EventStageView, error)
+		DeleteEventStage(ctx context.Context, eventID, stageID uuid.UUID) error
 		DeleteChallengeGroup(ctx context.Context, eventID, groupID uuid.UUID) error
 		UpdateEventChallengeRelations(ctx context.Context, eventID, eventExerciseID, challengeID uuid.UUID, in eventUseCase.UpdateEventChallengeRelationsInput) error
 		ApproveParticipant(ctx context.Context, eventID, userID, by uuid.UUID) error
@@ -392,6 +397,11 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID/relations", h.requireManage, h.updateEventChallengeRelations)
 		manage.PUT("exercises/:exerciseID/challenges/order", h.requireManage, h.reorderEventChallenges)
 		manage.PUT("exercises/:exerciseID/visibility", h.requireManage, h.setEventExerciseVisibility)
+		manage.PUT("exercises/:exerciseID/stage", h.requireManage, h.setEventExerciseStage)
+		manage.GET("stages", h.requireRead, h.listEventStages)
+		manage.POST("stages", h.requireManage, h.createEventStage)
+		manage.PUT("stages/:stageID", h.requireManage, h.updateEventStage)
+		manage.DELETE("stages/:stageID", h.requireManage, h.deleteEventStage)
 		manage.PUT("challenge-order", h.requireManage, h.reorderGroupChallenges)
 		manage.GET("challenge-groups", h.requireRead, h.listChallengeGroups)
 		manage.POST("challenge-groups", h.requireManage, h.createChallengeGroup)

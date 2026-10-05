@@ -22,6 +22,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
 	eventTeamModel "github.com/cybericebox/daemon/internal/model/eventTeam"
@@ -35,6 +36,7 @@ const challengeSubmissionIdempotencyScope = "event.challenge.submit"
 type storedChallengeSubmissionResult struct {
 	Correct    bool `json:"correct"`
 	FirstSolve bool `json:"firstSolve"`
+	Practice   bool `json:"practice,omitempty"`
 }
 
 // SubmitChallenge checks an answer; a refused submission (rate limit,
@@ -124,9 +126,11 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 		if err = json.Unmarshal(record.ResponseBody, &stored); err != nil {
 			return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read idempotent response").Err()
 		}
-		return SubmitChallengeResult{Correct: stored.Correct, FirstSolve: stored.FirstSolve}, nil
+		return SubmitChallengeResult{Correct: stored.Correct, FirstSolve: stored.FirstSolve, Practice: stored.Practice}, nil
 	}
 	var teamID uuid.UUID
+	// practice: the stage closed but is returnable, so the answer is verified and shown, never rated.
+	practice := false
 	if moderators {
 		if teamID, err = u.moderatorsSubmitTeam(txCtx, txRepo, eventID, in.ReceivedAt); err != nil {
 			return SubmitChallengeResult{}, err
@@ -165,12 +169,17 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 		if tc.EventID != eventID || tc.Readiness != teamChallengeModel.ReadinessPublished {
 			return SubmitChallengeResult{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
 		}
-		published, pubErr := eventChallengeRepo.New(txRepo).Published(txCtx, tc.EventChallengeID)
+		// The stage gate is judged at the request time, so a submission received before closes_at is rated
+		// even when it is processed after.
+		access, pubErr := eventChallengeRepo.New(txRepo).Access(txCtx, tc.EventChallengeID, in.ReceivedAt)
 		if pubErr != nil {
 			return SubmitChallengeResult{}, model.ErrPlatform.WithError(pubErr).WithMessage("Failed to get event challenge publication").Err()
 		}
-		if !published {
+		if !access.Published {
 			return SubmitChallengeResult{}, teamChallengeModel.ErrTeamChallengeTransition.Err()
+		}
+		if practice, err = stageSubmitGate(access.Phase); err != nil {
+			return SubmitChallengeResult{}, err
 		}
 		if err = requirePrerequisitesSolved(txCtx, eventChallengeRepo.New(txRepo), teamChallengeRepo.New(txRepo), teamID, tc.EventChallengeID); err != nil {
 			return SubmitChallengeResult{}, err
@@ -182,7 +191,7 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 	correct := canonicalAnswer == tc.ExpectedFlag
 	var before *time.Time
 	wasSolved := false
-	if correct {
+	if correct && !practice {
 		beforeAt, solved, refreshErr := challengeAttemptRepo.New(txRepo).RefreshSolvedProjection(txCtx, tc.ID, nil)
 		if refreshErr != nil {
 			err = refreshErr
@@ -197,11 +206,19 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 	if err != nil {
 		return SubmitChallengeResult{}, err
 	}
+	a.Practice = practice
 	if _, err = challengeAttemptRepo.New(txRepo).Create(txCtx, a); err != nil {
 		return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create challenge attempt").Err()
 	}
 	first := false
-	if correct {
+	if correct && practice {
+		// Practice solve: never a solve of the rating (no award, first blood, result change or unlocked prerequisite).
+		if tc.SolvedAt == nil {
+			if err = challengeAttemptRepo.New(txRepo).RecordPracticeSolve(txCtx, tc.ID, in.ReceivedAt); err != nil {
+				return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record practice solve").Err()
+			}
+		}
+	} else if correct {
 		attempts := challengeAttemptRepo.New(txRepo)
 		effective, refreshErr := attempts.EffectiveSolvedAt(txCtx, tc.ID)
 		if refreshErr != nil {
@@ -247,7 +264,7 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 			}
 		}
 	}
-	body, marshalErr := json.Marshal(storedChallengeSubmissionResult{Correct: correct, FirstSolve: first})
+	body, marshalErr := json.Marshal(storedChallengeSubmissionResult{Correct: correct, FirstSolve: first, Practice: practice})
 	if marshalErr != nil {
 		return SubmitChallengeResult{}, model.ErrPlatform.WithError(marshalErr).WithMessage("Failed to encode idempotent response").Err()
 	}
@@ -261,7 +278,7 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 	if err = unit.Save(); err != nil {
 		return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to submit challenge").Err()
 	}
-	return SubmitChallengeResult{Correct: correct, FirstSolve: first}, nil
+	return SubmitChallengeResult{Correct: correct, FirstSolve: first, Practice: practice}, nil
 }
 
 // throttleSubmission enforces the flag rate limits on the attempts already
@@ -354,4 +371,19 @@ func selectTeamVariant(teamID uuid.UUID, attachment eventExerciseModel.EventExer
 		return *attachment.FixedVariantIndex, nil
 	}
 	return teamChallengeModel.SelectVariant(teamID, attachment.ID, len(version.Variants))
+}
+
+// stageSubmitGate is the stage rule of a participant submission: a task of an upcoming stage is hidden (not found),
+// one of a closed stage is refused for good, and one of a returnable stage that has ended is verified as practice.
+func stageSubmitGate(phase eventModel.StagePhase) (practice bool, err error) {
+	switch phase {
+	case eventModel.StagePhaseUpcoming:
+		return false, eventChallengeModel.ErrEventChallengeNotFound.Err()
+	case eventModel.StagePhaseClosed:
+		return false, eventChallengeModel.ErrEventChallengeStageClosed.Err()
+	case eventModel.StagePhaseEndedReturnable:
+		return true, nil
+	default:
+		return false, nil
+	}
 }

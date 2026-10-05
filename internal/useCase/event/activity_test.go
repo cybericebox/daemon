@@ -53,7 +53,7 @@ func expectOwnBoard(q *postgresMocks.MockQuerier, eventID, userID, teamID, chall
 		EventID: eventID, UserID: userID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true},
 	}, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
-	q.EXPECT().ListTeamBoardChallenges(gomock.Any(), postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: true}).Return([]postgres.ListTeamBoardChallengesRow{{
+	q.EXPECT().ListTeamBoardChallenges(gomock.Any(), gomock.Any()).Return([]postgres.ListTeamBoardChallengesRow{{
 		ID: uuid.Must(uuid.NewV7()), EventID: eventID, EventTeamID: teamID, EventChallengeID: challengeID, Readiness: 2, Snapshot: []byte(`{}`),
 	}}, nil)
 	q.EXPECT().ListTeamChallengePrerequisites(gomock.Any(), teamID).Return(nil, nil)

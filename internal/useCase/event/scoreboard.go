@@ -342,7 +342,7 @@ func (u *EventUseCase) GetOwnTeamResults(ctx context.Context, eventID, userID uu
 	}
 	view := OwnTeamResultsView{Entry: legacy.Entry, Timeline: legacy.Timeline, Attempts: make([]TeamResultAttemptView, 0, len(attempts))}
 	for _, a := range attempts {
-		view.Attempts = append(view.Attempts, TeamResultAttemptView{ID: a.ID, EventTeamID: a.EventTeamID, UserID: a.UserID, ParticipantName: a.ParticipantName, TeamChallengeID: a.TeamChallengeID, EventChallengeID: a.EventChallengeID, Answer: a.Answer, AutomaticCorrect: a.AutomaticCorrect, Correct: a.Correct, Decision: a.Decision, ReceivedAt: a.ReceivedAt})
+		view.Attempts = append(view.Attempts, TeamResultAttemptView{ID: a.ID, EventTeamID: a.EventTeamID, UserID: a.UserID, ParticipantName: a.ParticipantName, TeamChallengeID: a.TeamChallengeID, EventChallengeID: a.EventChallengeID, Answer: a.Answer, AutomaticCorrect: a.AutomaticCorrect, Correct: a.Correct, Decision: a.Decision, ReceivedAt: a.ReceivedAt, Practice: a.Practice})
 	}
 	return view, nil
 }

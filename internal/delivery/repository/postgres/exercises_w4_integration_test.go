@@ -24,7 +24,7 @@ func setHintChargeMode(t *testing.T, db *testhelpers.TestDB, eventID uuid.UUID, 
 	}
 	if tag.RowsAffected() == 0 {
 		if _, err = db.Queries.CreateEventConfig(context.Background(), postgres.CreateEventConfigParams{EventID: eventID, CreatedAt: itNow, UpdatedAt: pgtype.Timestamptz{Time: itNow, Valid: true},
-			MaxTeamSize: 5, StandDeployLeadMinutes: 30, StandTeardownDelayMinutes: 60, ResultsFreezeMinutes: 60, ResultsChartTeams: 10, FinishCountdownMinutes: 10, HintChargeMode: int16(mode), TaskRevealMode: "all_ready"}); err != nil {
+			MaxTeamSize: 5, StandTeardownDelayMinutes: 60, ResultsFreezeMinutes: 60, ResultsChartTeams: 10, FinishCountdownMinutes: 10, HintChargeMode: int16(mode), TaskRevealMode: "all_ready"}); err != nil {
 			t.Fatalf("create event config: %v", err)
 		}
 	}

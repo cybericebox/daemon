@@ -6,6 +6,8 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
@@ -72,9 +74,9 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 		}
 	}
 	e.UpdateLifecycle(lifecycle, updatedBy, now)
-	affected, err := u.events.UpdateLifecycle(ctx, e, expected)
+	affected, err := u.saveLifecycleWithStages(ctx, e, expected, now)
 	if err != nil {
-		return EventLifecycleView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to update event lifecycle").Err()
+		return EventLifecycleView{}, err
 	}
 	if affected == 0 {
 		if _, err = u.events.GetByID(ctx, id); err != nil {
@@ -82,6 +84,7 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 		}
 		return EventLifecycleView{}, eventModel.ErrEventModified.Err()
 	}
+	u.invalidateLeadPlan(id)
 	if u.supportsLabAccessPolicy() {
 		if err = u.RequestEventLabAccessSyncs(ctx, id); err != nil {
 			return EventLifecycleView{}, err
@@ -93,3 +96,53 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 	}
 	return toEventLifecycleView(e, now, plan), nil
 }
+
+// saveLifecycleWithStages writes the event schedule. When the event has stages, the first stage's opens_at and the
+// last stage's closes_at move with the new start and finish in the same transaction (rejected when the stage has
+// already opened, when the move would collide with a neighbour, or when the finish is removed).
+func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel.Event, expected, now time.Time) (int64, error) {
+	stages, err := u.stages.List(ctx, e.ID)
+	if err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
+	}
+	if len(stages) == 0 {
+		affected, updateErr := u.events.UpdateLifecycle(ctx, e, expected)
+		if updateErr != nil {
+			return 0, model.ErrPlatform.WithError(updateErr).WithMessage("Failed to update event lifecycle").Err()
+		}
+		return affected, nil
+	}
+	if u.uow == nil {
+		return 0, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
+	}
+	changed, err := eventModel.AnchorToLifecycle(stages, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now)
+	if err != nil {
+		return 0, err
+	}
+	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer unit.Restore()
+	stageRepo := eventStageRepo.New(txRepo)
+	// A start moved later shrinks the first stage and a finish moved earlier the last one, so apply the order that
+	// never makes two stages overlap midway: the boundary stages only ever shrink or grow outwards one at a time.
+	for _, stage := range changed {
+		if _, err = stageRepo.Update(txCtx, stage); err != nil {
+			return 0, classifyStageWriteError(err, "update")
+		}
+	}
+	affected, err := u.eventsIn(txRepo).UpdateLifecycle(txCtx, e, expected)
+	if err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to update event lifecycle").Err()
+	}
+	if affected == 0 {
+		return 0, nil
+	}
+	if err = unit.Save(); err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to update event lifecycle").Err()
+	}
+	return affected, nil
+}
+
+func (u *EventUseCase) eventsIn(repo IRepository) *eventRepo.Repository { return eventRepo.New(repo) }

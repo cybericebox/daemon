@@ -44,6 +44,8 @@ type EventExercise struct {
 	DetachedAt        *time.Time
 	CreatedAt         time.Time
 	CreatedBy         uuid.NullUUID
+	// StageID is the stage the set belongs to; nil lives for the whole event.
+	StageID *uuid.UUID
 }
 
 func New(eventID, exerciseID, versionID uuid.UUID, mode VariantMode, fixedVariantIndex *int32, now time.Time, by uuid.UUID) (EventExercise, error) {

@@ -114,6 +114,35 @@ func (q *Queries) DeleteTeamChallengesForChallenges(ctx context.Context, ids []u
 	return err
 }
 
+const getEventChallengeAccess = `-- name: GetEventChallengeAccess :one
+SELECT ec.published,
+       ee.stage_id,
+       event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, $1::timestamptz) AS phase
+FROM event_challenges ec
+JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+LEFT JOIN event_stages stage ON stage.id = ee.stage_id
+WHERE ec.id = $2
+`
+
+type GetEventChallengeAccessParams struct {
+	At time.Time `json:"at"`
+	ID uuid.UUID `json:"id"`
+}
+
+type GetEventChallengeAccessRow struct {
+	Published bool          `json:"published"`
+	StageID   uuid.NullUUID `json:"stage_id"`
+	Phase     int16         `json:"phase"`
+}
+
+// Publication and the stage phase of the task's set at the given moment (the request time), for the submission gate.
+func (q *Queries) GetEventChallengeAccess(ctx context.Context, arg GetEventChallengeAccessParams) (GetEventChallengeAccessRow, error) {
+	row := q.db.QueryRow(ctx, getEventChallengeAccess, arg.At, arg.ID)
+	var i GetEventChallengeAccessRow
+	err := row.Scan(&i.Published, &i.StageID, &i.Phase)
+	return i, err
+}
+
 const getEventChallengeByID = `-- name: GetEventChallengeByID :one
 SELECT id, event_exercise_id, task_id, order_index, points, hints_enabled, published, snapshot, created_at, group_id, scoring_mode, dynamic_algorithm, dynamic_min_points, dynamic_max_points, dynamic_floor_at_percent, hints, hint_costs, board_order, max_flag_attempts
 FROM event_challenges

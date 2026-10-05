@@ -21,6 +21,9 @@ WITH access_state AS (
            sync.updated_at,
            sync.runtime_open AS applied_runtime_open,
            sync.vpn_enabled AS applied_vpn_enabled,
+           sync.applied_stage_epoch,
+           -- Boundaries of the event's stages that have passed: the sync wakes at each one.
+           event_stage_epoch(team.event_id, now()) AS stage_epoch,
            -- After the final stand teardown no team VPN group is recreated.
            COALESCE(event.infrastructure_allowed AND rollout.torn_down_at IS NULL, false)::boolean AS vpn_enabled,
            CASE WHEN event.lifecycle_configured
@@ -36,11 +39,12 @@ WITH access_state AS (
     JOIN events event ON event.id = team.event_id
     LEFT JOIN event_stand_rollouts rollout ON rollout.event_id = event.id
 )
-SELECT event_team_id, event_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled
+SELECT event_team_id, event_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, stage_epoch
 FROM access_state
 WHERE desired_revision > applied_revision
    OR applied_runtime_open IS DISTINCT FROM runtime_open
    OR applied_vpn_enabled IS DISTINCT FROM vpn_enabled
+   OR applied_stage_epoch IS DISTINCT FROM stage_epoch
 ORDER BY updated_at, event_team_id
 LIMIT $1
 `
@@ -53,6 +57,7 @@ type ListDirtyEventLabAccessSyncsRow struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 	RuntimeOpen     bool      `json:"runtime_open"`
 	VpnEnabled      bool      `json:"vpn_enabled"`
+	StageEpoch      int32     `json:"stage_epoch"`
 }
 
 func (q *Queries) ListDirtyEventLabAccessSyncs(ctx context.Context, limitVal int32) ([]ListDirtyEventLabAccessSyncsRow, error) {
@@ -72,6 +77,7 @@ func (q *Queries) ListDirtyEventLabAccessSyncs(ctx context.Context, limitVal int
 			&i.UpdatedAt,
 			&i.RuntimeOpen,
 			&i.VpnEnabled,
+			&i.StageEpoch,
 		); err != nil {
 			return nil, err
 		}
@@ -127,6 +133,8 @@ SELECT lb.lab_group_name,
                 AND (team.moderators
                     OR (ec.published
                         AND ee.status <> 2
+                        -- A staged set is reachable only while its stage is open, or ended but returnable.
+                        AND event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, now()) IN (1, 2)
                         AND NOT EXISTS (SELECT 1
                                         FROM event_challenge_prerequisites prerequisite
                                         WHERE prerequisite.challenge_id = tc.event_challenge_id
@@ -142,6 +150,7 @@ JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
 JOIN event_teams team ON team.id = lb.event_team_id
 JOIN event_challenges ec ON ec.id = tc.event_challenge_id
 JOIN event_exercises ee ON ee.id = ec.event_exercise_id
+LEFT JOIN event_stages stage ON stage.id = ee.stage_id
 WHERE lb.event_team_id = $1
   AND lb.readiness <> 3
 ORDER BY lb.lab_name
@@ -181,18 +190,21 @@ UPDATE event_lab_access_syncs
 SET applied_revision = $1,
     runtime_open = $2,
     vpn_enabled = $3,
-    updated_at = $4
-WHERE event_team_id = $5
+    applied_stage_epoch = $4,
+    updated_at = $5
+WHERE event_team_id = $6
   AND desired_revision = $1
   AND (applied_revision < $1
        OR runtime_open IS DISTINCT FROM $2
-       OR vpn_enabled IS DISTINCT FROM $3)
+       OR vpn_enabled IS DISTINCT FROM $3
+       OR applied_stage_epoch IS DISTINCT FROM $4)
 `
 
 type MarkEventLabAccessSyncAppliedParams struct {
 	DesiredRevision int64     `json:"desired_revision"`
 	RuntimeOpen     bool      `json:"runtime_open"`
 	VpnEnabled      bool      `json:"vpn_enabled"`
+	StageEpoch      int32     `json:"stage_epoch"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	EventTeamID     uuid.UUID `json:"event_team_id"`
 }
@@ -202,6 +214,7 @@ func (q *Queries) MarkEventLabAccessSyncApplied(ctx context.Context, arg MarkEve
 		arg.DesiredRevision,
 		arg.RuntimeOpen,
 		arg.VpnEnabled,
+		arg.StageEpoch,
 		arg.UpdatedAt,
 		arg.EventTeamID,
 	)
@@ -217,7 +230,7 @@ VALUES ($1, 1, 0, $2)
 ON CONFLICT (event_team_id) DO UPDATE
 SET desired_revision = event_lab_access_syncs.desired_revision + 1,
     updated_at = EXCLUDED.updated_at
-RETURNING event_team_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled
+RETURNING event_team_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, applied_stage_epoch
 `
 
 type RequestEventLabAccessSyncParams struct {
@@ -235,6 +248,7 @@ func (q *Queries) RequestEventLabAccessSync(ctx context.Context, arg RequestEven
 		&i.UpdatedAt,
 		&i.RuntimeOpen,
 		&i.VpnEnabled,
+		&i.AppliedStageEpoch,
 	)
 	return i, err
 }

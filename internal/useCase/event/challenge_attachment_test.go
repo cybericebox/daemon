@@ -54,7 +54,7 @@ func TestOwnChallengeAttachmentRequiresPublishedSnapshotReference(t *testing.T) 
 					row.FinishAt = pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true}
 				}
 				q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(row, nil)
-				q.EXPECT().ListTeamBoardChallenges(gomock.Any(), postgres.ListTeamBoardChallengesParams{EventTeamID: teamID, PublishedOnly: true}).Return([]postgres.ListTeamBoardChallengesRow{{
+				q.EXPECT().ListTeamBoardChallenges(gomock.Any(), gomock.Any()).Return([]postgres.ListTeamBoardChallengesRow{{
 					ID: teamChallengeID, EventID: eventID, EventTeamID: teamID, EventChallengeID: challengeID,
 					Readiness: int16(tc.readiness), Snapshot: []byte(`{"attachments":[{"file_id":"` + fileID.String() + `","name":"brief.pdf"}]}`),
 				}}, nil)

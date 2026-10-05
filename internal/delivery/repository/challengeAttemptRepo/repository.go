@@ -19,6 +19,7 @@ type Queries interface {
 	GetEffectiveTeamChallengeSolvedAt(context.Context, uuid.UUID) (postgres.GetEffectiveTeamChallengeSolvedAtRow, error)
 	GetTeamChallengeScoringContext(context.Context, uuid.UUID) (postgres.GetTeamChallengeScoringContextRow, error)
 	UpsertTeamChallengeSolve(context.Context, postgres.UpsertTeamChallengeSolveParams) error
+	UpsertTeamChallengePracticeSolve(context.Context, postgres.UpsertTeamChallengePracticeSolveParams) error
 	DeleteTeamChallengeSolve(context.Context, uuid.UUID) error
 	ListEventSolutionAttempts(context.Context, postgres.ListEventSolutionAttemptsParams) ([]postgres.ListEventSolutionAttemptsRow, error)
 	ListTeamResultAttempts(context.Context, postgres.ListTeamResultAttemptsParams) ([]postgres.ListTeamResultAttemptsRow, error)
@@ -143,6 +144,14 @@ func (r *Repository) GetScoringContext(ctx context.Context, teamChallengeID uuid
 		finish := row.FinishAt.Time
 		value.FinishAt = &finish
 	}
+	// A staged set decays over its stage window, an unstaged one over the event window.
+	if row.StageOpensAt.Valid {
+		value.StartAt = row.StageOpensAt.Time
+	}
+	if row.StageClosesAt.Valid {
+		closes := row.StageClosesAt.Time
+		value.FinishAt = &closes
+	}
 	return value, nil
 }
 
@@ -152,6 +161,7 @@ type TeamResultAttempt struct {
 	AutomaticCorrect, Correct                                  bool
 	Decision                                                   challengeAttempt.Decision
 	ReceivedAt                                                 time.Time
+	Practice                                                   bool
 }
 
 func (r *Repository) ListTeamResults(ctx context.Context, eventID, teamID uuid.UUID) ([]TeamResultAttempt, error) {
@@ -161,7 +171,7 @@ func (r *Repository) ListTeamResults(ctx context.Context, eventID, teamID uuid.U
 	}
 	out := make([]TeamResultAttempt, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, TeamResultAttempt{ID: row.ID, EventTeamID: row.EventTeamID, UserID: row.UserID, ParticipantName: row.ParticipantName, TeamChallengeID: row.TeamChallengeID, EventChallengeID: row.EventChallengeID, Answer: row.Answer, AutomaticCorrect: row.AutomaticCorrect, Correct: row.Correct, Decision: challengeAttempt.Decision(row.Decision), ReceivedAt: row.ReceivedAt})
+		out = append(out, TeamResultAttempt{ID: row.ID, EventTeamID: row.EventTeamID, UserID: row.UserID, ParticipantName: row.ParticipantName, TeamChallengeID: row.TeamChallengeID, EventChallengeID: row.EventChallengeID, Answer: row.Answer, AutomaticCorrect: row.AutomaticCorrect, Correct: row.Correct, Decision: challengeAttempt.Decision(row.Decision), ReceivedAt: row.ReceivedAt, Practice: row.Practice})
 	}
 	return out, nil
 }
@@ -170,8 +180,14 @@ type Repository struct{ q Queries }
 
 func New(q Queries) *Repository { return &Repository{q: q} }
 
+// RecordPracticeSolve notes a correct answer given after a returnable stage closed. It never touches the solves
+// the rating reads.
+func (r *Repository) RecordPracticeSolve(ctx context.Context, teamChallengeID uuid.UUID, at time.Time) error {
+	return r.q.UpsertTeamChallengePracticeSolve(ctx, postgres.UpsertTeamChallengePracticeSolveParams{TeamChallengeID: teamChallengeID, SolvedAt: at})
+}
+
 func (r *Repository) Create(ctx context.Context, value challengeAttempt.Attempt) (challengeAttempt.Attempt, error) {
-	row, err := r.q.CreateChallengeAttempt(ctx, postgres.CreateChallengeAttemptParams{ID: value.ID, EventID: value.EventID, EventTeamID: value.EventTeamID, TeamChallengeID: value.TeamChallengeID, UserID: value.UserID, Answer: value.Answer, Correct: value.Correct, ReceivedAt: value.ReceivedAt, CreatedAt: value.CreatedAt})
+	row, err := r.q.CreateChallengeAttempt(ctx, postgres.CreateChallengeAttemptParams{ID: value.ID, EventID: value.EventID, EventTeamID: value.EventTeamID, TeamChallengeID: value.TeamChallengeID, UserID: value.UserID, Answer: value.Answer, Correct: value.Correct, ReceivedAt: value.ReceivedAt, CreatedAt: value.CreatedAt, Practice: value.Practice})
 	if err != nil {
 		return challengeAttempt.Attempt{}, err
 	}
@@ -314,5 +330,5 @@ func optionalTime(value *time.Time) pgtype.Timestamptz {
 }
 
 func ToDomain(row postgres.ChallengeAttempt) challengeAttempt.Attempt {
-	return challengeAttempt.Attempt{ID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, TeamChallengeID: row.TeamChallengeID, UserID: row.UserID, Answer: row.Answer, Correct: row.Correct, ReceivedAt: row.ReceivedAt, CreatedAt: row.CreatedAt}
+	return challengeAttempt.Attempt{ID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, TeamChallengeID: row.TeamChallengeID, UserID: row.UserID, Answer: row.Answer, Correct: row.Correct, ReceivedAt: row.ReceivedAt, CreatedAt: row.CreatedAt, Practice: row.Practice}
 }
