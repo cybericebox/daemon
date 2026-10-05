@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	"github.com/gofrs/uuid"
@@ -239,7 +240,7 @@ func (v *ExerciseVersion) ValidateStructure() error {
 				return ErrTaskDifficultyMismatch.WithContext("task", task.Name).Err()
 			}
 			name := strings.TrimSpace(task.Name)
-			if len(name) < nameMinLen || len(name) > nameMaxLen {
+			if n := utf8.RuneCountInString(name); n < nameMinLen || n > nameMaxLen {
 				return ErrTaskNameInvalid.WithContext("task", task.Name).Err()
 			}
 			if !task.Difficulty.Valid() {
