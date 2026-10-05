@@ -111,6 +111,36 @@ const vpnConnectedWindow = 3 * time.Minute
 // testLabOperationTimeout bounds one deploy or teardown, agent calls included.
 const testLabOperationTimeout = 60 * time.Second
 
+// The author's group is deleted with their last lab and that takes seconds; a deploy that meets the
+// deletion waits for it (with a growing pause) instead of failing. Bounded below the operation timeout.
+var (
+	testGroupWaitMax     = 45 * time.Second
+	testGroupWaitStart   = 500 * time.Millisecond
+	testGroupWaitCeiling = 4 * time.Second
+)
+
+// deployLabWaitingForGroup deploys the Lab, waiting while the author's previous group is still being
+// deleted. If the wait runs out it answers a retryable domain conflict, never a platform error.
+func (u *ExerciseUseCase) deployLabWaitingForGroup(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
+	deadline := time.Now().Add(testGroupWaitMax)
+	pause := testGroupWaitStart
+	for {
+		err := u.infra.DeployLab(ctx, group, lab, meta, topo)
+		if _, terminating := infraModel.AsTerminating(err); err == nil || !terminating {
+			return err
+		}
+		if time.Now().Add(pause).After(deadline) {
+			return exerciseModel.ErrTestDeployGroupBusy.Err()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pause):
+		}
+		pause = min(pause*2, testGroupWaitCeiling)
+	}
+}
+
 // The defaults of EXERCISE_TEST_DEPLOY_TTL and EXERCISE_TEST_DEPLOY_TTL_MAX, used while the config is unset.
 const (
 	defaultTestDeployTTL    = 2 * time.Hour
@@ -239,6 +269,9 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 			}
 			_, _ = repo.DeleteOwned(cleanupCtx, deploy.ID, ownerID)
 			u.releaseTestLab(cleanupCtx, deploy.ID)
+			if errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
+				return false, exerciseModel.ErrTestDeployGroupBusy.Err()
+			}
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to deploy variant lab").Err()
 		}
 		return true, nil
@@ -301,7 +334,11 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 		plan.InternetLabs = 1
 	}
 	ctx = infraModel.WithPlacementNeed(ctx, infraModel.PlacementNeed{Plan: plan})
-	if err := u.infra.DeployLab(ctx, deploy.GroupName, deploy.LabName, testLabMeta(deploy), topo); err != nil {
+	if first {
+		// The group is created now, so a config stored for an earlier group is stale: never keep it.
+		u.dropAuthorConfig(ctx, deploy.CreatedBy)
+	}
+	if err := u.deployLabWaitingForGroup(ctx, deploy.GroupName, deploy.LabName, testLabMeta(deploy), topo); err != nil {
 		return err
 	}
 	if err := u.infra.ReconcileLabGroupAccess(ctx, deploy.GroupName, []labAccessModel.ClientPolicy{{Name: client, AllowedLabs: labNames(existing, uuid.Nil, deploy.LabName)}}); err != nil {
