@@ -520,7 +520,7 @@ func TestSubmitChallenge_RejectsUnpublishedBoardChallenge(t *testing.T) {
 	q.EXPECT().ReserveRequestIdempotency(gomock.Any(), gomock.Any()).Return([]postgres.RequestIdempotency{{}}, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
 	q.EXPECT().GetTeamChallenge(gomock.Any(), postgres.GetTeamChallengeParams{EventTeamID: teamID, EventChallengeID: challengeID}).Return(postgres.GetTeamChallengeRow{ID: teamChallengeID, EventID: eventID, EventTeamID: teamID, EventChallengeID: challengeID, ExpectedFlag: "ICE{ok}", Readiness: 2, CreatedAt: now}, nil)
-	q.EXPECT().IsEventChallengePublished(gomock.Any(), challengeID).Return(false, nil)
+	q.EXPECT().GetEventChallengeAccess(gomock.Any(), gomock.Any()).Return(postgres.GetEventChallengeAccessRow{Published: false, Phase: 1}, nil)
 	expectRejectionLogged(q, eventID, userID, teamID, challengeID, now, "unavailable")
 	if _, err := uc.SubmitChallenge(context.Background(), eventID, userID, challengeID, event.SubmitChallengeInput{Answer: "ICE{ok}", IdempotencyKey: key, ReceivedAt: now}); err == nil || unit.saved {
 		t.Fatalf("err=%v saved=%v", err, unit.saved)

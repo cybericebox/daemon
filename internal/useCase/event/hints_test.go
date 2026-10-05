@@ -39,7 +39,7 @@ func TestUnlockHint_BalanceModeChargesOverrideAndRecalculates(t *testing.T) {
 	q.EXPECT().GetEventByID(gomock.Any(), f.eventID).Return(startedEvent(f.eventID, f.now), nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), f.eventID).Return(postgres.EventConfig{EventID: f.eventID, HintChargeMode: 1}, nil)
 	q.EXPECT().GetTeamChallengeHints(gomock.Any(), gomock.Any()).
-		Return(postgres.GetTeamChallengeHintsRow{ID: f.teamChallengeID, EventID: f.eventID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Readiness: 2,
+		Return(postgres.GetTeamChallengeHintsRow{ID: f.teamChallengeID, EventID: f.eventID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Readiness: 2, StagePhase: 1,
 			TeamHints: []byte(`[{"id":"` + f.hintID.String() + `","text":"Variant text"}]`), BoardHints: []byte(`[{"id":"` + f.hintID.String() + `","cost":20,"text":"Canonical"}]`),
 			HintCosts: []byte(`{"` + f.hintID.String() + `":35}`), HintsEnabled: true, Published: true}, nil)
 	q.EXPECT().ListTeamChallengePrerequisites(gomock.Any(), f.teamID).Return(nil, nil)
@@ -72,7 +72,7 @@ func TestUnlockHint_RefusesDisabledHints(t *testing.T) {
 	q.EXPECT().GetEventByID(gomock.Any(), f.eventID).Return(startedEvent(f.eventID, f.now), nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), f.eventID).Return(postgres.EventConfig{EventID: f.eventID}, nil)
 	q.EXPECT().GetTeamChallengeHints(gomock.Any(), gomock.Any()).
-		Return(postgres.GetTeamChallengeHintsRow{ID: f.teamChallengeID, EventID: f.eventID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Readiness: 2, Published: true}, nil)
+		Return(postgres.GetTeamChallengeHintsRow{ID: f.teamChallengeID, EventID: f.eventID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Readiness: 2, StagePhase: 1, Published: true}, nil)
 
 	_, err := uc.UnlockHint(context.Background(), f.eventID, f.userID, f.challengeID, f.hintID)
 	if !errors.Is(err, eventChallengeModel.ErrEventChallengeHintsDisabled.Err()) || unit.saved {
@@ -93,7 +93,7 @@ func TestUnlockHint_RefusesWhenEventDisablesHints(t *testing.T) {
 	q.EXPECT().GetEventByID(gomock.Any(), f.eventID).Return(startedEvent(f.eventID, f.now), nil)
 	q.EXPECT().GetEventConfig(gomock.Any(), f.eventID).Return(postgres.EventConfig{EventID: f.eventID, HintsDisabled: true}, nil)
 	q.EXPECT().GetTeamChallengeHints(gomock.Any(), gomock.Any()).
-		Return(postgres.GetTeamChallengeHintsRow{ID: f.teamChallengeID, EventID: f.eventID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Readiness: 2, Published: true, HintsEnabled: true}, nil)
+		Return(postgres.GetTeamChallengeHintsRow{ID: f.teamChallengeID, EventID: f.eventID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Readiness: 2, StagePhase: 1, Published: true, HintsEnabled: true}, nil)
 
 	_, err := uc.UnlockHint(context.Background(), f.eventID, f.userID, f.challengeID, f.hintID)
 	if !errors.Is(err, eventChallengeModel.ErrEventChallengeHintsDisabled.Err()) || unit.saved {
