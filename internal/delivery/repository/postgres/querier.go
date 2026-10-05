@@ -1338,6 +1338,9 @@ type Querier interface {
 	// whose creation and last (re)sent invitation are both before
 	// created_before; see purge_unconfirmed_accounts (migration 0100).
 	PurgeUnconfirmedAccounts(ctx context.Context, arg PurgeUnconfirmedAccountsParams) (int64, error)
+	// Event deletion: queue every team LabGroup of the event (VPN-only groups
+	// included) so the teardown survives the cascading removal of the event.
+	QueueEventLabGroupCleanup(ctx context.Context, arg QueueEventLabGroupCleanupParams) (int64, error)
 	// Queue the deterministic team LabGroup even when no challenge Lab has been
 	// attached yet. The group may already contain VPN clients and a gateway.
 	QueueTeamLabGroupCleanup(ctx context.Context, arg QueueTeamLabGroupCleanupParams) (int64, error)

@@ -41,6 +41,16 @@ FROM event_teams team
 WHERE team.id = sqlc.arg(event_team_id)
 ON CONFLICT (lab_group_name) DO NOTHING;
 
+-- name: QueueEventLabGroupCleanup :execrows
+-- Event deletion: queue every team LabGroup of the event (VPN-only groups
+-- included) so the teardown survives the cascading removal of the event.
+INSERT INTO lab_group_cleanup_requests (lab_group_name, event_id, requested_at)
+SELECT lab_group_name(team.event_id, team.id),
+       team.event_id, sqlc.arg(requested_at)
+FROM event_teams team
+WHERE team.event_id = sqlc.arg(event_id)
+ON CONFLICT (lab_group_name) DO NOTHING;
+
 -- name: QueueWithdrawnEmptyLabGroups :exec
 -- A team can own VPN clients and a gateway before it has any challenge Lab.
 -- On withdrawal, make those groups eligible for the same durable cleanup job.

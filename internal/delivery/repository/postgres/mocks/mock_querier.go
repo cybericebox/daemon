@@ -9075,6 +9075,21 @@ func (mr *MockQuerierMockRecorder) PurgeUnconfirmedAccounts(ctx, arg any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PurgeUnconfirmedAccounts", reflect.TypeOf((*MockQuerier)(nil).PurgeUnconfirmedAccounts), ctx, arg)
 }
 
+// QueueEventLabGroupCleanup mocks base method.
+func (m *MockQuerier) QueueEventLabGroupCleanup(ctx context.Context, arg postgres.QueueEventLabGroupCleanupParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "QueueEventLabGroupCleanup", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// QueueEventLabGroupCleanup indicates an expected call of QueueEventLabGroupCleanup.
+func (mr *MockQuerierMockRecorder) QueueEventLabGroupCleanup(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueueEventLabGroupCleanup", reflect.TypeOf((*MockQuerier)(nil).QueueEventLabGroupCleanup), ctx, arg)
+}
+
 // QueueTeamLabGroupCleanup mocks base method.
 func (m *MockQuerier) QueueTeamLabGroupCleanup(ctx context.Context, arg postgres.QueueTeamLabGroupCleanupParams) (int64, error) {
 	m.ctrl.T.Helper()

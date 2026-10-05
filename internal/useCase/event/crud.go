@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	"strings"
 	"time"
 
@@ -320,6 +321,11 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, id uuid.UUID) error {
 	defer unit.Restore()
 	if err = exerciseRepo.New(txRepo).ArchiveOwnedBy(txCtx, id, time.Now()); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to archive event exercises").Err()
+	}
+	// Queue the teardown of every team LabGroup first, in the same transaction:
+	// the request survives the event row, so a crash cannot orphan a stand.
+	if _, err = labBindingRepo.New(txRepo).QueueEventCleanup(txCtx, id, time.Now()); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to queue event laboratory cleanup").Err()
 	}
 	affected, err := eventRepo.New(txRepo).Delete(txCtx, id)
 	if err != nil {
