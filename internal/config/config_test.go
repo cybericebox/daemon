@@ -463,10 +463,10 @@ func TestMustGetConfig_HostsFromDomain(t *testing.T) {
 func TestExerciseConfigLabSweepBounds(t *testing.T) {
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
 	got := MustGetConfig().Exercise
-	if got.LabSweepInterval != 10*time.Minute || got.LabSweepGrace != 15*time.Minute || got.Validate() != nil {
+	if got.LabSweepInterval != 30*time.Second || got.LabSweepGrace != 15*time.Minute || got.Validate() != nil {
 		t.Fatalf("defaults: %+v", got)
 	}
-	for _, d := range []time.Duration{0, -time.Minute, 30 * time.Second, 25 * time.Hour} {
+	for _, d := range []time.Duration{0, -time.Minute, 5 * time.Second, 25 * time.Hour} {
 		bad := got
 		bad.LabSweepInterval = d
 		if bad.Validate() == nil {
@@ -477,5 +477,10 @@ func TestExerciseConfigLabSweepBounds(t *testing.T) {
 		if bad.Validate() == nil {
 			t.Errorf("grace %v accepted", d)
 		}
+	}
+	short := got
+	short.LabSweepGrace = 30 * time.Second
+	if short.Validate() == nil {
+		t.Error("a grace under a minute accepted: the sweep must not race a group that is still being created")
 	}
 }

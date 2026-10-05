@@ -89,8 +89,13 @@ func (u *EventUseCase) SweepOrphanLabGroupsAt(ctx context.Context, now time.Time
 		deleted++
 		log.Info().Str("group", d.group.Name).Str("reason", d.reason).Time("created", d.group.CreatedAt).Msg("Lab group sweep: deleted an orphan group")
 	}
+	// An idle pass (the usual one at a short interval) is silent; kept groups alone are a debug fact.
+	summary := log.Debug()
+	if deleted > 0 || failed > 0 || failedAgents > 0 {
+		summary = log.Info()
+	}
 	if deleted > 0 || failed > 0 || undecided > 0 || failedAgents > 0 {
-		log.Info().Int("listed", len(groups)).Int("deleted", deleted).Int("delete_failed", failed).
+		summary.Int("listed", len(groups)).Int("deleted", deleted).Int("delete_failed", failed).
 			Int("kept_young", kept).Int("kept_unknown", undecided).Int("agents_unreadable", failedAgents).Msg("Lab group sweep finished")
 	}
 	return nil

@@ -430,16 +430,20 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 		}
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
-	if !deploy.ExpiresAt.IsZero() && !deploy.ExpiresAt.After(time.Now()) {
-		return exerciseModel.LabDeployStatus{}, exerciseModel.ErrTestDeployNotFound.Err()
-	}
+	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
+	expired := testDeployExpired(deploy, u.timeNow())
 	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
 	}
+	status.ExpiresAt, status.Expired = deploy.ExpiresAt, expired
 	// The agent's own view of the shared tester client carries the key placeholder and
 	// no access; only the author's config, stored with this deploy, is ever handed out.
 	status.VPNConfig = ""
+	status.SolvedTasks = deploy.Solved
+	if expired {
+		return status, nil // the access ended with the lease: no VPN config, handshake or probe address
+	}
 	if status.Ready && u.vpnStore != nil {
 		config, cfgErr := u.vpnStore.GetConfig(ctx, userID, vpnModel.ScopeTest, testVPNRef())
 		if cfgErr != nil {
@@ -449,7 +453,6 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 			status.VPNConfig = config
 		}
 	}
-	status.SolvedTasks = deploy.Solved
 	// The handshake is a hint for the author; a stats hiccup must not break polling.
 	if handshake, hsErr := u.infra.LabClientHandshake(ctx, deploy.GroupName, testClientName(userID)); hsErr == nil && !handshake.IsZero() {
 		status.VPNLastHandshake = handshake

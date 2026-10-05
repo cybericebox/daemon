@@ -14,6 +14,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
 	"github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
@@ -211,5 +212,26 @@ func TestDeployVariantTest_AnExpiredLabDoesNotCountAgainstTheLimit(t *testing.T)
 	_, err := uc.DeployVariantTest(context.Background(), owner, fixedID(2), fixedID(1))
 	if errors.Is(err, exerciseModel.ErrTestDeployActiveExists.Err()) {
 		t.Fatal("a lab past its lease is not an active one")
+	}
+}
+
+func TestDeployTestStatus_AnExpiredLabIsAnsweredWithoutAccess(t *testing.T) {
+	now := fixedNow()
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	owner, id := fixedID(3), fixedID(5)
+	lease := now.Add(-17 * time.Minute)
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: id, GroupName: "tu-x", CreatedBy: owner, ExpiresAt: lease}, nil)
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true}}
+	store := &fakeVPNStore{userID: owner, scope: vpnModel.ScopeTest, ref: uuid.NullUUID{}, plaintext: "wg-author-config"}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: store})
+	uc.SetClock(func() time.Time { return now })
+
+	st, err := uc.DeployTestStatus(context.Background(), owner, id)
+	if err != nil {
+		t.Fatalf("an expired lab that still runs is answered, not 404: %v", err)
+	}
+	if !st.Expired || !st.ExpiresAt.Equal(lease) || st.VPNConfig != "" {
+		t.Fatalf("want Expired with the lease end and no VPN config: %+v", st)
 	}
 }

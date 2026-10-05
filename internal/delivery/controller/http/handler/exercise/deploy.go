@@ -80,6 +80,9 @@ type (
 		VPNLastHandshake *time.Time `json:"VPNLastHandshake,omitempty"`
 		// VPNProbeURL is the tester page served inside the tunnel by the lab group's VPN pod; absent until known.
 		VPNProbeURL string `json:"VPNProbeURL,omitempty"`
+		// ExpiresAt is the end of the lease; Expired: it is over but the lab is not removed yet (it can only be ended).
+		ExpiresAt time.Time `json:"ExpiresAt"`
+		Expired   bool      `json:"Expired"`
 	}
 
 	deployDeviceResponse struct {
@@ -122,6 +125,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
+	out.ExpiresAt, out.Expired = s.ExpiresAt, s.Expired
 	if !s.VPNLastHandshake.IsZero() {
 		t := s.VPNLastHandshake
 		out.VPNLastHandshake = &t

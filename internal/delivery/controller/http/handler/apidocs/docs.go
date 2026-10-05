@@ -29041,6 +29041,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/exercise.deployDeviceResponse"
                     }
                 },
+                "Expired": {
+                    "type": "boolean"
+                },
+                "ExpiresAt": {
+                    "description": "ExpiresAt is the end of the lease; Expired: it is over but the lab is not removed yet (it can only be ended).",
+                    "type": "string"
+                },
                 "GroupImageWarning": {
                     "type": "string"
                 },

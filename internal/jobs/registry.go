@@ -66,7 +66,13 @@ type (
 )
 
 // DefaultLabSweepInterval is the period of the orphan lab group sweep when none is configured.
-const DefaultLabSweepInterval = 10 * time.Minute
+const DefaultLabSweepInterval = 30 * time.Second
+
+// labTeardownInterval is the period of the periodic jobs that remove lab groups and labs (expired test labs,
+// withdrawn events, queued group cleanups). Explicit triggers (terminate, delete, the job scheduled at a lease's
+// end) run at once; this tick only bounds how long a missed one waits. Every pass starts with an indexed query
+// and does nothing when nothing is due.
+const labTeardownInterval = 30 * time.Second
 
 // NewWorkerRegistry receives the configuration-time fact only. It never probes
 // the agent: a temporary unhealthy agent should still have its durable work
@@ -166,8 +172,8 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 		jobs = append(jobs,
 			// Test labs end at their lease through a scheduled TestDeployExpiryArgs job; this sweep is the safety
 			// net (a lost job, a restart before the insert) and retries the labs whose agent deletion failed.
-			river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
-			river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabCleanupArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
+			river.NewPeriodicJob(river.PeriodicInterval(labTeardownInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
+			river.NewPeriodicJob(river.PeriodicInterval(labTeardownInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabCleanupArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
 			river.NewPeriodicJob(river.PeriodicInterval(2*time.Second), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabAccessSyncArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 			// Orphan lab groups (a deleted event or team, an expired test lab): one pass at a time, never retried.
 			river.NewPeriodicJob(river.PeriodicInterval(wr.labSweepInterval), func() (river.JobArgs, *river.InsertOpts) {
