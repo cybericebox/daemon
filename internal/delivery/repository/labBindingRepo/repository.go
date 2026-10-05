@@ -33,6 +33,9 @@ type Queries interface {
 	RecreateLabBinding(ctx context.Context, arg postgres.RecreateLabBindingParams) (int64, error)
 	ResetUnpublishedTeamChallengesForRecreate(ctx context.Context, eventTeamID uuid.UUID) error
 	MarkEventLabBindingsDestroyed(ctx context.Context, eventID uuid.UUID) error
+	ListExistingEventIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
+	ListExistingEventTeamIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
+	ListTestDeployGroupNames(ctx context.Context, names []string) ([]string, error)
 }
 
 // PendingLab is one not yet ready Lab with what its deploy needs: the pinned
@@ -198,4 +201,19 @@ func ToDomain(row postgres.LabBinding) labBindingModel.Binding {
 		value.DeployedAt = &at
 	}
 	return value
+}
+
+// ExistingEventIDs returns those of ids that are still events.
+func (r *Repository) ExistingEventIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	return r.q.ListExistingEventIDs(ctx, ids)
+}
+
+// ExistingTeamIDs returns those of ids that are still event teams.
+func (r *Repository) ExistingTeamIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error) {
+	return r.q.ListExistingEventTeamIDs(ctx, ids)
+}
+
+// TestDeployGroups returns those of names that still hold a test deploy row.
+func (r *Repository) TestDeployGroups(ctx context.Context, names []string) ([]string, error) {
+	return r.q.ListTestDeployGroupNames(ctx, names)
 }

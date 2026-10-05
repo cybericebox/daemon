@@ -220,7 +220,7 @@ func TestAgentBootstrapConfig(t *testing.T) {
 }
 
 func TestExerciseConfigStandDeployBudgetBounds(t *testing.T) {
-	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200, TestDeployTTL: 2 * time.Hour, TestDeployTTLMax: 8 * time.Hour}
+	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200, LabSweepInterval: 10 * time.Minute, LabSweepGrace: 15 * time.Minute, TestDeployTTL: 2 * time.Hour, TestDeployTTLMax: 8 * time.Hour}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("default budget rejected: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestExerciseConfigStandDeployBudgetBounds(t *testing.T) {
 }
 
 func TestExerciseConfigStandPrewarmLeadBounds(t *testing.T) {
-	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200, TestDeployTTL: 2 * time.Hour, TestDeployTTLMax: 8 * time.Hour}
+	valid := ExerciseConfig{FlagRandomBytes: 20, FlagWarningBits: 20, MaxActiveTestDeploys: 3, StandDeployBudget: 200, LabSweepInterval: 10 * time.Minute, LabSweepGrace: 15 * time.Minute, TestDeployTTL: 2 * time.Hour, TestDeployTTLMax: 8 * time.Hour}
 	for _, lead := range []time.Duration{0, 30 * time.Minute, 24 * time.Hour} {
 		ok := valid
 		ok.StandPrewarmLead = lead
@@ -457,5 +457,25 @@ func TestMustGetConfig_HostsFromDomain(t *testing.T) {
 	if h.Main != "base.example" || h.API != "api.base.example" || h.ID != "id.base.example" || h.Admin != "admin.base.example" ||
 		h.Exercises != "exercises.base.example" || h.EventDomain != "base.example" {
 		t.Fatalf("Hosts: got %+v", h)
+	}
+}
+
+func TestExerciseConfigLabSweepBounds(t *testing.T) {
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	got := MustGetConfig().Exercise
+	if got.LabSweepInterval != 10*time.Minute || got.LabSweepGrace != 15*time.Minute || got.Validate() != nil {
+		t.Fatalf("defaults: %+v", got)
+	}
+	for _, d := range []time.Duration{0, -time.Minute, 30 * time.Second, 25 * time.Hour} {
+		bad := got
+		bad.LabSweepInterval = d
+		if bad.Validate() == nil {
+			t.Errorf("interval %v accepted", d)
+		}
+		bad = got
+		bad.LabSweepGrace = d
+		if bad.Validate() == nil {
+			t.Errorf("grace %v accepted", d)
+		}
 	}
 }

@@ -58,8 +58,8 @@ github.com/cpuguy83/dockercfg v0.3.2 h1:DlJTyZGBDlXqUZ2Dk2Q3xHs/FtnooJJVaad2S9GK
 github.com/cpuguy83/dockercfg v0.3.2/go.mod h1:sugsbF4//dDlL/i+S+rtpIWp+5h0BHJHfjj5/jFyUJc=
 github.com/creack/pty v1.1.24 h1:bJrF4RRfyJnbTJqzRLHzcGaZK1NeM5kTC9jGgovnR1s=
 github.com/creack/pty v1.1.24/go.mod h1:08sCNb52WyoAwi2QDyzUCTgcvVFhUzewun7wtTfvcwE=
-github.com/cybericebox/laboratory v0.0.0-20261005104841-4deaddf40578 h1:bZWTaneJgZbtM+KNPHARYhGj7QGy336x1OW2+LSRXro=
-github.com/cybericebox/laboratory v0.0.0-20261005104841-4deaddf40578/go.mod h1:mpc10JdiAoIzcOQgMwoV78I5qDv/6fpXnLvAeyntz58=
+github.com/cybericebox/laboratory v0.0.0-20261005124119-5f930025d489 h1:ICbrAT0tdVAQ8AbBy2uEM3pWDJ70jYr//hGQ90DYq4M=
+github.com/cybericebox/laboratory v0.0.0-20261005124119-5f930025d489/go.mod h1:mpc10JdiAoIzcOQgMwoV78I5qDv/6fpXnLvAeyntz58=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=

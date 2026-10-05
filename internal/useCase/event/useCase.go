@@ -134,6 +134,7 @@ type EventUseCase struct {
 	observations      *eventLabObservationRepo.Repository
 	standDeployBudget int
 	prewarmLead       time.Duration
+	labSweepGrace     time.Duration
 	prewarm           *prewarmState
 	placement         *placementCache
 	events            *eventRepo.Repository
@@ -215,6 +216,8 @@ type Dependencies struct {
 	// StandPrewarmLead is how long before an event's stand deploy time its images are prewarmed in
 	// the image cache; 0 turns prewarming off.
 	StandPrewarmLead time.Duration
+	// LabSweepGrace is how old a lab group must be before the orphan sweep may judge it; 0 means the default.
+	LabSweepGrace time.Duration
 	// Media backs Event email template images (validation and references).
 	Media            emailUseCase.TemplateMedia
 	BrandMedia       BrandMedia
@@ -286,6 +289,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 	return &EventUseCase{
 		standDeployBudget:        standDeployBudget,
 		prewarmLead:              deps.StandPrewarmLead,
+		labSweepGrace:            labSweepGrace(deps.LabSweepGrace),
 		prewarm:                  newPrewarmState(),
 		placement:                &placementCache{need: map[uuid.UUID]cachedNeed{}, plans: map[uuid.UUID]cachedLeadPlan{}},
 		events:                   eventRepo.New(deps.Repo),

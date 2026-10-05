@@ -19,6 +19,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/idempotencygc"
 	"github.com/cybericebox/daemon/internal/jobs/labaccesssync"
 	"github.com/cybericebox/daemon/internal/jobs/labcleanup"
+	"github.com/cybericebox/daemon/internal/jobs/labgroupsweep"
 	"github.com/cybericebox/daemon/internal/jobs/mediagc"
 	"github.com/cybericebox/daemon/internal/jobs/notify"
 	"github.com/cybericebox/daemon/internal/jobs/resourcecalendar"
@@ -46,6 +47,7 @@ type (
 		resultchangegcJob.IUseCase
 		testdeploygcJob.IUseCase
 		labcleanupJob.IUseCase
+		labgroupsweepJob.IUseCase
 		labaccesssyncJob.IUseCase
 		signalprocessingJob.IUseCase
 		dataretentionJob.IUseCase
@@ -57,14 +59,23 @@ type (
 	workerRegistry struct {
 		uc                  iUseCase
 		laboratoriesEnabled bool
+		labSweepInterval    time.Duration
 	}
 )
+
+// DefaultLabSweepInterval is the period of the orphan lab group sweep when none is configured.
+const DefaultLabSweepInterval = 10 * time.Minute
 
 // NewWorkerRegistry receives the configuration-time fact only. It never probes
 // the agent: a temporary unhealthy agent should still have its durable work
 // retained for recovery, while no configured agent must create no lab jobs.
-func NewWorkerRegistry(uc iUseCase, laboratoriesEnabled bool) *workerRegistry {
-	return &workerRegistry{uc: uc, laboratoriesEnabled: laboratoriesEnabled}
+//
+// labSweepInterval is the period of the orphan lab group sweep (a non-positive value means the default).
+func NewWorkerRegistry(uc iUseCase, laboratoriesEnabled bool, labSweepInterval time.Duration) *workerRegistry {
+	if labSweepInterval <= 0 {
+		labSweepInterval = DefaultLabSweepInterval
+	}
+	return &workerRegistry{uc: uc, laboratoriesEnabled: laboratoriesEnabled, labSweepInterval: labSweepInterval}
 }
 
 // RegisterAll adds every job's worker to the bundle — one AddWorker line per job.
@@ -87,6 +98,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	if wr.laboratoriesEnabled {
 		river.AddWorker(workers, testdeploygcJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labcleanupJob.NewWorker(wr.uc))
+		river.AddWorker(workers, labgroupsweepJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labaccesssyncJob.NewWorker(wr.uc))
 	}
 	river.AddWorker(workers, signalprocessingJob.NewWorker(wr.uc))
@@ -152,6 +164,10 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 			river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 			river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabCleanupArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 			river.NewPeriodicJob(river.PeriodicInterval(2*time.Second), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabAccessSyncArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
+			// Orphan lab groups (a deleted event or team, an expired test lab): one pass at a time, never retried.
+			river.NewPeriodicJob(river.PeriodicInterval(wr.labSweepInterval), func() (river.JobArgs, *river.InsertOpts) {
+				return jobsModel.LabGroupSweepArgs{}, standPassInsertOpts()
+			}, &river.PeriodicJobOpts{RunOnStart: false}),
 		)
 	}
 	return jobs
