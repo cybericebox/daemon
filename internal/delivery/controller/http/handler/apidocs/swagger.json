@@ -29074,6 +29074,10 @@
                 "VPNLastHandshake": {
                     "description": "VPNLastHandshake is the client's last handshake; absent when it never connected.",
                     "type": "string"
+                },
+                "VPNProbeURL": {
+                    "description": "VPNProbeURL is the tester page served inside the tunnel by the lab group's VPN pod; absent until known.",
+                    "type": "string"
                 }
             }
         },

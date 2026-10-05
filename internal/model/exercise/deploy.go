@@ -87,6 +87,8 @@ type LabDeployStatus struct {
 	CPUMillicores, MemoryBytes int64
 	UsageAvailable             bool
 	VPNLastHandshake           time.Time
+	// VPNProbeURL is the tester page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.
+	VPNProbeURL string
 	// SolvedTasks are the tasks the author has already checked correctly; filled by the use case.
 	SolvedTasks []uuid.UUID
 }
