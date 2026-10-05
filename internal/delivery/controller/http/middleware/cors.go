@@ -57,7 +57,16 @@ func HandleCORS(policy OriginPolicy) gin.HandlerFunc {
 				Msg("CORS: origin rejected (403) — not on the platform domain allowlist")
 			if policy.UnknownEventSite(ctx.Request.Context(), origin) {
 				// The event of this site is gone: a missing tenant is 404 everywhere, never a 403 that
-				// tells it apart from an unpublished event.
+				// tells it apart from an unpublished event. The site is a well-formed subdomain of our own
+				// event domain (served by us), so its origin is echoed: the browser must be able to READ the
+				// 404, or the frontend sees a network error and never learns the event does not exist. The
+				// origin gets nothing beyond that: every request but the preflight ends in this 404.
+				setCORSHeaders(ctx, origin)
+				if ctx.Request.Method == http.MethodOptions {
+					setPreflightHeaders(ctx)
+					response.AbortWithNoContent(ctx)
+					return
+				}
 				response.AbortWithNotFound(ctx)
 				return
 			}
@@ -65,22 +74,30 @@ func HandleCORS(policy OriginPolicy) gin.HandlerFunc {
 			return
 		}
 
-		ctx.Header("Access-Control-Allow-Origin", origin)
-		ctx.Header("Access-Control-Allow-Credentials", "true")
-		ctx.Header("Vary", "Origin")
-		// Cross-origin JS may read only the headers listed here: the sign-in
-		// redirect URL, Content-Disposition (export archive filename) and
-		// Retry-After (flag submission rate limit).
-		ctx.Header("Access-Control-Expose-Headers", protection.SignInURLHeader+", Content-Disposition, Retry-After")
+		setCORSHeaders(ctx, origin)
 
 		if ctx.Request.Method == http.MethodOptions {
-			ctx.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
-			ctx.Header("Access-Control-Allow-Headers", "Content-Type")
-			ctx.Header("Access-Control-Max-Age", strconv.Itoa(int(preflightMaxAge.Seconds())))
+			setPreflightHeaders(ctx)
 			response.AbortWithNoContent(ctx)
 			return
 		}
 
 		ctx.Next()
 	}
+}
+
+func setCORSHeaders(ctx *gin.Context, origin string) {
+	ctx.Header("Access-Control-Allow-Origin", origin)
+	ctx.Header("Access-Control-Allow-Credentials", "true")
+	ctx.Header("Vary", "Origin")
+	// Cross-origin JS may read only the headers listed here: the sign-in
+	// redirect URL, Content-Disposition (export archive filename) and
+	// Retry-After (flag submission rate limit).
+	ctx.Header("Access-Control-Expose-Headers", protection.SignInURLHeader+", Content-Disposition, Retry-After")
+}
+
+func setPreflightHeaders(ctx *gin.Context) {
+	ctx.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
+	ctx.Header("Access-Control-Allow-Headers", "Content-Type")
+	ctx.Header("Access-Control-Max-Age", strconv.Itoa(int(preflightMaxAge.Seconds())))
 }
