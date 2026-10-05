@@ -156,3 +156,43 @@ func TestHandleCORS_MissingEventSiteIs404NotForbidden(t *testing.T) {
 		}
 	}
 }
+
+// An unknown or deleted event site is answered 404 WITH the CORS headers (so the browser lets the frontend
+// read it), its preflight is a normal one, and a foreign origin still gets neither.
+func TestHandleCORS_MissingEventSiteIsReadable(t *testing.T) {
+	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "events.example.test"}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.HandleCORS(middleware.OriginPolicy{Hosts: hosts, Tags: tagSet{"alive1": true, "deleted1": false}}))
+	r.GET("/api/events/self/public-info", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/api/auth/me", func(c *gin.Context) { c.Status(http.StatusOK) })
+	for _, origin := range []string{"https://nosuchevent.events.example.test", "https://deleted1.events.example.test"} {
+		pre := httptest.NewRequest(http.MethodOptions, "/api/events/self/public-info", nil)
+		pre.Header.Set("Origin", origin)
+		pre.Header.Set("Access-Control-Request-Method", "GET")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, pre)
+		if w.Code != http.StatusNoContent || w.Header().Get("Access-Control-Allow-Origin") != origin || w.Header().Get("Access-Control-Allow-Methods") == "" {
+			t.Errorf("%s preflight: status %d, headers %v", origin, w.Code, w.Header())
+		}
+		for _, path := range []string{"/api/events/self/public-info", "/api/auth/me"} {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("Origin", origin)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != http.StatusNotFound || w.Header().Get("Access-Control-Allow-Origin") != origin ||
+				w.Header().Get("Access-Control-Allow-Credentials") != "true" || w.Header().Get("Vary") != "Origin" {
+				t.Errorf("%s %s: status %d, headers %v", origin, path, w.Code, w.Header())
+			}
+		}
+	}
+	for _, method := range []string{http.MethodOptions, http.MethodGet} {
+		req := httptest.NewRequest(method, "/api/events/self/public-info", nil)
+		req.Header.Set("Origin", "https://evil.test")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden || w.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("foreign %s: status %d, headers %v", method, w.Code, w.Header())
+		}
+	}
+}
