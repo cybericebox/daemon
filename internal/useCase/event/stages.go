@@ -29,6 +29,9 @@ type EventStageView struct {
 	State      eventModel.StageState
 	First      bool
 	Last       bool
+	// DeployLeadMinutes is the lead the platform computes for the labs that open with this stage (the first stage:
+	// with the event start): its deploy starts that long before OpensAt. 0 when the workload cannot be read.
+	DeployLeadMinutes int
 }
 
 // CreateStageInput is a stage creation request. The boundary times of the first and last stage are the event's own,
@@ -97,7 +100,42 @@ func (u *EventUseCase) ListEventStages(ctx context.Context, eventID uuid.UUID) (
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
 	}
-	return toStageViews(stages, time.Now()), nil
+	now := time.Now()
+	views := toStageViews(stages, now)
+	u.fillStageLeads(ctx, eventID, stages, views, now)
+	return views, nil
+}
+
+// fillStageLeads sets the computed deploy lead of each stage (a failed read leaves it 0: the lead is informational).
+func (u *EventUseCase) fillStageLeads(ctx context.Context, eventID uuid.UUID, stages []eventModel.Stage, views []EventStageView, now time.Time) {
+	if len(stages) == 0 {
+		return
+	}
+	e, err := u.events.GetByID(ctx, eventID)
+	if err != nil {
+		return
+	}
+	sets, extra, err := u.setLoads(ctx, e, now)
+	if err != nil {
+		return
+	}
+	lead := u.leadFunc()
+	pods := make(map[uuid.UUID]int, len(stages))
+	initial := extra
+	for _, set := range sets {
+		if set.StageID == nil || *set.StageID == stages[0].ID {
+			initial += set.Pods
+			continue
+		}
+		pods[*set.StageID] += set.Pods
+	}
+	for i := range views {
+		n := pods[views[i].ID]
+		if i == 0 {
+			n = initial
+		}
+		views[i].DeployLeadMinutes = int((lead(n) + time.Minute - 1) / time.Minute)
+	}
 }
 
 func (u *EventUseCase) stageEvent(ctx context.Context, repo eventRepo.Queries, eventID uuid.UUID) (eventModel.Event, error) {

@@ -1272,6 +1272,11 @@ definitions:
     properties:
       ClosesAt:
         type: string
+      DeployLeadMinutes:
+        description: |-
+          DeployLeadMinutes is the lead the platform computes for the labs that open with this stage: their deploy
+          starts that long before OpensAt (0 when unknown).
+        type: integer
       First:
         description: 'First opens with the event and Last closes with it: those two
           times are the event''s own.'

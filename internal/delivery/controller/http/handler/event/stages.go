@@ -21,6 +21,9 @@ type eventStageResponse struct {
 	// First opens with the event and Last closes with it: those two times are the event's own.
 	First bool `json:"First"`
 	Last  bool `json:"Last"`
+	// DeployLeadMinutes is the lead the platform computes for the labs that open with this stage: their deploy
+	// starts that long before OpensAt (0 when unknown).
+	DeployLeadMinutes int `json:"DeployLeadMinutes"`
 }
 
 type createEventStageRequest struct {
@@ -45,7 +48,7 @@ type setEventExerciseStageRequest struct {
 }
 
 func toEventStageResponse(v eventUseCase.EventStageView) eventStageResponse {
-	return eventStageResponse{ID: v.ID, Name: v.Name, OpensAt: v.OpensAt, ClosesAt: v.ClosesAt, Returnable: v.Returnable, State: string(v.State), First: v.First, Last: v.Last}
+	return eventStageResponse{ID: v.ID, Name: v.Name, OpensAt: v.OpensAt, ClosesAt: v.ClosesAt, Returnable: v.Returnable, State: string(v.State), First: v.First, Last: v.Last, DeployLeadMinutes: v.DeployLeadMinutes}
 }
 
 // listEventStages godoc
