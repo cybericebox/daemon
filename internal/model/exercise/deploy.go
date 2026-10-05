@@ -91,6 +91,9 @@ type LabDeployStatus struct {
 	VPNProbeURL string
 	// SolvedTasks are the tasks the author has already checked correctly; filled by the use case.
 	SolvedTasks []uuid.UUID
+	// ExpiresAt is the end of the lease and Expired says it is over while the lab is not removed yet; filled by the use case.
+	ExpiresAt time.Time
+	Expired   bool
 }
 
 // LabDeployedDevice is one materialised device's readiness. Reason is the

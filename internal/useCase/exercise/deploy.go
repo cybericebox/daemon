@@ -197,11 +197,11 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 	}
 
 	// A user may run a limited number of test laboratories, across all exercises.
-	active, err := u.ListTestDeploys(ctx, ownerID, uuid.Nil)
+	listed, err := u.ListTestDeploys(ctx, ownerID, uuid.Nil)
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
-	if len(active) >= u.MaxActiveTestDeploys() {
+	if u.activeCount(listed, u.timeNow()) >= u.MaxActiveTestDeploys() {
 		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployActiveExists.Err()
 	}
 
@@ -234,7 +234,7 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		return exerciseModel.DeployHandle{}, err
 	}
 
-	now := time.Now()
+	now := u.timeNow()
 	deployFlags := make([]exerciseModel.DeployFlag, 0, len(links))
 	for _, link := range links {
 		deployFlags = append(deployFlags, exerciseModel.DeployFlag{TaskID: link.TaskID, Name: link.Name, Flag: link.Flag})
@@ -283,6 +283,8 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		return exerciseModel.DeployHandle{}, err
 	}
 
+	u.scheduleTestDeployExpiry(ctx, deploy)
+
 	handle := exerciseModel.DeployHandle{Group: deploy.ID.String(), Lab: deploy.LabName}
 	handle.Flags = deployFlags
 	if topo.VPN.Enabled {
@@ -306,11 +308,16 @@ func testLabMeta(deploy exerciseModel.TestDeploy) infraModel.LabMeta {
 func (u *ExerciseUseCase) activeCount(items []exerciseModel.TestDeploy, now time.Time) int {
 	n := 0
 	for _, item := range items {
-		if item.ExpiresAt.IsZero() || item.ExpiresAt.After(now) {
+		if !testDeployExpired(item, now) {
 			n++
 		}
 	}
 	return n
+}
+
+// testDeployExpired says the lease is over (a deploy without an expiry never is).
+func testDeployExpired(deploy exerciseModel.TestDeploy, now time.Time) bool {
+	return !deploy.ExpiresAt.IsZero() && !deploy.ExpiresAt.After(now)
 }
 
 // labNames lists the Lab names of deploys, plus extra.
@@ -423,16 +430,20 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 		}
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
-	if !deploy.ExpiresAt.IsZero() && !deploy.ExpiresAt.After(time.Now()) {
-		return exerciseModel.LabDeployStatus{}, exerciseModel.ErrTestDeployNotFound.Err()
-	}
+	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
+	expired := testDeployExpired(deploy, u.timeNow())
 	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
 	}
+	status.ExpiresAt, status.Expired = deploy.ExpiresAt, expired
 	// The agent's own view of the shared tester client carries the key placeholder and
 	// no access; only the author's config, stored with this deploy, is ever handed out.
 	status.VPNConfig = ""
+	status.SolvedTasks = deploy.Solved
+	if expired {
+		return status, nil // the access ended with the lease: no VPN config, handshake or probe address
+	}
 	if status.Ready && u.vpnStore != nil {
 		config, cfgErr := u.vpnStore.GetConfig(ctx, userID, vpnModel.ScopeTest, testVPNRef())
 		if cfgErr != nil {
@@ -442,7 +453,6 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 			status.VPNConfig = config
 		}
 	}
-	status.SolvedTasks = deploy.Solved
 	// The handshake is a hint for the author; a stats hiccup must not break polling.
 	if handshake, hsErr := u.infra.LabClientHandshake(ctx, deploy.GroupName, testClientName(userID)); hsErr == nil && !handshake.IsZero() {
 		status.VPNLastHandshake = handshake
@@ -571,31 +581,44 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 	return nil
 }
 
+// EndExpiredTestDeploy ends one test lab if its lease is over now: the job scheduled for the lease's expiry.
+// A lab that is gone (ended by its author) or was extended meanwhile is left alone, so the job is idempotent
+// and an extension needs no cancelling of the earlier job. A failed agent deletion keeps the row and returns
+// the error: River retries the job and the periodic sweep tries again.
+func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, deployID uuid.UUID) error {
+	if u.infra == nil {
+		return infraModel.ErrInfrastructureUnavailable.Err()
+	}
+	return u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
+		if err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return false, nil // ended by its author or by the sweep meanwhile
+			}
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		}
+		if deploy.ExpiresAt.After(u.timeNow()) {
+			return false, nil // extended meanwhile
+		}
+		return false, u.endTestLab(ctx, repo, deploy)
+	})
+}
+
 // CleanupExpiredTestDeploys removes the Labs whose persisted lease expired (and, with the last
-// Lab of an author, the group). A failed agent deletion retains its row, so the next periodic
-// pass retries it.
+// Lab of an author, the group). It is the safety net behind the job scheduled for each lease's end:
+// a failed agent deletion retains its row, so the next periodic pass retries it.
 func (u *ExerciseUseCase) CleanupExpiredTestDeploys(ctx context.Context) error {
 	if u.infra == nil {
 		return infraModel.ErrInfrastructureUnavailable.Err()
 	}
-	items, err := u.testDeploys.ListExpired(ctx, time.Now())
+	items, err := u.testDeploys.ListExpired(ctx, u.timeNow())
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list expired test deployments").Err()
 	}
 	var failed []error
 	for _, item := range items {
-		err := u.underOwnerLock(ctx, item.CreatedBy, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
-			deploy, err := repo.GetOwned(ctx, item.ID, item.CreatedBy)
-			if err != nil {
-				if repositoryTools.IsObjectNotFoundError(err) {
-					return false, nil // ended by its author meanwhile
-				}
-				return false, err
-			}
-			return false, u.endTestLab(ctx, repo, deploy)
-		})
-		if err != nil {
-			failed = append(failed, err)
+		if endErr := u.EndExpiredTestDeploy(ctx, item.CreatedBy, item.ID); endErr != nil {
+			failed = append(failed, endErr)
 		}
 	}
 	if len(failed) > 0 {
@@ -604,8 +627,9 @@ func (u *ExerciseUseCase) CleanupExpiredTestDeploys(ctx context.Context) error {
 	return nil
 }
 
-// ListTestDeploys returns the owner's active deploys; a non-nil exerciseID
-// keeps those of that exercise's versions only.
+// ListTestDeploys returns the owner's deploys until they are removed, so a lab whose lease is over but is
+// still running stays visible (Expired) and its author can end it; a non-nil exerciseID keeps those of that
+// exercise's versions only.
 func (u *ExerciseUseCase) ListTestDeploys(ctx context.Context, ownerID, exerciseID uuid.UUID) ([]exerciseModel.TestDeploy, error) {
 	var items []exerciseModel.TestDeploy
 	var err error
@@ -617,17 +641,16 @@ func (u *ExerciseUseCase) ListTestDeploys(ctx context.Context, ownerID, exercise
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list test deployments").Err()
 	}
-	now := time.Now()
-	active := make([]exerciseModel.TestDeploy, 0, len(items))
+	now := u.timeNow()
+	out := make([]exerciseModel.TestDeploy, 0, len(items))
 	for _, item := range items {
-		if item.ExpiresAt.IsZero() || item.ExpiresAt.After(now) {
-			if version, verr := u.exercises.GetVersion(ctx, item.VersionID); verr == nil {
-				item.ExerciseID = version.ExerciseID
-			}
-			active = append(active, item)
+		item.Expired = testDeployExpired(item, now)
+		if version, verr := u.exercises.GetVersion(ctx, item.VersionID); verr == nil {
+			item.ExerciseID = version.ExerciseID
 		}
+		out = append(out, item)
 	}
-	return active, nil
+	return out, nil
 }
 
 func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployID uuid.UUID) (exerciseModel.TestDeploy, error) {
@@ -638,8 +661,8 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 		}
 		return exerciseModel.TestDeploy{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
-	now := time.Now()
-	if !current.ExpiresAt.IsZero() && !current.ExpiresAt.After(now) {
+	now := u.timeNow()
+	if testDeployExpired(current, now) {
 		return exerciseModel.TestDeploy{}, exerciseModel.ErrTestDeployNotFound.Err()
 	}
 	expiresAt := now.Add(u.testDeployTTL())
@@ -658,6 +681,8 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 	if u.testLabGate != nil {
 		_ = u.testLabGate.ExtendTestLab(ctx, deployID, ownerID, calendarUseCase.Amount{}, value.ExpiresAt)
 	}
+	// The job of the earlier lease finds the lab not expired and does nothing.
+	u.scheduleTestDeployExpiry(ctx, value)
 	return value, nil
 }
 

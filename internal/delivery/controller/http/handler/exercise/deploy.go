@@ -13,13 +13,15 @@ import (
 )
 
 type deployListItem struct {
-	DeployID   string    `json:"DeployID"`
-	ExpiresAt  time.Time `json:"ExpiresAt"`
-	CreatedAt  time.Time `json:"CreatedAt"`
-	ExerciseID string    `json:"ExerciseID"`
-	VersionID  string    `json:"VersionID"`
-	VariantID  string    `json:"VariantID"`
-	Lab        string    `json:"Lab"`
+	DeployID  string    `json:"DeployID"`
+	ExpiresAt time.Time `json:"ExpiresAt"`
+	CreatedAt time.Time `json:"CreatedAt"`
+	// Expired: the lease is over but the lab is not removed yet; it still runs and can be ended.
+	Expired    bool   `json:"Expired"`
+	ExerciseID string `json:"ExerciseID"`
+	VersionID  string `json:"VersionID"`
+	VariantID  string `json:"VariantID"`
+	Lab        string `json:"Lab"`
 	// Tasks are the flag-linked tasks to find in the lab; values are never returned.
 	Tasks []deployTaskResponse `json:"Tasks"`
 	// SolvedTaskIDs are the tasks the author has already checked correctly.
@@ -31,7 +33,7 @@ func deployListItemOf(d exerciseModel.TestDeploy) deployListItem {
 	for _, f := range d.Flags {
 		tasks = append(tasks, deployTaskResponse{TaskID: f.TaskID.String(), Name: f.Name})
 	}
-	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Tasks: tasks}
+	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, Expired: d.Expired, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Tasks: tasks}
 }
 
 func solvedIDs(ids []uuid.UUID) []string {
@@ -78,6 +80,9 @@ type (
 		VPNLastHandshake *time.Time `json:"VPNLastHandshake,omitempty"`
 		// VPNProbeURL is the tester page served inside the tunnel by the lab group's VPN pod; absent until known.
 		VPNProbeURL string `json:"VPNProbeURL,omitempty"`
+		// ExpiresAt is the end of the lease; Expired: it is over but the lab is not removed yet (it can only be ended).
+		ExpiresAt time.Time `json:"ExpiresAt"`
+		Expired   bool      `json:"Expired"`
 	}
 
 	deployDeviceResponse struct {
@@ -120,6 +125,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
+	out.ExpiresAt, out.Expired = s.ExpiresAt, s.Expired
 	if !s.VPNLastHandshake.IsZero() {
 		t := s.VPNLastHandshake
 		out.VPNLastHandshake = &t
@@ -279,8 +285,8 @@ func (h *Handler) checkDeploy(ctx *gin.Context) {
 }
 
 // listDeploys godoc
-// @Summary  List the caller's active test deploys
-// @Description Only the caller's own, not expired. Optional filters narrow by exercise, version and variant. Each item names the flag-linked tasks; flag values are never returned.
+// @Summary  List the caller's test deploys
+// @Description Only the caller's own, until they are removed: a deploy whose lease is over but is not removed yet has Expired=true (it still runs and can be ended). Optional filters narrow by exercise, version and variant. Each item names the flag-linked tasks; flag values are never returned.
 // @Tags     exercises
 // @Produce  json
 // @Param    exerciseID  query  string  false  "exercise id"

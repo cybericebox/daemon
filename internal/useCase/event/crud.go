@@ -337,6 +337,7 @@ func (u *EventUseCase) DeleteEvent(ctx context.Context, id uuid.UUID) error {
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete event").Err()
 	}
+	u.wakeLabCleanup(ctx)
 	u.tagsChanged()
 	return nil
 }

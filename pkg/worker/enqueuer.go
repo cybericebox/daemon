@@ -2,6 +2,9 @@ package worker
 
 import (
 	"context"
+	"time"
+
+	"github.com/riverqueue/river"
 
 	"github.com/cybericebox/daemon/internal/model"
 )
@@ -23,6 +26,8 @@ type (
 	// It is used by the use-case layer to enqueue jobs without depending on the River implementation.
 	IEnqueuer interface {
 		Enqueue(ctx context.Context, args jobArgs) error
+		// EnqueueAt queues the job to run no earlier than at (a time not in the future runs it now).
+		EnqueueAt(ctx context.Context, args jobArgs, at time.Time) error
 	}
 
 	// noopEnqueuer is a test-only enqueuer that discards all jobs.
@@ -37,6 +42,18 @@ func NewEnqueuer() IEnqueuer {
 
 func (n *noopEnqueuer) Enqueue(_ context.Context, _ jobArgs) error {
 	return nil
+}
+
+func (n *noopEnqueuer) EnqueueAt(_ context.Context, _ jobArgs, _ time.Time) error {
+	return nil
+}
+
+func (e *enqueuer) EnqueueAt(ctx context.Context, args jobArgs, at time.Time) error {
+	if e.factory.client == nil {
+		return model.ErrPlatform.WithMessage("River client is not initialized").Err()
+	}
+	_, err := e.factory.client.Insert(ctx, args, &river.InsertOpts{ScheduledAt: at})
+	return err
 }
 
 func (e *enqueuer) Enqueue(ctx context.Context, args jobArgs) error {

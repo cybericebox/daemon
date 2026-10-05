@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/gofrs/uuid"
+
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
@@ -161,6 +163,13 @@ func broadcastEnqueue(enq worker.IEnqueuer) func(ctx context.Context, args jobsM
 	return func(ctx context.Context, args jobsModel.BroadcastSendArgs) error { return enq.Enqueue(ctx, args) }
 }
 
+// testDeployExpiry adapts the River enqueuer to the exercise use case's test lab expiry port.
+type testDeployExpiry struct{ enq worker.IEnqueuer }
+
+func (t testDeployExpiry) ScheduleTestDeployExpiry(ctx context.Context, ownerID, deployID uuid.UUID, at time.Time) error {
+	return t.enq.EnqueueAt(ctx, jobsModel.TestDeployExpiryArgs{DeployID: deployID, OwnerID: ownerID}, at)
+}
+
 func NewUseCase(deps Dependencies) *UseCase {
 	// mediaUC is built first: the email handler streams uploaded images from it
 	// (inline CID parts), and the aggregate exposes it for the periodic GC job.
@@ -244,6 +253,12 @@ func NewUseCase(deps Dependencies) *UseCase {
 	})
 	eventUC.SetResourceGate(calendarUC)
 	exerciseUC.SetTestLabGate(calendarUC)
+	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.
+	if deps.LabAgent != nil {
+		labJobs := deps.EnqueuerFactory.NewEnqueuer()
+		exerciseUC.SetTestDeployExpiry(testDeployExpiry{enq: labJobs})
+		eventUC.SetLabCleanupWake(func(ctx context.Context) error { return labJobs.Enqueue(ctx, jobsModel.LabCleanupArgs{}) })
+	}
 
 	var agentSealer infrastructureUseCase.AgentSealer
 	if deps.PlatformCipher != nil {

@@ -481,6 +481,7 @@ func (u *EventUseCase) DeleteManagedTeam(ctx context.Context, eventID, teamID uu
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to delete event team").Err()
 	}
+	u.wakeLabCleanup(ctx)
 	return nil
 }
 
@@ -1096,6 +1097,7 @@ func (u *EventUseCase) DisbandTeam(ctx context.Context, eventID, teamID, captain
 	if err = unit.Save(); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to disband event team").Err()
 	}
+	u.wakeLabCleanup(ctx)
 	return nil
 }
 

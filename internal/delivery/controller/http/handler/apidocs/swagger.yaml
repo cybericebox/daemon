@@ -5169,6 +5169,10 @@ definitions:
         type: string
       ExerciseID:
         type: string
+      Expired:
+        description: 'Expired: the lease is over but the lab is not removed yet; it
+          still runs and can be ended.'
+        type: boolean
       ExpiresAt:
         type: string
       Lab:
@@ -5214,6 +5218,12 @@ definitions:
         items:
           $ref: '#/definitions/exercise.deployDeviceResponse'
         type: array
+      Expired:
+        type: boolean
+      ExpiresAt:
+        description: 'ExpiresAt is the end of the lease; Expired: it is over but the
+          lab is not removed yet (it can only be ended).'
+        type: string
       GroupImageWarning:
         type: string
       ImageWarning:
@@ -18901,9 +18911,10 @@ paths:
       - exercises
   /exercises/deploys:
     get:
-      description: Only the caller's own, not expired. Optional filters narrow by
-        exercise, version and variant. Each item names the flag-linked tasks; flag
-        values are never returned.
+      description: 'Only the caller''s own, until they are removed: a deploy whose
+        lease is over but is not removed yet has Expired=true (it still runs and can
+        be ended). Optional filters narrow by exercise, version and variant. Each
+        item names the flag-linked tasks; flag values are never returned.'
       parameters:
       - description: exercise id
         in: query
@@ -18935,7 +18946,7 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
-      summary: List the caller's active test deploys
+      summary: List the caller's test deploys
       tags:
       - exercises
   /exercises/deploys/{deployID}/check:

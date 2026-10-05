@@ -437,7 +437,7 @@ type (
 		// LabSweepInterval is how often the backend looks for stand and test lab groups whose event,
 		// team or test deploy is gone, and deletes them; LabSweepGrace is how old a group must be
 		// before it is judged (so a deploy that is still creating its group is never raced).
-		LabSweepInterval time.Duration `env:"LAB_SWEEP_INTERVAL" envDefault:"10m"`
+		LabSweepInterval time.Duration `env:"LAB_SWEEP_INTERVAL" envDefault:"30s"`
 		LabSweepGrace    time.Duration `env:"LAB_SWEEP_GRACE"    envDefault:"15m"`
 		// TestDeployTTL is the lease of a catalog author's test lab; extending it never goes past
 		// TestDeployTTLMax counted from the start.
@@ -722,8 +722,8 @@ func (c ExerciseConfig) Validate() error {
 	if c.StandPrewarmLead < 0 || c.StandPrewarmLead > 24*time.Hour {
 		return errors.New("exercise: EXERCISE_STAND_PREWARM_LEAD must be between 0 and 24h")
 	}
-	if c.LabSweepInterval < time.Minute || c.LabSweepInterval > 24*time.Hour {
-		return errors.New("exercise: EXERCISE_LAB_SWEEP_INTERVAL must be between 1m and 24h")
+	if c.LabSweepInterval < 10*time.Second || c.LabSweepInterval > 24*time.Hour {
+		return errors.New("exercise: EXERCISE_LAB_SWEEP_INTERVAL must be between 10s and 24h")
 	}
 	if c.LabSweepGrace < time.Minute || c.LabSweepGrace > 24*time.Hour {
 		return errors.New("exercise: EXERCISE_LAB_SWEEP_GRACE must be between 1m and 24h")
