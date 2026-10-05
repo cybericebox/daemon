@@ -35,6 +35,10 @@ var (
 	// ErrTestDeployActiveExists: one active test laboratory per user across all exercises.
 	ErrTestDeployActiveExists = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("The limit of running test laboratories is reached").WithDetailCode(63)
+	// ErrTestDeployGroupBusy: the author's previous lab group is still being deleted and did not
+	// finish within the wait. Transient: the author starts the lab again in a moment.
+	ErrTestDeployGroupBusy = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The previous test laboratory is still being removed, try again in a minute").WithDetailCode(75)
 	// ErrTestDeployNoWebDevice: the requested device port has no web address.
 	ErrTestDeployNoWebDevice = err.ErrObjectNotFound.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("The device has no web address").WithDetailCode(60)

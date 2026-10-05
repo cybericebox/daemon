@@ -304,6 +304,7 @@
   "70969": "No device needs a resource elevation",
   "70970": "The exercise already has a pending resource elevation request",
   "70971": "The resource elevation request was already decided",
+  "70975": "The previous test laboratory is still being removed, try again in a minute",
   "71003": "File storage is not configured",
   "71007": "Chunk out of order",
   "71009": "Upload is not complete",

@@ -32,6 +32,8 @@ type fakeInfra struct {
 	meta            infraModel.LabMeta
 	deviceCalls     []string
 	deviceErr       error
+	deployErrs      []error
+	deployCalls     int
 	deployErr       error
 	status          exerciseModel.LabDeployStatus
 	destroyed       string
@@ -61,6 +63,10 @@ func (f *fakeInfra) RescueDevice(_ context.Context, group, lab, device string, e
 func (f *fakeInfra) DeployLab(_ context.Context, _, _ string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
 	f.meta = meta
 	f.deployedTopo = topo
+	f.deployCalls++
+	if f.deployCalls <= len(f.deployErrs) {
+		return f.deployErrs[f.deployCalls-1]
+	}
 	return f.deployErr
 }
 func (f *fakeInfra) LabStatus(_ context.Context, _, _ string) (exerciseModel.LabDeployStatus, error) {
@@ -533,8 +539,8 @@ func TestDeployVariantTest_FailsAndCleansUpWhenTheConfigCannotBeKept(t *testing.
 	if _, err := uc.DeployVariantTest(context.Background(), owner, version, variant); err == nil {
 		t.Fatal("a config that cannot be kept must fail the deploy")
 	}
-	if infra.destroyed == "" || len(store.deleted) != 1 {
-		t.Fatalf("the half-made deploy is removed: destroyed=%q deleted=%v", infra.destroyed, store.deleted)
+	if infra.destroyed == "" || len(store.deleted) != 2 {
+		t.Fatalf("the stale config is dropped before and after: destroyed=%q deleted=%v", infra.destroyed, store.deleted)
 	}
 }
 
@@ -956,5 +962,72 @@ func TestResolveDeployedTopology_ASecretSealedForAnotherVariantDoesNotOpen(t *te
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher})
 	if _, err := uc.ResolveDeployedTopology(context.Background(), versionID, 3); err == nil {
 		t.Fatal("a secret copied under another variant must not decrypt")
+	}
+}
+
+func groupWaitFixture(t *testing.T, infra *fakeInfra, store *fakeVPNStore) (*exercise.ExerciseUseCase, uuid.UUID, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
+	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+		return postgres.ExerciseTestDeployment{ID: p.ID, GroupName: p.GroupName, CreatedBy: p.CreatedBy}, nil
+	}).AnyTimes()
+	return exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: store}), ownerID, versionID, variantID
+}
+
+func terminatingErr() error {
+	return &infraModel.TerminatingError{Message: "LabGroup tu-x is still being deleted", RetryAfter: time.Second}
+}
+
+func TestDeployVariantTest_WaitsWhileTheAuthorsGroupIsBeingDeleted(t *testing.T) {
+	defer exercise.SetGroupWait(2*time.Second, time.Millisecond, 5*time.Millisecond)()
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "wg-new"}, deployErrs: []error{terminatingErr(), terminatingErr()}}
+	uc, owner, ver, variant := groupWaitFixture(t, infra, &fakeVPNStore{})
+	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant); err != nil {
+		t.Fatalf("deploy must wait for the deletion and succeed: %v", err)
+	}
+	if infra.deployCalls != 3 {
+		t.Fatalf("deploy calls = %d, want 3", infra.deployCalls)
+	}
+}
+
+func TestDeployVariantTest_GroupStillDeletingAfterTheWait_IsARetryableConflict(t *testing.T) {
+	defer exercise.SetGroupWait(20*time.Millisecond, time.Millisecond, 5*time.Millisecond)()
+	infra := &fakeInfra{deployErr: terminatingErr()}
+	uc, owner, ver, variant := groupWaitFixture(t, infra, &fakeVPNStore{})
+	_, err := uc.DeployVariantTest(context.Background(), owner, ver, variant)
+	if !errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
+		t.Fatalf("want the group-busy domain error, got %v", err)
+	}
+}
+
+func TestDeployVariantTest_RecreatedGroupReplacesTheStoredConfig(t *testing.T) {
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "wg-new"}}
+	owner := uuid.Must(uuid.NewV7())
+	store := &fakeVPNStore{userID: owner, scope: vpnModel.ScopeTest, ref: uuid.NullUUID{}, plaintext: "wg-stale"}
+	uc, _, ver, variant := groupWaitFixture(t, infra, store)
+	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.deleted) == 0 || store.plaintext != "wg-new" {
+		t.Fatalf("the stale config must be dropped and replaced: deleted=%v config=%q", store.deleted, store.plaintext)
+	}
+}
+
+func TestDeployVariantTest_RecreatedGroupWithoutConfigLeavesNoStaleOne(t *testing.T) {
+	infra := &fakeInfra{}
+	owner := uuid.Must(uuid.NewV7())
+	store := &fakeVPNStore{userID: owner, scope: vpnModel.ScopeTest, ref: uuid.NullUUID{}, plaintext: "wg-stale"}
+	uc, _, ver, variant := groupWaitFixture(t, infra, store)
+	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.deleted) == 0 {
+		t.Fatal("the stale config of the old group must be deleted")
 	}
 }
