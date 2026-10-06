@@ -33,6 +33,9 @@ var errAwaitingReservation = errors.New("event is waiting for its resource reser
 // awaitingReservation reports whether the event has lab tasks but no reservation. A gate that cannot say (no
 // calendar wired) does not hold anything back; a failed read holds the pass back and is only logged.
 func (u *EventUseCase) awaitingReservation(ctx context.Context, eventID uuid.UUID) bool {
+	if u.reservationWait != nil {
+		return u.reservationWait(ctx, eventID)
+	}
 	holder, ok := u.resourceGate.(reservationHolder)
 	if !ok {
 		return false

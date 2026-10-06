@@ -394,3 +394,42 @@ func TestReconcilePendingLabAccess_RevocationWaitsForGroupAndNeverGrantsRevoked(
 		t.Fatalf("policy must list only the current member, got %+v", ready.policies)
 	}
 }
+
+type groupPresenceInfra struct {
+	*recordingLabAccessInfra
+	exists bool
+}
+
+func (i groupPresenceInfra) LabGroupExists(context.Context, string) (bool, error) {
+	return i.exists, nil
+}
+
+// While the event waits for its reservation nothing is deployed, but waiting is only for grants: a group that
+// already exists still gets its policy replaced (a revocation is applied), and a group that does not exist is
+// left alone with the revision still dirty.
+func TestReconcilePendingLabAccess_AwaitingReservationStillRevokesOnExistingGroup(t *testing.T) {
+	for _, exists := range []bool{true, false} {
+		ctrl := gomock.NewController(t)
+		q := newFormGateMock(ctrl)
+		rec := &recordingLabAccessInfra{}
+		uc := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: groupPresenceInfra{rec, exists}})
+		uc.ForceReservationWait(true)
+		eventID, teamID, kept := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+		now := time.Now()
+		q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 3, AppliedRevision: 2, UpdatedAt: now, RuntimeOpen: true, VpnEnabled: true}}, nil)
+		if exists {
+			q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{kept}, nil)
+			q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil)
+			q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+		}
+		if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
+			t.Fatalf("exists=%v: %v", exists, err)
+		}
+		if exists && (len(rec.policies) != 1 || len(rec.policies[0].AllowedLabs) != 0) {
+			t.Fatalf("revocation not applied on the existing group: %+v", rec.policies)
+		}
+		if !exists && len(rec.operations) != 0 {
+			t.Fatalf("nothing may be done while the group is missing and the reservation absent: %v", rec.operations)
+		}
+	}
+}
