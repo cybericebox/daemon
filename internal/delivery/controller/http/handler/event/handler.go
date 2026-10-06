@@ -246,17 +246,17 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ev.DELETE(":id", h.prot.RequirePermission(rbac.PermEventsWrite), h.delete)
 
 		ev.GET(":id/config", h.prot.RequirePermission(rbac.PermEventsRead), h.getConfig)
-		ev.PUT(":id/config", h.prot.RequirePermission(rbac.PermEventsWrite), h.updateConfig)
-		ev.PUT(":id/infrastructure", h.prot.RequirePermission(rbac.PermEventsWrite), h.setInfrastructure)
-		ev.PUT(":id/theme", h.prot.RequirePermission(rbac.PermEventsWrite), h.updateTheme)
+		ev.PUT(":id/config", h.prot.RequirePermission(rbac.PermEventsWrite), h.requireWritableEvent, h.updateConfig)
+		ev.PUT(":id/infrastructure", h.prot.RequirePermission(rbac.PermEventsWrite), h.requireWritableEvent, h.setInfrastructure)
+		ev.PUT(":id/theme", h.prot.RequirePermission(rbac.PermEventsWrite), h.requireWritableEvent, h.updateTheme)
 		ev.GET(":id/managers", h.prot.RequirePermission(rbac.PermEventsRead), h.listManagers)
 		ev.PUT(":id/managers/:userID", h.prot.RequirePermission(rbac.PermEventsWrite), h.setManager)
 		ev.DELETE(":id/managers/:userID", h.prot.RequirePermission(rbac.PermEventsWrite), h.removeManager)
 		ev.GET(":id/participants", h.prot.RequirePermission(rbac.PermEventsRead), h.listParticipants)
 		ev.GET(":id/solution-attempts", h.prot.RequirePermission(rbac.PermEventsSolutionAttemptsRead), h.listSolutionAttempts)
 		ev.PATCH(":id/solution-attempts/:attemptID/decision", h.prot.RequirePermission(rbac.PermEventsSolutionAttemptsWrite), h.decideSolutionAttempt)
-		ev.POST(":id/participants/:userID/approve", h.prot.RequirePermission(rbac.PermEventsWrite), h.approveParticipant)
-		ev.POST(":id/participants/:userID/reject", h.prot.RequirePermission(rbac.PermEventsWrite), h.rejectParticipant)
+		ev.POST(":id/participants/:userID/approve", h.prot.RequirePermission(rbac.PermEventsWrite), h.requireWritableEvent, h.approveParticipant)
+		ev.POST(":id/participants/:userID/reject", h.prot.RequirePermission(rbac.PermEventsWrite), h.requireWritableEvent, h.rejectParticipant)
 
 		manage := ev.Group(":id/manage", h.prot.RequirePermission(rbac.PermSelf))
 		manage.GET("access", h.requireRead, h.getManagementAccess)
@@ -1437,6 +1437,16 @@ func (h *Handler) requireManage(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	middleware.RequireEventWritable(ctx, h.useCase, id)
+}
+
+// requireWritableEvent guards the admin routes that write an event's settings: an archived event stays read-only.
+func (h *Handler) requireWritableEvent(ctx *gin.Context) {
+	id, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	middleware.RequireEventWritable(ctx, h.useCase, id)
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {

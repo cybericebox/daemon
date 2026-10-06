@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"io"
 
 	"github.com/gin-gonic/gin"
@@ -560,7 +561,12 @@ func (h *Handler) eventJournal(ctx *gin.Context) {
 }
 
 func (h *Handler) requireManage(ctx *gin.Context) {
-	h.requireEvent(ctx, h.useCase.RequireManageEvent)
+	h.requireEvent(ctx, func(c context.Context, eventID, userID uuid.UUID) error {
+		if err := h.useCase.RequireManageEvent(c, eventID, userID); err != nil {
+			return err
+		}
+		return middleware.CheckEventWritable(ctx, h.useCase, eventID)
+	})
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {

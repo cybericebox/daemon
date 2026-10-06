@@ -6,6 +6,7 @@ package messaging
 import (
 	"context"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -208,6 +209,9 @@ func (h *Handler) requireEvent(ctx *gin.Context, manage bool) {
 	var err error
 	if manage {
 		err = h.useCase.RequireManageEvent(ctx, *id, claims.UserID)
+		if err == nil {
+			err = middleware.CheckEventWritable(ctx, h.useCase, *id)
+		}
 	} else {
 		err = h.useCase.RequireReadEvent(ctx, *id, claims.UserID)
 	}

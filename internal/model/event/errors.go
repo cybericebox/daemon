@@ -118,4 +118,7 @@ var (
 	// ErrEventStageNotOpen: only an open stage can be closed now.
 	ErrEventStageNotOpen = err.ErrConflict.WithObjectCode(model.EventObjectCode).
 				WithMessage("Only an open stage can be closed now").WithDetailCode(52)
+	// ErrEventArchived: an archived event is read-only for every manage write.
+	ErrEventArchived = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+				WithMessage("Event is archived and read-only").WithDetailCode(53)
 )

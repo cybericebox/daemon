@@ -52,7 +52,7 @@ func TestOpenLabLinkReturnsTheLinkAndSetsNoCookie(t *testing.T) {
 	if len(fake.calls) != 1 || fake.calls[0] != [3]uuid.UUID{eventID, userID, challengeID} || fake.devices[0] != "web" {
 		t.Fatalf("calls = %v %v", fake.calls, fake.devices)
 	}
-	if !strings.Contains(w.Body.String(), `"url":"https://web-abc123.challenges.example.com/_auth?t=jwt"`) || !strings.Contains(w.Body.String(), `"expires_at"`) {
+	if !strings.Contains(w.Body.String(), `"URL":"https://web-abc123.challenges.example.com/_auth?t=jwt"`) || !strings.Contains(w.Body.String(), `"ExpiresAt"`) {
 		t.Fatalf("body = %s", w.Body.String())
 	}
 	if len(w.Result().Cookies()) != 0 || w.Header().Get("Set-Cookie") != "" {

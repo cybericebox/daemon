@@ -371,7 +371,7 @@ func (u *EventUseCase) UpdateEventChallengeRelations(ctx context.Context, eventI
 		return model.ErrPlatform.WithError(cycleErr).WithMessage("Failed to validate challenge prerequisites").Err()
 	}
 	if cyclic {
-		return eventChallengeModel.ErrEventChallengePrerequisitesInvalid.Err()
+		return eventChallengeModel.ErrEventChallengePrerequisitesCycle.Err()
 	}
 	if in.GroupID != nil {
 		groups, groupErr := eventChallengeGroupRepo.New(txRepo).List(txCtx, eventID)

@@ -5,6 +5,7 @@ package resourceCalendar
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"strconv"
 	"time"
 
@@ -114,7 +115,10 @@ func (h *Handler) requireTestLabAuthor(ctx *gin.Context) {
 
 func (h *Handler) requireManage(ctx *gin.Context) {
 	h.requireEvent(ctx, func(c context.Context, eventID, userID uuid.UUID) error {
-		return h.useCase.RequireManageEvent(c, eventID, userID)
+		if err := h.useCase.RequireManageEvent(c, eventID, userID); err != nil {
+			return err
+		}
+		return middleware.CheckEventWritable(ctx, h.useCase, eventID)
 	})
 }
 

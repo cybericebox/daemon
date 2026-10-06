@@ -681,3 +681,41 @@ func TestCreateEvent_InfrastructureFlagIsDecidedAtCreation(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireEventWritable_ArchivedEventIsReadOnly(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := newUC(q)
+	id := uuid.Must(uuid.NewV7())
+	now := time.Now()
+	start := now.Add(-48 * time.Hour)
+	end := now.Add(-24 * time.Hour)
+	q.EXPECT().GetEventByID(gomock.Any(), id).Return(postgres.Event{
+		ID: id, Tag: "old", Name: "Old", AvailableFrom: start, ArchiveAt: pgtype.Timestamptz{Time: end, Valid: true},
+		PublishAt: start, StartAt: start, FinishAt: pgtype.Timestamptz{Time: end, Valid: true},
+		WithdrawAt: pgtype.Timestamptz{Time: end.Add(time.Microsecond), Valid: true},
+		CreatedAt:  start, UpdatedAt: pgtype.Timestamptz{Time: start, Valid: true},
+	}, nil)
+	if err := uc.RequireEventWritable(context.Background(), id); !errors.Is(err, eventModel.ErrEventArchived.Err()) {
+		t.Fatalf("want ErrEventArchived, got %v", err)
+	}
+}
+
+func TestRequireEventWritable_LiveEventPasses(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := newUC(q)
+	id := uuid.Must(uuid.NewV7())
+	now := time.Now()
+	start := now.Add(-time.Hour)
+	end := now.Add(48 * time.Hour)
+	q.EXPECT().GetEventByID(gomock.Any(), id).Return(postgres.Event{
+		ID: id, Tag: "live", Name: "Live", AvailableFrom: start, ArchiveAt: pgtype.Timestamptz{Time: end, Valid: true},
+		PublishAt: start, StartAt: start, FinishAt: pgtype.Timestamptz{Time: end, Valid: true},
+		WithdrawAt: pgtype.Timestamptz{Time: end.Add(time.Microsecond), Valid: true},
+		CreatedAt:  start, UpdatedAt: pgtype.Timestamptz{Time: start, Valid: true},
+	}, nil)
+	if err := uc.RequireEventWritable(context.Background(), id); err != nil {
+		t.Fatalf("a live event must stay writable, got %v", err)
+	}
+}
