@@ -231,13 +231,14 @@ func settingsOf(v errorJournalUseCase.SettingsView) settingsResponse {
 // @Param    from    query  string    false  "last seen at or after (RFC 3339)"
 // @Param    to      query  string    false  "last seen at or before (RFC 3339)"
 // @Param    q       query  string    false  "text in the title or source"
+// @Param    request query  string    false  "request id or its first 8+ hex characters (case-insensitive): only the groups that have a sample of that request; 400 when shorter or not hex"
 // @Param    limit   query  int       false  "page size, 1-200 (default 50)"
 // @Param    offset  query  int       false  "offset"
 // @Success  200  {object}  response.Response{data=listResponse}
 // @Failure  403  {object}  response.Response
 // @Router   /admin/errors [get]
 func (h *Handler) list(c *gin.Context) {
-	f := errorJournalUseCase.GroupFilter{Status: errorJournalModel.Status(c.Query("status")), Query: c.Query("q")}
+	f := errorJournalUseCase.GroupFilter{Status: errorJournalModel.Status(c.Query("status")), Query: c.Query("q"), Request: c.Query("request")}
 	for _, raw := range c.QueryArray("kind") {
 		for _, k := range strings.Split(raw, ",") {
 			if k = strings.TrimSpace(k); k != "" {

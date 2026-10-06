@@ -5,6 +5,8 @@ package errorJournalUseCase
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -125,8 +127,11 @@ type (
 		From   *time.Time
 		To     *time.Time
 		Query  string
-		Limit  int
-		Offset int
+		// Request is a request id or its first characters (at least 8 hex): only the groups that have a sample
+		// of that request.
+		Request string
+		Limit   int
+		Offset  int
 	}
 	PurgeResult struct {
 		Groups, Samples, NotFound int64
@@ -400,6 +405,9 @@ func (j *Journal) Record(ctx context.Context, e errorJournal.Event) (RecordResul
 	return rec, nil
 }
 
+// reRequestPrefix is a request id (a UUID) or its beginning: at least 8 hex digits, dashes allowed.
+var reRequestPrefix = regexp.MustCompile(`^[0-9A-Fa-f][0-9A-Fa-f-]{7,35}$`)
+
 // ListGroups, GetGroup and the rest of the read side.
 func (j *Journal) ListErrorGroups(ctx context.Context, f GroupFilter) ([]errorJournal.Group, int64, error) {
 	if f.Limit < 1 || f.Limit > 200 {
@@ -415,6 +423,9 @@ func (j *Journal) ListErrorGroups(ctx context.Context, f GroupFilter) ([]errorJo
 	}
 	if f.From != nil && f.To != nil && f.To.Before(*f.From) {
 		return nil, 0, errorJournal.ErrPeriodInvalid.Err()
+	}
+	if f.Request = strings.TrimSpace(f.Request); f.Request != "" && !reRequestPrefix.MatchString(f.Request) {
+		return nil, 0, errorJournal.ErrFilterInvalid.Err()
 	}
 	return j.repo.ListGroups(ctx, f)
 }

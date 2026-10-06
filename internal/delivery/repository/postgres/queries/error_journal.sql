@@ -39,6 +39,10 @@ WHERE (cardinality(sqlc.arg(kinds)::text[]) = 0 OR kind = ANY (sqlc.arg(kinds)::
   AND (sqlc.narg(to_at)::timestamptz IS NULL OR last_seen_at <= sqlc.narg(to_at)::timestamptz)
   AND (sqlc.arg(query)::text = '' OR title ILIKE '%' || sqlc.arg(query)::text || '%'
     OR source ILIKE '%' || sqlc.arg(query)::text || '%')
+  AND (sqlc.arg(request)::text = '' OR EXISTS (SELECT 1
+                                               FROM error_samples s
+                                               WHERE s.group_id = error_groups.id
+                                                 AND s.request_id ILIKE sqlc.arg(request)::text || '%'))
 ORDER BY last_seen_at DESC, id DESC
 LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
@@ -50,7 +54,11 @@ WHERE (cardinality(sqlc.arg(kinds)::text[]) = 0 OR kind = ANY (sqlc.arg(kinds)::
   AND (sqlc.narg(from_at)::timestamptz IS NULL OR last_seen_at >= sqlc.narg(from_at)::timestamptz)
   AND (sqlc.narg(to_at)::timestamptz IS NULL OR last_seen_at <= sqlc.narg(to_at)::timestamptz)
   AND (sqlc.arg(query)::text = '' OR title ILIKE '%' || sqlc.arg(query)::text || '%'
-    OR source ILIKE '%' || sqlc.arg(query)::text || '%');
+    OR source ILIKE '%' || sqlc.arg(query)::text || '%')
+  AND (sqlc.arg(request)::text = '' OR EXISTS (SELECT 1
+                                               FROM error_samples s
+                                               WHERE s.group_id = error_groups.id
+                                                 AND s.request_id ILIKE sqlc.arg(request)::text || '%'));
 
 -- name: GetErrorGroup :one
 SELECT id, fingerprint, kind, source, title, status, occurrences, first_seen_at, last_seen_at, resolved_at,
