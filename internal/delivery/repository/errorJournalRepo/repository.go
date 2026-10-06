@@ -112,14 +112,14 @@ func (r *Repository) ListGroups(ctx context.Context, f errorJournalUseCase.Group
 	query := likeEscape(f.Query)
 	from, to := tsPtr(f.From), tsPtr(f.To)
 	rows, err := r.q.ListErrorGroups(ctx, postgres.ListErrorGroupsParams{
-		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, Query: query,
+		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, Query: query, Request: f.Request,
 		LimitVal: int32(f.Limit), OffsetVal: int32(f.Offset),
 	})
 	if err != nil {
 		return nil, 0, err
 	}
 	total, err := r.q.CountErrorGroups(ctx, postgres.CountErrorGroupsParams{
-		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, Query: query,
+		Kinds: kinds, Status: string(f.Status), FromAt: from, ToAt: to, Query: query, Request: f.Request,
 	})
 	if err != nil {
 		return nil, 0, err

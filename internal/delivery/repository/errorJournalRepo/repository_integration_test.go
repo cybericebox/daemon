@@ -287,3 +287,34 @@ func TestRecordCountAddsTheOccurrencesOfAnAgentReport(t *testing.T) {
 	assert.False(t, second.Inserted, "a second report of the same size is not a new group")
 	assert.EqualValues(t, 14, second.Group.Occurrences)
 }
+
+func TestListGroupsFindsTheGroupOfARequestByIDOrPrefix(t *testing.T) {
+	r, _ := newRepo(t)
+	ctx := context.Background()
+	rec := func(fp, requestID string) {
+		_, err := r.Record(ctx, errorJournalUseCase.RecordInput{
+			Fingerprint: fp, Kind: errorJournal.KindHTTP5xx, Source: "/api/x", Title: fp, At: t0, Keep: 3,
+			Sample: errorJournal.Sample{ID: uuid.Must(uuid.NewV7()), OccurredAt: t0, Message: "m", RequestID: requestID},
+		})
+		require.NoError(t, err)
+	}
+	rec("a", "0198c1f2-7b3a-7c11-9d2e-3f4a5b6c7d8e")
+	rec("b", "0198c1f3-0000-7c11-9d2e-3f4a5b6c7d8e")
+	rec("c", "")
+
+	titles := func(request string) []string {
+		groups, total, err := r.ListGroups(ctx, errorJournalUseCase.GroupFilter{Request: request, Limit: 10})
+		require.NoError(t, err)
+		require.EqualValues(t, len(groups), total)
+		var out []string
+		for _, g := range groups {
+			out = append(out, g.Title)
+		}
+		return out
+	}
+	assert.Equal(t, []string{"a"}, titles("0198c1f2"))
+	assert.Equal(t, []string{"a"}, titles("0198C1F2"), "case-insensitive")
+	assert.Equal(t, []string{"a"}, titles("0198c1f2-7b3a-7c11-9d2e-3f4a5b6c7d8e"))
+	assert.Empty(t, titles("deadbeef"))
+	assert.Len(t, titles(""), 3)
+}

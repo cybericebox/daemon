@@ -136,11 +136,12 @@ func TestListParsesFiltersAndReturnsGroups(t *testing.T) {
 	r, uc, _ := setup(t)
 	uc.groups = []errorJournalModel.Group{{ID: uuid.Must(uuid.NewV7()), Kind: errorJournalModel.KindPanic, Title: "t", Status: errorJournalModel.StatusOpen, Occurrences: 3}}
 
-	w := call(r, http.MethodGet, "/api/admin/errors?kind=panic,http_403&kind=job&status=open&q=boom&from=2026-10-01T00:00:00Z&limit=20&offset=40", "")
+	w := call(r, http.MethodGet, "/api/admin/errors?kind=panic,http_403&kind=job&status=open&q=boom&request=0198C1F2&from=2026-10-01T00:00:00Z&limit=20&offset=40", "")
 	require.Equal(t, 200, w.Code, w.Body.String())
 	assert.Equal(t, []errorJournalModel.Kind{"panic", "http_403", "job"}, uc.filter.Kinds)
 	assert.Equal(t, errorJournalModel.StatusOpen, uc.filter.Status)
 	assert.Equal(t, "boom", uc.filter.Query)
+	assert.Equal(t, "0198C1F2", uc.filter.Request)
 	assert.Equal(t, 20, uc.filter.Limit)
 	assert.Equal(t, 40, uc.filter.Offset)
 	require.NotNil(t, uc.filter.From)

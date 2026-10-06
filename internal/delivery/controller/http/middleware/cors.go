@@ -24,6 +24,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 )
 
@@ -92,8 +93,9 @@ func setCORSHeaders(ctx *gin.Context, origin string) {
 	ctx.Header("Vary", "Origin")
 	// Cross-origin JS may read only the headers listed here: the sign-in
 	// redirect URL, Content-Disposition (export archive filename) and
-	// Retry-After (flag submission rate limit).
-	ctx.Header("Access-Control-Expose-Headers", protection.SignInURLHeader+", Content-Disposition, Retry-After")
+	// Retry-After (flag submission rate limit) and X-Request-ID (shown on the error page so an admin can find
+	// the journal entry).
+	ctx.Header("Access-Control-Expose-Headers", protection.SignInURLHeader+", Content-Disposition, Retry-After, "+errjournal.HeaderRequestID)
 }
 
 func setPreflightHeaders(ctx *gin.Context) {

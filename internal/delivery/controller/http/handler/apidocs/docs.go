@@ -165,6 +165,12 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "string",
+                        "description": "request id or its first 8+ hex characters (case-insensitive): only the groups that have a sample of that request; 400 when shorter or not hex",
+                        "name": "request",
+                        "in": "query"
+                    },
+                    {
                         "type": "integer",
                         "description": "page size, 1-200 (default 50)",
                         "name": "limit",

@@ -39,14 +39,19 @@ WHERE (cardinality($1::text[]) = 0 OR kind = ANY ($1::text[]))
   AND ($4::timestamptz IS NULL OR last_seen_at <= $4::timestamptz)
   AND ($5::text = '' OR title ILIKE '%' || $5::text || '%'
     OR source ILIKE '%' || $5::text || '%')
+  AND ($6::text = '' OR EXISTS (SELECT 1
+                                               FROM error_samples s
+                                               WHERE s.group_id = error_groups.id
+                                                 AND s.request_id ILIKE $6::text || '%'))
 `
 
 type CountErrorGroupsParams struct {
-	Kinds  []string           `json:"kinds"`
-	Status string             `json:"status"`
-	FromAt pgtype.Timestamptz `json:"from_at"`
-	ToAt   pgtype.Timestamptz `json:"to_at"`
-	Query  string             `json:"query"`
+	Kinds   []string           `json:"kinds"`
+	Status  string             `json:"status"`
+	FromAt  pgtype.Timestamptz `json:"from_at"`
+	ToAt    pgtype.Timestamptz `json:"to_at"`
+	Query   string             `json:"query"`
+	Request string             `json:"request"`
 }
 
 func (q *Queries) CountErrorGroups(ctx context.Context, arg CountErrorGroupsParams) (int64, error) {
@@ -56,6 +61,7 @@ func (q *Queries) CountErrorGroups(ctx context.Context, arg CountErrorGroupsPara
 		arg.FromAt,
 		arg.ToAt,
 		arg.Query,
+		arg.Request,
 	)
 	var column_1 int64
 	err := row.Scan(&column_1)
@@ -172,8 +178,12 @@ WHERE (cardinality($1::text[]) = 0 OR kind = ANY ($1::text[]))
   AND ($4::timestamptz IS NULL OR last_seen_at <= $4::timestamptz)
   AND ($5::text = '' OR title ILIKE '%' || $5::text || '%'
     OR source ILIKE '%' || $5::text || '%')
+  AND ($6::text = '' OR EXISTS (SELECT 1
+                                               FROM error_samples s
+                                               WHERE s.group_id = error_groups.id
+                                                 AND s.request_id ILIKE $6::text || '%'))
 ORDER BY last_seen_at DESC, id DESC
-LIMIT $7 OFFSET $6
+LIMIT $8 OFFSET $7
 `
 
 type ListErrorGroupsParams struct {
@@ -182,6 +192,7 @@ type ListErrorGroupsParams struct {
 	FromAt    pgtype.Timestamptz `json:"from_at"`
 	ToAt      pgtype.Timestamptz `json:"to_at"`
 	Query     string             `json:"query"`
+	Request   string             `json:"request"`
 	OffsetVal int32              `json:"offset_val"`
 	LimitVal  int32              `json:"limit_val"`
 }
@@ -193,6 +204,7 @@ func (q *Queries) ListErrorGroups(ctx context.Context, arg ListErrorGroupsParams
 		arg.FromAt,
 		arg.ToAt,
 		arg.Query,
+		arg.Request,
 		arg.OffsetVal,
 		arg.LimitVal,
 	)

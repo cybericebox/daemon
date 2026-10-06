@@ -125,8 +125,8 @@ func TestHandle_ExposesSignInURLAndContentDisposition(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if got := w.Header().Get("Access-Control-Expose-Headers"); got != "X-Sign-In-URL, Content-Disposition, Retry-After" {
-		t.Fatalf("Access-Control-Expose-Headers = %q, want %q", got, "X-Sign-In-URL, Content-Disposition, Retry-After")
+	if got := w.Header().Get("Access-Control-Expose-Headers"); got != "X-Sign-In-URL, Content-Disposition, Retry-After, X-Request-ID" {
+		t.Fatalf("Access-Control-Expose-Headers = %q, want %q", got, "X-Sign-In-URL, Content-Disposition, Retry-After, X-Request-ID")
 	}
 }
 

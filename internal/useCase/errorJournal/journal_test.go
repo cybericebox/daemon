@@ -309,3 +309,15 @@ func TestARefusalFloodIsFoldedAndMessagedOnce(t *testing.T) {
 	_, _ = h.j.Record(ctx, reported("/api/other"))
 	assert.Equal(t, 2, h.tg.count("100"))
 }
+
+func TestListErrorGroupsRequestFilterNeedsEightHexCharacters(t *testing.T) {
+	h := newHarness(DefaultConfig())
+	for _, ok := range []string{"", "0198c1f2", " 0198C1F2 ", "0198c1f2-7b3a-7c11-9d2e-3f4a5b6c7d8e"} {
+		_, _, err := h.j.ListErrorGroups(ctx, GroupFilter{Request: ok})
+		assert.NoError(t, err, ok)
+	}
+	for _, bad := range []string{"0198c1f", "0198c1fz", "0198%1f2", "-0198c1f2", "0198c1f2-7b3a-7c11-9d2e-3f4a5b6c7d8e0"} {
+		_, _, err := h.j.ListErrorGroups(ctx, GroupFilter{Request: bad})
+		assert.ErrorIs(t, err, errorJournal.ErrFilterInvalid.Err(), bad)
+	}
+}
