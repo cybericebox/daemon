@@ -31,4 +31,9 @@ var (
 					WithMessage("This exercise is not available to the event").WithDetailCode(11)
 	ErrEventExerciseNoForkSource = err.ErrConflict.WithObjectCode(model.EventExerciseObjectCode).
 					WithMessage("Only a catalog exercise can be forked, and only a fork can be reverted").WithDetailCode(12)
+	ErrEventExerciseStandsRunning = err.ErrConflict.WithObjectCode(model.EventExerciseObjectCode).
+					WithMessage("Teams are running this exercise: confirm to recreate their stands").WithDetailCode(13)
 )
+
+// ContextTeams is the public error context listing the teams (ID and name) whose running stands an update would recreate.
+const ContextTeams = "teams"

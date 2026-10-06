@@ -32,6 +32,18 @@ func ResolveScoringProfile(eventProfile ScoringProfile, localProfile *ScoringPro
 	return *localProfile
 }
 
+// EffectiveStaticPoints is the static value teams see and score for a task
+// with the given own points and local override: the event's one when the event
+// scores statically and the task follows it (no override, or forced event
+// scoring), else the task's own. It mirrors the SQL of the team board and of
+// the scoring context.
+func (e Event) EffectiveStaticPoints(own int32, local *ScoringProfile) int32 {
+	if e.StaticPoints != nil && e.ScoringProfile.Mode == ScoringStatic && (e.ForceEventScoring || local == nil) {
+		return *e.StaticPoints
+	}
+	return own
+}
+
 // Normalized drops parameters a mode does not use: time decay ignores
 // FloorAtPercent (stored as 100), so a client may omit it (E7).
 func (p ScoringProfile) Normalized() ScoringProfile {

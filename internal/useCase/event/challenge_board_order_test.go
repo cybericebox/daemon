@@ -132,7 +132,7 @@ func TestUpdateEventExercise_NewTaskFollowsSetVisibility(t *testing.T) {
 	q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	q.EXPECT().UpdateEventExerciseSource(gomock.Any(), gomock.Any()).Return(link, nil)
 
-	if _, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &nextVersionID, uuid.Must(uuid.NewV7())); err != nil {
+	if _, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &nextVersionID, uuid.Must(uuid.NewV7()), false); err != nil {
 		t.Fatalf("UpdateEventExercise: %v", err)
 	}
 }

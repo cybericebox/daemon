@@ -222,7 +222,7 @@ func TestUpdateEventExercise_SwitchesInPlaceKeepingOverrides(t *testing.T) {
 			return updated, nil
 		})
 
-	view, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, nil, uuid.Must(uuid.NewV7()))
+	view, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, nil, uuid.Must(uuid.NewV7()), false)
 	if err != nil {
 		t.Fatalf("UpdateEventExercise: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestUpdateEventExercise_RefusesRemovingAttemptedTask(t *testing.T) {
 	q.EXPECT().ListEventChallenges(gomock.Any(), attachmentID).Return([]postgres.EventChallenge{{ID: removedChallengeID, EventExerciseID: attachmentID, TaskID: uuid.Must(uuid.NewV7()), CreatedAt: now}}, nil)
 	q.EXPECT().ListEventChallengesWithAttempts(gomock.Any(), []uuid.UUID{removedChallengeID}).Return([]uuid.UUID{removedChallengeID}, nil)
 
-	_, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &nextVersionID, uuid.Must(uuid.NewV7()))
+	_, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &nextVersionID, uuid.Must(uuid.NewV7()), false)
 	if !errors.Is(err, eventExerciseModel.ErrEventExerciseTaskHasAttempts.Err()) || unit.saved {
 		t.Fatalf("want ErrEventExerciseTaskHasAttempts without saving, got %v saved=%t", err, unit.saved)
 	}
@@ -304,6 +304,10 @@ func TestUpdateEventChallenge_ChangesOnlyActiveRevision(t *testing.T) {
 
 	q.EXPECT().GetEventExerciseByID(gomock.Any(), postgres.GetEventExerciseByIDParams{ID: attachmentID, EventID: eventID}).Return(postgres.EventExercise{ID: attachmentID, EventID: eventID, Status: int16(eventExerciseModel.StatusActive), CreatedAt: now}, nil)
 	q.EXPECT().GetEventChallengeByID(gomock.Any(), postgres.GetEventChallengeByIDParams{ID: challengeID, EventExerciseID: attachmentID}).Return(postgres.EventChallenge{ID: challengeID, EventExerciseID: attachmentID, TaskID: taskID, Points: 100, CreatedAt: now}, nil)
+	// A static event whose tasks follow it: teams see and score its 100, not the task's own 250.
+	staticEvent := startedEvent(eventID, now)
+	staticEvent.StaticPoints = pgtype.Int4{Int32: 100, Valid: true}
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(staticEvent, nil)
 	q.EXPECT().UpdateEventChallenge(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.UpdateEventChallengeParams) (postgres.EventChallenge, error) {
 			// Visibility is per set: a task update keeps it.
@@ -316,7 +320,7 @@ func TestUpdateEventChallenge_ChangesOnlyActiveRevision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateEventChallenge: %v", err)
 	}
-	if view.Points != 250 || !view.HintsEnabled || view.Published {
+	if view.Points != 250 || view.EffectivePoints != 100 || !view.HintsEnabled || view.Published {
 		t.Fatalf("unexpected challenge view: %+v", view)
 	}
 }
@@ -334,6 +338,7 @@ func TestListEventChallenges_IncludesStoredRelations(t *testing.T) {
 
 	q.EXPECT().GetEventExerciseByID(gomock.Any(), postgres.GetEventExerciseByIDParams{ID: attachmentID, EventID: eventID}).Return(postgres.EventExercise{ID: attachmentID, EventID: eventID, CreatedAt: now}, nil)
 	q.EXPECT().ListEventChallenges(gomock.Any(), attachmentID).Return([]postgres.EventChallenge{{ID: challengeID, EventExerciseID: attachmentID, GroupID: uuid.NullUUID{UUID: groupID, Valid: true}, CreatedAt: now}}, nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
 	q.EXPECT().ListEventChallengeAvailability(gomock.Any(), attachmentID).Return([]postgres.ListEventChallengeAvailabilityRow{{EventChallengeID: challengeID}}, nil)
 	// W4 (E7): one query for every prerequisite edge of the board revision.
 	q.EXPECT().ListEventExercisePrerequisites(gomock.Any(), attachmentID).Return([]postgres.EventChallengePrerequisite{{ChallengeID: challengeID, PrerequisiteChallengeID: prerequisiteID}}, nil)
@@ -355,6 +360,7 @@ func TestListEventChallengesAvailability(t *testing.T) {
 	now := time.Now()
 	q.EXPECT().GetEventExerciseByID(gomock.Any(), postgres.GetEventExerciseByIDParams{ID: attachmentID, EventID: eventID}).Return(postgres.EventExercise{ID: attachmentID, EventID: eventID, CreatedAt: now}, nil)
 	q.EXPECT().ListEventChallenges(gomock.Any(), attachmentID).Return([]postgres.EventChallenge{{ID: challengeID, EventExerciseID: attachmentID, Published: true, CreatedAt: now}}, nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
 	q.EXPECT().ListEventChallengeAvailability(gomock.Any(), attachmentID).Return([]postgres.ListEventChallengeAvailabilityRow{{EventChallengeID: challengeID, Preparing: 2, Available: 3, Total: 5}}, nil)
 	q.EXPECT().ListEventExercisePrerequisites(gomock.Any(), attachmentID).Return(nil, nil)
 

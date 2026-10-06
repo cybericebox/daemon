@@ -156,7 +156,7 @@ type (
 		ListEventCatalogTags(ctx context.Context, eventID uuid.UUID, prefix string, limit int) ([]eventUseCase.EventCatalogTag, error)
 		GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (eventUseCase.PublishedExercisePreview, error)
 		ReplaceEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, in eventUseCase.ReplaceEventExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
-		UpdateEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, versionID *uuid.UUID, by uuid.UUID) (eventUseCase.EventExerciseView, error)
+		UpdateEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, versionID *uuid.UUID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
 		ForkEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID) (eventUseCase.EventExerciseView, error)
 		RevertEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID) (eventUseCase.EventExerciseView, error)
 		DetachEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, confirmed bool, by uuid.UUID) error
@@ -1997,6 +1997,7 @@ func parseEventExerciseParams(ctx *gin.Context) (eventID, exerciseID, userID uui
 // updateEventExercise godoc
 // @Summary «Оновити»: switch the attachment in place to the latest (or given) published version, keeping event overrides
 // @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
+// @Description Teams that were already prepared move to the new version: their assignments are re-pinned and their stand Labs recreated from it. Labs of a stage that is not running yet (or of an event that has not started) are recreated silently. If the set's stage is running, nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams; repeat with RecreateStands=true to recreate their Labs (teams lose lab access until the new Labs are ready). A finished event keeps its Labs.
 // @Tags events
 // @Accept json
 // @Produce json
@@ -2017,7 +2018,7 @@ func (h *Handler) updateEventExercise(ctx *gin.Context) {
 			return
 		}
 	}
-	value, err := h.useCase.UpdateEventExercise(ctx, eventID, exerciseID, req.ExerciseVersionID, userID)
+	value, err := h.useCase.UpdateEventExercise(ctx, eventID, exerciseID, req.ExerciseVersionID, userID, req.RecreateStands)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
