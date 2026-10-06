@@ -1015,12 +1015,15 @@ func TestDeployVariantTest_GroupBeingDeleted_AnswersBusyAtOnceWithoutWaiting(t *
 type presenceInfra struct {
 	*fakeInfra
 	groupExists, labExists bool
+	probes                 int
 }
 
 func (p *presenceInfra) LabGroupExists(context.Context, string) (bool, error) {
+	p.probes++
 	return p.groupExists, nil
 }
 func (p *presenceInfra) LabExists(context.Context, string, string) (bool, error) {
+	p.probes++
 	return p.labExists, nil
 }
 
@@ -1087,12 +1090,9 @@ func TestDestroyDeployTest_MarksRemovingKeepsRowAndIsIdempotent(t *testing.T) {
 	if err := uc.DestroyDeployTest(context.Background(), owner, id); err != nil {
 		t.Fatalf("repeated destroy: %v", err)
 	}
-	// Once the group is gone the next DELETE removes the row.
-	infra.groupExists = false
-	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
-	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-	if err := uc.DestroyDeployTest(context.Background(), owner, id); err != nil {
-		t.Fatalf("final destroy: %v", err)
+	// A request never asks the agent whether the Lab is gone (it was slow): the removal check job does.
+	if infra.probes != 0 {
+		t.Fatalf("a destroy request made %d presence probes", infra.probes)
 	}
 }
 

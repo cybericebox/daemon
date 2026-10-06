@@ -30,7 +30,8 @@ type (
 		// EnqueueAt queues the job to run no earlier than at (a time not in the future runs it now).
 		EnqueueAt(ctx context.Context, args jobArgs, at time.Time) error
 		// EnqueueUniqueAt is EnqueueAt that skips the job while an equal one (by the fields tagged `river:"unique"`,
-		// else all args) still waits to run; a running job does not count, so it can queue its own successor.
+		// else all args) is still queued or running. River requires running among the unique states, so a job that
+		// queues its own successor must differ from itself in a unique field (e.g. an attempt counter).
 		EnqueueUniqueAt(ctx context.Context, args jobArgs, at time.Time) error
 	}
 
@@ -65,7 +66,8 @@ func (e *enqueuer) EnqueueUniqueAt(ctx context.Context, args jobArgs, at time.Ti
 		UniqueOpts: river.UniqueOpts{
 			ByArgs: true,
 			ByState: []rivertype.JobState{
-				rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateScheduled,
+				rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning,
+				rivertype.JobStateRetryable, rivertype.JobStateScheduled,
 			},
 		},
 	})
