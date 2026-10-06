@@ -60,4 +60,11 @@ var (
 					WithMessage("Event owners and moderators cannot register as participants").WithDetailCode(25)
 	ErrRegistrationNotOpen = err.ErrConflict.WithObjectCode(model.ParticipantObjectCode).
 				WithMessage("Registration is not open: the event is not published yet, or it has finished or been withdrawn").WithDetailCode(26)
+	ErrParticipantFieldRequired = err.ErrInvalidData.WithObjectCode(model.ParticipantObjectCode).
+					WithMessage("A required form field is not filled in").WithDetailCode(27)
+	ErrParticipantFormInvalid = err.ErrInvalidData.WithObjectCode(model.ParticipantObjectCode).
+					WithMessage("The form is invalid").WithDetailCode(28)
 )
+
+// DetailField names the form field key an answer error is about.
+const DetailField = "field"

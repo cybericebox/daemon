@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -18,7 +19,7 @@ import (
 func (u *EventUseCase) ConfigureParticipantForm(ctx context.Context, eventID uuid.UUID, in ConfigureParticipantFormInput) (ParticipantFormView, error) {
 	form := eventFormModel.Form{Enabled: in.Enabled, Required: in.Required, Document: in.Document}
 	if err := form.Validate(); err != nil {
-		return ParticipantFormView{}, err
+		return ParticipantFormView{}, participantModel.ErrParticipantFormInvalid.WithMessage(err.Error()).Err()
 	}
 	version := int32(1)
 	formID := uuid.Nil
@@ -112,7 +113,7 @@ func (u *EventUseCase) SubmitParticipantForm(ctx context.Context, eventID, userI
 		return ParticipantFormAnswerView{}, err
 	}
 	if err = form.Form.ValidateAnswers(bound.values); err != nil {
-		return ParticipantFormAnswerView{}, err
+		return ParticipantFormAnswerView{}, participantAnswersError(err)
 	}
 	answer, err := u.forms.SaveAnswer(ctx, eventFormRepo.Answer{EventID: eventID, UserID: userID, FormVersionID: form.ID, Values: bound.values, SubmittedAt: time.Now().UTC()})
 	if err != nil {
@@ -150,4 +151,14 @@ func (u *EventUseCase) ListParticipantFormAnswers(ctx context.Context, eventID u
 func toParticipantFormView(value eventFormRepo.Version) ParticipantFormView {
 	return ParticipantFormView{Version: value.Form.Version, Enabled: value.Form.Enabled, Required: value.Form.Required, Document: value.Form.Document,
 		RequireExisting: value.Form.RequireExisting, BlockSubmissions: value.Form.BlockSubmissions}
+}
+
+// participantAnswersError maps what the form validation refuses to the API error: a missing required
+// answer names its field, anything else is the invalid-answers error with the reason.
+func participantAnswersError(err error) error {
+	var required *eventFormModel.RequiredFieldError
+	if errors.As(err, &required) {
+		return participantModel.ErrParticipantFieldRequired.WithDetail(participantModel.DetailField, required.Key).Err()
+	}
+	return participantModel.ErrParticipantAnswersInvalid.WithMessage(err.Error()).Err()
 }

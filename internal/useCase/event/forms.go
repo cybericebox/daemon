@@ -2,7 +2,6 @@ package event
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
@@ -12,6 +11,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
+	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 )
 
 func (u *EventUseCase) CreateEventForm(ctx context.Context, eventID uuid.UUID, in CreateEventFormInput) (EventFormView, error) {
@@ -183,7 +183,7 @@ func (u *EventUseCase) SubmitEventFormResponse(ctx context.Context, eventID, for
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get delivered event form version").Err()
 	}
 	if err = version.Form.ValidateAnswers(in.Answers); err != nil {
-		return err
+		return participantAnswersError(err)
 	}
 	now := time.Now().UTC()
 	if _, err = u.forms.SaveAnswer(ctx, eventFormRepo.Answer{EventID: eventID, UserID: userID, FormVersionID: version.ID, Values: in.Answers, SubmittedAt: now}); err != nil {
@@ -203,7 +203,10 @@ func toEventFormView(value eventFormRepo.Form) EventFormView {
 // participant form and team fields, where uploads are bound to their answers.
 func validateSurveyForm(form eventFormModel.Form) error {
 	if len(form.FileFields()) > 0 {
-		return errors.New("survey forms cannot have file questions")
+		return participantModel.ErrParticipantFormInvalid.WithMessage("survey forms cannot have file questions").Err()
 	}
-	return form.Validate()
+	if err := form.Validate(); err != nil {
+		return participantModel.ErrParticipantFormInvalid.WithMessage(err.Error()).Err()
+	}
+	return nil
 }

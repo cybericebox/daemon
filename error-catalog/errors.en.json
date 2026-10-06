@@ -143,6 +143,8 @@
   "21322": "Participant answers are invalid",
   "21323": "This answer was filled in by the organizers and cannot be changed",
   "21324": "Staff-only fields are invalid",
+  "21327": "A required form field is not filled in",
+  "21328": "The form is invalid",
   "21402": "Lab binding data is invalid",
   "21409": "The infrastructure agent settings are invalid",
   "21414": "The agent rejected the enrollment token",
