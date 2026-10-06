@@ -1,0 +1,173 @@
+{
+  "doc": "Shared test vectors of the base-domain rule: DOMAIN is the only input and every host derives from it (there are no per-host settings). Case: domain (empty = not set) and either expect (the 7 derived hosts) or error_contains (substrings the error message must contain). The copies of this file (daemon/internal/config/testdata, infrastructure/cloud/scripts/tests, every frontend tests/) must stay identical; every implementation (hosts.go, cibconf.py, deploy/base-domain.sh, src hosts.ts and next.config) runs all cases.",
+  "hosts": [
+    "MAIN_HOST",
+    "API_HOST",
+    "ID_HOST",
+    "ADMIN_HOST",
+    "EXERCISES_HOST",
+    "EVENT_DOMAIN",
+    "COOKIE_DOMAIN"
+  ],
+  "derive": {
+    "MAIN_HOST": "DOMAIN",
+    "API_HOST": "api.DOMAIN",
+    "ID_HOST": "id.DOMAIN",
+    "ADMIN_HOST": "admin.DOMAIN",
+    "EXERCISES_HOST": "exercises.DOMAIN",
+    "EVENT_DOMAIN": "DOMAIN",
+    "COOKIE_DOMAIN": "DOMAIN"
+  },
+  "cases": [
+    {
+      "name": "derives every host",
+      "domain": "example.com",
+      "expect": {
+        "MAIN_HOST": "example.com",
+        "API_HOST": "api.example.com",
+        "ID_HOST": "id.example.com",
+        "ADMIN_HOST": "admin.example.com",
+        "EXERCISES_HOST": "exercises.example.com",
+        "EVENT_DOMAIN": "example.com",
+        "COOKIE_DOMAIN": "example.com"
+      }
+    },
+    {
+      "name": "subdomain as base",
+      "domain": "lab.example.org",
+      "expect": {
+        "MAIN_HOST": "lab.example.org",
+        "API_HOST": "api.lab.example.org",
+        "ID_HOST": "id.lab.example.org",
+        "ADMIN_HOST": "admin.lab.example.org",
+        "EXERCISES_HOST": "exercises.lab.example.org",
+        "EVENT_DOMAIN": "lab.example.org",
+        "COOKIE_DOMAIN": "lab.example.org"
+      }
+    },
+    {
+      "name": "single label",
+      "domain": "localhost",
+      "expect": {
+        "MAIN_HOST": "localhost",
+        "API_HOST": "api.localhost",
+        "ID_HOST": "id.localhost",
+        "ADMIN_HOST": "admin.localhost",
+        "EXERCISES_HOST": "exercises.localhost",
+        "EVENT_DOMAIN": "localhost",
+        "COOKIE_DOMAIN": "localhost"
+      }
+    },
+    {
+      "name": "digits and hyphens",
+      "domain": "my-site1.example.co.uk",
+      "expect": {
+        "MAIN_HOST": "my-site1.example.co.uk",
+        "API_HOST": "api.my-site1.example.co.uk",
+        "ID_HOST": "id.my-site1.example.co.uk",
+        "ADMIN_HOST": "admin.my-site1.example.co.uk",
+        "EXERCISES_HOST": "exercises.my-site1.example.co.uk",
+        "EVENT_DOMAIN": "my-site1.example.co.uk",
+        "COOKIE_DOMAIN": "my-site1.example.co.uk"
+      }
+    },
+    {
+      "name": "empty domain",
+      "domain": "",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: scheme",
+      "domain": "https://example.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: path",
+      "domain": "example.com/app",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: port",
+      "domain": "example.com:8443",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: uppercase",
+      "domain": "Example.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: leading hyphen",
+      "domain": "-a.example.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: trailing hyphen",
+      "domain": "a-.example.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: space",
+      "domain": "exa mple.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: trailing dot",
+      "domain": "example.com.",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: leading dot",
+      "domain": ".example.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: empty label",
+      "domain": "a..example.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: underscore",
+      "domain": "ex_ample.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: wildcard",
+      "domain": "*.example.com",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    },
+    {
+      "name": "invalid DOMAIN: slash only",
+      "domain": "example.com/",
+      "error_contains": [
+        "DOMAIN"
+      ]
+    }
+  ]
+}

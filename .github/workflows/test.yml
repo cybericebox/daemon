@@ -1,0 +1,27 @@
+name: Test
+
+# The tests of the repository: the PR check and the pre-release run them (workflow_call).
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Vet and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      # No go.work in CI: the build follows go.mod, so a wrong laboratory pin fails here.
+      - name: Build
+        run: make build
+      - name: Vet
+        run: make vet
+      - name: Test
+        run: make test

@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.superpowers
+.worktrees
+.idea
+.env
+.seed-credentials
+go.work
+go.work.sum
+graphify-out
+docs
+*.md
+Dockerfile
+.dockerignore

@@ -1,2 +1,19 @@
-.idea
-configs
+docs/
+.worktrees/
+.superpowers/
+.env
+.idea/
+.claude/
+.DS_Store
+graphify-out/
+
+# Local agent tooling notes
+.superpowers/
+docs/superpowers/
+
+# Test-data generator: accounts and their password (make seed)
+.seed-credentials
+
+# Local workspace file (make work): points the build at ../laboratory
+go.work
+go.work.sum

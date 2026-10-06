@@ -4,21 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/config"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/golang-migrate/migrate/v4"
-	pg "github.com/golang-migrate/migrate/v4/database/postgres"
+	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/rs/zerolog/log"
+
+	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/model"
 )
 
-const migrationTable = "daemon_schema_migrations"
+const migrationTable = "ap_backend_schema_migrations"
 
 type (
+	// PostgresRepository is the concrete postgres data store. It embeds the
+	// pool-bound *Queries (so it IS a Querier for non-tx reads/writes) and holds
+	// the tx-aware *DB used to mint per-useCase Units of Work via UoWFactory.
 	PostgresRepository struct {
 		*Queries
-		db *sqlx.DB
+		db   *DB
+		pool *pgxpool.Pool
+		cfg  *config.PostgresConfig
 	}
 
 	Dependencies struct {
@@ -27,92 +39,115 @@ type (
 )
 
 func NewRepository(deps Dependencies) *PostgresRepository {
-	db, err := newPostgresDB(deps.Config)
+	ctx := context.Background()
+
+	pool, err := pgxpool.New(ctx, deps.Config.DSN())
 	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create new postgres db connection")
+		log.Fatal().Err(err).Msg("Failed to open postgres pool")
+	}
+	if err = pool.Ping(ctx); err != nil {
+		log.Fatal().Err(err).Msg("Failed to ping postgres")
 	}
 
-	if err = runMigrations(db, deps.Config.Database); err != nil {
-		log.Fatal().Err(err).Msg("Failed to run db migrations")
-	}
-
-	if err = populateDefaultSettings(db); err != nil {
-		log.Fatal().Err(err).Msg("Failed to populate default settings")
-	}
+	db := NewDB(pool)
 
 	return &PostgresRepository{
-		Queries: New(db),
+		Queries: New(pool),
 		db:      db,
+		pool:    pool,
+		cfg:     deps.Config,
 	}
 }
 
-func newPostgresDB(cfg *config.PostgresConfig) (*sqlx.DB, error) {
-	db, err := sqlx.Connect("postgres", fmt.Sprintf("user=%s password=%s dbname=%s host=%s port=%s sslmode=%s",
-		cfg.Username, cfg.Password, cfg.Database, cfg.Host, cfg.Port, cfg.SSLMode))
-	if err != nil {
-		return nil, err
+// Close releases the connection pool. pgxpool.Close blocks until EVERY connection
+// is returned; a connection still held by a goroutine that outlived its owner
+// (e.g. River after a timed-out stop) would hang the process forever on shutdown.
+// Bound it so Ctrl+C always exits promptly — a connection still open at process
+// exit is reclaimed by the OS anyway.
+func (r *PostgresRepository) Close() {
+	done := make(chan struct{})
+	go func() {
+		r.pool.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		log.Warn().Msg("Postgres pool close timed out; forcing exit (a connection was not released)")
 	}
-
-	err = db.Ping()
-	if err != nil {
-		return nil, err
-	}
-
-	return db, nil
 }
 
-func runMigrations(db *sqlx.DB, dbName string) error {
-	driver, err := pg.WithInstance(db.DB, &pg.Config{
-		MigrationsTable: migrationTable,
-	})
+// Pool exposes the underlying pool for infrastructure that needs it (e.g. River).
+func (r *PostgresRepository) Pool() *pgxpool.Pool {
+	return r.pool
+}
+
+// UoWFactory hands out the Unit of Work factory with the *DB already wired in.
+// useCases mint their own typed workers from it (postgres.BuildUnitOfWorker),
+// so the db itself never crosses into the business layer.
+func (r *PostgresRepository) UoWFactory() *UoWFactory {
+	return newUoWFactory(r.db)
+}
+
+// Migrate applies the schema migrations. It is a separate step — the caller
+// creates the repository and decides when (or whether) to migrate, rather than
+// pulling golang-migrate directly in the app bootstrap.
+func (r *PostgresRepository) Migrate() error {
+	db := stdlib.OpenDBFromPool(r.pool)
+	defer func() { _ = db.Close() }()
+
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{MigrationsTable: migrationTable})
 	if err != nil {
-		return err
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to init migrate driver").Err()
 	}
 
-	m, err := migrate.NewWithDatabaseInstance(
-		fmt.Sprintf("file://%s", config.MigrationPath),
-		dbName,
-		driver,
-	)
+	m, err := migrate.NewWithDatabaseInstance("file://"+r.cfg.MigrationsPath, "postgres", driver)
 	if err != nil {
-		return err
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to init migrator").Err()
 	}
 
-	if err = m.Up(); err != nil {
-		if !errors.Is(migrate.ErrNoChange, err) {
-			return err
-		}
+	if err = m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to run migrations").Err()
 	}
+
 	return nil
 }
 
-func (r *PostgresRepository) GetSQLDB() *sqlx.DB {
-	return r.db
-}
-
-func (r *PostgresRepository) WithTransaction(ctx context.Context) (withTx interface{}, commit func(), rollback func(), err error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+// SchemaCurrent reports an error unless the database is at the newest migration of the migrations
+// directory (and not half-applied). Unlike Migrate it changes nothing: the one-off commands that must
+// not migrate use it to refuse to run against an old schema.
+func (r *PostgresRepository) SchemaCurrent() error {
+	entries, err := os.ReadDir(r.cfg.MigrationsPath)
 	if err != nil {
-		return nil, nil, nil, err
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the migrations directory").Err()
 	}
-	rollback = func() {
-		if err = tx.Rollback(); err != nil {
-			log.Error().Err(err).Msg("Rolling back transaction")
+	var latest uint64
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".up.sql") {
+			continue
 		}
-	}
-
-	commit = func() {
-		if err = tx.Commit(); err != nil {
-			log.Error().Err(err).Msg("Committing transaction")
+		version, _, _ := strings.Cut(name, "_")
+		n, perr := strconv.ParseUint(version, 10, 64)
+		if perr != nil {
+			continue
 		}
+		latest = max(latest, n)
 	}
 
-	withTx = r.WithTx(tx)
-
-	return withTx, commit, rollback, nil
-}
-
-func populateDefaultSettings(db *sqlx.DB) error {
-	_, err := db.Exec("insert into platform_settings\n    (type, key, value) values\n('email_template_subject', 'account_exists_template', 'Спроба зареєструвати існуючий обліковий запис'),\n('email_template_body', 'account_exists_template', '<!DOCTYPE html>\n<html lang=\"uk\">\n<body>\n<h3>Вітаємо, {{.Username}}!</h3>\n<p>Цей лист було відправлено на запит про реєстрацію вже існуючого облікового запису</p>\n<p>Якщо виникла помилка, проігноруйте цей лист.</p>\n</body>\n</html>'\n),\n('email_template_subject', 'continue_registration_template', 'Продовження реєстрації'),\n('email_template_body', 'continue_registration_template', '<!DOCTYPE html>\n<html lang=\"uk\">\n<body>\n<h3>Вітаємо!</h3>\n<p>Цей лист було відправлено на запит про підтвердження адреси електронної пошти.</p>\n<p>Якщо виникла помилка, проігноруйте цей лист.</p>\n<p>Щоб підтвердити адресу електронної пошти перейдіть за наступним посиланням:</p><br/><span><a href=\"{{.Link}}\">{{.Link}}</a></span>\n</body>\n</html>'),\n('email_template_subject', 'email_confirmation_template', ' Підтвердження електронної пошти'),\n('email_template_body', 'email_confirmation_template', '<!DOCTYPE html>\n<html lang=\"uk\">\n<body>\n<h3>Вітаємо, {{.Username}}!</h3>\n<p>Цей лист було відправлено на запит про підтвердження адреси електронної пошти.</p>\n<p>Якщо виникла помилка, проігноруйте цей лист.</p>\n<p>Щоб підтвердити адресу електронної пошти перейдіть за наступним посиланням:</p><br/><span><a href=\"{{.Link}}\">{{.Link}}</a></span>\n</body>\n</html>'),\n('email_template_subject', 'password_resetting_template', 'Скидання пароля'),\n('email_template_body', 'password_resetting_template', '<!DOCTYPE html>\n<html lang=\"uk\">\n<body>\n<h3>Вітаємо, {{.Username}}!</h3>\n<p>Цей лист було відправлено на запит про відновлення паролю на пратформі Cyber ICE Box</p>\n<p>Якщо виникла помилка, проігноруйте цей лист.</p>\n<p>Щоб відновити пароль перейдіть за наступним посиланням:</p><br/><span><a href=\"{{.Link}}\">{{.Link}}</a></span>\n</body>\n</html>') ON CONFLICT DO NOTHING")
-	return err
+	db := stdlib.OpenDBFromPool(r.pool)
+	defer func() { _ = db.Close() }()
+	driver, err := migratepgx.WithInstance(db, &migratepgx.Config{MigrationsTable: migrationTable})
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to init migrate driver").Err()
+	}
+	current, dirty, err := driver.Version()
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the schema version").Err()
+	}
+	if dirty || current < 0 || uint64(current) != latest {
+		return model.ErrPlatform.WithError(fmt.Errorf("schema version %d (dirty: %t), expected %d", current, dirty, latest)).
+			WithMessage("The database schema is not current: start the backend first so it migrates").Err()
+	}
+	return nil
 }

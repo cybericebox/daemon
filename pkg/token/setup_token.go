@@ -1,0 +1,103 @@
+package token
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/gofrs/uuid"
+	"github.com/golang-jwt/jwt/v5"
+)
+
+// SetupTokenTTL is the default lifetime (SETUP_TOKEN_TTL overrides it) of a setup link: the one validity of every
+// account setup and invitation link (event and platform invitations, sign-up).
+// It stays well under the 30-day retention of unconfirmed accounts, so a
+// freshly (re)sent link always outlives the account it sets up.
+//
+// Single-use semantics are enforced upstream by account lifecycle — once the
+// account transitions to status='active', the setup endpoints reject the request
+// regardless of whether the token is still cryptographically valid. There is no
+// server-side token store; revocation is implicit through the account state machine.
+const SetupTokenTTL = 7 * 24 * time.Hour
+
+// setupAudience is the fixed audience claim that distinguishes setup tokens from
+// session cookies (no aud) and subdomain tokens (aud = subdomain name).
+// ParseSetupToken requires this audience, so a setup token cannot be replayed
+// through ParseToken or ParseSessionCookie.
+const setupAudience = "setup"
+
+type setupClaims struct {
+	jwt.RegisteredClaims
+}
+
+// GenerateSetupToken issues a short-lived signed JWT containing the userID.
+// The token is scoped to the "setup" audience so it cannot be accepted by
+// ParseToken (subdomain tokens) or ParseSessionCookie (no-audience session cookies).
+func (c *Client) GenerateSetupToken(userID uuid.UUID) (string, error) {
+	return c.GenerateSetupTokenFor(userID, c.setupTTL)
+}
+
+// GenerateSetupTokenFor is GenerateSetupToken with its own lifetime: the link mailed to someone who
+// signed up by themselves needs hours, an invitation days. ttl <= 0 means the client's default.
+func (c *Client) GenerateSetupTokenFor(userID uuid.UUID, ttl time.Duration) (string, error) {
+	signed, _, _, err := c.IssueSetupToken(userID, ttl)
+	return signed, err
+}
+
+// IssueSetupToken is GenerateSetupTokenFor that also returns the token id (jti) and its expiry, for
+// the store that makes the link single-use and revocable.
+func (c *Client) IssueSetupToken(userID uuid.UUID, ttl time.Duration) (signed, id string, expiresAt time.Time, err error) {
+	if ttl <= 0 {
+		ttl = c.setupTTL
+	}
+	now := time.Now()
+	id = uuid.Must(uuid.NewV7()).String()
+	expiresAt = now.Add(ttl)
+	claims := setupClaims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    issuer,
+			Subject:   userID.String(),
+			Audience:  jwt.ClaimStrings{setupAudience},
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        id,
+		},
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err = tok.SignedString(c.signKey)
+	if err != nil {
+		return "", "", time.Time{}, fmt.Errorf("token: sign setup token: %w", err)
+	}
+	return signed, id, expiresAt, nil
+}
+
+// ParseSetupToken validates the HMAC signature, audience ("setup"), and expiry,
+// then returns the userID encoded in the Subject claim.
+// A tampered, expired, or incorrectly-typed token returns ErrInvalidToken.
+func (c *Client) ParseSetupToken(tokenStr string) (uuid.UUID, error) {
+	userID, _, err := c.ParseSetupTokenID(tokenStr)
+	return userID, err
+}
+
+// ParseSetupTokenID is ParseSetupToken that also returns the token id (jti).
+func (c *Client) ParseSetupTokenID(tokenStr string) (uuid.UUID, string, error) {
+	tok, err := jwt.ParseWithClaims(
+		tokenStr,
+		&setupClaims{},
+		c.keyFunc,
+		jwt.WithIssuer(issuer),
+		jwt.WithAudience(setupAudience),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil {
+		return uuid.Nil, "", ErrInvalidToken
+	}
+	claims, ok := tok.Claims.(*setupClaims)
+	if !ok || !tok.Valid {
+		return uuid.Nil, "", ErrInvalidToken
+	}
+	id, err := uuid.FromString(claims.Subject)
+	if err != nil {
+		return uuid.Nil, "", ErrInvalidToken
+	}
+	return id, claims.ID, nil
+}

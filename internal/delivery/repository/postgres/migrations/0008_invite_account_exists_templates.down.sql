@@ -1,0 +1,3 @@
+delete
+from notification_email_templates
+where id in ('01940000-0000-7000-8000-000000000008', '01940000-0000-7000-8000-000000000009');
