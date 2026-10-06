@@ -6,17 +6,24 @@ HANDLER_DIR     := ./internal/delivery/controller/http/handler
 RESPONSE_DIR    := ./internal/delivery/controller/http/response
 APIDOCS_DIR     := ./internal/delivery/controller/http/handler/apidocs
 
-.PHONY: swagger build vet test tidy run sqlcGenerate error-catalog seed
+.PHONY: swagger build vet test tidy run sqlcGenerate error-catalog error-catalog-check seed
 
 sqlcGenerate:
 	@docker run --rm -v ./internal/delivery/repository/postgres:/src -w /src sqlc/sqlc:1.31.1@sha256:70f53171d27b2424e9358869975455a6e955a5aa8e58a998a270a6e34e525537 generate
 
 ## error-catalog: regenerate error-catalog/errors.en.json (code → English message,
 ## the single source of truth frontends localize against). Run after adding or
-## renaming a domain error.
+## renaming a domain error, then add the Ukrainian text to errors.uk.json.
+## GOWORK=off: the parent go.work does not list .worktrees/* checkouts, so without
+## it `go run` fails there.
 error-catalog:
-	@go run ./tools/errorcatalog > error-catalog/errors.en.json
+	@GOWORK=off go run ./tools/errorcatalog > error-catalog/errors.en.json.tmp && mv error-catalog/errors.en.json.tmp error-catalog/errors.en.json
 	@echo "error-catalog/errors.en.json regenerated"
+
+## error-catalog-check: fail when the committed catalog drifts from the code
+## (en stale, uk and en codes differ, or an ASCII apostrophe in uk).
+error-catalog-check:
+	@GOWORK=off go test ./tools/errorcatalog
 
 ## swagger: regenerate the OpenAPI/Swagger spec from handler godoc annotations.
 ## RESPONSE_DIR is included so swag can resolve the shared response.Response type;
