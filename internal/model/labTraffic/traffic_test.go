@@ -111,3 +111,19 @@ func TestClassifyWithoutSinceOrSurfacesIsUnknown(t *testing.T) {
 		t.Fatalf("no surfaces must be unknown, got %s", got.Verdict)
 	}
 }
+
+// A proxy touch of a task that is offered over the VPN only is not a touch of
+// the task: the VPN stays untouched.
+func TestClassifyIgnoresSurfacesTheTaskDoesNotOffer(t *testing.T) {
+	q := Question{Before: at(60), Since: at(0), Surfaces: []Surface{SurfaceVPN}}
+	rows := []Aggregate{{Surface: SurfaceProxy, Attempts: 4, FirstSeenAt: at(5), FirstRespondAt: ptr(at(5))}}
+	covered := map[Surface][]Coverage{SurfaceVPN: {{From: at(0), To: at(120)}}}
+	if got := Classify(q, rows, covered); got.Verdict != Untouched || got.Attempted {
+		t.Fatalf("proxy row of a VPN-only task must not count, got %+v", got)
+	}
+	q.Surfaces = []Surface{SurfaceVPN, SurfaceProxy}
+	covered[SurfaceProxy] = []Coverage{{From: at(0), To: at(120)}}
+	if got := Classify(q, rows, covered); got.Verdict != Touched {
+		t.Fatalf("proxy row of a VPN and proxy task counts, got %s", got.Verdict)
+	}
+}

@@ -8,7 +8,6 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/config"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -41,7 +40,6 @@ func RateLimitPerUser(limit int, window time.Duration) gin.HandlerFunc {
 		wait := window - now.Sub(start)
 		mu.Unlock()
 		if !allowed {
-			errjournal.SetLimiter(ctx, "per-user")
 			response.AbortWithTooManyRequests(ctx, wait)
 			return
 		}
@@ -131,7 +129,6 @@ func RateLimitExemptRoutes() []string {
 const rateLimitCountedKey = "rateLimitCounted"
 
 func (l *RateLimiter) refuse(ctx *gin.Context, name string, wait time.Duration) {
-	errjournal.SetLimiter(ctx, name)
 	response.AbortWithTooManyRequests(ctx, wait)
 }
 

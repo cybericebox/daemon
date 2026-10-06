@@ -252,10 +252,13 @@ type fakeLab struct {
 	answers map[uuid.UUID]labTraffic.Verdict
 	err     bool
 	asked   int
+	// surfaces of the last question.
+	surfaces []labTraffic.Surface
 }
 
 func (f *fakeLab) Ask(_ context.Context, q labTraffic.Question) (labTraffic.Answer, error) {
 	f.asked++
+	f.surfaces = q.Surfaces
 	if f.err {
 		return labTraffic.Answer{}, context.DeadlineExceeded
 	}
@@ -343,4 +346,53 @@ func TestExerciseScopeDismissalsAreForPlatformAdmins(t *testing.T) {
 	// remove: the manager cannot take back what is not only theirs
 	require.ErrorIs(t, f.uc.RemoveIntegrityDismissal(managerCtx, f.eventID, exerciseID), denied)
 	require.NoError(t, f.uc.RemoveIntegrityDismissal(adminCtx, f.eventID, exerciseID))
+}
+
+// The lab-traffic question names the access paths of the task: a task offered
+// over the VPN only must not be answered by proxy traffic, and a task offered
+// through a proxy link only is not judged by the VPN sessions.
+func TestLabTrafficQuestionNamesTaskSurfaces(t *testing.T) {
+	ctx := context.Background()
+	th := eventAnalyticsModel.DefaultIntegrityThresholds()
+	run := func(vpn, proxy bool) (*fakeLab, int) {
+		clock := now.Add(3 * time.Hour)
+		event := runningEvent()
+		start := event.Lifecycle.StartAt
+		open := start.Add(time.Minute)
+		solve := eventAnalyticsModel.IntegritySolve{
+			TeamChallengeID: uuid.UUID{15: 21}, TeamID: uuid.UUID{15: 1}, TeamName: "A", ChallengeID: uuid.UUID{15: 9}, ChallengeName: "Web",
+			Level: "easy", SolvedAt: start.Add(30 * time.Minute), FirstOpen: &open, HasLab: true, VPNAccess: vpn, ProxyAccess: proxy,
+		}
+		store := &reviewStore{
+			sectionsStore: &sectionsStore{fakeStore: &fakeStore{}, facts: eventAnalyticsModel.IntegrityFacts{Solves: []eventAnalyticsModel.IntegritySolve{solve}}},
+			solves:        map[uuid.UUID]bool{}, reviews: map[uuid.UUID]eventAnalyticsRepo.SolveReview{},
+		}
+		lab := &fakeLab{answers: map[uuid.UUID]labTraffic.Verdict{}}
+		uc := eventAnalytics.New(eventAnalytics.Dependencies{
+			Store: store, Events: fakeEvents{event}, Configs: fakeConfigs{}, Memberships: fakeMemberships{},
+			LabTraffic: lab, Now: func() time.Time { return clock },
+		})
+		v, err := uc.GetEventAnalyticsIntegrity(ctx, event.ID, nil, nil, th, eventAnalytics.IntegrityFilter{})
+		require.NoError(t, err)
+		noLab := 0
+		for _, item := range v.Items {
+			for _, s := range item.Signals {
+				if s.Kind == eventAnalyticsModel.IntegrityNoLab {
+					noLab++
+				}
+			}
+		}
+		return lab, noLab
+	}
+	lab, noLab := run(true, false)
+	require.Equal(t, []labTraffic.Surface{labTraffic.SurfaceVPN}, lab.surfaces)
+	require.Equal(t, 1, noLab, "VPN-only task solved without any VPN session is flagged")
+	lab, noLab = run(true, true)
+	require.Equal(t, []labTraffic.Surface{labTraffic.SurfaceVPN, labTraffic.SurfaceProxy}, lab.surfaces)
+	require.Equal(t, 1, noLab)
+	lab, noLab = run(false, true)
+	require.Equal(t, []labTraffic.Surface{labTraffic.SurfaceProxy}, lab.surfaces)
+	require.Zero(t, noLab, "no VPN session does not flag a proxy-only task")
+	lab, _ = run(false, false)
+	require.Equal(t, []labTraffic.Surface{labTraffic.SurfaceVPN}, lab.surfaces)
 }

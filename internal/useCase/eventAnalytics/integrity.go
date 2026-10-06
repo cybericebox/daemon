@@ -197,6 +197,7 @@ func (u *EventAnalyticsUseCase) askLabs(ctx context.Context, eventID uuid.UUID, 
 				s := &facts.Solves[i]
 				answer, err := u.labTraffic.Ask(ctx, labTraffic.Question{
 					EventID: eventID, TeamID: s.TeamID, EventChallengeID: s.ChallengeID, Before: s.SolvedAt,
+					Surfaces: labSurfaces(s.VPNAccess, s.ProxyAccess),
 				})
 				if err != nil {
 					continue
@@ -450,4 +451,17 @@ func (u *EventAnalyticsUseCase) RemoveIntegrityDismissal(ctx context.Context, ev
 		return eventAnalyticsModel.ErrEventAnalyticsSolveNotFound.Err()
 	}
 	return nil
+}
+
+// labSurfaces lists the access paths of a task whose contact counts: the VPN
+// unless the text offers only a proxy link, plus the proxy when it is offered.
+func labSurfaces(vpn, proxy bool) []labTraffic.Surface {
+	var out []labTraffic.Surface
+	if vpn || !proxy {
+		out = append(out, labTraffic.SurfaceVPN)
+	}
+	if proxy {
+		out = append(out, labTraffic.SurfaceProxy)
+	}
+	return out
 }

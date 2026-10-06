@@ -171,27 +171,6 @@ func TestRateLimiterSkipsHealthAndStreams(t *testing.T) {
 	}
 }
 
-// A refused request names its limiter for the error journal.
-func TestRateLimiterRecordsTheLimiterName(t *testing.T) {
-	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	l := newLimiter(config.RateLimitConfig{UserPerMinute: 60, UserBurst: 1, AnonPerMinute: 60, AnonBurst: 1}, &now)
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	var names []string
-	r.Use(func(c *gin.Context) {
-		c.Next()
-		if v, ok := c.Get("errjournal.limiter"); ok {
-			names = append(names, v.(string))
-		}
-	}, l.Anonymous)
-	r.GET("/api/x", func(c *gin.Context) { c.Status(http.StatusOK) })
-	limGet(r, "/api/x", "203.0.113.5:1", "", false)
-	limGet(r, "/api/x", "203.0.113.5:1", "", false)
-	if len(names) != 1 || names[0] != "anonymous" {
-		t.Fatalf("journal limiter names = %v", names)
-	}
-}
-
 // Both limiters answer with the same 429: Retry-After (whole seconds, at least one) and the error envelope
 // carrying the ErrAuthTooManyRequests code.
 func TestLimitersShareOne429Format(t *testing.T) {

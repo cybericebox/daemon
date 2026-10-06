@@ -49,7 +49,7 @@ WHERE deleted_at IS NULL
   AND ($1::text = '' OR email ILIKE '%' || $1::text || '%'
        OR first_name ILIKE '%' || $1::text || '%'
        OR last_name ILIKE '%' || $1::text || '%')
-  AND (cardinality($2::text[]) = 0 OR role = ANY ($2::text[]))
+  AND (coalesce(cardinality($2::text[]), 0) = 0 OR role = ANY ($2::text[]))
   AND ($3::text = '' OR status = $3::text)
 `
 
@@ -314,7 +314,7 @@ WHERE deleted_at IS NULL
   AND ($1::text = '' OR email ILIKE '%' || $1::text || '%'
        OR first_name ILIKE '%' || $1::text || '%'
        OR last_name ILIKE '%' || $1::text || '%')
-  AND (cardinality($2::text[]) = 0 OR role = ANY ($2::text[]))
+  AND (coalesce(cardinality($2::text[]), 0) = 0 OR role = ANY ($2::text[]))
   AND ($3::text = '' OR status = $3::text)
   AND (created_at, id) < ($4::timestamptz, $5::uuid)
 ORDER BY created_at DESC, id DESC LIMIT $6
@@ -383,7 +383,7 @@ WHERE deleted_at IS NULL
   AND ($1::text = '' OR email ILIKE '%' || $1::text || '%'
        OR first_name ILIKE '%' || $1::text || '%'
        OR last_name ILIKE '%' || $1::text || '%')
-  AND (cardinality($2::text[]) = 0 OR role = ANY ($2::text[]))
+  AND (coalesce(cardinality($2::text[]), 0) = 0 OR role = ANY ($2::text[]))
   AND ($3::text = '' OR status = $3::text)
 ORDER BY
   CASE WHEN $4::text = 'name' AND $5::text = 'asc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END ASC,

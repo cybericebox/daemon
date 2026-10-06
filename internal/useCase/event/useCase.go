@@ -151,7 +151,9 @@ type EventUseCase struct {
 	// cancelNotices cancels the queued notices of a deleted event; nil: nothing is cancelled.
 	cancelNotices func(ctx context.Context, eventID uuid.UUID) (int64, error)
 	// resourceGate checks a new task of a running event against the event's resource reservation; nil: unchecked.
-	resourceGate      ResourceGate
+	resourceGate ResourceGate
+	// reservationWait replaces the reservation check in tests; nil: the real one.
+	reservationWait   func(ctx context.Context, eventID uuid.UUID) bool
 	observations      *eventLabObservationRepo.Repository
 	standDeployBudget int
 	prewarmLead       time.Duration

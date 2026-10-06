@@ -1285,6 +1285,11 @@ func (u *EventUseCase) removeTeamMember(ctx context.Context, eventID, actorID, t
 	if target.TeamRole != nil && *target.TeamRole == participantModel.TeamRoleCaptain {
 		return eventTeamModel.ErrEventTeamCaptainMustTransfer.Err()
 	}
+	// A formed team has a closed roster: a member cannot walk out of it alone (the team could fall below the
+	// event minimum, and the person could not come back). The captain's kick and the organizers' removal stay.
+	if !kicked && team.Formed(rosterEvent.Lifecycle.FormsTeamsAtStart(time.Now())) {
+		return eventTeamModel.ErrEventTeamLeaveLocked.Err()
+	}
 	if kicked {
 		actor, actorErr := participants.Get(txCtx, eventID, actorID)
 		if actorErr != nil {

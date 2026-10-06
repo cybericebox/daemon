@@ -1,5 +1,5 @@
 // Package errjournal is the HTTP capture point of the platform error journal: one middleware that sees every
-// request end. It records 5xx, panics, 403 refused by a route permission (with that permission; a business refusal of a use case is routine and not recorded) and 429 (with the limiter), counts 404s
+// request end. It records 5xx, panics, 403 refused by a route permission (with that permission; a business refusal of a use case is routine and not recorded) (429 is protection, not a fault, and is not recorded), counts 404s
 // per route template (unmatched paths in one counter, never stored) and gives every request an id. 401 is not
 // recorded: expired sessions and sign-in failures are noise. No client address is ever read.
 package errjournal
@@ -21,7 +21,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/rbac"
-	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
 // HeaderRequestID carries the request id in and out.
@@ -30,7 +29,6 @@ const HeaderRequestID = "X-Request-ID"
 const (
 	keyRequestID  = "errjournal.requestID"
 	keyPermission = "errjournal.permission"
-	keyLimiter    = "errjournal.limiter"
 
 	// unmatched is the Source of an error on a request that matched no route.
 	unmatched = "(unmatched)"
@@ -46,9 +44,6 @@ var reSaneRequestID = regexp.MustCompile(`^[A-Za-z0-9._-]{8,64}$`)
 
 // SetPermission names the permission that refused the request (RequirePermission calls it before it aborts 403).
 func SetPermission(c *gin.Context, permission string) { c.Set(keyPermission, permission) }
-
-// SetLimiter names the limiter that refused the request (before it aborts 429).
-func SetLimiter(c *gin.Context, name string) { c.Set(keyLimiter, name) }
 
 // RequestID is the id of the request, empty before the middleware ran.
 func RequestID(c *gin.Context) string {
@@ -119,12 +114,8 @@ func capture(c *gin.Context, sink Sink, rid string) {
 		e.Permission = permission
 		e.Message = errorText(c, "forbidden")
 		sink.Report(e)
-	case status == http.StatusTooManyRequests:
-		e := base(c, rid, route, status)
-		e.Kind = errorJournal.KindHTTP429
-		e.Limiter = limiterName(c)
-		e.Message = "too many requests"
-		sink.Report(e)
+		// 429 is protection working (a rate limit refusing a flood), not a fault: it is not recorded here. The
+		// organizers see it as the rejected attempts of the integrity analytics.
 	}
 }
 
@@ -166,20 +157,6 @@ func errorText(c *gin.Context, fallback string) string {
 		return c.Errors.String()
 	}
 	return fallback
-}
-
-// limiterName is what refused a 429: the limiter that said so, else the application error code of the refusal.
-func limiterName(c *gin.Context) string {
-	if name := stringKey(c, keyLimiter); name != "" {
-		return name
-	}
-	if v, ok := c.Get(response.ErrorCtxKey); ok {
-		var coded appErr.Error
-		if err, ok := v.(error); ok && errors.As(err, &coded) {
-			return fmt.Sprintf("code-%d", coded.StatusCode().FullCode())
-		}
-	}
-	return "handler"
 }
 
 func stringKey(c *gin.Context, key string) string {

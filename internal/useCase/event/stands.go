@@ -110,13 +110,14 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	}
 	readyTeams := map[uuid.UUID]struct{}{}
 	allReady := false
+	awaiting := e.InfrastructureAllowed && u.awaitingReservation(ctx, eventID)
 	if e.InfrastructureAllowed {
 		if u.laboratoriesUsable(ctx) {
-			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, now, schedule.NotDue); err != nil {
+			if readyTeams, err = u.deployAndObserveStandLabs(ctx, e, now, schedule.NotDue, awaiting); err != nil {
 				errs = append(errs, err)
 			}
 		}
-		if allReady, err = u.assessStands(ctx, e, now, schedule.NotDue); err != nil {
+		if allReady, err = u.assessStands(ctx, e, now, schedule.NotDue, awaiting); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -410,7 +411,7 @@ type topologyKey struct {
 // deployAndObserveStandLabs deploys each pending Lab once and then observes
 // it until the agent reports it ready or failed. It returns the teams whose
 // Labs became ready, so their access policy is re-derived.
-func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID) (map[uuid.UUID]struct{}, error) {
+func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID, awaitingReservation bool) (map[uuid.UUID]struct{}, error) {
 	ready := map[uuid.UUID]struct{}{}
 	pending, err := u.labBindings.ListPending(ctx, e.ID, notDue)
 	if err != nil {
@@ -422,7 +423,8 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 	for _, lab := range pending {
 		binding := lab.Binding
 		if binding.DeployedAt == nil {
-			if budget == 0 {
+			// An event with lab tasks deploys nothing before its reservation exists.
+			if awaitingReservation || budget == 0 {
 				continue
 			}
 			budget--
@@ -577,7 +579,7 @@ func (u *EventUseCase) withTeamFlags(ctx context.Context, lab labBindingRepo.Pen
 
 // assessStands persists every candidate's stand status and reports whether
 // all admitted teams and the moderators team are ready at once.
-func (u *EventUseCase) assessStands(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID) (bool, error) {
+func (u *EventUseCase) assessStands(ctx context.Context, e eventModel.Event, now time.Time, notDue []uuid.UUID, awaitingReservation bool) (bool, error) {
 	teams, err := u.stands.ListTeams(ctx, e.ID, notDue)
 	if err != nil {
 		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
@@ -589,6 +591,9 @@ func (u *EventUseCase) assessStands(ctx context.Context, e eventModel.Event, now
 			continue
 		}
 		status, reason := eventStandModel.Assess(team.Counters)
+		if awaitingReservation && status == eventStandModel.StatusCreating {
+			reason = eventStandModel.ReasonAwaitingReservation
+		}
 		if (team.Admitted || team.Moderators) && status != eventStandModel.StatusReady {
 			allReady = false
 		}

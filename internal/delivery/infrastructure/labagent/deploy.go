@@ -363,7 +363,21 @@ func (c *Client) ReconcileLabGroupAccess(ctx context.Context, group string, poli
 	if err != nil {
 		return agentErr("replace lab group access policy", err)
 	}
-	return oneResult("replace lab group access policy", res.GetResults())
+	return policyResult("replace lab group access policy", res.GetResults())
+}
+
+// policyResult reads the answer of a policy replacement. The group not being there (yet), or the policy
+// being created by a concurrent writer, is a wait: the revision stays dirty and the next pass replaces the
+// policy, so neither is recorded as a failure nor taken for an applied policy.
+func policyResult(op string, results []*labpb.ItemResult) error {
+	if len(results) == 1 {
+		r := results[0]
+		if r.GetState() == labpb.ItemState_ITEM_STATE_NOT_FOUND ||
+			(r.GetState() == labpb.ItemState_ITEM_STATE_FAILED && strings.Contains(r.GetError(), "already exists")) {
+			return fmt.Errorf("%s: %w: %s", op, infraModel.ErrGroupNotReady, r.GetError())
+		}
+	}
+	return oneResult(op, results)
 }
 
 // SetLabGroupSuspended sets the group runtime state without deleting its

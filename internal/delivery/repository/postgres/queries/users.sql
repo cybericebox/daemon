@@ -77,7 +77,7 @@ WHERE deleted_at IS NULL
   AND (sqlc.arg(search)::text = '' OR email ILIKE '%' || sqlc.arg(search)::text || '%'
        OR first_name ILIKE '%' || sqlc.arg(search)::text || '%'
        OR last_name ILIKE '%' || sqlc.arg(search)::text || '%')
-  AND (cardinality(sqlc.arg(roles)::text[]) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
+  AND (coalesce(cardinality(sqlc.arg(roles)::text[]), 0) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
   AND (created_at, id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)
 ORDER BY created_at DESC, id DESC LIMIT sqlc.arg(limit_val);
@@ -89,7 +89,7 @@ WHERE deleted_at IS NULL
   AND (sqlc.arg(search)::text = '' OR email ILIKE '%' || sqlc.arg(search)::text || '%'
        OR first_name ILIKE '%' || sqlc.arg(search)::text || '%'
        OR last_name ILIKE '%' || sqlc.arg(search)::text || '%')
-  AND (cardinality(sqlc.arg(roles)::text[]) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
+  AND (coalesce(cardinality(sqlc.arg(roles)::text[]), 0) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text);
 
 -- name: ListUsersPage :many
@@ -101,7 +101,7 @@ WHERE deleted_at IS NULL
   AND (sqlc.arg(search)::text = '' OR email ILIKE '%' || sqlc.arg(search)::text || '%'
        OR first_name ILIKE '%' || sqlc.arg(search)::text || '%'
        OR last_name ILIKE '%' || sqlc.arg(search)::text || '%')
-  AND (cardinality(sqlc.arg(roles)::text[]) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
+  AND (coalesce(cardinality(sqlc.arg(roles)::text[]), 0) = 0 OR role = ANY (sqlc.arg(roles)::text[]))
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
 ORDER BY
   CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(coalesce(nullif(btrim(first_name || ' ' || last_name), ''), email)) END ASC,

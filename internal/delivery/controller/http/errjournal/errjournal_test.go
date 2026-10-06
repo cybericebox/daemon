@@ -113,18 +113,14 @@ func TestBusinessForbiddenIsNotRecorded(t *testing.T) {
 	assert.Empty(t, sink.events)
 }
 
-func TestTooManyRequestsCarriesTheLimiter(t *testing.T) {
+// A rate limit refusing a flood is protection working, not a fault: nothing reaches the journal.
+func TestTooManyRequestsIsNotRecorded(t *testing.T) {
 	sink := &fakeSink{}
 	r := newRouter(sink)
-	r.GET("/named", func(c *gin.Context) { SetLimiter(c, "per-user"); response.AbortWithTooManyRequests(c, time.Second) })
-	r.GET("/anon", func(c *gin.Context) { response.AbortWithTooManyRequests(c, time.Second) })
+	r.GET("/limited", func(c *gin.Context) { response.AbortWithTooManyRequests(c, time.Second) })
 
-	do(r, http.MethodGet, "/named")
-	do(r, http.MethodGet, "/anon")
-	require.Len(t, sink.events, 2)
-	assert.Equal(t, "per-user", sink.events[0].Limiter)
-	assert.Equal(t, "handler", sink.events[1].Limiter)
-	assert.Equal(t, errorJournal.KindHTTP429, sink.events[0].Kind)
+	assert.Equal(t, 429, do(r, http.MethodGet, "/limited").Code)
+	assert.Empty(t, sink.events)
 }
 
 func TestNotFoundIsCountedNotRecorded(t *testing.T) {

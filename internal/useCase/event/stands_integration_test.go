@@ -29,6 +29,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/testhelpers"
@@ -559,7 +560,7 @@ func (f *standFixture) attach(t *testing.T, infrastructure bool) uuid.UUID {
 	}}}
 	variant.Topology.Devices = []exerciseModel.Device{} // stored as [], never null, like a real exercise
 	if infrastructure {
-		variant.Topology.Devices = []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web"}}
+		variant.Topology.Devices = []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer}}
 		f.infraTaskID, f.infraDevice = variant.Tasks[0].ID, variant.Topology.Devices[0].ID
 	}
 	draft, err := exercises.UpsertDraft(ctx, value.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}, now, uuid.NullUUID{})
@@ -884,5 +885,59 @@ func TestUpdateEventConfig_TaskRevealModeIsLockedAfterTheStart(t *testing.T) {
 	}
 	if view, err = update(&asReady); err != nil || view.TaskRevealMode != eventConfigModel.RevealAsReady {
 		t.Fatalf("an unchanged value after the start: %+v, %v", view.TaskRevealMode, err)
+	}
+}
+
+// reservationGate stands in for the resource calendar: the event has a reservation only when reserved is set.
+type reservationGate struct {
+	mu       sync.Mutex
+	reserved bool
+}
+
+func (g *reservationGate) HoldsForAllTeams(context.Context, uuid.UUID, resourcesModel.Amount, int, resourcesModel.Amount) error {
+	return nil
+}
+
+func (g *reservationGate) HasEventReservation(context.Context, uuid.UUID) (bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.reserved, nil
+}
+
+func (g *reservationGate) reserve() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.reserved = true
+}
+
+// An event with lab tasks deploys nothing while it has no reservation: its stands wait (creating, with the
+// reason), the error journal stays quiet, and everything starts by itself once the reservation exists.
+func TestStandEngine_WaitsForReservation(t *testing.T) {
+	f := newStandFixture(t)
+	journal := &journalCollector{}
+	errorJournal.SetReporter(journal)
+	t.Cleanup(func() { errorJournal.SetReporter(nil) })
+	gate := &reservationGate{}
+	f.uc.SetResourceGate(gate)
+
+	f.pass(t)
+	f.pass(t)
+	if len(f.agent.deployed) != 0 {
+		t.Fatalf("deployed before the reservation: %v", f.agent.deployed)
+	}
+	if n := f.count(t, `SELECT count(*) FROM event_team_stands WHERE reason = $1 AND status = 1`, eventStandModel.ReasonAwaitingReservation); n == 0 {
+		t.Fatalf("stands must wait for the reservation")
+	}
+	if got := journal.kind(errorJournal.KindLabDeploy); len(got) != 0 {
+		t.Fatalf("waiting is not a fault: %+v", got)
+	}
+
+	gate.reserve()
+	f.pass(t)
+	if len(f.agent.deployed) != 3 {
+		t.Fatalf("deployed after the reservation = %v, want blue, red and moderators", f.agent.deployed)
+	}
+	if n := f.count(t, `SELECT count(*) FROM event_team_stands WHERE reason = $1`, eventStandModel.ReasonAwaitingReservation); n != 0 {
+		t.Fatalf("the waiting reason must be gone, %d stands still carry it", n)
 	}
 }

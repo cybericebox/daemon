@@ -69,6 +69,9 @@ SELECT tc.id                                                                    
                FROM lab_bindings lb
                WHERE lb.event_team_id = tc.event_team_id
                  AND lb.event_challenge_id = tc.event_challenge_id)::boolean            AS has_lab,
+       -- the access paths the task text offers: VPN addresses, a proxy link
+       jsonb_path_exists(c.snapshot, '$.placeholders[*] ? (@.kind == "vpn.subnet" || (@.kind == "ip" && @.ip_reference == "vpn"))')::boolean AS vpn_access,
+       jsonb_path_exists(c.snapshot, '$.placeholders[*] ? (@.kind == "external.link")')::boolean                                         AS proxy_access,
        (CASE WHEN fl.materialized < 2 THEN -1 WHEN fl.same_flag > 1 THEN 1 ELSE 0 END)::int AS static_flag,
        COALESCE((SELECT min(o.at)
                  FROM event_activity o

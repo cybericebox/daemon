@@ -361,6 +361,7 @@
   "71721": "The team is formed: its roster is closed",
   "71722": "The team has fewer members than the event minimum and cannot be formed",
   "71723": "The team is not formed yet: tasks and laboratories open after the captain confirms the roster",
+  "71724": "The team is formed: a member cannot leave it on their own, ask the captain or the organizers",
   "71805": "Only a published exercise version can be attached",
   "71806": "Event exercise revision is no longer active",
   "71808": "Exercises with infrastructure are not allowed for this event",

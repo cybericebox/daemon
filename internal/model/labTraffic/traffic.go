@@ -6,6 +6,7 @@
 package labTraffic
 
 import (
+	"slices"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -106,7 +107,7 @@ type Answer struct {
 func Classify(q Question, rows []Aggregate, coverage map[Surface][]Coverage) Answer {
 	var answer Answer
 	for _, row := range rows {
-		if !row.FirstSeenAt.Before(q.Before) {
+		if !row.FirstSeenAt.Before(q.Before) || (len(q.Surfaces) > 0 && !slices.Contains(q.Surfaces, row.Surface)) {
 			continue
 		}
 		answer.Attempted = answer.Attempted || row.Attempts > 0
