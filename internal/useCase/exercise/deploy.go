@@ -12,6 +12,7 @@ import (
 
 	"github.com/cybericebox/laboratory/pkg/vpnprobe"
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	testDeployRepo "github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -183,6 +184,7 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 	if u.infra == nil {
 		return exerciseModel.DeployHandle{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
+	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
 
 	// A user may run a limited number of test laboratories, across all exercises.
 	listed, err := u.ListTestDeploys(ctx, ownerID, uuid.Nil)
@@ -242,8 +244,8 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		if err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
 		}
-		// A lab whose lease is over stays as a row until its Lab is really gone; the ones already gone are dropped now.
-		existing = u.dropGoneTestLabs(ctx, repo, existing)
+		// A lab whose lease is over stays as a row until its Lab is really gone: the removal check and the periodic
+		// sweep drop it, never this request (asking the agent per row made the request slow).
 		active := u.activeLabs(existing, now)
 		if len(active) >= u.MaxActiveTestDeploys() {
 			return false, exerciseModel.ErrTestDeployActiveExists.Err()
@@ -286,6 +288,20 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		handle.VPNClient = "tester"
 	}
 	return handle, nil
+}
+
+// slowTestLabRequest is the duration over which a deploy or destroy request is logged as slow: the HTTP server
+// gives up after a few seconds, so a longer one reaches the user as a gateway error.
+const slowTestLabRequest = 3 * time.Second
+
+// logDuration records how long a test lab request took (a warning when it is slow), so a slowdown shows in the logs.
+func logDuration(what string, started time.Time, deployID uuid.UUID) {
+	took := time.Since(started)
+	event := log.Debug()
+	if took > slowTestLabRequest {
+		event = log.Warn()
+	}
+	event.Dur("took", took).Str("deploy", deployID.String()).Msg(what)
 }
 
 // testLabMeta labels a test lab and its group; test labs are independent for the scheduler.
@@ -363,25 +379,6 @@ func withoutDeploy(items []exerciseModel.TestDeploy, id uuid.UUID) []exerciseMod
 		}
 	}
 	return out
-}
-
-// dropGoneTestLabs deletes the rows of removed labs (lease over, Lab gone) and returns the rows left (the lock is held).
-func (u *ExerciseUseCase) dropGoneTestLabs(ctx context.Context, repo *testDeployRepo.Repository, items []exerciseModel.TestDeploy) []exerciseModel.TestDeploy {
-	if u.infra == nil {
-		return items
-	}
-	now := u.timeNow()
-	left := make([]exerciseModel.TestDeploy, 0, len(items))
-	for _, item := range items {
-		if testDeployExpired(item, now) && u.testLabGone(ctx, item, items) {
-			if _, err := repo.DeleteOwned(ctx, item.ID, item.CreatedBy); err == nil {
-				u.releaseTestLab(ctx, item.ID)
-				continue
-			}
-		}
-		left = append(left, item)
-	}
-	return left
 }
 
 // provisionTestLab stands one Lab up in the author's group. The group policy is default-deny for
@@ -612,6 +609,7 @@ func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployI
 	if u.infra == nil {
 		return infraModel.ErrInfrastructureUnavailable.Err()
 	}
+	defer logDuration("destroy test lab", time.Now(), deployID)
 	return u.underOwnerLock(ctx, userID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, userID)
 		if err != nil {
@@ -626,21 +624,23 @@ func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployI
 				return false, model.ErrPlatform.WithError(err).WithMessage("Failed to end test deploy").Err()
 			}
 		}
-		return true, u.endTestLab(ctx, repo, deploy)
+		return true, u.endTestLab(ctx, repo, deploy, false)
 	})
 }
 
 // endTestLab removes one Lab of an author (the lock is held). The agent deletes asynchronously, so the row
 // stays (the lab reads as Expired and Removing) until the Lab or, with the author's last one, the group is
 // really gone; a repeated call asks the agent again, which is harmless, and drops the row once it is.
-func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) error {
+// probe makes it ask the agent whether the Lab is already gone, before and after the deletion; a user's request
+// does not (it only asks for the deletion and leaves the looking to the removal check job), the expiry job does.
+func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy, probe bool) error {
 	all, err := repo.ListOwned(ctx, deploy.CreatedBy)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list test deployments").Err()
 	}
 	now := u.timeNow()
 	others := u.activeLabs(withoutDeploy(all, deploy.ID), now)
-	if _, tracked := u.infra.(labPresence); tracked && u.testLabGone(ctx, deploy, all) {
+	if _, tracked := u.infra.(labPresence); tracked && probe && u.testLabGone(ctx, deploy, all) {
 		return u.finishTestLab(ctx, repo, deploy)
 	}
 	if err = u.removeTestLab(ctx, deploy, others, len(others) == 0); err != nil {
@@ -648,6 +648,14 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 		if _, terminating := infraModel.AsTerminating(err); !terminating {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy deploy").Err()
 		}
+	}
+	if !probe {
+		// The agent deletes asynchronously: the check job drops the row when the Lab is really gone.
+		if _, tracked := u.infra.(labPresence); tracked {
+			u.scheduleRemovalCheck(ctx, deploy, 1)
+			return nil
+		}
+		return u.finishTestLab(ctx, repo, deploy)
 	}
 	if !u.testLabGone(ctx, deploy, all) {
 		// Still there: look again in a few seconds instead of waiting for the periodic sweep.
@@ -715,7 +723,7 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 		if deploy.ExpiresAt.After(u.timeNow()) {
 			return false, nil // extended meanwhile
 		}
-		return false, u.endTestLab(ctx, repo, deploy)
+		return false, u.endTestLab(ctx, repo, deploy, true)
 	})
 }
 

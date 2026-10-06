@@ -54,16 +54,20 @@ func TestDestroyDeployTest_QueuesAShortFollowUpWhileTheLabStillExists(t *testing
 	}
 }
 
-// A lab that is already gone needs no follow-up.
-func TestDestroyDeployTest_NoFollowUpWhenTheLabIsGone(t *testing.T) {
-	uc, q, _, checks, owner, id, _ := removalFixture(t, false)
-	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+// The request never probes the agent and never drops the row, even for a lab that may already be gone: it asks
+// for the deletion and leaves the looking (and the drop) to the check job.
+func TestDestroyDeployTest_LeavesTheLookingToTheCheckJob(t *testing.T) {
+	uc, _, infra, checks, owner, id, _ := removalFixture(t, false)
+	// No DeleteOwnedExerciseTestDeploy expectation: a call would fail the test.
 
 	if err := uc.DestroyDeployTest(context.Background(), owner, id); err != nil {
 		t.Fatal(err)
 	}
-	if len(checks.attempts) != 0 {
-		t.Fatalf("no follow-up expected, got %v", checks.attempts)
+	if infra.probes != 0 {
+		t.Fatalf("a request must not probe the agent, made %d", infra.probes)
+	}
+	if len(checks.attempts) != 1 {
+		t.Fatalf("one follow-up check expected, got %v", checks.attempts)
 	}
 }
 
