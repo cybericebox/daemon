@@ -264,7 +264,7 @@ func (u *EventUseCase) UpdateEventStage(ctx context.Context, eventID, stageID uu
 	return u.stageView(ctx, eventID, stageID, now)
 }
 
-// DeleteEventStage removes an upcoming stage without sets; the stage that becomes first or last is anchored to the
+// DeleteEventStage removes an upcoming stage without exercises; the stage that becomes first or last is anchored to the
 // event start or finish.
 func (u *EventUseCase) DeleteEventStage(ctx context.Context, eventID, stageID uuid.UUID) error {
 	if u.uow == nil {

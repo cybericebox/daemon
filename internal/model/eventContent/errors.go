@@ -36,9 +36,9 @@ var (
 	ErrLiveScreenTokenInvalid = err.ErrForbidden.WithObjectCode(model.EventObjectCode).
 					WithMessage("The live screen link is invalid or expired").WithDetailCode(36)
 	ErrLiveLogoTypeInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
-				WithMessage("A Live logo must be an SVG, PNG or WebP image").WithDetailCode(38)
+				WithMessage("The live screen logo must be an SVG, PNG or WebP image").WithDetailCode(38)
 	ErrLiveLogoTooLarge = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
-				WithMessage("A Live logo must be at most 1 MB").WithDetailCode(39)
+				WithMessage("The live screen logo must be at most 1 MB").WithDetailCode(39)
 	ErrPageDraftSlugTaken = err.ErrObjectExists.WithObjectCode(model.EventObjectCode).
 				WithMessage("Another event page already uses this address").WithDetailCode(27)
 )
