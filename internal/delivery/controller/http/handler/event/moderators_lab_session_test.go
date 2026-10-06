@@ -36,7 +36,7 @@ func TestModeratorsLabLinkReturnsTheLinkForTheManager(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, linkPath(eventID, challengeID), strings.NewReader(`{"Device":"web","Port":80}`))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(w, req)
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"expires_at"`) || !strings.Contains(w.Body.String(), `/_auth?t=jwt`) {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"ExpiresAt"`) || !strings.Contains(w.Body.String(), `/_auth?t=jwt`) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	if len(u.calls) != 1 || u.calls[0] != [3]uuid.UUID{eventID, actor, challengeID} {
