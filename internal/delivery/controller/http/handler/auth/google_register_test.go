@@ -41,13 +41,13 @@ func TestGoogleCallback_Register_LinkedAccountSignsIn(t *testing.T) {
 	prot := &fakeProt{}
 	w := registerCallback(t, &fakeUC{googleRegResult: &authUseCase.GoogleRegistrationResult{
 		SessionCookie: "sess-cookie",
-		Redirect:      "https://id.example.test/profile",
+		Redirect:      "https://id.example.test/profile/",
 	}}, prot)
 
 	if prot.capturedSessionCookie != "sess-cookie" {
 		t.Fatalf("want Authenticate with session cookie, got %q", prot.capturedSessionCookie)
 	}
-	if loc := w.Header().Get("Location"); loc != "https://id.example.test/profile" {
+	if loc := w.Header().Get("Location"); loc != "https://id.example.test/profile/" {
 		t.Fatalf("want landing redirect, got %q", loc)
 	}
 }
@@ -58,7 +58,7 @@ func TestGoogleCallback_Register_AccountExists_RedirectsToSignIn(t *testing.T) {
 	prot := &fakeProt{}
 	w := registerCallback(t, &fakeUC{googleRegErr: authModel.ErrAuthAccountExistsSignIn.Err()}, prot)
 
-	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in?google_error=already_registered" {
+	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in/?google_error=already_registered" {
 		t.Fatalf("want sign-in already_registered, got %q", loc)
 	}
 	if prot.capturedSessionCookie != "" {
@@ -69,14 +69,14 @@ func TestGoogleCallback_Register_AccountExists_RedirectsToSignIn(t *testing.T) {
 func TestGoogleCallback_Register_OtherError_RedirectsToSignUpFailed(t *testing.T) {
 	w := registerCallback(t, &fakeUC{googleRegErr: errors.New("boom")}, &fakeProt{})
 
-	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-up?google_error=failed" {
+	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-up/?google_error=failed" {
 		t.Fatalf("want sign-up failed, got %q", loc)
 	}
 }
 
 func TestGoogleCallback_Register_Blocked_RedirectsToSignInBlocked(t *testing.T) {
 	w := registerCallback(t, &fakeUC{googleRegErr: authModel.ErrAuthAccountBlocked.Err()}, &fakeProt{})
-	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in?google_error=blocked" {
+	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in/?google_error=blocked" {
 		t.Fatalf("want sign-in blocked, got %q", loc)
 	}
 }
@@ -94,7 +94,7 @@ func TestGoogleCallback_SignIn_Blocked_RedirectsToSignInBlocked(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in?google_error=blocked" {
+	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in/?google_error=blocked" {
 		t.Fatalf("want sign-in blocked, got %q", loc)
 	}
 	if prot.capturedSessionCookie != "" {

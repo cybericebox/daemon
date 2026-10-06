@@ -345,7 +345,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Notifier:  notificationDispatcher,
 		Accounts:  authUC,
 		Policy:    deps.RetentionPolicy,
-		SignInURL: deps.AuthConfig.Hosts.IDURL("/sign-in"),
+		SignInURL: deps.AuthConfig.Hosts.IDURL("/sign-in/"),
 	})
 
 	journalUC := errorJournalUseCase.New(errorJournalUseCase.Dependencies{

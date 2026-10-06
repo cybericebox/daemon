@@ -54,7 +54,7 @@ func (u *AuthUseCase) sendPasswordReset(ctx context.Context, user userModel.User
 	bsCode := bsEncode(code)
 
 	if err = u.notifier.Notify(ctx, user.ID, notificationPayloads.PasswordResetPayload{
-		ResetURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/reset-password?token=%s", bsCode)),
+		ResetURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/reset-password/?token=%s", bsCode)),
 		Name:     user.FirstName,
 	}); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to send password reset email").Err()

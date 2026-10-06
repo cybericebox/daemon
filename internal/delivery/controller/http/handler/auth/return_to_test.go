@@ -84,7 +84,7 @@ func callbackReq(intent string, extra ...*http.Cookie) *http.Request {
 func TestGoogleCallback_Register_SetupKeepsReturnTo(t *testing.T) {
 	uc := &fakeUC{googleRegResult: &authUseCase.GoogleRegistrationResult{SetupToken: "setuptok", ReturnTo: eventURL}}
 	w := serve(t, uc, callbackReq("register"))
-	want := "https://id.example.test/setup?token=setuptok&return_to=" + url.QueryEscape(eventURL)
+	want := "https://id.example.test/setup/?token=setuptok&return_to=" + url.QueryEscape(eventURL)
 	if loc := w.Header().Get("Location"); loc != want {
 		t.Fatalf("want %q, got %q", want, loc)
 	}
@@ -93,7 +93,7 @@ func TestGoogleCallback_Register_SetupKeepsReturnTo(t *testing.T) {
 func TestGoogleCallback_Setup_SuccessKeepsReturnTo(t *testing.T) {
 	uc := &fakeUC{linkSetupReturnTo: eventURL}
 	w := serve(t, uc, callbackReq("setup", &http.Cookie{Name: "__Host-cib_oauth_setup_token", Value: "tok"}))
-	want := "https://id.example.test/setup?token=tok&return_to=" + url.QueryEscape(eventURL)
+	want := "https://id.example.test/setup/?token=tok&return_to=" + url.QueryEscape(eventURL)
 	if loc := w.Header().Get("Location"); loc != want {
 		t.Fatalf("want %q, got %q", want, loc)
 	}
@@ -104,7 +104,7 @@ func TestGoogleCallback_Setup_SuccessKeepsReturnTo(t *testing.T) {
 func TestGoogleCallback_Setup_LinkFailedReturnsToSetup(t *testing.T) {
 	uc := &fakeUC{linkSetupReturnTo: eventURL, linkSetupErr: errors.New("already linked elsewhere")}
 	w := serve(t, uc, callbackReq("setup", &http.Cookie{Name: "__Host-cib_oauth_setup_token", Value: "tok"}))
-	want := "https://id.example.test/setup?token=tok&error=link_failed&return_to=" + url.QueryEscape(eventURL)
+	want := "https://id.example.test/setup/?token=tok&error=link_failed&return_to=" + url.QueryEscape(eventURL)
 	if loc := w.Header().Get("Location"); loc != want {
 		t.Fatalf("want %q, got %q", want, loc)
 	}
@@ -112,7 +112,7 @@ func TestGoogleCallback_Setup_LinkFailedReturnsToSetup(t *testing.T) {
 
 func TestGoogleCallback_Setup_MissingTokenCookieSignInFailed(t *testing.T) {
 	w := serve(t, &fakeUC{}, callbackReq("setup"))
-	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in?google_error=failed" {
+	if loc := w.Header().Get("Location"); loc != "https://id.example.test/sign-in/?google_error=failed" {
 		t.Fatalf("want sign-in failed, got %q", loc)
 	}
 }

@@ -7,7 +7,7 @@ import (
 )
 
 type PasswordResetPayload struct {
-	ResetURL string `var:"ResetURL" desc:"Password reset link" default:"https://example.org/reset-password?token=abc"`
+	ResetURL string `var:"ResetURL" desc:"Password reset link" default:"https://example.org/reset-password/?token=abc"`
 	Name     string `var:"Name"     desc:"User name"           default:"John Doe"`
 }
 

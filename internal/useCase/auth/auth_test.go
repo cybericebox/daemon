@@ -87,7 +87,7 @@ func TestSignIn_Success(t *testing.T) {
 	if cookie == "" {
 		t.Fatal("expected non-empty cookie")
 	}
-	if redirect != "https://id.test/profile" {
+	if redirect != "https://id.test/profile/" {
 		t.Fatalf("want default profile redirect, got %q", redirect)
 	}
 }

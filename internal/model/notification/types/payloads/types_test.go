@@ -19,7 +19,7 @@ func TestEmailConfirmation_Channels(t *testing.T) {
 
 func TestUserInvitationPayload(t *testing.T) {
 	p := notificationPayloads.UserInvitationPayload{
-		InviteURL: "https://example.org/setup?token=abc",
+		InviteURL: "https://example.org/setup/?token=abc",
 	}
 	assert.Equal(t, notificationTypes.NotificationTypeUserInvitation, p.NotificationType())
 	assert.Equal(
@@ -44,7 +44,7 @@ func TestAccountExistsPayload(t *testing.T) {
 }
 
 func TestAccountInactivityWarningPayload(t *testing.T) {
-	p := notificationPayloads.AccountInactivityWarningPayload{Name: "Jane", DeletionDate: "29.10.2026", SignInURL: "https://id.example.org/sign-in"}
+	p := notificationPayloads.AccountInactivityWarningPayload{Name: "Jane", DeletionDate: "29.10.2026", SignInURL: "https://id.example.org/sign-in/"}
 	assert.Equal(t, notificationTypes.NotificationTypeAccountInactivityWarning, p.NotificationType())
 	assert.Equal(
 		t,
@@ -53,5 +53,5 @@ func TestAccountInactivityWarningPayload(t *testing.T) {
 	)
 	raw, err := p.Marshal()
 	assert.NoError(t, err)
-	assert.JSONEq(t, `{"Name":"Jane","DeletionDate":"29.10.2026","SignInURL":"https://id.example.org/sign-in"}`, string(raw))
+	assert.JSONEq(t, `{"Name":"Jane","DeletionDate":"29.10.2026","SignInURL":"https://id.example.org/sign-in/"}`, string(raw))
 }

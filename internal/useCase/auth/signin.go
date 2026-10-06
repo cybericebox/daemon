@@ -105,7 +105,7 @@ func (u *AuthUseCase) resolveRedirect(raw string) string {
 	if raw != "" && u.IsTrustedRedirect(raw) {
 		return raw
 	}
-	return u.cfg.Hosts.IDURL("/profile")
+	return u.cfg.Hosts.IDURL("/profile/")
 }
 
 // refuseBlocked is the single "account is blocked" guard shared by every path

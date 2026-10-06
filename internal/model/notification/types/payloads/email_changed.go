@@ -11,7 +11,7 @@ import (
 type EmailChangedPayload struct {
 	Name     string `var:"Name"     desc:"User name"            default:"John Doe"`
 	NewEmail string `var:"NewEmail" desc:"The new email address" default:"new@example.org"`
-	ResetURL string `var:"ResetURL" desc:"Password reset link"  default:"https://example.org/forgot-password"`
+	ResetURL string `var:"ResetURL" desc:"Password reset link"  default:"https://example.org/forgot-password/"`
 }
 
 func (EmailChangedPayload) NotificationType() notificationTypes.NotificationType {

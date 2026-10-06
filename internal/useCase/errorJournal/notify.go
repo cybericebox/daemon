@@ -129,7 +129,7 @@ func (j *Journal) message(g errorJournal.Group, s errorJournal.Sample, sinceLast
 		fmt.Fprintf(&b, "User: %s\n", s.UserID)
 	}
 	if j.cfg.AdminURL != "" {
-		fmt.Fprintf(&b, "%s/errors/%s\n", strings.TrimRight(j.cfg.AdminURL, "/"), g.ID)
+		fmt.Fprintf(&b, "%s/errors/%s/\n", strings.TrimRight(j.cfg.AdminURL, "/"), g.ID)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

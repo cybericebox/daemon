@@ -7,7 +7,7 @@ import (
 )
 
 type ContinueRegistrationPayload struct {
-	RegistrationURL string `var:"RegistrationURL" desc:"Registration setup link" default:"https://example.org/setup?token=abc"`
+	RegistrationURL string `var:"RegistrationURL" desc:"Registration setup link" default:"https://example.org/setup/?token=abc"`
 	Name            string `var:"Name"            desc:"User name"               default:"John Doe"`
 }
 

@@ -492,7 +492,7 @@ func TestGoogleCallback_StateMismatch_RedirectsToSignInFailed(t *testing.T) {
 		t.Fatalf("CSRF mismatch should redirect (307), got %d", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "https://id.example.test/sign-in") {
+	if !strings.Contains(loc, "https://id.example.test/sign-in/") {
 		t.Fatalf("CSRF mismatch should redirect to id sign-in, got Location: %s", loc)
 	}
 	if !strings.Contains(loc, "google_error=failed") {
@@ -543,7 +543,7 @@ func TestGoogleCallback_NotRegistered_RedirectsToSignUpOffer(t *testing.T) {
 		t.Fatalf("not-registered should redirect (307), got %d body=%s", w.Code, w.Body.String())
 	}
 	loc := w.Header().Get("Location")
-	if !strings.HasPrefix(loc, "https://id.example.test/sign-up") {
+	if !strings.HasPrefix(loc, "https://id.example.test/sign-up/") {
 		t.Fatalf("not-registered should redirect to id /sign-up, got Location: %s", loc)
 	}
 	if !strings.Contains(loc, "google_error=not_registered") {
@@ -578,7 +578,7 @@ func TestGoogleCallback_GoogleAuthGenericError_RedirectsToSignInFailed(t *testin
 		)
 	}
 	loc := w.Header().Get("Location")
-	if !strings.HasPrefix(loc, "https://id.example.test/sign-in") {
+	if !strings.HasPrefix(loc, "https://id.example.test/sign-in/") {
 		t.Fatalf("generic error should redirect to id /sign-in, got Location: %s", loc)
 	}
 	if !strings.Contains(loc, "google_error=failed") {
@@ -720,7 +720,7 @@ func TestGoogleCallback_Link_Success(t *testing.T) {
 		t.Fatalf("link success: want 307, got %d body=%s", w.Code, w.Body.String())
 	}
 	loc := w.Header().Get("Location")
-	if loc != "https://id.example.test/profile?tab=connections" {
+	if loc != "https://id.example.test/profile/?tab=connections" {
 		t.Fatalf("link success: want absolute id Location, got %q", loc)
 	}
 	// The link cookie must be cleared (MaxAge < 0).
@@ -758,7 +758,7 @@ func TestGoogleCallback_Link_MissingLinkCookie(t *testing.T) {
 		t.Fatalf("missing link cookie: want 307, got %d body=%s", w.Code, w.Body.String())
 	}
 	loc := w.Header().Get("Location")
-	if loc != "https://id.example.test/profile?error=link_failed" {
+	if loc != "https://id.example.test/profile/?error=link_failed" {
 		t.Fatalf("missing link cookie: want absolute id Location, got %q", loc)
 	}
 }
@@ -785,7 +785,7 @@ func TestGoogleCallback_Link_UseCase_Error(t *testing.T) {
 		t.Fatalf("link usecase error: want 307, got %d body=%s", w.Code, w.Body.String())
 	}
 	loc := w.Header().Get("Location")
-	if loc != "https://id.example.test/profile?error=link_failed" {
+	if loc != "https://id.example.test/profile/?error=link_failed" {
 		t.Fatalf("link usecase error: want absolute id Location, got %q", loc)
 	}
 }
@@ -809,7 +809,7 @@ func TestGoogleCallback_Register_Success(t *testing.T) {
 		t.Fatalf("register success: want 307, got %d body=%s", w.Code, w.Body.String())
 	}
 	loc := w.Header().Get("Location")
-	if loc != "https://id.example.test/setup?token=setuptok" {
+	if loc != "https://id.example.test/setup/?token=setuptok" {
 		t.Fatalf("register success: want absolute id Location, got %q", loc)
 	}
 }
@@ -834,7 +834,7 @@ func TestGoogleCallback_Setup_Success(t *testing.T) {
 		t.Fatalf("setup success: want 307, got %d body=%s", w.Code, w.Body.String())
 	}
 	loc := w.Header().Get("Location")
-	if loc != "https://id.example.test/setup?token=existing-setup-tok" {
+	if loc != "https://id.example.test/setup/?token=existing-setup-tok" {
 		t.Fatalf("setup success: want absolute id Location, got %q", loc)
 	}
 }

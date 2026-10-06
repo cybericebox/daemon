@@ -76,7 +76,7 @@ func (u *AuthUseCase) issueSetupLink(ctx context.Context, userID uuid.UUID, ttl 
 	if err != nil {
 		return "", err
 	}
-	link := u.cfg.Hosts.IDURL(fmt.Sprintf("/setup?token=%s", setupToken))
+	link := u.cfg.Hosts.IDURL(fmt.Sprintf("/setup/?token=%s", setupToken))
 	if returnTo != "" {
 		link += "&return_to=" + url.QueryEscape(returnTo)
 	}
