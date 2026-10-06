@@ -38,6 +38,9 @@ func (u *EventUseCase) ListOwnChallenges(ctx context.Context, eventID, userID uu
 	if err = u.fillAttemptsLeft(ctx, teamID, views); err != nil {
 		return nil, err
 	}
+	if err = u.fillSolveAwards(ctx, teamID, views); err != nil {
+		return nil, err
+	}
 	accessible, cutoff, err := u.boardResultsCutoff(ctx, eventID, userID)
 	if err != nil || !accessible {
 		return views, err
@@ -126,6 +129,23 @@ func (u *EventUseCase) fillAttemptsLeft(ctx context.Context, teamID uuid.UUID, v
 	for i := range views {
 		if state, limited := limits[views[i].ID]; limited && !state.Solved {
 			views[i].MaxAttempts, views[i].AttemptsLeft = state.Max, challengeAttempt.AttemptsLeft(state.Max, state.Wrong)
+		}
+	}
+	return nil
+}
+
+// fillSolveAwards sets what the team holds for each solved task of its board and who of its members solved it.
+// Only the caller's own team is read, so no other team's member is ever named.
+func (u *EventUseCase) fillSolveAwards(ctx context.Context, teamID uuid.UUID, views []OwnChallengeView) error {
+	awards, err := u.teamChallenges.SolveAwards(ctx, teamID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get challenge awards").Err()
+	}
+	for i := range views {
+		if award, solved := awards[views[i].ID]; solved {
+			points, penalty := award.AwardedPoints, award.HintPenalty
+			views[i].AwardedPoints, views[i].HintPenalty = &points, &penalty
+			views[i].SolvedBy = &SolverView{UserID: award.SolverID, Name: award.SolverName}
 		}
 	}
 	return nil
@@ -260,6 +280,9 @@ func (u *EventUseCase) ListModeratorsBoard(ctx context.Context, eventID uuid.UUI
 		return nil, err
 	}
 	if err = u.fillFileSizes(ctx, views); err != nil {
+		return nil, err
+	}
+	if err = u.fillSolveAwards(ctx, teamID, views); err != nil {
 		return nil, err
 	}
 	return views, nil

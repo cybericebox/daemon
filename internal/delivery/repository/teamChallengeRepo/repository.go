@@ -22,6 +22,7 @@ type Queries interface {
 	ListTeamBoardChallenges(context.Context, postgres.ListTeamBoardChallengesParams) ([]postgres.ListTeamBoardChallengesRow, error)
 	ListTeamChallengePrerequisites(context.Context, uuid.UUID) ([]postgres.ListTeamChallengePrerequisitesRow, error)
 	CountEventChallengeSolves(context.Context, postgres.CountEventChallengeSolvesParams) ([]postgres.CountEventChallengeSolvesRow, error)
+	ListTeamSolveAwards(context.Context, uuid.UUID) ([]postgres.ListTeamSolveAwardsRow, error)
 	ListEventChallengeSolves(context.Context, postgres.ListEventChallengeSolvesParams) ([]postgres.ListEventChallengeSolvesRow, error)
 	ListFileSizes(context.Context, []uuid.UUID) ([]postgres.ListFileSizesRow, error)
 	ListEventChallengeAvailability(context.Context, uuid.UUID) ([]postgres.ListEventChallengeAvailabilityRow, error)
@@ -178,6 +179,27 @@ func (r *Repository) Prerequisites(ctx context.Context, teamID uuid.UUID) (map[u
 	out := make(map[uuid.UUID][]Prerequisite)
 	for _, row := range rows {
 		out[row.ChallengeID] = append(out[row.ChallengeID], Prerequisite{EventChallengeID: row.PrerequisiteChallengeID, Name: row.Name, Solved: row.Solved})
+	}
+	return out, nil
+}
+
+// SolveAward is what a team holds for one solved task: the points awarded now (0 for a practice solve), the hint
+// cost charged to the solve and the member who submitted the first accepted answer.
+type SolveAward struct {
+	AwardedPoints, HintPenalty int32
+	SolverID                   uuid.UUID
+	SolverName                 string
+}
+
+// SolveAwards returns the awards of the team's solved tasks, keyed by team challenge.
+func (r *Repository) SolveAwards(ctx context.Context, teamID uuid.UUID) (map[uuid.UUID]SolveAward, error) {
+	rows, err := r.q.ListTeamSolveAwards(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]SolveAward, len(rows))
+	for _, row := range rows {
+		out[row.TeamChallengeID] = SolveAward{AwardedPoints: row.AwardedPoints, HintPenalty: row.HintPenalty, SolverID: row.SolverID, SolverName: row.SolverName}
 	}
 	return out, nil
 }

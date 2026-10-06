@@ -42,6 +42,15 @@ type moderatorsBoardItemResponse struct {
 	BoardPublished   bool                        `json:"BoardPublished"`
 	// Hints: every text is revealed on the moderators board.
 	Hints []boardHintResponse `json:"Hints"`
+	// AwardedPoints, HintPenalty and SolvedBy are null while the task is unsolved (see the participant board).
+	AwardedPoints *int32               `json:"AwardedPoints"`
+	HintPenalty   *int32               `json:"HintPenalty"`
+	SolvedBy      *boardSolverResponse `json:"SolvedBy"`
+}
+
+type boardSolverResponse struct {
+	UserID uuid.UUID `json:"UserID"`
+	Name   string    `json:"Name"`
 }
 
 type boardHintResponse struct {
@@ -87,7 +96,10 @@ func toModeratorsBoardItemResponse(v eventUseCase.OwnChallengeView) moderatorsBo
 		Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder, ContentUpdatedAt: v.ContentUpdatedAt,
 		Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, Locked: v.Locked, SolveCount: v.SolveCount, BoardPublished: v.BoardPublished,
 		Prerequisites: make([]boardPrerequisiteResponse, 0, len(v.Prerequisites)), Files: make([]boardFileResponse, 0, len(v.Files)),
-		Hints: make([]boardHintResponse, 0, len(v.Hints))}
+		Hints: make([]boardHintResponse, 0, len(v.Hints)), AwardedPoints: v.AwardedPoints, HintPenalty: v.HintPenalty}
+	if v.SolvedBy != nil {
+		out.SolvedBy = &boardSolverResponse{UserID: v.SolvedBy.UserID, Name: v.SolvedBy.Name}
+	}
 	for _, hint := range v.Hints {
 		out.Hints = append(out.Hints, boardHintResponse(hint))
 	}

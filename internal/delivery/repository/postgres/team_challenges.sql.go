@@ -842,6 +842,75 @@ func (q *Queries) ListTeamHintUnlocks(ctx context.Context, eventTeamID uuid.UUID
 	return items, nil
 }
 
+const listTeamSolveAwards = `-- name: ListTeamSolveAwards :many
+SELECT tc.id AS team_challenge_id,
+       COALESCE(score.points, 0)::integer AS awarded_points,
+       COALESCE(hint.penalty, 0)::integer AS hint_penalty,
+       solver.user_id::uuid AS solver_id,
+       solver.name::text AS solver_name
+FROM team_challenges tc
+CROSS JOIN LATERAL (
+    SELECT a.user_id, event_participant_public_name(a.event_id, a.user_id) AS name
+    FROM effective_challenge_attempts_all a
+    WHERE a.team_challenge_id = tc.id AND a.effective_correct
+    ORDER BY a.received_at ASC, a.id ASC
+    LIMIT 1
+) solver
+LEFT JOIN (
+    SELECT s.team_challenge_id::uuid AS team_challenge_id, sum(s.points)::integer AS points
+    FROM event_teams team
+    CROSS JOIN LATERAL event_solved_scores_at(team.event_id, NULL, NULL) s
+    WHERE team.id = $1 AND s.event_team_id = team.id
+    GROUP BY 1
+) score ON score.team_challenge_id = tc.id
+LEFT JOIN LATERAL (
+    SELECT sum(unlock.cost) AS penalty
+    FROM team_challenge_hint_unlocks unlock
+    LEFT JOIN event_configs config ON config.event_id = unlock.event_id
+    LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = unlock.team_challenge_id
+    WHERE unlock.team_challenge_id = tc.id
+      AND (COALESCE(config.hint_charge_mode, 0) = 1 OR solved.solved_at >= unlock.unlocked_at)
+) hint ON TRUE
+WHERE tc.event_team_id = $1
+`
+
+type ListTeamSolveAwardsRow struct {
+	TeamChallengeID uuid.UUID `json:"team_challenge_id"`
+	AwardedPoints   int32     `json:"awarded_points"`
+	HintPenalty     int32     `json:"hint_penalty"`
+	SolverID        uuid.UUID `json:"solver_id"`
+	SolverName      string    `json:"solver_name"`
+}
+
+// Per solved task of the team (rated or practice): the points the team holds for it now (the solve reward after
+// hints, with balance-mode penalties; 0 for a practice solve, which is never rated), the hint cost charged to the
+// solve and the member who submitted the first accepted answer.
+func (q *Queries) ListTeamSolveAwards(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamSolveAwardsRow, error) {
+	rows, err := q.db.Query(ctx, listTeamSolveAwards, eventTeamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTeamSolveAwardsRow{}
+	for rows.Next() {
+		var i ListTeamSolveAwardsRow
+		if err := rows.Scan(
+			&i.TeamChallengeID,
+			&i.AwardedPoints,
+			&i.HintPenalty,
+			&i.SolverID,
+			&i.SolverName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const publishAvailableTeamChallenges = `-- name: PublishAvailableTeamChallenges :many
 UPDATE team_challenges tc
 SET readiness = 2

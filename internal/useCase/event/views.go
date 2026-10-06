@@ -636,6 +636,17 @@ type OwnChallengeView struct {
 	StageID  *uuid.UUID
 	Closed   bool
 	Practice bool
+	// AwardedPoints, HintPenalty and SolvedBy are set only on a solved task (nil otherwise): the points the team
+	// holds for it now (after the hint penalty; 0 for a practice solve), the hint cost charged to the solve and the
+	// member who submitted the accepted answer.
+	AwardedPoints, HintPenalty *int32
+	SolvedBy                   *SolverView
+}
+
+// SolverView is the team member who solved a task.
+type SolverView struct {
+	UserID uuid.UUID
+	Name   string
 }
 
 // BoardStageView is an opened stage on the participant board (an upcoming stage is never sent).
