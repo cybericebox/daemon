@@ -113,9 +113,20 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 	if !ok {
 		return infraUnavailable()
 	}
-	// Nothing of the team's group is deployed before the event has its reservation.
+	group, err := labBindingModel.GroupName(sync.EventID, sync.TeamID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to derive team VPN group").Err()
+	}
+	// Nothing of the team's group is DEPLOYED before the event has its reservation. A group that already exists
+	// is still reconciled: waiting is only for grants, a revocation is never put off.
 	if u.awaitingReservation(ctx, sync.EventID) {
-		return errAwaitingReservation
+		exists, existsErr := u.labGroupExists(ctx, group)
+		if existsErr != nil {
+			return model.ErrPlatform.WithError(existsErr).WithMessage("Failed to check team laboratory group").Err()
+		}
+		if !exists {
+			return errAwaitingReservation
+		}
 	}
 	clients, err := u.labAccessSyncs.Clients(ctx, sync.TeamID)
 	if err != nil {
@@ -124,10 +135,6 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 	labs, err := u.labAccessSyncs.Labs(ctx, sync.TeamID)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list laboratory access labs").Err()
-	}
-	group, err := labBindingModel.GroupName(sync.EventID, sync.TeamID)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to derive team VPN group").Err()
 	}
 	if sync.VPNEnabled {
 		if err = u.infra.EnsureVPNGroup(u.withPlacementNeed(ctx, sync.EventID), group); err != nil {
@@ -258,4 +265,16 @@ func (b *labAccessBackoff) succeed(team uuid.UUID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.state, team)
+}
+
+// labGroupExists asks the infrastructure whether the group is there; a port that cannot say is taken as "not
+// there", which only ever postpones a deploy.
+func (u *EventUseCase) labGroupExists(ctx context.Context, group string) (bool, error) {
+	checker, ok := u.infra.(interface {
+		LabGroupExists(ctx context.Context, group string) (bool, error)
+	})
+	if !ok {
+		return false, nil
+	}
+	return checker.LabGroupExists(ctx, group)
 }

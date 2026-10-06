@@ -3,6 +3,7 @@ package event_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -361,5 +362,35 @@ func TestReconcilePendingLabAccess_FailingTeamBacksOffAndDoesNotBlockOthers(t *t
 	// second pass right away: the failing team waits out its backoff (no new agent call, no new error)
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatalf("a team in backoff is skipped silently: %v", err)
+	}
+}
+
+// A revocation is never taken for done while the group is not ready: the revision stays dirty (no
+// acknowledgement, no error), and when the group is there the policy is built from the state at that moment,
+// so the revoked member never gets access.
+func TestReconcilePendingLabAccess_RevocationWaitsForGroupAndNeverGrantsRevoked(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	eventID, teamID, kept := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Now()
+	dirty := []postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 3, AppliedRevision: 2, UpdatedAt: now, RuntimeOpen: true, VpnEnabled: true}}
+	labs := []postgres.ListEventLabAccessLabsRow{{LabGroupName: testLabGroup(eventID, teamID), LabName: "c-ready", Available: true}}
+	// The member was removed before either pass: both read the current roster.
+	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return(dirty, nil).Times(2)
+	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{kept}, nil).Times(2)
+	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(labs, nil).Times(2)
+	// Only the second pass may acknowledge.
+	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
+
+	notReady := &recordingLabAccessInfra{err: fmt.Errorf("replace: %w", infraModel.ErrGroupNotReady)}
+	if err := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: notReady}).ReconcilePendingLabAccess(context.Background()); err != nil {
+		t.Fatalf("a wait for the group is not an error: %v", err)
+	}
+	ready := &recordingLabAccessInfra{}
+	if err := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: ready}).ReconcilePendingLabAccess(context.Background()); err != nil {
+		t.Fatalf("ReconcilePendingLabAccess: %v", err)
+	}
+	if len(ready.policies) != 1 || ready.policies[0].Name != notReady.policies[0].Name {
+		t.Fatalf("policy must list only the current member, got %+v", ready.policies)
 	}
 }
