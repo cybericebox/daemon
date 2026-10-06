@@ -279,7 +279,7 @@ func (u *EventUseCase) ListEventCatalogTags(ctx context.Context, eventID uuid.UU
 // of the same exercise; kept as the older route of UpdateEventExercise.
 func (u *EventUseCase) ReplaceEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, in ReplaceEventExerciseInput, by uuid.UUID) (EventExerciseView, error) {
 	versionID := in.ExerciseVersionID
-	return u.UpdateEventExercise(ctx, eventID, eventExerciseID, &versionID, by, false)
+	return u.UpdateEventExercise(ctx, eventID, eventExerciseID, &versionID, by, in.RecreateStands)
 }
 
 // UpdateEventExercise («Оновити») switches the attachment in place to the
@@ -318,22 +318,13 @@ func (u *EventUseCase) UpdateEventExercise(ctx context.Context, eventID, eventEx
 	if err = u.requireReservedForChange(ctx, eventID, link, version, time.Now()); err != nil {
 		return EventExerciseView{}, err
 	}
-	recreation, err := u.planStandRecreation(ctx, link, version, recreateStands, time.Now())
-	if err != nil {
-		return EventExerciseView{}, err
-	}
-	view, err := u.switchInTransaction(ctx, eventID, eventExerciseID, entry, version, nil, recreation.rebind)
-	if err != nil {
-		return EventExerciseView{}, err
-	}
-	u.finishStandRecreation(ctx, recreation, by)
-	return view, nil
+	return u.switchInTransaction(ctx, link, entry, version, nil, standPolicy{by: by, confirmed: recreateStands})
 }
 
 // ForkEventExercise («Налаштувати під захід») switches the attachment to the
 // event's own copy of its catalog exercise: an existing fork is reused, else
 // one is created with the pinned content as its first published version.
-func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID) (EventExerciseView, error) {
+func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (EventExerciseView, error) {
 	link, err := u.activeAttachment(ctx, eventID, eventExerciseID)
 	if err != nil {
 		return EventExerciseView{}, err
@@ -353,7 +344,7 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 		if err = u.requireReservedForChange(ctx, eventID, link, version, time.Now()); err != nil {
 			return EventExerciseView{}, err
 		}
-		return u.switchInTransaction(ctx, eventID, eventExerciseID, entry, version, nil, nil)
+		return u.switchInTransaction(ctx, link, entry, version, nil, standPolicy{by: by, confirmed: recreateStands})
 	} else if !repositoryTools.IsObjectNotFoundError(findErr) {
 		return EventExerciseView{}, model.ErrPlatform.WithError(findErr).WithMessage("Failed to find event fork").Err()
 	}
@@ -396,7 +387,7 @@ func (u *EventUseCase) ForkEventExercise(ctx context.Context, eventID, eventExer
 		fork = created
 		return exercises.SetImportedPointers(ctx, created.ID, uuid.NullUUID{}, uuid.NullUUID{UUID: version.ID, Valid: true})
 	}
-	view, err := u.switchInTransaction(ctx, eventID, eventExerciseID, fork, version, create, nil)
+	view, err := u.switchInTransaction(ctx, link, fork, version, create, standPolicy{by: by, keep: true})
 	if err != nil {
 		return EventExerciseView{}, err
 	}
@@ -422,7 +413,7 @@ func forkName(name string) string {
 
 // RevertEventExercise («Повернути оригінал») switches a fork attachment back
 // to the catalog version it was forked from (the fork itself stays).
-func (u *EventUseCase) RevertEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID) (EventExerciseView, error) {
+func (u *EventUseCase) RevertEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (EventExerciseView, error) {
 	link, err := u.activeAttachment(ctx, eventID, eventExerciseID)
 	if err != nil {
 		return EventExerciseView{}, err
@@ -452,7 +443,7 @@ func (u *EventUseCase) RevertEventExercise(ctx context.Context, eventID, eventEx
 	if err = u.requireReservedForChange(ctx, eventID, link, version, time.Now()); err != nil {
 		return EventExerciseView{}, err
 	}
-	return u.switchInTransaction(ctx, eventID, eventExerciseID, entry, version, nil, nil)
+	return u.switchInTransaction(ctx, link, entry, version, nil, standPolicy{by: by, confirmed: recreateStands})
 }
 
 func (u *EventUseCase) activeAttachment(ctx context.Context, eventID, eventExerciseID uuid.UUID) (eventExerciseModel.EventExercise, error) {
@@ -466,10 +457,28 @@ func (u *EventUseCase) activeAttachment(ctx context.Context, eventID, eventExerc
 	return link, link.EnsureActive()
 }
 
-// switchInTransaction runs an optional preparation (creating a fork), the
-// in-place source switch and an optional follow-up (moving stands) in one
-// transaction.
-func (u *EventUseCase) switchInTransaction(ctx context.Context, eventID, eventExerciseID uuid.UUID, entry exerciseModel.Exercise, version exerciseModel.ExerciseVersion, prepare func(context.Context, IRepository) error, after func(context.Context, IRepository) error) (EventExerciseView, error) {
+// standPolicy says what a switch does with the stands of prepared teams: by is
+// the acting manager, confirmed allows recreating Labs of a running stage, keep
+// leaves the stands alone (the new source has the same content, e.g. a fresh
+// fork of the pinned version).
+type standPolicy struct {
+	by        uuid.UUID
+	confirmed bool
+	keep      bool
+}
+
+// switchInTransaction runs an optional preparation (creating a fork) and the
+// in-place source switch in one transaction, together with the move of the
+// prepared teams' stands to the new version (see planStandRecreation).
+func (u *EventUseCase) switchInTransaction(ctx context.Context, link eventExerciseModel.EventExercise, entry exerciseModel.Exercise, version exerciseModel.ExerciseVersion, prepare func(context.Context, IRepository) error, policy standPolicy) (EventExerciseView, error) {
+	eventID, eventExerciseID := link.EventID, link.ID
+	var recreation *standRecreation
+	if !policy.keep {
+		var planErr error
+		if recreation, planErr = u.planStandRecreation(ctx, link, version, policy.confirmed, time.Now()); planErr != nil {
+			return EventExerciseView{}, planErr
+		}
+	}
 	if u.uow == nil {
 		return EventExerciseView{}, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
 	}
@@ -488,14 +497,13 @@ func (u *EventUseCase) switchInTransaction(ctx context.Context, eventID, eventEx
 	if err != nil {
 		return EventExerciseView{}, err
 	}
-	if after != nil {
-		if err = after(txCtx, txRepo); err != nil {
-			return EventExerciseView{}, err
-		}
+	if err = recreation.rebind(txCtx, txRepo); err != nil {
+		return EventExerciseView{}, err
 	}
 	if err = unit.Save(); err != nil {
 		return EventExerciseView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to switch event exercise").Err()
 	}
+	u.finishStandRecreation(ctx, recreation, policy.by)
 	view := toEventExerciseView(switched)
 	view.ExerciseName = entry.Name
 	return view, nil

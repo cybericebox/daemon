@@ -1845,6 +1845,11 @@ definitions:
           type: string
         type: array
     type: object
+  event.recreateStandsRequest:
+    properties:
+      RecreateStands:
+        type: boolean
+    type: object
   event.reorderChallengeGroupsRequest:
     properties:
       GroupIDs:
@@ -1872,6 +1877,10 @@ definitions:
     properties:
       ExerciseVersionID:
         type: string
+      RecreateStands:
+        description: RecreateStands confirms recreating the stand Labs of teams whose
+          stage is already running.
+        type: boolean
     type: object
   event.rescueDeviceRequest:
     properties:
@@ -13403,11 +13412,11 @@ paths:
       - events
   /events/{id}/manage/exercises/{exerciseID}/fork:
     post:
-      description: On a running event whose lab task would ask for more per team (a
-        version with larger devices, an event copy that is larger), the reservation
-        must hold the new size for all teams, else 409 (72508) "Not enough reserved
-        resources, request an extension" and nothing is switched. A change that does
-        not grow the task is not checked.
+      consumes:
+      - application/json
+      description: |-
+        On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
+        If the version changes what prepared teams run, their stand Labs are recreated; while the set's stage is running this needs RecreateStands=true, else 409 (71813) lists the affected teams in status.context.teams (same as update).
       parameters:
       - description: event ID
         in: path
@@ -13419,6 +13428,11 @@ paths:
         name: exerciseID
         required: true
         type: string
+      - description: confirmation to recreate running stands
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/event.recreateStandsRequest'
       produces:
       - application/json
       responses:
@@ -13450,7 +13464,8 @@ paths:
         name: exerciseID
         required: true
         type: string
-      - description: corrected published exercise version
+      - description: corrected published exercise version; RecreateStands confirms
+          recreating the Labs of a running stage (409 71813 lists the teams otherwise)
         in: body
         name: body
         required: true
@@ -13473,11 +13488,11 @@ paths:
       - events
   /events/{id}/manage/exercises/{exerciseID}/revert:
     post:
-      description: On a running event whose lab task would ask for more per team (a
-        version with larger devices, an event copy that is larger), the reservation
-        must hold the new size for all teams, else 409 (72508) "Not enough reserved
-        resources, request an extension" and nothing is switched. A change that does
-        not grow the task is not checked.
+      consumes:
+      - application/json
+      description: |-
+        On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
+        If the version changes what prepared teams run, their stand Labs are recreated; while the set's stage is running this needs RecreateStands=true, else 409 (71813) lists the affected teams in status.context.teams (same as update).
       parameters:
       - description: event ID
         in: path
@@ -13489,6 +13504,11 @@ paths:
         name: exerciseID
         required: true
         type: string
+      - description: confirmation to recreate running stands
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/event.recreateStandsRequest'
       produces:
       - application/json
       responses:

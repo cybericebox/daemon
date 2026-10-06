@@ -534,6 +534,13 @@ type attachExerciseRequest struct {
 
 type replaceEventExerciseRequest struct {
 	ExerciseVersionID uuid.UUID `json:"ExerciseVersionID"`
+	// RecreateStands confirms recreating the stand Labs of teams whose stage is already running.
+	RecreateStands bool `json:"RecreateStands"`
+}
+
+// recreateStandsRequest is the optional body of fork and revert.
+type recreateStandsRequest struct {
+	RecreateStands bool `json:"RecreateStands"`
 }
 
 type eventExerciseResponse struct {
@@ -906,7 +913,7 @@ func (r attachExerciseRequest) toInput() eventUseCase.AttachExerciseInput {
 }
 
 func (r replaceEventExerciseRequest) toInput() eventUseCase.ReplaceEventExerciseInput {
-	return eventUseCase.ReplaceEventExerciseInput{ExerciseVersionID: r.ExerciseVersionID}
+	return eventUseCase.ReplaceEventExerciseInput{ExerciseVersionID: r.ExerciseVersionID, RecreateStands: r.RecreateStands}
 }
 
 func (r updateEventChallengeRequest) toInput() eventUseCase.UpdateEventChallengeInput {

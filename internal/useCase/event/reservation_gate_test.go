@@ -139,7 +139,7 @@ func TestUpdateEventExercise_AGrowingVersionAsksTheResourceGate(t *testing.T) {
 func TestForkEventExercise_AGrowingCopyAsksTheResourceGate(t *testing.T) {
 	gate := &fakeResourceGate{err: eventExerciseModel.ErrEventExerciseExists.Err()}
 	uc, unit, eventID, attachmentID, _ := gatedChangeFixture(t, "micro", "large", gate)
-	_, err := uc.ForkEventExercise(context.Background(), eventID, attachmentID, uuid.Must(uuid.NewV7()))
+	_, err := uc.ForkEventExercise(context.Background(), eventID, attachmentID, uuid.Must(uuid.NewV7()), false)
 	if !errors.Is(err, eventExerciseModel.ErrEventExerciseExists.Err()) || gate.called != 1 || unit.saved {
 		t.Fatalf("a copy that grew beyond the reservation must not be switched to: err=%v called=%d saved=%v", err, gate.called, unit.saved)
 	}
