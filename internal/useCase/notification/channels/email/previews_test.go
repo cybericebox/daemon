@@ -39,7 +39,7 @@ var sampleValues = map[string]string{
 	"ResetURL":   "https://id.cybericebox.com/reset-password?token=abc123",
 	"ConfirmURL": "https://id.cybericebox.com/confirm-email?token=abc123",
 	"InviteURL":  "https://id.cybericebox.com/setup?token=abc123", "SignInURL": "https://id.cybericebox.com/sign-in",
-	"DeletionDate": "29.10.2026", "Challenge": "Веб: SQL-ін’єкція", "Points": "150",
+	"DeletionDate": "29.10.2026", "Challenge": "Веб: SQL-інʼєкція", "Points": "150",
 	"event_name": "Весняний CTF 2026", "event_url": "https://spring-ctf.cybericebox.com/",
 	"invite_url": "https://spring-ctf.cybericebox.com/invite", "team_url": "https://spring-ctf.cybericebox.com/participation?tab=team", "team_name": "Синя команда",
 	"role_name": "модератором", "reason": "Лабораторія повідомила стан Failed",

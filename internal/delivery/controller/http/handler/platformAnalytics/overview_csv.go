@@ -34,7 +34,7 @@ func writeOverviewSummary(w *csv.Writer, v platformAnalyticsUseCase.OverviewView
 	metric("Реєстрацій учасників", v.Participants.Registered)
 	metric("Схвалених учасників", v.Participants.Approved)
 	metric("Спроб", v.Activity.Attempts)
-	metric("Розв'язань", v.Activity.Solves)
+	metric("Розвʼязань", v.Activity.Solves)
 	metric("Листів надіслано", v.Mail.Sent)
 	metric("Листів з помилкою", v.Mail.Failed)
 	current("Стендів працює", v.Stands.Ready)
@@ -44,7 +44,7 @@ func writeOverviewSummary(w *csv.Writer, v platformAnalyticsUseCase.OverviewView
 }
 
 func writeOverviewSeries(w *csv.Writer, v platformAnalyticsUseCase.OverviewView) {
-	_ = w.Write([]string{"Дата", "Нових акаунтів", "Спроб", "Розв'язань", "Листів надіслано", "Листів з помилкою"})
+	_ = w.Write([]string{"Дата", "Нових акаунтів", "Спроб", "Розвʼязань", "Листів надіслано", "Листів з помилкою"})
 	type row struct{ newUsers, attempts, solves, sent, failed int64 }
 	days := map[time.Time]*row{}
 	at := func(day time.Time) *row {

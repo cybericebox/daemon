@@ -650,9 +650,41 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 		}
 	}
 	if !u.testLabGone(ctx, deploy, all) {
+		// Still there: look again in a few seconds instead of waiting for the periodic sweep.
+		u.scheduleRemovalCheck(ctx, deploy, 1)
 		return nil
 	}
 	return u.finishTestLab(ctx, repo, deploy)
+}
+
+// CheckTestDeployRemoved is one follow-up check of a lab that is being removed: the row is dropped only when the agent
+// says the Lab (or, with the author's last one, the group) is gone, never earlier; otherwise the next check is queued,
+// up to the bound. A lab that is gone, or whose lease was extended meanwhile, needs nothing.
+func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, deployID uuid.UUID, attempt int) error {
+	if u.infra == nil {
+		return infraModel.ErrInfrastructureUnavailable.Err()
+	}
+	return u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
+		if err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return false, nil
+			}
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		}
+		if !testDeployExpired(deploy, u.timeNow()) {
+			return false, nil // extended meanwhile
+		}
+		all, err := repo.ListOwned(ctx, ownerID)
+		if err != nil {
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to list test deployments").Err()
+		}
+		if !u.testLabGone(ctx, deploy, all) {
+			u.scheduleRemovalCheck(ctx, deploy, attempt+1)
+			return false, nil
+		}
+		return true, u.finishTestLab(ctx, repo, deploy)
+	})
 }
 
 // finishTestLab drops the row of a lab that is gone and frees its resources.

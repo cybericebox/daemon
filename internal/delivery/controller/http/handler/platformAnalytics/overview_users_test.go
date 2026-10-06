@@ -265,7 +265,7 @@ func TestUsersCSV(t *testing.T) {
 		t.Fatalf("retention = %v", rows)
 	}
 	rows := get("people")
-	if rows[0][0] != "Ім'я" || rows[1][0] != `'=HYPERLINK("x")` || rows[1][1] != "'+a@example.test" || rows[1][3] != "3" || rows[1][4] != "7" {
+	if rows[0][0] != "Імʼя" || rows[1][0] != `'=HYPERLINK("x")` || rows[1][1] != "'+a@example.test" || rows[1][3] != "3" || rows[1][4] != "7" {
 		t.Fatalf("people = %v (formulas must be neutralized)", rows)
 	}
 }

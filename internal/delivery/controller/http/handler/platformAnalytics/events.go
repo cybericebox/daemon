@@ -180,7 +180,7 @@ func (h *Handler) exportEvents(ctx *gin.Context) {
 			_ = w.Write([]string{csvText(n.Name), csvText(n.Tag), csvTime(n.StartAt), csvBool(n.Published), csvInt(n.Registrations)})
 		}
 	default:
-		_ = w.Write([]string{"Захід", "Тег", "Статус", "Старт (UTC)", "Фініш (UTC)", "Учасників", "Команд", "Розв'язань", "Команд із розв'язанням", "Частка команд із розв'язанням", "Тривалість (с)"})
+		_ = w.Write([]string{"Захід", "Тег", "Статус", "Старт (UTC)", "Фініш (UTC)", "Учасників", "Команд", "Розвʼязань", "Команд із розвʼязанням", "Частка команд із розвʼязанням", "Тривалість (с)"})
 		for _, e := range v.Events {
 			start := ""
 			if !e.StartAt.IsZero() {

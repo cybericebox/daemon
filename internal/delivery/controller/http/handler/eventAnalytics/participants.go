@@ -284,5 +284,5 @@ var funnelStageLabels = map[string]string{
 	eventAnalyticsUseCase.StageApproved:   "Схвалено",
 	eventAnalyticsUseCase.StageInTeam:     "У команді",
 	eventAnalyticsUseCase.StageAttempted:  "Перша спроба",
-	eventAnalyticsUseCase.StageSolved:     "Перше розв'язання",
+	eventAnalyticsUseCase.StageSolved:     "Перше розвʼязання",
 }
