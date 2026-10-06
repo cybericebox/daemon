@@ -317,6 +317,17 @@ func (f *Fleet) LabStatus(ctx context.Context, group, lab string) (exerciseModel
 	return c.LabStatus(ctx, group, lab)
 }
 
+func (f *Fleet) ListGroupLabs(ctx context.Context, group string) ([]string, error) {
+	c, err := f.route(ctx, group)
+	if errors.Is(err, errNoPlacement) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return c.ListGroupLabs(ctx, group)
+}
+
 func (f *Fleet) EnsureLabClient(ctx context.Context, group, client string) (string, error) {
 	c, err := f.route(ctx, group)
 	if err != nil {
