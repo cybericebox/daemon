@@ -18,6 +18,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/jobQueueRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformAnalyticsRepo"
@@ -170,6 +171,11 @@ func (t testDeployExpiry) ScheduleTestDeployExpiry(ctx context.Context, ownerID,
 	return t.enq.EnqueueAt(ctx, jobsModel.TestDeployExpiryArgs{DeployID: deployID, OwnerID: ownerID}, at)
 }
 
+// ScheduleTestDeployRemovalCheck queues the next follow-up check of a lab being removed; one waits per deploy.
+func (t testDeployExpiry) ScheduleTestDeployRemovalCheck(ctx context.Context, ownerID, deployID uuid.UUID, attempt int, at time.Time) error {
+	return t.enq.EnqueueUniqueAt(ctx, jobsModel.TestDeployRemovalCheckArgs{DeployID: deployID, OwnerID: ownerID, Attempt: attempt}, at)
+}
+
 func NewUseCase(deps Dependencies) *UseCase {
 	// mediaUC is built first: the email handler streams uploaded images from it
 	// (inline CID parts), and the aggregate exposes it for the periodic GC job.
@@ -252,11 +258,13 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Config: deps.Calendar, Frame: deps.ResourcesPolicy.Frame, Policy: deps.ResourcesPolicy, Overhead: groupOverhead(deps.LabAgent),
 	})
 	eventUC.SetResourceGate(calendarUC)
+	eventUC.SetNoticeCanceller(jobQueueRepo.New(deps.Repo.Pool()).CancelEventNotifications)
 	exerciseUC.SetTestLabGate(calendarUC)
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.
 	if deps.LabAgent != nil {
 		labJobs := deps.EnqueuerFactory.NewEnqueuer()
 		exerciseUC.SetTestDeployExpiry(testDeployExpiry{enq: labJobs})
+		exerciseUC.SetTestDeployRemovalCheck(testDeployExpiry{enq: labJobs})
 		eventUC.SetLabCleanupWake(func(ctx context.Context) error { return labJobs.Enqueue(ctx, jobsModel.LabCleanupArgs{}) })
 	}
 

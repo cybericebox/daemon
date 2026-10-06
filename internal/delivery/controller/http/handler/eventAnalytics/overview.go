@@ -250,7 +250,7 @@ func (h *Handler) exportOverview(ctx *gin.Context) {
 		return
 	}
 	w := startAnalyticsCSV(ctx, "overview")
-	_ = w.Write([]string{"Початок інтервалу (UTC)", "Спроби", "Правильні спроби", "Розв'язання", "Відкриття завдань"})
+	_ = w.Write([]string{"Початок інтервалу (UTC)", "Спроби", "Правильні спроби", "Розвʼязання", "Відкриття завдань"})
 	for _, p := range v.Series {
 		_ = w.Write([]string{p.At.UTC().Format(time.RFC3339), strconv.FormatInt(p.Attempts, 10), strconv.FormatInt(p.Correct, 10),
 			strconv.FormatInt(p.Solves, 10), strconv.FormatInt(p.Opens, 10)})

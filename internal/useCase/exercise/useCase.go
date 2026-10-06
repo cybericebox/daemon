@@ -55,6 +55,8 @@ type ExerciseUseCase struct {
 	elevationInbox IElevationInbox // nil until wired; elevation notifications are then skipped
 	// expiry schedules the end of a test lab's lease; nil: only the periodic sweep removes expired labs.
 	expiry ITestDeployExpiry
+	// removalCheck schedules the short follow-up checks of a lab being removed; nil: only the periodic sweep drops the row.
+	removalCheck ITestDeployRemovalCheck
 	// clock is the time source of the lease checks; nil: time.Now.
 	clock func() time.Time
 }

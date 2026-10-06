@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/cybericebox/daemon/internal/model"
 )
@@ -28,6 +29,9 @@ type (
 		Enqueue(ctx context.Context, args jobArgs) error
 		// EnqueueAt queues the job to run no earlier than at (a time not in the future runs it now).
 		EnqueueAt(ctx context.Context, args jobArgs, at time.Time) error
+		// EnqueueUniqueAt is EnqueueAt that skips the job while an equal one (by the fields tagged `river:"unique"`,
+		// else all args) still waits to run; a running job does not count, so it can queue its own successor.
+		EnqueueUniqueAt(ctx context.Context, args jobArgs, at time.Time) error
 	}
 
 	// noopEnqueuer is a test-only enqueuer that discards all jobs.
@@ -46,6 +50,26 @@ func (n *noopEnqueuer) Enqueue(_ context.Context, _ jobArgs) error {
 
 func (n *noopEnqueuer) EnqueueAt(_ context.Context, _ jobArgs, _ time.Time) error {
 	return nil
+}
+
+func (n *noopEnqueuer) EnqueueUniqueAt(_ context.Context, _ jobArgs, _ time.Time) error {
+	return nil
+}
+
+func (e *enqueuer) EnqueueUniqueAt(ctx context.Context, args jobArgs, at time.Time) error {
+	if e.factory.client == nil {
+		return model.ErrPlatform.WithMessage("River client is not initialized").Err()
+	}
+	_, err := e.factory.client.Insert(ctx, args, &river.InsertOpts{
+		ScheduledAt: at,
+		UniqueOpts: river.UniqueOpts{
+			ByArgs: true,
+			ByState: []rivertype.JobState{
+				rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateScheduled,
+			},
+		},
+	})
+	return err
 }
 
 func (e *enqueuer) EnqueueAt(ctx context.Context, args jobArgs, at time.Time) error {

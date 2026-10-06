@@ -251,7 +251,7 @@ func writeInfrastructureCSV(write func([]string) error, table string, v platform
 			_ = write([]string{csvText(f.Code), csvInt(f.Labs), csvInt(f.Stands), csvInt(f.Events), csvTime(f.LastAt)})
 		}
 	case "capacity":
-		_ = write([]string{"Час", "CPU доступно (мілі-ядер)", "CPU зарезервовано (мілі-ядер)", "Пам'ять доступно (байт)", "Пам'ять зарезервовано (байт)", "Агентів"})
+		_ = write([]string{"Час", "CPU доступно (мілі-ядер)", "CPU зарезервовано (мілі-ядер)", "Памʼять доступно (байт)", "Памʼять зарезервовано (байт)", "Агентів"})
 		for _, c := range v.Capacity {
 			_ = write([]string{csvTime(c.At), csvInt(c.AllocatableCPUMillicores), csvInt(c.RequestedCPUMillicores), csvInt(c.AllocatableMemoryBytes), csvInt(c.RequestedMemoryBytes), csvInt(c.Agents)})
 		}

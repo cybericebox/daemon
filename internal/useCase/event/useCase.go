@@ -132,6 +132,8 @@ func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uui
 type EventUseCase struct {
 	// labCleanupWake runs the queued laboratory group teardown now instead of at the next periodic tick; nil: no wake.
 	labCleanupWake func(context.Context) error
+	// cancelNotices cancels the queued notices of a deleted event; nil: nothing is cancelled.
+	cancelNotices func(ctx context.Context, eventID uuid.UUID) (int64, error)
 	// resourceGate checks a new task of a running event against the event's resource reservation; nil: unchecked.
 	resourceGate      ResourceGate
 	observations      *eventLabObservationRepo.Repository
@@ -364,6 +366,22 @@ func (u *EventUseCase) SetStandInbox(inbox StandInbox) {
 // The periodic pass stays: it picks up whatever the wake misses or the agent could not delete yet.
 func (u *EventUseCase) SetLabCleanupWake(wake func(context.Context) error) {
 	u.labCleanupWake = wake
+}
+
+// SetNoticeCanceller wires the cancellation of the queued notices of an event that is deleted.
+func (u *EventUseCase) SetNoticeCanceller(cancel func(ctx context.Context, eventID uuid.UUID) (int64, error)) {
+	u.cancelNotices = cancel
+}
+
+// cancelEventNotices drops the notices of a deleted event after the commit; best effort, a notice that still runs
+// is dropped at send time because the event is gone.
+func (u *EventUseCase) cancelEventNotices(ctx context.Context, eventID uuid.UUID) {
+	if u.cancelNotices == nil {
+		return
+	}
+	if _, err := u.cancelNotices(context.WithoutCancel(ctx), eventID); err != nil {
+		log.Warn().Err(err).Msg("Failed to cancel the queued notices of the deleted event; they are dropped when sent")
+	}
 }
 
 // wakeLabCleanup asks for a cleanup pass after the request is committed; best effort, the periodic pass retries.

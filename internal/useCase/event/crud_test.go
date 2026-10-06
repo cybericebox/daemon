@@ -567,6 +567,45 @@ func TestDeleteEvent_WakesTheLabCleanupAfterTheCommit(t *testing.T) {
 	}
 }
 
+func TestDeleteEvent_CancelsTheQueuedNoticesAfterTheCommit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := newUC(q)
+	id := uuid.Must(uuid.NewV7())
+	var cancelled []uuid.UUID
+	uc.SetNoticeCanceller(func(_ context.Context, eventID uuid.UUID) (int64, error) {
+		cancelled = append(cancelled, eventID)
+		return 1, nil
+	})
+
+	q.EXPECT().ArchiveEventExercises(gomock.Any(), gomock.Any()).Return(nil)
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	q.EXPECT().DeleteEvent(gomock.Any(), id).Return(int64(1), nil)
+
+	if err := uc.DeleteEvent(context.Background(), id); err != nil {
+		t.Fatalf("DeleteEvent: %v", err)
+	}
+	if len(cancelled) != 1 || cancelled[0] != id {
+		t.Fatalf("the notices of the deleted event must be cancelled once, got %v", cancelled)
+	}
+}
+
+func TestDeleteEvent_NotFound_DoesNotCancelNotices(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := newUC(q)
+	id := uuid.Must(uuid.NewV7())
+	uc.SetNoticeCanceller(func(context.Context, uuid.UUID) (int64, error) { t.Fatal("no event was deleted"); return 0, nil })
+
+	q.EXPECT().ArchiveEventExercises(gomock.Any(), gomock.Any()).Return(nil)
+	q.EXPECT().QueueEventLabGroupCleanup(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	q.EXPECT().DeleteEvent(gomock.Any(), id).Return(int64(0), nil)
+
+	if err := uc.DeleteEvent(context.Background(), id); err == nil {
+		t.Fatal("want not found")
+	}
+}
+
 func TestDeleteEvent_NotFound_DoesNotWakeTheLabCleanup(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)

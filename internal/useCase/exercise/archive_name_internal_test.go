@@ -16,7 +16,7 @@ func TestImportedName_CutsCharactersNotBytes(t *testing.T) {
 	if n := utf8.RuneCountInString(got); n > 50 {
 		t.Fatalf("name has %d characters, want at most 50", n)
 	}
-	if !strings.HasSuffix(got, " (imported 1)") {
+	if !strings.HasSuffix(got, " (імпорт 1)") {
 		t.Fatalf("suffix missing: %q", got)
 	}
 	if importedName("Короткий", 0) != "Короткий" {

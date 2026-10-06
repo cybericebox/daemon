@@ -27,6 +27,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/signalprocessing"
 	"github.com/cybericebox/daemon/internal/jobs/testdeployexpiry"
 	"github.com/cybericebox/daemon/internal/jobs/testdeploygc"
+	"github.com/cybericebox/daemon/internal/jobs/testdeployremovalcheck"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 )
 
@@ -48,6 +49,7 @@ type (
 		resultchangegcJob.IUseCase
 		testdeploygcJob.IUseCase
 		testdeployexpiryJob.IUseCase
+		testdeployremovalcheckJob.IUseCase
 		labcleanupJob.IUseCase
 		labgroupsweepJob.IUseCase
 		labaccesssyncJob.IUseCase
@@ -106,6 +108,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	if wr.laboratoriesEnabled {
 		river.AddWorker(workers, testdeploygcJob.NewWorker(wr.uc))
 		river.AddWorker(workers, testdeployexpiryJob.NewWorker(wr.uc))
+		river.AddWorker(workers, testdeployremovalcheckJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labcleanupJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labgroupsweepJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labaccesssyncJob.NewWorker(wr.uc))

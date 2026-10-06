@@ -181,8 +181,8 @@ func (h *Handler) exportTasks(ctx *gin.Context) {
 		return
 	}
 	w := startAnalyticsCSV(ctx, "tasks")
-	_ = w.Write([]string{"Завдання", "Група", "Складність", "Бали", "Спроби", "Правильні спроби", "Команд пробувало", "Команд відкривало", "Розв'язань",
-		"Частка розв'язань", "Медіана від старту (с)", "Медіана від відкриття (с)", "Перша кров", "Час першої крові (UTC)", "Підказок", "Витрачено балів", "Калібрування"})
+	_ = w.Write([]string{"Завдання", "Група", "Складність", "Бали", "Спроби", "Правильні спроби", "Команд пробувало", "Команд відкривало", "Розвʼязань",
+		"Частка розвʼязань", "Медіана від старту (с)", "Медіана від відкриття (с)", "Перша кров", "Час першої крові (UTC)", "Підказок", "Витрачено балів", "Калібрування"})
 	for _, t := range v.Tasks {
 		_ = w.Write([]string{csvCellText(t.Name), csvCellText(t.GroupName), t.Difficulty, strconv.Itoa(int(t.Points)),
 			strconv.FormatInt(t.Attempts, 10), strconv.FormatInt(t.Correct, 10), strconv.FormatInt(t.TeamsTried, 10), strconv.FormatInt(t.TeamsOpened, 10),

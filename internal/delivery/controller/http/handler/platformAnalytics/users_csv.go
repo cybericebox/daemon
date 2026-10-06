@@ -47,7 +47,7 @@ func writeUsersRetention(w *csv.Writer, v platformAnalyticsUseCase.UsersView) {
 }
 
 func writeUsersPeople(w *csv.Writer, rows []platformAnalyticsUseCase.UsersPersonView) {
-	_ = w.Write([]string{"Ім'я", "Email", "Роль", "Заходів", "Розв'язань"})
+	_ = w.Write([]string{"Імʼя", "Email", "Роль", "Заходів", "Розвʼязань"})
 	for _, r := range rows {
 		_ = w.Write([]string{csvText(r.Name), csvText(r.Email), csvText(r.Role), csvInt(r.EventsJoined), csvInt(r.Solves)})
 	}

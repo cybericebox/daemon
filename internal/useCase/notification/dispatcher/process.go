@@ -5,9 +5,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/cybericebox/daemon/internal/delivery/repository/dispatchRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	"github.com/cybericebox/daemon/internal/model/notification"
 	"github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/notification/types"
@@ -28,6 +32,14 @@ func (u *NotificationDispatcher) ProcessNotification(
 	} else {
 		user, err := u.users.GetByID(ctx, in.UserID)
 		if err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				// The recipient was deleted after the notice was queued: nothing to send, nothing to retry.
+				log.Debug().Str("dispatch_id", in.DispatchID.String()).Str("type", in.Type).Msg("notification dropped: recipient no longer exists")
+				if err = u.dispatches.SetStatus(ctx, in.DispatchID, dispatchModel.DispatchStatusDone); err != nil {
+					return model.ErrPlatform.WithError(err).WithMessage("Failed to mark dispatch done").Err()
+				}
+				return nil
+			}
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to get recipient user").Err()
 		}
 		recipient = user
@@ -98,7 +110,7 @@ func (u *NotificationDispatcher) ProcessNotification(
 
 	// Round-based retry: round 0 attempts every channel once; each later round
 	// re-attempts only the channels that failed with a retryable error, after
-	// waiting retryDelay. ErrTemplateNotFound is terminal and never retried.
+	// waiting retryDelay. ErrTemplateNotFound and ErrEventNotFound are terminal and never retried.
 	lastErr := make(map[notificationTypes.NotificationChannel]error, len(worklist))
 	notes := make(map[notificationTypes.NotificationChannel]*dispatchModel.DeliveryNote, len(worklist))
 	attempts := make(map[notificationTypes.NotificationChannel]int32, len(worklist))
@@ -135,7 +147,7 @@ func (u *NotificationDispatcher) ProcessNotification(
 				attempts[p.ch]-- // nothing was sent: not a delivery attempt
 				continue         // waits for its send limit, not for a retry round
 			}
-			if hErr != nil && !notificationModel.ErrTemplateNotFound.Err().Is(hErr) {
+			if hErr != nil && !notificationModel.ErrTemplateNotFound.Err().Is(hErr) && !eventModel.ErrEventNotFound.Err().Is(hErr) {
 				failed = append(failed, p) // retryable failure
 			}
 		}
@@ -154,6 +166,10 @@ func (u *NotificationDispatcher) ProcessNotification(
 				}
 			} else if notificationModel.ErrTemplateNotFound.Err().Is(hErr) {
 				status, msg = dispatchModel.TargetStatusError, "no template"
+			} else if eventModel.ErrEventNotFound.Err().Is(hErr) {
+				// The event was deleted after the notice was queued: an expected, permanent drop, not a failure.
+				status, msg = dispatchModel.TargetStatusError, "event deleted"
+				log.Debug().Str("dispatch_id", in.DispatchID.String()).Str("type", in.Type).Msg("notification dropped: event no longer exists")
 			} else {
 				status, msg = dispatchModel.TargetStatusError, hErr.Error()
 				reportMailFailure(p.ch, in, hErr, attempts[p.ch])

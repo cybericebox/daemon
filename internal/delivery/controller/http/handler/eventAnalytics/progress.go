@@ -286,7 +286,7 @@ func (h *Handler) exportProgressMatrix(ctx *gin.Context) {
 		cells[key{c.TeamID, c.ChallengeID}] = c
 	}
 	w := startAnalyticsCSV(ctx, "matrix")
-	header := []string{"Команда", "Бали", "Розв'язано"}
+	header := []string{"Команда", "Бали", "Розвʼязано"}
 	for _, t := range v.Tasks {
 		header = append(header, csvCellText(t.Name))
 	}

@@ -51,8 +51,8 @@ var contentVariableLabels = map[string]string{
 	"event.registrationUnitCount":    "Зареєстровані одиниці",
 	"event.challengeCount":           "Усі завдання",
 	"event.availableChallengeCount":  "Доступні завдання",
-	"event.solvedChallengeCount":     "Розв'язані завдання",
-	"event.solveCount":               "Успішні розв'язання",
+	"event.solvedChallengeCount":     "Розвʼязані завдання",
+	"event.solveCount":               "Успішні розвʼязання",
 }
 
 func ContentVariableCatalog(scoreboardVisibility eventConfigModel.Visibility) []ContentVariableDefinition {
