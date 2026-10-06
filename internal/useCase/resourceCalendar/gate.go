@@ -40,3 +40,15 @@ func (u *ResourceCalendarUseCase) HoldsForAllTeams(ctx context.Context, eventID 
 	}
 	return nil
 }
+
+// HasEventReservation tells whether the event has an active reservation. Labs of an event that needs them wait for
+// it: nothing of the event is deployed on the platform's free room.
+func (u *ResourceCalendarUseCase) HasEventReservation(ctx context.Context, eventID uuid.UUID) (bool, error) {
+	if _, err := u.store.GetEventReservation(ctx, eventID); err != nil {
+		if notFound(err) {
+			return false, nil
+		}
+		return false, platformErr(err, "Failed to read the event reservation")
+	}
+	return true, nil
+}

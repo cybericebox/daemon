@@ -50,6 +50,10 @@ const (
 	reasonMaxLen = 300
 )
 
+// ReasonAwaitingReservation is the reason of a creating stand that waits for the event's resource reservation:
+// nothing is deployed before it exists, then everything starts by itself.
+const ReasonAwaitingReservation = "awaiting_reservation"
+
 // DeployTimeout fails a Lab that the agent accepted but never reported
 // ready, so a stuck image pull or crash loop reaches the moderators
 // (EVENT_STAND_DEPLOY_TIMEOUT, set once at start).

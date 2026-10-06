@@ -591,3 +591,23 @@ func TestLabGroupExistsFollowsTheAgentsKnowledge(t *testing.T) {
 		t.Fatal("an unreachable agent is an error, not a gone group")
 	}
 }
+
+// A policy replacement that meets a missing group, or a policy another writer creates at the same moment,
+// is a wait for the caller, never a failure and never an applied policy.
+func TestPolicyResultWaitsForGroup(t *testing.T) {
+	ref := &labpb.ItemRef{LabGroup: "g"}
+	for name, r := range map[string]*labpb.ItemResult{
+		"group missing": {Ref: ref, State: labpb.ItemState_ITEM_STATE_NOT_FOUND, Error: "lab group not found"},
+		"policy exists": {Ref: ref, State: labpb.ItemState_ITEM_STATE_FAILED, Error: `labgroupaccesspolicies "access-policy" already exists`},
+	} {
+		if err := policyResult("replace", []*labpb.ItemResult{r}); !errors.Is(err, infraModel.ErrGroupNotReady) {
+			t.Errorf("%s: got %v, want a wait", name, err)
+		}
+	}
+	if err := policyResult("replace", []*labpb.ItemResult{{Ref: ref, State: labpb.ItemState_ITEM_STATE_FAILED, Error: "boom"}}); err == nil || errors.Is(err, infraModel.ErrGroupNotReady) {
+		t.Errorf("other failure must stay a failure, got %v", err)
+	}
+	if err := policyResult("replace", []*labpb.ItemResult{{Ref: ref, State: labpb.ItemState_ITEM_STATE_UPDATED}}); err != nil {
+		t.Errorf("applied policy: %v", err)
+	}
+}

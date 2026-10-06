@@ -79,6 +79,15 @@ func (u *EventUseCase) ReconcilePendingLabAccess(ctx context.Context) error {
 			continue
 		}
 		if err = u.reconcileLabAccess(ctx, sync); err != nil {
+			if errors.Is(err, errAwaitingReservation) {
+				// Waits for the reservation, stays dirty; no backoff, no error.
+				continue
+			}
+			if errors.Is(err, infraModel.ErrGroupNotReady) {
+				// Waits for the group; a wait, not a fault.
+				u.labAccessBackoff.fail(sync.TeamID, now)
+				continue
+			}
 			if _, terminating := infraModel.AsTerminating(err); terminating || errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
 				return err
 			}
@@ -103,6 +112,10 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 	access, ok := u.infra.(labAccessInfrastructure)
 	if !ok {
 		return infraUnavailable()
+	}
+	// Nothing of the team's group is deployed before the event has its reservation.
+	if u.awaitingReservation(ctx, sync.EventID) {
+		return errAwaitingReservation
 	}
 	clients, err := u.labAccessSyncs.Clients(ctx, sync.TeamID)
 	if err != nil {
