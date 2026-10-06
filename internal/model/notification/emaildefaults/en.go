@@ -85,7 +85,7 @@ func enTemplates() []Template {
 			Body: blocks(logo(),
 				rich(heading("A lab is down")),
 				facts(event, fact{"Team", "{{team_name}}"}, fact{"Reason", "{{reason}}"}),
-				rich(para("Check the team’s lab on the «Labs» page of event management."))),
+				rich(para("Check the team’s lab on the «Labs» page of the event panel."))),
 		},
 		{
 			Type: "participant.approval_registration.submitted", Participant: true,
