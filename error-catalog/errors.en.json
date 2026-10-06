@@ -367,6 +367,7 @@
   "71809": "The new version removes a task that teams already attempted",
   "71810": "Teams already attempted this exercise: confirm to detach it",
   "71812": "Only a catalog exercise can be forked, and only a fork can be reverted",
+  "71813": "Teams are running this exercise: confirm to recreate their stands",
   "71910": "Team challenge readiness transition is invalid",
   "71912": "Challenge prerequisites are not solved",
   "71925": "Idempotency key was already used for a different request",

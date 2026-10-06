@@ -111,7 +111,7 @@ func gatedChangeFixture(t *testing.T, oldPreset, newPreset string, gate *fakeRes
 func TestUpdateEventExercise_AGrowingVersionAsksTheResourceGate(t *testing.T) {
 	gate := &fakeResourceGate{err: eventExerciseModel.ErrEventExerciseExists.Err()}
 	uc, unit, eventID, attachmentID, newID := gatedChangeFixture(t, "micro", "large", gate)
-	_, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &newID, uuid.Must(uuid.NewV7()))
+	_, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &newID, uuid.Must(uuid.NewV7()), false)
 	if !errors.Is(err, eventExerciseModel.ErrEventExerciseExists.Err()) || gate.called != 1 || unit.saved {
 		t.Fatalf("a task that grew beyond the reservation must not be switched: err=%v called=%d saved=%v", err, gate.called, unit.saved)
 	}
@@ -122,7 +122,7 @@ func TestUpdateEventExercise_AGrowingVersionAsksTheResourceGate(t *testing.T) {
 
 	same := &fakeResourceGate{err: eventExerciseModel.ErrEventExerciseExists.Err()}
 	uc, _, eventID, attachmentID, newID = gatedChangeFixture(t, "micro", "micro", same)
-	_, err = uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &newID, uuid.Must(uuid.NewV7()))
+	_, err = uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &newID, uuid.Must(uuid.NewV7()), false)
 	if same.called != 0 || errors.Is(err, eventExerciseModel.ErrEventExerciseExists.Err()) {
 		t.Fatalf("a version of the same size is not checked: %d calls, %v", same.called, err)
 	}
@@ -130,7 +130,7 @@ func TestUpdateEventExercise_AGrowingVersionAsksTheResourceGate(t *testing.T) {
 	// A version that asks for less passes the gate, too, even if the reservation is short of the plan as it is.
 	smaller := &fakeResourceGate{err: eventExerciseModel.ErrEventExerciseExists.Err()}
 	uc, _, eventID, attachmentID, newID = gatedChangeFixture(t, "large", "micro", smaller)
-	if _, err = uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &newID, uuid.Must(uuid.NewV7())); smaller.called != 0 {
+	if _, err = uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &newID, uuid.Must(uuid.NewV7()), false); smaller.called != 0 {
 		t.Fatalf("not checked: %d calls, %v", smaller.called, err)
 	}
 }

@@ -6767,7 +6767,7 @@ const docTemplate = `{
         },
         "/events/{id}/manage/exercises/{exerciseID}/update": {
             "post": {
-                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.",
+                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.\nTeams that were already prepared move to the new version: their assignments are re-pinned and their stand Labs recreated from it. Labs of a stage that is not running yet (or of an event that has not started) are recreated silently. If the set's stage is running, nothing is changed and 409 (71813) lists the affected teams (ID, Name) in status.context.teams; repeat with RecreateStands=true to recreate their Labs (teams lose lab access until the new Labs are ready). A finished event keeps its Labs.",
                 "consumes": [
                     "application/json"
                 ],
@@ -22563,6 +22563,10 @@ const docTemplate = `{
                 "BoardOrder": {
                     "type": "integer"
                 },
+                "EffectivePoints": {
+                    "description": "EffectivePoints is what teams see and score: the event's static value when the task follows a static event, else Points.",
+                    "type": "integer"
+                },
                 "GroupID": {
                     "type": "string"
                 },
@@ -24944,6 +24948,10 @@ const docTemplate = `{
                 "ExerciseVersionID": {
                     "description": "ExerciseVersionID nil = the exercise's latest published version.",
                     "type": "string"
+                },
+                "RecreateStands": {
+                    "description": "RecreateStands confirms recreating the stand Labs of teams whose stage is already running.",
+                    "type": "boolean"
                 }
             }
         },

@@ -39,6 +39,10 @@ func (u *EventUseCase) ListEventChallenges(ctx context.Context, eventID, eventEx
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list event challenge prerequisites").Err()
 	}
+	e, err := u.events.GetByID(ctx, eventID)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
 	items := make([]EventChallengeView, 0, len(rows))
 	for _, row := range rows {
 		prerequisiteIDs := prerequisites[row.ID]
@@ -46,6 +50,7 @@ func (u *EventUseCase) ListEventChallenges(ctx context.Context, eventID, eventEx
 			prerequisiteIDs = []uuid.UUID{}
 		}
 		view := toEventChallengeView(row, prerequisiteIDs)
+		view.EffectivePoints = e.EffectiveStaticPoints(row.Points, row.ScoringOverride)
 		if status, found := availability[row.ID]; found {
 			view.Availability = ChallengeAvailability{Preparing: status.Preparing, Ready: status.Ready, Available: status.Available, Failed: status.Failed, Total: status.Total}
 		}
@@ -158,7 +163,13 @@ func (u *EventUseCase) UpdateEventChallenge(ctx context.Context, eventID, eventE
 		}
 		return EventChallengeView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to update event challenge").Err()
 	}
-	return toEventChallengeView(updated), nil
+	view := toEventChallengeView(updated)
+	e, err := u.events.GetByID(ctx, eventID)
+	if err != nil {
+		return EventChallengeView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	view.EffectivePoints = e.EffectiveStaticPoints(updated.Points, updated.ScoringOverride)
+	return view, nil
 }
 
 // publishReadyBoardChallenge makes a manager's board-publish action effective

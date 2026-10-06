@@ -605,6 +605,8 @@ type eventExerciseForkResponse struct {
 type updateEventExerciseRequest struct {
 	// ExerciseVersionID nil = the exercise's latest published version.
 	ExerciseVersionID *uuid.UUID `json:"ExerciseVersionID"`
+	// RecreateStands confirms recreating the stand Labs of teams whose stage is already running.
+	RecreateStands bool `json:"RecreateStands"`
 }
 
 type hintCostRequest struct {
@@ -679,13 +681,15 @@ type publishedExercisePreviewResponse struct {
 }
 
 type eventChallengeResponse struct {
-	ID              uuid.UUID               `json:"ID"`
-	TaskID          uuid.UUID               `json:"TaskID"`
-	GroupID         *uuid.UUID              `json:"GroupID"`
-	PrerequisiteIDs []uuid.UUID             `json:"PrerequisiteIDs"`
-	Order           int32                   `json:"Order"`
-	BoardOrder      *int32                  `json:"BoardOrder"`
-	Points          int32                   `json:"Points"`
+	ID              uuid.UUID   `json:"ID"`
+	TaskID          uuid.UUID   `json:"TaskID"`
+	GroupID         *uuid.UUID  `json:"GroupID"`
+	PrerequisiteIDs []uuid.UUID `json:"PrerequisiteIDs"`
+	Order           int32       `json:"Order"`
+	BoardOrder      *int32      `json:"BoardOrder"`
+	Points          int32       `json:"Points"`
+	// EffectivePoints is what teams see and score: the event's static value when the task follows a static event, else Points.
+	EffectivePoints int32                   `json:"EffectivePoints"`
 	ScoringOverride *scoringProfileResponse `json:"ScoringOverride"`
 	HintsEnabled    bool                    `json:"HintsEnabled"`
 	// MaxFlagAttempts is the task's own limit of wrong submissions per team; null = the event's value.
@@ -955,7 +959,7 @@ func toEventChallengeResponse(v eventUseCase.EventChallengeView) eventChallengeR
 		override = &scoringProfileResponse{Mode: int16(p.Mode), MinPoints: p.MinPoints, MaxPoints: p.MaxPoints, FloorAtPercent: p.FloorAtPercent}
 	}
 	availability := v.Availability
-	return eventChallengeResponse{ID: v.ID, TaskID: v.TaskID, GroupID: v.GroupID, PrerequisiteIDs: v.PrerequisiteIDs, Order: v.Order, BoardOrder: v.BoardOrder, Points: v.Points, ScoringOverride: override, HintsEnabled: v.HintsEnabled, MaxFlagAttempts: v.MaxFlagAttempts, Published: v.Published, Availability: challengeAvailabilityResponse{Preparing: availability.Preparing, Ready: availability.Ready, Available: availability.Available, Failed: availability.Failed, Total: availability.Total}, Snapshot: v.Snapshot, Hints: toChallengeHintResponses(v.Hints)}
+	return eventChallengeResponse{ID: v.ID, TaskID: v.TaskID, GroupID: v.GroupID, PrerequisiteIDs: v.PrerequisiteIDs, Order: v.Order, BoardOrder: v.BoardOrder, Points: v.Points, EffectivePoints: v.EffectivePoints, ScoringOverride: override, HintsEnabled: v.HintsEnabled, MaxFlagAttempts: v.MaxFlagAttempts, Published: v.Published, Availability: challengeAvailabilityResponse{Preparing: availability.Preparing, Ready: availability.Ready, Available: availability.Available, Failed: availability.Failed, Total: availability.Total}, Snapshot: v.Snapshot, Hints: toChallengeHintResponses(v.Hints)}
 }
 
 func toChallengeHintResponses(hints []eventUseCase.ChallengeHintView) []challengeHintResponse {

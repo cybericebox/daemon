@@ -111,3 +111,25 @@ func TestDynamicProfileMayDecayToZero(t *testing.T) {
 		}
 	}
 }
+
+func TestEffectiveStaticPoints(t *testing.T) {
+	static := int32(100)
+	local := ScoringProfile{Mode: ScoringTimeDecay}
+	staticEvent := Event{ScoringProfile: ScoringProfile{Mode: ScoringStatic}, StaticPoints: &static}
+	for _, tc := range []struct {
+		name  string
+		event Event
+		local *ScoringProfile
+		want  int32
+	}{
+		{"task follows a static event", staticEvent, nil, 100},
+		{"task with its own profile keeps its points", staticEvent, &local, 250},
+		{"forced event scoring overrides the task profile", Event{ScoringProfile: staticEvent.ScoringProfile, StaticPoints: &static, ForceEventScoring: true}, &local, 100},
+		{"dynamic event keeps the task points", Event{ScoringProfile: ScoringProfile{Mode: ScoringTimeDecay}, StaticPoints: &static}, nil, 250},
+		{"no event static value keeps the task points", Event{ScoringProfile: ScoringProfile{Mode: ScoringStatic}}, nil, 250},
+	} {
+		if got := tc.event.EffectiveStaticPoints(250, tc.local); got != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}

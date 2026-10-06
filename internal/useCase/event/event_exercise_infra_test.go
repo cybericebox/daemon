@@ -55,7 +55,7 @@ func TestUpdateEventExercise_RefusesVersionAddingInfrastructure(t *testing.T) {
 	q.EXPECT().IsExerciseAvailableToEvent(gomock.Any(), gomock.Any()).Return(true, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
 
-	_, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &versionID, uuid.Must(uuid.NewV7()))
+	_, err := uc.UpdateEventExercise(context.Background(), eventID, attachmentID, &versionID, uuid.Must(uuid.NewV7()), false)
 	if !errors.Is(err, eventExerciseModel.ErrEventExerciseInfrastructureNotAllowed.Err()) || unit.saved {
 		t.Fatalf("want ErrEventExerciseInfrastructureNotAllowed without saving, got %v", err)
 	}

@@ -563,7 +563,10 @@ type EventChallengeView struct {
 	PrerequisiteIDs []uuid.UUID
 	Order           int32
 	BoardOrder      *int32
+	// Points is the task's own value; EffectivePoints is what teams see and
+	// score: the event's static value when the task follows a static event.
 	Points          int32
+	EffectivePoints int32
 	ScoringOverride *eventModel.ScoringProfile
 	HintsEnabled    bool
 	// MaxFlagAttempts is the task's own limit; nil uses the event's.

@@ -208,7 +208,7 @@ func (s *Seeder) buildBoard(ctx context.Context, eventID, by uuid.UUID, exercise
 				return fmt.Errorf("attach %q: %w", item.Spec.Name, err)
 			}
 		case link.ExerciseVersionID != item.VersionID:
-			if link, err = s.eventUC.UpdateEventExercise(ctx, eventID, link.ID, nil, by); err != nil {
+			if link, err = s.eventUC.UpdateEventExercise(ctx, eventID, link.ID, nil, by, false); err != nil {
 				return fmt.Errorf("update attachment of %q: %w", item.Spec.Name, err)
 			}
 		}
