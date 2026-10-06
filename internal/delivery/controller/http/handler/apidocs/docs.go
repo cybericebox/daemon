@@ -23672,7 +23672,7 @@ const docTemplate = `{
         "event.moderatorsLabLinkResponse": {
             "type": "object",
             "properties": {
-                "expires_at": {
+                "expiresAt": {
                     "type": "string"
                 },
                 "url": {

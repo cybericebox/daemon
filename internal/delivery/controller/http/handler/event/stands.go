@@ -340,8 +340,8 @@ type moderatorsLabLinkRequest struct {
 }
 
 type moderatorsLabLinkResponse struct {
-	URL       string    `json:"url"`
-	ExpiresAt time.Time `json:"expires_at"`
+	URL       string
+	ExpiresAt time.Time
 }
 
 // moderatorsLabLink godoc

@@ -1583,7 +1583,7 @@ definitions:
     type: object
   event.moderatorsLabLinkResponse:
     properties:
-      expires_at:
+      expiresAt:
         type: string
       url:
         type: string
