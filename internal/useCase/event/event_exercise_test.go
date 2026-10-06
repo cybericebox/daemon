@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
+
+	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/mock/gomock"
 
@@ -380,11 +383,30 @@ func TestUpdateEventChallengeRelations_RejectsCycle(t *testing.T) {
 	q.EXPECT().ListEventChallengePrerequisites(gomock.Any(), secondID).Return([]uuid.UUID{firstID}, nil)
 
 	err := uc.UpdateEventChallengeRelations(context.Background(), eventID, attachmentID, firstID, event.UpdateEventChallengeRelationsInput{PrerequisiteIDs: []uuid.UUID{secondID}})
-	if err == nil {
-		t.Fatal("expected prerequisite cycle to be rejected")
+	if !errors.Is(err, eventChallengeModel.ErrEventChallengePrerequisitesCycle.Err()) {
+		t.Fatalf("expected the prerequisite cycle error, got %v", err)
 	}
 	if unit.saved {
 		t.Fatal("cyclic prerequisite transaction was saved")
+	}
+}
+
+func TestSubmitChallenge_UnknownChallengeIsNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	eventID, userID, teamID, challengeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Now()
+	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}, CreatedAt: now}, nil).AnyTimes()
+	q.EXPECT().ReserveRequestIdempotency(gomock.Any(), gomock.Any()).Return([]postgres.RequestIdempotency{{}}, nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil).AnyTimes()
+	q.EXPECT().GetTeamChallenge(gomock.Any(), postgres.GetTeamChallengeParams{EventTeamID: teamID, EventChallengeID: challengeID}).Return(postgres.GetTeamChallengeRow{}, pgx.ErrNoRows)
+	q.EXPECT().CreateEventActivity(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	_, err := uc.SubmitChallenge(context.Background(), eventID, userID, challengeID, event.SubmitChallengeInput{Answer: "ICE{x}", IdempotencyKey: uuid.Must(uuid.NewV7()), ReceivedAt: now})
+	if !errors.Is(err, eventChallengeModel.ErrEventChallengeNotFound.Err()) || unit.saved {
+		t.Fatalf("err=%v saved=%v, want challenge not found", err, unit.saved)
 	}
 }
 
