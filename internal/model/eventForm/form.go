@@ -321,7 +321,7 @@ func (f Form) validateAnswers(answers map[string]any, tolerate func(key string) 
 		}
 		value, submitted := answers[block.Key]
 		if block.Required && !block.StaffOnly && (!submitted || empty(value)) && (tolerate == nil || !tolerate(block.Key)) {
-			return fmt.Errorf("required field %q is missing", block.Key)
+			return &RequiredFieldError{Key: block.Key}
 		}
 		if submitted {
 			if err := validateValue(block, value); err != nil {
@@ -334,6 +334,13 @@ func (f Form) validateAnswers(answers map[string]any, tolerate func(key string) 
 		}
 	}
 	return nil
+}
+
+// RequiredFieldError says a visible required question has no answer.
+type RequiredFieldError struct{ Key string }
+
+func (e *RequiredFieldError) Error() string {
+	return fmt.Sprintf("required field %q is missing", e.Key)
 }
 
 // BlocksParticipation reports only the event-level onboarding gate. An

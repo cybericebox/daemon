@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	"sync"
 	"time"
 
 	"github.com/cybericebox/laboratory/pkg/vpnprobe"
@@ -127,7 +128,12 @@ func (u *EventUseCase) requireOwnAvailableChallenge(ctx context.Context, eventID
 // returns a complete WireGuard config only at creation time;
 // later reads intentionally redact the private key, so the encrypted control
 // plane copy is the authoritative reusable credential.
+//
+// Calls for one person are serialized and re-read the store under the lock, so concurrent syncs
+// create one client; an agent client without a stored config is recreated by the agent adapter.
 func ensureParticipantVPNConfig(ctx context.Context, store VPNStore, infra Infrastructure, group string, eventID, userID uuid.UUID) (string, error) {
+	lock := participantVPNLocks.lock(eventID.String() + "/" + userID.String())
+	defer lock()
 	scopeRef := uuid.NullUUID{UUID: eventID, Valid: true}
 	existing, err := store.GetConfig(ctx, userID, vpnModel.ScopeEvent, scopeRef)
 	if err != nil {
@@ -241,4 +247,38 @@ func (u *EventUseCase) requireOwnVPNGroup(ctx context.Context, eventID, userID u
 
 func participantLabClientName(userID uuid.UUID) string {
 	return labBindingModel.ParticipantClientName(userID)
+}
+
+// participantVPNLocks serializes the client provisioning of one participant within this process.
+var participantVPNLocks = keyedLocks{held: map[string]*keyedLock{}}
+
+type keyedLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+type keyedLocks struct {
+	mu   sync.Mutex
+	held map[string]*keyedLock
+}
+
+// lock takes the lock of key and returns its release.
+func (k *keyedLocks) lock(key string) func() {
+	k.mu.Lock()
+	l := k.held[key]
+	if l == nil {
+		l = &keyedLock{}
+		k.held[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(k.held, key)
+		}
+		k.mu.Unlock()
+	}
 }

@@ -48,6 +48,8 @@ type fakeAgent struct {
 	listSelector                                 string
 	renewCSR, rotateKeyID, rotatePub, removedKey string
 	keyErr                                       error
+	// clientGone makes Create answer EXISTS (without a config) until the client is deleted.
+	clientExists bool
 }
 
 func (f *fakeAgent) Close() error { return nil }
@@ -110,6 +112,11 @@ func (f *fakeAgent) CreateLabGroupClients(_ context.Context, in *labpb.CreateLab
 	out := &labpb.CreateLabGroupClientsResponse{}
 	for _, item := range in.GetItems() {
 		r := &labpb.LabGroupClientResult{Result: f.result(&labpb.ItemRef{LabGroup: item.GetLabGroup(), Name: item.GetName()})}
+		if f.clientExists {
+			r.Result.State = labpb.ItemState_ITEM_STATE_EXISTS
+			out.Results = append(out.Results, r)
+			continue
+		}
 		if f.state() == labpb.ItemState_ITEM_STATE_CREATED {
 			r.Client = &labpb.LabGroupClient{Status: &labpb.LabGroupClientStatus{Config: f.clientCfg}}
 		}
@@ -159,6 +166,7 @@ func (f *fakeAgent) DeleteLabs(_ context.Context, in *labpb.DeleteRequest, _ ...
 	return f.record("lab", in), f.callErr
 }
 func (f *fakeAgent) DeleteLabGroupClients(_ context.Context, in *labpb.DeleteRequest, _ ...grpc.CallOption) (*labpb.BatchResult, error) {
+	f.clientExists = false
 	return f.record("client", in), f.callErr
 }
 
@@ -315,9 +323,16 @@ func TestEnsureLabClientReturnsTheOneTimeConfigFromCreateOnly(t *testing.T) {
 	if err != nil || config != "full-config-with-private-key" {
 		t.Fatalf("config=%q err=%v", config, err)
 	}
-	f = &fakeAgent{groups: readyGroup(), itemState: labpb.ItemState_ITEM_STATE_EXISTS}
-	if _, err = newClient(f).EnsureLabClient(context.Background(), "event-team", "p-user"); err == nil || !strings.Contains(err.Error(), "already exists") {
-		t.Fatalf("an existing client cannot give its config again: %v", err)
+}
+
+func TestEnsureLabClientRecreatesAClientWhoseConfigWasLost(t *testing.T) {
+	f := &fakeAgent{groups: readyGroup(), clientCfg: "fresh-config", clientExists: true}
+	config, err := newClient(f).EnsureLabClient(context.Background(), "event-team", "p-user")
+	if err != nil || config != "fresh-config" {
+		t.Fatalf("config=%q err=%v", config, err)
+	}
+	if f.deleted["client"] == nil {
+		t.Fatal("the stale client must be deleted before it is created again")
 	}
 }
 

@@ -184,31 +184,50 @@ func (c *Client) GetVPNClientSubnet(ctx context.Context, group string) (string, 
 // config. Event runtime callers derive the name from a participant id, so no two people ever
 // receive the shared test-deploy "tester" credential. The agent returns the private key only in
 // the answer of the create call: a client that already exists cannot give its config again.
+//
+// A client that already exists (its config was lost before the caller stored it) is deleted and
+// created again, so its new private key is the one returned. The caller serializes calls per client.
 func (c *Client) EnsureLabClient(ctx context.Context, group, client string) (string, error) {
 	if err := c.awaitGroupNamespace(ctx, group); err != nil {
 		return "", err
 	}
+	config, exists, err := c.createLabClient(ctx, group, client)
+	if err != nil || !exists {
+		return config, err
+	}
+	if err = c.DeleteLabClient(ctx, group, client); err != nil {
+		return "", err
+	}
+	config, exists, err = c.createLabClient(ctx, group, client)
+	if err == nil && exists {
+		err = fmt.Errorf("VPN client %q still exists after it was deleted", client)
+	}
+	return config, err
+}
+
+// createLabClient creates the client once; exists says it was already there and gave no config.
+func (c *Client) createLabClient(ctx context.Context, group, client string) (config string, exists bool, err error) {
 	res, err := c.CreateLabGroupClients(ctx, &labpb.CreateLabGroupClientsRequest{
 		Labels: c.requestLabels(),
 		Items:  []*labpb.LabGroupClientItem{{LabGroup: group, Name: client}},
 	})
 	if err != nil {
-		return "", agentErr("create lab group client", err)
+		return "", false, agentErr("create lab group client", err)
 	}
 	if len(res.GetResults()) != 1 {
-		return "", fmt.Errorf("create lab group client: %d results for 1 item", len(res.GetResults()))
+		return "", false, fmt.Errorf("create lab group client: %d results for 1 item", len(res.GetResults()))
 	}
 	item := res.GetResults()[0]
 	switch item.GetResult().GetState() {
 	case labpb.ItemState_ITEM_STATE_CREATED:
 		if item.GetClient().GetStatus().GetConfig() == "" {
-			return "", fmt.Errorf("VPN client %q was created without a configuration", client)
+			return "", false, fmt.Errorf("VPN client %q was created without a configuration", client)
 		}
-		return item.GetClient().GetStatus().GetConfig(), nil
+		return item.GetClient().GetStatus().GetConfig(), false, nil
 	case labpb.ItemState_ITEM_STATE_EXISTS, labpb.ItemState_ITEM_STATE_UPDATED:
-		return "", fmt.Errorf("VPN client %q already exists and its private configuration cannot be recovered", client)
+		return "", true, nil
 	default:
-		return "", oneResult("create lab group client", []*labpb.ItemResult{item.GetResult()})
+		return "", false, oneResult("create lab group client", []*labpb.ItemResult{item.GetResult()})
 	}
 }
 

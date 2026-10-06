@@ -63,7 +63,7 @@ func (u *EventUseCase) UpdateOwnParticipantAnswers(ctx context.Context, eventID,
 		}
 	}
 	if err = validate(bound.values); err != nil {
-		return OwnParticipantAnswersView{}, participantModel.ErrParticipantAnswersInvalid.WithMessage(err.Error()).Err()
+		return OwnParticipantAnswersView{}, participantAnswersError(err)
 	}
 	saved, err := u.forms.SaveAnswer(ctx, eventFormRepo.Answer{EventID: eventID, UserID: userID, FormVersionID: state.form.ID, Values: bound.values, SubmittedAt: time.Now().UTC()})
 	if err != nil {

@@ -103,7 +103,7 @@ func TestUpdateOwnParticipantAnswersRejections(t *testing.T) {
 	}{
 		{name: "non-editable change", answers: map[string]any{"school": "LNU"}, want: participantModel.ErrParticipantFieldNotEditable.Err()},
 		{name: "after the effective finish", finished: true, answers: map[string]any{"city": "Lviv"}, want: participantModel.ErrParticipantFieldsLocked.Err()},
-		{name: "invalid merged answers", answers: map[string]any{"city": ""}, want: participantModel.ErrParticipantAnswersInvalid.Err()},
+		{name: "invalid merged answers", answers: map[string]any{"city": ""}, want: participantModel.ErrParticipantFieldRequired.Err()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newAnswersFixture(t, participantModel.StatusApproved, tc.finished)
