@@ -247,6 +247,7 @@ type AttachExerciseInput struct {
 
 type ReplaceEventExerciseInput struct {
 	ExerciseVersionID uuid.UUID
+	RecreateStands    bool
 }
 
 // UpdateEventChallengeInput: visibility is per set, not per task.

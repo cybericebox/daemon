@@ -49,7 +49,7 @@ type standUpdateFixture struct {
 
 // newStandUpdateFixture prepares one team with a ready stand Lab of the set whose update is asked for. started
 // says whether the event is running; stageOpensIn, when set, puts the set into a stage that opens that long from now.
-func newStandUpdateFixture(t *testing.T, started bool, stageOpensIn *time.Duration) *standUpdateFixture {
+func newStandUpdateFixture(t *testing.T, started bool, stageOpensIn *time.Duration, exerciseOptions ...func(*standUpdateFixture, *postgres.Exercise)) *standUpdateFixture {
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
@@ -85,7 +85,11 @@ func newStandUpdateFixture(t *testing.T, started bool, stageOpensIn *time.Durati
 		LabGroupName: "e-group", LabName: "x-set-v0", Generation: 2, Readiness: int16(labBindingModel.ReadinessReady), CreatedAt: now}
 
 	q.EXPECT().GetEventExerciseByID(gomock.Any(), gomock.Any()).Return(link, nil).AnyTimes()
-	q.EXPECT().GetExerciseByID(gomock.Any(), exerciseID).Return(postgres.Exercise{ID: exerciseID, Name: "Web"}, nil).AnyTimes()
+	exercise := postgres.Exercise{ID: exerciseID, Name: "Web"}
+	for _, option := range exerciseOptions {
+		option(f, &exercise)
+	}
+	q.EXPECT().GetExerciseByID(gomock.Any(), exerciseID).Return(exercise, nil).AnyTimes()
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), f.nextID).Return(version(f.nextID, "New"), nil).AnyTimes()
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), previousID).Return(version(previousID, "Old"), nil).AnyTimes()
 	q.EXPECT().IsExerciseAvailableToEvent(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
@@ -190,4 +194,48 @@ func TestUpdateEventExercise_OpenStageStandsNeedConfirmation(t *testing.T) {
 	if !errors.Is(err, eventExerciseModel.ErrEventExerciseStandsRunning.Err()) || f.unit.saved {
 		t.Fatalf("want ErrEventExerciseStandsRunning without saving, got %v", err)
 	}
+}
+
+func TestForkEventExercise_RunningStandsNeedConfirmation(t *testing.T) {
+	f := newStandUpdateFixture(t, true, nil)
+	f.q.EXPECT().FindEventFork(gomock.Any(), gomock.Any()).Return(postgres.Exercise{ID: uuid.Must(uuid.NewV7()), PublishedVersionID: uuid.NullUUID{UUID: f.nextID, Valid: true}}, nil).AnyTimes()
+	by := uuid.Must(uuid.NewV7())
+	_, err := f.uc.ForkEventExercise(context.Background(), f.eventID, f.attachmentID, by, false)
+	if !errors.Is(err, eventExerciseModel.ErrEventExerciseStandsRunning.Err()) || f.unit.saved || f.recreated != nil {
+		t.Fatalf("want ErrEventExerciseStandsRunning without changes, got %v", err)
+	}
+	if _, err = f.uc.ForkEventExercise(context.Background(), f.eventID, f.attachmentID, by, true); err != nil {
+		t.Fatalf("ForkEventExercise confirmed: %v", err)
+	}
+	f.requireRecreated(t)
+}
+
+func TestRevertEventExercise_StandsFollowTheRule(t *testing.T) {
+	asFork := func(f *standUpdateFixture, e *postgres.Exercise) {
+		e.Scope = int16(exerciseModel.ScopeEvent)
+		e.ForkedFromExerciseID = uuid.NullUUID{UUID: uuid.Must(uuid.NewV7()), Valid: true}
+		e.ForkedFromVersionID = uuid.NullUUID{UUID: f.nextID, Valid: true}
+	}
+	by := uuid.Must(uuid.NewV7())
+	f := newStandUpdateFixture(t, true, nil, asFork)
+	_, err := f.uc.RevertEventExercise(context.Background(), f.eventID, f.attachmentID, by, false)
+	if !errors.Is(err, eventExerciseModel.ErrEventExerciseStandsRunning.Err()) || f.unit.saved || f.recreated != nil {
+		t.Fatalf("want ErrEventExerciseStandsRunning without changes, got %v", err)
+	}
+	if _, err = f.uc.RevertEventExercise(context.Background(), f.eventID, f.attachmentID, by, true); err != nil {
+		t.Fatalf("RevertEventExercise confirmed: %v", err)
+	}
+	f.requireRecreated(t)
+}
+
+func TestReplaceEventExercise_RunningStandsNeedConfirmation(t *testing.T) {
+	f := newStandUpdateFixture(t, true, nil)
+	_, err := f.uc.ReplaceEventExercise(context.Background(), f.eventID, f.attachmentID, event.ReplaceEventExerciseInput{ExerciseVersionID: f.nextID}, uuid.Must(uuid.NewV7()))
+	if !errors.Is(err, eventExerciseModel.ErrEventExerciseStandsRunning.Err()) || f.unit.saved {
+		t.Fatalf("want ErrEventExerciseStandsRunning, got %v", err)
+	}
+	if _, err = f.uc.ReplaceEventExercise(context.Background(), f.eventID, f.attachmentID, event.ReplaceEventExerciseInput{ExerciseVersionID: f.nextID, RecreateStands: true}, uuid.Must(uuid.NewV7())); err != nil {
+		t.Fatalf("ReplaceEventExercise confirmed: %v", err)
+	}
+	f.requireRecreated(t)
 }

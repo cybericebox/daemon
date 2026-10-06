@@ -6552,7 +6552,10 @@ const docTemplate = `{
         },
         "/events/{id}/manage/exercises/{exerciseID}/fork": {
             "post": {
-                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.",
+                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.\nIf the version changes what prepared teams run, their stand Labs are recreated; while the set's stage is running this needs RecreateStands=true, else 409 (71813) lists the affected teams in status.context.teams (same as update).",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -6574,6 +6577,14 @@ const docTemplate = `{
                         "name": "exerciseID",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "confirmation to recreate running stands",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/event.recreateStandsRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -6626,7 +6637,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "corrected published exercise version",
+                        "description": "corrected published exercise version; RecreateStands confirms recreating the Labs of a running stage (409 71813 lists the teams otherwise)",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -6659,7 +6670,10 @@ const docTemplate = `{
         },
         "/events/{id}/manage/exercises/{exerciseID}/revert": {
             "post": {
-                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.",
+                "description": "On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) \"Not enough reserved resources, request an extension\" and nothing is switched. A change that does not grow the task is not checked.\nIf the version changes what prepared teams run, their stand Labs are recreated; while the set's stage is running this needs RecreateStands=true, else 409 (71813) lists the affected teams in status.context.teams (same as update).",
+                "consumes": [
+                    "application/json"
+                ],
                 "produces": [
                     "application/json"
                 ],
@@ -6681,6 +6695,14 @@ const docTemplate = `{
                         "name": "exerciseID",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "confirmation to recreate running stands",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/event.recreateStandsRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -24055,6 +24077,14 @@ const docTemplate = `{
                 }
             }
         },
+        "event.recreateStandsRequest": {
+            "type": "object",
+            "properties": {
+                "RecreateStands": {
+                    "type": "boolean"
+                }
+            }
+        },
         "event.reorderChallengeGroupsRequest": {
             "type": "object",
             "properties": {
@@ -24096,6 +24126,10 @@ const docTemplate = `{
             "properties": {
                 "ExerciseVersionID": {
                     "type": "string"
+                },
+                "RecreateStands": {
+                    "description": "RecreateStands confirms recreating the stand Labs of teams whose stage is already running.",
+                    "type": "boolean"
                 }
             }
         },

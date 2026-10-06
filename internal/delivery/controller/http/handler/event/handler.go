@@ -157,8 +157,8 @@ type (
 		GetPublishedExercisePreviewForEvent(ctx context.Context, eventID, versionID uuid.UUID, variant int) (eventUseCase.PublishedExercisePreview, error)
 		ReplaceEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, in eventUseCase.ReplaceEventExerciseInput, by uuid.UUID) (eventUseCase.EventExerciseView, error)
 		UpdateEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, versionID *uuid.UUID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
-		ForkEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID) (eventUseCase.EventExerciseView, error)
-		RevertEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID) (eventUseCase.EventExerciseView, error)
+		ForkEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
+		RevertEventExercise(ctx context.Context, eventID, eventExerciseID, by uuid.UUID, recreateStands bool) (eventUseCase.EventExerciseView, error)
 		DetachEventExercise(ctx context.Context, eventID, eventExerciseID uuid.UUID, confirmed bool, by uuid.UUID) error
 		UpdateChallengeHintCosts(ctx context.Context, eventID, eventExerciseID, challengeID uuid.UUID, costs []eventUseCase.HintCostInput) (eventUseCase.EventChallengeView, error)
 		ListHintUnlocks(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.HintUnlockView, error)
@@ -618,7 +618,7 @@ func (h *Handler) attachExercise(ctx *gin.Context) {
 // @Produce json
 // @Param id path string true "event ID"
 // @Param exerciseID path string true "event exercise attachment ID"
-// @Param body body replaceEventExerciseRequest true "corrected published exercise version"
+// @Param body body replaceEventExerciseRequest true "corrected published exercise version; RecreateStands confirms recreating the Labs of a running stage (409 71813 lists the teams otherwise)"
 // @Success 200 {object} response.Response{data=eventExerciseResponse}
 // @Router /events/{id}/manage/exercises/{exerciseID}/replace [post]
 func (h *Handler) replaceEventExercise(ctx *gin.Context) {
@@ -2026,13 +2026,28 @@ func (h *Handler) updateEventExercise(ctx *gin.Context) {
 	response.AbortWithData(ctx, toEventExerciseResponse(value))
 }
 
+// bindRecreateStands reads the optional body of fork and revert.
+func bindRecreateStands(ctx *gin.Context) (recreateStandsRequest, bool) {
+	var req recreateStandsRequest
+	if ctx.Request.ContentLength != 0 {
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return req, false
+		}
+	}
+	return req, true
+}
+
 // forkEventExercise godoc
 // @Summary «Налаштувати під захід»: switch to the event's own copy of the catalog exercise
 // @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
+// @Description If the version changes what prepared teams run, their stand Labs are recreated; while the set's stage is running this needs RecreateStands=true, else 409 (71813) lists the affected teams in status.context.teams (same as update).
 // @Tags events
+// @Accept json
 // @Produce json
 // @Param id path string true "event ID"
 // @Param exerciseID path string true "event exercise attachment ID"
+// @Param body body recreateStandsRequest false "confirmation to recreate running stands"
 // @Success 200 {object} response.Response{data=eventExerciseResponse}
 // @Router /events/{id}/manage/exercises/{exerciseID}/fork [post]
 func (h *Handler) forkEventExercise(ctx *gin.Context) {
@@ -2040,7 +2055,11 @@ func (h *Handler) forkEventExercise(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	value, err := h.useCase.ForkEventExercise(ctx, eventID, exerciseID, userID)
+	req, ok := bindRecreateStands(ctx)
+	if !ok {
+		return
+	}
+	value, err := h.useCase.ForkEventExercise(ctx, eventID, exerciseID, userID, req.RecreateStands)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -2051,18 +2070,25 @@ func (h *Handler) forkEventExercise(ctx *gin.Context) {
 // revertEventExercise godoc
 // @Summary «Повернути оригінал»: switch a fork attachment back to its catalog source
 // @Description On a running event whose lab task would ask for more per team (a version with larger devices, an event copy that is larger), the reservation must hold the new size for all teams, else 409 (72508) "Not enough reserved resources, request an extension" and nothing is switched. A change that does not grow the task is not checked.
+// @Description If the version changes what prepared teams run, their stand Labs are recreated; while the set's stage is running this needs RecreateStands=true, else 409 (71813) lists the affected teams in status.context.teams (same as update).
 // @Tags events
+// @Accept json
 // @Produce json
 // @Param id path string true "event ID"
 // @Param exerciseID path string true "event exercise attachment ID"
+// @Param body body recreateStandsRequest false "confirmation to recreate running stands"
 // @Success 200 {object} response.Response{data=eventExerciseResponse}
 // @Router /events/{id}/manage/exercises/{exerciseID}/revert [post]
 func (h *Handler) revertEventExercise(ctx *gin.Context) {
-	eventID, exerciseID, _, ok := parseEventExerciseParams(ctx)
+	eventID, exerciseID, userID, ok := parseEventExerciseParams(ctx)
 	if !ok {
 		return
 	}
-	value, err := h.useCase.RevertEventExercise(ctx, eventID, exerciseID)
+	req, ok := bindRecreateStands(ctx)
+	if !ok {
+		return
+	}
+	value, err := h.useCase.RevertEventExercise(ctx, eventID, exerciseID, userID, req.RecreateStands)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
