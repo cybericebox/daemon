@@ -134,6 +134,18 @@ func (a *standAgent) DeleteLab(_ context.Context, group, lab string) error {
 	return nil
 }
 
+func (a *standAgent) ListGroupLabs(_ context.Context, group string) ([]string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var out []string
+	for _, lab := range a.deployed {
+		if name, ok := strings.CutPrefix(lab, group+"/"); ok {
+			out = append(out, name)
+		}
+	}
+	return out, nil
+}
+
 func (a *standAgent) setAll(state map[string]bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -231,6 +231,9 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to delete team stand lab").Err()
 		}
 	}
+	if err = u.deleteStaleTeamLabs(ctx, teamID, labs, deleted); err != nil {
+		return StandTeamView{}, err
+	}
 	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
 	if err != nil {
 		return StandTeamView{}, err
@@ -274,6 +277,40 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 		return StandTeamView{}, err
 	}
 	return toStandTeamView(updated), nil
+}
+
+// deleteStaleTeamLabs removes the Labs of the team's group that no binding is going to use: the
+// recreate deletes the Labs it knows, and a Lab left from an earlier generation or a failed
+// deploy would otherwise stay in the group for good. The names the recreate moves the bindings
+// to and the ones just deleted are left alone, so a Lab deployed for them in the meantime is not touched.
+func (u *EventUseCase) deleteStaleTeamLabs(ctx context.Context, teamID uuid.UUID, labs []labBindingModel.Binding, deleted map[[2]string]struct{}) error {
+	lister, ok := u.infra.(standLabLister)
+	deleter, canDelete := u.infra.(standLabDeleter)
+	if !ok || !canDelete || len(labs) == 0 {
+		return nil
+	}
+	wanted := make(map[string]struct{}, len(labs))
+	for _, lab := range labs {
+		wanted[labBindingModel.NextLabName(lab.LabName, lab.Generation+1)] = struct{}{}
+	}
+	group := labs[0].LabGroupName
+	existing, err := lister.ListGroupLabs(ctx, group)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to list team stand labs").Err()
+	}
+	for _, name := range existing {
+		if _, keep := wanted[name]; keep {
+			continue
+		}
+		if _, done := deleted[[2]string{group, name}]; done {
+			continue
+		}
+		if err = deleter.DeleteLab(ctx, group, name); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to delete stale team stand lab").Err()
+		}
+		log.Info().Str("team_id", teamID.String()).Str("lab_group", group).Str("lab", name).Msg("Deleted a stale stand lab on recreate")
+	}
+	return nil
 }
 
 func (u *EventUseCase) standTeam(ctx context.Context, eventID, teamID uuid.UUID) (eventStandRepo.Team, error) {

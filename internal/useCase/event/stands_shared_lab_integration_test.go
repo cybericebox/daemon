@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 )
 
 // sharedSet is one exercise with three tasks on one variant that has two devices: the tasks' flags live on
@@ -224,6 +225,39 @@ func TestStandEngine_OneLabPerExerciseWithEveryTaskFlag(t *testing.T) {
 		if task.EventExerciseID == set.exerciseID && task.Reserved.Devices != 2 {
 			t.Fatalf("the set reserves %d devices per team, want its 2 (one Lab, not one per task)", task.Reserved.Devices)
 		}
+	}
+}
+
+// Recreate also removes a Lab of the team's group that no binding uses (left from an earlier generation).
+func TestStandEngine_RecreateDeletesStaleLabsOfTheGroup(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	f.attachSharedSet(t)
+	f.pass(t)
+	f.agent.setAll(f.agent.ready)
+	f.pass(t)
+	group, err := labBindingModel.GroupName(f.eventID, f.blueID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := "x-stale-v0-g1"
+	f.agent.mu.Lock()
+	f.agent.deployed = append(f.agent.deployed, group+"/"+stale)
+	f.agent.mu.Unlock()
+
+	if _, err := f.uc.RecreateTeamStand(ctx, f.eventID, f.blueID, uuid.Nil); err != nil {
+		t.Fatal(err)
+	}
+	f.agent.mu.Lock()
+	defer f.agent.mu.Unlock()
+	var staleDeleted int
+	for _, lab := range f.agent.deleted {
+		if lab == group+"/"+stale {
+			staleDeleted++
+		}
+	}
+	if staleDeleted != 1 {
+		t.Fatalf("the stale lab was deleted %d times, want once; deleted: %v", staleDeleted, f.agent.deleted)
 	}
 }
 

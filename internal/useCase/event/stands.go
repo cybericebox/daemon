@@ -42,6 +42,11 @@ type standLabDeleter interface {
 	DeleteLab(ctx context.Context, group, lab string) error
 }
 
+// standLabLister is the optional agent capability that finds Labs of a team group nobody wants any more.
+type standLabLister interface {
+	ListGroupLabs(ctx context.Context, group string) ([]string, error)
+}
+
 // ReconcileEventStands is the schedule-driven stand engine (River periodic
 // job). Every pass re-derives the complete desired state from the database:
 // the schedule follows lifecycle and setting changes without rescheduling,

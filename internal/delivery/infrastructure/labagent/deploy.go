@@ -305,6 +305,19 @@ func (c *Client) LabStatus(ctx context.Context, group, lab string) (exerciseMode
 	return status, nil
 }
 
+// ListGroupLabs names the Labs of one group. A group the agent does not know has none.
+func (c *Client) ListGroupLabs(ctx context.Context, group string) ([]string, error) {
+	list, err := c.ListLabs(ctx, &labpb.ListRequest{LabGroup: group})
+	if err != nil {
+		return nil, fmt.Errorf("list labs of group %q: %w", group, err)
+	}
+	out := make([]string, 0, len(list.GetItems()))
+	for _, l := range list.GetItems() {
+		out = append(out, l.GetName())
+	}
+	return out, nil
+}
+
 // DestroyLabGroup tears the whole deploy down: deleting the group cascades to its
 // lab, VPN clients and namespace. A group that is already gone is the desired state.
 func (c *Client) DestroyLabGroup(ctx context.Context, group string) error {
