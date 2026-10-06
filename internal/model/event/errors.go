@@ -73,7 +73,7 @@ var (
 					WithMessage("Infrastructure can be changed only before the event is published").WithDetailCode(40)
 	// ErrEventInfrastructureInUse: sets with infrastructure are still attached.
 	ErrEventInfrastructureInUse = err.ErrConflict.WithObjectCode(model.EventObjectCode).
-					WithMessage("Detach the sets that need infrastructure before turning it off").WithDetailCode(41)
+					WithMessage("Detach the exercises that need infrastructure before turning it off").WithDetailCode(41)
 
 	// Files attached to «Файл» questions of participant and team answers.
 	ErrAnswerFileFieldInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
@@ -109,9 +109,9 @@ var (
 	// ErrEventStageOpenedLocked: once a stage has opened, its opening time stays and nothing is removed from it.
 	ErrEventStageOpenedLocked = err.ErrConflict.WithObjectCode(model.EventObjectCode).
 					WithMessage("The stage has opened: nothing can be removed from it or moved out of it").WithDetailCode(49)
-	// ErrEventStageNotDeletable: only an upcoming stage without sets can be deleted.
+	// ErrEventStageNotDeletable: only an upcoming stage without exercises can be deleted.
 	ErrEventStageNotDeletable = err.ErrConflict.WithObjectCode(model.EventObjectCode).
-					WithMessage("Only an upcoming stage without sets can be deleted").WithDetailCode(50)
+					WithMessage("Only an upcoming stage without exercises can be deleted").WithDetailCode(50)
 	// ErrEventStageNeedsFinish: stages need a scheduled event finish.
 	ErrEventStageNeedsFinish = err.ErrConflict.WithObjectCode(model.EventObjectCode).
 					WithMessage("Stages need a scheduled event start and finish").WithDetailCode(51)
