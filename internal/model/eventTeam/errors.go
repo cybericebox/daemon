@@ -6,7 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// EventTeamObjectCode — next free detail code: 24
+// EventTeamObjectCode — next free detail code: 25
 var (
 	ErrEventTeamIdentityInvalid = err.ErrInvalidData.WithObjectCode(model.EventTeamObjectCode).
 					WithMessage("Event team event and captain identifiers are required").WithDetailCode(1)
@@ -54,4 +54,6 @@ var (
 					WithMessage("The team has fewer members than the event minimum and cannot be formed").WithDetailCode(22)
 	ErrEventTeamNotFormed = err.ErrConflict.WithObjectCode(model.EventTeamObjectCode).
 				WithMessage("The team is not formed yet: tasks and laboratories open after the captain confirms the roster").WithDetailCode(23)
+	ErrEventTeamLeaveLocked = err.ErrConflict.WithObjectCode(model.EventTeamObjectCode).
+				WithMessage("The team is formed: a member cannot leave it on their own, ask the captain or the organizers").WithDetailCode(24)
 )

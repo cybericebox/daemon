@@ -61,11 +61,11 @@ func TestParticipationMatrix(t *testing.T) {
 		}},
 		{"scheduled, not yet published", matrixLifecycle(t, eventModel.JoinPolicyLockedAtStart, hr, 2*hr, dur(5*hr), dur(6*hr)), map[string]string{
 			"guest": "nnnnnnnn", "signed-in": "nnnnnnnn", "pending": "nnnnnnnn", "rejected": "nnnnnnnn",
-			"approved-no-team": "nYYnnYnn", "member": "nnnYnYnn", "captain": "nnnnYYnn", "staff": "nnnnnnnn",
+			"approved-no-team": "nYYnnYnn", "member": "nnnnnYnn", "captain": "nnnnYYnn", "staff": "nnnnnnnn",
 		}},
 		{"published, before start", matrixLifecycle(t, eventModel.JoinPolicyLockedAtStart, -hr, hr, dur(5*hr), dur(6*hr)), map[string]string{
 			"guest": "nnnnnnnn", "signed-in": "Ynnnnnnn", "pending": "nnnnnnnn", "rejected": "nnnnnnnn",
-			"approved-no-team": "nYYnnYnn", "member": "nnnYnYnn", "captain": "nnnnYYnn", "staff": "nnnnnnnn",
+			"approved-no-team": "nYYnnYnn", "member": "nnnnnYnn", "captain": "nnnnYYnn", "staff": "nnnnnnnn",
 		}},
 		{"started, late join off", matrixLifecycle(t, eventModel.JoinPolicyLockedAtStart, -3*hr, -hr, dur(5*hr), dur(6*hr)), map[string]string{
 			"guest": "nnnnnnnn", "signed-in": "nnnnnnnn", "pending": "nnnnnnnn", "rejected": "nnnnnnnn",
@@ -73,7 +73,7 @@ func TestParticipationMatrix(t *testing.T) {
 		}},
 		{"started, late join on", matrixLifecycle(t, eventModel.JoinPolicyRolling, -3*hr, -hr, dur(5*hr), dur(6*hr)), map[string]string{
 			"guest": "nnnnnnnn", "signed-in": "Ynnnnnnn", "pending": "nnnnnnnn", "rejected": "nnnnnnnn",
-			"approved-no-team": "nYYnnYnn", "member": "nnnYnYYY", "captain": "nnnnYYYY", "staff": "nnnnnnnn",
+			"approved-no-team": "nYYnnYnn", "member": "nnnnnYYY", "captain": "nnnnYYYY", "staff": "nnnnnnnn",
 		}},
 		{"finished", matrixLifecycle(t, eventModel.JoinPolicyRolling, -5*hr, -4*hr, dur(-hr), dur(hr)), map[string]string{
 			"guest": "nnnnnnnn", "signed-in": "nnnnnnnn", "pending": "nnnnnnnn", "rejected": "nnnnnnnn",
@@ -193,6 +193,8 @@ func TestParticipationReasons(t *testing.T) {
 			func(s event.ParticipationState) event.Capability { return s.CreateTeam }, false, event.ReasonNotTeamEvent},
 		{"a captain hands over before leaving", event.ParticipationInput{Lifecycle: published, Registration: eventConfigModel.RegistrationOpen, Participation: &team, Actor: captainOf},
 			func(s event.ParticipationState) event.Capability { return s.LeaveTeam }, false, event.ReasonCaptainMustTransfer},
+		{"a member of a formed team cannot leave it", event.ParticipationInput{Lifecycle: published, Registration: eventConfigModel.RegistrationOpen, Participation: &team, Actor: event.ParticipationActor{Authenticated: true, Status: participantModel.StatusApproved, HasTeam: true, TeamFormed: true, TeamMembers: 3}},
+			func(s event.ParticipationState) event.Capability { return s.LeaveTeam }, false, event.ReasonTeamLeaveLocked},
 		{"a formed team cannot be disbanded", event.ParticipationInput{Lifecycle: startedRolling, Registration: eventConfigModel.RegistrationOpen, Participation: &team, Actor: event.ParticipationActor{Authenticated: true, Status: participantModel.StatusApproved, HasTeam: true, Captain: true, TeamFormed: true, TeamMembers: 3}},
 			func(s event.ParticipationState) event.Capability { return s.DisbandTeam }, false, event.ReasonTeamSwitchLocked},
 		{"a captain may still kick from a formed team (it removes the person from the event)", event.ParticipationInput{Lifecycle: startedRolling, Registration: eventConfigModel.RegistrationOpen, Participation: &team, Actor: event.ParticipationActor{Authenticated: true, Status: participantModel.StatusApproved, HasTeam: true, Captain: true, TeamFormed: true, TeamMembers: 3}},

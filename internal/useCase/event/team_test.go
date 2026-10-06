@@ -259,6 +259,36 @@ func TestLeaveTeam_RemovesNonCaptainAndDecrementsTeam(t *testing.T) {
 	}
 }
 
+// A member of a formed team cannot leave it alone: the roster is closed and nobody could come back. The
+// captain's kick stays (see the kick tests).
+func TestLeaveTeam_RefusedForFormedTeam(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	eventID := uuid.Must(uuid.NewV7())
+	teamID := uuid.Must(uuid.NewV7())
+	userID := uuid.Must(uuid.NewV7())
+	now := time.Now()
+	role := participantModel.TeamRoleMember
+
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rosterOpenEventRow(eventID, now), nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{
+		EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), TeamID: uuid.NullUUID{UUID: teamID, Valid: true}, TeamRole: pgtype.Int2{Int16: int16(role), Valid: true}, CreatedAt: now,
+	}, nil)
+	q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{EventID: eventID, ID: teamID}).Return(postgres.EventTeam{
+		ID: teamID, EventID: eventID, Name: "Blue Team", JoinCode: "secure-join-code", CaptainID: uuid.Must(uuid.NewV7()), MemberCount: 2,
+		FormedAt: pgtype.Timestamptz{Time: now, Valid: true}, CreatedAt: now, UpdatedAt: now,
+	}, nil)
+
+	if err := uc.LeaveTeam(context.Background(), eventID, userID); !errors.Is(err, eventTeamModel.ErrEventTeamLeaveLocked.Err()) {
+		t.Fatalf("LeaveTeam of a formed team = %v, want ErrEventTeamLeaveLocked", err)
+	}
+	if unit.saved {
+		t.Fatal("a refused leave must not commit")
+	}
+}
+
 func TestRemoveParticipantFromTeam_RequestsAccessPolicyReplacement(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
@@ -1012,6 +1042,13 @@ func TestFormedTeamRemovalLeavesTheEventAndNeverSwitches(t *testing.T) {
 					TeamID: uuid.NullUUID{UUID: teamID, Valid: true}, TeamRole: pgtype.Int2{Int16: int16(participantModel.TeamRoleMember), Valid: true}, CreatedAt: now,
 				}, nil).AnyTimes()
 				q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(formedTeamRow(teamID, eventID, captainID, now, formed), nil).AnyTimes()
+				if formed && name == "leave" {
+					// A member of a formed team cannot walk out alone (its roster is closed).
+					if err := act(uc, eventID, teamID); !errors.Is(err, eventTeamModel.ErrEventTeamLeaveLocked.Err()) {
+						t.Fatalf("leaving a formed team = %v, want ErrEventTeamLeaveLocked", err)
+					}
+					return
+				}
 				q.EXPECT().TryRemoveEventTeamMember(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 				q.EXPECT().ClearEventParticipantTeam(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 				if formed {

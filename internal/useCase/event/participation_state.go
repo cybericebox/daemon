@@ -46,7 +46,9 @@ const (
 	// the event has no late join, so the start forms every team by itself.
 	ReasonTeamFormed       ParticipationReason = "team_formed"
 	ReasonTeamSwitchLocked ParticipationReason = "team_switch_locked"
-	ReasonFormsAtStart     ParticipationReason = "forms_at_start"
+	// ReasonTeamLeaveLocked: a member of a formed team cannot leave it on their own.
+	ReasonTeamLeaveLocked ParticipationReason = "team_leave_locked"
+	ReasonFormsAtStart    ParticipationReason = "forms_at_start"
 	// ReasonTeamNotFormed: tasks open after the captain confirms the roster.
 	// ReasonBelowMinimum: the team is smaller than the event minimum.
 	ReasonTeamNotFormed ParticipationReason = "team_not_formed"
@@ -246,6 +248,9 @@ func ComputeParticipation(in ParticipationInput) ParticipationState {
 			return deny(ReasonNoTeam)
 		case a.Captain:
 			return deny(ReasonCaptainMustTransfer)
+		case a.TeamFormed:
+			// A formed team has a closed roster: a member does not leave on their own.
+			return deny(ReasonTeamLeaveLocked)
 		}
 		return allow()
 	}())
