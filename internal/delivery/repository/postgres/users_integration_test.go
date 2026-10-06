@@ -138,3 +138,26 @@ func TestUpdateUser_OptimisticLock(t *testing.T) {
 		t.Fatalf("first writer's data must survive, got %q", got.FirstName)
 	}
 }
+
+// The dashboard counts every account: a nil role filter (no filter) reaches SQL as NULL and must not
+// empty the result.
+func TestUsersCount_NilRolesCountsEveryAccount(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := userRepo.New(db.Queries)
+	for _, email := range []string{"a@count.test", "b@count.test", "c@count.test"} {
+		if _, err := db.Queries.CreateUser(ctx, postgres.CreateUserParams{
+			ID: uuid.Must(uuid.NewV7()), Email: email, Role: string(rbac.RoleUser), Status: string(userModel.UserStatusActive),
+		}); err != nil {
+			t.Fatalf("CreateUser: %v", err)
+		}
+	}
+	total, err := repo.Count(ctx, "", nil, "")
+	if err != nil || total != 3 {
+		t.Fatalf("Count without filters = %d, %v, want 3", total, err)
+	}
+	admins, err := repo.Count(ctx, "", []string{string(rbac.RoleAdmin)}, "")
+	if err != nil || admins != 0 {
+		t.Fatalf("Count of a role nobody has = %d, %v, want 0", admins, err)
+	}
+}
