@@ -46,6 +46,17 @@ type ownChallengeResponse struct {
 	StageID  *uuid.UUID `json:"StageID"`
 	Closed   bool       `json:"Closed"`
 	Practice bool       `json:"Practice"`
+	// AwardedPoints, HintPenalty and SolvedBy are null while the task is unsolved: the points the team holds for
+	// it now (after the hint penalty, the current value under dynamic scoring, 0 for a practice solve), the hint
+	// cost charged to the solve and the team member who submitted the accepted answer.
+	AwardedPoints *int32          `json:"AwardedPoints"`
+	HintPenalty   *int32          `json:"HintPenalty"`
+	SolvedBy      *solverResponse `json:"SolvedBy"`
+}
+
+type solverResponse struct {
+	UserID uuid.UUID `json:"UserID"`
+	Name   string    `json:"Name"`
 }
 
 type boardStageResponse struct {
@@ -322,7 +333,10 @@ func toOwnChallengeResponse(v eventUseCase.OwnChallengeView) ownChallengeRespons
 	out := ownChallengeResponse{ID: v.ID, EventChallengeID: v.EventChallengeID, Snapshot: v.Snapshot, Readiness: int16(v.Readiness), SolvedAt: v.SolvedAt, Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder,
 		ContentUpdatedAt: v.ContentUpdatedAt, Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, MaxAttempts: v.MaxAttempts, AttemptsLeft: v.AttemptsLeft, Locked: v.Locked, SolveCount: v.SolveCount, StageID: v.StageID, Closed: v.Closed, Practice: v.Practice,
 		Prerequisites: make([]challengePrerequisiteResponse, 0, len(v.Prerequisites)), Files: make([]challengeFileResponse, 0, len(v.Files)),
-		Hints: ToOwnHintResponses(v.Hints), HintCostTotal: v.HintCostTotal}
+		Hints: ToOwnHintResponses(v.Hints), HintCostTotal: v.HintCostTotal, AwardedPoints: v.AwardedPoints, HintPenalty: v.HintPenalty}
+	if v.SolvedBy != nil {
+		out.SolvedBy = &solverResponse{UserID: v.SolvedBy.UserID, Name: v.SolvedBy.Name}
+	}
 	for _, p := range v.Prerequisites {
 		out.Prerequisites = append(out.Prerequisites, challengePrerequisiteResponse{EventChallengeID: p.EventChallengeID, Name: p.Name, Solved: p.Solved})
 	}

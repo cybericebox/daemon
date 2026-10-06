@@ -24,15 +24,19 @@ func TestModeratorsBoardShowsPreparedChallengesUnlocked(t *testing.T) {
 	uc := newUC(q)
 	eventID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	ready, published, preparing := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	solvedID, solverID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, CreatedAt: time.Now()}, nil)
 	q.EXPECT().GetModeratorsTeam(gomock.Any(), eventID).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Moderators: true}, nil).Times(2)
 	full := []byte(`{"name":"Web","description":{"blocks":[]},"difficulty":1}`)
 	q.EXPECT().ListTeamBoardChallenges(gomock.Any(), gomock.Any()).Return([]postgres.ListTeamBoardChallengesRow{
 		{EventChallengeID: ready, Readiness: int16(teamChallengeModel.ReadinessReady), Snapshot: full},
-		{EventChallengeID: published, Readiness: int16(teamChallengeModel.ReadinessPublished), Published: true, Snapshot: full},
+		{ID: solvedID, EventChallengeID: published, Readiness: int16(teamChallengeModel.ReadinessPublished), Published: true, Snapshot: full},
 		{EventChallengeID: preparing, Readiness: int16(teamChallengeModel.ReadinessPreparing), Snapshot: full},
 	}, nil)
 	q.EXPECT().ListTeamChallengePrerequisites(gomock.Any(), teamID).Return([]postgres.ListTeamChallengePrerequisitesRow{{ChallengeID: ready, PrerequisiteChallengeID: published, Name: "Web"}}, nil)
+	q.EXPECT().ListTeamSolveAwards(gomock.Any(), teamID).Return([]postgres.ListTeamSolveAwardsRow{
+		{TeamChallengeID: solvedID, AwardedPoints: 90, HintPenalty: 10, SolverID: solverID, SolverName: "Ada"},
+	}, nil)
 	board, err := uc.ListModeratorsBoard(context.Background(), eventID)
 	if err != nil || len(board) != 2 {
 		t.Fatalf("board = %+v, %v", board, err)
@@ -43,6 +47,13 @@ func TestModeratorsBoardShowsPreparedChallengesUnlocked(t *testing.T) {
 	}
 	if !board[1].BoardPublished {
 		t.Fatalf("published challenge = %+v", board[1])
+	}
+	if board[0].AwardedPoints != nil || board[0].HintPenalty != nil || board[0].SolvedBy != nil {
+		t.Fatalf("an unsolved task has no award: %+v", board[0])
+	}
+	if board[1].AwardedPoints == nil || *board[1].AwardedPoints != 90 || *board[1].HintPenalty != 10 ||
+		board[1].SolvedBy == nil || board[1].SolvedBy.UserID != solverID || board[1].SolvedBy.Name != "Ada" {
+		t.Fatalf("a solved task shows its award and solver: %+v", board[1])
 	}
 }
 

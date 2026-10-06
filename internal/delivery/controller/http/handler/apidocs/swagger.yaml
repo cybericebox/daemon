@@ -611,6 +611,13 @@ definitions:
       Solved:
         type: boolean
     type: object
+  event.boardSolverResponse:
+    properties:
+      Name:
+        type: string
+      UserID:
+        type: string
+    type: object
   event.bulkUpdateChallengeScoringRequest:
     properties:
       ChallengeIDs:
@@ -1519,6 +1526,10 @@ definitions:
     type: object
   event.moderatorsBoardItemResponse:
     properties:
+      AwardedPoints:
+        description: AwardedPoints, HintPenalty and SolvedBy are null while the task
+          is unsolved (see the participant board).
+        type: integer
       BoardPublished:
         type: boolean
       ContentUpdatedAt:
@@ -1534,6 +1545,8 @@ definitions:
       GroupName:
         type: string
       GroupOrder:
+        type: integer
+      HintPenalty:
         type: integer
       Hints:
         description: 'Hints: every text is revealed on the moderators board.'
@@ -1564,6 +1577,8 @@ definitions:
         type: integer
       SolvedAt:
         type: string
+      SolvedBy:
+        $ref: '#/definitions/event.boardSolverResponse'
     type: object
   event.moderatorsChallengeResponse:
     properties:
@@ -4456,6 +4471,12 @@ definitions:
     properties:
       AttemptsLeft:
         type: integer
+      AwardedPoints:
+        description: |-
+          AwardedPoints, HintPenalty and SolvedBy are null while the task is unsolved: the points the team holds for
+          it now (after the hint penalty, the current value under dynamic scoring, 0 for a practice solve), the hint
+          cost charged to the solve and the team member who submitted the accepted answer.
+        type: integer
       Closed:
         type: boolean
       ContentUpdatedAt:
@@ -4473,6 +4494,8 @@ definitions:
       GroupOrder:
         type: integer
       HintCostTotal:
+        type: integer
+      HintPenalty:
         type: integer
       Hints:
         description: 'Hints (hints enabled): Content only once the team unlocked the
@@ -4516,6 +4539,8 @@ definitions:
         type: integer
       SolvedAt:
         type: string
+      SolvedBy:
+        $ref: '#/definitions/eventself.solverResponse'
       StageID:
         description: |-
           StageID is the stage of the task's set (null: the whole event). Closed: the stage closed and is not
@@ -4922,6 +4947,13 @@ definitions:
   eventself.setPseudonymRequest:
     properties:
       Pseudonym:
+        type: string
+    type: object
+  eventself.solverResponse:
+    properties:
+      Name:
+        type: string
+      UserID:
         type: string
     type: object
   eventself.standStatusResponse:

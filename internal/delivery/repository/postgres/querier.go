@@ -1215,6 +1215,10 @@ type Querier interface {
 	// Includes balance-mode hint penalties (negative points) so the running
 	// total matches the scoreboard.
 	ListTeamScoreTimeline(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamScoreTimelineRow, error)
+	// Per solved task of the team (rated or practice): the points the team holds for it now (the solve reward after
+	// hints, with balance-mode penalties; 0 for a practice solve, which is never rated), the hint cost charged to the
+	// solve and the member who submitted the first accepted answer.
+	ListTeamSolveAwards(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamSolveAwardsRow, error)
 	// Which of the given LabGroup names still hold at least one test deploy row, expired or not
 	// (an expired row is cleaned up by the test deploy job, not by the sweep).
 	ListTestDeployGroupNames(ctx context.Context, names []string) ([]string, error)

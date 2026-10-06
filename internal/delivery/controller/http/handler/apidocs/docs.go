@@ -22242,6 +22242,17 @@ const docTemplate = `{
                 }
             }
         },
+        "event.boardSolverResponse": {
+            "type": "object",
+            "properties": {
+                "Name": {
+                    "type": "string"
+                },
+                "UserID": {
+                    "type": "string"
+                }
+            }
+        },
         "event.bulkUpdateChallengeScoringRequest": {
             "type": "object",
             "properties": {
@@ -23573,6 +23584,10 @@ const docTemplate = `{
         "event.moderatorsBoardItemResponse": {
             "type": "object",
             "properties": {
+                "AwardedPoints": {
+                    "description": "AwardedPoints, HintPenalty and SolvedBy are null while the task is unsolved (see the participant board).",
+                    "type": "integer"
+                },
                 "BoardPublished": {
                     "type": "boolean"
                 },
@@ -23595,6 +23610,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "GroupOrder": {
+                    "type": "integer"
+                },
+                "HintPenalty": {
                     "type": "integer"
                 },
                 "Hints": {
@@ -23639,6 +23657,9 @@ const docTemplate = `{
                 },
                 "SolvedAt": {
                     "type": "string"
+                },
+                "SolvedBy": {
+                    "$ref": "#/definitions/event.boardSolverResponse"
                 }
             }
         },
@@ -27940,6 +27961,10 @@ const docTemplate = `{
                 "AttemptsLeft": {
                     "type": "integer"
                 },
+                "AwardedPoints": {
+                    "description": "AwardedPoints, HintPenalty and SolvedBy are null while the task is unsolved: the points the team holds for\nit now (after the hint penalty, the current value under dynamic scoring, 0 for a practice solve), the hint\ncost charged to the solve and the team member who submitted the accepted answer.",
+                    "type": "integer"
+                },
                 "Closed": {
                     "type": "boolean"
                 },
@@ -27965,6 +27990,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "HintCostTotal": {
+                    "type": "integer"
+                },
+                "HintPenalty": {
                     "type": "integer"
                 },
                 "Hints": {
@@ -28018,6 +28046,9 @@ const docTemplate = `{
                 },
                 "SolvedAt": {
                     "type": "string"
+                },
+                "SolvedBy": {
+                    "$ref": "#/definitions/eventself.solverResponse"
                 },
                 "StageID": {
                     "description": "StageID is the stage of the task's set (null: the whole event). Closed: the stage closed and is not\nreturnable (visible, no submissions or hints). Practice: solved after a returnable stage closed; the rating\ndoes not count it.",
@@ -28597,6 +28628,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "Pseudonym": {
+                    "type": "string"
+                }
+            }
+        },
+        "eventself.solverResponse": {
+            "type": "object",
+            "properties": {
+                "Name": {
+                    "type": "string"
+                },
+                "UserID": {
                     "type": "string"
                 }
             }
