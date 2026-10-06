@@ -40,7 +40,8 @@ func TestValidateRefusesZero(t *testing.T) {
 }
 
 func TestSetOverridesTheDefaults(t *testing.T) {
-	t.Cleanup(func() { limits.Set(limits.Get()) })
+	orig := limits.Get()
+	t.Cleanup(func() { limits.Set(orig) })
 	c := limits.Get()
 	c.LiveScreenPerMinute = 7
 	limits.Set(c)

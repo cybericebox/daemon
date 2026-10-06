@@ -23,8 +23,10 @@ func TestIPAManager_AcquireRelease(t *testing.T) {
 		tcpostgres.WithUsername("ipam"),
 		tcpostgres.WithPassword("ipam"),
 		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).WithStartupTimeout(60*time.Second),
+			wait.ForAll(
+				wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+				wait.ForListeningPort("5432/tcp"),
+			).WithStartupTimeout(60*time.Second),
 		),
 	)
 	if err != nil {
