@@ -287,7 +287,7 @@ DELETE /api/events/:id/managers/:userID | gate: events.write | layers: -
 PUT    /api/events/:id/managers/:userID | gate: events.write | layers: -
 GET    /api/events/:id/participants | gate: events.read | layers: -
 POST   /api/events/:id/participants/:userID/approve | gate: events.write | layers: event.requireWritableEvent
-POST   /api/events/:id/participants/:userID/reject | gate: events.write | layers: event.requireWritableEvent
+POST   /api/events/:id/participants/:userID/reject | gate: events.write | layers: -
 GET    /api/events/:id/preview-picture/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/results | gate: events.results.read(public) | layers: -
 GET    /api/events/:id/results/changes | gate: events.results.read(public) | layers: -

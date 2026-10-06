@@ -256,7 +256,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ev.GET(":id/solution-attempts", h.prot.RequirePermission(rbac.PermEventsSolutionAttemptsRead), h.listSolutionAttempts)
 		ev.PATCH(":id/solution-attempts/:attemptID/decision", h.prot.RequirePermission(rbac.PermEventsSolutionAttemptsWrite), h.decideSolutionAttempt)
 		ev.POST(":id/participants/:userID/approve", h.prot.RequirePermission(rbac.PermEventsWrite), h.requireWritableEvent, h.approveParticipant)
-		ev.POST(":id/participants/:userID/reject", h.prot.RequirePermission(rbac.PermEventsWrite), h.requireWritableEvent, h.rejectParticipant)
+		ev.POST(":id/participants/:userID/reject", h.prot.RequirePermission(rbac.PermEventsWrite), h.rejectParticipant)
 
 		manage := ev.Group(":id/manage", h.prot.RequirePermission(rbac.PermSelf))
 		manage.GET("access", h.requireRead, h.getManagementAccess)
