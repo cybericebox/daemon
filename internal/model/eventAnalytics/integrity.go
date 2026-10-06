@@ -206,6 +206,9 @@ type (
 		SolvedAt        time.Time
 		// HasLab: the task runs a laboratory for the team.
 		HasLab bool
+		// VPNAccess and ProxyAccess: the paths the task text offers to reach the lab.
+		// Neither: the VPN is assumed.
+		VPNAccess, ProxyAccess bool
 		// Lab is the lab-traffic verdict for the team's contact with the lab before
 		// the solve: "touched", "untouched", or empty when unknown or not asked.
 		// Only "untouched" is a fact; anything else falls back on the VPN sessions.
@@ -505,7 +508,11 @@ func detectNoLab(s IntegritySolve, now time.Time) (IntegritySignal, bool) {
 		}
 		return sig, true
 	}
-	// No per-lab answer (no collector, unknown coverage): the VPN sessions.
+	// No per-lab answer (no collector, unknown coverage): the VPN sessions, for
+	// a task that is reachable through the VPN.
+	if s.ProxyAccess && !s.VPNAccess {
+		return IntegritySignal{}, false
+	}
 	if notAfter(s.FirstVPN, s.SolvedAt) {
 		return IntegritySignal{}, false
 	}

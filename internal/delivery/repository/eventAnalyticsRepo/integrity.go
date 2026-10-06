@@ -111,7 +111,7 @@ func (r *Repository) IntegrityFacts(ctx context.Context, eventID uuid.UUID) (eve
 		facts.Solves = append(facts.Solves, eventAnalyticsModel.IntegritySolve{
 			TeamChallengeID: s.TeamChallengeID, TeamID: s.TeamID, TeamName: s.TeamName,
 			ChallengeID: s.ChallengeID, ChallengeName: s.ChallengeName, ExerciseID: s.ExerciseID, TaskID: s.TaskID, Level: s.Level,
-			AttachmentCount: int(s.AttachmentCount), SolvedAt: s.SolvedAt, HasLab: s.HasLab, Flag: flag,
+			AttachmentCount: int(s.AttachmentCount), SolvedAt: s.SolvedAt, HasLab: s.HasLab, VPNAccess: s.VpnAccess, ProxyAccess: s.ProxyAccess, Flag: flag,
 			FirstOpen: noMoment(s.FirstOpenAt), FirstFile: noMoment(s.FirstDownloadAt),
 			FirstHint: noMoment(s.FirstHintAt), FirstVPN: noMoment(s.FirstVpnAt),
 		})
