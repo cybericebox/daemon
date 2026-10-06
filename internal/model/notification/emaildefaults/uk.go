@@ -86,7 +86,7 @@ func ukTemplates() []Template {
 			Body: blocks(logo(),
 				rich(heading("Лабораторія не працює")),
 				facts(event, fact{"Команда", "{{team_name}}"}, fact{"Причина", "{{reason}}"}),
-				rich(para("Перевірте лабораторію команди на сторінці «Лабораторії» керування заходом."))),
+				rich(para("Перевірте лабораторію команди на сторінці «Лабораторії» панелі заходу."))),
 		},
 		{
 			Type: "participant.approval_registration.submitted", Participant: true,

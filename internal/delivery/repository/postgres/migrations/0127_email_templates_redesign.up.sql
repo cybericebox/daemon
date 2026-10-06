@@ -74,7 +74,7 @@ WHERE id IN (SELECT id FROM untouched_0127 WHERE notification_type = 'event.mana
 
 UPDATE notification_email_templates
 SET subject = $s$Лабораторія не працює: команда «{{.team_name}}»$s$, preheader = $s$Лабораторія команди «{{.team_name}}» не працює$s$,
-    body = $j$[{"align":"left","type":"logo","width_px":44},{"content":{"root":{"children":[{"children":[{"format":0,"text":"Лабораторія не працює","type":"text"}],"tag":"h1","type":"heading"}],"type":"root"}},"type":"rich_text"},{"items":[{"label":"Захід","value":"{{event_name}}"},{"label":"Команда","value":"{{team_name}}"},{"label":"Причина","value":"{{reason}}"}],"type":"facts"},{"content":{"root":{"children":[{"children":[{"format":0,"text":"Перевірте лабораторію команди на сторінці «Лабораторії» керування заходом.","type":"text"}],"type":"paragraph"}],"type":"root"}},"type":"rich_text"}]$j$::jsonb, styling = '{}'::jsonb, updated_at = now()
+    body = $j$[{"align":"left","type":"logo","width_px":44},{"content":{"root":{"children":[{"children":[{"format":0,"text":"Лабораторія не працює","type":"text"}],"tag":"h1","type":"heading"}],"type":"root"}},"type":"rich_text"},{"items":[{"label":"Захід","value":"{{event_name}}"},{"label":"Команда","value":"{{team_name}}"},{"label":"Причина","value":"{{reason}}"}],"type":"facts"},{"content":{"root":{"children":[{"children":[{"format":0,"text":"Перевірте лабораторію команди на сторінці «Лабораторії» панелі заходу.","type":"text"}],"type":"paragraph"}],"type":"root"}},"type":"rich_text"}]$j$::jsonb, styling = '{}'::jsonb, updated_at = now()
 WHERE id IN (SELECT id FROM untouched_0127 WHERE notification_type = 'event.lab.failed');
 
 UPDATE notification_email_templates
