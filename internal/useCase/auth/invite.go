@@ -71,7 +71,7 @@ func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rba
 
 	override := userModel.User{ID: userID, Email: emailAddr, FirstName: firstName}
 	if err = u.notifier.Notify(ctx, userID, notificationPayloads.UserInvitationPayload{
-		InviteURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/setup?token=%s", setupToken)),
+		InviteURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/setup/?token=%s", setupToken)),
 	}, dispatchModel.WithRecipient(override)); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to send invitation email").Err()
 	}

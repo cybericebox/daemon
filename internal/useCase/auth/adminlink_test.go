@@ -47,7 +47,7 @@ func TestIssueSuperAdminSetupLink_NoUserCreatesIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
-	if !strings.HasPrefix(link.URL, "https://id.example.test/setup?token=") || strings.Contains(link.URL, "return_to") {
+	if !strings.HasPrefix(link.URL, "https://id.example.test/setup/?token=") || strings.Contains(link.URL, "return_to") {
 		t.Fatalf("want the setup link of the id host, got %q", link.URL)
 	}
 	if d := link.ExpiresAt.Sub(before); d < auth.AdminLinkTTL || d > auth.AdminLinkTTL+time.Minute {
@@ -67,7 +67,7 @@ func TestIssueSuperAdminSetupLink_IncompleteGetsNewToken(t *testing.T) {
 	// No CreateUser expected; the earlier links are deleted and one is stored (allowSetupLinkIssue).
 
 	link, err := uc.IssueSuperAdminSetupLink(context.Background())
-	if err != nil || !strings.Contains(link.URL, "/setup?token=") {
+	if err != nil || !strings.Contains(link.URL, "/setup/?token=") {
 		t.Fatalf("want a setup link, got %q, %v", link.URL, err)
 	}
 }

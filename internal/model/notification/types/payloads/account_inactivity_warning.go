@@ -9,7 +9,7 @@ import (
 type AccountInactivityWarningPayload struct {
 	Name         string `var:"Name"         desc:"User name"                      default:"John Doe"`
 	DeletionDate string `var:"DeletionDate" desc:"Date the account will be deleted" default:"29.10.2026"`
-	SignInURL    string `var:"SignInURL"    desc:"Sign-in link"                   default:"https://id.example.org/sign-in"`
+	SignInURL    string `var:"SignInURL"    desc:"Sign-in link"                   default:"https://id.example.org/sign-in/"`
 }
 
 func (AccountInactivityWarningPayload) NotificationType() notificationTypes.NotificationType {

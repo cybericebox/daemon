@@ -78,7 +78,7 @@ func TestInviteParticipantCreatesPendingAccountAndSendsSetupLink(t *testing.T) {
 	require.Equal(t, eventID, *notifier.opts.ScopeEventID)
 	require.Equal(t, []notificationTypes.NotificationChannel{notificationTypes.NotificationChannelEmail}, notifier.opts.OverrideChannels)
 	link := notifier.vars["invite_url"].(string)
-	require.Contains(t, link, "https://id.example.test/setup?token=setup-secret")
+	require.Contains(t, link, "https://id.example.test/setup/?token=setup-secret")
 	require.Contains(t, link, "return_to=https%3A%2F%2Fctf.example.test%2Finvite")
 }
 

@@ -33,6 +33,6 @@ func TestPreviewEmail_SeededAccountInactivityWarning(t *testing.T) {
 	require.Equal(t, "Ваш обліковий запис Cyber ICE Box буде видалено", out.Subject)
 	require.Contains(t, out.HTML, "John Doe")
 	require.Contains(t, out.HTML, "29.10.2026")
-	require.Contains(t, out.HTML, `href="https://id.example.org/sign-in"`)
+	require.Contains(t, out.HTML, `href="https://id.example.org/sign-in/"`)
 	require.False(t, strings.Contains(out.HTML, "{{"), "no unresolved variable: %s", out.HTML)
 }

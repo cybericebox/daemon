@@ -230,7 +230,7 @@ func (u *EventUseCase) sendParticipantInvitation(ctx context.Context, e eventMod
 		if tokenErr != nil {
 			return time.Time{}, model.ErrPlatform.WithError(tokenErr).WithMessage("Failed to issue invitation setup link").Err()
 		}
-		inviteURL = fmt.Sprintf("https://%s/setup?token=%s&return_to=%s", u.idHost, url.QueryEscape(token), url.QueryEscape(inviteURL))
+		inviteURL = fmt.Sprintf("https://%s/setup/?token=%s&return_to=%s", u.idHost, url.QueryEscape(token), url.QueryEscape(inviteURL))
 	}
 	invitationType := signalModel.TypeParticipantInvitationSent
 	if toTeam {

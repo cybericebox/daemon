@@ -68,7 +68,7 @@ func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, 
 	override := userModel.User{ID: userID, Email: newEmail, FirstName: current.FirstName}
 
 	if err = u.notifier.Notify(ctx, userID, notificationPayloads.EmailConfirmationPayload{
-		ConfirmURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/confirm-email?token=%s", bsCode)),
+		ConfirmURL: u.cfg.Hosts.IDURL(fmt.Sprintf("/confirm-email/?token=%s", bsCode)),
 		Name:       current.FirstName,
 	}, dispatchModel.WithRecipient(override)); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to send email change confirmation").Err()
@@ -135,7 +135,7 @@ func (u *AuthUseCase) noticeOldEmail(ctx context.Context, userID uuid.UUID, oldE
 	}
 	override := userModel.User{ID: userID, Email: oldEmail, FirstName: name}
 	if err := u.notifier.Notify(ctx, userID, notificationPayloads.EmailChangedPayload{
-		Name: name, NewEmail: newEmail, ResetURL: u.cfg.Hosts.IDURL("/forgot-password"),
+		Name: name, NewEmail: newEmail, ResetURL: u.cfg.Hosts.IDURL("/forgot-password/"),
 	}, dispatchModel.WithRecipient(override)); err != nil {
 		log.Error().Err(err).Str("user_id", userID.String()).Msg("Failed to notify the old address of an email change")
 	}

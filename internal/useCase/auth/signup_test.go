@@ -103,7 +103,7 @@ func TestBeginEmailRegistration_TrustedRedirectAddsReturnTo(t *testing.T) {
 		t.Fatalf("begin: %v", err)
 	}
 	got := registrationURL(t, notifier)
-	if !strings.HasPrefix(got, "https://id.example.test/setup?token=") ||
+	if !strings.HasPrefix(got, "https://id.example.test/setup/?token=") ||
 		!strings.HasSuffix(got, "&return_to="+url.QueryEscape("https://event.example.test/e/1?x=y")) {
 		t.Fatalf("want setup link with escaped return_to, got %q", got)
 	}

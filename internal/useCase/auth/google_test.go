@@ -83,7 +83,7 @@ func TestGoogleAuth_LinkedSignsIn(t *testing.T) {
 	if cookie == "" {
 		t.Fatal("expected non-empty cookie")
 	}
-	if redirect != "https://id.test/profile" {
+	if redirect != "https://id.test/profile/" {
 		t.Fatalf("want default profile redirect, got %q", redirect)
 	}
 }
@@ -125,7 +125,7 @@ func TestBeginGoogleRegistration_LinkedActiveSignsIn(t *testing.T) {
 	if res.SetupToken != "" {
 		t.Fatalf("linked active account must not get a setup token, got %q", res.SetupToken)
 	}
-	if res.Redirect != "https://id.test/profile" {
+	if res.Redirect != "https://id.test/profile/" {
 		t.Fatalf("want default landing redirect, got %q", res.Redirect)
 	}
 }

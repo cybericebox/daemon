@@ -7,7 +7,7 @@ import (
 )
 
 type UserInvitationPayload struct {
-	InviteURL string `var:"InviteURL" desc:"Invitation setup link" default:"https://example.org/setup?token=abc"`
+	InviteURL string `var:"InviteURL" desc:"Invitation setup link" default:"https://example.org/setup/?token=abc"`
 }
 
 func (UserInvitationPayload) NotificationType() notificationTypes.NotificationType {

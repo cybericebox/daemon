@@ -132,7 +132,7 @@ func TestConfirmEmailChange_Success(t *testing.T) {
 	}
 	// The OLD address is told, with the new one and a way back.
 	p, ok := notifier.lastPayload.(payloads.EmailChangedPayload)
-	if !ok || notifier.calls != 1 || notifier.lastRecipientEmail != "old@b.test" || p.NewEmail != "new@b.test" || p.Name != "Jane" || !strings.HasSuffix(p.ResetURL, "/forgot-password") {
+	if !ok || notifier.calls != 1 || notifier.lastRecipientEmail != "old@b.test" || p.NewEmail != "new@b.test" || p.Name != "Jane" || !strings.HasSuffix(p.ResetURL, "/forgot-password/") {
 		t.Fatalf("old-address notice: calls=%d to=%q payload=%+v", notifier.calls, notifier.lastRecipientEmail, notifier.lastPayload)
 	}
 }

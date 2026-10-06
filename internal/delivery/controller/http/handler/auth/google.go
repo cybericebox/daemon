@@ -128,7 +128,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 	ctx.SetSameSite(http.SameSiteLaxMode)
 	ctx.SetCookie(oauthStateCookie, "", -1, oauthCookiePath, "", true, true)
 	if stateCookie == "" || subtle.ConstantTimeCompare([]byte(stateCookie), []byte(state)) != 1 {
-		h.googleErrorRedirect(ctx, "/sign-in", "failed", "")
+		h.googleErrorRedirect(ctx, "/sign-in/", "failed", "")
 		return
 	}
 
@@ -149,15 +149,15 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		if err != nil {
 			switch {
 			case errors.Is(err, authModel.ErrAuthAccountBlocked.Err()):
-				h.googleErrorRedirect(ctx, "/sign-in", "blocked", "")
+				h.googleErrorRedirect(ctx, "/sign-in/", "blocked", "")
 			case errors.Is(err, authModel.ErrAuthAccountExistsSignIn.Err()):
 				// Email owned by an active account without Google: sign in there
 				// (Google can then be linked from the profile). Never auto-link.
-				h.googleErrorRedirect(ctx, "/sign-in", "already_registered", "")
+				h.googleErrorRedirect(ctx, "/sign-in/", "already_registered", "")
 			case errors.Is(err, authModel.ErrAuthGoogleEmailNotVerified.Err()):
-				h.googleErrorRedirect(ctx, "/sign-up", "email_not_verified", "")
+				h.googleErrorRedirect(ctx, "/sign-up/", "email_not_verified", "")
 			default:
-				h.googleErrorRedirect(ctx, "/sign-up", "failed", "")
+				h.googleErrorRedirect(ctx, "/sign-up/", "failed", "")
 			}
 			return
 		}
@@ -174,7 +174,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		ctx.SetSameSite(http.SameSiteLaxMode)
 		ctx.SetCookie(oauthSetupTokenCookie, "", -1, oauthCookiePath, "", true, true)
 		if setupToken == "" {
-			h.googleErrorRedirect(ctx, "/sign-in", "failed", "")
+			h.googleErrorRedirect(ctx, "/sign-in/", "failed", "")
 			return
 		}
 		returnTo, err := h.useCase.LinkGoogleToSetupFromOAuth(
@@ -199,7 +199,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		if sessVal == "" {
 			response.TemporaryRedirect(
 				ctx,
-				h.hosts.IDURL("/profile?error=link_failed"),
+				h.hosts.IDURL("/profile/?error=link_failed"),
 			)
 			return
 		}
@@ -211,13 +211,13 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		); err != nil {
 			response.TemporaryRedirect(
 				ctx,
-				h.hosts.IDURL("/profile?error=link_failed"),
+				h.hosts.IDURL("/profile/?error=link_failed"),
 			)
 			return
 		}
 		response.TemporaryRedirect(
 			ctx,
-			h.hosts.IDURL("/profile?tab=connections"),
+			h.hosts.IDURL("/profile/?tab=connections"),
 		)
 
 	default: // sign-in
@@ -225,11 +225,11 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 		if err != nil {
 			switch {
 			case errors.Is(err, authModel.ErrAuthGoogleNotRegistered.Err()):
-				h.googleErrorRedirect(ctx, "/sign-up", "not_registered", redirect)
+				h.googleErrorRedirect(ctx, "/sign-up/", "not_registered", redirect)
 			case errors.Is(err, authModel.ErrAuthAccountBlocked.Err()):
-				h.googleErrorRedirect(ctx, "/sign-in", "blocked", redirect)
+				h.googleErrorRedirect(ctx, "/sign-in/", "blocked", redirect)
 			default:
-				h.googleErrorRedirect(ctx, "/sign-in", "failed", redirect)
+				h.googleErrorRedirect(ctx, "/sign-in/", "failed", redirect)
 			}
 			return
 		}
@@ -307,7 +307,7 @@ func (h *Handler) unlinkGoogle(ctx *gin.Context) {
 // setupURL builds the absolute id-frontend setup link, with optional return_to
 // and error query params.
 func (h *Handler) setupURL(setupToken, returnTo, errCode string) string {
-	u := h.hosts.IDURL("/setup?token=" + url.QueryEscape(setupToken))
+	u := h.hosts.IDURL("/setup/?token=" + url.QueryEscape(setupToken))
 	if errCode != "" {
 		u += "&error=" + url.QueryEscape(errCode)
 	}

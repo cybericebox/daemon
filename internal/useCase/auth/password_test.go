@@ -95,7 +95,7 @@ func TestForgotPassword_IncompleteResendsSetupLink(t *testing.T) {
 	if !ok {
 		t.Fatalf("want ContinueRegistrationPayload, got %T", notifier.lastPayload)
 	}
-	if !strings.HasPrefix(p.RegistrationURL, "https://id.example.test/setup?token=") || p.Name != "Ina" {
+	if !strings.HasPrefix(p.RegistrationURL, "https://id.example.test/setup/?token=") || p.Name != "Ina" {
 		t.Fatalf("unexpected payload: %+v", p)
 	}
 }
