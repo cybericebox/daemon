@@ -29,10 +29,14 @@ import (
 
 func newPwUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *password.Client, *fakeNotifier) {
 	t.Helper()
+	return newPwUCWith(t, password.New(password.Config{HashCost: 4}))
+}
+
+func newPwUCWith(t *testing.T, pw *password.Client) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *password.Client, *fakeNotifier) {
+	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	allowSetupLinkIssue(repo)
-	pw := password.New(password.Config{HashCost: 4})
 	notifier := &fakeNotifier{}
 	uc := auth.NewAuthUseCase(auth.Dependencies{Sessions: testSessions(t),
 		Repo:     repo,
@@ -120,6 +124,16 @@ func TestResetPassword_Success(t *testing.T) {
 
 	if err := uc.ResetPassword(context.Background(), bsCode, "Secret!1"); err != nil {
 		t.Fatalf("reset: %v", err)
+	}
+}
+
+// A weak password is rejected before the one-time code is touched: no repo call is expected (the
+// mock fails the test on any), so the link stays valid for a retry.
+func TestResetPassword_WeakPasswordKeepsCode(t *testing.T) {
+	uc, _, _, _ := newPwUCWith(t, password.New(password.Config{HashCost: 4, Complexity: password.ComplexityConfig{MinLength: 8, MinDigits: 1}}))
+	bsCode := strings.ReplaceAll(base64.StdEncoding.EncodeToString([]byte(rawCode)), "=", "")
+	if err := uc.ResetPassword(context.Background(), bsCode, "weak"); !errors.Is(err, authModel.ErrAuthInvalidPasswordComplexity.Err()) {
+		t.Fatalf("want complexity error, got %v", err)
 	}
 }
 

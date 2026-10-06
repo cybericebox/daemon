@@ -83,3 +83,49 @@ func TestExerciseHasInfrastructure_FromSavedTopology(t *testing.T) {
 	save(lab, withDevice(), true)
 	check(lab, true)
 }
+
+// TestVariantDevices_DeviceLessExercise: a device-less topology is stored as "devices": null and must read
+// as an empty list on the list (published) and event attach (pinned version) paths, not fail the query.
+func TestVariantDevices_DeviceLessExercise(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+
+	plain := mustCreateExercise(t, repo, "IT device-less")
+	if _, err := repo.UpsertDraft(ctx, plain.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{}); err != nil {
+		t.Fatalf("UpsertDraft: %v", err)
+	}
+	version, err := repo.Publish(ctx, plain.ID, itNow.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if _, err = db.Pool.Exec(ctx, `UPDATE exercise_versions SET variants = '[{"topology":{"devices":null}},{"topology":null},{}]'::jsonb WHERE id = $1`, version.ID); err != nil {
+		t.Fatalf("force null devices: %v", err)
+	}
+
+	lab := mustCreateExercise(t, repo, "IT with device")
+	variants := itVariants()
+	variants[0].Topology.Devices = []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "host-1", Type: "container"}}
+	if _, err = repo.UpsertDraft(ctx, lab.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{}); err != nil {
+		t.Fatalf("UpsertDraft: %v", err)
+	}
+	labVersion, err := repo.Publish(ctx, lab.ID, itNow.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	published, err := repo.PublishedVariants(ctx, []uuid.UUID{plain.ID, lab.ID})
+	if err != nil {
+		t.Fatalf("PublishedVariants: %v", err)
+	}
+	if len(published[plain.ID]) != 3 || len(published[lab.ID]) != 1 || len(published[lab.ID][0].Topology.Devices) != 1 {
+		t.Fatalf("PublishedVariants = %+v", published)
+	}
+	pinned, err := repo.VersionVariants(ctx, []uuid.UUID{version.ID, labVersion.ID})
+	if err != nil {
+		t.Fatalf("VersionVariants: %v", err)
+	}
+	if len(pinned[version.ID]) != 3 || len(pinned[labVersion.ID][0].Topology.Devices) != 1 {
+		t.Fatalf("VersionVariants = %+v", pinned)
+	}
+}

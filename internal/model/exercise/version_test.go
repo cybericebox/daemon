@@ -320,3 +320,24 @@ func TestHasInfrastructure(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateForPublish_MultiFlagNeedsDeviceHasOwnError(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		want  error
+	}{
+		{"several flags", []string{"ICE{one}", "ICE{two}"}, exerciseModel.ErrFlagMultiNeedsDevice.Err()},
+		{"template flag", []string{`template:ICE{\d}`}, exerciseModel.ErrFlagMultiNeedsDevice.Err()},
+		{"no flag", nil, exerciseModel.ErrFlagSourceInvalid.Err()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			variant := validVariant()
+			variant.Tasks[0].Flag = tc.flags
+			err := (&exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{variant}}).ValidateForPublish()
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("want %v, got %v", tc.want, err)
+			}
+		})
+	}
+}

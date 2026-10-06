@@ -69,6 +69,11 @@ func (u *AuthUseCase) ResetPassword(ctx context.Context, bsCode, newPassword str
 		return temporalCodeModel.ErrTemporalCodeInvalidCode.WithError(fmt.Errorf("password-reset: base64 decode: %w", decErr)).Err()
 	}
 
+	// A weak password must not burn the one-time link: validate before the code is consumed.
+	if err := u.password.CheckPasswordComplexity(newPassword); err != nil {
+		return authModel.ErrAuthInvalidPasswordComplexity.WithError(err).Err()
+	}
+
 	raw, err := u.consumeTemporalCode(ctx, string(code), temporalCodeModel.PasswordResettingCodeType)
 	if err != nil {
 		return err

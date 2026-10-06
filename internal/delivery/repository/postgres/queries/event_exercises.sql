@@ -109,7 +109,7 @@ SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mo
        (SELECT count(*) FROM exercise_versions v
         WHERE v.exercise_id = ex.forked_from_exercise_id AND v.published_at IS NOT NULL)::integer AS source_latest_version_number,
        exercise_variants_have_infrastructure(pinned.variants)::boolean AS infrastructure,
-       jsonb_array_length(pinned.variants)::integer AS variant_count,
+       CASE WHEN jsonb_typeof(pinned.variants) = 'array' THEN jsonb_array_length(pinned.variants) ELSE 0 END::integer AS variant_count,
        (SELECT count(*) FROM event_challenges ec WHERE ec.event_exercise_id = ee.id)::integer AS challenge_count,
        (SELECT count(*) FROM event_challenges ec WHERE ec.event_exercise_id = ee.id AND ec.published)::integer AS published_count,
        EXISTS (SELECT 1

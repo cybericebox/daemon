@@ -95,6 +95,8 @@ var (
 					WithMessage("Task difficulty is invalid").WithDetailCode(14)
 	ErrFlagSourceInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("Task flag must use ICE{...} without whitespace").WithDetailCode(15)
+	ErrFlagMultiNeedsDevice = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Several flags or a flag template are only available for tasks with a device").WithDetailCode(76)
 	ErrDeviceNameInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("Container name must be a DNS label: lowercase a-z, 0-9 and '-', not starting or ending with '-'").WithDetailCode(16)
 	// ErrDeviceNameTooLong: the name becomes part of the lab's web address
