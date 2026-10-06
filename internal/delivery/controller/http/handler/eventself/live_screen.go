@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/limits"
@@ -139,7 +138,6 @@ func (l *windowLimiter) middleware(ctx *gin.Context) {
 		token = token[:128]
 	}
 	if ok, wait := l.allow(token, time.Now()); !ok {
-		errjournal.SetLimiter(ctx, "live-screen-window")
 		response.AbortWithTooManyRequests(ctx, wait)
 		return
 	}

@@ -12,7 +12,6 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
 	"github.com/cybericebox/daemon/internal/limits"
@@ -401,7 +400,6 @@ func (h *Handler) liveSolutionAttempts(ctx *gin.Context) {
 	// loses the right to read the event (the gate ran once, at the start).
 	release, ok := sse.Streams.Acquire("attempts:"+claims.UserID.String(), limits.Get().AttemptStreamsPerUser)
 	if !ok {
-		errjournal.SetLimiter(ctx, "attempt-streams")
 		response.AbortWithTooManyRequests(ctx, response.StreamRetryAfter)
 		return
 	}

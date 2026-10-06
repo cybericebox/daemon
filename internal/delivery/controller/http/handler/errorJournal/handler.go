@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/errjournal"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
 	"github.com/cybericebox/daemon/internal/limits"
@@ -452,7 +451,6 @@ func (h *Handler) stream(c *gin.Context) {
 	}
 	release, admitted := sse.Streams.Acquire("errors:"+claims.UserID.String(), limits.Get().ErrorStreamsPerUser)
 	if !admitted {
-		errjournal.SetLimiter(c, "error-journal-streams")
 		response.AbortWithTooManyRequests(c, response.StreamRetryAfter)
 		return
 	}
