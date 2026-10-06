@@ -11,9 +11,9 @@ SELECT e.id AS exercise_id,
                                                                     'type', device -> 'type',
                                                                     'resource_preset', device -> 'resource_preset',
                                                                     'resources', device -> 'resources'))
-                                                        FROM jsonb_array_elements(variant #> '{topology,devices}') AS device),
+                                                        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device),
                                                        '[]'::jsonb))))
-                 FROM jsonb_array_elements(version.variants) AS variant), '[]'::jsonb)::jsonb AS variants
+                 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(version.variants) = 'array' THEN version.variants ELSE '[]'::jsonb END) AS variant), '[]'::jsonb)::jsonb AS variants
 FROM exercises e
          JOIN exercise_versions version ON version.id = e.published_version_id
 WHERE e.id = ANY (sqlc.arg(ids)::uuid[]);
@@ -31,8 +31,8 @@ SELECT version.id          AS version_id,
                                                                     'type', device -> 'type',
                                                                     'resource_preset', device -> 'resource_preset',
                                                                     'resources', device -> 'resources'))
-                                                        FROM jsonb_array_elements(variant #> '{topology,devices}') AS device),
+                                                        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device),
                                                        '[]'::jsonb))))
-                 FROM jsonb_array_elements(version.variants) AS variant), '[]'::jsonb)::jsonb AS variants
+                 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(version.variants) = 'array' THEN version.variants ELSE '[]'::jsonb END) AS variant), '[]'::jsonb)::jsonb AS variants
 FROM exercise_versions version
 WHERE version.id = ANY (sqlc.arg(ids)::uuid[]);

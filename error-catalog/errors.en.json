@@ -89,6 +89,7 @@
   "20972": "Approved blocks must be sizes the platform offers, for the requested devices and no larger than requested",
   "20973": "A resource elevation request needs a reason",
   "20974": "A device size is a preset: custom resources are not accepted",
+  "20976": "Several flags or a flag template are only available for tasks with a device",
   "21002": "File exceeds the maximum upload size",
   "21004": "The picture has too many pixels",
   "21005": "The picture cannot be read",

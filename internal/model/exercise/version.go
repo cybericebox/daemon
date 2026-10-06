@@ -293,8 +293,11 @@ func (v *ExerciseVersion) ValidateForPublish() error {
 					return ErrHintTextRequired.WithContext("task", task.Name).Err()
 				}
 			}
-			if !task.LinkedDeviceID.Valid && (len(task.Flag) != 1 || strings.HasPrefix(task.Flag[0], flagpattern.TemplatePrefix)) {
+			if !task.LinkedDeviceID.Valid && len(task.Flag) == 0 {
 				return ErrFlagSourceInvalid.WithContext("task", task.Name).Err()
+			}
+			if !task.LinkedDeviceID.Valid && (len(task.Flag) != 1 || strings.HasPrefix(task.Flag[0], flagpattern.TemplatePrefix)) {
+				return ErrFlagMultiNeedsDevice.WithContext("task", task.Name).Err()
 			}
 			if err := variant.Topology.validatePlaceholders(task.Placeholders); err != nil {
 				return err
