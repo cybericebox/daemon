@@ -82,6 +82,9 @@ func (u *EventUseCase) requireOwnAvailableChallenge(ctx context.Context, eventID
 	}
 	tc, err := u.teamChallenges.Get(ctx, *p.TeamID, challengeID)
 	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return participantModel.Participant{}, eventChallengeModel.ErrEventChallengeNotFound.Err()
+		}
 		return participantModel.Participant{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get team challenge").Err()
 	}
 	if tc.EventID != eventID || tc.Readiness != teamChallengeModel.ReadinessPublished {

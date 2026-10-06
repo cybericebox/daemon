@@ -104,6 +104,15 @@ func TestForbiddenCarriesRoleUserAndThePermission(t *testing.T) {
 	assert.Equal(t, uid, *e.UserID)
 }
 
+func TestBusinessForbiddenIsNotRecorded(t *testing.T) {
+	sink := &fakeSink{}
+	r := newRouter(sink)
+	r.POST("/api/events/:id/manage/x", func(c *gin.Context) { response.AbortWithForbidden(c) })
+
+	assert.Equal(t, 403, do(r, http.MethodPost, "/api/events/1/manage/x").Code)
+	assert.Empty(t, sink.events)
+}
+
 func TestTooManyRequestsCarriesTheLimiter(t *testing.T) {
 	sink := &fakeSink{}
 	r := newRouter(sink)

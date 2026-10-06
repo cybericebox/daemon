@@ -23672,7 +23672,7 @@ const docTemplate = `{
         "event.moderatorsLabLinkResponse": {
             "type": "object",
             "properties": {
-                "expires_at": {
+                "expiresAt": {
                     "type": "string"
                 },
                 "url": {
@@ -27835,7 +27835,7 @@ const docTemplate = `{
         "eventself.labLinkResponse": {
             "type": "object",
             "properties": {
-                "expires_at": {
+                "expiresAt": {
                     "type": "string"
                 },
                 "url": {
@@ -28983,6 +28983,10 @@ const docTemplate = `{
                 "Lab": {
                     "type": "string"
                 },
+                "Removing": {
+                    "description": "Removing: the lab is being removed; it stays in the list until it is really gone.",
+                    "type": "boolean"
+                },
                 "SolvedTaskIDs": {
                     "description": "SolvedTaskIDs are the tasks the author has already checked correctly.",
                     "type": "array",
@@ -29070,6 +29074,10 @@ const docTemplate = `{
                     ]
                 },
                 "Ready": {
+                    "type": "boolean"
+                },
+                "Removing": {
+                    "description": "Removing: the lab is being removed (Phase is \"Removing\"); the answer stays 200 until it is gone, then 404.",
                     "type": "boolean"
                 },
                 "SolvedTaskIDs": {

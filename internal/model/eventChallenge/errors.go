@@ -28,4 +28,6 @@ var (
 	// ErrEventChallengeStageClosed: the task's stage has closed and is not returnable.
 	ErrEventChallengeStageClosed = err.ErrConflict.WithObjectCode(model.EventChallengeObjectCode).
 					WithMessage("The stage of this task is closed").WithDetailCode(40)
+	ErrEventChallengePrerequisitesCycle = err.ErrInvalidData.WithObjectCode(model.EventChallengeObjectCode).
+						WithMessage("Challenge prerequisites form a cycle").WithDetailCode(41)
 )

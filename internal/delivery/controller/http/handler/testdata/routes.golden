@@ -55,7 +55,7 @@ GET    /api/events/:id | gate: events.read | layers: -
 PUT    /api/events/:id | gate: events.write | layers: -
 POST   /api/events/:id/archive | gate: events.write | layers: -
 GET    /api/events/:id/config | gate: events.read | layers: -
-PUT    /api/events/:id/config | gate: events.write | layers: -
+PUT    /api/events/:id/config | gate: events.write | layers: event.requireWritableEvent
 GET    /api/events/:id/content | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content-images/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/content/document | gate: events.content.read(public) | layers: -
@@ -69,7 +69,7 @@ GET    /api/events/:id/favicon/:fileID | gate: events.content.read(public) | lay
 GET    /api/events/:id/forms/:formID | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/forms/:formID/response | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/forms/pending | gate: self | layers: eventself.touchPresence
-PUT    /api/events/:id/infrastructure | gate: events.write | layers: -
+PUT    /api/events/:id/infrastructure | gate: events.write | layers: event.requireWritableEvent
 GET    /api/events/:id/logo/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/manage/access | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/analytics/access | gate: self | layers: eventAnalytics.requireSections
@@ -286,7 +286,7 @@ GET    /api/events/:id/managers | gate: events.read | layers: -
 DELETE /api/events/:id/managers/:userID | gate: events.write | layers: -
 PUT    /api/events/:id/managers/:userID | gate: events.write | layers: -
 GET    /api/events/:id/participants | gate: events.read | layers: -
-POST   /api/events/:id/participants/:userID/approve | gate: events.write | layers: -
+POST   /api/events/:id/participants/:userID/approve | gate: events.write | layers: event.requireWritableEvent
 POST   /api/events/:id/participants/:userID/reject | gate: events.write | layers: -
 GET    /api/events/:id/preview-picture/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/results | gate: events.results.read(public) | layers: -
@@ -319,7 +319,7 @@ GET    /api/events/:id/teams/mine | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/mine/form | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/mine/leave | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/mine/members | gate: self | layers: eventself.touchPresence
-PUT    /api/events/:id/theme | gate: events.write | layers: -
+PUT    /api/events/:id/theme | gate: events.write | layers: event.requireWritableEvent
 POST   /api/events/self/answer-files | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/answer-files/:fileID | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/info | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence

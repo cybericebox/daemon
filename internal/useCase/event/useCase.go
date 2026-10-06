@@ -125,6 +125,22 @@ func (u *EventUseCase) RequireManageEvent(ctx context.Context, eventID, userID u
 	return eventManagerUseCase.NewAccessUseCase(u.managers).RequireManage(ctx, eventID, userID)
 }
 
+// RequireEventWritable refuses a write to an archived event: an archived event is read-only for its managers (reads,
+// analytics and exports still work). Archiving is final here; only the admin's date edit of the event moves it out.
+func (u *EventUseCase) RequireEventWritable(ctx context.Context, eventID uuid.UUID) error {
+	e, err := u.events.GetByID(ctx, eventID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return eventModel.ErrEventNotFound.Err()
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	if e.Status(time.Now()) == eventModel.EventArchivedStatus {
+		return eventModel.ErrEventArchived.Err()
+	}
+	return nil
+}
+
 func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uuid.UUID) error {
 	return eventManagerUseCase.NewAccessUseCase(u.managers).RequireRead(ctx, eventID, userID)
 }

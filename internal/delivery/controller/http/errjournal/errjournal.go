@@ -1,5 +1,5 @@
 // Package errjournal is the HTTP capture point of the platform error journal: one middleware that sees every
-// request end. It records 5xx, panics, 403 (with the permission that refused) and 429 (with the limiter), counts 404s
+// request end. It records 5xx, panics, 403 refused by a route permission (with that permission; a business refusal of a use case is routine and not recorded) and 429 (with the limiter), counts 404s
 // per route template (unmatched paths in one counter, never stored) and gives every request an id. 401 is not
 // recorded: expired sessions and sign-in failures are noise. No client address is ever read.
 package errjournal
@@ -108,9 +108,15 @@ func capture(c *gin.Context, sink Sink, rid string) {
 		e.Message = errorText(c, fmt.Sprintf("HTTP %d without an error", status))
 		sink.Report(e)
 	case status == http.StatusForbidden:
+		// Only a refused route permission is a signal (a wrong permission, probing). A business refusal of a
+		// handler or use case (a viewer's write, a non-captain's disband, a participant not yet joined) is routine.
+		permission := stringKey(c, keyPermission)
+		if permission == "" {
+			return
+		}
 		e := base(c, rid, route, status)
 		e.Kind = errorJournal.KindHTTP403
-		e.Permission = stringKey(c, keyPermission)
+		e.Permission = permission
 		e.Message = errorText(c, "forbidden")
 		sink.Report(e)
 	case status == http.StatusTooManyRequests:

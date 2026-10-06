@@ -25,8 +25,8 @@ type labLinkRequest struct {
 }
 
 type labLinkResponse struct {
-	URL       string    `json:"url"`
-	ExpiresAt time.Time `json:"expires_at"`
+	URL       string
+	ExpiresAt time.Time
 }
 
 // openLabLink godoc

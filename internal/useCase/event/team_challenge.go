@@ -159,6 +159,9 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 	}
 	tc, err := teamChallengeRepo.New(txRepo).Get(txCtx, teamID, challengeID)
 	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return SubmitChallengeResult{}, eventChallengeModel.ErrEventChallengeNotFound.Err()
+		}
 		return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get team challenge").Err()
 	}
 	if moderators {
