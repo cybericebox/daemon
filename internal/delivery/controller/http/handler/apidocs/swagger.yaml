@@ -3780,8 +3780,15 @@ definitions:
         type: string
       FirstAt:
         type: string
+        x-nullable: true
+      LabInitiatedAttempts:
+        description: |-
+          New permitted VPN flows started by the laboratory, separate from
+          participant Attempts. Zero for a proxy-only row or an older sender.
+        type: integer
       LastAt:
         type: string
+        x-nullable: true
       Surface:
         type: string
       Task:
