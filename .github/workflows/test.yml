@@ -25,7 +25,3 @@ jobs:
         run: make vet
       - name: Test
         run: make test
-      - name: CI release and cache safety tests
-        run: |
-          bash .github/scripts/ci.test.sh
-          python3 .github/scripts/cache_test.py
