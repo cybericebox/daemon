@@ -31,6 +31,11 @@ jobs:
         run: .github/scripts/lab-pin.sh require-release
 
   image:
+    # Canonical cache publication and retirement must not overlap.
+    concurrency:
+      group: docker-hub-cache-maintenance
+      cancel-in-progress: false
+      queue: max
     name: Image ${{ matrix.name }}
     runs-on: ubuntu-latest
     strategy:
