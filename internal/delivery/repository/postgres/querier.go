@@ -40,6 +40,7 @@ type Querier interface {
 	// Gives the answer's files to their owner and releases the files the owner's
 	// previous answers held but the saved answer no longer references.
 	AttachEventAnswerFiles(ctx context.Context, arg AttachEventAnswerFilesParams) (int64, error)
+	AttachEventLabAssignmentBindings(ctx context.Context, labID uuid.NullUUID) (int64, error)
 	AvgDailyActiveSince(ctx context.Context, createdAt time.Time) (float64, error)
 	BlobExists(ctx context.Context, contentHash string) (bool, error)
 	// Places a group on an agent unless it is placed already; returns the agent that holds it, so two
@@ -159,6 +160,7 @@ type Querier interface {
 	CreateEventResultChange(ctx context.Context, arg CreateEventResultChangeParams) (EventResultChange, error)
 	CreateEventStage(ctx context.Context, arg CreateEventStageParams) (EventStage, error)
 	CreateEventTeam(ctx context.Context, arg CreateEventTeamParams) (EventTeam, error)
+	CreateEventTeamLab(ctx context.Context, arg CreateEventTeamLabParams) error
 	CreateEventTeamStand(ctx context.Context, arg CreateEventTeamStandParams) (int64, error)
 	// Timestamps come from the domain factory, not DB defaults.
 	CreateExercise(ctx context.Context, arg CreateExerciseParams) (Exercise, error)
@@ -415,6 +417,10 @@ type Querier interface {
 	// The one formation rule (event_team_formed): an explicit formation, or the start
 	// of an event without late join.
 	GetEventTeamFormed(ctx context.Context, arg GetEventTeamFormedParams) (bool, error)
+	GetEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeamLab, error)
+	// Nonlocking identity lookup. The aggregate is locked before any question row.
+	GetEventTeamLabForChallenge(ctx context.Context, arg GetEventTeamLabForChallengeParams) (EventTeamLab, error)
+	GetEventTeamLabForRef(ctx context.Context, arg GetEventTeamLabForRefParams) (EventTeamLab, error)
 	GetEventTeamStand(ctx context.Context, eventTeamID uuid.UUID) (EventTeamStand, error)
 	GetEventTeamVisible(ctx context.Context, arg GetEventTeamVisibleParams) (bool, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
@@ -572,6 +578,7 @@ type Querier interface {
 	InsertPlatformSMTPProvider(ctx context.Context, arg InsertPlatformSMTPProviderParams) (MailSmtpConfig, error)
 	InviteEventParticipant(ctx context.Context, arg InviteEventParticipantParams) (EventParticipant, error)
 	IsEventChallengePublished(ctx context.Context, id uuid.UUID) (bool, error)
+	IsEventTeamLabComplete(ctx context.Context, id uuid.UUID) (pgtype.Bool, error)
 	IsExerciseAvailableToEvent(ctx context.Context, arg IsExerciseAvailableToEventParams) (bool, error)
 	IsExerciseReadableBy(ctx context.Context, arg IsExerciseReadableByParams) (bool, error)
 	IsUserInEventTeam(ctx context.Context, arg IsUserInEventTeamParams) (bool, error)
@@ -597,6 +604,7 @@ type Querier interface {
 	ListBroadcastDeliveries(ctx context.Context, arg ListBroadcastDeliveriesParams) ([]ListBroadcastDeliveriesRow, error)
 	ListBroadcastQueuedUserIDs(ctx context.Context, broadcastID uuid.NullUUID) ([]uuid.UUID, error)
 	ListDirtyEventLabAccessSyncs(ctx context.Context, limitVal int32) ([]ListDirtyEventLabAccessSyncsRow, error)
+	ListDirtyEventTeamLabs(ctx context.Context, arg ListDirtyEventTeamLabsParams) ([]EventTeamLab, error)
 	ListDispatchTargets(ctx context.Context, dispatchID uuid.UUID) ([]NotificationDispatchTarget, error)
 	ListDispatchTargetsByDispatches(ctx context.Context, dispatchIds []uuid.UUID) ([]NotificationDispatchTarget, error)
 	// Journal page. channel/result/transport filter on the per-channel targets:
@@ -741,6 +749,9 @@ type Querier interface {
 	// set is not detached and every prerequisite is solved by the team. The hidden moderators team tests tasks
 	// before they are shown, so it keeps the readiness rule alone.
 	ListEventLabAccessLabs(ctx context.Context, eventTeamID uuid.UUID) ([]ListEventLabAccessLabsRow, error)
+	// Includes every pinned team question, even unpublished/hidden ones.
+	ListEventLabAssignmentObjectives(ctx context.Context, arg ListEventLabAssignmentObjectivesParams) ([]ListEventLabAssignmentObjectivesRow, error)
+	ListEventLabAssignmentsMissingIdentity(ctx context.Context, eventID uuid.UUID) ([]ListEventLabAssignmentsMissingIdentityRow, error)
 	// The merged current state of every lab group of one event, for the organizers' stand list.
 	ListEventLabMonitoringCurrent(ctx context.Context, eventID uuid.UUID) ([]ListEventLabMonitoringCurrentRow, error)
 	ListEventLabObservations(ctx context.Context, arg ListEventLabObservationsParams) ([]EventLabObservation, error)
@@ -1247,6 +1258,8 @@ type Querier interface {
 	// Locks one team challenge so an annulment serializes with submission-time
 	// scoring and single decisions (they lock the same row).
 	LockEventTeamChallenge(ctx context.Context, arg LockEventTeamChallengeParams) (uuid.UUID, error)
+	LockEventTeamForLabAdmission(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	LockEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeamLab, error)
 	// Serializes the "one active test lab per user" check and insert of one owner until the transaction ends.
 	LockExerciseTestDeploysOf(ctx context.Context, owner string) error
 	// Resource calendar: reservations, change requests, readiness alarms, settings and test lab holds. See
@@ -1366,6 +1379,9 @@ type Querier interface {
 	// A team can own VPN clients and a gateway before it has any challenge Lab.
 	// On withdrawal, make those groups eligible for the same durable cleanup job.
 	QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Time) error
+	RecordEventTeamLabInitialIdentity(ctx context.Context, arg RecordEventTeamLabInitialIdentityParams) (int64, error)
+	// Deliberate narrow write: only physical observation fields, exactly fenced.
+	RecordEventTeamLabObservation(ctx context.Context, arg RecordEventTeamLabObservationParams) (int64, error)
 	// A recreated Lab moves to the next generation under a new name, so the
 	// asynchronously deleted previous Lab never collides, and deploys again. Every
 	// binding of the exercise is moved to the same name and generation.
@@ -1539,6 +1555,7 @@ type Querier interface {
 	UpdateEventTeam(ctx context.Context, arg UpdateEventTeamParams) (int64, error)
 	// fields_missing is written together with the answers when known (NULL keeps it).
 	UpdateEventTeamExtraFields(ctx context.Context, arg UpdateEventTeamExtraFieldsParams) (int64, error)
+	UpdateEventTeamLab(ctx context.Context, arg UpdateEventTeamLabParams) (int64, error)
 	// Conditional on the previously read status, so a concurrent engine pass or a
 	// recreate cannot be overwritten and a failure transition fires only once.
 	// A removed stand is terminal.

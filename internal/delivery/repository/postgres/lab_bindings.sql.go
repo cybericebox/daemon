@@ -14,21 +14,22 @@ import (
 )
 
 const createLabBinding = `-- name: CreateLabBinding :one
-INSERT INTO lab_bindings (id,event_id,event_team_id,event_challenge_id,lab_group_name,lab_name,created_at,generation)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+INSERT INTO lab_bindings (id,event_id,event_team_id,event_challenge_id,lab_group_name,lab_name,created_at,generation,lab_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 ON CONFLICT (event_team_id, event_challenge_id) DO NOTHING
-RETURNING id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason
+RETURNING id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id
 `
 
 type CreateLabBindingParams struct {
-	ID               uuid.UUID `json:"id"`
-	EventID          uuid.UUID `json:"event_id"`
-	EventTeamID      uuid.UUID `json:"event_team_id"`
-	EventChallengeID uuid.UUID `json:"event_challenge_id"`
-	LabGroupName     string    `json:"lab_group_name"`
-	LabName          string    `json:"lab_name"`
-	CreatedAt        time.Time `json:"created_at"`
-	Generation       int32     `json:"generation"`
+	ID               uuid.UUID     `json:"id"`
+	EventID          uuid.UUID     `json:"event_id"`
+	EventTeamID      uuid.UUID     `json:"event_team_id"`
+	EventChallengeID uuid.UUID     `json:"event_challenge_id"`
+	LabGroupName     string        `json:"lab_group_name"`
+	LabName          string        `json:"lab_name"`
+	CreatedAt        time.Time     `json:"created_at"`
+	Generation       int32         `json:"generation"`
+	LabID            uuid.NullUUID `json:"lab_id"`
 }
 
 func (q *Queries) CreateLabBinding(ctx context.Context, arg CreateLabBindingParams) (LabBinding, error) {
@@ -41,6 +42,7 @@ func (q *Queries) CreateLabBinding(ctx context.Context, arg CreateLabBindingPara
 		arg.LabName,
 		arg.CreatedAt,
 		arg.Generation,
+		arg.LabID,
 	)
 	var i LabBinding
 	err := row.Scan(
@@ -55,12 +57,13 @@ func (q *Queries) CreateLabBinding(ctx context.Context, arg CreateLabBindingPara
 		&i.Generation,
 		&i.DeployedAt,
 		&i.FailureReason,
+		&i.LabID,
 	)
 	return i, err
 }
 
 const getLabBinding = `-- name: GetLabBinding :one
-SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason FROM lab_bindings WHERE event_team_id = $1 AND event_challenge_id = $2
+SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id FROM lab_bindings WHERE event_team_id = $1 AND event_challenge_id = $2
 `
 
 type GetLabBindingParams struct {
@@ -83,6 +86,7 @@ func (q *Queries) GetLabBinding(ctx context.Context, arg GetLabBindingParams) (L
 		&i.Generation,
 		&i.DeployedAt,
 		&i.FailureReason,
+		&i.LabID,
 	)
 	return i, err
 }
@@ -124,7 +128,7 @@ func (q *Queries) ListLabBindingChallenges(ctx context.Context, arg ListLabBindi
 }
 
 const listLegacyLabBindings = `-- name: ListLegacyLabBindings :many
-SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, ec.event_exercise_id, tc.variant_index
+SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, lb.lab_id, ec.event_exercise_id, tc.variant_index
 FROM lab_bindings lb
 JOIN event_challenges ec ON ec.id = lb.event_challenge_id
 JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
@@ -147,6 +151,7 @@ type ListLegacyLabBindingsRow struct {
 	Generation       int32              `json:"generation"`
 	DeployedAt       pgtype.Timestamptz `json:"deployed_at"`
 	FailureReason    pgtype.Text        `json:"failure_reason"`
+	LabID            uuid.NullUUID      `json:"lab_id"`
 	EventExerciseID  uuid.UUID          `json:"event_exercise_id"`
 	VariantIndex     int32              `json:"variant_index"`
 }
@@ -174,6 +179,7 @@ func (q *Queries) ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) 
 			&i.Generation,
 			&i.DeployedAt,
 			&i.FailureReason,
+			&i.LabID,
 			&i.EventExerciseID,
 			&i.VariantIndex,
 		); err != nil {
@@ -189,14 +195,17 @@ func (q *Queries) ListLegacyLabBindings(ctx context.Context, eventID uuid.UUID) 
 
 const listPendingEventLabBindings = `-- name: ListPendingEventLabBindings :many
 SELECT pending.id, pending.event_team_id, pending.event_challenge_id, pending.lab_group_name, pending.lab_name,
-       pending.generation, pending.deployed_at, pending.created_at,
+       pending.generation, pending.lab_id, pending.deployed_at, pending.created_at,
        pending.variant_index, pending.exercise_version_id, pending.event_exercise_id
 FROM (
     SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
            lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
-           lb.generation, lb.deployed_at, lb.created_at,
+           lb.generation, lb.lab_id, lb.deployed_at, lb.created_at,
            tc.variant_index, ee.exercise_version_id, ee.id AS event_exercise_id
     FROM lab_bindings lb
+    JOIN event_team_labs lab ON lab.id=lb.lab_id AND lab.event_team_id=lb.event_team_id
+      AND lab.generation=lb.generation AND lab.lab_group_name=lb.lab_group_name AND lab.lab_name=lb.lab_name
+      AND lab.materialized AND lab.desired_state='Running' AND lab.logical_closed_at IS NULL
     JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
                            AND tc.event_challenge_id = lb.event_challenge_id
     JOIN event_challenges ec ON ec.id = lb.event_challenge_id
@@ -222,6 +231,7 @@ type ListPendingEventLabBindingsRow struct {
 	LabGroupName      string             `json:"lab_group_name"`
 	LabName           string             `json:"lab_name"`
 	Generation        int32              `json:"generation"`
+	LabID             uuid.NullUUID      `json:"lab_id"`
 	DeployedAt        pgtype.Timestamptz `json:"deployed_at"`
 	CreatedAt         time.Time          `json:"created_at"`
 	VariantIndex      int32              `json:"variant_index"`
@@ -248,6 +258,7 @@ func (q *Queries) ListPendingEventLabBindings(ctx context.Context, arg ListPendi
 			&i.LabGroupName,
 			&i.LabName,
 			&i.Generation,
+			&i.LabID,
 			&i.DeployedAt,
 			&i.CreatedAt,
 			&i.VariantIndex,
@@ -292,7 +303,7 @@ func (q *Queries) ListPendingLabGroupCleanupRequests(ctx context.Context) ([]str
 }
 
 const listTeamInfrastructureLabs = `-- name: ListTeamInfrastructureLabs :many
-SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason
+SELECT id, event_id, event_team_id, lab_group_name, lab_name, created_at, readiness, event_challenge_id, generation, deployed_at, failure_reason, lab_id
 FROM lab_bindings
 WHERE event_team_id = $1
   AND readiness <> 3
@@ -320,6 +331,7 @@ func (q *Queries) ListTeamInfrastructureLabs(ctx context.Context, eventTeamID uu
 			&i.Generation,
 			&i.DeployedAt,
 			&i.FailureReason,
+			&i.LabID,
 		); err != nil {
 			return nil, err
 		}
@@ -332,7 +344,7 @@ func (q *Queries) ListTeamInfrastructureLabs(ctx context.Context, eventTeamID uu
 }
 
 const listWithdrawnLabBindings = `-- name: ListWithdrawnLabBindings :many
-SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason
+SELECT lb.id, lb.event_id, lb.event_team_id, lb.lab_group_name, lb.lab_name, lb.created_at, lb.readiness, lb.event_challenge_id, lb.generation, lb.deployed_at, lb.failure_reason, lb.lab_id
 FROM lab_bindings lb
 JOIN events e ON e.id = lb.event_id
 WHERE e.withdraw_at IS NOT NULL
@@ -365,6 +377,7 @@ func (q *Queries) ListWithdrawnLabBindings(ctx context.Context, now pgtype.Times
 			&i.Generation,
 			&i.DeployedAt,
 			&i.FailureReason,
+			&i.LabID,
 		); err != nil {
 			return nil, err
 		}
@@ -593,6 +606,7 @@ func (q *Queries) QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Tim
 const recreateLabBinding = `-- name: RecreateLabBinding :execrows
 UPDATE lab_bindings
 SET generation = $1,
+    lab_id = NULL,
     lab_name = $2,
     readiness = 0,
     deployed_at = NULL,

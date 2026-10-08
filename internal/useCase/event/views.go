@@ -12,6 +12,7 @@ import (
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -138,6 +139,7 @@ type EventConfigView struct {
 	MaxFlagAttempts        *int32
 	Countdown              eventConfigModel.CountdownSettings
 	TaskRevealMode         eventConfigModel.TaskRevealMode
+	LabPolicy              eventLabModel.Policy
 	Theme                  eventConfigModel.Theme
 	StandTiming            eventStandModel.Timing
 	UpdatedAt              time.Time
@@ -287,6 +289,7 @@ func toEventConfigView(c eventConfigModel.EventConfig) EventConfigView {
 		MaxFlagAttempts:        c.MaxFlagAttempts,
 		Countdown:              c.Countdown,
 		TaskRevealMode:         c.TaskRevealMode,
+		LabPolicy:              c.EffectiveLabPolicy(),
 		Theme:                  c.Theme,
 		StandTiming:            c.StandTiming,
 		UpdatedAt:              c.UpdatedAt,

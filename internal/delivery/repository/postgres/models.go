@@ -229,6 +229,7 @@ type EventConfig struct {
 	TaskRevealMode               string             `json:"task_reveal_mode"`
 	MaxFlagAttempts              pgtype.Int4        `json:"max_flag_attempts"`
 	FinishCountdownMode          int16              `json:"finish_countdown_mode"`
+	LabPolicy                    []byte             `json:"lab_policy"`
 }
 
 type EventExercise struct {
@@ -445,6 +446,44 @@ type EventTeamFieldConfig struct {
 	BlockSubmissions bool      `json:"block_submissions"`
 }
 
+type EventTeamLab struct {
+	ID                   uuid.UUID          `json:"id"`
+	EventID              uuid.UUID          `json:"event_id"`
+	EventTeamID          uuid.UUID          `json:"event_team_id"`
+	EventExerciseID      uuid.UUID          `json:"event_exercise_id"`
+	VariantIndex         int32              `json:"variant_index"`
+	Generation           int32              `json:"generation"`
+	LabGroupName         string             `json:"lab_group_name"`
+	LabName              string             `json:"lab_name"`
+	AgentUid             string             `json:"agent_uid"`
+	AgentGeneration      int64              `json:"agent_generation"`
+	DesiredRevision      int64              `json:"desired_revision"`
+	ObservedRevision     int64              `json:"observed_revision"`
+	OperationID          uuid.UUID          `json:"operation_id"`
+	DesiredState         string             `json:"desired_state"`
+	ActualState          string             `json:"actual_state"`
+	RuntimeReady         bool               `json:"runtime_ready"`
+	CloseReason          pgtype.Text        `json:"close_reason"`
+	LogicalClosedAt      pgtype.Timestamptz `json:"logical_closed_at"`
+	SnapshotMode         string             `json:"snapshot_mode"`
+	SnapshotState        string             `json:"snapshot_state"`
+	RetentionUntil       pgtype.Timestamptz `json:"retention_until"`
+	ProtectedUntil       pgtype.Timestamptz `json:"protected_until"`
+	ActualStoppedAt      pgtype.Timestamptz `json:"actual_stopped_at"`
+	ObservedAt           pgtype.Timestamptz `json:"observed_at"`
+	ObjectiveCount       int32              `json:"objective_count"`
+	Materialized         bool               `json:"materialized"`
+	Allocation           []byte             `json:"allocation"`
+	FailureCode          string             `json:"failure_code"`
+	FailureMessage       string             `json:"failure_message"`
+	AccessFenced         bool               `json:"access_fenced"`
+	AccessFencedAt       pgtype.Timestamptz `json:"access_fenced_at"`
+	AccessFenceVpnBootID string             `json:"access_fence_vpn_boot_id"`
+	NextAttemptAt        time.Time          `json:"next_attempt_at"`
+	CreatedAt            time.Time          `json:"created_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+}
+
 type EventTeamStand struct {
 	EventTeamID     uuid.UUID   `json:"event_team_id"`
 	EventID         uuid.UUID   `json:"event_id"`
@@ -599,6 +638,7 @@ type LabBinding struct {
 	Generation       int32              `json:"generation"`
 	DeployedAt       pgtype.Timestamptz `json:"deployed_at"`
 	FailureReason    pgtype.Text        `json:"failure_reason"`
+	LabID            uuid.NullUUID      `json:"lab_id"`
 }
 
 type LabMonitoringCurrent struct {

@@ -13,6 +13,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 )
 
@@ -94,6 +95,9 @@ type EventConfig struct {
 	Countdown CountdownSettings
 	// TaskRevealMode is how infrastructure tasks are revealed; chosen before the event starts.
 	TaskRevealMode TaskRevealMode
+	LabPolicy      eventLabModel.Policy
+	// LabPolicyExplicit preserves the legacy timing fallback until policy is configured.
+	LabPolicyExplicit bool
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -161,6 +165,7 @@ func NewEventConfig(eventID uuid.UUID, now time.Time) EventConfig {
 		Results:                DefaultResultsSettings(),
 		Countdown:              DefaultCountdownSettings(),
 		TaskRevealMode:         RevealAllReady,
+		LabPolicy:              eventLabModel.DefaultPolicy(),
 		CreatedAt:              now,
 		UpdatedAt:              now,
 	}
@@ -352,4 +357,25 @@ func cloneLimit(value *int32) *int32 {
 func (c *EventConfig) touch(now time.Time, by uuid.UUID) {
 	c.UpdatedAt = now
 	c.UpdatedBy = uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}
+}
+
+// EffectiveLabPolicy uses legacy timing only until an explicit policy is saved.
+func (c *EventConfig) EffectiveLabPolicy() eventLabModel.Policy {
+	policy := c.LabPolicy
+	if !c.LabPolicyExplicit {
+		policy = eventLabModel.DefaultPolicy()
+		policy.RetentionMinutes = c.StandTiming.TeardownDelayMinutes
+	}
+	policy.MaxActiveLabsPerTeam = cloneLimit(policy.MaxActiveLabsPerTeam)
+	return policy
+}
+func (c *EventConfig) SetLabPolicy(policy eventLabModel.Policy, now time.Time, by uuid.UUID) error {
+	if err := policy.Validate(); err != nil {
+		return err
+	}
+	policy.MaxActiveLabsPerTeam = cloneLimit(policy.MaxActiveLabsPerTeam)
+	c.LabPolicy = policy
+	c.LabPolicyExplicit = true
+	c.touch(now, by)
+	return nil
 }

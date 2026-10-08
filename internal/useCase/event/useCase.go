@@ -25,6 +25,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabObservationRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventNotificationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
@@ -50,6 +51,7 @@ import (
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -88,6 +90,7 @@ type IRepository interface {
 	eventResultRepo.Queries
 	scoreboardRepo.Queries
 	labBindingRepo.Queries
+	eventLabRepo.Queries
 	labAccessSyncRepo.Queries
 	eventLabObservationRepo.Queries
 	eventStandRepo.Queries
@@ -182,6 +185,7 @@ type EventUseCase struct {
 	results                  *eventResultRepo.Repository
 	scoreboard               *scoreboardRepo.Repository
 	labBindings              *labBindingRepo.Repository
+	labs                     *eventLabRepo.Repository
 	labAccessSyncs           *labAccessSyncRepo.Repository
 	labObservations          *eventLabObservationRepo.Repository
 	stands                   *eventStandRepo.Repository
@@ -336,6 +340,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		results:                  eventResultRepo.New(deps.Repo),
 		scoreboard:               scoreboardRepo.New(deps.Repo),
 		labBindings:              labBindingRepo.New(deps.Repo),
+		labs:                     eventLabRepo.New(deps.Repo),
 		observations:             eventLabObservationRepo.New(deps.Repo),
 		labAccessSyncs:           labAccessSyncRepo.New(deps.Repo),
 		labObservations:          eventLabObservationRepo.New(deps.Repo),
@@ -493,4 +498,25 @@ func (u *EventUseCase) mutateEventConfig(ctx context.Context, eventID uuid.UUID,
 		return eventConfigModel.EventConfig{}, eventModel.ErrEventModified.Err()
 	}
 	return c, nil
+}
+
+// LabLifecyclePreparationCapability is a Task1 prerequisite for the producer
+// adapter: REQUIRED must be checked against the selected group's lifecycle
+// capture features before any participant lab is provisioned.
+type LabLifecyclePreparationCapability interface {
+	RequireLabLifecyclePreparation(context.Context, string, eventLabModel.Policy, exerciseModel.Topology) error
+}
+
+func (u *EventUseCase) validateLabPreparation(ctx context.Context, group string, policy eventLabModel.Policy, topology exerciseModel.Topology) error {
+	if err := policy.ValidatePreparation(topology, true); err != nil {
+		return err
+	}
+	if policy.SnapshotMode != "required" {
+		return nil
+	}
+	capability, ok := u.infra.(LabLifecyclePreparationCapability)
+	if !ok {
+		return policy.ValidatePreparation(topology, false)
+	}
+	return capability.RequireLabLifecyclePreparation(ctx, group, policy, topology)
 }

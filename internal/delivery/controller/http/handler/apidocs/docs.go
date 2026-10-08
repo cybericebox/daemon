@@ -22379,6 +22379,9 @@ const docTemplate = `{
                     "description": "InfrastructureAllowed is the admin's creation-time decision (read-only).",
                     "type": "boolean"
                 },
+                "LabPolicy": {
+                    "$ref": "#/definitions/event.labPolicyResponse"
+                },
                 "MaxFlagAttempts": {
                     "description": "MaxFlagAttempts: wrong flag submissions allowed per team and task; null = unlimited. A task may override it.",
                     "type": "integer"
@@ -23397,6 +23400,34 @@ const docTemplate = `{
                             "$ref": "#/definitions/eventContentModel.LiveScreenExpiry"
                         }
                     ]
+                }
+            }
+        },
+        "event.labPolicyRequest": {
+            "type": "object",
+            "properties": {
+                "MaxActiveLabsPerTeam": {
+                    "type": "integer"
+                },
+                "RetentionMinutes": {
+                    "type": "integer"
+                },
+                "SnapshotMode": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.labPolicyResponse": {
+            "type": "object",
+            "properties": {
+                "MaxActiveLabsPerTeam": {
+                    "type": "integer"
+                },
+                "RetentionMinutes": {
+                    "type": "integer"
+                },
+                "SnapshotMode": {
+                    "type": "string"
                 }
             }
         },
@@ -24925,6 +24956,9 @@ const docTemplate = `{
                 },
                 "HintsDisabled": {
                     "type": "boolean"
+                },
+                "LabPolicy": {
+                    "$ref": "#/definitions/event.labPolicyRequest"
                 },
                 "MaxFlagAttempts": {
                     "description": "MaxFlagAttempts omitted keeps the current value; null clears it (unlimited); otherwise 1..1000.",

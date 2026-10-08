@@ -136,6 +136,11 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 		if err := cfg.Update(in.toConfigInput(*cfg), now, by); err != nil {
 			return err
 		}
+		if in.LabPolicy != nil {
+			if err := cfg.SetLabPolicy(in.LabPolicy.Resolve(cfg.EffectiveLabPolicy()), now, by); err != nil {
+				return err
+			}
+		}
 		if in.TaskRevealMode != nil {
 			started := false
 			if *in.TaskRevealMode != cfg.TaskRevealMode {

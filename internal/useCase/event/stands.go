@@ -10,7 +10,10 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
@@ -21,6 +24,7 @@ import (
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
@@ -102,6 +106,11 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	var errs []error
 	if e.InfrastructureAllowed && u.laboratoriesUsable(ctx) {
 		if err = u.moveLegacyStandLabs(ctx, e); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if e.InfrastructureAllowed {
+		if err = u.repairEventLabAssignments(ctx, e.ID, now); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -220,6 +229,9 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		return err
 	}
 	defer unit.Restore()
+	if err = eventLabRepo.New(txRepo).LockAdmission(txCtx, assignment.TeamID); err != nil {
+		return err
+	}
 	team, err := eventStandRepo.New(txRepo).GetTeam(txCtx, e.ID, assignment.TeamID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -244,6 +256,19 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 	}
 	variant := version.Variants[variantIndex]
 	infrastructure := len(variant.Topology.Devices) > 0
+	if infrastructure && e.InfrastructureAllowed {
+		config, getErr := eventConfigRepo.New(txRepo).Get(txCtx, e.ID)
+		if getErr != nil {
+			return getErr
+		}
+		group, _, nameErr := labBindingModel.Names(e.ID, team.ID, attachment.ID, variantIndex)
+		if nameErr != nil {
+			return nameErr
+		}
+		if err = u.validateLabPreparation(txCtx, group, config.EffectiveLabPolicy(), variant.Topology); err != nil {
+			return err
+		}
+	}
 	challenges, err := eventChallengeRepo.New(txRepo).List(txCtx, attachment.ID)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list event challenges").Err()
@@ -291,6 +316,11 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		}
 		if _, _, err = bindings.Create(txCtx, binding); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to create lab binding").Err()
+		}
+	}
+	if infrastructure && e.InfrastructureAllowed {
+		if _, err = ensureEventTeamLabWithPreparation(txCtx, txRepo, e.ID, team.ID, attachment.ID, now, u.validateLabPreparation); err != nil {
+			return err
 		}
 	}
 	if err = unit.Save(); err != nil {
@@ -722,4 +752,146 @@ func (u *EventUseCase) publishAvailableChallenges(ctx context.Context, eventID u
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to publish available team challenges").Err()
 	}
 	return nil
+}
+
+// ensureEventTeamLabForAssignment repairs a legacy assignment in the caller's
+// transaction. Admission serializes creation; the canonical lab lock then
+// precedes question mutation. Existing objective membership is never replaced
+// by a visible board projection or a newly edited exercise.
+func ensureEventTeamLabForAssignment(ctx context.Context, repo IRepository, eventID, teamID, eventExerciseID uuid.UUID, now time.Time) (eventLabModel.Lab, error) {
+	return ensureEventTeamLabWithPreparation(ctx, repo, eventID, teamID, eventExerciseID, now, nil)
+}
+
+// A newly captured REQUIRED policy, including legacy repair, needs the same
+// producer preparation validation. Request paths lacking that capability
+// return retryable repair until the stand engine has initialized the identity.
+func ensureEventTeamLabWithPreparation(ctx context.Context, repo IRepository, eventID, teamID, eventExerciseID uuid.UUID, now time.Time, validate func(context.Context, string, eventLabModel.Policy, exerciseModel.Topology) error) (eventLabModel.Lab, error) {
+	labs := eventLabRepo.New(repo)
+	if err := labs.LockAdmission(ctx, teamID); err != nil {
+		return eventLabModel.Lab{}, err
+	}
+	objectives, err := labs.AssignmentObjectives(ctx, eventID, teamID, eventExerciseID)
+	if err != nil {
+		return eventLabModel.Lab{}, err
+	}
+	if len(objectives) == 0 {
+		return eventLabModel.Lab{}, labRepairError("missing pinned team questions")
+	}
+	first := objectives[0]
+	for _, objective := range objectives {
+		if objective.BindingID.Valid {
+			first = objective
+			break
+		}
+	}
+	if !first.BindingID.Valid || labBindingModel.IsLegacyLabName(first.Ref.Lab) {
+		return eventLabModel.Lab{}, labRepairError("shared deployment identity is missing")
+	}
+	for _, o := range objectives {
+		if o.VariantIndex != first.VariantIndex || (o.BindingID.Valid && (o.Ref != first.Ref || o.Generation != first.Generation)) {
+			return eventLabModel.Lab{}, labRepairError("inconsistent deployment generations or variants")
+		}
+	}
+	lab, err := labs.GetForRef(ctx, teamID, first.Ref, first.Generation)
+	if err != nil {
+		if !repositoryTools.IsObjectNotFoundError(err) {
+			return eventLabModel.Lab{}, err
+		}
+		challenges, listErr := eventChallengeRepo.New(repo).List(ctx, eventExerciseID)
+		if listErr != nil {
+			return eventLabModel.Lab{}, listErr
+		}
+		ids := make([]uuid.UUID, 0, len(challenges))
+		for _, c := range challenges {
+			ids = append(ids, c.ID)
+		}
+		config, getErr := eventConfigRepo.New(repo).Get(ctx, eventID)
+		if getErr != nil {
+			return eventLabModel.Lab{}, getErr
+		}
+		event, getErr := eventRepo.New(repo).GetByID(ctx, eventID)
+		if getErr != nil {
+			return eventLabModel.Lab{}, getErr
+		}
+		policy := config.EffectiveLabPolicy()
+		if policy.SnapshotMode == "required" {
+			if validate == nil {
+				return eventLabModel.Lab{}, labRepairError("required assignment needs stand-engine preparation validation")
+			}
+			attachment, getErr := eventExerciseRepo.New(repo).GetByID(ctx, eventID, eventExerciseID)
+			if getErr != nil {
+				return eventLabModel.Lab{}, getErr
+			}
+			version, getErr := exerciseRepo.New(repo).GetVersion(ctx, attachment.ExerciseVersionID)
+			if getErr != nil {
+				return eventLabModel.Lab{}, getErr
+			}
+			if first.VariantIndex < 0 || int(first.VariantIndex) >= len(version.Variants) {
+				return eventLabModel.Lab{}, labRepairError("pinned variant is missing")
+			}
+			if err := validate(ctx, first.Ref.Group, policy, version.Variants[first.VariantIndex].Topology); err != nil {
+				return eventLabModel.Lab{}, err
+			}
+		}
+		var retention *time.Time
+		if finish := event.Lifecycle.EffectiveFinishAt(); finish != nil {
+			until := finish.Add(time.Duration(policy.RetentionMinutes) * time.Minute)
+			retention = &until
+		}
+		lab, err = eventLabModel.New(eventLabModel.NewInput{EventID: eventID, TeamID: teamID, EventExerciseID: eventExerciseID, Ref: first.Ref, VariantIndex: first.VariantIndex, Generation: first.Generation, ObjectiveIDs: ids, Policy: policy, RetentionUntil: retention}, now)
+		if err != nil {
+			return eventLabModel.Lab{}, err
+		}
+		if err = labs.Create(ctx, lab, ids); err != nil {
+			return eventLabModel.Lab{}, err
+		}
+	}
+	if lab, err = labs.Lock(ctx, lab.ID); err != nil {
+		return eventLabModel.Lab{}, err
+	}
+	if lab.EventID != eventID || lab.EventExerciseID != eventExerciseID || lab.VariantIndex != first.VariantIndex {
+		return eventLabModel.Lab{}, labRepairError("canonical scope does not match assignment")
+	}
+	attached, err := labs.AttachBindings(ctx, lab.ID)
+	if err != nil {
+		return eventLabModel.Lab{}, err
+	}
+	// The snapshot itself remains authoritative once created. Missing questions
+	// or bindings cannot make a partially materialized environment complete.
+	if !lab.Materialized && attached == int64(lab.ObjectiveCount) && len(objectives) == int(lab.ObjectiveCount) {
+		expected := lab.Revision
+		lab.MarkMaterialized(now)
+		if ok, writeErr := labs.Update(ctx, lab, expected); writeErr != nil {
+			return eventLabModel.Lab{}, writeErr
+		} else if !ok {
+			return eventLabModel.Lab{}, labRepairError("canonical revision changed")
+		}
+	}
+	return lab, nil
+}
+func labRepairError(reason string) error {
+	return eventLabModel.ErrAssignmentRepair.WithError(errors.New(reason)).Err()
+}
+func (u *EventUseCase) repairEventLabAssignments(ctx context.Context, eventID uuid.UUID, now time.Time) error {
+	assignments, err := u.labs.MissingAssignments(ctx, eventID)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, assignment := range assignments {
+		txCtx, repo, unit, txErr := u.uow.UnitOfWork(ctx)
+		if txErr != nil {
+			errs = append(errs, txErr)
+			continue
+		}
+		_, txErr = ensureEventTeamLabWithPreparation(txCtx, repo, eventID, assignment.TeamID, assignment.EventExerciseID, now, u.validateLabPreparation)
+		if txErr == nil {
+			txErr = unit.Save()
+		}
+		_ = unit.Restore()
+		if txErr != nil {
+			errs = append(errs, txErr)
+		}
+	}
+	return errors.Join(errs...)
 }

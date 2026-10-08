@@ -14,6 +14,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 )
 
@@ -100,6 +101,7 @@ func int32FromDB(value pgtype.Int4) *int32 {
 func (r *Repository) Create(ctx context.Context, c eventConfigModel.EventConfig) (eventConfigModel.EventConfig, error) {
 	row, err := r.q.CreateEventConfig(ctx, postgres.CreateEventConfigParams{
 		EventID:                   c.EventID,
+		LabPolicy:                 encodeLabPolicy(c),
 		Participation:             participationToDB(c.Participation),
 		Registration:              int16(c.Registration),
 		ScoreboardVisibility:      int16(c.ScoreboardVisibility),
@@ -156,6 +158,7 @@ func (r *Repository) Get(ctx context.Context, eventID uuid.UUID) (eventConfigMod
 func (r *Repository) Update(ctx context.Context, c eventConfigModel.EventConfig, expectedUpdatedAt time.Time) (int64, error) {
 	return r.q.UpdateEventConfig(ctx, postgres.UpdateEventConfigParams{
 		EventID:                   c.EventID,
+		LabPolicy:                 encodeLabPolicy(c),
 		Participation:             participationToDB(c.Participation),
 		Registration:              int16(c.Registration),
 		ScoreboardVisibility:      int16(c.ScoreboardVisibility),
@@ -238,6 +241,8 @@ func ToDomain(row postgres.EventConfig) eventConfigModel.EventConfig {
 		Results:                resultsFromDB(row),
 		Countdown:              countdownFromDB(row),
 		TaskRevealMode:         revealModeOrDefault(eventConfigModel.TaskRevealMode(row.TaskRevealMode)),
+		LabPolicy:              decodeLabPolicy(row.LabPolicy, row.StandTeardownDelayMinutes),
+		LabPolicyExplicit:      len(row.LabPolicy) > 0 && string(row.LabPolicy) != "null",
 		CreatedAt:              row.CreatedAt,
 		UpdatedAt:              row.UpdatedAt.Time,
 		UpdatedBy:              row.UpdatedBy,
@@ -306,4 +311,20 @@ func countdownFromDB(row postgres.EventConfig) eventConfigModel.CountdownSetting
 		return eventConfigModel.DefaultCountdownSettings()
 	}
 	return eventConfigModel.CountdownSettings{ShowStart: row.ShowStartCountdown, ShowFinish: row.ShowFinishCountdown, FinishMinutes: row.FinishCountdownMinutes, FinishMode: finishModeFromDB(row.FinishCountdownMode)}
+}
+
+func encodeLabPolicy(c eventConfigModel.EventConfig) []byte {
+	if !c.LabPolicyExplicit {
+		return nil
+	}
+	encoded, _ := json.Marshal(c.LabPolicy)
+	return encoded
+}
+func decodeLabPolicy(data []byte, legacyRetention int32) eventLabModel.Policy {
+	policy := eventLabModel.DefaultPolicy()
+	policy.RetentionMinutes = legacyRetention
+	if len(data) > 0 {
+		_ = json.Unmarshal(data, &policy)
+	}
+	return policy
 }

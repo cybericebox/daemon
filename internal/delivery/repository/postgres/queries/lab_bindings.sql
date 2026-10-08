@@ -2,8 +2,8 @@
 SELECT * FROM lab_bindings WHERE event_team_id = sqlc.arg(event_team_id) AND event_challenge_id = sqlc.arg(event_challenge_id);
 
 -- name: CreateLabBinding :one
-INSERT INTO lab_bindings (id,event_id,event_team_id,event_challenge_id,lab_group_name,lab_name,created_at,generation)
-VALUES (sqlc.arg(id),sqlc.arg(event_id),sqlc.arg(event_team_id),sqlc.arg(event_challenge_id),sqlc.arg(lab_group_name),sqlc.arg(lab_name),sqlc.arg(created_at),sqlc.arg(generation))
+INSERT INTO lab_bindings (id,event_id,event_team_id,event_challenge_id,lab_group_name,lab_name,created_at,generation,lab_id)
+VALUES (sqlc.arg(id),sqlc.arg(event_id),sqlc.arg(event_team_id),sqlc.arg(event_challenge_id),sqlc.arg(lab_group_name),sqlc.arg(lab_name),sqlc.arg(created_at),sqlc.arg(generation),sqlc.narg(lab_id))
 ON CONFLICT (event_team_id, event_challenge_id) DO NOTHING
 RETURNING *;
 
@@ -83,14 +83,17 @@ WHERE lab_group_name = sqlc.arg(lab_group_name)
 -- the pinned version and variant needed to resolve its topology. The bindings
 -- of one exercise share a Lab, so each Lab is listed once, by its first binding.
 SELECT pending.id, pending.event_team_id, pending.event_challenge_id, pending.lab_group_name, pending.lab_name,
-       pending.generation, pending.deployed_at, pending.created_at,
+       pending.generation, pending.lab_id, pending.deployed_at, pending.created_at,
        pending.variant_index, pending.exercise_version_id, pending.event_exercise_id
 FROM (
     SELECT DISTINCT ON (lb.event_team_id, lb.lab_name)
            lb.id, lb.event_team_id, lb.event_challenge_id, lb.lab_group_name, lb.lab_name,
-           lb.generation, lb.deployed_at, lb.created_at,
+           lb.generation, lb.lab_id, lb.deployed_at, lb.created_at,
            tc.variant_index, ee.exercise_version_id, ee.id AS event_exercise_id
     FROM lab_bindings lb
+    JOIN event_team_labs lab ON lab.id=lb.lab_id AND lab.event_team_id=lb.event_team_id
+      AND lab.generation=lb.generation AND lab.lab_group_name=lb.lab_group_name AND lab.lab_name=lb.lab_name
+      AND lab.materialized AND lab.desired_state='Running' AND lab.logical_closed_at IS NULL
     JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
                            AND tc.event_challenge_id = lb.event_challenge_id
     JOIN event_challenges ec ON ec.id = lb.event_challenge_id
@@ -171,6 +174,7 @@ ORDER BY lab_name;
 -- binding of the exercise is moved to the same name and generation.
 UPDATE lab_bindings
 SET generation = sqlc.arg(next_generation),
+    lab_id = NULL,
     lab_name = sqlc.arg(lab_name),
     readiness = 0,
     deployed_at = NULL,

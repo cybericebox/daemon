@@ -13,8 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/challengeAttemptRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
@@ -482,6 +484,19 @@ func TestStandCountersAndPendingSkipNotDueSets(t *testing.T) {
 	rtExec(t, db, `INSERT INTO lab_bindings (id, event_id, event_team_id, event_challenge_id, lab_group_name, lab_name, readiness, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`, uuid.Must(uuid.NewV7()), f.event, f.team, f.challenge, f.group, f.lab, anStart)
 	set := stSetOf(t, db, f.challenge)
+	// A deployable fixture needs the canonical identity and complete pin introduced in 0160.
+	lab, err := eventLabModel.New(eventLabModel.NewInput{EventID: f.event, TeamID: f.team, EventExerciseID: set, Ref: eventLabModel.Ref{Group: f.group, Lab: f.lab}, ObjectiveIDs: []uuid.UUID{f.challenge}, Policy: eventLabModel.DefaultPolicy()}, anStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab.MarkMaterialized(anStart)
+	labs := eventLabRepo.New(db.Queries)
+	if err = labs.Create(ctx, lab, []uuid.UUID{f.challenge}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := labs.AttachBindings(ctx, lab.ID); err != nil || n != 1 {
+		t.Fatal(n, err)
+	}
 	pending := func(notDue ...uuid.UUID) int {
 		rows, err := db.Queries.ListPendingEventLabBindings(ctx, postgres.ListPendingEventLabBindingsParams{EventID: f.event, NotDueExerciseIds: append([]uuid.UUID{}, notDue...)})
 		if err != nil {

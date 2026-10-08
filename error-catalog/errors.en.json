@@ -202,6 +202,8 @@
   "22502": "The reservation is invalid",
   "22507": "The change request is invalid",
   "22512": "The booking is invalid",
+  "22601": "Laboratory lifecycle data is invalid",
+  "22602": "Laboratory policy is invalid",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
@@ -290,6 +292,7 @@
   "61811": "This exercise is not available to the event",
   "62201": "User cannot view the analytics of this event",
   "62202": "Only the event owner, write moderators and platform admins can view answers and integrity signals",
+  "62603": "A solved laboratory cannot be restarted",
   "70219": "Inbox request is already resolved",
   "70303": "User was modified concurrently",
   "70428": "Too many attempts, try again later",
@@ -391,5 +394,10 @@
   "72506": "The change request was decided already",
   "72508": "Not enough reserved resources, request an extension",
   "72509": "No free resources now, the nearest window is shown",
-  "72514": "The event has a change request that waits for a decision"
+  "72514": "The event has a change request that waits for a decision",
+  "72604": "The laboratory has no retained stopped state to restart",
+  "72605": "A new laboratory lifecycle operation is required",
+  "72606": "Required laboratory snapshots are unavailable",
+  "72607": "Laboratory closure data is invalid",
+  "72608": "The laboratory assignment is being repaired, try again"
 }

@@ -115,7 +115,7 @@ func (r *Repository) MarkCleanupRequestDestroyed(ctx context.Context, groupName 
 // Create inserts a binding. created is false when another request already
 // created the binding for this team and event exercise.
 func (r *Repository) Create(ctx context.Context, value labBindingModel.Binding) (labBindingModel.Binding, bool, error) {
-	row, err := r.q.CreateLabBinding(ctx, postgres.CreateLabBindingParams{ID: value.ID, EventID: value.EventID, EventTeamID: value.EventTeamID, EventChallengeID: value.EventChallengeID, LabGroupName: value.LabGroupName, LabName: value.LabName, CreatedAt: value.CreatedAt, Generation: value.Generation})
+	row, err := r.q.CreateLabBinding(ctx, postgres.CreateLabBindingParams{ID: value.ID, LabID: value.LabID, EventID: value.EventID, EventTeamID: value.EventTeamID, EventChallengeID: value.EventChallengeID, LabGroupName: value.LabGroupName, LabName: value.LabName, CreatedAt: value.CreatedAt, Generation: value.Generation})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return labBindingModel.Binding{}, false, nil
@@ -137,7 +137,7 @@ func (r *Repository) ListPending(ctx context.Context, eventID uuid.UUID, notDue 
 	}
 	out := make([]PendingLab, 0, len(rows))
 	for _, row := range rows {
-		binding := labBindingModel.Binding{ID: row.ID, EventID: eventID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID,
+		binding := labBindingModel.Binding{ID: row.ID, LabID: row.LabID, EventID: eventID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID,
 			LabGroupName: row.LabGroupName, LabName: row.LabName, Generation: row.Generation, CreatedAt: row.CreatedAt,
 			Readiness: labBindingModel.ReadinessPending}
 		if row.DeployedAt.Valid {
@@ -205,7 +205,7 @@ func (r *Repository) ListLegacy(ctx context.Context, eventID uuid.UUID) ([]Legac
 	out := make([]LegacyBinding, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, LegacyBinding{
-			Binding:         ToDomain(postgres.LabBinding{ID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, LabGroupName: row.LabGroupName, LabName: row.LabName, CreatedAt: row.CreatedAt, Readiness: row.Readiness, EventChallengeID: row.EventChallengeID, Generation: row.Generation, DeployedAt: row.DeployedAt, FailureReason: row.FailureReason}),
+			Binding:         ToDomain(postgres.LabBinding{ID: row.ID, LabID: row.LabID, EventID: row.EventID, EventTeamID: row.EventTeamID, LabGroupName: row.LabGroupName, LabName: row.LabName, CreatedAt: row.CreatedAt, Readiness: row.Readiness, EventChallengeID: row.EventChallengeID, Generation: row.Generation, DeployedAt: row.DeployedAt, FailureReason: row.FailureReason}),
 			EventExerciseID: row.EventExerciseID, VariantIndex: row.VariantIndex,
 		})
 	}
@@ -228,7 +228,7 @@ func (r *Repository) MarkEventDestroyed(ctx context.Context, eventID uuid.UUID) 
 }
 
 func ToDomain(row postgres.LabBinding) labBindingModel.Binding {
-	value := labBindingModel.Binding{ID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, LabGroupName: row.LabGroupName, LabName: row.LabName, CreatedAt: row.CreatedAt, Readiness: labBindingModel.Readiness(row.Readiness), Generation: row.Generation, FailureReason: row.FailureReason.String}
+	value := labBindingModel.Binding{ID: row.ID, LabID: row.LabID, EventID: row.EventID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, LabGroupName: row.LabGroupName, LabName: row.LabName, CreatedAt: row.CreatedAt, Readiness: labBindingModel.Readiness(row.Readiness), Generation: row.Generation, FailureReason: row.FailureReason.String}
 	if row.DeployedAt.Valid {
 		at := row.DeployedAt.Time
 		value.DeployedAt = &at

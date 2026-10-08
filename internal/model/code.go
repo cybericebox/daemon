@@ -30,4 +30,5 @@ const (
 	PlatformAnalyticsObjectCode
 	ErrorJournalObjectCode
 	ResourceCalendarObjectCode
+	EventLabObjectCode
 )
