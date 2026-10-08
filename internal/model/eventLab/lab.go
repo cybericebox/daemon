@@ -111,8 +111,13 @@ func (l *Lab) Start(operationID uuid.UUID, now time.Time) error {
 		return ErrSolvedTerminal.Err()
 	}
 	retainedDefinition := l.ID != uuid.Nil && validRef(l.Ref) && (l.Allocation.StorageState == "Retained" || l.Allocation.StorageState == "None")
-	currentBarrier := l.SnapshotMode != "required" || (l.SnapshotState == "Succeeded" && l.ObservedRevision == l.Revision && l.AccessFenced && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil)
-	if l.DesiredState != "Stopped" || l.ActualState != "Stopped" || !retainedDefinition || !currentBarrier || (l.RetentionUntil != nil && !now.Before(*l.RetentionUntil)) {
+	// The persisted observed revision certifies the exact UID/ref/operation/live
+	// generation through Observe. Historical Stopped state cannot authorize a
+	// new start after an intervening intent changed the desired revision.
+	currentStop := l.AgentUID != "" && l.AgentGeneration > 0 && l.ObservedRevision == l.Revision && l.ObservedAt != nil && l.AccessFenced && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil && l.FailureCode == ""
+	currentBarrier := l.SnapshotMode == "skip" || (l.SnapshotMode == "required" && l.SnapshotState == "Succeeded")
+	restartableClosure := l.ClosedAt != nil && (l.CloseReason == "manual" || l.CloseReason == "stage")
+	if l.DesiredState != "Stopped" || l.ActualState != "Stopped" || !restartableClosure || !currentStop || !retainedDefinition || !currentBarrier || (l.RetentionUntil != nil && !now.Before(*l.RetentionUntil)) {
 		return ErrRestartUnavailable.Err()
 	}
 	if operationID == uuid.Nil || operationID == l.OperationID {

@@ -13,6 +13,7 @@ import (
 	"github.com/gofrs/uuid"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -327,5 +328,106 @@ func TestEventLabsRequiredReleaseNeedsCaptureAndAccessFence(t *testing.T) {
 		if i == 4 && got.Allocation.RuntimeState != "Released" {
 			t.Fatal("valid release refused", got)
 		}
+	}
+}
+
+func elCertifiedStopped(t *testing.T, reason string) (*testhelpers.TestDB, *eventLabRepo.Repository, eventLabModel.Lab) {
+	t.Helper()
+	db, _, l, _ := elSeed(t)
+	ctx := context.Background()
+	repo := eventLabRepo.New(db.Queries)
+	if ok, err := repo.RecordInitialIdentity(ctx, l.ID, l.Ref, "uid", 1, anStart); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	l, _ = repo.Get(ctx, l.ID)
+	if err := l.Close(reason, uuid.Must(uuid.NewV7()), anStart); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := repo.Update(ctx, l, 1); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	at := anStart.Add(time.Minute)
+	o := eventLabModel.Observation{Ref: l.Ref, UID: "uid", OperationID: l.OperationID, Revision: l.Revision, Generation: 2, ObservedGeneration: 2, DesiredState: "Stopped", ActualState: "Stopped", SnapshotState: "NotRequired", ObservedAt: &at, AccessFenced: true, Allocation: eventLabModel.Allocation{RuntimeState: "Released", StorageState: "None", ReleasedAt: &at}}
+	if ok, err := repo.RecordObservation(ctx, l.ID, o); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	l, err := repo.Get(ctx, l.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db, repo, l
+}
+func elAssertRestartRefusedAndUnchanged(t *testing.T, repo *eventLabRepo.Repository, l eventLabModel.Lab, at time.Time) {
+	t.Helper()
+	before := l
+	if err := l.Start(uuid.Must(uuid.NewV7()), at); err == nil {
+		if ok, err := repo.Update(context.Background(), l, before.Revision); !ok || err != nil {
+			t.Fatal(ok, err)
+		}
+		t.Fatalf("uncertified restart persisted Running: desired=%d observed=%d reason=%q", l.Revision, l.ObservedRevision, before.CloseReason)
+	}
+	if !reflect.DeepEqual(before, l) {
+		t.Fatal("refusal mutated loaded aggregate")
+	}
+	after, err := repo.Get(context.Background(), l.ID)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatal("refusal changed persisted aggregate", after, err)
+	}
+}
+func TestEventLabsRestartRejectsEventClosure(t *testing.T) {
+	_, repo, l := elCertifiedStopped(t, "event")
+	elAssertRestartRefusedAndUnchanged(t, repo, l, anStart.Add(2*time.Minute))
+}
+func TestEventLabsSkipRestartRejectsPreviousStopAfterRoundTrip(t *testing.T) {
+	_, repo, l := elCertifiedStopped(t, "manual")
+	ctx := context.Background()
+	if err := l.Start(uuid.Must(uuid.NewV7()), anStart.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := repo.Update(ctx, l, 2); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	l, _ = repo.Get(ctx, l.ID)
+	if err := l.Close("manual", uuid.Must(uuid.NewV7()), anStart.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := repo.Update(ctx, l, 3); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	l, _ = repo.Get(ctx, l.ID)
+	if l.Revision != 4 || l.ObservedRevision != 2 {
+		t.Fatal("invalid stale-stop setup", l)
+	}
+	elAssertRestartRefusedAndUnchanged(t, repo, l, anStart.Add(4*time.Minute))
+	// A fresh live/status match for the latest stop restores eligibility; the
+	// metadata generation is explicit producer evidence, not inferred revision arithmetic.
+	at := anStart.Add(5 * time.Minute)
+	o := eventLabModel.Observation{Ref: l.Ref, UID: l.AgentUID, OperationID: l.OperationID, Revision: l.Revision, Generation: 9, ObservedGeneration: 9, DesiredState: "Stopped", ActualState: "Stopped", SnapshotState: "NotRequired", ObservedAt: &at, AccessFenced: true, Allocation: eventLabModel.Allocation{RuntimeState: "Released", StorageState: "None", ReleasedAt: &at}}
+	if ok, err := repo.RecordObservation(ctx, l.ID, o); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	l, _ = repo.Get(ctx, l.ID)
+	if err := l.Start(uuid.Must(uuid.NewV7()), anStart.Add(6*time.Minute)); err != nil {
+		t.Fatal("fresh current stop could not restart", err)
+	}
+	if ok, err := repo.Update(ctx, l, 4); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	current, err := repo.Get(ctx, l.ID)
+	if err != nil || current.Revision != 5 || current.ObservedRevision != 4 || current.DesiredState != "Running" || current.ClosedAt != nil {
+		t.Fatal(current, err)
+	}
+}
+func TestEventLabsRestartRefusesUncertifiedCurrentObservation(t *testing.T) {
+	for _, field := range []string{"access_fenced=false", "observed_revision=1", "failure_code='stop_failed'", "agent_uid=''"} {
+		t.Run(field, func(t *testing.T) {
+			db, repo, l := elCertifiedStopped(t, "manual")
+			rtExec(t, db, `UPDATE event_team_labs SET `+field+` WHERE id=$1`, l.ID)
+			l, err := repo.Get(context.Background(), l.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			elAssertRestartRefusedAndUnchanged(t, repo, l, anStart.Add(2*time.Minute))
+		})
 	}
 }

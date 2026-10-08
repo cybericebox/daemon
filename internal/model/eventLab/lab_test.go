@@ -3,6 +3,7 @@ package eventLabModel
 import (
 	"errors"
 	"github.com/gofrs/uuid"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -46,6 +47,8 @@ func TestNewPinsMembershipAndPolicy(t *testing.T) {
 }
 func TestCloseIdempotentAndManualRestartRequiresRetainedState(t *testing.T) {
 	lab, _ := New(labInput(), testNow)
+	lab.AgentUID = "uid"
+	lab.AgentGeneration = 1
 	op := uuid.Must(uuid.NewV7())
 	if err := lab.Close("manual", op, testNow); err != nil {
 		t.Fatal(err)
@@ -56,8 +59,7 @@ func TestCloseIdempotentAndManualRestartRequiresRetainedState(t *testing.T) {
 	if err := lab.Start(uuid.Must(uuid.NewV7()), testNow.Add(time.Minute)); err == nil {
 		t.Fatal("restart without retained stopped runtime accepted")
 	}
-	lab.ActualState = "Stopped"
-	lab.Allocation.StorageState = "Retained"
+	observeStoppedForRestart(t, &lab, testNow.Add(time.Minute), "Retained")
 	if err := lab.Start(op, testNow.Add(time.Minute)); err == nil {
 		t.Fatal("same operation accepted")
 	}
@@ -140,12 +142,13 @@ func TestLiveGenerationAdvancesOnlyOnMatchingStatus(t *testing.T) {
 
 func TestStartClearsPreviousReleaseCertainty(t *testing.T) {
 	lab, _ := New(labInput(), testNow)
+	lab.AgentUID = "uid"
+	lab.AgentGeneration = 1
 	at := testNow.Add(time.Minute)
 	if err := lab.Close("manual", uuid.Must(uuid.NewV7()), testNow); err != nil {
 		t.Fatal(err)
 	}
-	lab.ActualState = "Stopped"
-	lab.Allocation = Allocation{RuntimeState: "Released", StorageState: "Retained", ReleasedAt: &at}
+	observeStoppedForRestart(t, &lab, at, "Retained")
 	if err := lab.Start(uuid.Must(uuid.NewV7()), at); err != nil {
 		t.Fatal(err)
 	}
@@ -200,13 +203,8 @@ func TestRequiredReleaseNeedsSuccessfulCaptureAndAccessFence(t *testing.T) {
 }
 
 func TestSkipLabCanRestartWithoutSnapshotBlob(t *testing.T) {
-	lab, _ := New(labInput(), testNow)
-	if err := lab.Close("manual", uuid.Must(uuid.NewV7()), testNow); err != nil {
-		t.Fatal(err)
-	}
-	lab.ActualState = "Stopped"
-	lab.Allocation.StorageState = "None"
-	if err := lab.Start(uuid.Must(uuid.NewV7()), testNow.Add(time.Minute)); err != nil {
+	lab := certifiedStoppedLab(t, "manual")
+	if err := lab.Start(uuid.Must(uuid.NewV7()), testNow.Add(2*time.Minute)); err != nil {
 		t.Fatal("preserved stateless definition cannot restart", err)
 	}
 	if lab.DesiredState != "Running" || lab.ClosedAt != nil {
@@ -217,11 +215,12 @@ func TestRequiredRestartNeedsCurrentSuccessfulBarrierEvenWithoutNewBlob(t *testi
 	original, _ := New(labInput(), testNow)
 	original.SnapshotMode = "required"
 	original.AgentUID = "uid"
+	original.AgentGeneration = 1
 	if err := original.Close("manual", uuid.Must(uuid.NewV7()), testNow); err != nil {
 		t.Fatal(err)
 	}
-	original.ActualState = "Stopped"
-	original.Allocation.StorageState = "None"
+	at := testNow.Add(time.Minute)
+	observeStoppedForRestart(t, &original, at, "None")
 	for _, state := range []string{"Unknown", "Failed", "Pending"} {
 		lab := original
 		lab.SnapshotState = state
@@ -230,12 +229,106 @@ func TestRequiredRestartNeedsCurrentSuccessfulBarrierEvenWithoutNewBlob(t *testi
 		}
 	}
 	original.SnapshotState = "Succeeded"
-	original.ObservedRevision = original.Revision
-	original.AccessFenced = true
-	at := testNow.Add(time.Minute)
-	original.Allocation.RuntimeState = "Released"
-	original.Allocation.ReleasedAt = &at
 	if err := original.Start(uuid.Must(uuid.NewV7()), at); err != nil {
 		t.Fatal("successful unchanged base with no blob cannot restart", err)
+	}
+}
+
+func certifiedStoppedLab(t *testing.T, reason string) Lab {
+	t.Helper()
+	l, err := New(labInput(), testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.AgentUID = "uid"
+	l.AgentGeneration = 1
+	if err = l.Close(reason, uuid.Must(uuid.NewV7()), testNow); err != nil {
+		t.Fatal(err)
+	}
+	observeStoppedForRestart(t, &l, testNow.Add(time.Minute), "None")
+	return l
+}
+func observeStoppedForRestart(t *testing.T, l *Lab, at time.Time, storage string) {
+	t.Helper()
+	snapshot := "NotRequired"
+	if l.SnapshotMode == "required" {
+		snapshot = "Succeeded"
+	}
+	o := Observation{Ref: l.Ref, UID: l.AgentUID, OperationID: l.OperationID, Revision: l.Revision, Generation: l.AgentGeneration + 1, ObservedGeneration: l.AgentGeneration + 1, DesiredState: "Stopped", ActualState: "Stopped", SnapshotState: snapshot, ObservedAt: &at, AccessFenced: true, Allocation: Allocation{RuntimeState: "Released", StorageState: storage, ReleasedAt: &at}}
+	if !l.Observe(o, at) {
+		t.Fatal("invalid certified-stop fixture", l, o)
+	}
+}
+func TestRestartRejectsEventAndUnsupportedClosuresWithoutMutation(t *testing.T) {
+	for _, reason := range []string{"event", "", "legacy"} {
+		t.Run(reason, func(t *testing.T) {
+			l := certifiedStoppedLab(t, "event")
+			l.CloseReason = reason
+			before := l
+			if err := l.Start(uuid.Must(uuid.NewV7()), testNow.Add(2*time.Minute)); err == nil {
+				t.Fatal("unsupported closure reopened", reason, l)
+			}
+			if !reflect.DeepEqual(l, before) {
+				t.Fatal("refused restart mutated aggregate", before, l)
+			}
+		})
+	}
+}
+func TestSkipRestartCannotConsumePreviousStop(t *testing.T) {
+	l := certifiedStoppedLab(t, "manual")
+	if err := l.Start(uuid.Must(uuid.NewV7()), testNow.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Close("manual", uuid.Must(uuid.NewV7()), testNow.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	before := l
+	if err := l.Start(uuid.Must(uuid.NewV7()), testNow.Add(4*time.Minute)); err == nil {
+		t.Fatalf("restart consumed old stop: revision=%d observed=%d", l.Revision, l.ObservedRevision)
+	}
+	if !reflect.DeepEqual(l, before) {
+		t.Fatal("refused stale restart mutated aggregate")
+	}
+	observeStoppedForRestart(t, &l, testNow.Add(5*time.Minute), "None")
+	if err := l.Start(uuid.Must(uuid.NewV7()), testNow.Add(6*time.Minute)); err != nil {
+		t.Fatal("fresh current stop could not restart", err)
+	}
+}
+func TestRestartNeedsCertifiedCurrentStopForBothModes(t *testing.T) {
+	for _, mode := range []string{"skip", "required"} {
+		for name, mutate := range map[string]func(*Lab){
+			"missing_uid": func(l *Lab) { l.AgentUID = "" }, "missing_generation": func(l *Lab) { l.AgentGeneration = 0 },
+			"old_revision": func(l *Lab) { l.ObservedRevision-- }, "missing_observation": func(l *Lab) { l.ObservedAt = nil },
+			"missing_release_time": func(l *Lab) { l.Allocation.ReleasedAt = nil }, "not_released": func(l *Lab) { l.Allocation.RuntimeState = "Allocated" },
+			"unfenced": func(l *Lab) { l.AccessFenced = false }, "failed": func(l *Lab) { l.FailureCode = "stop_failed" },
+			"stop_failed": func(l *Lab) { l.ActualState = "StopFailed" }, "no_logical_close": func(l *Lab) { l.ClosedAt = nil },
+		} {
+			t.Run(mode+"/"+name, func(t *testing.T) {
+				l := certifiedStoppedLab(t, "manual")
+				l.SnapshotMode = mode
+				l.SnapshotState = "Succeeded"
+				mutate(&l)
+				before := l
+				if err := l.Start(uuid.Must(uuid.NewV7()), testNow.Add(2*time.Minute)); err == nil {
+					t.Fatal("uncertified stop restarted", name, l)
+				}
+				if !reflect.DeepEqual(l, before) {
+					t.Fatal("refused restart mutated aggregate")
+				}
+			})
+		}
+	}
+}
+func TestCurrentManualAndStageStopsCanRestart(t *testing.T) {
+	for _, reason := range []string{"manual", "stage"} {
+		t.Run(reason, func(t *testing.T) {
+			l := certifiedStoppedLab(t, reason)
+			if err := l.Start(uuid.Must(uuid.NewV7()), testNow.Add(2*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if l.DesiredState != "Running" || l.Revision != 3 || l.ClosedAt != nil {
+				t.Fatal(l)
+			}
+		})
 	}
 }
