@@ -28,7 +28,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Laboratory pin
         id: lab
-        run: echo "version=$(.github/scripts/lab-pin.sh version)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "version=$(.github/scripts/lab-pin.sh version)" >> "$GITHUB_OUTPUT"
+          echo "source=$(.github/scripts/lab-pin.sh contract-source)" >> "$GITHUB_OUTPUT"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - name: Set up Docker Buildx
@@ -46,7 +48,9 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          build-args: LABORATORY_VERSION=${{ steps.lab.outputs.version }}
+          build-args: |
+            LABORATORY_VERSION=${{ steps.lab.outputs.version }}
+            LABORATORY_CONTRACT_SOURCE=${{ steps.lab.outputs.source }}
           push: true
           platforms: linux/amd64,linux/arm64
           cache-from: type=registry,ref=${{ matrix.image }}:buildcache-develop
