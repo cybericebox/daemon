@@ -1,13 +1,13 @@
 {
   "Repository": "https://github.com/cybericebox/laboratory",
-  "SourceCommit": "f6ad9ca2c5d45c7127d88e8dd17e53860b390796",
+  "SourceCommit": "a9598fc066a6018db6f166d9fc4c3fc5ca60be5a",
   "Files": {
     "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "NOTICE": "af7950f47969c28959f6768d82ec71a798761169385b317fae8b964a39694f17",
-    "pkg/agent/protobuf/agent.proto": "da1df984913dd908de4cb488d38e25078a4220cac7c78caad82d8288783904a9",
-    "pkg/agent/protobuf/agent.pb.go": "a32bce6b3d95f59c590800b9df19cc86e28500f4f7ebb2562120b0dfd89e1fbd",
+    "pkg/agent/protobuf/agent.proto": "d6cbe636187158b6dd8322009e964087e8ac7bf87909b606f68c1a0bca1dbccb",
+    "pkg/agent/protobuf/agent.pb.go": "c8d79ee8ba8089287c2559435a6d0b4c13d05d868ec2cfadef75f545369420e7",
     "pkg/agent/protobuf/agent_grpc.pb.go": "bf99d412f33475058b0695c45384a5948bdb8389b6fc60a642f563ebcd0502a6",
-    "pkg/agent/client/client.go": "b960a17833dd7a66e6cfe0746c32d87b922e62c08e55f0b121222c9e60b934e0",
+    "pkg/agent/client/client.go": "e1610d8bad61cdf2c219dd4918ccd63f1c86719656086ab7cf0e7fdf777c5ce6",
     "pkg/agent/client/count.go": "d6207ace4ce0a20164949d37db3b8abf69f0179611641536ece31a4772db0370",
     "pkg/agent/client/terminating.go": "2ec35cd84ae1a9fc3785cb52c053533c5c758eaea78116dcfa92089d5bd9de51",
     "pkg/agent/client/client_test.go": "ea4636093f96087c27db3de64ed581ebd4a8146bb3c35cdcb46ab5c30dda35e1",
@@ -19,7 +19,7 @@
   "BundleFiles": {
     "go.mod": "92fa616b29eec8fcf48e0b2fcae312535ada0512c4b03c04f5315d231367a96f",
     "go.sum": "86e35a7e85201b56f148f85fc3ebd477d7a9c501e99ae36dfaa9fcaf2aec1236",
-    "SOURCE_COMMIT": "bdb1eda105cf036b3a64ca3fb54cf9a10967b44f5d4bb8edc89a1f654e64281b",
+    "SOURCE_COMMIT": "a9e07f752b84c7101a60affbce05ea8633740cf35b94ee093bb91e30dce4fe3b",
     "README.md": "4724ed0c35300de7603d90bbce0da7abc477f30fb874b76d601d3a8c06a27d1f"
   },
   "Generator": {
@@ -28,5 +28,5 @@
     "protoc-gen-go-grpc": "v1.6.2"
   },
   "GeneratorRecipe": "protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative pkg/agent/protobuf/agent.proto",
-  "CopiedAt": "2026-10-08T19:37:01.982160+00:00"
+  "CopiedAt": "2026-10-08T21:11:22.559522+00:00"
 }

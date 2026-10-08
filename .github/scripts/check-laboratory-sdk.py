@@ -18,7 +18,9 @@ BUNDLE_FILES = ('go.mod', 'go.sum', 'SOURCE_COMMIT', 'README.md')
 TAGS = {
     'LabGroup': {'uid': 14, 'generation': 15, 'vpn_size': 16, 'gateway_size': 17, 'lifecycle': 18},
     'LabGroupStatus': {'lifecycle': 9, 'resources': 10, 'current_vpn_boot_id': 11, 'current_vpn_boot_available': 12, 'current_vpn_boot_observed_unix_ms': 13, 'retirement': 14},
-    'Lab': {'uid': 13, 'generation': 14},
+    'Lab': {'uid': 13, 'generation': 14, 'creation_receipt': 15},
+    'LabItem': {'expected_group_uid': 8},
+    'LabCreationReceipt': {'group_uid': 1, 'namespace_uid': 2, 'operation_id': 3, 'revision': 4, 'definition_hash': 5, 'creation_id': 6, 'lab_uid': 7, 'committed': 8},
     'LabStatus': {'lifecycle': 41, 'resources': 42, 'retirement': 43},
     'ResourceAllocation': {'configured_requests': 1, 'configured_limits': 2, 'allocated_requests': 3, 'runtime_state': 4, 'observed_unix_ms': 5, 'released_unix_ms': 6, 'snapshot_quota_bytes': 9, 'storage_state': 10, 'physical_storage_bytes_available': 11, 'physical_storage_bytes': 12, 'operation_id': 13, 'lifecycle_revision': 14},
     'LifecycleFeature': {'per_lab_stop': 1, 'required_snapshot': 2, 'confirmed_runtime': 3, 'retained_restart': 4, 'full_group_stop': 5},
