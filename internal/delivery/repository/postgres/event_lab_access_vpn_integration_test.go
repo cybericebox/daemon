@@ -207,7 +207,9 @@ func TestModeratorsTeamIsHiddenAndItsVPNClientsAreManagers(t *testing.T) {
 // or physical acknowledgement is exercised by this fixture.
 func seedACLMonitoringCertificate(t *testing.T, db *testhelpers.TestDB, eventID, teamID uuid.UUID, group string, operation uuid.UUID, revision int64, at time.Time) {
 	t.Helper()
-	payload := map[string]any{"groups": []any{map[string]any{"name": group, "uid": "group-uid", "status": map[string]any{"currentVpnBootAvailable": true, "currentVpnBootId": "boot", "currentVpnBootObservedUnixMs": at.UnixMilli()}}}, "policies": []any{map[string]any{"labGroupName": group, "expectedGroupUid": "group-uid", "policyUid": "policy", "generation": "1", "operationId": operation.String(), "desiredRevision": revision, "status": map[string]any{"observedGeneration": "1", "operationId": operation.String(), "appliedRevision": revision, "state": "Applied", "vpnBootId": "boot"}}}}
+	// A fresh past sample avoids host/DB sub-millisecond clock precision races.
+	at = at.Add(-time.Second)
+	payload := map[string]any{"groups": []any{map[string]any{"name": group, "uid": "group-uid", "status": map[string]any{"currentVpnBootAvailable": true, "currentVpnBootId": "boot", "currentVpnBootObservedUnixMs": at.UnixMilli()}}}, "policies": []any{map[string]any{"labGroupName": group, "expectedGroupUid": "group-uid", "policyUid": "policy", "generation": "1", "operationId": operation.String(), "desiredRevision": revision, "status": map[string]any{"observedGeneration": "1", "operationId": operation.String(), "appliedRevision": revision, "state": "Applied", "vpnBootId": "boot", "appliedAtUnixMs": at.UnixMilli()}}}}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)

@@ -14,7 +14,7 @@ import (
 
 type ownChallengeResponse struct {
 	EventExerciseID  uuid.UUID                       `json:"EventExerciseID"`
-	Lab              *labview.ParticipantLabResponse `json:"Lab"`
+	Lab              *labview.ParticipantLabResponse `json:"Lab" extensions:"x-nullable"`
 	ID               uuid.UUID                       `json:"ID"`
 	EventChallengeID uuid.UUID                       `json:"EventChallengeID"`
 	Snapshot         json.RawMessage                 `json:"Snapshot" swaggertype:"object"`
@@ -654,7 +654,7 @@ type submitChallengeRequest struct {
 	Answer string `json:"Answer"`
 }
 type submitChallengeResponse struct {
-	Lab        *labview.ParticipantLabResponse `json:"Lab"`
+	Lab        *labview.ParticipantLabResponse `json:"Lab" extensions:"x-nullable"`
 	Correct    bool                            `json:"Correct"`
 	FirstSolve bool                            `json:"FirstSolve"`
 	// Practice: the answer came after a returnable stage closed; verified, not rated.

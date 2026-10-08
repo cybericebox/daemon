@@ -59,6 +59,8 @@ WITH access_state AS (
     JOIN event_teams team ON team.id = sync.event_team_id
     JOIN events event ON event.id = team.event_id
     LEFT JOIN event_stand_rollouts rollout ON rollout.event_id = event.id
+    -- Teardown is terminal for this group; absence must not recreate it.
+    WHERE rollout.torn_down_at IS NULL
 )
 SELECT event_team_id, event_id, desired_revision, applied_revision, operation_id, policy_fingerprint, expected_group_uid, updated_at, runtime_open, vpn_enabled, stage_epoch
 FROM access_state
@@ -66,11 +68,32 @@ WHERE desired_revision > applied_revision
    OR applied_runtime_open IS DISTINCT FROM runtime_open
    OR applied_vpn_enabled IS DISTINCT FROM vpn_enabled
    OR applied_stage_epoch IS DISTINCT FROM stage_epoch
-   OR EXISTS (SELECT 1 FROM lab_monitoring_current m,
-      jsonb_array_elements(COALESCE(m.payload->'groups','[]'::jsonb)) witness
-      WHERE m.event_team_id=access_state.event_team_id AND witness->>'name'=m.lab_group_name
-        AND (COALESCE(witness->'status'->>'currentVpnBootAvailable','false')<>'true'
-          OR COALESCE(witness->'status'->>'currentVpnBootId','')<>access_state.access_fence_vpn_boot_id))
+   -- An old applied revision is historical evidence only. Keep reconciling
+   -- whenever its complete current certificate disappears or loses freshness.
+   OR NOT EXISTS (SELECT 1 FROM lab_monitoring_current m,
+      jsonb_array_elements(COALESCE(m.payload->'groups','[]'::jsonb)) g,
+      jsonb_array_elements(COALESCE(m.payload->'policies','[]'::jsonb)) p
+    WHERE m.event_team_id=access_state.event_team_id AND m.event_id=access_state.event_id
+      AND access_state.operation_id IS NOT NULL
+      AND access_state.operation_id<>'00000000-0000-0000-0000-000000000000'::uuid
+      AND access_state.policy_fingerprint<>'' AND access_state.expected_group_uid<>''
+      AND access_state.access_fence_vpn_boot_id<>''
+      AND m.observed_at BETWEEN now()-interval '30 seconds' AND now()
+      AND g->>'name'=m.lab_group_name AND g->>'uid'=access_state.expected_group_uid
+      AND g->'status'->>'currentVpnBootAvailable'='true'
+      AND g->'status'->>'currentVpnBootId'=access_state.access_fence_vpn_boot_id
+      AND CASE WHEN g->'status'->>'currentVpnBootObservedUnixMs' ~ '^[0-9]{1,16}$' THEN (g->'status'->>'currentVpnBootObservedUnixMs')::bigint ELSE 0 END
+          BETWEEN (extract(epoch FROM now())*1000)::bigint-30000 AND (extract(epoch FROM now())*1000)::bigint
+      AND p->>'labGroupName'=m.lab_group_name AND p->>'expectedGroupUid'=access_state.expected_group_uid
+      AND COALESCE(p->>'policyUid','')<>'' AND p->>'operationId'=access_state.operation_id::text
+      AND p->>'desiredRevision'=access_state.desired_revision::text
+      AND p->'status'->>'operationId'=access_state.operation_id::text
+      AND p->'status'->>'appliedRevision'=access_state.desired_revision::text
+      AND p->'status'->>'state'='Applied' AND COALESCE(p->'status'->>'lastError','')=''
+      AND CASE WHEN p->>'generation' ~ '^[0-9]{1,16}$' THEN (p->>'generation')::bigint ELSE 0 END>0
+      AND p->>'generation'=p->'status'->>'observedGeneration'
+      AND CASE WHEN p->'status'->>'appliedAtUnixMs' ~ '^[0-9]{1,16}$' THEN (p->'status'->>'appliedAtUnixMs')::bigint ELSE 0 END>0
+      AND p->'status'->>'vpnBootId'=access_state.access_fence_vpn_boot_id)
 ORDER BY updated_at, event_team_id
 LIMIT $1
 `
@@ -250,7 +273,9 @@ WHERE sync.event_team_id = $7
       AND p->'status'->>'operationId'=$8::uuid::text
       AND p->'status'->>'appliedRevision'=$1::bigint::text
       AND p->'status'->>'state'='Applied' AND COALESCE(p->'status'->>'lastError','')=''
-      AND COALESCE(p->>'generation','0')<>'0' AND p->>'generation'=p->'status'->>'observedGeneration'
+      AND CASE WHEN p->>'generation' ~ '^[0-9]{1,16}$' THEN (p->>'generation')::bigint ELSE 0 END>0
+      AND p->>'generation'=p->'status'->>'observedGeneration'
+      AND CASE WHEN p->'status'->>'appliedAtUnixMs' ~ '^[0-9]{1,16}$' THEN (p->'status'->>'appliedAtUnixMs')::bigint ELSE 0 END>0
       AND p->'status'->>'vpnBootId'=$2)
   AND (sync.applied_revision < $1
        OR sync.runtime_open IS DISTINCT FROM $3

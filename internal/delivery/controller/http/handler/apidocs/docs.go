@@ -28173,16 +28173,16 @@ const docTemplate = `{
         "eventself.labLinkResponse": {
             "type": "object",
             "properties": {
-                "expiresAt": {
+                "ExpiresAt": {
                     "type": "string"
                 },
-                "labID": {
+                "LabID": {
                     "type": "string"
                 },
-                "revision": {
+                "Revision": {
                     "type": "string"
                 },
-                "url": {
+                "URL": {
                     "type": "string"
                 }
             }
@@ -28333,7 +28333,12 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "Lab": {
-                    "$ref": "#/definitions/labview.ParticipantLabResponse"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/labview.ParticipantLabResponse"
+                        }
+                    ],
+                    "x-nullable": true
                 },
                 "Locked": {
                     "description": "Locked: a prerequisite is unsolved; Snapshot then holds only name and\ndifficulty and Files is empty.",
@@ -28993,7 +28998,12 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "Lab": {
-                    "$ref": "#/definitions/labview.ParticipantLabResponse"
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/labview.ParticipantLabResponse"
+                        }
+                    ],
+                    "x-nullable": true
                 },
                 "Practice": {
                     "description": "Practice: the answer came after a returnable stage closed; verified, not rated.",

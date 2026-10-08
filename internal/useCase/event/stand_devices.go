@@ -5,6 +5,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	"sort"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -139,9 +140,17 @@ func (u *EventUseCase) GetTeamStandDetail(ctx context.Context, eventID, teamID u
 	return view, nil
 }
 
+// standDeviceOperationTimeout bounds one command submission, including its
+// preflight and admission/Lab lock wait. Like the existing agent enrollment
+// bound, 30s covers one control RPC; it never waits the 20m deploy timeout while
+// holding a team's closure locks. A shorter caller deadline/cancellation wins.
+const standDeviceOperationTimeout = 30 * time.Second
+
 // ResetStandDevice discards the snapshots of one device of a team Lab and restarts it from its
 // base image. The route gates admit organizers and administrators only.
 func (u *EventUseCase) ResetStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string) error {
+	ctx, cancel := context.WithTimeout(ctx, standDeviceOperationTimeout)
+	defer cancel()
 	group, lab, controller, err := u.standDeviceTarget(ctx, eventID, teamID, challengeID)
 	if err != nil {
 		return err
@@ -152,6 +161,8 @@ func (u *EventUseCase) ResetStandDevice(ctx context.Context, eventID, teamID, ch
 // RescueStandDevice starts one device of a team Lab from its latest snapshot with a shell
 // (enable) or back to its normal start.
 func (u *EventUseCase) RescueStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string, enable bool) error {
+	ctx, cancel := context.WithTimeout(ctx, standDeviceOperationTimeout)
+	defer cancel()
 	group, lab, controller, err := u.standDeviceTarget(ctx, eventID, teamID, challengeID)
 	if err != nil {
 		return err

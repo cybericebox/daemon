@@ -26,10 +26,10 @@ type labLinkRequest struct {
 }
 
 type labLinkResponse struct {
-	LabID     uuid.UUID
-	Revision  string
-	URL       string
-	ExpiresAt time.Time
+	LabID     uuid.UUID `json:"LabID"`
+	Revision  string    `json:"Revision"`
+	URL       string    `json:"URL"`
+	ExpiresAt time.Time `json:"ExpiresAt"`
 }
 
 // openLabLink godoc
