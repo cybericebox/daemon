@@ -8558,6 +8558,21 @@ func (mr *MockQuerierMockRecorder) ListWithdrawnLabBindings(ctx, now any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWithdrawnLabBindings", reflect.TypeOf((*MockQuerier)(nil).ListWithdrawnLabBindings), ctx, now)
 }
 
+// LockEventForLabSourceChange mocks base method.
+func (m *MockQuerier) LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockEventForLabSourceChange", ctx, id)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockEventForLabSourceChange indicates an expected call of LockEventForLabSourceChange.
+func (mr *MockQuerierMockRecorder) LockEventForLabSourceChange(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventForLabSourceChange", reflect.TypeOf((*MockQuerier)(nil).LockEventForLabSourceChange), ctx, id)
+}
+
 // LockEventForTeamChange mocks base method.
 func (m *MockQuerier) LockEventForTeamChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -8616,6 +8631,36 @@ func (m *MockQuerier) LockEventTeamLab(ctx context.Context, id uuid.UUID) (postg
 func (mr *MockQuerierMockRecorder) LockEventTeamLab(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventTeamLab", reflect.TypeOf((*MockQuerier)(nil).LockEventTeamLab), ctx, id)
+}
+
+// LockEventTeamLabsForSourceChange mocks base method.
+func (m *MockQuerier) LockEventTeamLabsForSourceChange(ctx context.Context, arg postgres.LockEventTeamLabsForSourceChangeParams) ([]postgres.EventTeamLab, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockEventTeamLabsForSourceChange", ctx, arg)
+	ret0, _ := ret[0].([]postgres.EventTeamLab)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockEventTeamLabsForSourceChange indicates an expected call of LockEventTeamLabsForSourceChange.
+func (mr *MockQuerierMockRecorder) LockEventTeamLabsForSourceChange(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventTeamLabsForSourceChange", reflect.TypeOf((*MockQuerier)(nil).LockEventTeamLabsForSourceChange), ctx, arg)
+}
+
+// LockEventTeamsForLabSourceChange mocks base method.
+func (m *MockQuerier) LockEventTeamsForLabSourceChange(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockEventTeamsForLabSourceChange", ctx, eventID)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockEventTeamsForLabSourceChange indicates an expected call of LockEventTeamsForLabSourceChange.
+func (mr *MockQuerierMockRecorder) LockEventTeamsForLabSourceChange(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventTeamsForLabSourceChange", reflect.TypeOf((*MockQuerier)(nil).LockEventTeamsForLabSourceChange), ctx, eventID)
 }
 
 // LockExerciseTestDeploysOf mocks base method.

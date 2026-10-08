@@ -1255,6 +1255,9 @@ type Querier interface {
 	// only once the event is withdrawn. A destroyed binding never re-enters this
 	// queue; a failed agent call leaves it eligible for River's next retry.
 	ListWithdrawnLabBindings(ctx context.Context, now pgtype.Timestamptz) ([]LabBinding, error)
+	// Serialize roster creation/change without blocking the KEY SHARE locks of
+	// concurrent answer inserts while we wait for their team admission locks.
+	LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	// Serializes team creation inside one event while the surrounding UoW is open.
 	LockEventForTeamChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	// Locks one team challenge so an annulment serializes with submission-time
@@ -1262,6 +1265,10 @@ type Querier interface {
 	LockEventTeamChallenge(ctx context.Context, arg LockEventTeamChallengeParams) (uuid.UUID, error)
 	LockEventTeamForLabAdmission(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	LockEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeamLab, error)
+	LockEventTeamLabsForSourceChange(ctx context.Context, arg LockEventTeamLabsForSourceChangeParams) ([]EventTeamLab, error)
+	// Team admission locks precede all Lab/question/binding locks. Include teams
+	// without assignments so preparation cannot insert a new canonical Lab midway.
+	LockEventTeamsForLabSourceChange(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
 	// Serializes the "one active test lab per user" check and insert of one owner until the transaction ends.
 	LockExerciseTestDeploysOf(ctx context.Context, owner string) error
 	// Resource calendar: reservations, change requests, readiness alarms, settings and test lab holds. See

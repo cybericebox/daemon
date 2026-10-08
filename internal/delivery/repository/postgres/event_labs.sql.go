@@ -524,6 +524,19 @@ func (q *Queries) ListPendingStoppedEventTeamLabs(ctx context.Context, arg ListP
 	return items, nil
 }
 
+const lockEventForLabSourceChange = `-- name: LockEventForLabSourceChange :one
+SELECT id FROM events WHERE id=$1 FOR NO KEY UPDATE
+`
+
+// Serialize roster creation/change without blocking the KEY SHARE locks of
+// concurrent answer inserts while we wait for their team admission locks.
+func (q *Queries) LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockEventForLabSourceChange, id)
+	var id_2 uuid.UUID
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const lockEventTeamForLabAdmission = `-- name: LockEventTeamForLabAdmission :one
 SELECT id FROM event_teams WHERE id=$1 FOR UPDATE
 `
@@ -580,6 +593,99 @@ func (q *Queries) LockEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeam
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const lockEventTeamLabsForSourceChange = `-- name: LockEventTeamLabsForSourceChange :many
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs
+WHERE event_id=$1 AND event_exercise_id=$2
+ORDER BY id FOR UPDATE
+`
+
+type LockEventTeamLabsForSourceChangeParams struct {
+	EventID         uuid.UUID `json:"event_id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+}
+
+func (q *Queries) LockEventTeamLabsForSourceChange(ctx context.Context, arg LockEventTeamLabsForSourceChangeParams) ([]EventTeamLab, error) {
+	rows, err := q.db.Query(ctx, lockEventTeamLabsForSourceChange, arg.EventID, arg.EventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventTeamLab{}
+	for rows.Next() {
+		var i EventTeamLab
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.EventTeamID,
+			&i.EventExerciseID,
+			&i.VariantIndex,
+			&i.Generation,
+			&i.LabGroupName,
+			&i.LabName,
+			&i.AgentUid,
+			&i.AgentGeneration,
+			&i.DesiredRevision,
+			&i.ObservedRevision,
+			&i.OperationID,
+			&i.DesiredState,
+			&i.ActualState,
+			&i.RuntimeReady,
+			&i.CloseReason,
+			&i.LogicalClosedAt,
+			&i.SnapshotMode,
+			&i.SnapshotState,
+			&i.RetentionUntil,
+			&i.ProtectedUntil,
+			&i.ActualStoppedAt,
+			&i.ObservedAt,
+			&i.ObjectiveCount,
+			&i.Materialized,
+			&i.Allocation,
+			&i.FailureCode,
+			&i.FailureMessage,
+			&i.AccessFenced,
+			&i.AccessFencedAt,
+			&i.AccessFenceVpnBootID,
+			&i.NextAttemptAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockEventTeamsForLabSourceChange = `-- name: LockEventTeamsForLabSourceChange :many
+SELECT id FROM event_teams WHERE event_id=$1 ORDER BY id FOR UPDATE
+`
+
+// Team admission locks precede all Lab/question/binding locks. Include teams
+// without assignments so preparation cannot insert a new canonical Lab midway.
+func (q *Queries) LockEventTeamsForLabSourceChange(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockEventTeamsForLabSourceChange, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const recordEventTeamLabInitialIdentity = `-- name: RecordEventTeamLabInitialIdentity :execrows

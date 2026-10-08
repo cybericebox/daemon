@@ -15,6 +15,9 @@ import (
 )
 
 type Queries interface {
+	LockEventForLabSourceChange(context.Context, uuid.UUID) (uuid.UUID, error)
+	LockEventTeamsForLabSourceChange(context.Context, uuid.UUID) ([]uuid.UUID, error)
+	LockEventTeamLabsForSourceChange(context.Context, postgres.LockEventTeamLabsForSourceChangeParams) ([]postgres.EventTeamLab, error)
 	ListPendingStoppedEventTeamLabs(context.Context, postgres.ListPendingStoppedEventTeamLabsParams) ([]postgres.EventTeamLab, error)
 	ScheduleEventTeamLabLifecycleRetry(context.Context, postgres.ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
 	AttachEventLabAssignmentBindings(ctx context.Context, labID uuid.NullUUID) (int64, error)
@@ -284,4 +287,30 @@ func (r *Repository) PendingStopped(ctx context.Context, now time.Time, limit in
 func (r *Repository) ScheduleLifecycleRetry(ctx context.Context, l eventLabModel.Lab, now, next time.Time) error {
 	_, err := r.q.ScheduleEventTeamLabLifecycleRetry(ctx, postgres.ScheduleEventTeamLabLifecycleRetryParams{ID: l.ID, DesiredRevision: l.Revision, OperationID: l.OperationID, Now: now, NextAttemptAt: next})
 	return err
+}
+
+// LockSourceChange serializes source refresh/recreation with admission, solves
+// and ordinary recreation before any question/binding is locked or modified.
+func (r *Repository) LockSourceChange(ctx context.Context, eventID, exerciseID uuid.UUID) (map[uuid.UUID]bool, error) {
+	if _, err := r.q.LockEventForLabSourceChange(ctx, eventID); err != nil {
+		return nil, err
+	}
+	if _, err := r.q.LockEventTeamsForLabSourceChange(ctx, eventID); err != nil {
+		return nil, err
+	}
+	rows, err := r.q.LockEventTeamLabsForSourceChange(ctx, postgres.LockEventTeamLabsForSourceChangeParams{EventID: eventID, EventExerciseID: exerciseID})
+	if err != nil {
+		return nil, err
+	}
+	terminal := map[uuid.UUID]bool{}
+	for _, row := range rows {
+		lab, err := ToDomain(row)
+		if err != nil {
+			return nil, err
+		}
+		if lab.CloseReason == "solved" {
+			terminal[lab.ID] = true
+		}
+	}
+	return terminal, nil
 }

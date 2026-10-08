@@ -126,3 +126,18 @@ ORDER BY next_attempt_at,id LIMIT sqlc.arg(limit_val);
 -- Narrow retry write; never copies physical state over a concurrent observation.
 UPDATE event_team_labs SET next_attempt_at=sqlc.arg(next_attempt_at),updated_at=sqlc.arg(now)
 WHERE id=sqlc.arg(id) AND desired_revision=sqlc.arg(desired_revision) AND operation_id=sqlc.arg(operation_id);
+
+-- name: LockEventTeamsForLabSourceChange :many
+-- Team admission locks precede all Lab/question/binding locks. Include teams
+-- without assignments so preparation cannot insert a new canonical Lab midway.
+SELECT id FROM event_teams WHERE event_id=sqlc.arg(event_id) ORDER BY id FOR UPDATE;
+
+-- name: LockEventTeamLabsForSourceChange :many
+SELECT * FROM event_team_labs
+WHERE event_id=sqlc.arg(event_id) AND event_exercise_id=sqlc.arg(event_exercise_id)
+ORDER BY id FOR UPDATE;
+
+-- name: LockEventForLabSourceChange :one
+-- Serialize roster creation/change without blocking the KEY SHARE locks of
+-- concurrent answer inserts while we wait for their team admission locks.
+SELECT id FROM events WHERE id=sqlc.arg(id) FOR NO KEY UPDATE;

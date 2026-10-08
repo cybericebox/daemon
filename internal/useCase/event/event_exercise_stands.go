@@ -7,6 +7,9 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
@@ -36,16 +39,19 @@ type standRecreation struct {
 	moves   []teamStandMove
 }
 
+// planStandRecreation runs after the transaction owns team and canonical Lab
+// locks. Its filtered plan alone owns post-commit deletion; solved generations
+// never enter it, even if their final solve raced source planning.
 // planStandRecreation finds the live Labs of the exercise's prepared teams. A
 // stage that is running (the event started and the set's stage is not
 // upcoming) is not touched without recreateStands: the call fails with the
 // affected teams and nothing is changed. A finished event keeps its Labs.
 // It returns nil when there is nothing to move.
-func (u *EventUseCase) planStandRecreation(ctx context.Context, link eventExerciseModel.EventExercise, version exerciseModel.ExerciseVersion, recreateStands bool, now time.Time) (*standRecreation, error) {
+func (u *EventUseCase) planStandRecreation(ctx context.Context, repo IRepository, terminalLabs map[uuid.UUID]bool, link eventExerciseModel.EventExercise, version exerciseModel.ExerciseVersion, recreateStands bool, now time.Time) (*standRecreation, error) {
 	if u.infra == nil || !exerciseModel.HasInfrastructure(version.Variants) {
 		return nil, nil
 	}
-	e, err := u.events.GetByID(ctx, link.EventID)
+	e, err := eventRepo.New(repo).GetByID(ctx, link.EventID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
@@ -55,7 +61,7 @@ func (u *EventUseCase) planStandRecreation(ctx context.Context, link eventExerci
 	if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil && !now.Before(*finish) {
 		return nil, nil
 	}
-	board, err := u.eventChallenges.List(ctx, link.ID)
+	board, err := eventChallengeRepo.New(repo).List(ctx, link.ID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list event challenges").Err()
 	}
@@ -63,21 +69,21 @@ func (u *EventUseCase) planStandRecreation(ctx context.Context, link eventExerci
 	for _, challenge := range board {
 		ids = append(ids, challenge.ID)
 	}
-	assignments, err := u.teamChallenges.ForRefresh(ctx, ids)
+	assignments, err := teamChallengeRepo.New(repo).ForRefresh(ctx, ids)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list team challenges").Err()
 	}
 	byTeam := make(map[uuid.UUID]*teamStandMove)
 	order := make([]uuid.UUID, 0)
 	for _, assignment := range assignments {
-		binding, getErr := u.labBindings.Get(ctx, assignment.EventTeamID, assignment.EventChallengeID)
+		binding, getErr := labBindingRepo.New(repo).Get(ctx, assignment.EventTeamID, assignment.EventChallengeID)
 		if getErr != nil {
 			if repositoryTools.IsObjectNotFoundError(getErr) {
 				continue
 			}
 			return nil, model.ErrPlatform.WithError(getErr).WithMessage("Failed to get lab binding").Err()
 		}
-		if binding.Readiness == labBindingModel.ReadinessDestroyed {
+		if binding.Readiness == labBindingModel.ReadinessDestroyed || (binding.LabID.Valid && terminalLabs[binding.LabID.UUID]) {
 			continue
 		}
 		move, found := byTeam[assignment.EventTeamID]
@@ -92,7 +98,7 @@ func (u *EventUseCase) planStandRecreation(ctx context.Context, link eventExerci
 	if len(byTeam) == 0 {
 		return nil, nil
 	}
-	teams, err := u.stands.ListTeams(ctx, link.EventID, nil)
+	teams, err := eventStandRepo.New(repo).ListTeams(ctx, link.EventID, nil)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}
@@ -109,7 +115,7 @@ func (u *EventUseCase) planStandRecreation(ctx context.Context, link eventExerci
 		plan.moves = append(plan.moves, *move)
 		named = append(named, map[string]string{"ID": teamID.String(), "Name": move.team.PublicName})
 	}
-	stage, err := u.stageOfSet(ctx, u.stages, link)
+	stage, err := u.stageOfSet(ctx, eventStageRepo.New(repo), link)
 	if err != nil {
 		return nil, err
 	}
