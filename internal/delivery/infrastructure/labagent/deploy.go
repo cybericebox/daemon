@@ -519,9 +519,10 @@ func deviceActionErr(op string, err error) error {
 func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 	st := l.GetStatus()
 	if st == nil {
-		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhasePending}
+		return exerciseModel.LabDeployStatus{LabUID: l.GetUid(), LabGeneration: l.GetGeneration(), Phase: exerciseModel.DeployPhasePending}
 	}
 	out := exerciseModel.LabDeployStatus{
+		LabUID: l.GetUid(), LabGeneration: l.GetGeneration(),
 		Phase:        st.GetPhase(),
 		Ready:        st.GetReady(),
 		VPNCIDR:      st.GetVpnCidr(),

@@ -66,12 +66,15 @@ type DeployFlag struct {
 
 // LabDeployStatus is the runtime status of a deployed variant lab.
 type LabDeployStatus struct {
-	Phase        string
-	Ready        bool
-	VPNCIDR      string
-	InternetCIDR string
-	Devices      []LabDeployedDevice
-	Access       []LabAccess
+	// LabUID and LabGeneration are live metadata, independent of deploy readiness.
+	LabUID        string
+	LabGeneration int64
+	Phase         string
+	Ready         bool
+	VPNCIDR       string
+	InternetCIDR  string
+	Devices       []LabDeployedDevice
+	Access        []LabAccess
 	// VPNConfig is the tester's WireGuard config, present once a VPN-enabled lab
 	// has provisioned its client. Empty for labs without VPN or before it is ready.
 	VPNConfig string

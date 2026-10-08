@@ -6,6 +6,7 @@ import (
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -289,4 +290,42 @@ func (f *Fleet) SchedulerMaxPods() int {
 		total += int(feat.Scheduler.MaxPods)
 	}
 	return total
+}
+
+// RequireLabLifecyclePreparation checks the actual selected producer; ordinary
+// persistence support is not a required capture barrier.
+func (c *Client) RequireLabLifecyclePreparation(ctx context.Context, _ string, policy eventLabModel.Policy, topology exerciseModel.Topology) error {
+	if err := policy.ValidatePreparation(topology, true); err != nil {
+		return err
+	}
+	if policy.SnapshotMode != "required" {
+		return nil
+	}
+	feature, err := c.lifecycleFeature(ctx)
+	if err != nil {
+		return err
+	}
+	return policy.ValidatePreparation(topology, feature.GetPerLabStop() && feature.GetRequiredSnapshot() && feature.GetConfirmedRuntime())
+}
+func (c *Client) lifecycleFeature(ctx context.Context) (*labpb.LifecycleFeature, error) {
+	response, err := c.GetFeatures(ctx, &labpb.Empty{})
+	if err != nil {
+		return nil, agentErr("get lab lifecycle features", err)
+	}
+	return response.GetLifecycle(), nil
+}
+
+func (f *Fleet) RequireLabLifecyclePreparation(ctx context.Context, group string, policy eventLabModel.Policy, topology exerciseModel.Topology) error {
+	if err := policy.ValidatePreparation(topology, true); err != nil {
+		return err
+	}
+	if policy.SnapshotMode != "required" {
+		return nil
+	}
+	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), labNeed(f.Policy(), topology)))
+	m, err := f.memberForCreate(ctx, group)
+	if err != nil {
+		return err
+	}
+	return m.Client.RequireLabLifecyclePreparation(ctx, group, policy, topology)
 }

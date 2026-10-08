@@ -141,7 +141,7 @@ func (l *Lab) Start(operationID uuid.UUID, now time.Time) error {
 // Observe is the only physical-state mutation. Exact fencing is mandatory for
 // every observation, especially release credit; desired intent is untouched.
 func (l *Lab) Observe(o Observation, now time.Time) bool {
-	if l.AgentUID == "" || o.UID != l.AgentUID || o.Ref != l.Ref || o.OperationID != l.OperationID || o.Revision != l.Revision || o.Generation <= 0 || o.ObservedGeneration != o.Generation || o.Generation < l.AgentGeneration || o.DesiredState != l.DesiredState || o.ObservedAt == nil || (l.ObservedAt != nil && !o.ObservedAt.After(*l.ObservedAt)) {
+	if !ObservationMatches(*l, o) || o.DesiredState != l.DesiredState || o.ObservedAt == nil || (l.ObservedAt != nil && !o.ObservedAt.After(*l.ObservedAt)) {
 		return false
 	}
 	l.AgentGeneration = o.Generation
@@ -159,6 +159,12 @@ func (l *Lab) Observe(o Observation, now time.Time) bool {
 	l.AccessFenceVPNBootID = o.AccessFenceVPNBootID
 	l.UpdatedAt = now
 	return true
+}
+
+// ObservationMatches permits an actual newer metadata generation, only after
+// the producer has observed that exact live generation for this operation.
+func ObservationMatches(l Lab, o Observation) bool {
+	return l.AgentUID != "" && l.Ref == o.Ref && l.AgentUID == o.UID && l.OperationID == o.OperationID && l.Revision == o.Revision && o.Generation > 0 && o.ObservedGeneration == o.Generation && o.Generation >= l.AgentGeneration
 }
 func (l *Lab) MarkMaterialized(now time.Time) { l.Materialized = true; l.UpdatedAt = now }
 func cloneTime(t *time.Time) *time.Time {
