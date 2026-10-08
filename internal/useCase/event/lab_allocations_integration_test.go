@@ -3,6 +3,8 @@ package event_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/resourceCalendarRepo"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -141,4 +143,48 @@ func TestPersistentAdmissionRequiresConfiguredLogicalQuota(t *testing.T) {
 	groups, err := f.db.Queries.ListEventGroupAllocations(ctx, f.eventID)
 	require.NoError(t, err)
 	require.Empty(t, groups)
+}
+
+// These scenarios are written for the final integrated run; this checkpoint
+// deliberately does not execute them under the owner's changed workflow.
+type staleAllocationQueries struct {
+	*postgres.Queries
+	old postgres.EventTeamLab
+}
+
+func (q staleAllocationQueries) GetEventTeamLab(ctx context.Context, id uuid.UUID) (postgres.EventTeamLab, error) {
+	if id == q.old.ID {
+		return q.old, nil
+	}
+	return q.Queries.GetEventTeamLab(ctx, id)
+}
+func TestObservationCannotOverwriteAllocationAtSameTimestamp(t *testing.T) {
+	f, ids := allocationFixture(t, 0)
+	ctx := context.Background()
+	repo := eventLabRepo.New(f.db.Queries)
+	lab, err := repo.Get(ctx, ids[0])
+	require.NoError(t, err)
+	ok, err := repo.RecordInitialIdentity(ctx, lab.ID, lab.Ref, "uid", 1, lab.UpdatedAt)
+	require.NoError(t, err)
+	require.True(t, ok)
+	old, err := f.db.Queries.GetEventTeamLab(ctx, lab.ID)
+	require.NoError(t, err)
+	current, err := eventLabRepo.ToDomain(old)
+	require.NoError(t, err)
+	require.True(t, current.Admit(eventLabModel.Compute{CPUMillicores: 750, MemoryBytes: 512 << 20}, 0, old.UpdatedAt))
+	ok, err = repo.Update(ctx, current, current.Revision)
+	require.NoError(t, err)
+	require.True(t, ok)
+	at := old.UpdatedAt.Add(time.Second)
+	o := eventLabModel.Observation{Ref: current.Ref, UID: "uid", OperationID: current.OperationID, Generation: 1, ObservedGeneration: 1, Revision: 1, DesiredState: "Running", ActualState: "Starting", ObservedAt: &at, Allocation: eventLabModel.Allocation{RuntimeState: "Allocated"}}
+	// Force the earlier reader's row while the real DB already holds admission.
+	// Timestamp/revision/previous observation are deliberately equal; allocation
+	// CAS is the only changed predicate and must reject the stale normalized JSON.
+	accepted, err := eventLabRepo.New(staleAllocationQueries{Queries: f.db.Queries, old: old}).RecordObservation(ctx, lab.ID, o)
+	require.NoError(t, err)
+	require.False(t, accepted)
+	got, err := repo.Get(ctx, lab.ID)
+	require.NoError(t, err)
+	require.Equal(t, eventLabModel.Compute{CPUMillicores: 750, MemoryBytes: 512 << 20}, got.HeldCompute())
+	require.Equal(t, "Admitted", got.Allocation.RuntimeState)
 }

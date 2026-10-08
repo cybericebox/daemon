@@ -56,6 +56,7 @@ type PlanTask struct {
 	// variants and the most devices of one variant.
 	deviceMax  resourcesModel.Amount
 	labDevices int
+	hasLab     bool
 }
 
 // GroupOverhead is a team's lab group's own pods, computed with the agents' formula for the plan.
@@ -175,10 +176,10 @@ func (u *EventUseCase) resourcePlanInputs(ctx context.Context, eventID uuid.UUID
 		in.tasks = append(in.tasks, task)
 		in.maxLabSize = max(in.maxLabSize, task.labDevices)
 		in.maxDevice = in.maxDevice.Max(task.deviceMax)
-		if task.labDevices > 0 {
+		if task.hasLab {
 			in.activeLabs++
 		}
-		if task.InternetLab && task.labDevices > 0 {
+		if task.InternetLab && task.hasLab {
 			in.internetLab++
 		}
 	}
@@ -204,7 +205,14 @@ func planTask(policy resourcesModel.Policy, link eventExerciseModel.EventExercis
 			break
 		}
 	}
-	for _, v := range variants {
+	plannedVariants := variants
+	if link.VariantMode == eventExerciseModel.VariantModeFixed && link.FixedVariantIndex != nil && int(*link.FixedVariantIndex) >= 0 && int(*link.FixedVariantIndex) < len(variants) {
+		plannedVariants = variants[*link.FixedVariantIndex : *link.FixedVariantIndex+1]
+	}
+	for _, v := range plannedVariants {
+		if len(v.Topology.Devices) > 0 {
+			task.hasLab = true
+		}
 		if v.Topology.Internet.Enabled {
 			task.InternetLab = true
 		}

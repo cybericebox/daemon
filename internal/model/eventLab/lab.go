@@ -21,6 +21,7 @@ type StopRequest struct {
 	Terminal       bool
 }
 type Observation struct {
+	Retirement *RetirementObservation
 	// Generation is live CR metadata; ObservedGeneration belongs to lifecycle status.
 	// Neither is the deployment generation Lab.Generation.
 	Ref                                                                   Ref
@@ -36,8 +37,14 @@ type Observation struct {
 	AccessFenceVPNBootID                                                  string
 }
 type Lab struct {
+	DefinitionVersionID                                                   uuid.UUID
+	DefinitionHash                                                        string
+	RetirementStopTarget                                                  *Target
+	RetirementState, RetirementError                                      string
+	RetirementObservedAt                                                  *time.Time
 	ID, EventID, TeamID, EventExerciseID                                  uuid.UUID
 	Ref                                                                   Ref
+	RetentionMinutes                                                      int32
 	VariantIndex, Generation                                              int32
 	AgentUID                                                              string
 	AgentGeneration                                                       int64
@@ -56,6 +63,8 @@ type Lab struct {
 	NextAttemptAt, CreatedAt, UpdatedAt                                   time.Time
 }
 type NewInput struct {
+	DefinitionVersionID              uuid.UUID
+	DefinitionHash                   string
 	EventID, TeamID, EventExerciseID uuid.UUID
 	Ref                              Ref
 	VariantIndex, Generation         int32
@@ -84,7 +93,7 @@ func New(in NewInput, now time.Time) (Lab, error) {
 	if err := in.Policy.Validate(); err != nil {
 		return Lab{}, err
 	}
-	return Lab{ID: uuid.Must(uuid.NewV7()), EventID: in.EventID, TeamID: in.TeamID, EventExerciseID: in.EventExerciseID, Ref: in.Ref, VariantIndex: in.VariantIndex, Generation: in.Generation, Revision: 1, OperationID: uuid.Must(uuid.NewV7()), DesiredState: "Running", ActualState: "Unknown", SnapshotMode: in.Policy.SnapshotMode, SnapshotState: "Unknown", RetentionUntil: cloneTime(in.RetentionUntil), ObjectiveCount: int32(len(in.ObjectiveIDs)), Allocation: Allocation{RuntimeState: "Unknown", StorageState: "Unknown"}, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now}, nil
+	return Lab{DefinitionVersionID: in.DefinitionVersionID, DefinitionHash: in.DefinitionHash, ID: uuid.Must(uuid.NewV7()), EventID: in.EventID, TeamID: in.TeamID, EventExerciseID: in.EventExerciseID, Ref: in.Ref, VariantIndex: in.VariantIndex, Generation: in.Generation, Revision: 1, OperationID: uuid.Must(uuid.NewV7()), DesiredState: "Running", ActualState: "Unknown", RetentionMinutes: in.Policy.RetentionMinutes, SnapshotMode: in.Policy.SnapshotMode, SnapshotState: "Unknown", RetentionUntil: cloneTime(in.RetentionUntil), ObjectiveCount: int32(len(in.ObjectiveIDs)), Allocation: Allocation{RuntimeState: "Unknown", StorageState: "Unknown"}, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now}, nil
 }
 func (l *Lab) Close(reason string, operationID uuid.UUID, now time.Time) error {
 	// Solved is irreversible, including attempts to replace its reason.
@@ -116,8 +125,12 @@ func (l *Lab) Start(operationID uuid.UUID, now time.Time) error {
 	// new start after an intervening intent changed the desired revision.
 	currentStop := l.AgentUID != "" && l.AgentGeneration > 0 && l.ObservedRevision == l.Revision && l.ObservedAt != nil && l.AccessFenced && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil && l.FailureCode == ""
 	currentBarrier := l.SnapshotMode == "skip" || (l.SnapshotMode == "required" && l.SnapshotState == "Succeeded")
+	deadline := l.RetentionUntil
+	if l.ProtectedUntil != nil && (deadline == nil || l.ProtectedUntil.After(*deadline)) {
+		deadline = l.ProtectedUntil
+	}
 	restartableClosure := l.ClosedAt != nil && (l.CloseReason == "manual" || l.CloseReason == "stage")
-	if l.DesiredState != "Stopped" || l.ActualState != "Stopped" || !restartableClosure || !currentStop || !retainedDefinition || !currentBarrier || (l.RetentionUntil != nil && !now.Before(*l.RetentionUntil)) {
+	if l.DesiredState != "Stopped" || l.ActualState != "Stopped" || !restartableClosure || !currentStop || !retainedDefinition || !currentBarrier || (deadline != nil && !now.Before(*deadline)) {
 		return ErrRestartUnavailable.Err()
 	}
 	if operationID == uuid.Nil || operationID == l.OperationID {
@@ -141,6 +154,9 @@ func (l *Lab) Start(operationID uuid.UUID, now time.Time) error {
 // Observe is the only physical-state mutation. Exact fencing is mandatory for
 // every observation, especially release credit; desired intent is untouched.
 func (l *Lab) Observe(o Observation, now time.Time) bool {
+	if l.DesiredState == "Deleted" && l.RetirementStopTarget != nil {
+		return l.ObserveRetirement(o, now)
+	}
 	if !ObservationMatches(*l, o) || o.DesiredState != l.DesiredState || o.ObservedAt == nil || (l.ObservedAt != nil && !o.ObservedAt.After(*l.ObservedAt)) {
 		return false
 	}

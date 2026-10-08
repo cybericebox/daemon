@@ -13,8 +13,8 @@ import (
 )
 
 const createEventGroupAllocation = `-- name: CreateEventGroupAllocation :exec
-INSERT INTO event_team_group_allocations(event_team_id,event_id,lab_group_name,vpn_cpu_millicores,vpn_memory_bytes,gateway_cpu_millicores,gateway_memory_bytes,plan,created_at)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+INSERT INTO event_team_group_allocations(event_team_id,event_id,lab_group_name,vpn_cpu_millicores,vpn_memory_bytes,gateway_cpu_millicores,gateway_memory_bytes,plan,operation_id,allocation,next_attempt_at,updated_at,created_at)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 ON CONFLICT(event_team_id) DO NOTHING
 `
 
@@ -27,6 +27,10 @@ type CreateEventGroupAllocationParams struct {
 	GatewayCpuMillicores int64     `json:"gateway_cpu_millicores"`
 	GatewayMemoryBytes   int64     `json:"gateway_memory_bytes"`
 	Plan                 []byte    `json:"plan"`
+	OperationID          uuid.UUID `json:"operation_id"`
+	Allocation           []byte    `json:"allocation"`
+	NextAttemptAt        time.Time `json:"next_attempt_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 	CreatedAt            time.Time `json:"created_at"`
 }
 
@@ -40,6 +44,10 @@ func (q *Queries) CreateEventGroupAllocation(ctx context.Context, arg CreateEven
 		arg.GatewayCpuMillicores,
 		arg.GatewayMemoryBytes,
 		arg.Plan,
+		arg.OperationID,
+		arg.Allocation,
+		arg.NextAttemptAt,
+		arg.UpdatedAt,
 		arg.CreatedAt,
 	)
 	return err
@@ -57,7 +65,7 @@ func (q *Queries) GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.UUID
 }
 
 const listEventGroupAllocations = `-- name: ListEventGroupAllocations :many
-SELECT event_team_id, event_id, lab_group_name, vpn_cpu_millicores, vpn_memory_bytes, gateway_cpu_millicores, gateway_memory_bytes, plan, created_at FROM event_team_group_allocations WHERE event_id=$1 ORDER BY event_team_id
+SELECT event_team_id, event_id, lab_group_name, vpn_cpu_millicores, vpn_memory_bytes, gateway_cpu_millicores, gateway_memory_bytes, plan, created_at, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, ready, observed_at, allocation, access_fenced, failure_code, failure_message, pending_starts, retention_until, protected_until, next_attempt_at, updated_at, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_group_allocations WHERE event_id=$1 ORDER BY event_team_id
 `
 
 func (q *Queries) ListEventGroupAllocations(ctx context.Context, eventID uuid.UUID) ([]EventTeamGroupAllocation, error) {
@@ -79,6 +87,28 @@ func (q *Queries) ListEventGroupAllocations(ctx context.Context, eventID uuid.UU
 			&i.GatewayMemoryBytes,
 			&i.Plan,
 			&i.CreatedAt,
+			&i.AgentUid,
+			&i.AgentGeneration,
+			&i.DesiredRevision,
+			&i.ObservedRevision,
+			&i.OperationID,
+			&i.DesiredState,
+			&i.ActualState,
+			&i.Ready,
+			&i.ObservedAt,
+			&i.Allocation,
+			&i.AccessFenced,
+			&i.FailureCode,
+			&i.FailureMessage,
+			&i.PendingStarts,
+			&i.RetentionUntil,
+			&i.ProtectedUntil,
+			&i.NextAttemptAt,
+			&i.UpdatedAt,
+			&i.RetirementStopTarget,
+			&i.RetirementState,
+			&i.RetirementObservedAt,
+			&i.RetirementError,
 		); err != nil {
 			return nil, err
 		}
@@ -91,7 +121,7 @@ func (q *Queries) ListEventGroupAllocations(ctx context.Context, eventID uuid.UU
 }
 
 const listEventLabAllocations = `-- name: ListEventLabAllocations :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs WHERE event_id=$1 ORDER BY id
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs WHERE event_id=$1 ORDER BY id
 `
 
 // Narrow ledger reads: canonical Lab rows are already shared once per generation.
@@ -140,6 +170,13 @@ func (q *Queries) ListEventLabAllocations(ctx context.Context, eventID uuid.UUID
 			&i.NextAttemptAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DefinitionVersionID,
+			&i.DefinitionHash,
+			&i.RetentionMinutes,
+			&i.RetirementStopTarget,
+			&i.RetirementState,
+			&i.RetirementObservedAt,
+			&i.RetirementError,
 		); err != nil {
 			return nil, err
 		}
@@ -152,7 +189,7 @@ func (q *Queries) ListEventLabAllocations(ctx context.Context, eventID uuid.UUID
 }
 
 const listPlatformGroupAllocations = `-- name: ListPlatformGroupAllocations :many
-SELECT event_team_id, event_id, lab_group_name, vpn_cpu_millicores, vpn_memory_bytes, gateway_cpu_millicores, gateway_memory_bytes, plan, created_at FROM event_team_group_allocations ORDER BY event_team_id
+SELECT event_team_id, event_id, lab_group_name, vpn_cpu_millicores, vpn_memory_bytes, gateway_cpu_millicores, gateway_memory_bytes, plan, created_at, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, ready, observed_at, allocation, access_fenced, failure_code, failure_message, pending_starts, retention_until, protected_until, next_attempt_at, updated_at, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_group_allocations ORDER BY event_team_id
 `
 
 func (q *Queries) ListPlatformGroupAllocations(ctx context.Context) ([]EventTeamGroupAllocation, error) {
@@ -174,6 +211,28 @@ func (q *Queries) ListPlatformGroupAllocations(ctx context.Context) ([]EventTeam
 			&i.GatewayMemoryBytes,
 			&i.Plan,
 			&i.CreatedAt,
+			&i.AgentUid,
+			&i.AgentGeneration,
+			&i.DesiredRevision,
+			&i.ObservedRevision,
+			&i.OperationID,
+			&i.DesiredState,
+			&i.ActualState,
+			&i.Ready,
+			&i.ObservedAt,
+			&i.Allocation,
+			&i.AccessFenced,
+			&i.FailureCode,
+			&i.FailureMessage,
+			&i.PendingStarts,
+			&i.RetentionUntil,
+			&i.ProtectedUntil,
+			&i.NextAttemptAt,
+			&i.UpdatedAt,
+			&i.RetirementStopTarget,
+			&i.RetirementState,
+			&i.RetirementObservedAt,
+			&i.RetirementError,
 		); err != nil {
 			return nil, err
 		}
@@ -186,7 +245,7 @@ func (q *Queries) ListPlatformGroupAllocations(ctx context.Context) ([]EventTeam
 }
 
 const listPlatformLabAllocations = `-- name: ListPlatformLabAllocations :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs ORDER BY id
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs ORDER BY id
 `
 
 func (q *Queries) ListPlatformLabAllocations(ctx context.Context) ([]EventTeamLab, error) {
@@ -234,6 +293,13 @@ func (q *Queries) ListPlatformLabAllocations(ctx context.Context) ([]EventTeamLa
 			&i.NextAttemptAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DefinitionVersionID,
+			&i.DefinitionHash,
+			&i.RetentionMinutes,
+			&i.RetirementStopTarget,
+			&i.RetirementState,
+			&i.RetirementObservedAt,
+			&i.RetirementError,
 		); err != nil {
 			return nil, err
 		}
@@ -249,6 +315,7 @@ const listUnaccountedEventLabStarts = `-- name: ListUnaccountedEventLabStarts :m
 SELECT DISTINCT l.event_id,l.event_team_id FROM event_team_labs l
 JOIN lab_bindings b ON b.lab_id=l.id
 WHERE b.deployed_at IS NOT NULL
+AND NOT COALESCE((l.allocation->>'ConfiguredRequestsKnown')::boolean,false)
 AND (COALESCE((l.allocation->'AllocatedRequests'->>'CPUMillicores')::bigint,0)<=0
  OR COALESCE((l.allocation->'AllocatedRequests'->>'MemoryBytes')::bigint,0)<=0)
 AND NOT COALESCE((l.desired_state<>'Running' AND l.actual_state IN ('Stopped','Deleted') AND l.agent_uid<>'' AND l.agent_generation>0 AND l.observed_revision=l.desired_revision AND l.observed_at IS NOT NULL AND l.allocation->>'RuntimeState'='Released' AND l.allocation->>'ReleasedAt' IS NOT NULL AND l.access_fenced AND l.failure_code='' AND (l.snapshot_mode='skip' OR l.snapshot_state='Succeeded')),false)

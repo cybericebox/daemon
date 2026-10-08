@@ -121,7 +121,8 @@ func (c calendarUsage) heldUsage(ctx context.Context, now time.Time) (calendarUs
 	}
 	for _, g := range groups {
 		ids[g.EventID] = true
-		byTeam[g.TeamID] = byTeam[g.TeamID].Add(g.Sizes.Total())
+		h := g.Lifecycle.HeldCompute()
+		byTeam[g.TeamID] = byTeam[g.TeamID].Add(calendarUseCase.Amount{CPUMillicores: h.CPUMillicores, MemoryBytes: h.MemoryBytes})
 	}
 	for id := range ids {
 		t, e := c.events.ResourceTotals(ctx, id, now)

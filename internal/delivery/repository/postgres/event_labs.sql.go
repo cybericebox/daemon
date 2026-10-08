@@ -30,8 +30,8 @@ func (q *Queries) AttachEventLabAssignmentBindings(ctx context.Context, labID uu
 
 const createEventTeamLab = `-- name: CreateEventTeamLab :exec
 WITH lab AS (
- INSERT INTO event_team_labs (id,event_id,event_team_id,event_exercise_id,variant_index,generation,lab_group_name,lab_name,objective_count,created_at,agent_uid,agent_generation,desired_revision,observed_revision,operation_id,desired_state,actual_state,runtime_ready,close_reason,logical_closed_at,snapshot_mode,snapshot_state,retention_until,protected_until,actual_stopped_at,observed_at,materialized,allocation,failure_code,failure_message,access_fenced,access_fenced_at,access_fence_vpn_boot_id,next_attempt_at,updated_at)
- VALUES ($2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36) RETURNING id
+ INSERT INTO event_team_labs (id,event_id,event_team_id,event_exercise_id,variant_index,generation,lab_group_name,lab_name,objective_count,definition_version_id,definition_hash,retention_minutes,created_at,agent_uid,agent_generation,desired_revision,observed_revision,operation_id,desired_state,actual_state,runtime_ready,close_reason,logical_closed_at,snapshot_mode,snapshot_state,retention_until,protected_until,actual_stopped_at,observed_at,materialized,allocation,failure_code,failure_message,access_fenced,access_fenced_at,access_fence_vpn_boot_id,next_attempt_at,updated_at)
+ VALUES ($2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39) RETURNING id
 )
 INSERT INTO event_lab_objectives(lab_id,event_challenge_id)
 SELECT lab.id,objective FROM lab CROSS JOIN unnest($1::uuid[]) AS objective
@@ -48,6 +48,9 @@ type CreateEventTeamLabParams struct {
 	LabGroupName         string             `json:"lab_group_name"`
 	LabName              string             `json:"lab_name"`
 	ObjectiveCount       int32              `json:"objective_count"`
+	DefinitionVersionID  uuid.NullUUID      `json:"definition_version_id"`
+	DefinitionHash       string             `json:"definition_hash"`
+	RetentionMinutes     int32              `json:"retention_minutes"`
 	CreatedAt            time.Time          `json:"created_at"`
 	AgentUid             string             `json:"agent_uid"`
 	AgentGeneration      int64              `json:"agent_generation"`
@@ -88,6 +91,9 @@ func (q *Queries) CreateEventTeamLab(ctx context.Context, arg CreateEventTeamLab
 		arg.LabGroupName,
 		arg.LabName,
 		arg.ObjectiveCount,
+		arg.DefinitionVersionID,
+		arg.DefinitionHash,
+		arg.RetentionMinutes,
 		arg.CreatedAt,
 		arg.AgentUid,
 		arg.AgentGeneration,
@@ -119,7 +125,7 @@ func (q *Queries) CreateEventTeamLab(ctx context.Context, arg CreateEventTeamLab
 }
 
 const getEventTeamLab = `-- name: GetEventTeamLab :one
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs WHERE id=$1
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs WHERE id=$1
 `
 
 func (q *Queries) GetEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeamLab, error) {
@@ -161,12 +167,19 @@ func (q *Queries) GetEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeamL
 		&i.NextAttemptAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DefinitionVersionID,
+		&i.DefinitionHash,
+		&i.RetentionMinutes,
+		&i.RetirementStopTarget,
+		&i.RetirementState,
+		&i.RetirementObservedAt,
+		&i.RetirementError,
 	)
 	return i, err
 }
 
 const getEventTeamLabForChallenge = `-- name: GetEventTeamLabForChallenge :one
-SELECT lab.id, lab.event_id, lab.event_team_id, lab.event_exercise_id, lab.variant_index, lab.generation, lab.lab_group_name, lab.lab_name, lab.agent_uid, lab.agent_generation, lab.desired_revision, lab.observed_revision, lab.operation_id, lab.desired_state, lab.actual_state, lab.runtime_ready, lab.close_reason, lab.logical_closed_at, lab.snapshot_mode, lab.snapshot_state, lab.retention_until, lab.protected_until, lab.actual_stopped_at, lab.observed_at, lab.objective_count, lab.materialized, lab.allocation, lab.failure_code, lab.failure_message, lab.access_fenced, lab.access_fenced_at, lab.access_fence_vpn_boot_id, lab.next_attempt_at, lab.created_at, lab.updated_at FROM event_team_labs lab
+SELECT lab.id, lab.event_id, lab.event_team_id, lab.event_exercise_id, lab.variant_index, lab.generation, lab.lab_group_name, lab.lab_name, lab.agent_uid, lab.agent_generation, lab.desired_revision, lab.observed_revision, lab.operation_id, lab.desired_state, lab.actual_state, lab.runtime_ready, lab.close_reason, lab.logical_closed_at, lab.snapshot_mode, lab.snapshot_state, lab.retention_until, lab.protected_until, lab.actual_stopped_at, lab.observed_at, lab.objective_count, lab.materialized, lab.allocation, lab.failure_code, lab.failure_message, lab.access_fenced, lab.access_fenced_at, lab.access_fence_vpn_boot_id, lab.next_attempt_at, lab.created_at, lab.updated_at, lab.definition_version_id, lab.definition_hash, lab.retention_minutes, lab.retirement_stop_target, lab.retirement_state, lab.retirement_observed_at, lab.retirement_error FROM event_team_labs lab
 JOIN lab_bindings b ON b.lab_id=lab.id AND b.event_team_id=lab.event_team_id
 WHERE b.event_team_id=$1 AND b.event_challenge_id=$2
 AND b.generation=lab.generation AND b.lab_group_name=lab.lab_group_name AND b.lab_name=lab.lab_name
@@ -217,12 +230,19 @@ func (q *Queries) GetEventTeamLabForChallenge(ctx context.Context, arg GetEventT
 		&i.NextAttemptAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DefinitionVersionID,
+		&i.DefinitionHash,
+		&i.RetentionMinutes,
+		&i.RetirementStopTarget,
+		&i.RetirementState,
+		&i.RetirementObservedAt,
+		&i.RetirementError,
 	)
 	return i, err
 }
 
 const getEventTeamLabForRef = `-- name: GetEventTeamLabForRef :one
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs WHERE event_team_id=$1 AND lab_group_name=$2 AND lab_name=$3 AND generation=$4
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs WHERE event_team_id=$1 AND lab_group_name=$2 AND lab_name=$3 AND generation=$4
 `
 
 type GetEventTeamLabForRefParams struct {
@@ -276,6 +296,13 @@ func (q *Queries) GetEventTeamLabForRef(ctx context.Context, arg GetEventTeamLab
 		&i.NextAttemptAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DefinitionVersionID,
+		&i.DefinitionHash,
+		&i.RetentionMinutes,
+		&i.RetirementStopTarget,
+		&i.RetirementState,
+		&i.RetirementObservedAt,
+		&i.RetirementError,
 	)
 	return i, err
 }
@@ -301,7 +328,7 @@ func (q *Queries) IsEventTeamLabComplete(ctx context.Context, id uuid.UUID) (pgt
 }
 
 const listDirtyEventTeamLabs = `-- name: ListDirtyEventTeamLabs :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs
 WHERE next_attempt_at<=$1
  AND NOT COALESCE((desired_state='Stopped' AND actual_state='Stopped' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'ReleasedAt' IS NOT NULL AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
  AND NOT COALESCE((desired_state='Deleted' AND actual_state='Deleted' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'StorageState'='Deleted' AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
@@ -358,6 +385,13 @@ func (q *Queries) ListDirtyEventTeamLabs(ctx context.Context, arg ListDirtyEvent
 			&i.NextAttemptAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DefinitionVersionID,
+			&i.DefinitionHash,
+			&i.RetentionMinutes,
+			&i.RetirementStopTarget,
+			&i.RetirementState,
+			&i.RetirementObservedAt,
+			&i.RetirementError,
 		); err != nil {
 			return nil, err
 		}
@@ -456,7 +490,7 @@ func (q *Queries) ListEventLabAssignmentsMissingIdentity(ctx context.Context, ev
 }
 
 const listPendingStoppedEventTeamLabs = `-- name: ListPendingStoppedEventTeamLabs :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs
 WHERE desired_state='Stopped' AND next_attempt_at<=$1
  AND NOT COALESCE((desired_state='Stopped' AND actual_state='Stopped' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'ReleasedAt' IS NOT NULL AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
  AND NOT COALESCE((desired_state='Deleted' AND actual_state='Deleted' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'StorageState'='Deleted' AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
@@ -513,6 +547,13 @@ func (q *Queries) ListPendingStoppedEventTeamLabs(ctx context.Context, arg ListP
 			&i.NextAttemptAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DefinitionVersionID,
+			&i.DefinitionHash,
+			&i.RetentionMinutes,
+			&i.RetirementStopTarget,
+			&i.RetirementState,
+			&i.RetirementObservedAt,
+			&i.RetirementError,
 		); err != nil {
 			return nil, err
 		}
@@ -549,7 +590,7 @@ func (q *Queries) LockEventTeamForLabAdmission(ctx context.Context, id uuid.UUID
 }
 
 const lockEventTeamLab = `-- name: LockEventTeamLab :one
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs WHERE id=$1 FOR UPDATE
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs WHERE id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeamLab, error) {
@@ -591,12 +632,19 @@ func (q *Queries) LockEventTeamLab(ctx context.Context, id uuid.UUID) (EventTeam
 		&i.NextAttemptAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DefinitionVersionID,
+		&i.DefinitionHash,
+		&i.RetentionMinutes,
+		&i.RetirementStopTarget,
+		&i.RetirementState,
+		&i.RetirementObservedAt,
+		&i.RetirementError,
 	)
 	return i, err
 }
 
 const lockEventTeamLabsForSourceChange = `-- name: LockEventTeamLabsForSourceChange :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs
 WHERE event_id=$1 AND event_exercise_id=$2
 ORDER BY id FOR UPDATE
 `
@@ -651,6 +699,13 @@ func (q *Queries) LockEventTeamLabsForSourceChange(ctx context.Context, arg Lock
 			&i.NextAttemptAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.DefinitionVersionID,
+			&i.DefinitionHash,
+			&i.RetentionMinutes,
+			&i.RetirementStopTarget,
+			&i.RetirementState,
+			&i.RetirementObservedAt,
+			&i.RetirementError,
 		); err != nil {
 			return nil, err
 		}
@@ -686,6 +741,56 @@ func (q *Queries) LockEventTeamsForLabSourceChange(ctx context.Context, eventID 
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordEventLabRetirement = `-- name: RecordEventLabRetirement :execrows
+UPDATE event_team_labs SET agent_generation=$1,observed_revision=$2,actual_state=$3,allocation=$4,retirement_state=$5,retirement_observed_at=$6,retirement_error=$7,updated_at=$8
+WHERE id=$9 AND desired_state='Deleted' AND desired_revision=$10 AND operation_id=$11 AND agent_uid=$12
+ AND retirement_stop_target=$13::jsonb AND allocation=$14::jsonb
+ AND retirement_observed_at IS NOT DISTINCT FROM $15::timestamptz
+ AND (retirement_observed_at IS NULL OR retirement_observed_at<$6)
+`
+
+type RecordEventLabRetirementParams struct {
+	AgentGeneration              int64              `json:"agent_generation"`
+	ObservedRevision             int64              `json:"observed_revision"`
+	ActualState                  string             `json:"actual_state"`
+	Allocation                   []byte             `json:"allocation"`
+	RetirementState              string             `json:"retirement_state"`
+	RetirementObservedAt         pgtype.Timestamptz `json:"retirement_observed_at"`
+	RetirementError              string             `json:"retirement_error"`
+	UpdatedAt                    time.Time          `json:"updated_at"`
+	ID                           uuid.UUID          `json:"id"`
+	DesiredRevision              int64              `json:"desired_revision"`
+	OperationID                  uuid.UUID          `json:"operation_id"`
+	AgentUid                     string             `json:"agent_uid"`
+	ExpectedStopTarget           []byte             `json:"expected_stop_target"`
+	ExpectedAllocation           []byte             `json:"expected_allocation"`
+	ExpectedRetirementObservedAt pgtype.Timestamptz `json:"expected_retirement_observed_at"`
+}
+
+func (q *Queries) RecordEventLabRetirement(ctx context.Context, arg RecordEventLabRetirementParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordEventLabRetirement,
+		arg.AgentGeneration,
+		arg.ObservedRevision,
+		arg.ActualState,
+		arg.Allocation,
+		arg.RetirementState,
+		arg.RetirementObservedAt,
+		arg.RetirementError,
+		arg.UpdatedAt,
+		arg.ID,
+		arg.DesiredRevision,
+		arg.OperationID,
+		arg.AgentUid,
+		arg.ExpectedStopTarget,
+		arg.ExpectedAllocation,
+		arg.ExpectedRetirementObservedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const recordEventTeamLabInitialIdentity = `-- name: RecordEventTeamLabInitialIdentity :execrows
@@ -768,8 +873,8 @@ WHERE id=$14 AND agent_uid=$15 AND agent_uid<>'' AND agent_generation<=$1
  AND lab_group_name=$17 AND lab_name=$18 AND operation_id=$19
  AND desired_revision=$2 AND desired_state=$20
  AND (observed_at IS NULL OR observed_at<$6)
- AND updated_at=$21
- AND observed_at IS NOT DISTINCT FROM $22::timestamptz
+ AND allocation=$21::jsonb AND updated_at=$22
+ AND observed_at IS NOT DISTINCT FROM $23::timestamptz
 `
 
 type RecordEventTeamLabObservationParams struct {
@@ -793,6 +898,7 @@ type RecordEventTeamLabObservationParams struct {
 	LabName              string             `json:"lab_name"`
 	OperationID          uuid.UUID          `json:"operation_id"`
 	DesiredState         string             `json:"desired_state"`
+	ExpectedAllocation   []byte             `json:"expected_allocation"`
 	ExpectedUpdatedAt    time.Time          `json:"expected_updated_at"`
 	ExpectedObservedAt   pgtype.Timestamptz `json:"expected_observed_at"`
 }
@@ -820,6 +926,7 @@ func (q *Queries) RecordEventTeamLabObservation(ctx context.Context, arg RecordE
 		arg.LabName,
 		arg.OperationID,
 		arg.DesiredState,
+		arg.ExpectedAllocation,
 		arg.ExpectedUpdatedAt,
 		arg.ExpectedObservedAt,
 	)
@@ -859,35 +966,40 @@ func (q *Queries) ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg Sc
 
 const updateEventTeamLab = `-- name: UpdateEventTeamLab :execrows
 UPDATE event_team_labs SET
- agent_uid=$1,
- agent_generation=$2,
- desired_revision=$3,
- observed_revision=$4,
- operation_id=$5,
- desired_state=$6,
- actual_state=$7,
- runtime_ready=$8,
- close_reason=$9,
- logical_closed_at=$10,
- snapshot_mode=$11,
- snapshot_state=$12,
- retention_until=$13,
- protected_until=$14,
- actual_stopped_at=$15,
- observed_at=$16,
- materialized=$17,
- allocation=$18,
- failure_code=$19,
- failure_message=$20,
- access_fenced=$21,
- access_fenced_at=$22,
- access_fence_vpn_boot_id=$23,
- next_attempt_at=$24,
- updated_at=$25
-WHERE id=$26 AND desired_revision=$27
+ retirement_stop_target=$1,retirement_state=$2,retirement_observed_at=$3,retirement_error=$4,
+ agent_uid=$5,
+ agent_generation=$6,
+ desired_revision=$7,
+ observed_revision=$8,
+ operation_id=$9,
+ desired_state=$10,
+ actual_state=$11,
+ runtime_ready=$12,
+ close_reason=$13,
+ logical_closed_at=$14,
+ retention_minutes=$15,snapshot_mode=$16,
+ snapshot_state=$17,
+ retention_until=$18,
+ protected_until=$19,
+ actual_stopped_at=$20,
+ observed_at=$21,
+ materialized=$22,
+ allocation=$23,
+ failure_code=$24,
+ failure_message=$25,
+ access_fenced=$26,
+ access_fenced_at=$27,
+ access_fence_vpn_boot_id=$28,
+ next_attempt_at=$29,
+ updated_at=$30
+WHERE id=$31 AND desired_revision=$32
 `
 
 type UpdateEventTeamLabParams struct {
+	RetirementStopTarget []byte             `json:"retirement_stop_target"`
+	RetirementState      string             `json:"retirement_state"`
+	RetirementObservedAt pgtype.Timestamptz `json:"retirement_observed_at"`
+	RetirementError      string             `json:"retirement_error"`
 	AgentUid             string             `json:"agent_uid"`
 	AgentGeneration      int64              `json:"agent_generation"`
 	DesiredRevision      int64              `json:"desired_revision"`
@@ -898,6 +1010,7 @@ type UpdateEventTeamLabParams struct {
 	RuntimeReady         bool               `json:"runtime_ready"`
 	CloseReason          pgtype.Text        `json:"close_reason"`
 	LogicalClosedAt      pgtype.Timestamptz `json:"logical_closed_at"`
+	RetentionMinutes     int32              `json:"retention_minutes"`
 	SnapshotMode         string             `json:"snapshot_mode"`
 	SnapshotState        string             `json:"snapshot_state"`
 	RetentionUntil       pgtype.Timestamptz `json:"retention_until"`
@@ -919,6 +1032,10 @@ type UpdateEventTeamLabParams struct {
 
 func (q *Queries) UpdateEventTeamLab(ctx context.Context, arg UpdateEventTeamLabParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateEventTeamLab,
+		arg.RetirementStopTarget,
+		arg.RetirementState,
+		arg.RetirementObservedAt,
+		arg.RetirementError,
 		arg.AgentUid,
 		arg.AgentGeneration,
 		arg.DesiredRevision,
@@ -929,6 +1046,7 @@ func (q *Queries) UpdateEventTeamLab(ctx context.Context, arg UpdateEventTeamLab
 		arg.RuntimeReady,
 		arg.CloseReason,
 		arg.LogicalClosedAt,
+		arg.RetentionMinutes,
 		arg.SnapshotMode,
 		arg.SnapshotState,
 		arg.RetentionUntil,

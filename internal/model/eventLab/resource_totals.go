@@ -15,7 +15,7 @@ func (t *ResourceTotals) AddLab(l Lab, now time.Time) {
 	held := l.HeldCompute()
 	t.Held.CPUMillicores += held.CPUMillicores
 	t.Held.MemoryBytes += held.MemoryBytes
-	if l.Allocation.RuntimeState == "Admitted" {
+	if l.DesiredState == "Running" && !l.RuntimeReady && l.Allocation.RuntimeState == "Admitted" {
 		t.PendingStarts.CPUMillicores += held.CPUMillicores
 		t.PendingStarts.MemoryBytes += held.MemoryBytes
 	}

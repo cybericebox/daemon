@@ -43,7 +43,7 @@ func (u *EventUseCase) GetOwnLabLifecycle(ctx context.Context, eventID, userID, 
 	if err != nil {
 		return ParticipantLabView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read laboratory lifecycle").Err()
 	}
-	return participantLabView(lab), nil
+	return u.participantLabCapabilities(ctx, lab)
 }
 
 func (u *EventUseCase) fillBoardLabs(ctx context.Context, rows []teamChallengeRepo.PublishedChallenge, views []OwnChallengeView) error {
@@ -65,7 +65,10 @@ func (u *EventUseCase) fillBoardLabs(ctx context.Context, rows []teamChallengeRe
 			if err != nil {
 				return model.ErrPlatform.WithError(err).WithMessage("Failed to read board laboratory lifecycle").Err()
 			}
-			safe := participantLabView(lab)
+			safe, viewErr := u.participantLabCapabilities(ctx, lab)
+			if viewErr != nil {
+				return viewErr
+			}
 			view = &safe
 			cache[id] = view
 		}

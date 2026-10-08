@@ -123,6 +123,7 @@ func lifecycleObservation(ref eventLabModel.Ref, l *labpb.Lab) eventLabModel.Obs
 	o.UID = l.GetUid()
 	o.Generation = l.GetGeneration()
 	s := l.GetStatus()
+	o.Retirement = retirementObservation(s.GetRetirement())
 	life := s.GetLifecycle()
 	if life == nil {
 		o.DesiredState = "Running"

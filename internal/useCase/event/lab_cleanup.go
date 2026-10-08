@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/model"
 )
 
@@ -40,6 +41,15 @@ func (u *EventUseCase) CleanupWithdrawnLaboratories(ctx context.Context) error {
 		byGroup[binding.LabGroupName] = append(byGroup[binding.LabGroupName], index)
 	}
 	for group, indexes := range byGroup {
+		if u.lifecycleControls {
+			owned, e := eventLabRetentionRepo.New(u.repo).OwnedGroup(ctx, group)
+			if e != nil {
+				return e
+			}
+			if owned {
+				continue
+			}
+		}
 		if err := u.infra.DestroyLabGroup(ctx, group); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy withdrawn laboratory group").Err()
 		}
@@ -76,6 +86,15 @@ func (u *EventUseCase) CleanupQueuedLabGroups(ctx context.Context) error {
 		}
 	}
 	for _, group := range groups {
+		if u.lifecycleControls {
+			owned, e := eventLabRetentionRepo.New(u.repo).OwnedGroup(ctx, group)
+			if e != nil {
+				return e
+			}
+			if owned {
+				continue
+			}
+		}
 		if err := u.infra.DestroyLabGroup(ctx, group); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy queued laboratory group").Err()
 		}

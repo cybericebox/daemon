@@ -152,6 +152,8 @@ func (m HintChargeMode) Valid() bool { return m == HintChargeReward || m == Hint
 // NewEventConfig builds the 1:1 config row created alongside a new Event, with
 // safe closed/hidden defaults and Participation unset.
 func NewEventConfig(eventID uuid.UUID, now time.Time) EventConfig {
+	timing := eventStandModel.DefaultTiming()
+	timing.TeardownDelayMinutes = eventLabModel.DefaultPolicy().RetentionMinutes
 	return EventConfig{
 		EventID:                eventID,
 		Participation:          nil,
@@ -161,7 +163,7 @@ func NewEventConfig(eventID uuid.UUID, now time.Time) EventConfig {
 		MaxTeamSize:            defaultMaxTeamSize,
 		ShowDifficulty:         true,
 		Theme:                  DefaultTheme(),
-		StandTiming:            eventStandModel.DefaultTiming(),
+		StandTiming:            timing,
 		Results:                DefaultResultsSettings(),
 		Countdown:              DefaultCountdownSettings(),
 		TaskRevealMode:         RevealAllReady,

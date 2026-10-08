@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"github.com/gofrs/uuid"
 )
 
 type Queries interface {
+	GetEventLabAccessSync(context.Context, uuid.UUID) (postgres.EventLabAccessSync, error)
 	MaterializeEventLabAccessPolicy(context.Context, postgres.MaterializeEventLabAccessPolicyParams) (postgres.EventLabAccessSync, error)
 	GetCurrentEventLabAccessMonitoring(context.Context, uuid.UUID) (postgres.LabMonitoringCurrent, error)
 	RequestEventLabAccessSync(context.Context, postgres.RequestEventLabAccessSyncParams) (postgres.EventLabAccessSync, error)
@@ -91,4 +93,23 @@ func (r *Repository) Labs(ctx context.Context, teamID uuid.UUID) ([]Lab, error) 
 		out = append(out, Lab{Group: row.LabGroupName, Name: row.LabName, Available: row.Available})
 	}
 	return out, nil
+}
+
+func (r *Repository) NetworkCurrent(ctx context.Context, teamID uuid.UUID, now time.Time) (bool, error) {
+	row, err := r.q.GetEventLabAccessSync(ctx, teamID)
+	if err != nil {
+		return false, err
+	}
+	if !row.OperationID.Valid || row.OperationID.UUID == uuid.Nil || row.PolicyFingerprint == "" || row.ExpectedGroupUid == "" || row.DesiredRevision <= 0 || row.AppliedRevision != row.DesiredRevision {
+		return false, nil
+	}
+	observation, err := r.ObserveAccessFence(ctx, teamID)
+	if err != nil {
+		return false, err
+	}
+	if observation.ObservedAt.After(now) || now.Sub(observation.ObservedAt) > 30*time.Second || observation.VPNObservedAt.After(now) || now.Sub(observation.VPNObservedAt) > 30*time.Second {
+		return false, nil
+	}
+	target := eventLabModel.AccessTarget{Group: observation.Group, ExpectedGroupUID: row.ExpectedGroupUid, OperationID: row.OperationID.UUID, Revision: row.DesiredRevision}
+	return eventLabModel.AccessFenceMatches(target, observation, observation.CurrentVPNBootID), nil
 }

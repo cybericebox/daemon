@@ -1,12 +1,16 @@
 package eventLabModel
 
-import "time"
+import (
+	"github.com/gofrs/uuid"
+	"time"
+)
 
 type Compute struct{ CPUMillicores, MemoryBytes int64 }
 
 // Allocation separates configured demand, held compute and retained storage.
 // Unknown observations must never be converted into free capacity.
 type Allocation struct {
+	ConfiguredRequestsKnown                                       bool
 	ConfiguredRequests, ConfiguredLimits, AllocatedRequests, Used Compute
 	RuntimeState, StorageState                                    string
 	ObservedAt, ReleasedAt                                        *time.Time
@@ -50,6 +54,7 @@ func (l *Lab) mergeAllocation(o Observation) Allocation {
 	if next.ConfiguredLimits == (Compute{}) {
 		next.ConfiguredLimits = current.ConfiguredLimits
 	}
+	next.ConfiguredRequestsKnown = current.ConfiguredRequestsKnown
 	next.StorageState = current.StorageState
 	next.SnapshotQuotaBytes = current.SnapshotQuotaBytes
 	next.PhysicalStorageBytes = current.PhysicalStorageBytes
@@ -84,6 +89,9 @@ type StorageBudget struct {
 }
 
 func (l *Lab) HeldCompute() Compute {
+	if l.DesiredState == "Deleted" && l.RetirementStopTarget != nil && l.RetirementStopTarget.ExpectedUID == l.AgentUID && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil && l.AccessFenced && l.FailureCode == "" && (l.SnapshotMode == "skip" || l.SnapshotState == "Succeeded") {
+		return Compute{}
+	}
 	if l.DesiredState != "Running" && l.AgentUID != "" && l.AgentGeneration > 0 && l.ObservedAt != nil && l.ObservedRevision == l.Revision && (l.ActualState == "Stopped" || l.ActualState == "Deleted") && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil && l.AccessFenced && l.FailureCode == "" && (l.SnapshotMode == "skip" || l.SnapshotState == "Succeeded") {
 		return Compute{}
 	}
@@ -99,6 +107,7 @@ func (l *Lab) Admit(need Compute, storageBytes int64, now time.Time) bool {
 	if l.DesiredState != "Running" || l.ClosedAt != nil || need.CPUMillicores <= 0 || need.MemoryBytes <= 0 || storageBytes < 0 {
 		return false
 	}
+	l.Allocation.ConfiguredRequestsKnown = true
 	l.Allocation.ConfiguredRequests = need
 	l.Allocation.ConfiguredLimits = need
 	l.Allocation.AllocatedRequests = Compute{max(l.Allocation.AllocatedRequests.CPUMillicores, need.CPUMillicores), max(l.Allocation.AllocatedRequests.MemoryBytes, need.MemoryBytes)}
@@ -107,4 +116,25 @@ func (l *Lab) Admit(need Compute, storageBytes int64, now time.Time) bool {
 	l.Allocation.ReleasedAt = nil
 	l.UpdatedAt = now
 	return true
+}
+
+// AdmitKnown distinguishes a proven zero-request network-only definition from
+// an empty unknown ledger. The proof is bound to the immutable generation.
+func (l *Lab) AdmitKnown(need Compute, storageBytes int64, definitionHash string, generation int32, now time.Time) bool {
+	if need.CPUMillicores < 0 || need.MemoryBytes < 0 || storageBytes < 0 || l.DesiredState != "Running" || l.ClosedAt != nil || l.DefinitionVersionID == uuid.Nil || definitionHash == "" || definitionHash != l.DefinitionHash || generation != l.Generation {
+		return false
+	}
+	l.Allocation.ConfiguredRequestsKnown = true
+	l.Allocation.ConfiguredRequests = need
+	l.Allocation.ConfiguredLimits = need
+	l.Allocation.AllocatedRequests = Compute{max(l.Allocation.AllocatedRequests.CPUMillicores, need.CPUMillicores), max(l.Allocation.AllocatedRequests.MemoryBytes, need.MemoryBytes)}
+	l.Allocation.SnapshotQuotaBytes = max(l.Allocation.SnapshotQuotaBytes, storageBytes)
+	l.Allocation.RuntimeState = "Admitted"
+	l.Allocation.ReleasedAt = nil
+	l.UpdatedAt = now
+	return true
+}
+func (l *Lab) HoldsRuntime() bool {
+	released := l.DesiredState != "Running" && l.AgentUID != "" && l.AgentGeneration > 0 && l.ObservedAt != nil && (l.ObservedRevision == l.Revision || (l.DesiredState == "Deleted" && l.RetirementStopTarget != nil)) && (l.ActualState == "Stopped" || l.ActualState == "Deleted") && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil && l.AccessFenced && l.FailureCode == "" && (l.SnapshotMode == "skip" || l.SnapshotState == "Succeeded")
+	return !released && (l.Allocation.ConfiguredRequestsKnown || l.Allocation.AllocatedRequests != (Compute{}) || l.AgentUID != "")
 }

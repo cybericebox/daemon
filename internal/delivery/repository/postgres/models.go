@@ -327,6 +327,16 @@ type EventLabObservation struct {
 	Payload       []byte    `json:"payload"`
 }
 
+type EventLabRevealBarrier struct {
+	EventID         uuid.UUID          `json:"event_id"`
+	EventExerciseID uuid.UUID          `json:"event_exercise_id"`
+	Revision        int64              `json:"revision"`
+	Mode            string             `json:"mode"`
+	EligibleTeamIds []uuid.UUID        `json:"eligible_team_ids"`
+	OpenedAt        pgtype.Timestamptz `json:"opened_at"`
+	CreatedAt       time.Time          `json:"created_at"`
+}
+
 type EventListColumn struct {
 	EventID   uuid.UUID     `json:"event_id"`
 	List      string        `json:"list"`
@@ -401,14 +411,15 @@ type EventScoringPopulation struct {
 }
 
 type EventStage struct {
-	ID         uuid.UUID `json:"id"`
-	EventID    uuid.UUID `json:"event_id"`
-	Name       string    `json:"name"`
-	OpensAt    time.Time `json:"opens_at"`
-	ClosesAt   time.Time `json:"closes_at"`
-	Returnable bool      `json:"returnable"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                  uuid.UUID   `json:"id"`
+	EventID             uuid.UUID   `json:"event_id"`
+	Name                string      `json:"name"`
+	OpensAt             time.Time   `json:"opens_at"`
+	ClosesAt            time.Time   `json:"closes_at"`
+	Returnable          bool        `json:"returnable"`
+	CreatedAt           time.Time   `json:"created_at"`
+	UpdatedAt           time.Time   `json:"updated_at"`
+	LabRetentionMinutes pgtype.Int4 `json:"lab_retention_minutes"`
 }
 
 type EventStandRollout struct {
@@ -451,15 +462,37 @@ type EventTeamFieldConfig struct {
 }
 
 type EventTeamGroupAllocation struct {
-	EventTeamID          uuid.UUID `json:"event_team_id"`
-	EventID              uuid.UUID `json:"event_id"`
-	LabGroupName         string    `json:"lab_group_name"`
-	VpnCpuMillicores     int64     `json:"vpn_cpu_millicores"`
-	VpnMemoryBytes       int64     `json:"vpn_memory_bytes"`
-	GatewayCpuMillicores int64     `json:"gateway_cpu_millicores"`
-	GatewayMemoryBytes   int64     `json:"gateway_memory_bytes"`
-	Plan                 []byte    `json:"plan"`
-	CreatedAt            time.Time `json:"created_at"`
+	EventTeamID          uuid.UUID          `json:"event_team_id"`
+	EventID              uuid.UUID          `json:"event_id"`
+	LabGroupName         string             `json:"lab_group_name"`
+	VpnCpuMillicores     int64              `json:"vpn_cpu_millicores"`
+	VpnMemoryBytes       int64              `json:"vpn_memory_bytes"`
+	GatewayCpuMillicores int64              `json:"gateway_cpu_millicores"`
+	GatewayMemoryBytes   int64              `json:"gateway_memory_bytes"`
+	Plan                 []byte             `json:"plan"`
+	CreatedAt            time.Time          `json:"created_at"`
+	AgentUid             string             `json:"agent_uid"`
+	AgentGeneration      int64              `json:"agent_generation"`
+	DesiredRevision      int64              `json:"desired_revision"`
+	ObservedRevision     int64              `json:"observed_revision"`
+	OperationID          uuid.UUID          `json:"operation_id"`
+	DesiredState         string             `json:"desired_state"`
+	ActualState          string             `json:"actual_state"`
+	Ready                bool               `json:"ready"`
+	ObservedAt           pgtype.Timestamptz `json:"observed_at"`
+	Allocation           []byte             `json:"allocation"`
+	AccessFenced         bool               `json:"access_fenced"`
+	FailureCode          string             `json:"failure_code"`
+	FailureMessage       string             `json:"failure_message"`
+	PendingStarts        int32              `json:"pending_starts"`
+	RetentionUntil       pgtype.Timestamptz `json:"retention_until"`
+	ProtectedUntil       pgtype.Timestamptz `json:"protected_until"`
+	NextAttemptAt        time.Time          `json:"next_attempt_at"`
+	UpdatedAt            time.Time          `json:"updated_at"`
+	RetirementStopTarget []byte             `json:"retirement_stop_target"`
+	RetirementState      string             `json:"retirement_state"`
+	RetirementObservedAt pgtype.Timestamptz `json:"retirement_observed_at"`
+	RetirementError      string             `json:"retirement_error"`
 }
 
 type EventTeamLab struct {
@@ -498,6 +531,13 @@ type EventTeamLab struct {
 	NextAttemptAt        time.Time          `json:"next_attempt_at"`
 	CreatedAt            time.Time          `json:"created_at"`
 	UpdatedAt            time.Time          `json:"updated_at"`
+	DefinitionVersionID  uuid.NullUUID      `json:"definition_version_id"`
+	DefinitionHash       string             `json:"definition_hash"`
+	RetentionMinutes     int32              `json:"retention_minutes"`
+	RetirementStopTarget []byte             `json:"retirement_stop_target"`
+	RetirementState      string             `json:"retirement_state"`
+	RetirementObservedAt pgtype.Timestamptz `json:"retirement_observed_at"`
+	RetirementError      string             `json:"retirement_error"`
 }
 
 type EventTeamStand struct {

@@ -1,6 +1,9 @@
 package eventLabModel
 
-import exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+import (
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"time"
+)
 
 type Policy struct {
 	SnapshotMode         string
@@ -8,7 +11,23 @@ type Policy struct {
 	RetentionMinutes     int32
 }
 
-func DefaultPolicy() Policy { return Policy{SnapshotMode: "skip", RetentionMinutes: 60} }
+var defaultPolicy = Policy{SnapshotMode: "skip", RetentionMinutes: 60}
+
+func SetDefaultPolicy(p Policy) {
+	defaultPolicy = p
+	if p.MaxActiveLabsPerTeam != nil {
+		n := *p.MaxActiveLabsPerTeam
+		defaultPolicy.MaxActiveLabsPerTeam = &n
+	}
+}
+func DefaultPolicy() Policy {
+	p := defaultPolicy
+	if p.MaxActiveLabsPerTeam != nil {
+		n := *p.MaxActiveLabsPerTeam
+		p.MaxActiveLabsPerTeam = &n
+	}
+	return p
+}
 func (p Policy) Validate() error {
 	if (p.SnapshotMode != "skip" && p.SnapshotMode != "required") || p.RetentionMinutes < 0 || p.RetentionMinutes > 10080 || (p.MaxActiveLabsPerTeam != nil && (*p.MaxActiveLabsPerTeam < 1 || *p.MaxActiveLabsPerTeam > 1000)) {
 		return ErrPolicyInvalid.Err()
@@ -36,4 +55,21 @@ func (p Policy) ValidatePreparation(t exerciseModel.Topology, captureSupported b
 		return ErrCaptureUnavailable.Err()
 	}
 	return nil
+}
+
+func (l *Lab) ManualCapabilities(progressive, reachable bool, now time.Time) (stop, restart bool) {
+	if !progressive || !reachable || l.CloseReason == "solved" || l.DesiredState == "Deleted" {
+		return false, false
+	}
+	retained := l.Allocation.StorageState == "Retained" || l.Allocation.StorageState == "None"
+	deadline := l.RetentionUntil
+	if l.ProtectedUntil != nil && (deadline == nil || l.ProtectedUntil.After(*deadline)) {
+		deadline = l.ProtectedUntil
+	}
+	available := deadline == nil || now.Before(*deadline)
+	return l.DesiredState == "Running" && l.ClosedAt == nil && l.AgentUID != "", l.DesiredState == "Stopped" && l.CloseReason == "manual" && retained && available && l.ActualState == "Stopped" && l.ObservedRevision == l.Revision && l.Allocation.RuntimeState == "Released" && l.AccessFenced && l.Allocation.ReleasedAt != nil && l.FailureCode == "" && (l.SnapshotMode == "skip" || l.SnapshotState == "Succeeded")
+}
+func (l *Lab) SetRetentionDeadline(until time.Time, now time.Time) {
+	l.RetentionUntil = cloneTime(&until)
+	l.UpdatedAt = now
 }

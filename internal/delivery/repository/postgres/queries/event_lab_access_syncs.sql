@@ -149,7 +149,7 @@ ORDER BY user_id;
 SELECT lb.lab_group_name,
        lb.lab_name,
        CASE WHEN lb.readiness = 1 AND tc.readiness = 2
- AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL))
+ AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL AND canonical.actual_state='Running' AND canonical.runtime_ready AND (canonical.desired_revision=1 OR canonical.observed_revision=canonical.desired_revision)))
                 AND (team.moderators
                     OR (ec.published
                         AND ee.status <> 2
@@ -204,3 +204,6 @@ RETURNING *;
 -- name: GetCurrentEventLabAccessMonitoring :one
 SELECT m.* FROM lab_monitoring_current m JOIN event_teams t ON t.id=m.event_team_id AND t.event_id=m.event_id
 WHERE m.event_team_id=sqlc.arg(event_team_id) ORDER BY m.observed_at DESC,m.lab_group_name LIMIT 1;
+
+-- name: GetEventLabAccessSync :one
+SELECT * FROM event_lab_access_syncs WHERE event_team_id=sqlc.arg(event_team_id);

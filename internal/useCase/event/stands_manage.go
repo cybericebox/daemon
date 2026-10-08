@@ -213,6 +213,9 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	if !u.laboratoriesUsable(ctx) {
 		return StandTeamView{}, infraUnavailable()
 	}
+	if u.lifecycleControls {
+		return u.recreateRetainedTeamStand(ctx, eventID, teamID, by, now)
+	}
 	deleter, ok := u.infra.(standLabDeleter)
 	if !ok {
 		return StandTeamView{}, infraUnavailable()
@@ -338,6 +341,15 @@ func (u *EventUseCase) deleteStaleTeamLabs(ctx context.Context, teamID uuid.UUID
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list team stand labs").Err()
 	}
 	for _, name := range existing {
+		if u.lifecycleControls {
+			owned, e := u.retainsLabReference(ctx, group, name)
+			if e != nil {
+				return e
+			}
+			if owned {
+				continue
+			}
+		}
 		if _, keep := wanted[name]; keep {
 			continue
 		}

@@ -91,13 +91,24 @@ func (u *EventUseCase) ReconcilePendingLabLifecycles(ctx context.Context) error 
 		return nil
 	}
 	now := time.Now()
-	labs, err := u.labs.PendingStopped(ctx, now, u.labLifecycleBatch)
+	var labs []eventLabModel.Lab
+	var err error
+	if u.lifecycleControls {
+		labs, err = u.labs.ListDirty(ctx, now, u.labLifecycleBatch)
+	} else {
+		labs, err = u.labs.PendingStopped(ctx, now, u.labLifecycleBatch)
+	}
 	if err != nil {
 		return err
 	}
 	var errs []error
 	for _, lab := range labs {
-		err = u.reconcileStoppedLab(ctx, lab)
+		err = nil
+		if u.lifecycleControls && lab.DesiredState == "Running" && lab.Revision > 1 {
+			err = u.reconcileRunningLab(ctx, lab, now)
+		} else if lab.DesiredState == "Stopped" {
+			err = u.reconcileStoppedLab(ctx, lab)
+		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("lab %s: %w", lab.ID, err))
 		}
@@ -111,6 +122,14 @@ func (u *EventUseCase) ReconcilePendingLabLifecycles(ctx context.Context) error 
 		}
 		if retryErr := u.labs.ScheduleLifecycleRetry(ctx, lab, now, now.Add(delay)); retryErr != nil {
 			errs = append(errs, retryErr)
+		}
+	}
+	if u.lifecycleControls {
+		if e := u.reconcileGroups(ctx, now); e != nil {
+			errs = append(errs, e)
+		}
+		if e := u.ReconcileLabRetention(ctx, now); e != nil {
+			errs = append(errs, e)
 		}
 	}
 	return errors.Join(errs...)
@@ -149,11 +168,41 @@ func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabMode
 	}
 	// Producer stopped intent fences access itself before required capture. ACL
 	// acceptance is never proof of that physical access fence.
-	if err = port.StopLab(ctx, eventLabModel.StopRequest{Target: eventLabModel.Target{Ref: current.Ref, ExpectedUID: current.AgentUID, OperationID: current.OperationID, Revision: current.Revision}, SnapshotMode: current.SnapshotMode, RetentionUntil: current.RetentionUntil, Terminal: current.CloseReason == "solved"}); err != nil {
+	if err = port.StopLab(ctx, eventLabModel.StopRequest{Target: eventLabModel.Target{Ref: current.Ref, ExpectedUID: current.AgentUID, OperationID: current.OperationID, Revision: current.Revision}, SnapshotMode: current.SnapshotMode, RetentionUntil: current.EffectiveRetentionUntil(), Terminal: current.CloseReason == "solved"}); err != nil {
 		return err
 	}
 	if current.FailureCode != "" {
 		return fmt.Errorf("producer lifecycle failure %s", current.FailureCode)
 	}
 	return nil
+}
+
+func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.Lab, now time.Time) error {
+	port, ok := u.infra.(LabLifecycleInfrastructure)
+	if !ok {
+		return infraUnavailable()
+	}
+	if !u.groupAllowsDeployment(ctx, l.TeamID, now) {
+		return nil
+	}
+	o, err := port.ObserveLab(ctx, l.Ref)
+	if err != nil {
+		return err
+	}
+	if _, err = u.labs.RecordObservation(ctx, l.ID, o); err != nil {
+		return err
+	}
+	current, err := u.labs.Get(ctx, l.ID)
+	if err != nil {
+		return err
+	}
+	if current.Revision != l.Revision || current.OperationID != l.OperationID || current.DesiredState != "Running" {
+		return nil
+	}
+	if current.RuntimeReady && current.ActualState == "Running" && current.ObservedRevision == current.Revision {
+		return nil
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return port.StartLab(commandCtx, eventLabModel.Target{Ref: current.Ref, ExpectedUID: current.AgentUID, OperationID: current.OperationID, Revision: current.Revision})
 }

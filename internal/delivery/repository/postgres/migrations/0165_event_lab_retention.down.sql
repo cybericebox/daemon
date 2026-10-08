@@ -1,0 +1,4 @@
+DROP TABLE event_lab_generations,event_stage_lab_runtime_memberships,event_lab_group_retention_pins,event_lab_retention_pins;
+ALTER TABLE event_team_group_allocations DROP COLUMN retirement_stop_target,DROP COLUMN retirement_state,DROP COLUMN retirement_observed_at,DROP COLUMN retirement_error;
+ALTER TABLE event_team_labs DROP COLUMN retirement_stop_target,DROP COLUMN retirement_state,DROP COLUMN retirement_observed_at,DROP COLUMN retirement_error;
+ALTER TABLE event_stages DROP COLUMN lab_retention_minutes;

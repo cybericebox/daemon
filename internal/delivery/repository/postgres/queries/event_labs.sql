@@ -19,14 +19,15 @@ SELECT id FROM event_teams WHERE id=sqlc.arg(id) FOR UPDATE;
 
 -- name: CreateEventTeamLab :exec
 WITH lab AS (
- INSERT INTO event_team_labs (id,event_id,event_team_id,event_exercise_id,variant_index,generation,lab_group_name,lab_name,objective_count,created_at,agent_uid,agent_generation,desired_revision,observed_revision,operation_id,desired_state,actual_state,runtime_ready,close_reason,logical_closed_at,snapshot_mode,snapshot_state,retention_until,protected_until,actual_stopped_at,observed_at,materialized,allocation,failure_code,failure_message,access_fenced,access_fenced_at,access_fence_vpn_boot_id,next_attempt_at,updated_at)
- VALUES (sqlc.arg(id),sqlc.arg(event_id),sqlc.arg(event_team_id),sqlc.arg(event_exercise_id),sqlc.arg(variant_index),sqlc.arg(generation),sqlc.arg(lab_group_name),sqlc.arg(lab_name),sqlc.arg(objective_count),sqlc.arg(created_at),sqlc.arg(agent_uid),sqlc.arg(agent_generation),sqlc.arg(desired_revision),sqlc.arg(observed_revision),sqlc.arg(operation_id),sqlc.arg(desired_state),sqlc.arg(actual_state),sqlc.arg(runtime_ready),sqlc.narg(close_reason),sqlc.narg(logical_closed_at),sqlc.arg(snapshot_mode),sqlc.arg(snapshot_state),sqlc.narg(retention_until),sqlc.narg(protected_until),sqlc.narg(actual_stopped_at),sqlc.narg(observed_at),sqlc.arg(materialized),sqlc.arg(allocation),sqlc.arg(failure_code),sqlc.arg(failure_message),sqlc.arg(access_fenced),sqlc.narg(access_fenced_at),sqlc.arg(access_fence_vpn_boot_id),sqlc.arg(next_attempt_at),sqlc.arg(updated_at)) RETURNING id
+ INSERT INTO event_team_labs (id,event_id,event_team_id,event_exercise_id,variant_index,generation,lab_group_name,lab_name,objective_count,definition_version_id,definition_hash,retention_minutes,created_at,agent_uid,agent_generation,desired_revision,observed_revision,operation_id,desired_state,actual_state,runtime_ready,close_reason,logical_closed_at,snapshot_mode,snapshot_state,retention_until,protected_until,actual_stopped_at,observed_at,materialized,allocation,failure_code,failure_message,access_fenced,access_fenced_at,access_fence_vpn_boot_id,next_attempt_at,updated_at)
+ VALUES (sqlc.arg(id),sqlc.arg(event_id),sqlc.arg(event_team_id),sqlc.arg(event_exercise_id),sqlc.arg(variant_index),sqlc.arg(generation),sqlc.arg(lab_group_name),sqlc.arg(lab_name),sqlc.arg(objective_count),sqlc.narg(definition_version_id),sqlc.arg(definition_hash),sqlc.arg(retention_minutes),sqlc.arg(created_at),sqlc.arg(agent_uid),sqlc.arg(agent_generation),sqlc.arg(desired_revision),sqlc.arg(observed_revision),sqlc.arg(operation_id),sqlc.arg(desired_state),sqlc.arg(actual_state),sqlc.arg(runtime_ready),sqlc.narg(close_reason),sqlc.narg(logical_closed_at),sqlc.arg(snapshot_mode),sqlc.arg(snapshot_state),sqlc.narg(retention_until),sqlc.narg(protected_until),sqlc.narg(actual_stopped_at),sqlc.narg(observed_at),sqlc.arg(materialized),sqlc.arg(allocation),sqlc.arg(failure_code),sqlc.arg(failure_message),sqlc.arg(access_fenced),sqlc.narg(access_fenced_at),sqlc.arg(access_fence_vpn_boot_id),sqlc.arg(next_attempt_at),sqlc.arg(updated_at)) RETURNING id
 )
 INSERT INTO event_lab_objectives(lab_id,event_challenge_id)
 SELECT lab.id,objective FROM lab CROSS JOIN unnest(sqlc.arg(objective_ids)::uuid[]) AS objective;
 
 -- name: UpdateEventTeamLab :execrows
 UPDATE event_team_labs SET
+ retirement_stop_target=sqlc.narg(retirement_stop_target),retirement_state=sqlc.arg(retirement_state),retirement_observed_at=sqlc.narg(retirement_observed_at),retirement_error=sqlc.arg(retirement_error),
  agent_uid=sqlc.arg(agent_uid),
  agent_generation=sqlc.arg(agent_generation),
  desired_revision=sqlc.arg(desired_revision),
@@ -37,7 +38,7 @@ UPDATE event_team_labs SET
  runtime_ready=sqlc.arg(runtime_ready),
  close_reason=sqlc.narg(close_reason),
  logical_closed_at=sqlc.narg(logical_closed_at),
- snapshot_mode=sqlc.arg(snapshot_mode),
+ retention_minutes=sqlc.arg(retention_minutes),snapshot_mode=sqlc.arg(snapshot_mode),
  snapshot_state=sqlc.arg(snapshot_state),
  retention_until=sqlc.narg(retention_until),
  protected_until=sqlc.narg(protected_until),
@@ -90,7 +91,7 @@ WHERE id=sqlc.arg(id) AND agent_uid=sqlc.arg(agent_uid) AND agent_uid<>'' AND ag
  AND lab_group_name=sqlc.arg(lab_group_name) AND lab_name=sqlc.arg(lab_name) AND operation_id=sqlc.arg(operation_id)
  AND desired_revision=sqlc.arg(desired_revision) AND desired_state=sqlc.arg(desired_state)
  AND (observed_at IS NULL OR observed_at<sqlc.arg(observed_at))
- AND updated_at=sqlc.arg(expected_updated_at)
+ AND allocation=sqlc.arg(expected_allocation)::jsonb AND updated_at=sqlc.arg(expected_updated_at)
  AND observed_at IS NOT DISTINCT FROM sqlc.narg(expected_observed_at)::timestamptz;
 
 -- name: ListEventLabAssignmentObjectives :many
@@ -151,3 +152,10 @@ UPDATE event_team_labs SET runtime_ready=sqlc.arg(runtime_ready),
 WHERE id=sqlc.arg(id) AND desired_revision=1 AND desired_state='Running' AND logical_closed_at IS NULL
  AND agent_uid=sqlc.arg(agent_uid) AND agent_uid<>'' AND agent_generation<=sqlc.arg(agent_generation)
  AND lab_group_name=sqlc.arg(lab_group_name) AND lab_name=sqlc.arg(lab_name);
+
+-- name: RecordEventLabRetirement :execrows
+UPDATE event_team_labs SET agent_generation=sqlc.arg(agent_generation),observed_revision=sqlc.arg(observed_revision),actual_state=sqlc.arg(actual_state),allocation=sqlc.arg(allocation),retirement_state=sqlc.arg(retirement_state),retirement_observed_at=sqlc.arg(retirement_observed_at),retirement_error=sqlc.arg(retirement_error),updated_at=sqlc.arg(updated_at)
+WHERE id=sqlc.arg(id) AND desired_state='Deleted' AND desired_revision=sqlc.arg(desired_revision) AND operation_id=sqlc.arg(operation_id) AND agent_uid=sqlc.arg(agent_uid)
+ AND retirement_stop_target=sqlc.arg(expected_stop_target)::jsonb AND allocation=sqlc.arg(expected_allocation)::jsonb
+ AND retirement_observed_at IS NOT DISTINCT FROM sqlc.narg(expected_retirement_observed_at)::timestamptz
+ AND (retirement_observed_at IS NULL OR retirement_observed_at<sqlc.arg(retirement_observed_at));

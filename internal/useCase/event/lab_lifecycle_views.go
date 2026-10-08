@@ -43,6 +43,7 @@ type AllocationView struct {
 }
 
 type ManagedLabView struct {
+	SnapshotPolicy   string         `json:"SnapshotPolicy"`
 	ID               uuid.UUID      `json:"ID"`
 	EventExerciseID  uuid.UUID      `json:"EventExerciseID"`
 	TeamID           uuid.UUID      `json:"TeamID"`
@@ -82,6 +83,9 @@ func computeView(v eventLabModel.Compute) ComputeView {
 	return ComputeView{strconv.FormatInt(v.CPUMillicores, 10), strconv.FormatInt(v.MemoryBytes, 10)}
 }
 func allocationView(a eventLabModel.Allocation) AllocationView {
+	if a.RuntimeState == "Admitted" {
+		a.RuntimeState = "Unknown"
+	}
 	out := AllocationView{ConfiguredRequests: computeView(a.ConfiguredRequests), ConfiguredLimits: computeView(a.ConfiguredLimits), AllocatedRequests: computeView(a.AllocatedRequests), ReleasedRequests: computeView(eventLabModel.Compute{}), RuntimeState: a.RuntimeState, ObservedAt: a.ObservedAt, ReleasedAt: a.ReleasedAt, UsageAvailable: a.UsageAvailable, Used: computeView(a.Used), SnapshotQuotaBytes: strconv.FormatInt(a.SnapshotQuotaBytes, 10), StorageState: a.StorageState, PhysicalStorageBytesAvailable: a.PhysicalStorageBytesAvailable, PhysicalStorageBytes: strconv.FormatInt(a.PhysicalStorageBytes, 10)}
 	if a.RuntimeState == "Released" && a.ReleasedAt != nil {
 		out.ReleasedRequests = computeView(a.AllocatedRequests)
@@ -97,7 +101,7 @@ func managedLabView(l eventLabModel.Lab, name string) ManagedLabView {
 	} else if snapshot == "Snapshotting" {
 		snapshot = "Pending"
 	}
-	return ManagedLabView{ID: l.ID, EventExerciseID: l.EventExerciseID, TeamID: l.TeamID, ExerciseName: name, Revision: safe.Revision, ObservedRevision: strconv.FormatInt(l.ObservedRevision, 10), Generation: l.Generation, AgentUID: l.AgentUID, DesiredState: l.DesiredState, ActualState: l.ActualState, CloseReason: safe.CloseReason, ClosedAt: l.ClosedAt, ActualStoppedAt: l.ActualStoppedAt, RetentionUntil: l.RetentionUntil, ObservedAt: l.ObservedAt, SnapshotState: snapshot, FailureCode: l.FailureCode, FailureMessage: l.FailureMessage, Resources: allocationView(l.Allocation)}
+	return ManagedLabView{SnapshotPolicy: safe.SnapshotPolicy, ID: l.ID, EventExerciseID: l.EventExerciseID, TeamID: l.TeamID, ExerciseName: name, Revision: safe.Revision, ObservedRevision: strconv.FormatInt(l.ObservedRevision, 10), Generation: l.Generation, AgentUID: l.AgentUID, DesiredState: l.DesiredState, ActualState: l.ActualState, CloseReason: safe.CloseReason, ClosedAt: l.ClosedAt, ActualStoppedAt: l.ActualStoppedAt, RetentionUntil: l.RetentionUntil, ObservedAt: l.ObservedAt, SnapshotState: snapshot, FailureCode: l.FailureCode, FailureMessage: l.FailureMessage, Resources: allocationView(l.Allocation)}
 }
 
 func participantLabView(lab eventLabModel.Lab) ParticipantLabView {

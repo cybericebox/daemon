@@ -33,6 +33,29 @@ func (q *Queries) GetCurrentEventLabAccessMonitoring(ctx context.Context, eventT
 	return i, err
 }
 
+const getEventLabAccessSync = `-- name: GetEventLabAccessSync :one
+SELECT event_team_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, applied_stage_epoch, operation_id, policy_fingerprint, expected_group_uid, access_fence_vpn_boot_id FROM event_lab_access_syncs WHERE event_team_id=$1
+`
+
+func (q *Queries) GetEventLabAccessSync(ctx context.Context, eventTeamID uuid.UUID) (EventLabAccessSync, error) {
+	row := q.db.QueryRow(ctx, getEventLabAccessSync, eventTeamID)
+	var i EventLabAccessSync
+	err := row.Scan(
+		&i.EventTeamID,
+		&i.DesiredRevision,
+		&i.AppliedRevision,
+		&i.UpdatedAt,
+		&i.RuntimeOpen,
+		&i.VpnEnabled,
+		&i.AppliedStageEpoch,
+		&i.OperationID,
+		&i.PolicyFingerprint,
+		&i.ExpectedGroupUid,
+		&i.AccessFenceVpnBootID,
+	)
+	return i, err
+}
+
 const listDirtyEventLabAccessSyncs = `-- name: ListDirtyEventLabAccessSyncs :many
 WITH access_state AS (
     SELECT sync.event_team_id,
@@ -185,7 +208,7 @@ const listEventLabAccessLabs = `-- name: ListEventLabAccessLabs :many
 SELECT lb.lab_group_name,
        lb.lab_name,
        CASE WHEN lb.readiness = 1 AND tc.readiness = 2
- AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL))
+ AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL AND canonical.actual_state='Running' AND canonical.runtime_ready AND (canonical.desired_revision=1 OR canonical.observed_revision=canonical.desired_revision)))
                 AND (team.moderators
                     OR (ec.published
                         AND ee.status <> 2

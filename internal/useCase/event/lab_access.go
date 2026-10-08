@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabGroupRepo"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"sort"
 	"sync"
@@ -145,7 +146,16 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list laboratory access labs").Err()
 	}
-	if sync.VPNEnabled {
+	groupPaused := false
+	if u.lifecycleControls {
+		g, e := eventLabGroupRepo.New(u.repo).Get(ctx, sync.TeamID)
+		if e == nil {
+			groupPaused = g.DesiredState != "Running" || (g.Revision > 1 && !g.AllowsChildren(time.Now().UTC()))
+		} else if !repositoryTools.IsObjectNotFoundError(e) {
+			return e
+		}
+	}
+	if sync.VPNEnabled && !groupPaused {
 		if err = u.admitGroupAllocation(ctx, sync.EventID, sync.TeamID); err != nil {
 			return err
 		}
@@ -224,7 +234,7 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 	// On enable, install the complete (possibly empty) ACL before bringing the
 	// group's VPN and internet gateway back. Lab routes remain closed until
 	// runtime access is open, even though both group services run before start.
-	if sync.VPNEnabled {
+	if sync.VPNEnabled && !groupPaused {
 		if err = access.SetLabGroupVPNDisabled(ctx, group, false); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to resume team VPN group").Err()
 		}

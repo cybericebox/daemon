@@ -12,8 +12,8 @@ SELECT * FROM event_team_group_allocations WHERE event_id=sqlc.arg(event_id) ORD
 SELECT * FROM event_team_group_allocations ORDER BY event_team_id;
 
 -- name: CreateEventGroupAllocation :exec
-INSERT INTO event_team_group_allocations(event_team_id,event_id,lab_group_name,vpn_cpu_millicores,vpn_memory_bytes,gateway_cpu_millicores,gateway_memory_bytes,plan,created_at)
-VALUES(sqlc.arg(event_team_id),sqlc.arg(event_id),sqlc.arg(lab_group_name),sqlc.arg(vpn_cpu_millicores),sqlc.arg(vpn_memory_bytes),sqlc.arg(gateway_cpu_millicores),sqlc.arg(gateway_memory_bytes),sqlc.arg(plan),sqlc.arg(created_at))
+INSERT INTO event_team_group_allocations(event_team_id,event_id,lab_group_name,vpn_cpu_millicores,vpn_memory_bytes,gateway_cpu_millicores,gateway_memory_bytes,plan,operation_id,allocation,next_attempt_at,updated_at,created_at)
+VALUES(sqlc.arg(event_team_id),sqlc.arg(event_id),sqlc.arg(lab_group_name),sqlc.arg(vpn_cpu_millicores),sqlc.arg(vpn_memory_bytes),sqlc.arg(gateway_cpu_millicores),sqlc.arg(gateway_memory_bytes),sqlc.arg(plan),sqlc.arg(operation_id),sqlc.arg(allocation),sqlc.arg(next_attempt_at),sqlc.arg(updated_at),sqlc.arg(created_at))
 ON CONFLICT(event_team_id) DO NOTHING;
 
 -- name: GetEventPlannedMaxUsers :one
@@ -25,6 +25,7 @@ SELECT COALESCE(max(member_count),0)::bigint AS users FROM event_teams WHERE eve
 SELECT DISTINCT l.event_id,l.event_team_id FROM event_team_labs l
 JOIN lab_bindings b ON b.lab_id=l.id
 WHERE b.deployed_at IS NOT NULL
+AND NOT COALESCE((l.allocation->>'ConfiguredRequestsKnown')::boolean,false)
 AND (COALESCE((l.allocation->'AllocatedRequests'->>'CPUMillicores')::bigint,0)<=0
  OR COALESCE((l.allocation->'AllocatedRequests'->>'MemoryBytes')::bigint,0)<=0)
 AND NOT COALESCE((l.desired_state<>'Running' AND l.actual_state IN ('Stopped','Deleted') AND l.agent_uid<>'' AND l.agent_generation>0 AND l.observed_revision=l.desired_revision AND l.observed_at IS NOT NULL AND l.allocation->>'RuntimeState'='Released' AND l.allocation->>'ReleasedAt' IS NOT NULL AND l.access_fenced AND l.failure_code='' AND (l.snapshot_mode='skip' OR l.snapshot_state='Succeeded')),false);

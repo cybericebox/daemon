@@ -8,6 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
@@ -34,9 +36,10 @@ type teamStandMove struct {
 // standRecreation is the plan of recreating the Labs of every prepared team
 // of one exercise from its new version.
 type standRecreation struct {
-	eventID uuid.UUID
-	now     time.Time
-	moves   []teamStandMove
+	eventID   uuid.UUID
+	now       time.Time
+	moves     []teamStandMove
+	retainOld bool
 }
 
 // planStandRecreation runs after the transaction owns team and canonical Lab
@@ -102,7 +105,7 @@ func (u *EventUseCase) planStandRecreation(ctx context.Context, repo IRepository
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list stand teams").Err()
 	}
-	plan := &standRecreation{eventID: link.EventID, now: now}
+	plan := &standRecreation{retainOld: u.lifecycleControls, eventID: link.EventID, now: now}
 	named := make([]map[string]string, 0, len(order))
 	for _, teamID := range order {
 		move := byTeam[teamID]
@@ -142,6 +145,35 @@ func (p *standRecreation) rebind(ctx context.Context, repo IRepository) error {
 				return model.ErrPlatform.WithError(err).WithMessage("Failed to reset team challenge").Err()
 			}
 		}
+		if p.retainOld {
+			seen := map[uuid.UUID]bool{}
+			for _, binding := range move.labs {
+				if !binding.LabID.Valid || seen[binding.LabID.UUID] {
+					continue
+				}
+				seen[binding.LabID.UUID] = true
+				l, e := eventLabRepo.New(repo).Lock(ctx, binding.LabID.UUID)
+				if e != nil {
+					return e
+				}
+				if l.CloseReason == "solved" {
+					continue
+				}
+				expected := l.Revision
+				if l.DesiredState == "Running" {
+					if e = l.Close("manual", uuid.Must(uuid.NewV7()), p.now); e != nil {
+						return e
+					}
+					l.SetRetentionDeadline(p.now.Add(time.Duration(l.RetentionMinutes)*time.Minute), p.now)
+					if _, e = eventLabRepo.New(repo).Update(ctx, l, expected); e != nil {
+						return e
+					}
+				}
+				if e = eventLabRetentionRepo.New(repo).Archive(ctx, l.ID); e != nil {
+					return e
+				}
+			}
+		}
 		generation := move.team.LabGeneration
 		for _, lab := range move.labs {
 			next := lab.Generation + 1
@@ -177,6 +209,9 @@ func (u *EventUseCase) finishStandRecreation(ctx context.Context, plan *standRec
 				continue
 			}
 			deleted[key] = struct{}{}
+			if u.lifecycleControls {
+				continue
+			}
 			if err := deleter.DeleteLab(ctx, lab.LabGroupName, lab.LabName); err != nil {
 				log.Error().Err(err).Str("lab_group", lab.LabGroupName).Str("lab", lab.LabName).Msg("Failed to delete replaced stand lab")
 			}

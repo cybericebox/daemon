@@ -1,7 +1,7 @@
 -- name: CreateEventStage :one
-INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at)
-VALUES (sqlc.arg(id), sqlc.arg(event_id), sqlc.arg(name), sqlc.arg(opens_at), sqlc.arg(closes_at), sqlc.arg(returnable),
-        sqlc.arg(created_at), sqlc.arg(updated_at))
+INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, lab_retention_minutes, created_at, updated_at)
+VALUES (sqlc.arg(id), sqlc.arg(event_id), sqlc.arg(name), sqlc.arg(opens_at), sqlc.arg(closes_at), sqlc.arg(returnable),sqlc.narg(lab_retention_minutes),
+ sqlc.arg(created_at), sqlc.arg(updated_at))
 RETURNING *;
 
 -- name: GetEventStage :one
@@ -19,7 +19,7 @@ ORDER BY opens_at ASC, id ASC;
 
 -- name: UpdateEventStage :one
 UPDATE event_stages
-SET name       = sqlc.arg(name),
+SET lab_retention_minutes=sqlc.narg(lab_retention_minutes),name       = sqlc.arg(name),
     opens_at   = sqlc.arg(opens_at),
     closes_at  = sqlc.arg(closes_at),
     returnable = sqlc.arg(returnable),

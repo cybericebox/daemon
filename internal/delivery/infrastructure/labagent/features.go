@@ -45,7 +45,8 @@ func (c *FeatureCell) Set(f infraModel.AgentFeatures) {
 // FeaturesOf converts the agent's report.
 func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 	p, ic, sch, ep, cert, proxy := r.GetStatePersistence(), r.GetImageCache(), r.GetScheduler(), r.GetEndpoints(), r.GetCertificate(), r.GetProxy()
-	return infraModel.AgentFeatures{
+	life := r.GetLifecycle()
+	return infraModel.AgentFeatures{Lifecycle: infraModel.LifecycleCapabilities{PerLabStop: life.GetPerLabStop(), RequiredSnapshot: life.GetRequiredSnapshot(), ConfirmedRuntime: life.GetConfirmedRuntime(), RetainedRestart: life.GetRetainedRestart(), FullGroupStop: life.GetFullGroupStop()},
 		Persistence: infraModel.PersistenceFeature{
 			Available: p.GetAvailable(), DefaultDebounce: p.GetDefaultDebounceMs(), WriteQuotaBytes: p.GetWriteQuotaBytes(),
 			MaxFileSizeBytes: p.GetMaxFileSizeBytes(), ExcludedPaths: p.GetExcludedPaths(),
@@ -231,9 +232,12 @@ func (f *Fleet) GroupSizes(plan infraModel.GroupPlan) (sizes infraModel.GroupSiz
 	for _, m := range f.eligible() {
 		feat := m.Features.Get()
 		if feat == nil || !(feat.Limits.VPN.Reported() || feat.Limits.Gateway.Reported() || feat.Limits.DefaultVPN != (resourcesModel.Amount{}) || feat.Limits.DefaultGateway != (resourcesModel.Amount{}) || len(feat.Limits.SizingV2) > 0) {
-			continue
+			return sizes, false
 		}
 		s := feat.Limits.SizesFor(plan)
+		if s.VPN.CPUMillicores <= 0 || s.VPN.MemoryBytes <= 0 || s.Gateway.CPUMillicores <= 0 || s.Gateway.MemoryBytes <= 0 {
+			return sizes, false
+		}
 		sizes = infraModel.GroupSizes{VPN: sizes.VPN.Max(s.VPN), Gateway: sizes.Gateway.Max(s.Gateway)}
 		known = true
 	}
@@ -380,4 +384,28 @@ func (f *Fleet) SnapshotQuotaFor(t exerciseModel.Topology) (int64, bool) {
 		return 0, false
 	}
 	return count * quota, known
+}
+
+// LabLifecycleCapabilities reads the selected owner's cached feature report.
+// An unrecorded group or missing report is unknown; this never locates via RPC.
+func (f *Fleet) LabLifecycleCapabilities(ctx context.Context, group string) (infraModel.LifecycleCapabilities, bool) {
+	members := f.Members()
+	var m *Member
+	if len(members) == 1 {
+		m = members[0]
+	} else if f.store != nil {
+		id, found, err := f.store.Get(ctx, group)
+		if err != nil || !found {
+			return infraModel.LifecycleCapabilities{}, false
+		}
+		m = f.member(id)
+	}
+	if m == nil {
+		return infraModel.LifecycleCapabilities{}, false
+	}
+	feat := m.Features.Get()
+	if feat == nil {
+		return infraModel.LifecycleCapabilities{}, false
+	}
+	return feat.Lifecycle, true
 }

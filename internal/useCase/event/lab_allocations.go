@@ -10,6 +10,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	"github.com/gofrs/uuid"
 	"time"
 )
@@ -44,7 +45,8 @@ func (u *EventUseCase) labResourceTotals(ctx context.Context, eventID uuid.UUID,
 		out.AddLab(l, now)
 	}
 	for _, g := range groups {
-		total := g.Sizes.Total()
+		held := g.Lifecycle.HeldCompute()
+		total := resourcesModel.Amount{CPUMillicores: held.CPUMillicores, MemoryBytes: held.MemoryBytes}
 		out.GroupServices.CPUMillicores += total.CPUMillicores
 		out.GroupServices.MemoryBytes += total.MemoryBytes
 		out.Held.CPUMillicores += total.CPUMillicores
@@ -110,6 +112,9 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 	if !ok {
 		return calModel.ErrNotEnoughReserved.Err()
 	}
+	if planner.NeedFit(placement) != nil {
+		return calModel.ErrNotEnoughReserved.Err()
+	}
 	sizes, known := planner.GroupSizes(placement.Plan)
 	if !known || sizes.VPN.CPUMillicores <= 0 || sizes.VPN.MemoryBytes <= 0 || sizes.Gateway.CPUMillicores <= 0 || sizes.Gateway.MemoryBytes <= 0 {
 		return calModel.ErrNotEnoughReserved.Err()
@@ -133,7 +138,14 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 		}
 	}
 	before := lab.Allocation
-	if labID != uuid.Nil && !lab.Admit(need, storageBytes, time.Now().UTC()) {
+	knownDemand := true
+	if labID != uuid.Nil && need == (eventLabModel.Compute{}) {
+		knownDemand, err = u.knownZeroDemand(txCtx, q, lab)
+		if err != nil {
+			return err
+		}
+	}
+	if labID != uuid.Nil && ((!knownDemand) || (!lab.Admit(need, storageBytes, time.Now().UTC()) && !lab.AdmitKnown(need, storageBytes, lab.DefinitionHash, lab.Generation, time.Now().UTC()))) {
 		return calModel.ErrNotEnoughReserved.Err()
 	}
 	r := eventLabAllocationRepo.New(q)
@@ -160,7 +172,7 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 	}
 	active := int32(0)
 	for _, l := range labs {
-		if l.TeamID == teamID && l.ID != labID && l.HeldCompute() != (eventLabModel.Compute{}) {
+		if l.TeamID == teamID && l.ID != labID && l.HoldsRuntime() {
 			active++
 		}
 	}
@@ -222,6 +234,11 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 		lab.Allocation.RuntimeState = before.RuntimeState
 	}
 	if labID == uuid.Nil {
+		if u.lifecycleControls {
+			if err = u.requestGroupRunningInTransaction(txCtx, q, eventID, teamID, lab.Ref.Group, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
 		return unit.Save()
 	}
 	changed, err := eventLabRepo.New(q).Update(txCtx, lab, lab.Revision)
@@ -230,6 +247,11 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 	}
 	if !changed {
 		return calModel.ErrNotEnoughReserved.Err()
+	}
+	if u.lifecycleControls {
+		if err = u.requestGroupRunningInTransaction(txCtx, q, eventID, teamID, lab.Ref.Group, time.Now().UTC()); err != nil {
+			return err
+		}
 	}
 	return unit.Save()
 }

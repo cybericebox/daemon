@@ -13,7 +13,9 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
@@ -86,6 +88,14 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get stand timing").Err()
 	}
+	if u.lifecycleControls {
+		if err = u.ReconcileStageLabLifecycle(ctx, eventID, now); err != nil {
+			return err
+		}
+		if err = u.prepareRetainedStageSelections(ctx, eventID, now); err != nil {
+			return err
+		}
+	}
 	rollout, err := u.standRollout(ctx, eventID)
 	if err != nil {
 		return err
@@ -97,6 +107,9 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 		return nil
 	}
 	if teardownAt := config.StandTiming.TeardownAt(e.Lifecycle.EffectiveFinishAt()); teardownAt != nil && !now.Before(*teardownAt) {
+		if u.lifecycleControls {
+			return u.ReconcileLabRetention(ctx, now)
+		}
 		return u.tearDownEventStands(ctx, e, now)
 	}
 	// Every event in the window gets the hidden moderators team (the
@@ -135,6 +148,11 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	if openNow {
 		if err = u.stands.OpenRollout(ctx, eventID, now); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to open infrastructure challenges").Err()
+		}
+	}
+	if u.lifecycleControls {
+		if err = eventLabRevealRepo.New(u.repo).OpenReady(ctx, eventID, now); err != nil {
+			return err
 		}
 	}
 	published, err := u.teamChallenges.PublishAvailable(ctx, eventID, open && e.InfrastructureAllowed)
@@ -248,8 +266,17 @@ func (u *EventUseCase) prepareMissingAssignments(ctx context.Context, e eventMod
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list missing team assignments").Err()
 	}
+	notDue := map[uuid.UUID]bool{}
+	if u.lifecycleControls {
+		for _, id := range u.standSchedule(ctx, e, now).NotDue {
+			notDue[id] = true
+		}
+	}
 	var errs []error
 	for _, assignment := range assignments {
+		if notDue[assignment.EventExerciseID] {
+			continue
+		}
 		if err = u.prepareTeamAssignment(ctx, e, assignment, now); err != nil {
 			errs = append(errs, err)
 		}
@@ -269,6 +296,14 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		return err
 	}
 	defer unit.Restore()
+	if u.lifecycleControls {
+		if _, err = txRepo.LockEventForLabSourceChange(txCtx, e.ID); err != nil {
+			return err
+		}
+		if _, err = eventLabRevealRepo.New(txRepo).Freeze(txCtx, e.ID, assignment.EventExerciseID, now); err != nil {
+			return err
+		}
+	}
 	if err = eventLabRepo.New(txRepo).LockAdmission(txCtx, assignment.TeamID); err != nil {
 		return err
 	}
@@ -359,6 +394,11 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		}
 	}
 	if infrastructure && e.InfrastructureAllowed {
+		if u.lifecycleControls {
+			if err = u.requestLabAccessSyncInTransaction(txCtx, txRepo, team.ID, now); err != nil {
+				return err
+			}
+		}
 		if _, err = ensureEventTeamLabWithPreparation(txCtx, txRepo, e.ID, team.ID, attachment.ID, now, u.validateLabPreparation); err != nil {
 			return err
 		}
@@ -515,6 +555,16 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 			}
 			continue
 		}
+		if u.lifecycleControls && status.Ready {
+			network, networkErr := u.labAccessSyncs.NetworkCurrent(ctx, binding.EventTeamID, now)
+			if networkErr != nil {
+				errs = append(errs, networkErr)
+				continue
+			}
+			if !network {
+				continue
+			}
+		}
 		switch outcome, reason := eventStandModel.Classify(status, *binding.DeployedAt, now); outcome {
 		case eventStandModel.OutcomeReady:
 			if binding.LabID.Valid {
@@ -601,6 +651,14 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		}
 		return nil
 	}
+	if u.lifecycleControls {
+		if err = u.reserveRevealSet(ctx, e.ID, lab.EventExerciseID, now); err != nil {
+			if errors.Is(err, calModel.ErrNotEnoughReserved.Err()) {
+				return nil
+			}
+			return err
+		}
+	}
 	if u.allocationAccounting {
 		if !lab.Binding.LabID.Valid {
 			return nil
@@ -616,6 +674,9 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 			}
 			return admitErr
 		}
+	}
+	if u.lifecycleControls && !u.groupAllowsDeployment(ctx, lab.Binding.EventTeamID, now) {
+		return nil
 	}
 	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).
 	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, standLabMeta(e, lab), topology); err != nil {
@@ -901,6 +962,18 @@ func ensureEventTeamLabWithPreparation(ctx context.Context, repo IRepository, ev
 			return eventLabModel.Lab{}, getErr
 		}
 		policy := config.EffectiveLabPolicy()
+		attachment, pinErr := eventExerciseRepo.New(repo).GetByID(ctx, eventID, eventExerciseID)
+		if pinErr != nil {
+			return eventLabModel.Lab{}, pinErr
+		}
+		pinnedVersion, pinErr := exerciseRepo.New(repo).GetVersion(ctx, attachment.ExerciseVersionID)
+		if pinErr != nil {
+			return eventLabModel.Lab{}, pinErr
+		}
+		if first.VariantIndex < 0 || int(first.VariantIndex) >= len(pinnedVersion.Variants) {
+			return eventLabModel.Lab{}, labRepairError("pinned definition is missing")
+		}
+		hash := definitionHash(pinnedVersion.ID, first.Generation, pinnedVersion.Variants[first.VariantIndex].Topology)
 		if policy.SnapshotMode == "required" {
 			if validate == nil {
 				return eventLabModel.Lab{}, labRepairError("required assignment needs stand-engine preparation validation")
@@ -925,7 +998,7 @@ func ensureEventTeamLabWithPreparation(ctx context.Context, repo IRepository, ev
 			until := finish.Add(time.Duration(policy.RetentionMinutes) * time.Minute)
 			retention = &until
 		}
-		lab, err = eventLabModel.New(eventLabModel.NewInput{EventID: eventID, TeamID: teamID, EventExerciseID: eventExerciseID, Ref: first.Ref, VariantIndex: first.VariantIndex, Generation: first.Generation, ObjectiveIDs: ids, Policy: policy, RetentionUntil: retention}, now)
+		lab, err = eventLabModel.New(eventLabModel.NewInput{DefinitionVersionID: pinnedVersion.ID, DefinitionHash: hash, EventID: eventID, TeamID: teamID, EventExerciseID: eventExerciseID, Ref: first.Ref, VariantIndex: first.VariantIndex, Generation: first.Generation, ObjectiveIDs: ids, Policy: policy, RetentionUntil: retention}, now)
 		if err != nil {
 			return eventLabModel.Lab{}, err
 		}

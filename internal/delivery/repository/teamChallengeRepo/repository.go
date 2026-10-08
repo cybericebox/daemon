@@ -89,7 +89,10 @@ type Solve struct {
 	FirstBlood      bool
 }
 
-type Repository struct{ q Queries }
+type Repository struct {
+	q              Queries
+	revealBarriers bool
+}
 
 func New(q Queries) *Repository { return &Repository{q: q} }
 func (r *Repository) Create(ctx context.Context, v teamChallengeModel.TeamChallenge) (teamChallengeModel.TeamChallenge, error) {
@@ -276,7 +279,7 @@ func (r *Repository) UpdateReadiness(ctx context.Context, id uuid.UUID, expected
 // published: static ones always, infrastructure ones only when labsOpen (the
 // event's strict barrier). It returns the distinct affected teams.
 func (r *Repository) PublishAvailable(ctx context.Context, eventID uuid.UUID, labsOpen bool) ([]uuid.UUID, error) {
-	rows, err := r.q.PublishAvailableTeamChallenges(ctx, postgres.PublishAvailableTeamChallengesParams{EventID: eventID, LabsOpen: labsOpen})
+	rows, err := r.q.PublishAvailableTeamChallenges(ctx, postgres.PublishAvailableTeamChallengesParams{EventID: eventID, UseRevealBarriers: r.revealBarriers, LabsOpen: labsOpen})
 	if err != nil {
 		return nil, err
 	}
@@ -455,3 +458,5 @@ func (r *Repository) EventUnlocks(ctx context.Context, eventID uuid.UUID) ([]Hin
 	}
 	return out, nil
 }
+
+func NewWithRevealBarriers(q Queries) *Repository { return &Repository{q: q, revealBarriers: true} }

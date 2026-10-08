@@ -16,6 +16,7 @@ import (
 )
 
 type Queries interface {
+	RecordEventLabRetirement(context.Context, postgres.RecordEventLabRetirementParams) (int64, error)
 	RecordEventTeamLabInitialReadiness(context.Context, postgres.RecordEventTeamLabInitialReadinessParams) (int64, error)
 	LockEventForLabSourceChange(context.Context, uuid.UUID) (uuid.UUID, error)
 	LockEventTeamsForLabSourceChange(context.Context, uuid.UUID) ([]uuid.UUID, error)
@@ -77,7 +78,7 @@ func (r *Repository) Create(ctx context.Context, l eventLabModel.Lab, ids []uuid
 		return err
 	}
 	return r.q.CreateEventTeamLab(ctx, postgres.CreateEventTeamLabParams{
-		ObjectiveIds:         ids,
+		DefinitionVersionID: uuid.NullUUID{UUID: l.DefinitionVersionID, Valid: l.DefinitionVersionID != uuid.Nil}, DefinitionHash: l.DefinitionHash, RetentionMinutes: l.RetentionMinutes, ObjectiveIds: ids,
 		ID:                   l.ID,
 		EventID:              l.EventID,
 		EventTeamID:          l.TeamID,
@@ -120,7 +121,7 @@ func (r *Repository) Update(ctx context.Context, l eventLabModel.Lab, expectedRe
 	if err != nil {
 		return false, err
 	}
-	n, err := r.q.UpdateEventTeamLab(ctx, postgres.UpdateEventTeamLabParams{
+	n, err := r.q.UpdateEventTeamLab(ctx, postgres.UpdateEventTeamLabParams{RetirementStopTarget: jsonOf(l.RetirementStopTarget), RetirementState: retirementState(l.RetirementState), RetirementObservedAt: timestamp(l.RetirementObservedAt), RetirementError: l.RetirementError, RetentionMinutes: l.RetentionMinutes,
 		AgentUid:             l.AgentUID,
 		AgentGeneration:      l.AgentGeneration,
 		DesiredRevision:      l.Revision,
@@ -171,7 +172,11 @@ func (r *Repository) ListDirty(ctx context.Context, now time.Time, limit int32) 
 	return out, nil
 }
 func (r *Repository) RecordInitialIdentity(ctx context.Context, id uuid.UUID, ref eventLabModel.Ref, uid string, generation int64, now time.Time) (bool, error) {
-	l, err := r.Get(ctx, id)
+	row, err := r.q.GetEventTeamLab(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	l, err := ToDomain(row)
 	if err != nil {
 		return false, err
 	}
@@ -182,7 +187,11 @@ func (r *Repository) RecordObservation(ctx context.Context, id uuid.UUID, o even
 	if o.ObservedAt == nil {
 		return false, nil
 	}
-	l, err := r.Get(ctx, id)
+	row, err := r.q.GetEventTeamLab(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	l, err := ToDomain(row)
 	if err != nil {
 		return false, err
 	}
@@ -197,7 +206,11 @@ func (r *Repository) RecordObservation(ctx context.Context, id uuid.UUID, o even
 	if err != nil {
 		return false, err
 	}
-	n, err := r.q.RecordEventTeamLabObservation(ctx, postgres.RecordEventTeamLabObservationParams{ID: id, LabGroupName: o.Ref.Group, LabName: o.Ref.Lab, AgentUid: o.UID, AgentGeneration: o.Generation, ObservedGeneration: o.ObservedGeneration, OperationID: o.OperationID, DesiredRevision: o.Revision, DesiredState: o.DesiredState, ActualState: l.ActualState, SnapshotState: l.SnapshotState, ActualStoppedAt: timestamp(l.ActualStoppedAt), ObservedAt: timestamp(l.ObservedAt), RuntimeReady: l.RuntimeReady, Allocation: allocation, FailureCode: l.FailureCode, FailureMessage: l.FailureMessage, AccessFenced: l.AccessFenced, AccessFencedAt: timestamp(l.AccessFencedAt), AccessFenceVpnBootID: l.AccessFenceVPNBootID, ExpectedUpdatedAt: expectedUpdatedAt, ExpectedObservedAt: timestamp(expectedObservedAt)})
+	if l.DesiredState == "Deleted" && l.RetirementStopTarget != nil {
+		n, e := r.q.RecordEventLabRetirement(ctx, postgres.RecordEventLabRetirementParams{ID: l.ID, AgentUid: l.AgentUID, AgentGeneration: l.AgentGeneration, DesiredRevision: l.Revision, ObservedRevision: l.ObservedRevision, OperationID: l.OperationID, ActualState: l.ActualState, Allocation: allocation, RetirementState: retirementState(l.RetirementState), RetirementObservedAt: timestamp(l.RetirementObservedAt), RetirementError: l.RetirementError, UpdatedAt: l.UpdatedAt, ExpectedStopTarget: row.RetirementStopTarget, ExpectedAllocation: row.Allocation, ExpectedRetirementObservedAt: row.RetirementObservedAt})
+		return n == 1, e
+	}
+	n, err := r.q.RecordEventTeamLabObservation(ctx, postgres.RecordEventTeamLabObservationParams{ID: id, LabGroupName: o.Ref.Group, LabName: o.Ref.Lab, AgentUid: o.UID, AgentGeneration: o.Generation, ObservedGeneration: o.ObservedGeneration, OperationID: o.OperationID, DesiredRevision: o.Revision, DesiredState: o.DesiredState, ActualState: l.ActualState, SnapshotState: l.SnapshotState, ActualStoppedAt: timestamp(l.ActualStoppedAt), ObservedAt: timestamp(l.ObservedAt), RuntimeReady: l.RuntimeReady, Allocation: allocation, FailureCode: l.FailureCode, FailureMessage: l.FailureMessage, AccessFenced: l.AccessFenced, AccessFencedAt: timestamp(l.AccessFencedAt), AccessFenceVpnBootID: l.AccessFenceVPNBootID, ExpectedAllocation: row.Allocation, ExpectedUpdatedAt: expectedUpdatedAt, ExpectedObservedAt: timestamp(expectedObservedAt)})
 	return n == 1, err
 }
 
@@ -217,7 +230,9 @@ func ToDomain(row postgres.EventTeamLab) (eventLabModel.Lab, error) {
 	if allocation.StorageState == "" {
 		allocation.StorageState = "Unknown"
 	}
-	return eventLabModel.Lab{ID: row.ID, EventID: row.EventID, TeamID: row.EventTeamID, EventExerciseID: row.EventExerciseID, Ref: eventLabModel.Ref{Group: row.LabGroupName, Lab: row.LabName}, VariantIndex: row.VariantIndex, Generation: row.Generation, AgentUID: row.AgentUid, AgentGeneration: row.AgentGeneration, Revision: row.DesiredRevision, ObservedRevision: row.ObservedRevision, OperationID: row.OperationID, DesiredState: row.DesiredState, ActualState: row.ActualState, CloseReason: row.CloseReason.String, SnapshotMode: row.SnapshotMode, SnapshotState: row.SnapshotState, ClosedAt: timePtr(row.LogicalClosedAt), RetentionUntil: timePtr(row.RetentionUntil), ProtectedUntil: timePtr(row.ProtectedUntil), ActualStoppedAt: timePtr(row.ActualStoppedAt), ObservedAt: timePtr(row.ObservedAt), ObjectiveCount: row.ObjectiveCount, Materialized: row.Materialized, RuntimeReady: row.RuntimeReady, Allocation: allocation, FailureCode: row.FailureCode, FailureMessage: row.FailureMessage, AccessFenced: row.AccessFenced, AccessFencedAt: timePtr(row.AccessFencedAt), AccessFenceVPNBootID: row.AccessFenceVpnBootID, NextAttemptAt: row.NextAttemptAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	var retirementTarget *eventLabModel.Target
+	_ = json.Unmarshal(row.RetirementStopTarget, &retirementTarget)
+	return eventLabModel.Lab{DefinitionVersionID: row.DefinitionVersionID.UUID, DefinitionHash: row.DefinitionHash, RetirementStopTarget: retirementTarget, RetirementState: row.RetirementState, RetirementObservedAt: timePtr(row.RetirementObservedAt), RetirementError: row.RetirementError, RetentionMinutes: row.RetentionMinutes, ID: row.ID, EventID: row.EventID, TeamID: row.EventTeamID, EventExerciseID: row.EventExerciseID, Ref: eventLabModel.Ref{Group: row.LabGroupName, Lab: row.LabName}, VariantIndex: row.VariantIndex, Generation: row.Generation, AgentUID: row.AgentUid, AgentGeneration: row.AgentGeneration, Revision: row.DesiredRevision, ObservedRevision: row.ObservedRevision, OperationID: row.OperationID, DesiredState: row.DesiredState, ActualState: row.ActualState, CloseReason: row.CloseReason.String, SnapshotMode: row.SnapshotMode, SnapshotState: row.SnapshotState, ClosedAt: timePtr(row.LogicalClosedAt), RetentionUntil: timePtr(row.RetentionUntil), ProtectedUntil: timePtr(row.ProtectedUntil), ActualStoppedAt: timePtr(row.ActualStoppedAt), ObservedAt: timePtr(row.ObservedAt), ObjectiveCount: row.ObjectiveCount, Materialized: row.Materialized, RuntimeReady: row.RuntimeReady, Allocation: allocation, FailureCode: row.FailureCode, FailureMessage: row.FailureMessage, AccessFenced: row.AccessFenced, AccessFencedAt: timePtr(row.AccessFencedAt), AccessFenceVPNBootID: row.AccessFenceVpnBootID, NextAttemptAt: row.NextAttemptAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 func timestamp(t *time.Time) pgtype.Timestamptz {
 	if t == nil {
@@ -320,4 +335,21 @@ func (r *Repository) LockSourceChange(ctx context.Context, eventID, exerciseID u
 func (r *Repository) RecordInitialReadiness(ctx context.Context, id uuid.UUID, ref eventLabModel.Ref, uid string, generation int64, ready bool, now time.Time) (bool, error) {
 	n, err := r.q.RecordEventTeamLabInitialReadiness(ctx, postgres.RecordEventTeamLabInitialReadinessParams{ID: id, LabGroupName: ref.Group, LabName: ref.Lab, AgentUid: uid, AgentGeneration: generation, RuntimeReady: ready, Now: timestamp(&now)})
 	return n == 1, err
+}
+
+func jsonOf(v any) []byte {
+	if v == nil {
+		return nil
+	}
+	raw, _ := json.Marshal(v)
+	if string(raw) == "null" {
+		return nil
+	}
+	return raw
+}
+func retirementState(s string) string {
+	if s == "" {
+		return "Unknown"
+	}
+	return s
 }

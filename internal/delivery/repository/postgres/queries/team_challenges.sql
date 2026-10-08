@@ -185,11 +185,18 @@ WHERE tc.event_id = sqlc.arg(event_id)
               FROM event_teams team
               WHERE team.id = tc.event_team_id
                 AND (team.moderators OR event_team_formed(team.event_id, team.formed_at)))
-  AND (sqlc.arg(labs_open)::boolean
-    OR NOT EXISTS (SELECT 1
-                   FROM lab_bindings lb
-                   WHERE lb.event_team_id = tc.event_team_id
-                     AND lb.event_challenge_id = tc.event_challenge_id))
+  AND (NOT EXISTS(SELECT 1 FROM lab_bindings lb WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id)
+ OR (NOT sqlc.arg(use_reveal_barriers)::boolean AND sqlc.arg(labs_open)::boolean)
+ OR (sqlc.arg(use_reveal_barriers)::boolean
+  AND EXISTS(SELECT 1 FROM events e WHERE e.id=tc.event_id AND e.infrastructure_allowed
+    AND e.lifecycle_configured AND e.start_at<=now() AND (e.finish_at IS NULL OR e.finish_at>now()) AND (e.manual_finished_at IS NULL OR e.manual_finished_at>now()))
+  AND EXISTS(SELECT 1 FROM lab_bindings lb JOIN event_team_labs l ON l.id=lb.lab_id
+   JOIN event_exercises ee ON ee.id=l.event_exercise_id JOIN event_configs cfg ON cfg.event_id=ee.event_id
+   LEFT JOIN event_lab_reveal_barriers barrier ON barrier.event_exercise_id=ee.id AND barrier.revision=ee.revision
+   WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id AND lb.readiness=1
+    AND l.desired_state='Running' AND l.logical_closed_at IS NULL AND l.actual_state='Running' AND l.runtime_ready
+    AND l.agent_uid<>'' AND l.agent_generation>0 AND (l.desired_revision=1 OR l.observed_revision=l.desired_revision)
+    AND (cfg.task_reveal_mode='as_ready' OR (barrier.mode='all_ready' AND barrier.opened_at IS NOT NULL)))))
 RETURNING tc.event_team_id;
 
 -- name: ListTeamChallengesForRefresh :many

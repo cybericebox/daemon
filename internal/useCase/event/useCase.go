@@ -25,8 +25,11 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabGroupRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabObservationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventNotificationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
@@ -71,6 +74,9 @@ import (
 // types. The gomock Querier and the real Queries both satisfy it structurally.
 type IRepository interface {
 	eventLabAllocationRepo.Queries
+	eventLabRevealRepo.Queries
+	eventLabGroupRepo.Queries
+	eventLabRetentionRepo.Queries
 	userRepo.Queries
 	eventRepo.Queries
 	eventConfigRepo.Queries
@@ -151,6 +157,7 @@ func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uui
 }
 
 type EventUseCase struct {
+	lifecycleControls                          bool
 	repo                                       IRepository
 	allocationAccounting                       bool
 	labLifecycleWake                           func(context.Context) error

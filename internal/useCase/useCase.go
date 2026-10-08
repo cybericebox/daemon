@@ -264,6 +264,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	})
 	eventUC.SetResourceGate(calendarUC)
 	eventUC.SetAllocationAccounting(true)
+	eventUC.SetLifecycleControls(true)
 	eventUC.SetNoticeCanceller(jobQueueRepo.New(deps.Repo.Pool()).CancelEventNotifications)
 	exerciseUC.SetTestLabGate(calendarUC)
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.

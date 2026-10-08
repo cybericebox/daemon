@@ -30,6 +30,11 @@ func AccessFenceMatches(want AccessTarget, got AccessFenceObservation, currentVP
 }
 
 type GroupObservation struct {
+	Retirement                                                        *RetirementObservation
+	OperationID                                                       uuid.UUID
+	Generation, ObservedGeneration                                    int64
+	AccessFenced, InitialReady, ImmutableSizesKnown                   bool
+	VPNSize, GatewaySize                                              Compute
 	Name, UID, DesiredState, ActualState, FailureCode, FailureMessage string
 	Revision, ObservedRevision                                        int64
 	Ready                                                             bool

@@ -292,7 +292,7 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	}
 	// A group that lives on an agent stays there: a lab that passes its maxima is refused here, with the
 	// same error the placement gives.
-	if v := f.fitOf(m, need); v != nil {
+	if v := f.fitOf(m, infraModel.PlacementNeedFrom(ctx)); v != nil {
 		return noAgentFits(v)
 	}
 	// The agent says what it offers: a topology that needs more is refused here, before anything is created.
@@ -306,6 +306,9 @@ func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
+	}
+	if v := f.fitOf(m, infraModel.PlacementNeedFrom(ctx)); v != nil {
+		return noAgentFits(v)
 	}
 	return m.Client.EnsureVPNGroup(f.withSizes(ctx, m), group)
 }

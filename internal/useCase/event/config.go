@@ -153,7 +153,16 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 				}
 				started = event.Lifecycle.HasStarted(now)
 			}
-			return cfg.SetTaskRevealMode(*in.TaskRevealMode, started, now, by)
+			if err := cfg.SetTaskRevealMode(*in.TaskRevealMode, started, now, by); err != nil {
+				return err
+			}
+			if u.lifecycleControls {
+				return u.validateExistingGroupSizing(ctx, eventID, *cfg)
+			}
+			return nil
+		}
+		if u.lifecycleControls {
+			return u.validateExistingGroupSizing(ctx, eventID, *cfg)
 		}
 		return nil
 	})

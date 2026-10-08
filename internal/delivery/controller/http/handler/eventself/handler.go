@@ -162,6 +162,8 @@ func (h *Handler) Init(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 		teams.GET("challenges/:challengeID/lab", h.labStatus)
 		teams.POST("challenges/:challengeID/lab/link", h.openLabLink)
 		teams.GET("labs/:labID", h.labLifecycle)
+		teams.POST("labs/:labID/stop", h.stopLab)
+		teams.POST("labs/:labID/restart", h.restartLab)
 		teams.GET("labs/stand", h.standStatus)
 		teams.GET("labs/vpn", h.labVPNConfig)
 		teams.GET("labs/vpn/status", h.labVPNStatus)

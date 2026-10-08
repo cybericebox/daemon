@@ -144,7 +144,10 @@ type (
 		// LiveScreenLinkMaxTTL caps «until the event ends» of a live screen link.
 		LiveScreenLinkMaxTTL time.Duration `env:"LIVE_SCREEN_LINK_MAX_TTL" envDefault:"1440h"`
 		// EventDefaultMaxTeamSize is the team size limit of a new event.
-		EventDefaultMaxTeamSize int32 `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
+		EventLabSnapshotMode     string `env:"EVENT_LAB_SNAPSHOT_MODE" envDefault:"skip"`
+		EventLabMaxActive        int32  `env:"EVENT_LAB_MAX_ACTIVE" envDefault:"0"`
+		EventLabRetentionMinutes int32  `env:"EVENT_LAB_RETENTION_MINUTES" envDefault:"60"`
+		EventDefaultMaxTeamSize  int32  `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
 
 		// JobCompletedRetention and JobFailedRetention are how long the job queue keeps finished jobs: the
 		// arguments of a notification job hold an address, a name and a link, so they do not stay for days.
@@ -648,6 +651,9 @@ func (c TunablesConfig) Validate() error {
 		if v < 1 {
 			return fmt.Errorf("%s must be at least 1", name)
 		}
+	}
+	if (c.EventLabSnapshotMode != "skip" && c.EventLabSnapshotMode != "required") || c.EventLabMaxActive < 0 || c.EventLabMaxActive > 1000 || c.EventLabRetentionMinutes < 0 || c.EventLabRetentionMinutes > 10080 {
+		return errors.New("invalid event lab policy defaults")
 	}
 	for _, port := range c.SMTPAllowedPorts {
 		if port < 1 || port > 65535 {
