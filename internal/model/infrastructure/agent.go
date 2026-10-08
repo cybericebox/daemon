@@ -226,7 +226,9 @@ type LabInitialLifecycle struct {
 }
 
 // LabMeta is what a deploy tells the infrastructure about a lab besides its topology.
+type LabCreateDispatch struct{ GroupUID, DefinitionHash string }
 type LabMeta struct {
+	BeforeCreate     func(context.Context, LabCreateDispatch) error
 	InitialLifecycle *LabInitialLifecycle
 	// Labels go onto the lab (the instance label is added by the adapter); GroupLabels onto its group.
 	Labels      map[string]string

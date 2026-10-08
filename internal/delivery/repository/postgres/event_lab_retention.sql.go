@@ -24,6 +24,36 @@ func (q *Queries) ArchiveEventLabGeneration(ctx context.Context, labID uuid.UUID
 	return err
 }
 
+const consumeEventStageRuntimeSelection = `-- name: ConsumeEventStageRuntimeSelection :execrows
+UPDATE event_stage_lab_runtime_memberships SET consumed_revision=$1,consumed_at=$2
+WHERE stage_id=$3 AND lab_id=$4 AND generation=$5
+ AND selected_revision=$6 AND consumed_at IS NULL
+`
+
+type ConsumeEventStageRuntimeSelectionParams struct {
+	ConsumedRevision pgtype.Int8        `json:"consumed_revision"`
+	Now              pgtype.Timestamptz `json:"now"`
+	StageID          uuid.UUID          `json:"stage_id"`
+	LabID            uuid.UUID          `json:"lab_id"`
+	Generation       int32              `json:"generation"`
+	SelectedRevision int64              `json:"selected_revision"`
+}
+
+func (q *Queries) ConsumeEventStageRuntimeSelection(ctx context.Context, arg ConsumeEventStageRuntimeSelectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, consumeEventStageRuntimeSelection,
+		arg.ConsumedRevision,
+		arg.Now,
+		arg.StageID,
+		arg.LabID,
+		arg.Generation,
+		arg.SelectedRevision,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const finalizeRetiredLabGroupPlacement = `-- name: FinalizeRetiredLabGroupPlacement :execrows
 DELETE FROM lab_group_placements placement USING event_team_group_allocations g
 WHERE placement.lab_group_name=g.lab_group_name AND g.event_team_id=$1
@@ -61,17 +91,23 @@ func (q *Queries) FinalizeRetiredLabGroupPlacement(ctx context.Context, arg Fina
 const hasActiveEventLabRuntimeSelection = `-- name: HasActiveEventLabRuntimeSelection :one
 SELECT EXISTS(SELECT 1 FROM event_stage_lab_runtime_memberships m JOIN event_stages s ON s.id=m.stage_id
  JOIN event_lab_retention_pins p ON p.lab_id=m.lab_id AND p.stage_id=m.stage_id AND p.generation=m.generation
- WHERE m.lab_id=$1 AND m.generation=$2 AND p.needed_from<=$3 AND s.closes_at>$3) AS selected
+ WHERE m.lab_id=$1 AND m.generation=$2 AND m.consumed_revision=$3 AND p.needed_from<=$4 AND s.closes_at>$4) AS selected
 `
 
 type HasActiveEventLabRuntimeSelectionParams struct {
-	LabID      uuid.UUID `json:"lab_id"`
-	Generation int32     `json:"generation"`
-	Now        time.Time `json:"now"`
+	LabID      uuid.UUID   `json:"lab_id"`
+	Generation int32       `json:"generation"`
+	Revision   pgtype.Int8 `json:"revision"`
+	Now        time.Time   `json:"now"`
 }
 
 func (q *Queries) HasActiveEventLabRuntimeSelection(ctx context.Context, arg HasActiveEventLabRuntimeSelectionParams) (bool, error) {
-	row := q.db.QueryRow(ctx, hasActiveEventLabRuntimeSelection, arg.LabID, arg.Generation, arg.Now)
+	row := q.db.QueryRow(ctx, hasActiveEventLabRuntimeSelection,
+		arg.LabID,
+		arg.Generation,
+		arg.Revision,
+		arg.Now,
+	)
 	var selected bool
 	err := row.Scan(&selected)
 	return selected, err
@@ -124,7 +160,7 @@ func (q *Queries) IsOwnedRetainedLabReference(ctx context.Context, arg IsOwnedRe
 }
 
 const listDueRetainedEventLabs = `-- name: ListDueRetainedEventLabs :many
-SELECT l.id, l.event_id, l.event_team_id, l.event_exercise_id, l.variant_index, l.generation, l.lab_group_name, l.lab_name, l.agent_uid, l.agent_generation, l.desired_revision, l.observed_revision, l.operation_id, l.desired_state, l.actual_state, l.runtime_ready, l.close_reason, l.logical_closed_at, l.snapshot_mode, l.snapshot_state, l.retention_until, l.protected_until, l.actual_stopped_at, l.observed_at, l.objective_count, l.materialized, l.allocation, l.failure_code, l.failure_message, l.access_fenced, l.access_fenced_at, l.access_fence_vpn_boot_id, l.next_attempt_at, l.created_at, l.updated_at, l.definition_version_id, l.definition_hash, l.retention_minutes, l.retirement_stop_target, l.retirement_state, l.retirement_observed_at, l.retirement_error FROM event_team_labs l WHERE l.desired_state='Stopped' AND l.retention_until<=$1
+SELECT l.id, l.event_id, l.event_team_id, l.event_exercise_id, l.variant_index, l.generation, l.lab_group_name, l.lab_name, l.agent_uid, l.agent_generation, l.desired_revision, l.observed_revision, l.operation_id, l.desired_state, l.actual_state, l.runtime_ready, l.close_reason, l.logical_closed_at, l.snapshot_mode, l.snapshot_state, l.retention_until, l.protected_until, l.actual_stopped_at, l.observed_at, l.objective_count, l.materialized, l.allocation, l.failure_code, l.failure_message, l.access_fenced, l.access_fenced_at, l.access_fence_vpn_boot_id, l.next_attempt_at, l.created_at, l.updated_at, l.definition_version_id, l.definition_hash, l.retention_minutes, l.retirement_stop_target, l.retirement_state, l.retirement_observed_at, l.retirement_error, l.create_evidence, l.runtime_stage_id, l.runtime_stage_known FROM event_team_labs l WHERE l.desired_state='Stopped' AND l.retention_until<=$1
  AND (l.protected_until IS NULL OR l.protected_until<=$1)
  AND NOT EXISTS(SELECT 1 FROM event_lab_retention_pins p WHERE p.lab_id=l.id AND p.generation=l.generation AND p.needed_until>$1)
 ORDER BY l.retention_until,l.id LIMIT $2
@@ -187,6 +223,9 @@ func (q *Queries) ListDueRetainedEventLabs(ctx context.Context, arg ListDueRetai
 			&i.RetirementState,
 			&i.RetirementObservedAt,
 			&i.RetirementError,
+			&i.CreateEvidence,
+			&i.RuntimeStageID,
+			&i.RuntimeStageKnown,
 		); err != nil {
 			return nil, err
 		}
@@ -264,12 +303,16 @@ func (q *Queries) ListDueRetainedGroups(ctx context.Context, arg ListDueRetained
 }
 
 const listDueStageRuntimeSelections = `-- name: ListDueStageRuntimeSelections :many
-SELECT l.id, l.event_id, l.event_team_id, l.event_exercise_id, l.variant_index, l.generation, l.lab_group_name, l.lab_name, l.agent_uid, l.agent_generation, l.desired_revision, l.observed_revision, l.operation_id, l.desired_state, l.actual_state, l.runtime_ready, l.close_reason, l.logical_closed_at, l.snapshot_mode, l.snapshot_state, l.retention_until, l.protected_until, l.actual_stopped_at, l.observed_at, l.objective_count, l.materialized, l.allocation, l.failure_code, l.failure_message, l.access_fenced, l.access_fenced_at, l.access_fence_vpn_boot_id, l.next_attempt_at, l.created_at, l.updated_at, l.definition_version_id, l.definition_hash, l.retention_minutes, l.retirement_stop_target, l.retirement_state, l.retirement_observed_at, l.retirement_error FROM event_stage_lab_runtime_memberships membership
-JOIN event_stages s ON s.id=membership.stage_id AND s.event_id=$1
-JOIN event_team_labs l ON l.id=membership.lab_id AND l.generation=membership.generation
+SELECT l.id AS lab_id,m.stage_id,m.selected_revision
+FROM event_stage_lab_runtime_memberships m
+JOIN event_stages s ON s.id=m.stage_id AND s.event_id=$1
+JOIN event_team_labs l ON l.id=m.lab_id AND l.generation=m.generation
 JOIN event_lab_retention_pins pin ON pin.lab_id=l.id AND pin.generation=l.generation AND pin.stage_id=s.id
 WHERE pin.needed_from<=$2 AND s.closes_at>$2
- AND l.desired_state='Stopped' AND l.close_reason IN ('manual','stage')
+ AND m.consumed_at IS NULL AND m.selected_revision>0
+ AND ((l.desired_state='Running' AND l.desired_revision=m.selected_revision)
+ OR (l.desired_state='Stopped' AND (l.desired_revision=m.selected_revision OR (l.close_reason='stage' AND l.desired_revision=m.selected_revision+1))))
+ AND l.close_reason IS DISTINCT FROM 'solved'
 ORDER BY l.event_team_id,l.id
 `
 
@@ -278,59 +321,22 @@ type ListDueStageRuntimeSelectionsParams struct {
 	Now     time.Time `json:"now"`
 }
 
-func (q *Queries) ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]EventTeamLab, error) {
+type ListDueStageRuntimeSelectionsRow struct {
+	LabID            uuid.UUID `json:"lab_id"`
+	StageID          uuid.UUID `json:"stage_id"`
+	SelectedRevision int64     `json:"selected_revision"`
+}
+
+func (q *Queries) ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]ListDueStageRuntimeSelectionsRow, error) {
 	rows, err := q.db.Query(ctx, listDueStageRuntimeSelections, arg.EventID, arg.Now)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []EventTeamLab{}
+	items := []ListDueStageRuntimeSelectionsRow{}
 	for rows.Next() {
-		var i EventTeamLab
-		if err := rows.Scan(
-			&i.ID,
-			&i.EventID,
-			&i.EventTeamID,
-			&i.EventExerciseID,
-			&i.VariantIndex,
-			&i.Generation,
-			&i.LabGroupName,
-			&i.LabName,
-			&i.AgentUid,
-			&i.AgentGeneration,
-			&i.DesiredRevision,
-			&i.ObservedRevision,
-			&i.OperationID,
-			&i.DesiredState,
-			&i.ActualState,
-			&i.RuntimeReady,
-			&i.CloseReason,
-			&i.LogicalClosedAt,
-			&i.SnapshotMode,
-			&i.SnapshotState,
-			&i.RetentionUntil,
-			&i.ProtectedUntil,
-			&i.ActualStoppedAt,
-			&i.ObservedAt,
-			&i.ObjectiveCount,
-			&i.Materialized,
-			&i.Allocation,
-			&i.FailureCode,
-			&i.FailureMessage,
-			&i.AccessFenced,
-			&i.AccessFencedAt,
-			&i.AccessFenceVpnBootID,
-			&i.NextAttemptAt,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DefinitionVersionID,
-			&i.DefinitionHash,
-			&i.RetentionMinutes,
-			&i.RetirementStopTarget,
-			&i.RetirementState,
-			&i.RetirementObservedAt,
-			&i.RetirementError,
-		); err != nil {
+		var i ListDueStageRuntimeSelectionsRow
+		if err := rows.Scan(&i.LabID, &i.StageID, &i.SelectedRevision); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -386,7 +392,7 @@ func (q *Queries) ListEventStageRuntimeMemberships(ctx context.Context, eventID 
 }
 
 const listOrphanEventLabs = `-- name: ListOrphanEventLabs :many
-SELECT l.id, l.event_id, l.event_team_id, l.event_exercise_id, l.variant_index, l.generation, l.lab_group_name, l.lab_name, l.agent_uid, l.agent_generation, l.desired_revision, l.observed_revision, l.operation_id, l.desired_state, l.actual_state, l.runtime_ready, l.close_reason, l.logical_closed_at, l.snapshot_mode, l.snapshot_state, l.retention_until, l.protected_until, l.actual_stopped_at, l.observed_at, l.objective_count, l.materialized, l.allocation, l.failure_code, l.failure_message, l.access_fenced, l.access_fenced_at, l.access_fence_vpn_boot_id, l.next_attempt_at, l.created_at, l.updated_at, l.definition_version_id, l.definition_hash, l.retention_minutes, l.retirement_stop_target, l.retirement_state, l.retirement_observed_at, l.retirement_error FROM event_team_labs l LEFT JOIN events e ON e.id=l.event_id LEFT JOIN event_teams t ON t.id=l.event_team_id
+SELECT l.id, l.event_id, l.event_team_id, l.event_exercise_id, l.variant_index, l.generation, l.lab_group_name, l.lab_name, l.agent_uid, l.agent_generation, l.desired_revision, l.observed_revision, l.operation_id, l.desired_state, l.actual_state, l.runtime_ready, l.close_reason, l.logical_closed_at, l.snapshot_mode, l.snapshot_state, l.retention_until, l.protected_until, l.actual_stopped_at, l.observed_at, l.objective_count, l.materialized, l.allocation, l.failure_code, l.failure_message, l.access_fenced, l.access_fenced_at, l.access_fence_vpn_boot_id, l.next_attempt_at, l.created_at, l.updated_at, l.definition_version_id, l.definition_hash, l.retention_minutes, l.retirement_stop_target, l.retirement_state, l.retirement_observed_at, l.retirement_error, l.create_evidence, l.runtime_stage_id, l.runtime_stage_known FROM event_team_labs l LEFT JOIN events e ON e.id=l.event_id LEFT JOIN event_teams t ON t.id=l.event_team_id
 WHERE l.desired_state='Running' AND (e.id IS NULL OR t.id IS NULL) ORDER BY l.id LIMIT $1
 `
 
@@ -442,6 +448,9 @@ func (q *Queries) ListOrphanEventLabs(ctx context.Context, limitVal int32) ([]Ev
 			&i.RetirementState,
 			&i.RetirementObservedAt,
 			&i.RetirementError,
+			&i.CreateEvidence,
+			&i.RuntimeStageID,
+			&i.RuntimeStageKnown,
 		); err != nil {
 			return nil, err
 		}
@@ -454,7 +463,7 @@ func (q *Queries) ListOrphanEventLabs(ctx context.Context, limitVal int32) ([]Ev
 }
 
 const listRetiringEventLabs = `-- name: ListRetiringEventLabs :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs WHERE desired_state='Deleted' AND retirement_state<>'Deleted' ORDER BY updated_at,id LIMIT $1
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error, create_evidence, runtime_stage_id, runtime_stage_known FROM event_team_labs WHERE desired_state='Deleted' AND retirement_state<>'Deleted' ORDER BY updated_at,id LIMIT $1
 `
 
 func (q *Queries) ListRetiringEventLabs(ctx context.Context, limitVal int32) ([]EventTeamLab, error) {
@@ -509,6 +518,9 @@ func (q *Queries) ListRetiringEventLabs(ctx context.Context, limitVal int32) ([]
 			&i.RetirementState,
 			&i.RetirementObservedAt,
 			&i.RetirementError,
+			&i.CreateEvidence,
+			&i.RuntimeStageID,
+			&i.RuntimeStageKnown,
 		); err != nil {
 			return nil, err
 		}
@@ -518,6 +530,49 @@ func (q *Queries) ListRetiringEventLabs(ctx context.Context, limitVal int32) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockEventStageRuntimeSelection = `-- name: LockEventStageRuntimeSelection :one
+SELECT m.stage_id, m.lab_id, m.generation, m.created_at, m.selected_revision, m.consumed_revision, m.consumed_at FROM event_stage_lab_runtime_memberships m
+JOIN event_stages s ON s.id=m.stage_id
+JOIN event_team_labs l ON l.id=m.lab_id AND l.generation=m.generation
+JOIN event_lab_retention_pins p ON p.lab_id=m.lab_id AND p.stage_id=m.stage_id AND p.generation=m.generation
+WHERE m.stage_id=$1 AND m.lab_id=$2 AND m.generation=$3
+ AND s.event_id=$4 AND l.event_id=s.event_id
+ AND m.consumed_at IS NULL AND m.selected_revision=$5 AND m.selected_revision>0
+ AND p.needed_from<=$6 AND s.closes_at>$6
+FOR UPDATE OF m
+`
+
+type LockEventStageRuntimeSelectionParams struct {
+	StageID          uuid.UUID `json:"stage_id"`
+	LabID            uuid.UUID `json:"lab_id"`
+	Generation       int32     `json:"generation"`
+	EventID          uuid.UUID `json:"event_id"`
+	SelectedRevision int64     `json:"selected_revision"`
+	Now              time.Time `json:"now"`
+}
+
+func (q *Queries) LockEventStageRuntimeSelection(ctx context.Context, arg LockEventStageRuntimeSelectionParams) (EventStageLabRuntimeMembership, error) {
+	row := q.db.QueryRow(ctx, lockEventStageRuntimeSelection,
+		arg.StageID,
+		arg.LabID,
+		arg.Generation,
+		arg.EventID,
+		arg.SelectedRevision,
+		arg.Now,
+	)
+	var i EventStageLabRuntimeMembership
+	err := row.Scan(
+		&i.StageID,
+		&i.LabID,
+		&i.Generation,
+		&i.CreatedAt,
+		&i.SelectedRevision,
+		&i.ConsumedRevision,
+		&i.ConsumedAt,
+	)
+	return i, err
 }
 
 const recomputeEventGroupRetentionPins = `-- name: RecomputeEventGroupRetentionPins :exec
@@ -590,6 +645,21 @@ func (q *Queries) RefreshEventLabProtectedUntil(ctx context.Context, eventID uui
 	return err
 }
 
+const removeEventSetRuntimeSelections = `-- name: RemoveEventSetRuntimeSelections :exec
+DELETE FROM event_stage_lab_runtime_memberships m USING event_team_labs l
+WHERE m.lab_id=l.id AND l.event_id=$1 AND l.event_exercise_id=$2
+`
+
+type RemoveEventSetRuntimeSelectionsParams struct {
+	EventID         uuid.UUID `json:"event_id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+}
+
+func (q *Queries) RemoveEventSetRuntimeSelections(ctx context.Context, arg RemoveEventSetRuntimeSelectionsParams) error {
+	_, err := q.db.Exec(ctx, removeEventSetRuntimeSelections, arg.EventID, arg.EventExerciseID)
+	return err
+}
+
 const removeEventStageRuntimeSelections = `-- name: RemoveEventStageRuntimeSelections :exec
 DELETE FROM event_stage_lab_runtime_memberships WHERE stage_id=$1
 `
@@ -600,10 +670,11 @@ func (q *Queries) RemoveEventStageRuntimeSelections(ctx context.Context, stageID
 }
 
 const selectEventStageRetainedLab = `-- name: SelectEventStageRetainedLab :exec
-INSERT INTO event_stage_lab_runtime_memberships(stage_id,lab_id,generation,created_at)
-SELECT s.id,l.id,l.generation,$1 FROM event_stages s JOIN event_team_labs l ON l.event_id=s.event_id
+INSERT INTO event_stage_lab_runtime_memberships(stage_id,lab_id,generation,selected_revision,created_at)
+SELECT s.id,l.id,l.generation,l.desired_revision,$1 FROM event_stages s JOIN event_team_labs l ON l.event_id=s.event_id
 WHERE s.id=$2 AND s.event_id=$3 AND l.id=$4
  AND l.close_reason IS DISTINCT FROM 'solved' AND l.desired_state<>'Deleted'
+ AND EXISTS(SELECT 1 FROM lab_bindings b WHERE b.lab_id=l.id AND b.generation=l.generation AND b.lab_group_name=l.lab_group_name AND b.lab_name=l.lab_name)
 ON CONFLICT DO NOTHING
 `
 

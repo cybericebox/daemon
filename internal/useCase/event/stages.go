@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"time"
 
@@ -416,6 +417,39 @@ func (u *EventUseCase) SetEventExerciseStage(ctx context.Context, eventID, event
 	}
 	if err = eventModel.CheckSetMove(from, to, now); err != nil {
 		return EventExerciseView{}, err
+	}
+	if u.lifecycleControls {
+		all, err := eventLabAllocationRepo.New(txRepo).Labs(txCtx, eventID)
+		if err != nil {
+			return EventExerciseView{}, err
+		}
+		teams := map[uuid.UUID]bool{}
+		for _, l := range all {
+			if l.EventExerciseID == eventExerciseID {
+				teams[l.TeamID] = true
+			}
+		}
+		for _, team := range orderedTeamIDs(teams) {
+			if err = eventLabRepo.New(txRepo).LockAdmission(txCtx, team); err != nil {
+				return EventExerciseView{}, err
+			}
+		}
+		for _, snapshot := range all {
+			if snapshot.EventExerciseID != eventExerciseID {
+				continue
+			}
+			l, err := eventLabRepo.New(txRepo).Lock(txCtx, snapshot.ID)
+			if err != nil {
+				return EventExerciseView{}, err
+			}
+			l.CaptureRuntimeStage(link.StageID, now)
+			if _, err = eventLabRepo.New(txRepo).Update(txCtx, l, l.Revision); err != nil {
+				return EventExerciseView{}, err
+			}
+		}
+		if err = eventLabRetentionRepo.New(txRepo).RemoveSetSelections(txCtx, eventID, eventExerciseID); err != nil {
+			return EventExerciseView{}, err
+		}
 	}
 	moved, err := sets.SetStage(txCtx, eventID, eventExerciseID, stageID)
 	if err != nil {

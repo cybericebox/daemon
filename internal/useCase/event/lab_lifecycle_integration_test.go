@@ -46,6 +46,7 @@ func prepareLifecycle(t *testing.T) (*standFixture, sharedSet, uuid.UUID, time.T
 	f.agent.setAll(f.agent.ready)
 	f.shiftLifecycle(t, -time.Minute, time.Hour)
 	f.pass(t)
+	certifyLifecycleFixture(t, f)
 	at := time.Now()
 	user := approveBlueCaptain(t, f, at)
 	return f, set, user, at
@@ -562,5 +563,37 @@ func TestLabLifecycleReadinessWaitsForCanonicalLock(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+}
+
+// Synthetic canonical receipts keep lifecycle tests distinct from generic stand
+// Ready. They exercise the consumer/database contract, never native execution.
+func certifyLifecycleFixture(t *testing.T, f *standFixture) {
+	t.Helper()
+	ctx := context.Background()
+	rows, err := f.db.Queries.ListEventLabAllocations(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.agent.mu.Lock()
+	defer f.agent.mu.Unlock()
+	if f.agent.observations == nil {
+		f.agent.observations = map[eventLabModel.Ref]eventLabModel.Observation{}
+	}
+	for _, row := range rows {
+		lab, err := eventLabRepo.New(f.db.Queries).Get(ctx, row.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lab.DesiredState != "Running" || lab.AgentUID == "" {
+			continue
+		}
+		at := time.Now().UTC()
+		ack := eventLabModel.Observation{Ref: lab.Ref, UID: lab.AgentUID, Generation: lab.AgentGeneration, ObservedGeneration: lab.AgentGeneration, OperationID: lab.OperationID, Revision: lab.Revision, DesiredState: "Running", ActualState: "Running", RuntimeReady: true, ObservedAt: &at, Allocation: eventLabModel.Allocation{RuntimeState: "Allocated", ObservedAt: &at, StorageState: "None"}}
+		ok, err := eventLabRepo.New(f.db.Queries).RecordObservation(ctx, lab.ID, ack)
+		if err != nil || !ok {
+			t.Fatal("fixture current-operation receipt", ok, err)
+		}
+		f.agent.observations[lab.Ref] = ack
 	}
 }

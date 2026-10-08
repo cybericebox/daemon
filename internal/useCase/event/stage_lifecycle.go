@@ -105,45 +105,58 @@ func (u *EventUseCase) ReconcileStageLabLifecycle(ctx context.Context, eventID u
 		if err != nil {
 			return err
 		}
-		if l.DesiredState != "Running" || l.CloseReason == "solved" {
+		if l.DesiredState == "Deleted" {
 			continue
 		}
-		activeSelection, selectionErr := eventLabRetentionRepo.New(q).ActiveSelection(txCtx, l, now)
-		if selectionErr != nil {
-			return selectionErr
+		set, err := eventExerciseRepo.New(q).GetByID(txCtx, eventID, l.EventExerciseID)
+		if err != nil {
+			return err
+		}
+		l.CaptureRuntimeStage(set.StageID, now)
+		activeSelection, err := eventLabRetentionRepo.New(q).ActiveSelection(txCtx, l, now)
+		if err != nil {
+			return err
 		}
 		reason := ""
 		base := now
-		if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil && !now.Before(*finish) {
-			reason = "event"
-			base = *finish
-		} else {
-			set, err := eventExerciseRepo.New(q).GetByID(txCtx, eventID, l.EventExerciseID)
-			if err != nil {
-				return err
-			}
-			if set.StageID != nil && !activeSelection {
-				if stage, ok := byStage[*set.StageID]; ok && !now.Before(stage.ClosesAt) {
+		var override *int32
+		if l.RuntimeStageID != nil {
+			if stage, ok := byStage[*l.RuntimeStageID]; ok {
+				override = stage.LabRetentionMinutes
+				if !now.Before(stage.ClosesAt) && !activeSelection {
 					reason = "stage"
 					base = stage.ClosesAt
 				}
 			}
 		}
 		if reason == "" {
+			if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil && !now.Before(*finish) {
+				reason = "event"
+				base = *finish
+			}
+		}
+		if reason == "" {
 			continue
 		}
 		expected := l.Revision
-		if err = l.Close(reason, uuid.Must(uuid.NewV7()), now); err != nil {
-			return err
+		wasRunning := l.DesiredState == "Running" && l.CloseReason != "solved"
+		if wasRunning {
+			if err = l.Close(reason, uuid.Must(uuid.NewV7()), now); err != nil {
+				return err
+			}
 		}
-		l.SetRetentionDeadline(base.Add(time.Duration(l.RetentionMinutes)*time.Minute), now)
+		// Terminal/already-stopped copies still receive their boundary deadline;
+		// this never changes their intent, scores or restart eligibility.
+		l.ApplyBoundaryRetention(base, override, now)
 		if ok, err := eventLabRepo.New(q).Update(txCtx, l, expected); err != nil {
 			return err
 		} else if !ok {
-			return fmt.Errorf("stage close revision changed")
+			return fmt.Errorf("boundary retention revision changed")
 		}
-		if err = u.requestLabAccessSyncInTransaction(txCtx, q, l.TeamID, now); err != nil {
-			return err
+		if wasRunning {
+			if err = u.requestLabAccessSyncInTransaction(txCtx, q, l.TeamID, now); err != nil {
+				return err
+			}
 		}
 	}
 	if err = u.recomputeRetentionPinsInTransaction(txCtx, q, eventID, now); err != nil {

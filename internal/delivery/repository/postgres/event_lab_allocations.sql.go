@@ -121,7 +121,7 @@ func (q *Queries) ListEventGroupAllocations(ctx context.Context, eventID uuid.UU
 }
 
 const listEventLabAllocations = `-- name: ListEventLabAllocations :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs WHERE event_id=$1 ORDER BY id
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error, create_evidence, runtime_stage_id, runtime_stage_known FROM event_team_labs WHERE event_id=$1 ORDER BY id
 `
 
 // Narrow ledger reads: canonical Lab rows are already shared once per generation.
@@ -177,6 +177,9 @@ func (q *Queries) ListEventLabAllocations(ctx context.Context, eventID uuid.UUID
 			&i.RetirementState,
 			&i.RetirementObservedAt,
 			&i.RetirementError,
+			&i.CreateEvidence,
+			&i.RuntimeStageID,
+			&i.RuntimeStageKnown,
 		); err != nil {
 			return nil, err
 		}
@@ -245,7 +248,7 @@ func (q *Queries) ListPlatformGroupAllocations(ctx context.Context) ([]EventTeam
 }
 
 const listPlatformLabAllocations = `-- name: ListPlatformLabAllocations :many
-SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error FROM event_team_labs ORDER BY id
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error, create_evidence, runtime_stage_id, runtime_stage_known FROM event_team_labs ORDER BY id
 `
 
 func (q *Queries) ListPlatformLabAllocations(ctx context.Context) ([]EventTeamLab, error) {
@@ -300,6 +303,9 @@ func (q *Queries) ListPlatformLabAllocations(ctx context.Context) ([]EventTeamLa
 			&i.RetirementState,
 			&i.RetirementObservedAt,
 			&i.RetirementError,
+			&i.CreateEvidence,
+			&i.RuntimeStageID,
+			&i.RuntimeStageKnown,
 		); err != nil {
 			return nil, err
 		}

@@ -11,10 +11,11 @@ WHERE l.desired_state='Running' AND (e.id IS NULL OR t.id IS NULL) ORDER BY l.id
 -- name: HasEventLabRetentionPin :one
 SELECT EXISTS(SELECT 1 FROM event_lab_retention_pins WHERE lab_id=sqlc.arg(lab_id) AND generation=sqlc.arg(generation) AND needed_until>sqlc.arg(now)) AS pinned;
 -- name: SelectEventStageRetainedLab :exec
-INSERT INTO event_stage_lab_runtime_memberships(stage_id,lab_id,generation,created_at)
-SELECT s.id,l.id,l.generation,sqlc.arg(now) FROM event_stages s JOIN event_team_labs l ON l.event_id=s.event_id
+INSERT INTO event_stage_lab_runtime_memberships(stage_id,lab_id,generation,selected_revision,created_at)
+SELECT s.id,l.id,l.generation,l.desired_revision,sqlc.arg(now) FROM event_stages s JOIN event_team_labs l ON l.event_id=s.event_id
 WHERE s.id=sqlc.arg(stage_id) AND s.event_id=sqlc.arg(event_id) AND l.id=sqlc.arg(lab_id)
  AND l.close_reason IS DISTINCT FROM 'solved' AND l.desired_state<>'Deleted'
+ AND EXISTS(SELECT 1 FROM lab_bindings b WHERE b.lab_id=l.id AND b.generation=l.generation AND b.lab_group_name=l.lab_group_name AND b.lab_name=l.lab_name)
 ON CONFLICT DO NOTHING;
 -- name: RemoveEventStageRuntimeSelections :exec
 DELETE FROM event_stage_lab_runtime_memberships WHERE stage_id=sqlc.arg(stage_id);
@@ -55,13 +56,38 @@ WHERE l.event_id=sqlc.arg(event_id);
 UPDATE event_team_group_allocations g SET protected_until=(SELECT max(p.needed_until) FROM event_lab_group_retention_pins p WHERE p.event_team_id=g.event_team_id)
 WHERE g.event_id=sqlc.arg(event_id);
 -- name: ListDueStageRuntimeSelections :many
-SELECT l.* FROM event_stage_lab_runtime_memberships membership
-JOIN event_stages s ON s.id=membership.stage_id AND s.event_id=sqlc.arg(event_id)
-JOIN event_team_labs l ON l.id=membership.lab_id AND l.generation=membership.generation
+SELECT l.id AS lab_id,m.stage_id,m.selected_revision
+FROM event_stage_lab_runtime_memberships m
+JOIN event_stages s ON s.id=m.stage_id AND s.event_id=sqlc.arg(event_id)
+JOIN event_team_labs l ON l.id=m.lab_id AND l.generation=m.generation
 JOIN event_lab_retention_pins pin ON pin.lab_id=l.id AND pin.generation=l.generation AND pin.stage_id=s.id
 WHERE pin.needed_from<=sqlc.arg(now) AND s.closes_at>sqlc.arg(now)
- AND l.desired_state='Stopped' AND l.close_reason IN ('manual','stage')
+ AND m.consumed_at IS NULL AND m.selected_revision>0
+ AND ((l.desired_state='Running' AND l.desired_revision=m.selected_revision)
+ OR (l.desired_state='Stopped' AND (l.desired_revision=m.selected_revision OR (l.close_reason='stage' AND l.desired_revision=m.selected_revision+1))))
+ AND l.close_reason IS DISTINCT FROM 'solved'
 ORDER BY l.event_team_id,l.id;
+
+-- name: LockEventStageRuntimeSelection :one
+SELECT m.* FROM event_stage_lab_runtime_memberships m
+JOIN event_stages s ON s.id=m.stage_id
+JOIN event_team_labs l ON l.id=m.lab_id AND l.generation=m.generation
+JOIN event_lab_retention_pins p ON p.lab_id=m.lab_id AND p.stage_id=m.stage_id AND p.generation=m.generation
+WHERE m.stage_id=sqlc.arg(stage_id) AND m.lab_id=sqlc.arg(lab_id) AND m.generation=sqlc.arg(generation)
+ AND s.event_id=sqlc.arg(event_id) AND l.event_id=s.event_id
+ AND m.consumed_at IS NULL AND m.selected_revision=sqlc.arg(selected_revision) AND m.selected_revision>0
+ AND p.needed_from<=sqlc.arg(now) AND s.closes_at>sqlc.arg(now)
+FOR UPDATE OF m;
+
+-- name: ConsumeEventStageRuntimeSelection :execrows
+UPDATE event_stage_lab_runtime_memberships SET consumed_revision=sqlc.arg(consumed_revision),consumed_at=sqlc.arg(now)
+WHERE stage_id=sqlc.arg(stage_id) AND lab_id=sqlc.arg(lab_id) AND generation=sqlc.arg(generation)
+ AND selected_revision=sqlc.arg(selected_revision) AND consumed_at IS NULL;
+
+-- name: RemoveEventSetRuntimeSelections :exec
+DELETE FROM event_stage_lab_runtime_memberships m USING event_team_labs l
+WHERE m.lab_id=l.id AND l.event_id=sqlc.arg(event_id) AND l.event_exercise_id=sqlc.arg(event_exercise_id);
+
 -- name: ArchiveEventLabGeneration :exec
 INSERT INTO event_lab_generations(lab_id,generation,lab_group_name,lab_name,agent_uid,operation_id,lifecycle_revision,retention_until,protected_until,actual_state,allocation)
 SELECT id,generation,lab_group_name,lab_name,agent_uid,operation_id,desired_revision,retention_until,protected_until,actual_state,allocation FROM event_team_labs WHERE id=sqlc.arg(lab_id)
@@ -79,7 +105,7 @@ ORDER BY g.retention_until,g.event_team_id LIMIT sqlc.arg(limit_val);
 -- name: HasActiveEventLabRuntimeSelection :one
 SELECT EXISTS(SELECT 1 FROM event_stage_lab_runtime_memberships m JOIN event_stages s ON s.id=m.stage_id
  JOIN event_lab_retention_pins p ON p.lab_id=m.lab_id AND p.stage_id=m.stage_id AND p.generation=m.generation
- WHERE m.lab_id=sqlc.arg(lab_id) AND m.generation=sqlc.arg(generation) AND p.needed_from<=sqlc.arg(now) AND s.closes_at>sqlc.arg(now)) AS selected;
+ WHERE m.lab_id=sqlc.arg(lab_id) AND m.generation=sqlc.arg(generation) AND m.consumed_revision=sqlc.arg(revision) AND p.needed_from<=sqlc.arg(now) AND s.closes_at>sqlc.arg(now)) AS selected;
 -- name: SetEventStageRetentionPreparationDue :exec
 UPDATE event_lab_retention_pins SET needed_from=sqlc.arg(needed_from)
 WHERE stage_id=sqlc.arg(stage_id);

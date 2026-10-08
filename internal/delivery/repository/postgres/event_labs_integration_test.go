@@ -247,7 +247,7 @@ func TestEventLabsLiveGenerationAdvancementFencedByMetadata(t *testing.T) {
 func TestEventLabsMigrationDownThenUp(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
-	for _, name := range []string{"0165_event_lab_retention.down.sql", "0164_event_lab_groups.down.sql", "0163_event_lab_reveal_policy.down.sql", "0162_event_lab_allocations.down.sql", "0161_event_lab_access_fence.down.sql", "0160_event_labs.down.sql", "0160_event_labs.up.sql", "0161_event_lab_access_fence.up.sql", "0162_event_lab_allocations.up.sql", "0163_event_lab_reveal_policy.up.sql", "0164_event_lab_groups.up.sql", "0165_event_lab_retention.up.sql"} {
+	for _, name := range []string{"0166_event_lab_lifecycle_intents.down.sql", "0165_event_lab_retention.down.sql", "0164_event_lab_groups.down.sql", "0163_event_lab_reveal_policy.down.sql", "0162_event_lab_allocations.down.sql", "0161_event_lab_access_fence.down.sql", "0160_event_labs.down.sql", "0160_event_labs.up.sql", "0161_event_lab_access_fence.up.sql", "0162_event_lab_allocations.up.sql", "0163_event_lab_reveal_policy.up.sql", "0164_event_lab_groups.up.sql", "0165_event_lab_retention.up.sql", "0166_event_lab_lifecycle_intents.up.sql"} {
 		source, err := os.ReadFile(filepath.Join("migrations", name))
 		if err != nil {
 			t.Fatal(err)

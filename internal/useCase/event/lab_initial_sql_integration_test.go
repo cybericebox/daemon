@@ -13,6 +13,8 @@ import (
 func TestLegacyManagedInitialReadyCannotGrantACLButUnmanagedBindingCan(t *testing.T) {
 	f, set, _, _ := prepareLifecycle(t)
 	ctx := context.Background()
+	_, resetErr := f.db.Pool.Exec(ctx, `UPDATE event_team_labs SET observed_revision=0 WHERE event_id=$1`, f.eventID)
+	require.NoError(t, resetErr)
 	lab, err := eventLabRepo.New(f.db.Queries).GetForChallenge(ctx, f.blueID, set.challenges[0])
 	require.NoError(t, err)
 	require.EqualValues(t, 1, lab.Revision)
@@ -37,6 +39,8 @@ func TestAllReadyBarrierRejectsLegacyInitialReadinessUntilBothExactRevisions(t *
 	f, set, _, _ := prepareLifecycle(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	_, resetErr := f.db.Pool.Exec(ctx, `UPDATE event_team_labs SET observed_revision=0 WHERE event_id=$1`, f.eventID)
+	require.NoError(t, resetErr)
 	repo := eventLabRevealRepo.New(f.db.Queries)
 	cohort, err := repo.Freeze(ctx, f.eventID, set.exerciseID, now)
 	require.NoError(t, err)
@@ -62,6 +66,8 @@ func TestAllReadyBarrierRejectsLegacyInitialReadinessUntilBothExactRevisions(t *
 func TestLifecyclePassRefreshesHistoricalInitialReadyFromExactObservation(t *testing.T) {
 	f, set, _, _ := prepareLifecycle(t)
 	ctx := context.Background()
+	_, resetErr := f.db.Pool.Exec(ctx, `UPDATE event_team_labs SET observed_revision=0 WHERE event_id=$1`, f.eventID)
+	require.NoError(t, resetErr)
 	lab, err := eventLabRepo.New(f.db.Queries).GetForChallenge(ctx, f.blueID, set.challenges[0])
 	require.NoError(t, err)
 	require.EqualValues(t, 0, lab.ObservedRevision)

@@ -20,7 +20,11 @@ SELECT ee.event_id,ee.id,ee.revision,ec.task_reveal_mode,
   AND NOT team.moderators AND event_team_admitted(team.event_id,team.individual,team.admitted_manually,team.admission_locked,team.member_count) AND event_team_stand_wanted(team.event_id,team.formed_at)), '{}'::uuid[]),$1
 FROM event_exercises ee JOIN event_configs ec ON ec.event_id=ee.event_id
 WHERE ee.id=$2 AND ee.event_id=$3 AND ee.status=0
-ON CONFLICT(event_exercise_id) DO UPDATE SET event_exercise_id=EXCLUDED.event_exercise_id
+ON CONFLICT(event_exercise_id) DO UPDATE SET
+ revision=EXCLUDED.revision,mode=EXCLUDED.mode,
+ eligible_team_ids=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode THEN EXCLUDED.eligible_team_ids ELSE event_lab_reveal_barriers.eligible_team_ids END,
+ opened_at=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode THEN NULL ELSE event_lab_reveal_barriers.opened_at END,
+ created_at=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode THEN EXCLUDED.created_at ELSE event_lab_reveal_barriers.created_at END
 RETURNING event_id, event_exercise_id, revision, mode, eligible_team_ids, opened_at, created_at
 `
 
@@ -97,7 +101,7 @@ func (q *Queries) IsEventLabManualReachable(ctx context.Context, arg IsEventLabM
 }
 
 const listRevealSetLabs = `-- name: ListRevealSetLabs :many
-SELECT l.id, l.event_id, l.event_team_id, l.event_exercise_id, l.variant_index, l.generation, l.lab_group_name, l.lab_name, l.agent_uid, l.agent_generation, l.desired_revision, l.observed_revision, l.operation_id, l.desired_state, l.actual_state, l.runtime_ready, l.close_reason, l.logical_closed_at, l.snapshot_mode, l.snapshot_state, l.retention_until, l.protected_until, l.actual_stopped_at, l.observed_at, l.objective_count, l.materialized, l.allocation, l.failure_code, l.failure_message, l.access_fenced, l.access_fenced_at, l.access_fence_vpn_boot_id, l.next_attempt_at, l.created_at, l.updated_at, l.definition_version_id, l.definition_hash, l.retention_minutes, l.retirement_stop_target, l.retirement_state, l.retirement_observed_at, l.retirement_error FROM event_team_labs l
+SELECT l.id, l.event_id, l.event_team_id, l.event_exercise_id, l.variant_index, l.generation, l.lab_group_name, l.lab_name, l.agent_uid, l.agent_generation, l.desired_revision, l.observed_revision, l.operation_id, l.desired_state, l.actual_state, l.runtime_ready, l.close_reason, l.logical_closed_at, l.snapshot_mode, l.snapshot_state, l.retention_until, l.protected_until, l.actual_stopped_at, l.observed_at, l.objective_count, l.materialized, l.allocation, l.failure_code, l.failure_message, l.access_fenced, l.access_fenced_at, l.access_fence_vpn_boot_id, l.next_attempt_at, l.created_at, l.updated_at, l.definition_version_id, l.definition_hash, l.retention_minutes, l.retirement_stop_target, l.retirement_state, l.retirement_observed_at, l.retirement_error, l.create_evidence, l.runtime_stage_id, l.runtime_stage_known FROM event_team_labs l
 WHERE l.event_id=$1 AND l.event_exercise_id=$2
  AND l.event_team_id=ANY($3::uuid[])
  AND EXISTS(SELECT 1 FROM lab_bindings b WHERE b.lab_id=l.id AND b.generation=l.generation)
@@ -162,6 +166,9 @@ func (q *Queries) ListRevealSetLabs(ctx context.Context, arg ListRevealSetLabsPa
 			&i.RetirementState,
 			&i.RetirementObservedAt,
 			&i.RetirementError,
+			&i.CreateEvidence,
+			&i.RuntimeStageID,
+			&i.RuntimeStageKnown,
 		); err != nil {
 			return nil, err
 		}
@@ -177,11 +184,14 @@ const openReadyEventLabRevealBarriers = `-- name: OpenReadyEventLabRevealBarrier
 UPDATE event_lab_reveal_barriers barrier SET opened_at=$1
 WHERE barrier.event_id=$2 AND barrier.opened_at IS NULL
 AND cardinality(barrier.eligible_team_ids)>0
+AND EXISTS(SELECT 1 FROM event_exercises ee JOIN event_configs cfg ON cfg.event_id=ee.event_id WHERE ee.id=barrier.event_exercise_id AND ee.revision=barrier.revision AND ee.status=0 AND cfg.task_reveal_mode=barrier.mode)
 AND NOT EXISTS (
  SELECT 1 FROM unnest(barrier.eligible_team_ids) team(id)
  WHERE NOT EXISTS(SELECT 1 FROM event_team_labs l WHERE l.event_team_id=team.id AND l.event_exercise_id=barrier.event_exercise_id
   AND l.materialized AND l.agent_uid<>'' AND l.agent_generation>0 AND l.desired_state='Running' AND l.logical_closed_at IS NULL
   AND l.actual_state='Running' AND l.runtime_ready
+  AND l.definition_version_id=(SELECT ee.exercise_version_id FROM event_exercises ee WHERE ee.id=barrier.event_exercise_id)
+  AND EXISTS(SELECT 1 FROM lab_bindings b WHERE b.lab_id=l.id AND b.generation=l.generation AND b.lab_group_name=l.lab_group_name AND b.lab_name=l.lab_name)
   AND l.observed_revision=l.desired_revision
   AND NOT EXISTS(SELECT 1 FROM lab_bindings b WHERE b.lab_id=l.id AND b.readiness<>1))
 )

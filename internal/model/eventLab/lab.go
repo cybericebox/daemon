@@ -22,6 +22,7 @@ type StopRequest struct {
 }
 type Observation struct {
 	Retirement *RetirementObservation
+	Creation   *CreationReceipt
 	// Generation is live CR metadata; ObservedGeneration belongs to lifecycle status.
 	// Neither is the deployment generation Lab.Generation.
 	Ref                                                                   Ref
@@ -36,7 +37,17 @@ type Observation struct {
 	AccessFencedAt                                                        *time.Time
 	AccessFenceVPNBootID                                                  string
 }
+type CreateEvidence struct {
+	Ref                                                Ref
+	GroupUID, NamespaceUID, DefinitionHash, CreationID string
+	OperationID                                        uuid.UUID
+	Revision                                           int64
+	DeploymentGeneration                               int32
+}
 type Lab struct {
+	CreateEvidence                                                        *CreateEvidence
+	RuntimeStageID                                                        *uuid.UUID
+	RuntimeStageKnown                                                     bool
 	DefinitionVersionID                                                   uuid.UUID
 	DefinitionHash                                                        string
 	RetirementStopTarget                                                  *Target
@@ -63,6 +74,8 @@ type Lab struct {
 	NextAttemptAt, CreatedAt, UpdatedAt                                   time.Time
 }
 type NewInput struct {
+	RuntimeStageID                   *uuid.UUID
+	RuntimeStageKnown                bool
 	DefinitionVersionID              uuid.UUID
 	DefinitionHash                   string
 	EventID, TeamID, EventExerciseID uuid.UUID
@@ -93,7 +106,7 @@ func New(in NewInput, now time.Time) (Lab, error) {
 	if err := in.Policy.Validate(); err != nil {
 		return Lab{}, err
 	}
-	return Lab{DefinitionVersionID: in.DefinitionVersionID, DefinitionHash: in.DefinitionHash, ID: uuid.Must(uuid.NewV7()), EventID: in.EventID, TeamID: in.TeamID, EventExerciseID: in.EventExerciseID, Ref: in.Ref, VariantIndex: in.VariantIndex, Generation: in.Generation, Revision: 1, OperationID: uuid.Must(uuid.NewV7()), DesiredState: "Running", ActualState: "Unknown", RetentionMinutes: in.Policy.RetentionMinutes, SnapshotMode: in.Policy.SnapshotMode, SnapshotState: "Unknown", RetentionUntil: cloneTime(in.RetentionUntil), ObjectiveCount: int32(len(in.ObjectiveIDs)), Allocation: Allocation{RuntimeState: "Unknown", StorageState: "Unknown"}, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now}, nil
+	return Lab{RuntimeStageID: cloneUUID(in.RuntimeStageID), RuntimeStageKnown: in.RuntimeStageKnown, DefinitionVersionID: in.DefinitionVersionID, DefinitionHash: in.DefinitionHash, ID: uuid.Must(uuid.NewV7()), EventID: in.EventID, TeamID: in.TeamID, EventExerciseID: in.EventExerciseID, Ref: in.Ref, VariantIndex: in.VariantIndex, Generation: in.Generation, Revision: 1, OperationID: uuid.Must(uuid.NewV7()), DesiredState: "Running", ActualState: "Unknown", RetentionMinutes: in.Policy.RetentionMinutes, SnapshotMode: in.Policy.SnapshotMode, SnapshotState: "Unknown", RetentionUntil: cloneTime(in.RetentionUntil), ObjectiveCount: int32(len(in.ObjectiveIDs)), Allocation: Allocation{RuntimeState: "Unknown", StorageState: "Unknown"}, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now}, nil
 }
 func (l *Lab) Close(reason string, operationID uuid.UUID, now time.Time) error {
 	// Solved is irreversible, including attempts to replace its reason.
@@ -189,4 +202,94 @@ func cloneTime(t *time.Time) *time.Time {
 	}
 	copy := *t
 	return &copy
+}
+
+// ReadyForAccess is the single managed canonical acknowledgement predicate.
+// Generic Ready, including historical revision1 rows, is never an operation receipt.
+func (l *Lab) ReadyForAccess() bool {
+	return l.DesiredState == "Running" && l.ClosedAt == nil && l.ActualState == "Running" && l.RuntimeReady && l.AgentUID != "" && l.AgentGeneration > 0 && l.OperationID != uuid.Nil && l.Revision > 0 && l.ObservedRevision == l.Revision && l.ObservedAt != nil && l.Allocation.RuntimeState == "Allocated" && l.Allocation.ObservedAt != nil
+}
+
+func cloneUUID(id *uuid.UUID) *uuid.UUID {
+	if id == nil {
+		return nil
+	}
+	v := *id
+	return &v
+}
+
+// CaptureRuntimeStage keeps the preparation's original runtime boundary when an
+// authorized upcoming set assignment moves to another stage.
+func (l *Lab) CaptureRuntimeStage(stageID *uuid.UUID, now time.Time) {
+	if !l.RuntimeStageKnown {
+		l.RuntimeStageID = cloneUUID(stageID)
+		l.RuntimeStageKnown = true
+		l.UpdatedAt = now
+	}
+}
+func (l *Lab) AuthorizeRuntimeStage(stageID uuid.UUID, now time.Time) bool {
+	if stageID == uuid.Nil || l.CloseReason == "solved" || l.DesiredState == "Deleted" {
+		return false
+	}
+	l.RuntimeStageID = cloneUUID(&stageID)
+	l.RuntimeStageKnown = true
+	l.UpdatedAt = now
+	return true
+}
+func (l *Lab) ApplyBoundaryRetention(base time.Time, override *int32, now time.Time) {
+	minutes := l.RetentionMinutes
+	if override != nil {
+		minutes = *override
+	}
+	l.SetRetentionDeadline(base.Add(time.Duration(minutes)*time.Minute), now)
+}
+func (l *Lab) RestartBudgetCandidate() Lab {
+	candidate := *l
+	candidate.DesiredState = "Running"
+	candidate.RuntimeReady = false
+	candidate.Allocation.RuntimeState = "Admitted"
+	candidate.Allocation.ReleasedAt = nil
+	candidate.ClosedAt = nil
+	return candidate
+}
+
+// CreationReceipt is immutable identity evidence, never runtime/storage release.
+type CreationReceipt struct {
+	GroupUID, NamespaceUID, DefinitionHash, CreationID, LabUID string
+	OperationID                                                uuid.UUID
+	Revision                                                   int64
+	Committed                                                  bool
+}
+
+func (l *Lab) RecordCreateDispatch(groupUID, definitionHash string, initialOperation uuid.UUID, now time.Time) bool {
+	if l.DesiredState != "Running" || l.ClosedAt != nil || l.Revision != 1 || l.OperationID != initialOperation || initialOperation == uuid.Nil || groupUID == "" || definitionHash == "" || !l.Allocation.ConfiguredRequestsKnown || l.Allocation.RuntimeState != "Admitted" {
+		return false
+	}
+	if e := l.CreateEvidence; e != nil {
+		return e.Ref == l.Ref && e.GroupUID == groupUID && e.DefinitionHash == definitionHash && e.OperationID == initialOperation && e.Revision == 1 && e.DeploymentGeneration == l.Generation
+	}
+	l.CreateEvidence = &CreateEvidence{Ref: l.Ref, GroupUID: groupUID, DefinitionHash: definitionHash, OperationID: initialOperation, Revision: 1, DeploymentGeneration: l.Generation}
+	l.UpdatedAt = now
+	return true
+}
+func (l *Lab) AdoptCreationReceipt(o Observation, now time.Time) bool {
+	e, b := l.CreateEvidence, o.Creation
+	if e == nil || b == nil || l.AgentUID != "" || l.DesiredState == "Deleted" || o.Ref != l.Ref || e.Ref != l.Ref || e.DeploymentGeneration != l.Generation || !b.Committed || e.GroupUID == "" || b.GroupUID != e.GroupUID || b.NamespaceUID == "" || b.CreationID == "" || e.DefinitionHash == "" || b.DefinitionHash != e.DefinitionHash || b.OperationID != e.OperationID || b.Revision != e.Revision || e.OperationID == uuid.Nil || e.Revision != 1 || b.LabUID == "" || o.UID != b.LabUID || o.Generation <= 0 {
+		return false
+	}
+	if e.CreationID != "" && e.CreationID != b.CreationID {
+		return false
+	}
+	if e.NamespaceUID != "" && e.NamespaceUID != b.NamespaceUID {
+		return false
+	}
+	// Copy before mutation so a caller's prior entity remains immutable CAS input.
+	copy := *e
+	copy.NamespaceUID = b.NamespaceUID
+	copy.CreationID = b.CreationID
+	l.CreateEvidence = &copy
+	l.AgentUID = b.LabUID
+	l.AgentGeneration = o.Generation
+	l.UpdatedAt = now
+	return true
 }

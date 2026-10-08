@@ -626,8 +626,9 @@ func TestCreatedGroupCannotBeSilentlyUndersized(t *testing.T) {
 
 func TestManagedCreateCarriesCanonicalInitialRunningIntent(t *testing.T) {
 	f := &fakeAgent{groups: readyGroup()}
+	f.groups[0].Uid = "fixture-group"
 	op := uuid.Must(uuid.NewV7())
-	err := newClient(f).DeployLab(context.Background(), "event-team", "lab", infraModel.LabMeta{InitialLifecycle: &infraModel.LabInitialLifecycle{OperationID: op, Revision: 1}}, exerciseModel.Topology{})
+	err := newClient(f).DeployLab(context.Background(), "event-team", "lab", infraModel.LabMeta{BeforeCreate: func(context.Context, infraModel.LabCreateDispatch) error { return nil }, InitialLifecycle: &infraModel.LabInitialLifecycle{OperationID: op, Revision: 1}}, exerciseModel.Topology{})
 	if err != nil {
 		t.Fatal(err)
 	}

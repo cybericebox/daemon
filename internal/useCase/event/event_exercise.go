@@ -15,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
@@ -619,6 +620,11 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 			return eventExerciseModel.EventExercise{}, eventExerciseModel.ErrEventExerciseNotActive.Err()
 		}
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to switch event exercise").Err()
+	}
+	if u.lifecycleControls {
+		if _, err = eventLabRevealRepo.New(repo).Freeze(ctx, eventID, switched.ID, now); err != nil {
+			return eventExerciseModel.EventExercise{}, err
+		}
 	}
 	return switched, nil
 }

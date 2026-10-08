@@ -16,6 +16,7 @@ import (
 )
 
 type Queries interface {
+	RecordEventLabBirthIdentity(context.Context, postgres.RecordEventLabBirthIdentityParams) (int64, error)
 	RecordEventLabRetirement(context.Context, postgres.RecordEventLabRetirementParams) (int64, error)
 	RecordEventTeamLabInitialReadiness(context.Context, postgres.RecordEventTeamLabInitialReadinessParams) (int64, error)
 	LockEventForLabSourceChange(context.Context, uuid.UUID) (uuid.UUID, error)
@@ -78,7 +79,7 @@ func (r *Repository) Create(ctx context.Context, l eventLabModel.Lab, ids []uuid
 		return err
 	}
 	return r.q.CreateEventTeamLab(ctx, postgres.CreateEventTeamLabParams{
-		DefinitionVersionID: uuid.NullUUID{UUID: l.DefinitionVersionID, Valid: l.DefinitionVersionID != uuid.Nil}, DefinitionHash: l.DefinitionHash, RetentionMinutes: l.RetentionMinutes, ObjectiveIds: ids,
+		CreateEvidence: jsonOf(l.CreateEvidence), RuntimeStageID: nullableUUID(l.RuntimeStageID), RuntimeStageKnown: l.RuntimeStageKnown, DefinitionVersionID: uuid.NullUUID{UUID: l.DefinitionVersionID, Valid: l.DefinitionVersionID != uuid.Nil}, DefinitionHash: l.DefinitionHash, RetentionMinutes: l.RetentionMinutes, ObjectiveIds: ids,
 		ID:                   l.ID,
 		EventID:              l.EventID,
 		EventTeamID:          l.TeamID,
@@ -121,7 +122,7 @@ func (r *Repository) Update(ctx context.Context, l eventLabModel.Lab, expectedRe
 	if err != nil {
 		return false, err
 	}
-	n, err := r.q.UpdateEventTeamLab(ctx, postgres.UpdateEventTeamLabParams{RetirementStopTarget: jsonOf(l.RetirementStopTarget), RetirementState: retirementState(l.RetirementState), RetirementObservedAt: timestamp(l.RetirementObservedAt), RetirementError: l.RetirementError, RetentionMinutes: l.RetentionMinutes,
+	n, err := r.q.UpdateEventTeamLab(ctx, postgres.UpdateEventTeamLabParams{CreateEvidence: jsonOf(l.CreateEvidence), RuntimeStageID: nullableUUID(l.RuntimeStageID), RuntimeStageKnown: l.RuntimeStageKnown, RetirementStopTarget: jsonOf(l.RetirementStopTarget), RetirementState: retirementState(l.RetirementState), RetirementObservedAt: timestamp(l.RetirementObservedAt), RetirementError: l.RetirementError, RetentionMinutes: l.RetentionMinutes,
 		AgentUid:             l.AgentUID,
 		AgentGeneration:      l.AgentGeneration,
 		DesiredRevision:      l.Revision,
@@ -232,7 +233,16 @@ func ToDomain(row postgres.EventTeamLab) (eventLabModel.Lab, error) {
 	}
 	var retirementTarget *eventLabModel.Target
 	_ = json.Unmarshal(row.RetirementStopTarget, &retirementTarget)
-	return eventLabModel.Lab{DefinitionVersionID: row.DefinitionVersionID.UUID, DefinitionHash: row.DefinitionHash, RetirementStopTarget: retirementTarget, RetirementState: row.RetirementState, RetirementObservedAt: timePtr(row.RetirementObservedAt), RetirementError: row.RetirementError, RetentionMinutes: row.RetentionMinutes, ID: row.ID, EventID: row.EventID, TeamID: row.EventTeamID, EventExerciseID: row.EventExerciseID, Ref: eventLabModel.Ref{Group: row.LabGroupName, Lab: row.LabName}, VariantIndex: row.VariantIndex, Generation: row.Generation, AgentUID: row.AgentUid, AgentGeneration: row.AgentGeneration, Revision: row.DesiredRevision, ObservedRevision: row.ObservedRevision, OperationID: row.OperationID, DesiredState: row.DesiredState, ActualState: row.ActualState, CloseReason: row.CloseReason.String, SnapshotMode: row.SnapshotMode, SnapshotState: row.SnapshotState, ClosedAt: timePtr(row.LogicalClosedAt), RetentionUntil: timePtr(row.RetentionUntil), ProtectedUntil: timePtr(row.ProtectedUntil), ActualStoppedAt: timePtr(row.ActualStoppedAt), ObservedAt: timePtr(row.ObservedAt), ObjectiveCount: row.ObjectiveCount, Materialized: row.Materialized, RuntimeReady: row.RuntimeReady, Allocation: allocation, FailureCode: row.FailureCode, FailureMessage: row.FailureMessage, AccessFenced: row.AccessFenced, AccessFencedAt: timePtr(row.AccessFencedAt), AccessFenceVPNBootID: row.AccessFenceVpnBootID, NextAttemptAt: row.NextAttemptAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
+	var createEvidence *eventLabModel.CreateEvidence
+	if err := json.Unmarshal(row.CreateEvidence, &createEvidence); len(row.CreateEvidence) > 0 && err != nil {
+		return eventLabModel.Lab{}, err
+	}
+	var runtimeStage *uuid.UUID
+	if row.RuntimeStageID.Valid {
+		v := row.RuntimeStageID.UUID
+		runtimeStage = &v
+	}
+	return eventLabModel.Lab{CreateEvidence: createEvidence, RuntimeStageID: runtimeStage, RuntimeStageKnown: row.RuntimeStageKnown, DefinitionVersionID: row.DefinitionVersionID.UUID, DefinitionHash: row.DefinitionHash, RetirementStopTarget: retirementTarget, RetirementState: row.RetirementState, RetirementObservedAt: timePtr(row.RetirementObservedAt), RetirementError: row.RetirementError, RetentionMinutes: row.RetentionMinutes, ID: row.ID, EventID: row.EventID, TeamID: row.EventTeamID, EventExerciseID: row.EventExerciseID, Ref: eventLabModel.Ref{Group: row.LabGroupName, Lab: row.LabName}, VariantIndex: row.VariantIndex, Generation: row.Generation, AgentUID: row.AgentUid, AgentGeneration: row.AgentGeneration, Revision: row.DesiredRevision, ObservedRevision: row.ObservedRevision, OperationID: row.OperationID, DesiredState: row.DesiredState, ActualState: row.ActualState, CloseReason: row.CloseReason.String, SnapshotMode: row.SnapshotMode, SnapshotState: row.SnapshotState, ClosedAt: timePtr(row.LogicalClosedAt), RetentionUntil: timePtr(row.RetentionUntil), ProtectedUntil: timePtr(row.ProtectedUntil), ActualStoppedAt: timePtr(row.ActualStoppedAt), ObservedAt: timePtr(row.ObservedAt), ObjectiveCount: row.ObjectiveCount, Materialized: row.Materialized, RuntimeReady: row.RuntimeReady, Allocation: allocation, FailureCode: row.FailureCode, FailureMessage: row.FailureMessage, AccessFenced: row.AccessFenced, AccessFencedAt: timePtr(row.AccessFencedAt), AccessFenceVPNBootID: row.AccessFenceVpnBootID, NextAttemptAt: row.NextAttemptAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}, nil
 }
 func timestamp(t *time.Time) pgtype.Timestamptz {
 	if t == nil {
@@ -352,4 +362,27 @@ func retirementState(s string) string {
 		return "Unknown"
 	}
 	return s
+}
+
+func nullableUUID(v *uuid.UUID) uuid.NullUUID {
+	if v == nil {
+		return uuid.NullUUID{}
+	}
+	return uuid.NullUUID{UUID: *v, Valid: true}
+}
+
+func (r *Repository) RecordBirthIdentity(ctx context.Context, id uuid.UUID, o eventLabModel.Observation, now time.Time) (bool, error) {
+	row, err := r.q.GetEventTeamLab(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	l, err := ToDomain(row)
+	if err != nil {
+		return false, err
+	}
+	if !l.AdoptCreationReceipt(o, now) {
+		return false, nil
+	}
+	n, err := r.q.RecordEventLabBirthIdentity(ctx, postgres.RecordEventLabBirthIdentityParams{ID: id, AgentUid: l.AgentUID, AgentGeneration: l.AgentGeneration, CreateEvidence: jsonOf(l.CreateEvidence), ExpectedCreateEvidence: row.CreateEvidence, DesiredRevision: l.Revision, Generation: l.Generation, LabGroupName: l.Ref.Group, LabName: l.Ref.Lab, Now: now})
+	return n == 1, err
 }

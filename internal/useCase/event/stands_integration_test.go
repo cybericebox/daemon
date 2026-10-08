@@ -98,6 +98,15 @@ func (a *standAgent) RescueDevice(_ context.Context, group, lab, device string, 
 }
 
 func (a *standAgent) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topology exerciseModel.Topology) error {
+	// Synthetic immutable creation identity for managed consumer/SQL tests only.
+	if meta.InitialLifecycle != nil {
+		if meta.BeforeCreate == nil {
+			return errors.New("managed fixture missing before-create reservation")
+		}
+		if err := meta.BeforeCreate(ctx, infraModel.LabCreateDispatch{GroupUID: "fixture-group-" + group, DefinitionHash: "fixture-create-definition"}); err != nil {
+			return err
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.beforeDeploy != nil {
@@ -968,5 +977,16 @@ func (a *standAgent) StartLab(context.Context, eventLabModel.Target) error {
 func (a *standAgent) ObserveLab(_ context.Context, ref eventLabModel.Ref) (eventLabModel.Observation, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.observations[ref], a.statusErr
+	o := a.observations[ref]
+	if meta, ok := a.metas[ref.Group+"/"+ref.Lab]; ok && meta.InitialLifecycle != nil {
+		if o.UID == "" {
+			o.Ref = ref
+			o.UID = "uid-" + ref.Group + "/" + ref.Lab
+			o.Generation = 1
+			o.DesiredState = "Running"
+			o.ActualState = "Unknown"
+		}
+		o.Creation = &eventLabModel.CreationReceipt{GroupUID: "fixture-group-" + ref.Group, NamespaceUID: "fixture-namespace", DefinitionHash: "fixture-create-definition", CreationID: "fixture-birth-" + ref.Lab, LabUID: "uid-" + ref.Group + "/" + ref.Lab, OperationID: meta.InitialLifecycle.OperationID, Revision: 1, Committed: true}
+	}
+	return o, a.statusErr
 }

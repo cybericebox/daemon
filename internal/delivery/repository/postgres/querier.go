@@ -59,6 +59,7 @@ type Querier interface {
 	CompleteRequestIdempotency(ctx context.Context, arg CompleteRequestIdempotencyParams) (int64, error)
 	CompleteSignalHookExecution(ctx context.Context, arg CompleteSignalHookExecutionParams) (int64, error)
 	CompleteSignalOutbox(ctx context.Context, arg CompleteSignalOutboxParams) (int64, error)
+	ConsumeEventStageRuntimeSelection(ctx context.Context, arg ConsumeEventStageRuntimeSelectionParams) (int64, error)
 	CountActiveExerciseTestDeploys(ctx context.Context, arg CountActiveExerciseTestDeploysParams) (int64, error)
 	CountApprovedEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error)
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
@@ -634,7 +635,7 @@ type Querier interface {
 	ListDispatches(ctx context.Context, arg ListDispatchesParams) ([]ListDispatchesRow, error)
 	ListDueRetainedEventLabs(ctx context.Context, arg ListDueRetainedEventLabsParams) ([]EventTeamLab, error)
 	ListDueRetainedGroups(ctx context.Context, arg ListDueRetainedGroupsParams) ([]EventTeamGroupAllocation, error)
-	ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]EventTeamLab, error)
+	ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]ListDueStageRuntimeSelectionsRow, error)
 	ListDueTimedEventFormAssignmentsForUpdate(ctx context.Context, arg ListDueTimedEventFormAssignmentsForUpdateParams) ([]EventFormAssignment, error)
 	ListEffectiveCorrectAttemptIDs(ctx context.Context, teamChallengeID uuid.UUID) ([]uuid.UUID, error)
 	// Event rows are overrides of platform_signal_notification_defaults: the
@@ -1298,6 +1299,7 @@ type Querier interface {
 	LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	// Serializes team creation inside one event while the surrounding UoW is open.
 	LockEventForTeamChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	LockEventStageRuntimeSelection(ctx context.Context, arg LockEventStageRuntimeSelectionParams) (EventStageLabRuntimeMembership, error)
 	// Locks one team challenge so an annulment serializes with submission-time
 	// scoring and single decisions (they lock the same row).
 	LockEventTeamChallenge(ctx context.Context, arg LockEventTeamChallengeParams) (uuid.UUID, error)
@@ -1434,6 +1436,9 @@ type Querier interface {
 	QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Time) error
 	RecomputeEventGroupRetentionPins(ctx context.Context, eventID uuid.UUID) error
 	RecomputeEventLabRetentionPins(ctx context.Context, arg RecomputeEventLabRetentionPinsParams) error
+	// Immutable committed original birth is identity only; desired intent and all
+	// compute/storage holdings survive closure/adoption and concurrent admission.
+	RecordEventLabBirthIdentity(ctx context.Context, arg RecordEventLabBirthIdentityParams) (int64, error)
 	RecordEventLabRetirement(ctx context.Context, arg RecordEventLabRetirementParams) (int64, error)
 	RecordEventTeamLabInitialIdentity(ctx context.Context, arg RecordEventTeamLabInitialIdentityParams) (int64, error)
 	// Initial deployment has no lifecycle operation status yet. Adopt current
@@ -1458,6 +1463,7 @@ type Querier interface {
 	ReleasePlatformSMTPSend(ctx context.Context, arg ReleasePlatformSMTPSendParams) error
 	// Leaving the event: an approved participant becomes rejected and loses the team.
 	RemoveEventParticipantFromEvent(ctx context.Context, arg RemoveEventParticipantFromEventParams) (int64, error)
+	RemoveEventSetRuntimeSelections(ctx context.Context, arg RemoveEventSetRuntimeSelectionsParams) error
 	RemoveEventStageRuntimeSelections(ctx context.Context, stageID uuid.UUID) error
 	RemoveEventTeamStands(ctx context.Context, arg RemoveEventTeamStandsParams) error
 	// Priorities become the position in the given list (0, 1, ...); providers not

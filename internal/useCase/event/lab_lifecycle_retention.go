@@ -11,6 +11,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
@@ -329,60 +330,108 @@ func (u *EventUseCase) ReconcileLabRetention(ctx context.Context, now time.Time)
 // Due runtime selection is explicit system work; it never restarts solved IDs
 // or a manually stopped Lab outside its exact persisted stage membership.
 func (u *EventUseCase) prepareRetainedStageSelections(ctx context.Context, eventID uuid.UUID, now time.Time) error {
-	selected, err := eventLabRetentionRepo.New(u.repo).DueSelections(ctx, eventID, now)
+	selections, err := eventLabRetentionRepo.New(u.repo).DueSelections(ctx, eventID, now)
 	if err != nil {
 		return err
 	}
-	for _, snapshot := range selected {
-		txCtx, q, unit, e := u.uow.UnitOfWork(ctx)
-		if e != nil {
-			return e
+	for _, snapshot := range selections {
+		txCtx, q, unit, err := u.uow.UnitOfWork(ctx)
+		if err != nil {
+			return err
 		}
-		e = func() error {
+		err = func() error {
 			defer unit.Restore()
-			if _, e = q.LockEventForLabSourceChange(txCtx, eventID); e != nil {
-				return e
+			if _, err := q.LockEventForLabSourceChange(txCtx, eventID); err != nil {
+				return err
 			}
-			if e = q.LockResourceCalendar(txCtx); e != nil {
-				return e
+			if err := q.LockResourceCalendar(txCtx); err != nil {
+				return err
 			}
-			if e = eventLabRepo.New(q).LockAdmission(txCtx, snapshot.TeamID); e != nil {
-				return e
+			if err := eventLabRepo.New(q).LockAdmission(txCtx, snapshot.Lab.TeamID); err != nil {
+				return err
 			}
-			l, e := eventLabRepo.New(q).Lock(txCtx, snapshot.ID)
-			if e != nil {
-				return e
+			l, err := eventLabRepo.New(q).Lock(txCtx, snapshot.Lab.ID)
+			if err != nil {
+				return err
 			}
-			if l.CloseReason == "solved" || l.DesiredState != "Stopped" {
+			selected := eventLabRetentionRepo.New(q)
+			if err = selected.LockSelection(txCtx, eventID, snapshot, now); repositoryTools.IsObjectNotFoundError(err) {
+				return nil
+			} else if err != nil {
+				return err
+			}
+			e, err := eventRepo.New(q).GetByID(txCtx, eventID)
+			if err != nil {
+				return err
+			}
+			if !e.InfrastructureAllowed {
+				return nil
+			}
+			if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil && !now.Before(*finish) {
+				return nil
+			}
+			stage, err := eventStageRepo.New(q).Get(txCtx, eventID, snapshot.StageID)
+			if err != nil {
+				return err
+			}
+			if !now.Before(stage.ClosesAt) || l.Generation != snapshot.Lab.Generation || l.CloseReason == "solved" || l.DesiredState == "Deleted" {
+				return nil
+			}
+			if l.Revision != snapshot.Revision && !(l.DesiredState == "Stopped" && l.CloseReason == "stage" && l.Revision == snapshot.Revision+1) {
+				return nil
+			}
+			if err = requireTeamAdmitted(txCtx, eventTeamRepo.New(q), eventID, l.TeamID); err != nil {
+				return err
+			}
+			caps, known := u.labCaps(txCtx, l.Ref.Group)
+			if !known || !caps.ConfirmedRuntime || !caps.RetainedRestart {
 				return nil
 			}
 			expected := l.Revision
-			if e = l.Start(uuid.Must(uuid.NewV7()), now); e != nil {
-				return e
+			if l.DesiredState == "Stopped" {
+				if err = l.Start(uuid.Must(uuid.NewV7()), now); err != nil {
+					return err
+				}
+				if !l.Admit(l.Allocation.ConfiguredRequests, l.Allocation.SnapshotQuotaBytes, now) && !l.AdmitKnown(l.Allocation.ConfiguredRequests, l.Allocation.SnapshotQuotaBytes, l.DefinitionHash, l.Generation, now) {
+					return fmt.Errorf("retained stage request is unknown")
+				}
+				cfg, err := eventConfigRepo.New(q).Get(txCtx, eventID)
+				if err != nil {
+					return err
+				}
+				if err = u.reserveLabCandidateInTransaction(txCtx, q, l, cfg, now); err != nil {
+					return err
+				}
+				if err = u.requestGroupRunningInTransaction(txCtx, q, eventID, l.TeamID, l.Ref.Group, now); err != nil {
+					return err
+				}
+			} else if l.DesiredState != "Running" {
+				return nil
 			}
-			if !l.Admit(l.Allocation.ConfiguredRequests, l.Allocation.SnapshotQuotaBytes, now) && !l.AdmitKnown(l.Allocation.ConfiguredRequests, l.Allocation.SnapshotQuotaBytes, l.DefinitionHash, l.Generation, now) {
-				return fmt.Errorf("retained stage request is unknown")
+			if !l.AuthorizeRuntimeStage(snapshot.StageID, now) {
+				return nil
 			}
-			cfg, e := eventConfigRepo.New(q).Get(txCtx, eventID)
-			if e != nil {
-				return e
+			updated, err := eventLabRepo.New(q).Update(txCtx, l, expected)
+			if err != nil {
+				return err
 			}
-			if e = u.reserveLabCandidateInTransaction(txCtx, q, l, cfg, now); e != nil {
-				return e
+			if !updated {
+				return fmt.Errorf("stage preparation revision changed")
 			}
-			if e = u.requestGroupRunningInTransaction(txCtx, q, eventID, l.TeamID, l.Ref.Group, now); e != nil {
-				return e
+			consumed, err := selected.Consume(txCtx, snapshot, l.Revision, now)
+			if err != nil {
+				return err
 			}
-			if _, e = eventLabRepo.New(q).Update(txCtx, l, expected); e != nil {
-				return e
+			if !consumed {
+				return fmt.Errorf("stage preparation authorization changed")
 			}
-			if e = u.requestLabAccessSyncInTransaction(txCtx, q, l.TeamID, now); e != nil {
-				return e
+			if err = u.requestLabAccessSyncInTransaction(txCtx, q, l.TeamID, now); err != nil {
+				return err
 			}
 			return unit.Save()
 		}()
-		if e != nil {
-			return e
+		if err != nil {
+			return err
 		}
 	}
 	return nil

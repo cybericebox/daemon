@@ -3,8 +3,10 @@ package event
 import (
 	"context"
 	"fmt"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	"github.com/gofrs/uuid"
 	"time"
@@ -23,11 +25,16 @@ func (u *EventUseCase) observeInitialManagedLab(ctx context.Context, binding lab
 	if l.DesiredState != "Running" || l.ClosedAt != nil || l.Revision != 1 || l.Ref.Group != binding.LabGroupName || l.Ref.Lab != binding.LabName {
 		return false, nil
 	}
+	port, ok := u.infra.(LabLifecycleInfrastructure)
+	if !ok {
+		return false, fmt.Errorf("managed initial lifecycle observation unavailable")
+	}
+	o, err := port.ObserveLab(ctx, l.Ref)
+	if err != nil {
+		return false, err
+	}
 	if l.AgentUID == "" {
-		if status.LabUID == "" || status.LabGeneration <= 0 {
-			return false, nil
-		}
-		adopted, err := u.labs.RecordInitialIdentity(ctx, l.ID, l.Ref, status.LabUID, status.LabGeneration, now)
+		adopted, err := u.labs.RecordBirthIdentity(ctx, l.ID, o, now)
 		if err != nil {
 			return false, err
 		}
@@ -41,14 +48,6 @@ func (u *EventUseCase) observeInitialManagedLab(ctx context.Context, binding lab
 	}
 	if status.LabUID != l.AgentUID {
 		return false, nil
-	}
-	port, ok := u.infra.(LabLifecycleInfrastructure)
-	if !ok {
-		return false, fmt.Errorf("managed initial lifecycle observation unavailable")
-	}
-	o, err := port.ObserveLab(ctx, l.Ref)
-	if err != nil {
-		return false, err
 	}
 	if _, err = u.labs.RecordObservation(ctx, l.ID, o); err != nil {
 		return false, err
@@ -66,7 +65,7 @@ func (u *EventUseCase) observeInitialManagedLab(ctx context.Context, binding lab
 	}
 	// An existing lifecycle-less copy can adopt the same persisted initial intent
 	// only through a current UID-fenced qualified command. Acceptance stays pending.
-	if o.UID == current.AgentUID && o.OperationID == uuid.Nil {
+	if current.CreateEvidence == nil && o.Creation == nil && o.UID == current.AgentUID && o.OperationID == uuid.Nil {
 		caps, known := u.labCaps(ctx, current.Ref.Group)
 		if known && caps.ConfirmedRuntime && caps.RetainedRestart {
 			commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -77,4 +76,36 @@ func (u *EventUseCase) observeInitialManagedLab(ctx context.Context, binding lab
 		}
 	}
 	return false, nil
+}
+
+func (u *EventUseCase) recordInitialCreateDispatch(ctx context.Context, initial eventLabModel.Lab, dispatch infraModel.LabCreateDispatch) error {
+	if u.uow == nil {
+		return fmt.Errorf("managed create identity transaction unavailable")
+	}
+	txCtx, q, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	if _, err = q.LockEventForLabSourceChange(txCtx, initial.EventID); err != nil {
+		return err
+	}
+	if err = eventLabRepo.New(q).LockAdmission(txCtx, initial.TeamID); err != nil {
+		return err
+	}
+	l, err := eventLabRepo.New(q).Lock(txCtx, initial.ID)
+	if err != nil {
+		return err
+	}
+	if l.Ref != initial.Ref || l.Generation != initial.Generation || !l.RecordCreateDispatch(dispatch.GroupUID, dispatch.DefinitionHash, initial.OperationID, time.Now().UTC()) {
+		return eventLabModel.ErrAccessClosed.Err()
+	}
+	updated, err := eventLabRepo.New(q).Update(txCtx, l, l.Revision)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return fmt.Errorf("managed create intent changed")
+	}
+	return unit.Save()
 }

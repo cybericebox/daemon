@@ -57,34 +57,11 @@ func (u *EventUseCase) participantLabCapabilities(ctx context.Context, lab event
 		return out, nil
 	}
 	stop, restart := lab.ManualCapabilities(cfg.TaskRevealMode == eventConfigModel.RevealAsReady, reachable && e.Lifecycle.RuntimeOpen(time.Now().UTC()), time.Now().UTC())
-	out.CanStop = stop && caps.PerLabStop && caps.ConfirmedRuntime && (lab.SnapshotMode != "required" || caps.RequiredSnapshot)
+	out.CanStop = stop && lab.ReadyForAccess() && caps.PerLabStop && caps.ConfirmedRuntime && (lab.SnapshotMode != "required" || caps.RequiredSnapshot)
 	out.CanRestart = restart && caps.RetainedRestart && caps.ConfirmedRuntime
 	if out.CanRestart {
-		rows, e := u.labsForBudget(ctx, lab.EventID)
-		if e != nil {
-			return out, e
-		}
-		active := int32(0)
-		for _, other := range rows {
-			if other.ID != lab.ID && other.TeamID == lab.TeamID && other.HoldsRuntime() {
-				active++
-			}
-		}
-		if limit := cfg.EffectiveLabPolicy().MaxActiveLabsPerTeam; limit != nil && active >= *limit {
-			out.CanRestart = false
-			return out, nil
-		}
-		totals, err := u.labResourceTotals(ctx, lab.EventID, time.Now().UTC())
-		if err != nil {
-			return out, err
-		}
-		budget, err := u.allocationBudget(ctx, lab.EventID)
-		if err != nil {
-			out.CanRestart = false
-			return out, nil
-		}
-		need := lab.Allocation.ConfiguredRequests
-		out.CanRestart = totals.Held.CPUMillicores+need.CPUMillicores <= budget.Size.CPUMillicores && totals.Held.MemoryBytes+need.MemoryBytes <= budget.Size.MemoryBytes && totals.Storage.SnapshotQuotaBytes <= budget.SizeSnapshotQuotaBytes
+		candidate := lab.RestartBudgetCandidate()
+		out.CanRestart = u.checkLabCandidateBudget(ctx, u.repo, candidate, cfg, time.Now().UTC()) == nil
 	}
 	return out, nil
 }

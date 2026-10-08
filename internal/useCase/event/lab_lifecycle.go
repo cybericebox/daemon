@@ -139,8 +139,29 @@ func (u *EventUseCase) reconcileStoppedLab(ctx context.Context, lab eventLabMode
 	if !ok {
 		return infraUnavailable()
 	}
-	if lab.AgentUID == "" || lab.AgentGeneration <= 0 {
-		return fmt.Errorf("lab initial identity is unavailable")
+	if lab.AgentUID == "" {
+		birth, err := port.ObserveLab(ctx, lab.Ref)
+		if err != nil {
+			return err
+		}
+		adopted, err := u.labs.RecordBirthIdentity(ctx, lab.ID, birth, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if !adopted {
+			return fmt.Errorf("original lab birth identity unavailable")
+		}
+		current, err := u.labs.Get(ctx, lab.ID)
+		if err != nil {
+			return err
+		}
+		if current.OperationID != lab.OperationID || current.Revision != lab.Revision || current.DesiredState != "Stopped" {
+			return nil
+		}
+		lab = current
+	}
+	if lab.AgentGeneration <= 0 {
+		return fmt.Errorf("lab birth generation unavailable")
 	}
 	if u.infrastructureCapability != nil {
 		if err := u.infrastructureCapability.RequireLaboratories(ctx); err != nil {
@@ -187,10 +208,7 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 		return err
 	}
 	if l.AgentUID == "" {
-		if l.Revision != 1 || o.UID == "" || o.OperationID != l.OperationID || o.Revision != l.Revision || o.DesiredState != "Running" || o.Generation <= 0 || o.ObservedGeneration != o.Generation {
-			return nil
-		}
-		adopted, err := u.labs.RecordInitialIdentity(ctx, l.ID, l.Ref, o.UID, o.Generation, now)
+		adopted, err := u.labs.RecordBirthIdentity(ctx, l.ID, o, now)
 		if err != nil {
 			return err
 		}
@@ -209,6 +227,9 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 		return nil
 	}
 	if current.RuntimeReady && current.ActualState == "Running" && current.ObservedRevision == current.Revision {
+		return nil
+	}
+	if current.Revision == 1 && current.CreateEvidence != nil {
 		return nil
 	}
 	if current.AgentUID == "" || !u.groupAllowsDeployment(ctx, current.TeamID, now) {

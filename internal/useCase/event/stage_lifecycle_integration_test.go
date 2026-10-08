@@ -22,6 +22,10 @@ func TestStageClosureRecordsStopWithoutDeletingProgressOrWorkloads(t *testing.T)
 	require.NoError(t, err)
 	_, err = f.db.Pool.Exec(ctx, `UPDATE event_exercises SET stage_id=$2 WHERE id=$1`, rows[0].EventExerciseID, stageID)
 	require.NoError(t, err)
+	// This synthetic current-stage fixture declares its original runtime stage;
+	// a raw set move alone cannot relabel an already prepared whole-event copy.
+	_, err = f.db.Pool.Exec(ctx, `UPDATE event_team_labs SET runtime_stage_id=$2,runtime_stage_known=true WHERE event_exercise_id=$1`, rows[0].EventExerciseID, stageID)
+	require.NoError(t, err)
 	var before int
 	require.NoError(t, f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM team_challenges WHERE event_id=$1`, f.eventID).Scan(&before))
 	f.uc.SetLifecycleControls(true)

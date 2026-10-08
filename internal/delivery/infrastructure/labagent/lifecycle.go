@@ -122,6 +122,9 @@ func lifecycleObservation(ref eventLabModel.Ref, l *labpb.Lab) eventLabModel.Obs
 	o := unknownObservation(ref)
 	o.UID = l.GetUid()
 	o.Generation = l.GetGeneration()
+	if b := l.GetCreationReceipt(); b != nil {
+		o.Creation = &eventLabModel.CreationReceipt{GroupUID: b.GetGroupUid(), NamespaceUID: b.GetNamespaceUid(), DefinitionHash: b.GetDefinitionHash(), CreationID: b.GetCreationId(), LabUID: b.GetLabUid(), OperationID: uuid.FromStringOrNil(b.GetOperationId()), Revision: b.GetRevision(), Committed: b.GetCommitted()}
+	}
 	s := l.GetStatus()
 	o.Retirement = retirementObservation(s.GetRetirement())
 	life := s.GetLifecycle()

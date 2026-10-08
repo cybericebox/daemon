@@ -422,6 +422,16 @@ type EventStage struct {
 	LabRetentionMinutes pgtype.Int4 `json:"lab_retention_minutes"`
 }
 
+type EventStageLabRuntimeMembership struct {
+	StageID          uuid.UUID          `json:"stage_id"`
+	LabID            uuid.UUID          `json:"lab_id"`
+	Generation       int32              `json:"generation"`
+	CreatedAt        time.Time          `json:"created_at"`
+	SelectedRevision int64              `json:"selected_revision"`
+	ConsumedRevision pgtype.Int8        `json:"consumed_revision"`
+	ConsumedAt       pgtype.Timestamptz `json:"consumed_at"`
+}
+
 type EventStandRollout struct {
 	EventID    uuid.UUID          `json:"event_id"`
 	OpenedAt   pgtype.Timestamptz `json:"opened_at"`
@@ -538,6 +548,9 @@ type EventTeamLab struct {
 	RetirementState      string             `json:"retirement_state"`
 	RetirementObservedAt pgtype.Timestamptz `json:"retirement_observed_at"`
 	RetirementError      string             `json:"retirement_error"`
+	CreateEvidence       []byte             `json:"create_evidence"`
+	RuntimeStageID       uuid.NullUUID      `json:"runtime_stage_id"`
+	RuntimeStageKnown    bool               `json:"runtime_stage_known"`
 }
 
 type EventTeamStand struct {

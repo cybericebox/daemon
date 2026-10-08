@@ -93,11 +93,25 @@ func (u *EventUseCase) GetOwnChallengeRuntime(ctx context.Context, eventID, user
 	lab, err := u.labs.GetForChallenge(ctx, *p.TeamID, challengeID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
+			binding, bindingErr := u.labBindings.Get(ctx, *p.TeamID, challengeID)
+			if bindingErr == nil && !binding.LabID.Valid {
+				if _, err = u.requireEventLaboratories(ctx, eventID); err != nil {
+					return ChallengeRuntimeView{}, err
+				}
+				if u.infra == nil {
+					return ChallengeRuntimeView{}, infraUnavailable()
+				}
+				status, statusErr := u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
+				return ChallengeRuntimeView{Status: status}, statusErr
+			}
 			return ChallengeRuntimeView{}, eventStandModel.ErrStandLabNotFound.Err()
 		}
 		return ChallengeRuntimeView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read runtime laboratory lifecycle").Err()
 	}
-	safe := participantLabView(lab)
+	safe, err := u.participantLabCapabilities(ctx, lab)
+	if err != nil {
+		return ChallengeRuntimeView{}, err
+	}
 	out := ChallengeRuntimeView{Lab: &safe, Status: exerciseModel.LabDeployStatus{Access: []exerciseModel.LabAccess{}}}
 	if safe.LogicalClosed || lab.DesiredState != "Running" {
 		out.Status.Phase = "Closed"
@@ -117,7 +131,10 @@ func (u *EventUseCase) GetOwnChallengeRuntime(ctx context.Context, eventID, user
 	if err != nil {
 		return ChallengeRuntimeView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to recheck runtime laboratory lifecycle").Err()
 	}
-	safe = participantLabView(current)
+	safe, err = u.participantLabCapabilities(ctx, current)
+	if err != nil {
+		return ChallengeRuntimeView{}, err
+	}
 	out.Lab = &safe
 	// Never hand out stale addresses when closure/start changed during the live read.
 	if current.ClosedAt != nil || current.ID != lab.ID || current.Revision != lab.Revision || current.DesiredState != "Running" {
@@ -125,7 +142,7 @@ func (u *EventUseCase) GetOwnChallengeRuntime(ctx context.Context, eventID, user
 		return out, nil
 	}
 	out.Status = status
-	if !current.RuntimeReady || current.ActualState != "Running" || !status.Ready || status.LabUID != current.AgentUID || status.LabGeneration < current.AgentGeneration {
+	if !current.ReadyForAccess() || !status.Ready || status.LabUID != current.AgentUID || status.LabGeneration < current.AgentGeneration {
 		out.Status.Ready = false
 		out.Status.Phase = safe.RuntimeState
 		out.Status.Access = []exerciseModel.LabAccess{}

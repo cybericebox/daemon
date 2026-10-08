@@ -15,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
@@ -697,6 +698,9 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 			return nil
 		}
 		meta.InitialLifecycle = &infraModel.LabInitialLifecycle{OperationID: canonical.OperationID, Revision: canonical.Revision}
+		meta.BeforeCreate = func(ctx context.Context, dispatch infraModel.LabCreateDispatch) error {
+			return u.recordInitialCreateDispatch(ctx, canonical, dispatch)
+		}
 	}
 	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).
 	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, meta, topology); err != nil {
@@ -1014,11 +1018,22 @@ func ensureEventTeamLabWithPreparation(ctx context.Context, repo IRepository, ev
 			}
 		}
 		var retention *time.Time
-		if finish := event.Lifecycle.EffectiveFinishAt(); finish != nil {
+		if attachment.StageID != nil {
+			stage, err := eventStageRepo.New(repo).Get(ctx, eventID, *attachment.StageID)
+			if err != nil {
+				return eventLabModel.Lab{}, err
+			}
+			minutes := policy.RetentionMinutes
+			if stage.LabRetentionMinutes != nil {
+				minutes = *stage.LabRetentionMinutes
+			}
+			until := stage.ClosesAt.Add(time.Duration(minutes) * time.Minute)
+			retention = &until
+		} else if finish := event.Lifecycle.EffectiveFinishAt(); finish != nil {
 			until := finish.Add(time.Duration(policy.RetentionMinutes) * time.Minute)
 			retention = &until
 		}
-		lab, err = eventLabModel.New(eventLabModel.NewInput{DefinitionVersionID: pinnedVersion.ID, DefinitionHash: hash, EventID: eventID, TeamID: teamID, EventExerciseID: eventExerciseID, Ref: first.Ref, VariantIndex: first.VariantIndex, Generation: first.Generation, ObjectiveIDs: ids, Policy: policy, RetentionUntil: retention}, now)
+		lab, err = eventLabModel.New(eventLabModel.NewInput{RuntimeStageKnown: true, RuntimeStageID: attachment.StageID, DefinitionVersionID: pinnedVersion.ID, DefinitionHash: hash, EventID: eventID, TeamID: teamID, EventExerciseID: eventExerciseID, Ref: first.Ref, VariantIndex: first.VariantIndex, Generation: first.Generation, ObjectiveIDs: ids, Policy: policy, RetentionUntil: retention}, now)
 		if err != nil {
 			return eventLabModel.Lab{}, err
 		}

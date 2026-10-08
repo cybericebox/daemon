@@ -50,7 +50,7 @@ func (c *Client) requestLabels() map[string]string {
 // the caller polls LabStatus. The namespace wait is short (group namespace creation is
 // fast), so this returns once the objects are created, not once the lab is Ready.
 func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
-	if meta.InitialLifecycle != nil && (meta.InitialLifecycle.OperationID == uuid.Nil || meta.InitialLifecycle.Revision != 1) {
+	if meta.InitialLifecycle != nil && (meta.InitialLifecycle.OperationID == uuid.Nil || meta.InitialLifecycle.Revision != 1 || meta.BeforeCreate == nil) {
 		return fmt.Errorf("managed initial lifecycle requires a persisted operation and revision1")
 	}
 	if err := c.ensureGroup(ctx, group, meta.GroupLabels); err != nil {
@@ -73,11 +73,29 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 			return err
 		}
 	}
+	expectedGroupUID := ""
+	if meta.InitialLifecycle != nil {
+		g, err := c.getGroup(ctx, group)
+		if err != nil {
+			return err
+		}
+		if g.GetUid() == "" {
+			return fmt.Errorf("managed create group identity unavailable")
+		}
+		expectedGroupUID = g.GetUid()
+		hash, err := labclient.CreationDefinitionHash(specJSON, meta.DeployGroup, nil)
+		if err != nil {
+			return err
+		}
+		if err = meta.BeforeCreate(ctx, infraModel.LabCreateDispatch{GroupUID: expectedGroupUID, DefinitionHash: hash}); err != nil {
+			return err
+		}
+	}
 	res, err := c.CreateLabs(ctx, &labpb.CreateLabsRequest{
 		Labels:   c.requestLabels(),
 		Variants: []*labpb.LabVariant{{VariantId: deployVariantID, SpecJson: specJSON}},
 		Items: []*labpb.LabItem{{
-			LabGroup: group, Name: lab, VariantId: deployVariantID, Env: env,
+			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: env,
 			Labels: meta.Labels, DeployGroup: meta.DeployGroup,
 		}},
 	})

@@ -138,13 +138,13 @@ func (u *EventUseCase) issueLabLink(ctx context.Context, eventID, userID uuid.UU
 	}
 	var status exerciseModel.LabDeployStatus
 	var err error
-	if pinned == nil || pinned.RuntimeReady {
+	if pinned == nil || pinned.ReadyForAccess() {
 		status, err = u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
 	}
 	if err != nil {
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab status").Err()
 	}
-	if pinned != nil && (!status.Ready || status.LabUID != pinned.AgentUID || status.LabGeneration < pinned.AgentGeneration) {
+	if pinned != nil && (!pinned.ReadyForAccess() || !status.Ready || status.LabUID != pinned.AgentUID || status.LabGeneration < pinned.AgentGeneration) {
 		status.Access = nil
 	}
 	accessURL, ok := status.WebURL(device, port)
@@ -171,7 +171,7 @@ func (u *EventUseCase) issueLabLink(ctx context.Context, eventID, userID uuid.UU
 		if err = requireLabOpen(current); err != nil {
 			return labaccess.Link{}, err
 		}
-		if !current.RuntimeReady || current.ID != pinned.ID || current.Revision != pinned.Revision || current.OperationID != pinned.OperationID {
+		if !current.ReadyForAccess() || current.ID != pinned.ID || current.Revision != pinned.Revision || current.OperationID != pinned.OperationID {
 			return labaccess.Link{}, eventLabModel.ErrLinkChanged.Err()
 		}
 		link.LabID = current.ID

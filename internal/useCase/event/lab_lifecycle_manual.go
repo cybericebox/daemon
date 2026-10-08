@@ -191,6 +191,9 @@ func (u *EventUseCase) reserveLabCandidateInTransaction(ctx context.Context, q I
 	if err := q.LockResourceCalendar(ctx); err != nil {
 		return err
 	}
+	return u.checkLabCandidateBudget(ctx, q, lab, cfg, now)
+}
+func (u *EventUseCase) checkLabCandidateBudget(ctx context.Context, q IRepository, lab eventLabModel.Lab, cfg eventConfigModel.EventConfig, now time.Time) error {
 	r := eventLabAllocationRepo.New(q)
 	rows, err := r.Labs(ctx, lab.EventID)
 	if err != nil {
@@ -201,6 +204,7 @@ func (u *EventUseCase) reserveLabCandidateInTransaction(ctx context.Context, q I
 		return err
 	}
 	held := eventLabModel.Compute{}
+	teamHeld := eventLabModel.Compute{}
 	var storage int64
 	active := int32(0)
 	groupFound := false
@@ -211,6 +215,10 @@ func (u *EventUseCase) reserveLabCandidateInTransaction(ctx context.Context, q I
 		c := l.HeldCompute()
 		held.CPUMillicores += c.CPUMillicores
 		held.MemoryBytes += c.MemoryBytes
+		if l.TeamID == lab.TeamID {
+			teamHeld.CPUMillicores += c.CPUMillicores
+			teamHeld.MemoryBytes += c.MemoryBytes
+		}
 		storage += l.Allocation.SnapshotQuotaBytes
 		if l.TeamID == lab.TeamID && l.ID != lab.ID && l.HoldsRuntime() {
 			active++
@@ -229,6 +237,8 @@ func (u *EventUseCase) reserveLabCandidateInTransaction(ctx context.Context, q I
 		held.CPUMillicores += c.CPUMillicores
 		held.MemoryBytes += c.MemoryBytes
 		if g.TeamID == lab.TeamID {
+			teamHeld.CPUMillicores += c.CPUMillicores
+			teamHeld.MemoryBytes += c.MemoryBytes
 			groupFound = true
 		}
 	}
@@ -236,7 +246,8 @@ func (u *EventUseCase) reserveLabCandidateInTransaction(ctx context.Context, q I
 	if err != nil {
 		return err
 	}
-	if !groupFound || budget.Unplaced > 0 || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > budget.Size.CPUMillicores || held.MemoryBytes > budget.Size.MemoryBytes || storage > budget.SizeSnapshotQuotaBytes {
+	slot := budget.TeamSlot()
+	if !groupFound || teamHeld.CPUMillicores > slot.CPUMillicores || teamHeld.MemoryBytes > slot.MemoryBytes || budget.Unplaced > 0 || len(budget.Placement) == 0 || !budget.Window.Contains(now) || held.CPUMillicores > budget.Size.CPUMillicores || held.MemoryBytes > budget.Size.MemoryBytes || storage > budget.SizeSnapshotQuotaBytes {
 		return eventLabModel.ErrManualLimit.Err()
 	}
 	return nil

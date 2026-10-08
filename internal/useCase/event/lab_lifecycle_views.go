@@ -119,7 +119,7 @@ func participantLabView(lab eventLabModel.Lab) ParticipantLabView {
 	}
 	switch lab.ActualState {
 	case "Running":
-		if lab.RuntimeReady {
+		if lab.ReadyForAccess() {
 			out.RuntimeState = "ready"
 		}
 	case "Unknown", "StopFailed":
