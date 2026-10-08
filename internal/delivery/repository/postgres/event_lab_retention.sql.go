@@ -24,6 +24,40 @@ func (q *Queries) ArchiveEventLabGeneration(ctx context.Context, labID uuid.UUID
 	return err
 }
 
+const finalizeRetiredLabGroupPlacement = `-- name: FinalizeRetiredLabGroupPlacement :execrows
+DELETE FROM lab_group_placements placement USING event_team_group_allocations g
+WHERE placement.lab_group_name=g.lab_group_name AND g.event_team_id=$1
+ AND g.agent_uid=$2 AND g.operation_id=$3 AND g.desired_revision=$4
+ AND g.desired_state='Deleted' AND g.actual_state='Deleted' AND g.retirement_state='Deleted'
+ AND g.retirement_observed_at IS NOT NULL AND g.observed_revision=g.desired_revision
+ AND g.allocation->>'RuntimeState'='Released' AND g.allocation->>'StorageState'='Deleted'
+ AND NOT EXISTS(SELECT 1 FROM event_team_labs l WHERE l.event_team_id=g.event_team_id
+  AND (l.desired_state<>'Deleted' OR l.actual_state<>'Deleted' OR l.retirement_state<>'Deleted'
+   OR l.allocation->>'StorageState'<>'Deleted' OR COALESCE((l.allocation->>'SnapshotQuotaBytes')::bigint,0)>0))
+`
+
+type FinalizeRetiredLabGroupPlacementParams struct {
+	EventTeamID     uuid.UUID `json:"event_team_id"`
+	AgentUid        string    `json:"agent_uid"`
+	OperationID     uuid.UUID `json:"operation_id"`
+	DesiredRevision int64     `json:"desired_revision"`
+}
+
+// Final disposal follows a persisted exact tombstone and retired children,
+// never a names-only command result or an absent monitoring frame.
+func (q *Queries) FinalizeRetiredLabGroupPlacement(ctx context.Context, arg FinalizeRetiredLabGroupPlacementParams) (int64, error) {
+	result, err := q.db.Exec(ctx, finalizeRetiredLabGroupPlacement,
+		arg.EventTeamID,
+		arg.AgentUid,
+		arg.OperationID,
+		arg.DesiredRevision,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const hasActiveEventLabRuntimeSelection = `-- name: HasActiveEventLabRuntimeSelection :one
 SELECT EXISTS(SELECT 1 FROM event_stage_lab_runtime_memberships m JOIN event_stages s ON s.id=m.stage_id
  JOIN event_lab_retention_pins p ON p.lab_id=m.lab_id AND p.stage_id=m.stage_id AND p.generation=m.generation

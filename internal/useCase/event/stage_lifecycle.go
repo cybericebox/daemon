@@ -11,6 +11,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
@@ -228,6 +229,12 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 			if _, err = repo.Update(txCtx, g, expected); err != nil {
 				errs = append(errs, err)
 				return
+			}
+			if g.DesiredState == "Deleted" && g.RetirementState == "Deleted" {
+				if _, e := q.FinalizeRetiredLabGroupPlacement(txCtx, postgres.FinalizeRetiredLabGroupPlacementParams{EventTeamID: g.TeamID, AgentUid: g.AgentUID, OperationID: g.OperationID, DesiredRevision: g.Revision}); e != nil {
+					errs = append(errs, e)
+					return
+				}
 			}
 			// Hold the common team lock through bounded command submission, so an
 			// admitted next-stage start cannot be followed by a stale stop dispatch.

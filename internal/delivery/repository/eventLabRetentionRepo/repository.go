@@ -11,6 +11,7 @@ import (
 )
 
 type Queries interface {
+	FinalizeRetiredLabGroupPlacement(context.Context, postgres.FinalizeRetiredLabGroupPlacementParams) (int64, error)
 	IsOwnedRetainedLabReference(context.Context, postgres.IsOwnedRetainedLabReferenceParams) (bool, error)
 	HasActiveEventLabRuntimeSelection(context.Context, postgres.HasActiveEventLabRuntimeSelectionParams) (bool, error)
 	SetEventStageRetentionPreparationDue(context.Context, postgres.SetEventStageRetentionPreparationDueParams) error

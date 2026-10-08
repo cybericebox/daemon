@@ -2771,6 +2771,21 @@ func (mr *MockQuerierMockRecorder) ExtendOwnedExerciseTestDeploy(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExtendOwnedExerciseTestDeploy", reflect.TypeOf((*MockQuerier)(nil).ExtendOwnedExerciseTestDeploy), ctx, arg)
 }
 
+// FinalizeRetiredLabGroupPlacement mocks base method.
+func (m *MockQuerier) FinalizeRetiredLabGroupPlacement(ctx context.Context, arg postgres.FinalizeRetiredLabGroupPlacementParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinalizeRetiredLabGroupPlacement", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FinalizeRetiredLabGroupPlacement indicates an expected call of FinalizeRetiredLabGroupPlacement.
+func (mr *MockQuerierMockRecorder) FinalizeRetiredLabGroupPlacement(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinalizeRetiredLabGroupPlacement", reflect.TypeOf((*MockQuerier)(nil).FinalizeRetiredLabGroupPlacement), ctx, arg)
+}
+
 // FindActiveEventTeamsByLabGroup mocks base method.
 func (m *MockQuerier) FindActiveEventTeamsByLabGroup(ctx context.Context, arg postgres.FindActiveEventTeamsByLabGroupParams) ([]postgres.FindActiveEventTeamsByLabGroupRow, error) {
 	m.ctrl.T.Helper()

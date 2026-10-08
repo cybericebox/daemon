@@ -315,6 +315,9 @@ type Querier interface {
 	// it (within the tolerance); zero rows means a new segment is needed.
 	ExtendLabTrafficCoverage(ctx context.Context, arg ExtendLabTrafficCoverageParams) (int64, error)
 	ExtendOwnedExerciseTestDeploy(ctx context.Context, arg ExtendOwnedExerciseTestDeployParams) (ExerciseTestDeployment, error)
+	// Final disposal follows a persisted exact tombstone and retired children,
+	// never a names-only command result or an absent monitoring frame.
+	FinalizeRetiredLabGroupPlacement(ctx context.Context, arg FinalizeRetiredLabGroupPlacementParams) (int64, error)
 	FindActiveEventTeamsByLabGroup(ctx context.Context, arg FindActiveEventTeamsByLabGroupParams) ([]FindActiveEventTeamsByLabGroupRow, error)
 	// The event's own, active fork of a source exercise (reused by "fork").
 	FindEventFork(ctx context.Context, arg FindEventForkParams) (Exercise, error)

@@ -91,3 +91,16 @@ JOIN event_team_labs l ON l.id=m.lab_id AND l.generation=m.generation;
 -- name: IsOwnedRetainedLabReference :one
 SELECT EXISTS(SELECT 1 FROM event_team_labs l WHERE l.lab_group_name=sqlc.arg(lab_group_name) AND l.lab_name=sqlc.arg(lab_name)
  AND NOT(l.desired_state='Deleted' AND l.actual_state='Deleted' AND l.retirement_state='Deleted' AND l.allocation->>'StorageState'='Deleted')) AS owned;
+
+-- name: FinalizeRetiredLabGroupPlacement :execrows
+-- Final disposal follows a persisted exact tombstone and retired children,
+-- never a names-only command result or an absent monitoring frame.
+DELETE FROM lab_group_placements placement USING event_team_group_allocations g
+WHERE placement.lab_group_name=g.lab_group_name AND g.event_team_id=sqlc.arg(event_team_id)
+ AND g.agent_uid=sqlc.arg(agent_uid) AND g.operation_id=sqlc.arg(operation_id) AND g.desired_revision=sqlc.arg(desired_revision)
+ AND g.desired_state='Deleted' AND g.actual_state='Deleted' AND g.retirement_state='Deleted'
+ AND g.retirement_observed_at IS NOT NULL AND g.observed_revision=g.desired_revision
+ AND g.allocation->>'RuntimeState'='Released' AND g.allocation->>'StorageState'='Deleted'
+ AND NOT EXISTS(SELECT 1 FROM event_team_labs l WHERE l.event_team_id=g.event_team_id
+  AND (l.desired_state<>'Deleted' OR l.actual_state<>'Deleted' OR l.retirement_state<>'Deleted'
+   OR l.allocation->>'StorageState'<>'Deleted' OR COALESCE((l.allocation->>'SnapshotQuotaBytes')::bigint,0)>0));
