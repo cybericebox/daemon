@@ -83,6 +83,7 @@ func limitsOf(r *labpb.FeaturesResponse) infraModel.LimitsFeature {
 		DeviceMaxCPUMillicores: dev.GetMaxCpuMillicores(), DeviceMaxMemoryBytes: dev.GetMaxMemoryBytes(),
 		LabMaxDevices: lab.GetMaxDevices(), TenantMaxLabs: r.GetLimits().GetTenant().GetMaxLabs(),
 		VPN: sizingOf(pods.GetVpn()), Gateway: sizingOf(pods.GetGateway()), DeviceProfiles: r.GetDeviceProfiles(),
+		SizingV2:       sizingV2Of(pods.GetSizingV2()),
 		DefaultVPN:     resourcesModel.Amount{CPUMillicores: pods.GetDefaultVpn().GetCpuMillicores(), MemoryBytes: pods.GetDefaultVpn().GetMemoryBytes()},
 		DefaultGateway: resourcesModel.Amount{CPUMillicores: pods.GetDefaultGateway().GetCpuMillicores(), MemoryBytes: pods.GetDefaultGateway().GetMemoryBytes()},
 	}
@@ -229,7 +230,7 @@ func (f *Fleet) roundedSizes(s infraModel.GroupSizes) infraModel.GroupSizes {
 func (f *Fleet) GroupSizes(plan infraModel.GroupPlan) (sizes infraModel.GroupSizes, known bool) {
 	for _, m := range f.eligible() {
 		feat := m.Features.Get()
-		if feat == nil || !(feat.Limits.VPN.Reported() || feat.Limits.Gateway.Reported()) {
+		if feat == nil || !(feat.Limits.VPN.Reported() || feat.Limits.Gateway.Reported() || feat.Limits.DefaultVPN != (resourcesModel.Amount{}) || feat.Limits.DefaultGateway != (resourcesModel.Amount{}) || len(feat.Limits.SizingV2) > 0) {
 			continue
 		}
 		s := feat.Limits.SizesFor(plan)
@@ -264,7 +265,11 @@ func (f *Fleet) withSizes(ctx context.Context, m *Member) context.Context {
 	if feat == nil {
 		return ctx
 	}
-	return infraModel.WithGroupSizes(ctx, f.roundedSizes(feat.Limits.SizesFor(infraModel.PlacementNeedFrom(ctx).Plan)))
+	sizes, known := f.GroupSizes(infraModel.PlacementNeedFrom(ctx).Plan)
+	if !known {
+		return ctx
+	}
+	return infraModel.WithGroupSizes(ctx, sizes)
 }
 
 // setGroupSizes writes the planned pod sizes into a group to create, explicitly; the agent rejects a size over
@@ -328,4 +333,51 @@ func (f *Fleet) RequireLabLifecyclePreparation(ctx context.Context, group string
 		return err
 	}
 	return m.Client.RequireLabLifecyclePreparation(ctx, group, policy, topology)
+}
+
+func sizingV2Of(v *labpb.GroupPodsSizingV2) []infraModel.GroupSizingProfile {
+	if len(v.GetProfiles()) == 0 {
+		return nil
+	}
+	amount := func(p *labpb.PodSize) resourcesModel.Amount {
+		return resourcesModel.Amount{CPUMillicores: p.GetCpuMillicores(), MemoryBytes: p.GetMemoryBytes()}
+	}
+	formula := func(f *labpb.GroupPodFormula) infraModel.GroupPodFormula {
+		return infraModel.GroupPodFormula{Base: amount(f.GetBase()), PerUser: amount(f.GetPerUser()), PerActiveLab: amount(f.GetPerActiveLab()), PerInternetLab: amount(f.GetPerInternetLab()), PerAllowedRelation: amount(f.GetPerAllowedRelation()), PerRetainedFlow: amount(f.GetPerRetainedFlow()), Floor: amount(f.GetFloor()), RoundTo: amount(f.GetRoundTo())}
+	}
+	out := make([]infraModel.GroupSizingProfile, 0, len(v.GetProfiles()))
+	for _, p := range v.GetProfiles() {
+		in := p.GetMaxInputs()
+		e := in.GetEnvelope()
+		out = append(out, infraModel.GroupSizingProfile{ID: p.GetId(), SupportState: p.GetSupportState(), ValidationProvenance: p.GetValidationProvenance(), Scope: p.GetScope(), MaxInputs: infraModel.GroupPlan{MaxUsers: int(in.GetMaxUsers()), MaxActiveLabs: int(in.GetMaxActiveLabs()), InternetLabs: int(in.GetInternetLabs()), AllowedRelations: int(in.GetAllowedRelations()), Envelope: infraModel.TrafficEnvelope{VPNRetainedFlows: e.GetVpnRetainedFlows(), GatewayRetainedFlows: e.GetGatewayRetainedFlows(), VPNNewFlowsPerSecond: e.GetVpnNewFlowsPerSecond(), GatewayNewFlowsPerSecond: e.GetGatewayNewFlowsPerSecond(), VPNPacketsPerSecond: e.GetVpnPacketsPerSecond(), GatewayPacketsPerSecond: e.GetGatewayPacketsPerSecond(), VPNPayloadMbps: e.GetVpnPayloadMbps(), GatewayPayloadMbps: e.GetGatewayPayloadMbps()}}, VPN: formula(p.GetVpn()), Gateway: formula(p.GetGateway())})
+	}
+	return out
+}
+
+// SnapshotQuotaFor reserves the configured per-device write quota; absent quota
+// is unknown and cannot authorize persistent generation creation.
+func (f *Fleet) SnapshotQuotaFor(t exerciseModel.Topology) (int64, bool) {
+	count := int64(0)
+	for _, d := range t.Devices {
+		if d.Persistence != nil && d.Persistence.Enabled {
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, true
+	}
+	var quota int64
+	known := false
+	for _, m := range f.eligible() {
+		feat := m.Features.Get()
+		if feat == nil || !feat.Persistence.Available || feat.Persistence.WriteQuotaBytes <= 0 {
+			return 0, false
+		}
+		quota = max(quota, feat.Persistence.WriteQuotaBytes)
+		known = true
+	}
+	if quota > 0 && count > (1<<63-1)/quota {
+		return 0, false
+	}
+	return count * quota, known
 }

@@ -1,0 +1,28 @@
+--- FAIL: TestHeldComputeDoesNotTrustHistoricalReleasedState (0.00s)
+    allocation_test.go:23: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/model/eventLab/allocation_test.go:23
+        	Error:      	Not equal: 
+        	            	expected: eventLabModel.Compute{CPUMillicores:0, MemoryBytes:0}
+        	            	actual  : eventLabModel.Compute{CPUMillicores:750, MemoryBytes:536870912}
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,4 +1,4 @@
+        	            	 (eventLabModel.Compute) {
+        	            	- CPUMillicores: (int64) 0,
+        	            	- MemoryBytes: (int64) 0
+        	            	+ CPUMillicores: (int64) 750,
+        	            	+ MemoryBytes: (int64) 536870912
+        	            	 }
+        	Test:       	TestHeldComputeDoesNotTrustHistoricalReleasedState
+--- FAIL: TestDeletedManifestDoesNotCreditKnownPhysicalStorage (0.00s)
+    allocation_test.go:29: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/model/eventLab/allocation_test.go:29
+        	Error:      	Not equal: 
+        	            	expected: int(1073741824)
+        	            	actual  : int64(0)
+        	Test:       	TestDeletedManifestDoesNotCreditKnownPhysicalStorage
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/model/eventLab	0.229s
+FAIL

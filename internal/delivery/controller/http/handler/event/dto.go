@@ -2,6 +2,7 @@ package event
 
 import (
 	"encoding/json"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/pagination"
 	"time"
 
@@ -1027,10 +1028,11 @@ type resourcePlanGroupResponse struct {
 // eventResourcePlanResponse is what the event reserves: per team the devices of its tasks plus the group
 // overhead as a separate line, and the total for the teams.
 type eventResourcePlanResponse struct {
-	Tasks     []resourcePlanTaskResponse  `json:"Tasks"`
-	TeamTasks eventResourceTotalsResponse `json:"TeamTasks"`
-	Group     resourcePlanGroupResponse   `json:"Group"`
-	PerTeam   eventResourceTotalsResponse `json:"PerTeam"`
+	Observation calendarUseCase.ResourceObservation `json:"Observation"`
+	Tasks       []resourcePlanTaskResponse          `json:"Tasks"`
+	TeamTasks   eventResourceTotalsResponse         `json:"TeamTasks"`
+	Group       resourcePlanGroupResponse           `json:"Group"`
+	PerTeam     eventResourceTotalsResponse         `json:"PerTeam"`
 	// Teams is the number of teams reserved for: MaxTeams when set, else the teams there are now (at least 1).
 	Teams      int                         `json:"Teams"`
 	TeamsBasis string                      `json:"TeamsBasis" enums:"max_teams,current"`
@@ -1040,7 +1042,7 @@ type eventResourcePlanResponse struct {
 }
 
 func toResourcePlanResponse(p eventUseCase.EventResourcePlan) eventResourcePlanResponse {
-	out := eventResourcePlanResponse{
+	out := eventResourcePlanResponse{Observation: p.Observation,
 		Tasks:     make([]resourcePlanTaskResponse, 0, len(p.Tasks)),
 		TeamTasks: totalsResponse(p.TeamTasks), PerTeam: totalsResponse(p.PerTeam), Total: totalsResponse(p.Total),
 		Teams: p.Teams, TeamsBasis: p.TeamsBasis, NoAgentFits: p.NoAgentFits,

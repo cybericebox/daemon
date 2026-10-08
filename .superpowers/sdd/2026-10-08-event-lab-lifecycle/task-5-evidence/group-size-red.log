@@ -1,0 +1,5 @@
+--- FAIL: TestCreatedGroupCannotBeSilentlyUndersized (0.00s)
+    deploy_test.go:620: adopted existing group without proof its immutable pods fit
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/delivery/infrastructure/labagent	0.421s
+FAIL

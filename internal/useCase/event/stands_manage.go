@@ -442,6 +442,9 @@ func (u *EventUseCase) GetModeratorsVPNConfig(ctx context.Context, eventID, user
 	if err != nil {
 		return "", err
 	}
+	if err = u.admitGroupAllocation(ctx, eventID, teamID); err != nil {
+		return "", err
+	}
 	if err = u.infra.EnsureVPNGroup(u.withPlacementNeed(ctx, eventID), group); err != nil {
 		if errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
 			return "", err

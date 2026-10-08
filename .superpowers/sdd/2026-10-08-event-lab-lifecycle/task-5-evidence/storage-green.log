@@ -1,0 +1,4 @@
+ok  	github.com/cybericebox/daemon/internal/model/eventLab	0.260s
+ok  	github.com/cybericebox/daemon/internal/model/infrastructure	0.163s
+ok  	github.com/cybericebox/daemon/internal/model/resourceCalendar	0.205s
+?   	github.com/cybericebox/daemon/internal/delivery/repository/resourceCalendarRepo	[no test files]

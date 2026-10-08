@@ -24,6 +24,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventContentRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabObservationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
@@ -69,6 +70,7 @@ import (
 // (each now including its list/count shapes), so the use case holds no postgres.*
 // types. The gomock Querier and the real Queries both satisfy it structurally.
 type IRepository interface {
+	eventLabAllocationRepo.Queries
 	userRepo.Queries
 	eventRepo.Queries
 	eventConfigRepo.Queries
@@ -149,6 +151,8 @@ func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uui
 }
 
 type EventUseCase struct {
+	repo                                       IRepository
+	allocationAccounting                       bool
 	labLifecycleWake                           func(context.Context) error
 	labLifecycleBatch                          int32
 	labLifecycleRetryMin, labLifecycleRetryMax time.Duration
@@ -329,7 +333,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 	if retryMax < retryMin {
 		retryMax = 5 * time.Minute
 	}
-	return &EventUseCase{labLifecycleBatch: batch, labLifecycleRetryMin: retryMin, labLifecycleRetryMax: retryMax,
+	return &EventUseCase{repo: deps.Repo, labLifecycleBatch: batch, labLifecycleRetryMin: retryMin, labLifecycleRetryMax: retryMax,
 		standDeployBudget:        standDeployBudget,
 		prewarmLead:              deps.StandPrewarmLead,
 		labSweepGrace:            labSweepGrace(deps.LabSweepGrace),

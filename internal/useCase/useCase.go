@@ -13,6 +13,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	eventFormRepo "github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabObservationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
@@ -258,10 +259,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 	calendarUC := calendarUseCase.New(calendarUseCase.Dependencies{
 		Store: resourceCalendarRepo.New(deps.Repo), Tx: calendarTx{uow: postgres.NewUnitOfWorker[resourceCalendarRepo.Queries](deps.Repo.UoWFactory())},
 		Agents: infrastructureAgentRepo.New(deps.Repo), Events: eventRepo.New(deps.Repo), Configs: eventConfigRepo.New(deps.Repo),
-		Planner: calendarNeeds{events: eventUC}, Usage: calendarUsage{observations: eventLabObservationRepo.New(deps.Repo)},
+		Planner: calendarNeeds{events: eventUC}, Usage: calendarUsage{observations: eventLabObservationRepo.New(deps.Repo), allocations: eventLabAllocationRepo.New(deps.Repo), events: eventUC},
 		Config: deps.Calendar, Frame: deps.ResourcesPolicy.Frame, Policy: deps.ResourcesPolicy, Overhead: groupOverhead(deps.LabAgent),
 	})
 	eventUC.SetResourceGate(calendarUC)
+	eventUC.SetAllocationAccounting(true)
 	eventUC.SetNoticeCanceller(jobQueueRepo.New(deps.Repo.Pool()).CancelEventNotifications)
 	exerciseUC.SetTestLabGate(calendarUC)
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.

@@ -30,6 +30,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
+	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 )
@@ -599,6 +600,22 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
 		return nil
+	}
+	if u.allocationAccounting {
+		if !lab.Binding.LabID.Valid {
+			return nil
+		}
+		demand := u.resourcePolicy().Total(topology).Amount
+		storage, known := u.snapshotQuotaFor(topology)
+		if !known {
+			return nil
+		}
+		if admitErr := u.AdmitEventLabStart(ctx, e.ID, lab.Binding.EventTeamID, lab.Binding.LabID.UUID, eventLabModel.Compute{CPUMillicores: demand.CPUMillicores, MemoryBytes: demand.MemoryBytes}, storage); admitErr != nil {
+			if errors.Is(admitErr, calModel.ErrNotEnoughReserved.Err()) {
+				return nil
+			}
+			return admitErr
+		}
 	}
 	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).
 	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, standLabMeta(e, lab), topology); err != nil {

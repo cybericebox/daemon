@@ -24,6 +24,7 @@ type LimitsFeature struct {
 	// DefaultVPN and DefaultGateway are the pod sizes the agent uses when a group names none.
 	DefaultVPN     resourcesModel.Amount `json:"default_vpn"`
 	DefaultGateway resourcesModel.Amount `json:"default_gateway"`
+	SizingV2       []GroupSizingProfile  `json:"sizing_v2,omitempty"`
 }
 
 // GroupPodSizing is the size of one kind of group pod: Base plus PerUnit for every unit (a user for the VPN, an
@@ -73,8 +74,12 @@ type FitViolation struct {
 // GroupPlan is what sizes the pods of a lab group: the users (VPN peers) it serves at most, and the
 // number of its labs that use the internet.
 type GroupPlan struct {
-	MaxUsers     int
-	InternetLabs int
+	MaxUsers         int
+	InternetLabs     int
+	MaxActiveLabs    int
+	AllowedRelations int
+	ProfileID        string
+	Envelope         TrafficEnvelope
 }
 
 // GroupSizes are the sizes the backend passes explicitly when it creates a lab group. They are computed
@@ -89,7 +94,12 @@ func (g GroupSizes) Total() resourcesModel.Amount { return g.VPN.Add(g.Gateway) 
 
 // SizesFor computes the group's pod sizes for a plan.
 func (l LimitsFeature) SizesFor(plan GroupPlan) GroupSizes {
-	return GroupSizes{VPN: l.VPN.Size(plan.MaxUsers), Gateway: l.Gateway.Size(plan.InternetLabs)}
+	for _, p := range l.SizingV2 {
+		if p.Eligible(plan) {
+			return GroupSizes{VPN: p.VPN.Size(plan, plan.Envelope.VPNRetainedFlows), Gateway: p.Gateway.Size(plan, plan.Envelope.GatewayRetainedFlows)}
+		}
+	}
+	return GroupSizes{VPN: l.VPN.Size(plan.MaxUsers).Max(l.DefaultVPN), Gateway: l.Gateway.Size(plan.InternetLabs).Max(l.DefaultGateway)}
 }
 
 type sizesKey struct{}

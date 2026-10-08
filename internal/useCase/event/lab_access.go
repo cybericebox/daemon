@@ -146,6 +146,9 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list laboratory access labs").Err()
 	}
 	if sync.VPNEnabled {
+		if err = u.admitGroupAllocation(ctx, sync.EventID, sync.TeamID); err != nil {
+			return err
+		}
 		if err = u.infra.EnsureVPNGroup(u.withPlacementNeed(ctx, sync.EventID), group); err != nil {
 			if errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
 				return err

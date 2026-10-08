@@ -1,0 +1,5 @@
+DROP TABLE event_team_group_allocations;
+ALTER TABLE resource_test_lab_holds DROP COLUMN snapshot_quota_bytes;
+ALTER TABLE resource_calendar_settings DROP COLUMN test_pool_snapshot_quota_bytes;
+ALTER TABLE resource_change_requests DROP COLUMN size_snapshot_quota_bytes,DROP COLUMN dynamic_snapshot_quota_bytes;
+ALTER TABLE resource_reservations DROP COLUMN per_team_snapshot_quota_bytes,DROP COLUMN dynamic_snapshot_quota_bytes,DROP COLUMN size_snapshot_quota_bytes;

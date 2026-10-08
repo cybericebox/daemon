@@ -1,0 +1,14 @@
+# github.com/cybericebox/daemon/internal/model/infrastructure [github.com/cybericebox/daemon/internal/model/infrastructure.test]
+internal/model/infrastructure/sizing_v2_test.go:8:23: undefined: GroupSizingProfile
+internal/model/infrastructure/sizing_v2_test.go:9:9: undefined: GroupSizingProfile
+internal/model/infrastructure/sizing_v2_test.go:9:158: unknown field MaxActiveLabs in struct literal of type GroupPlan
+internal/model/infrastructure/sizing_v2_test.go:9:189: unknown field AllowedRelations in struct literal of type GroupPlan
+internal/model/infrastructure/sizing_v2_test.go:9:209: unknown field Envelope in struct literal of type GroupPlan
+internal/model/infrastructure/sizing_v2_test.go:9:218: undefined: TrafficEnvelope
+internal/model/infrastructure/sizing_v2_test.go:9: undefined: GroupPodFormula
+internal/model/infrastructure/sizing_v2_test.go:12:39: unknown field SizingV2 in struct literal of type LimitsFeature
+internal/model/infrastructure/sizing_v2_test.go:12:50: undefined: GroupSizingProfile
+internal/model/infrastructure/sizing_v2_test.go:13:29: unknown field MaxActiveLabs in struct literal of type GroupPlan
+internal/model/infrastructure/sizing_v2_test.go:13:29: too many errors
+FAIL	github.com/cybericebox/daemon/internal/model/infrastructure [build failed]
+FAIL

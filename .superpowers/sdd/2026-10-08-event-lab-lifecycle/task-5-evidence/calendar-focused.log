@@ -1,0 +1,10 @@
+--- FAIL: TestStorageBudgetChangesPreserveHeldRetainedQuota (0.00s)
+    usecase_test.go:596: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/useCase/resourceCalendar/usecase_test.go:596
+        	Error:      	Not equal: 
+        	            	expected: int(8589934592)
+        	            	actual  : int64(0)
+        	Test:       	TestStorageBudgetChangesPreserveHeldRetainedQuota
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/useCase/resourceCalendar	0.496s
+FAIL

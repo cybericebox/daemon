@@ -15,6 +15,8 @@ import (
 // event gives the teams and the size per team, the settings give the buffer and the tail gap, the event gives the
 // window.
 type EventReservationInput struct {
+	PerTeamSnapshotQuotaBytes *int64
+	DynamicSnapshotQuotaBytes *int64
 	// Teams and PerTeam override the plan of the event.
 	Teams   *int
 	PerTeam *Amount
@@ -117,6 +119,10 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 			return wErr
 		}
 		r := existing
+		if r != nil {
+			copy := *r
+			r = &copy
+		}
 		if r == nil {
 			r, err = calModel.NewEventReservation(calModel.EventInput{
 				EventID: eventID, Window: window, Teams: teams, PerTeam: perTeam, LargestDevice: device, BufferPercent: buffer, Dynamic: dynamic, TailGap: tail,
@@ -133,9 +139,33 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 			}
 			r.TailGap = tail
 		}
+
+		perTeamStorage, dynamicStorage := r.PerTeamSnapshotQuotaBytes, r.DynamicSnapshotQuotaBytes
+		if in.PerTeamSnapshotQuotaBytes != nil {
+			perTeamStorage = *in.PerTeamSnapshotQuotaBytes
+		}
+		if in.DynamicSnapshotQuotaBytes != nil {
+			dynamicStorage = *in.DynamicSnapshotQuotaBytes
+		}
+		if err = r.RecalculateStorage(perTeamStorage, dynamicStorage, now); err != nil {
+			return err
+		}
 		settings, setErr := s.Settings(ctx)
 		if setErr != nil {
 			return platformErr(setErr, "Failed to read the calendar settings")
+		}
+
+		if u.usage != nil {
+			usage, e := u.usage.Usage(ctx, now)
+			if e != nil {
+				return platformErr(e, "Failed to read held event allocations")
+			}
+			if usage.StorageByEvent[eventID].SnapshotQuotaBytes > r.SizeSnapshotQuotaBytes || !usage.ByEvent[eventID].Within(r.Size) {
+				return calModel.ErrNotEnoughReserved.Err()
+			}
+		}
+		if err = u.requireHeldCoverage(ctx, s, now, r); err != nil {
+			return err
 		}
 		view, conflicts, covered, planErr := u.placeAndCheck(ctx, s, r, existing != nil, states, settings.TestPool, now)
 		if planErr != nil {
@@ -276,6 +306,7 @@ func (u *ResourceCalendarUseCase) ReplanResourceReservation(ctx context.Context,
 		if setErr != nil {
 			return platformErr(setErr, "Failed to read the calendar settings")
 		}
+
 		view, conflicts, covered, planErr := u.placeAndCheck(ctx, s, r, true, states, settings.TestPool, now)
 		if planErr != nil {
 			return planErr
@@ -305,7 +336,7 @@ func (u *ResourceCalendarUseCase) reservationView(r *calModel.Reservation, state
 	for _, s := range states {
 		names[s.ID] = s.Name
 	}
-	v := ReservationView{
+	v := ReservationView{PerTeamSnapshotQuotaBytes: r.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: r.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: r.SizeSnapshotQuotaBytes,
 		ID: r.ID, Kind: r.Kind, EventID: r.EventID, OwnerID: r.OwnerID, From: r.Window.Start, To: r.Window.End,
 		Teams: r.Teams, PerTeam: r.PerTeam, LargestDevice: r.LargestDevice, BufferPercent: r.BufferPercent, Dynamic: r.Dynamic,
 		TailGap: r.TailGap, Size: r.Size, Unplaced: r.Unplaced, Placement: make([]ShareView, 0, len(r.Placement)), Alarms: alarms,

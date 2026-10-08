@@ -17,13 +17,14 @@ type ShareView struct {
 
 // ReservationView is one reservation for the admin timeline.
 type ReservationView struct {
-	ID        uuid.UUID
-	Kind      calModel.Kind
-	EventID   *uuid.UUID
-	EventName string
-	EventTag  string
-	OwnerID   *uuid.UUID
-	From, To  time.Time
+	PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes int64
+	ID                                                                           uuid.UUID
+	Kind                                                                         calModel.Kind
+	EventID                                                                      *uuid.UUID
+	EventName                                                                    string
+	EventTag                                                                     string
+	OwnerID                                                                      *uuid.UUID
+	From, To                                                                     time.Time
 
 	Teams         int
 	PerTeam       Amount
@@ -198,10 +199,11 @@ type EventStatView struct {
 
 // StatsView is the calendar statistics now.
 type StatsView struct {
-	At       time.Time
-	Agents   []AgentStatView
-	Events   []EventStatView
-	TestPool Amount
+	Observation ResourceObservation
+	At          time.Time
+	Agents      []AgentStatView
+	Events      []EventStatView
+	TestPool    Amount
 	// TestLabsHeld is what the running test laboratories were admitted with (pool and free room, bookings aside).
 	TestLabsHeld Amount
 	// PendingChangeRequests waits for a decision; OpenAlarms for attention.
@@ -212,6 +214,7 @@ type StatsView struct {
 // OrganizerReservationView is what an organizer sees of the event's reservation: allocated and used, the
 // window, whether it holds, the change requests. It never names an agent.
 type OrganizerReservationView struct {
+	Observation ResourceObservation
 	// Reserved is false when the event has no reservation (nothing else is set then).
 	Reserved  bool
 	From, To  time.Time

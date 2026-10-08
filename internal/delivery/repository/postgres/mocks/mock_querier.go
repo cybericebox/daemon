@@ -1251,6 +1251,20 @@ func (mr *MockQuerierMockRecorder) CreateEventFormVersion(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventFormVersion", reflect.TypeOf((*MockQuerier)(nil).CreateEventFormVersion), ctx, arg)
 }
 
+// CreateEventGroupAllocation mocks base method.
+func (m *MockQuerier) CreateEventGroupAllocation(ctx context.Context, arg postgres.CreateEventGroupAllocationParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEventGroupAllocation", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateEventGroupAllocation indicates an expected call of CreateEventGroupAllocation.
+func (mr *MockQuerierMockRecorder) CreateEventGroupAllocation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEventGroupAllocation", reflect.TypeOf((*MockQuerier)(nil).CreateEventGroupAllocation), ctx, arg)
+}
+
 // CreateEventLabObservation mocks base method.
 func (m *MockQuerier) CreateEventLabObservation(ctx context.Context, arg postgres.CreateEventLabObservationParams) (postgres.EventLabObservation, error) {
 	m.ctrl.T.Helper()
@@ -3490,6 +3504,21 @@ func (m *MockQuerier) GetEventParticipantProfile(ctx context.Context, arg postgr
 func (mr *MockQuerierMockRecorder) GetEventParticipantProfile(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventParticipantProfile", reflect.TypeOf((*MockQuerier)(nil).GetEventParticipantProfile), ctx, arg)
+}
+
+// GetEventPlannedMaxUsers mocks base method.
+func (m *MockQuerier) GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventPlannedMaxUsers", ctx, eventID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventPlannedMaxUsers indicates an expected call of GetEventPlannedMaxUsers.
+func (mr *MockQuerierMockRecorder) GetEventPlannedMaxUsers(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventPlannedMaxUsers", reflect.TypeOf((*MockQuerier)(nil).GetEventPlannedMaxUsers), ctx, eventID)
 }
 
 // GetEventReportFunnel mocks base method.
@@ -5978,6 +6007,21 @@ func (mr *MockQuerierMockRecorder) ListEventForms(ctx, eventID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventForms", reflect.TypeOf((*MockQuerier)(nil).ListEventForms), ctx, eventID)
 }
 
+// ListEventGroupAllocations mocks base method.
+func (m *MockQuerier) ListEventGroupAllocations(ctx context.Context, eventID uuid.UUID) ([]postgres.EventTeamGroupAllocation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventGroupAllocations", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.EventTeamGroupAllocation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventGroupAllocations indicates an expected call of ListEventGroupAllocations.
+func (mr *MockQuerierMockRecorder) ListEventGroupAllocations(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventGroupAllocations", reflect.TypeOf((*MockQuerier)(nil).ListEventGroupAllocations), ctx, eventID)
+}
+
 // ListEventGroupChallengeIDs mocks base method.
 func (m *MockQuerier) ListEventGroupChallengeIDs(ctx context.Context, arg postgres.ListEventGroupChallengeIDsParams) ([]uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -6111,6 +6155,21 @@ func (m *MockQuerier) ListEventLabAccessLabs(ctx context.Context, eventTeamID uu
 func (mr *MockQuerierMockRecorder) ListEventLabAccessLabs(ctx, eventTeamID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabAccessLabs", reflect.TypeOf((*MockQuerier)(nil).ListEventLabAccessLabs), ctx, eventTeamID)
+}
+
+// ListEventLabAllocations mocks base method.
+func (m *MockQuerier) ListEventLabAllocations(ctx context.Context, eventID uuid.UUID) ([]postgres.EventTeamLab, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventLabAllocations", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.EventTeamLab)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventLabAllocations indicates an expected call of ListEventLabAllocations.
+func (mr *MockQuerierMockRecorder) ListEventLabAllocations(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventLabAllocations", reflect.TypeOf((*MockQuerier)(nil).ListEventLabAllocations), ctx, eventID)
 }
 
 // ListEventLabAssignmentObjectives mocks base method.
@@ -7748,6 +7807,21 @@ func (mr *MockQuerierMockRecorder) ListPlatformBroadcastAudience(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformBroadcastAudience", reflect.TypeOf((*MockQuerier)(nil).ListPlatformBroadcastAudience), ctx, arg)
 }
 
+// ListPlatformGroupAllocations mocks base method.
+func (m *MockQuerier) ListPlatformGroupAllocations(ctx context.Context) ([]postgres.EventTeamGroupAllocation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPlatformGroupAllocations", ctx)
+	ret0, _ := ret[0].([]postgres.EventTeamGroupAllocation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPlatformGroupAllocations indicates an expected call of ListPlatformGroupAllocations.
+func (mr *MockQuerierMockRecorder) ListPlatformGroupAllocations(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformGroupAllocations", reflect.TypeOf((*MockQuerier)(nil).ListPlatformGroupAllocations), ctx)
+}
+
 // ListPlatformInfraCapacity mocks base method.
 func (m *MockQuerier) ListPlatformInfraCapacity(ctx context.Context, arg postgres.ListPlatformInfraCapacityParams) ([]postgres.ListPlatformInfraCapacityRow, error) {
 	m.ctrl.T.Helper()
@@ -7836,6 +7910,21 @@ func (m *MockQuerier) ListPlatformInfraStandHours(ctx context.Context, arg postg
 func (mr *MockQuerierMockRecorder) ListPlatformInfraStandHours(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformInfraStandHours", reflect.TypeOf((*MockQuerier)(nil).ListPlatformInfraStandHours), ctx, arg)
+}
+
+// ListPlatformLabAllocations mocks base method.
+func (m *MockQuerier) ListPlatformLabAllocations(ctx context.Context) ([]postgres.EventTeamLab, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPlatformLabAllocations", ctx)
+	ret0, _ := ret[0].([]postgres.EventTeamLab)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPlatformLabAllocations indicates an expected call of ListPlatformLabAllocations.
+func (mr *MockQuerierMockRecorder) ListPlatformLabAllocations(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPlatformLabAllocations", reflect.TypeOf((*MockQuerier)(nil).ListPlatformLabAllocations), ctx)
 }
 
 // ListPlatformLabCapacityObservations mocks base method.
@@ -8453,6 +8542,21 @@ func (mr *MockQuerierMockRecorder) ListTestDeployGroupNames(ctx, names any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTestDeployGroupNames", reflect.TypeOf((*MockQuerier)(nil).ListTestDeployGroupNames), ctx, names)
 }
 
+// ListUnaccountedEventLabStarts mocks base method.
+func (m *MockQuerier) ListUnaccountedEventLabStarts(ctx context.Context) ([]postgres.ListUnaccountedEventLabStartsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnaccountedEventLabStarts", ctx)
+	ret0, _ := ret[0].([]postgres.ListUnaccountedEventLabStartsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnaccountedEventLabStarts indicates an expected call of ListUnaccountedEventLabStarts.
+func (mr *MockQuerierMockRecorder) ListUnaccountedEventLabStarts(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnaccountedEventLabStarts", reflect.TypeOf((*MockQuerier)(nil).ListUnaccountedEventLabStarts), ctx)
+}
+
 // ListUserEventMemberships mocks base method.
 func (m *MockQuerier) ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserEventMembershipsRow, error) {
 	m.ctrl.T.Helper()
@@ -8586,6 +8690,21 @@ func (m *MockQuerier) ListWithdrawnLabBindings(ctx context.Context, now pgtype.T
 func (mr *MockQuerierMockRecorder) ListWithdrawnLabBindings(ctx, now any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWithdrawnLabBindings", reflect.TypeOf((*MockQuerier)(nil).ListWithdrawnLabBindings), ctx, now)
+}
+
+// LockEventConfigForLabSizing mocks base method.
+func (m *MockQuerier) LockEventConfigForLabSizing(ctx context.Context, eventID uuid.UUID) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockEventConfigForLabSizing", ctx, eventID)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockEventConfigForLabSizing indicates an expected call of LockEventConfigForLabSizing.
+func (mr *MockQuerierMockRecorder) LockEventConfigForLabSizing(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventConfigForLabSizing", reflect.TypeOf((*MockQuerier)(nil).LockEventConfigForLabSizing), ctx, eventID)
 }
 
 // LockEventForLabSourceChange mocks base method.

@@ -15,6 +15,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
 // Conventional names within a deploy: the lab group name is the caller's deploy
@@ -123,8 +124,24 @@ func (c *Client) ensureGroup(ctx context.Context, group string, labels map[strin
 	// The group exists with another spec: its sizes were planned when it was created, and its
 	// suspended / VPN-disabled flags are owned by the access sync (SetLabGroup*), so a create
 	// request cannot match them and never will. Adopt it as it is, instead of failing forever.
-	if _, getErr := c.getGroup(ctx, group); getErr != nil {
+	existing, getErr := c.getGroup(ctx, group)
+	if getErr != nil {
 		return err
+	}
+
+	if sizes, ok := infraModel.GroupSizesFrom(ctx); ok && sizes.Total() != (resourcesModel.Amount{}) {
+		projected, hasProjection := any(existing).(interface {
+			GetVpnSize() *labpb.PodSize
+			GetGatewaySize() *labpb.PodSize
+		})
+		if !hasProjection || existing.GetUid() == "" || projected.GetVpnSize() == nil || projected.GetGatewaySize() == nil {
+			return fmt.Errorf("existing laboratory group sizes are unavailable: %w", err)
+		}
+		vpn, gateway := projected.GetVpnSize(), projected.GetGatewaySize()
+		actual := infraModel.GroupSizes{VPN: resourcesModel.Amount{CPUMillicores: vpn.GetCpuMillicores(), MemoryBytes: vpn.GetMemoryBytes()}, Gateway: resourcesModel.Amount{CPUMillicores: gateway.GetCpuMillicores(), MemoryBytes: gateway.GetMemoryBytes()}}
+		if actual.VPN.CPUMillicores <= 0 || actual.VPN.MemoryBytes <= 0 || actual.Gateway.CPUMillicores <= 0 || actual.Gateway.MemoryBytes <= 0 || !actual.Holds(sizes) {
+			return fmt.Errorf("existing laboratory group is undersized: %w", err)
+		}
 	}
 	return nil
 }

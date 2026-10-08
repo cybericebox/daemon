@@ -1,0 +1,26 @@
+--- FAIL: TestSizingUsesPlannedULIP (0.00s)
+    sizing_v2_test.go:15: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/model/infrastructure/sizing_v2_test.go:15
+        	Error:      	Not equal: 
+        	            	expected: resourcesModel.Amount{CPUMillicores:60, MemoryBytes:12582912}
+        	            	actual  : resourcesModel.Amount{CPUMillicores:0, MemoryBytes:0}
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1,4 +1,4 @@
+        	            	 (resourcesModel.Amount) {
+        	            	- CPUMillicores: (int64) 60,
+        	            	- MemoryBytes: (int64) 12582912
+        	            	+ CPUMillicores: (int64) 0,
+        	            	+ MemoryBytes: (int64) 0
+        	            	 }
+        	Test:       	TestSizingUsesPlannedULIP
+--- FAIL: TestCreatedGroupCannotBeSilentlyUndersized (0.00s)
+    sizing_v2_test.go:27: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/model/infrastructure/sizing_v2_test.go:27
+        	Error:      	Should be false
+        	Test:       	TestCreatedGroupCannotBeSilentlyUndersized
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/model/infrastructure	0.346s
+FAIL

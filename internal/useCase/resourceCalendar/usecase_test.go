@@ -3,6 +3,7 @@ package resourceCalendarUseCase
 import (
 	"context"
 	"errors"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"testing"
 	"time"
 
@@ -584,4 +585,20 @@ func TestTestLabRoomRejectsALeaseAboveTheBookingMaximum(t *testing.T) {
 	_, err := h.uc.CheckTestLabRoom(context.Background(), uuid.Must(uuid.NewV7()), Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30}, Amount{}, calModel.MaxBooking+time.Minute)
 	require.Error(t, err)
 	assert.True(t, is(err, calModel.ErrBookingInvalid), "%v", err)
+}
+
+func TestStorageBudgetChangesPreserveHeldRetainedQuota(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	quota := int64(1 << 30)
+	result, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{PerTeamSnapshotQuotaBytes: &quota}, uuid.Nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 8<<30, result.Reservation.SizeSnapshotQuotaBytes)
+	h.usage.u = Usage{StorageByEvent: map[uuid.UUID]eventLabModel.StorageBudget{h.event.ID: {SnapshotQuotaBytes: 1 << 30}}}
+	zero := int64(0)
+	_, err = h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{PerTeamSnapshotQuotaBytes: &zero}, uuid.Nil)
+	require.Error(t, err)
+	got, err := h.store.GetEventReservation(ctx, h.event.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 8<<30, got.SizeSnapshotQuotaBytes)
 }

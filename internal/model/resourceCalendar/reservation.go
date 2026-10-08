@@ -1,6 +1,7 @@
 package resourceCalendar
 
 import (
+	"math"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -49,8 +50,11 @@ type Reservation struct {
 	Teams int
 	// PerTeam is the plan of one team (its tasks plus the group's own pods); LargestDevice the largest device
 	// any of its labs runs (an agent must allow it).
-	PerTeam       Amount
-	LargestDevice Amount
+	PerTeamSnapshotQuotaBytes int64
+	DynamicSnapshotQuotaBytes int64
+	SizeSnapshotQuotaBytes    int64
+	PerTeam                   Amount
+	LargestDevice             Amount
 	// BufferPercent and Dynamic are what the size adds to Teams x PerTeam: the buffer and the organizer's
 	// estimate for tasks that appear later.
 	BufferPercent int
@@ -72,14 +76,16 @@ type Reservation struct {
 
 // EventInput is what an event reservation is built from.
 type EventInput struct {
-	EventID       uuid.UUID
-	Window        Window
-	Teams         int
-	PerTeam       Amount
-	LargestDevice Amount
-	BufferPercent int
-	Dynamic       Amount
-	TailGap       time.Duration
+	EventID                   uuid.UUID
+	Window                    Window
+	Teams                     int
+	PerTeamSnapshotQuotaBytes int64
+	DynamicSnapshotQuotaBytes int64
+	PerTeam                   Amount
+	LargestDevice             Amount
+	BufferPercent             int
+	Dynamic                   Amount
+	TailGap                   time.Duration
 }
 
 // ComputeSize is the size of a reservation: the plan of every team plus the buffer, plus the dynamic estimate.
@@ -107,6 +113,9 @@ func validInput(teams int, perTeam, dynamic Amount, bufferPercent int) error {
 
 // NewEventReservation builds the reservation of an event.
 func NewEventReservation(in EventInput, by uuid.UUID, now time.Time) (*Reservation, error) {
+	if in.PerTeamSnapshotQuotaBytes < 0 || in.DynamicSnapshotQuotaBytes < 0 || (in.Teams > 0 && in.PerTeamSnapshotQuotaBytes > (math.MaxInt64-in.DynamicSnapshotQuotaBytes)/int64(in.Teams)) {
+		return nil, ErrReservationInvalid.Err()
+	}
 	if err := validInput(in.Teams, in.PerTeam, in.Dynamic, in.BufferPercent); err != nil {
 		return nil, err
 	}
@@ -119,6 +128,7 @@ func NewEventReservation(in EventInput, by uuid.UUID, now time.Time) (*Reservati
 	}
 	event := in.EventID
 	return &Reservation{
+		PerTeamSnapshotQuotaBytes: in.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: in.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: int64(in.Teams)*in.PerTeamSnapshotQuotaBytes + in.DynamicSnapshotQuotaBytes,
 		ID: id, Kind: KindEvent, EventID: &event, Window: in.Window, Teams: in.Teams, PerTeam: in.PerTeam,
 		LargestDevice: in.LargestDevice, BufferPercent: in.BufferPercent, Dynamic: in.Dynamic, TailGap: in.TailGap,
 		Size: ComputeSize(in.Teams, in.PerTeam, in.BufferPercent, in.Dynamic), CreatedBy: by, CreatedAt: now, UpdatedAt: now,
@@ -155,6 +165,10 @@ func (r *Reservation) Recalculate(teams int, perTeam, largestDevice Amount, buff
 	if err := validInput(teams, perTeam, dynamic, bufferPercent); err != nil {
 		return err
 	}
+	if r.PerTeamSnapshotQuotaBytes > (math.MaxInt64-r.DynamicSnapshotQuotaBytes)/int64(teams) {
+		return ErrReservationInvalid.Err()
+	}
+	r.SizeSnapshotQuotaBytes = r.PerTeamSnapshotQuotaBytes*int64(teams) + r.DynamicSnapshotQuotaBytes
 	r.Teams, r.PerTeam, r.LargestDevice, r.BufferPercent, r.Dynamic = teams, perTeam, largestDevice, bufferPercent, dynamic
 	r.Size = ComputeSize(teams, perTeam, bufferPercent, dynamic)
 	r.UpdatedAt = now
@@ -225,11 +239,13 @@ type ChangeRequest struct {
 	RequestedAt   time.Time
 	// Each is nil when the request leaves it as it is. WindowStart / WindowEnd are the wanted window; the tail
 	// gap still applies on top of an end the organizer names (it is added when approved).
-	Size        *Amount
-	Dynamic     *Amount
-	WindowStart *time.Time
-	WindowEnd   *time.Time
-	Reason      string
+	SizeSnapshotQuotaBytes    *int64
+	DynamicSnapshotQuotaBytes *int64
+	Size                      *Amount
+	Dynamic                   *Amount
+	WindowStart               *time.Time
+	WindowEnd                 *time.Time
+	Reason                    string
 
 	Status       ChangeStatus
 	DecidedBy    *uuid.UUID
@@ -342,8 +358,9 @@ func (a *Alarm) Acknowledge(by uuid.UUID, now time.Time) {
 // Settings are the calendar settings an admin edits.
 type Settings struct {
 	// TestPool is the guaranteed minimum for test laboratories, always on and never reserved by events.
-	TestPool  Amount
-	UpdatedAt time.Time
+	TestPoolSnapshotQuotaBytes int64
+	TestPool                   Amount
+	UpdatedAt                  time.Time
 }
 
 // Booking limits of a test laboratory window.
@@ -366,4 +383,33 @@ func NewBookingWindow(start time.Time, duration time.Duration, now time.Time) (W
 		return Window{}, ErrBookingInvalid.Err()
 	}
 	return w, nil
+}
+
+func (r *Reservation) SetSnapshotQuota(bytes int64, now time.Time) error {
+	if bytes < 0 || r.PerTeamSnapshotQuotaBytes > bytes/int64(max(r.Teams, 1)) {
+		return ErrReservationInvalid.Err()
+	}
+	r.SizeSnapshotQuotaBytes = bytes
+	r.UpdatedAt = now
+	return nil
+}
+
+// RecalculateStorage reserves logical quotas; compute buffering never describes physical disk.
+func (r *Reservation) RecalculateStorage(perTeam, dynamic int64, now time.Time) error {
+	if perTeam < 0 || dynamic < 0 || perTeam > (math.MaxInt64-dynamic)/int64(max(r.Teams, 1)) {
+		return ErrReservationInvalid.Err()
+	}
+	r.PerTeamSnapshotQuotaBytes = perTeam
+	r.DynamicSnapshotQuotaBytes = dynamic
+	r.SizeSnapshotQuotaBytes = perTeam*int64(r.Teams) + dynamic
+	r.UpdatedAt = now
+	return nil
+}
+func (c *ChangeRequest) RequestStorage(size, dynamic *int64) error {
+	if (size != nil && *size < 0) || (dynamic != nil && *dynamic < 0) {
+		return ErrChangeRequestInvalid.Err()
+	}
+	c.SizeSnapshotQuotaBytes = size
+	c.DynamicSnapshotQuotaBytes = dynamic
+	return nil
 }

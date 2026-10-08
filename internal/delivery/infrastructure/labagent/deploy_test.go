@@ -16,6 +16,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
 // fakeAgent is an in-memory LabManager: it records the requests and answers each item with the
@@ -609,5 +610,14 @@ func TestPolicyResultWaitsForGroup(t *testing.T) {
 	}
 	if err := policyResult("replace", []*labpb.ItemResult{{Ref: ref, State: labpb.ItemState_ITEM_STATE_UPDATED}}); err != nil {
 		t.Errorf("applied policy: %v", err)
+	}
+}
+
+func TestCreatedGroupCannotBeSilentlyUndersized(t *testing.T) {
+	f := &fakeAgent{groups: readyGroup(), itemState: labpb.ItemState_ITEM_STATE_FAILED, itemError: groupSpecDiffers}
+	c := newClient(f)
+	ctx := infraModel.WithGroupSizes(context.Background(), infraModel.GroupSizes{VPN: resourcesModel.Amount{CPUMillicores: 100, MemoryBytes: 128 << 20}, Gateway: resourcesModel.Amount{CPUMillicores: 25, MemoryBytes: 32 << 20}})
+	if err := c.ensureGroup(ctx, "event-team", nil); err == nil {
+		t.Fatal("adopted existing group without proof its immutable pods fit")
 	}
 }

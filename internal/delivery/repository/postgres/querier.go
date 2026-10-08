@@ -153,6 +153,7 @@ type Querier interface {
 	CreateEventFormAssignment(ctx context.Context, arg CreateEventFormAssignmentParams) (EventFormAssignment, error)
 	CreateEventFormDelivery(ctx context.Context, arg CreateEventFormDeliveryParams) (int64, error)
 	CreateEventFormVersion(ctx context.Context, arg CreateEventFormVersionParams) (EventFormVersion, error)
+	CreateEventGroupAllocation(ctx context.Context, arg CreateEventGroupAllocationParams) error
 	CreateEventLabObservation(ctx context.Context, arg CreateEventLabObservationParams) (EventLabObservation, error)
 	CreateEventManager(ctx context.Context, arg CreateEventManagerParams) (EventManager, error)
 	// A new page is unpublished: its columns mirror the draft (reserving the slug).
@@ -394,6 +395,7 @@ type Querier interface {
 	// yet; a solve is an effectively correct attempt of the participant.
 	GetEventParticipantFunnel(ctx context.Context, eventID uuid.UUID) (GetEventParticipantFunnelRow, error)
 	GetEventParticipantProfile(ctx context.Context, arg GetEventParticipantProfileParams) (GetEventParticipantProfileRow, error)
+	GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.UUID) (int64, error)
 	// The participation funnel below the approved participants: how many of
 	// them and their teams ever opened a task, tried an answer and solved.
 	GetEventReportFunnel(ctx context.Context, eventID uuid.UUID) (GetEventReportFunnelRow, error)
@@ -721,6 +723,7 @@ type Querier interface {
 	ListEventFormDeliveries(ctx context.Context, arg ListEventFormDeliveriesParams) ([]EventFormDelivery, error)
 	ListEventFormRecipientCandidates(ctx context.Context, eventID uuid.UUID) ([]ListEventFormRecipientCandidatesRow, error)
 	ListEventForms(ctx context.Context, eventID uuid.UUID) ([]ListEventFormsRow, error)
+	ListEventGroupAllocations(ctx context.Context, eventID uuid.UUID) ([]EventTeamGroupAllocation, error)
 	// Every challenge of the event's active sets in one group (NULL = no group).
 	ListEventGroupChallengeIDs(ctx context.Context, arg ListEventGroupChallengeIDsParams) ([]uuid.UUID, error)
 	// Who unlocked which hint (moderators): team public name, member, cost.
@@ -754,6 +757,8 @@ type Querier interface {
 	// set is not detached and every prerequisite is solved by the team. The hidden moderators team tests tasks
 	// before they are shown, so it keeps the readiness rule alone.
 	ListEventLabAccessLabs(ctx context.Context, eventTeamID uuid.UUID) ([]ListEventLabAccessLabsRow, error)
+	// Narrow ledger reads: canonical Lab rows are already shared once per generation.
+	ListEventLabAllocations(ctx context.Context, eventID uuid.UUID) ([]EventTeamLab, error)
 	// Includes every pinned team question, even unpublished/hidden ones.
 	ListEventLabAssignmentObjectives(ctx context.Context, arg ListEventLabAssignmentObjectivesParams) ([]ListEventLabAssignmentObjectivesRow, error)
 	ListEventLabAssignmentsMissingIdentity(ctx context.Context, eventID uuid.UUID) ([]ListEventLabAssignmentsMissingIdentityRow, error)
@@ -1063,6 +1068,7 @@ type Querier interface {
 	ListPlatformAnalyticsUpcomingEvents(ctx context.Context, arg ListPlatformAnalyticsUpcomingEventsParams) ([]ListPlatformAnalyticsUpcomingEventsRow, error)
 	// kind: all | roles | users. Only active, non-deleted accounts with an email.
 	ListPlatformBroadcastAudience(ctx context.Context, arg ListPlatformBroadcastAudienceParams) ([]ListPlatformBroadcastAudienceRow, error)
+	ListPlatformGroupAllocations(ctx context.Context) ([]EventTeamGroupAllocation, error)
 	// Capacity over time from the agents' capacity observations, downsampled to buckets of
 	// step_seconds (the caller picks the step so a period has at most about 300 points). Inside a bucket
 	// every agent contributes its average; the agents are then summed. An agent reports the platform's
@@ -1111,6 +1117,7 @@ type Querier interface {
 	// with lead(): a transition lasts until the next one, the last one until the
 	// end of the window.
 	ListPlatformInfraStandHours(ctx context.Context, arg ListPlatformInfraStandHoursParams) ([]ListPlatformInfraStandHoursRow, error)
+	ListPlatformLabAllocations(ctx context.Context) ([]EventTeamLab, error)
 	ListPlatformLabCapacityObservations(ctx context.Context, arg ListPlatformLabCapacityObservationsParams) ([]PlatformLabCapacityObservation, error)
 	// Active events by default; include_recent also lists everything the runner
 	// touched since recent_since, whatever the event state.
@@ -1239,6 +1246,9 @@ type Querier interface {
 	// Which of the given LabGroup names still hold at least one test deploy row, expired or not
 	// (an expired row is cleaned up by the test deploy job, not by the sweep).
 	ListTestDeployGroupNames(ctx context.Context, names []string) ([]string, error)
+	// A historical dispatched generation with no persisted requests is unknown,
+	// never a zero-capacity certificate. Unlaunched objective pins do not hold CPU.
+	ListUnaccountedEventLabStarts(ctx context.Context) ([]ListUnaccountedEventLabStartsRow, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
 	// First and last name of the authors an exercise response shows (never the email).
@@ -1259,6 +1269,8 @@ type Querier interface {
 	// only once the event is withdrawn. A destroyed binding never re-enters this
 	// queue; a failed agent call leaves it eligible for River's next retry.
 	ListWithdrawnLabBindings(ctx context.Context, now pgtype.Timestamptz) ([]LabBinding, error)
+	// Configured maxima cannot change while an admission validates immutable group sizes.
+	LockEventConfigForLabSizing(ctx context.Context, eventID uuid.UUID) (uuid.UUID, error)
 	// Serialize roster creation/change without blocking the KEY SHARE locks of
 	// concurrent answer inserts while we wait for their team admission locks.
 	LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)

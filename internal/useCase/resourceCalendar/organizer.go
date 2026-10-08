@@ -2,6 +2,7 @@ package resourceCalendarUseCase
 
 import (
 	"context"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -14,6 +15,8 @@ import (
 // ChangeInput is an organizer's change request: the size, the window and/or the estimate for future dynamic
 // tasks, with a reason. Extending the existing reservation is the way; the platform admin decides.
 type ChangeInput struct {
+	SizeSnapshotQuotaBytes    *int64
+	DynamicSnapshotQuotaBytes *int64
 	// Size is the wanted total (CPU and memory).
 	Size *Amount
 	// Dynamic is the wanted estimate for future dynamic tasks.
@@ -38,9 +41,18 @@ func (u *ResourceCalendarUseCase) GetEventResources(ctx context.Context, eventID
 	if err != nil {
 		return OrganizerReservationView{}, platformErr(err, "Failed to list the change requests")
 	}
-	view := OrganizerReservationView{Changes: make([]OrganizerChangeView, 0, len(changes))}
+	view := OrganizerReservationView{Observation: ObservationView(eventLabModel.ResourceTotals{}), Changes: make([]OrganizerChangeView, 0, len(changes))}
 	for _, c := range changes {
 		view.Changes = append(view.Changes, organizerChange(c.ChangeRequest))
+	}
+	now := u.now().UTC()
+	if u.usage != nil {
+		if usage, uErr := u.usage.Usage(ctx, now); uErr == nil {
+			view.InUse = usage.ByEvent[eventID]
+			view.Observation = ObservationView(usage.ByEventObservation[eventID])
+		} else {
+			log.Warn().Err(uErr).Msg("Resource usage unavailable for the organizer view")
+		}
 	}
 	r, err := u.store.GetEventReservation(ctx, eventID)
 	if err != nil {
@@ -49,17 +61,10 @@ func (u *ResourceCalendarUseCase) GetEventResources(ctx context.Context, eventID
 		}
 		return OrganizerReservationView{}, platformErr(err, "Failed to read the event reservation")
 	}
-	now := u.now().UTC()
 	view.Reserved = true
 	view.From, view.To, view.Teams, view.Allocated = r.Window.Start, r.Window.End, r.Teams, r.Size
 	view.BufferPercent, view.Dynamic = r.BufferPercent, r.Dynamic
-	if u.usage != nil {
-		if usage, uErr := u.usage.Usage(ctx, now); uErr == nil {
-			view.InUse = usage.ByEvent[eventID]
-		} else {
-			log.Warn().Err(uErr).Msg("Resource usage unavailable for the organizer view")
-		}
-	}
+
 	view.Free = Amount{CPUMillicores: max(r.Size.CPUMillicores-view.InUse.CPUMillicores, 0), MemoryBytes: max(r.Size.MemoryBytes-view.InUse.MemoryBytes, 0)}
 	states, err := u.agentStates(ctx, now)
 	if err != nil {
@@ -107,8 +112,16 @@ func (u *ResourceCalendarUseCase) RequestResourceChange(ctx context.Context, eve
 		if len(waiting) > 0 {
 			return calModel.ErrChangeRequestPending.Err()
 		}
-		c, err := calModel.NewChangeRequest(r, by, in.Size, in.Dynamic, in.WindowStart, in.WindowEnd, in.Reason, now)
+		size := in.Size
+		if size == nil && in.Dynamic == nil && in.WindowStart == nil && in.WindowEnd == nil && (in.SizeSnapshotQuotaBytes != nil || in.DynamicSnapshotQuotaBytes != nil) {
+			current := r.Size
+			size = &current
+		}
+		c, err := calModel.NewChangeRequest(r, by, size, in.Dynamic, in.WindowStart, in.WindowEnd, in.Reason, now)
 		if err != nil {
+			return err
+		}
+		if err = c.RequestStorage(in.SizeSnapshotQuotaBytes, in.DynamicSnapshotQuotaBytes); err != nil {
 			return err
 		}
 		if err = s.CreateChangeRequest(ctx, c); err != nil {
@@ -227,6 +240,16 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 			if aErr := u.applyChange(r, *c, now); aErr != nil {
 				return aErr
 			}
+
+			if u.usage != nil {
+				usage, e := u.usage.Usage(ctx, now)
+				if e != nil {
+					return platformErr(e, "Failed to read held event allocations")
+				}
+				if usage.StorageByEvent[c.EventID].SnapshotQuotaBytes > r.SizeSnapshotQuotaBytes || !usage.ByEvent[c.EventID].Within(r.Size) {
+					return calModel.ErrNotEnoughReserved.Err()
+				}
+			}
 			settings, setErr := s.Settings(ctx)
 			if setErr != nil {
 				return platformErr(setErr, "Failed to read the calendar settings")
@@ -284,6 +307,16 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 func (u *ResourceCalendarUseCase) applyChange(r *calModel.Reservation, c calModel.ChangeRequest, now time.Time) error {
 	if c.Dynamic != nil {
 		if err := r.Recalculate(r.Teams, r.PerTeam, r.LargestDevice, r.BufferPercent, *c.Dynamic, now); err != nil {
+			return err
+		}
+	}
+	if c.DynamicSnapshotQuotaBytes != nil {
+		if err := r.RecalculateStorage(r.PerTeamSnapshotQuotaBytes, *c.DynamicSnapshotQuotaBytes, now); err != nil {
+			return err
+		}
+	}
+	if c.SizeSnapshotQuotaBytes != nil {
+		if err := r.SetSnapshotQuota(*c.SizeSnapshotQuotaBytes, now); err != nil {
 			return err
 		}
 	}

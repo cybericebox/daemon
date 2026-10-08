@@ -39,6 +39,7 @@ import (
 
 // standAgent is an in-memory Laboratory: Labs become ready or fail on demand.
 type standAgent struct {
+	beforeDeploy       func(context.Context, string, string) error
 	stopCalls          []eventLabModel.StopRequest
 	observations       map[eventLabModel.Ref]eventLabModel.Observation
 	stopErr, statusErr error
@@ -96,9 +97,14 @@ func (a *standAgent) RescueDevice(_ context.Context, group, lab, device string, 
 	return a.deviceErr
 }
 
-func (a *standAgent) DeployLab(_ context.Context, group, lab string, meta infraModel.LabMeta, topology exerciseModel.Topology) error {
+func (a *standAgent) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topology exerciseModel.Topology) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.beforeDeploy != nil {
+		if err := a.beforeDeploy(ctx, group, lab); err != nil {
+			return err
+		}
+	}
 	a.metas[group+"/"+lab] = meta
 	if len(topology.Devices) == 0 {
 		return errors.New("static topology must never be deployed")
@@ -176,7 +182,7 @@ func (s standTopologies) ResolveDeployedTopology(_ context.Context, versionID uu
 	if topology, ok := s.sets.topology[versionID]; ok {
 		return topology, nil
 	}
-	return exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: s.deviceID, Name: "web"}}}, nil
+	return exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: s.deviceID, Name: "web", Type: exerciseModel.DeviceTypeContainer}}}, nil
 }
 
 func (s standTopologies) ResolveVersionTopologies(context.Context, uuid.UUID) ([]exerciseModel.Topology, error) {

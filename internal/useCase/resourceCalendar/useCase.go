@@ -15,6 +15,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -92,8 +93,12 @@ type (
 
 	// Usage is what the running objects request now, summed per event and per agent.
 	Usage struct {
-		ByEvent map[uuid.UUID]Amount
-		ByAgent map[uuid.UUID]Amount
+		ByEvent            map[uuid.UUID]Amount
+		ByAgent            map[uuid.UUID]Amount
+		UnaccountedByEvent map[uuid.UUID]bool
+		StorageByEvent     map[uuid.UUID]eventLabModel.StorageBudget
+		ByEventObservation map[uuid.UUID]eventLabModel.ResourceTotals
+		Observation        eventLabModel.ResourceTotals
 	}
 
 	// UsageSource reads the requests of the running lab groups.

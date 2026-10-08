@@ -450,6 +450,18 @@ type EventTeamFieldConfig struct {
 	BlockSubmissions bool      `json:"block_submissions"`
 }
 
+type EventTeamGroupAllocation struct {
+	EventTeamID          uuid.UUID `json:"event_team_id"`
+	EventID              uuid.UUID `json:"event_id"`
+	LabGroupName         string    `json:"lab_group_name"`
+	VpnCpuMillicores     int64     `json:"vpn_cpu_millicores"`
+	VpnMemoryBytes       int64     `json:"vpn_memory_bytes"`
+	GatewayCpuMillicores int64     `json:"gateway_cpu_millicores"`
+	GatewayMemoryBytes   int64     `json:"gateway_memory_bytes"`
+	Plan                 []byte    `json:"plan"`
+	CreatedAt            time.Time `json:"created_at"`
+}
+
 type EventTeamLab struct {
 	ID                   uuid.UUID          `json:"id"`
 	EventID              uuid.UUID          `json:"event_id"`
@@ -860,29 +872,32 @@ type ResourceAlarm struct {
 }
 
 type ResourceCalendarSetting struct {
-	ID                    bool      `json:"id"`
-	TestPoolCpuMillicores int64     `json:"test_pool_cpu_millicores"`
-	TestPoolMemoryBytes   int64     `json:"test_pool_memory_bytes"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	ID                         bool      `json:"id"`
+	TestPoolCpuMillicores      int64     `json:"test_pool_cpu_millicores"`
+	TestPoolMemoryBytes        int64     `json:"test_pool_memory_bytes"`
+	UpdatedAt                  time.Time `json:"updated_at"`
+	TestPoolSnapshotQuotaBytes int64     `json:"test_pool_snapshot_quota_bytes"`
 }
 
 type ResourceChangeRequest struct {
-	ID                   uuid.UUID          `json:"id"`
-	ReservationID        uuid.UUID          `json:"reservation_id"`
-	EventID              uuid.UUID          `json:"event_id"`
-	RequestedBy          uuid.NullUUID      `json:"requested_by"`
-	RequestedAt          time.Time          `json:"requested_at"`
-	SizeCpuMillicores    pgtype.Int8        `json:"size_cpu_millicores"`
-	SizeMemoryBytes      pgtype.Int8        `json:"size_memory_bytes"`
-	DynamicCpuMillicores pgtype.Int8        `json:"dynamic_cpu_millicores"`
-	DynamicMemoryBytes   pgtype.Int8        `json:"dynamic_memory_bytes"`
-	WindowStart          pgtype.Timestamptz `json:"window_start"`
-	WindowEnd            pgtype.Timestamptz `json:"window_end"`
-	Reason               string             `json:"reason"`
-	Status               int16              `json:"status"`
-	DecidedBy            uuid.NullUUID      `json:"decided_by"`
-	DecidedAt            pgtype.Timestamptz `json:"decided_at"`
-	DecisionNote         string             `json:"decision_note"`
+	ID                        uuid.UUID          `json:"id"`
+	ReservationID             uuid.UUID          `json:"reservation_id"`
+	EventID                   uuid.UUID          `json:"event_id"`
+	RequestedBy               uuid.NullUUID      `json:"requested_by"`
+	RequestedAt               time.Time          `json:"requested_at"`
+	SizeCpuMillicores         pgtype.Int8        `json:"size_cpu_millicores"`
+	SizeMemoryBytes           pgtype.Int8        `json:"size_memory_bytes"`
+	DynamicCpuMillicores      pgtype.Int8        `json:"dynamic_cpu_millicores"`
+	DynamicMemoryBytes        pgtype.Int8        `json:"dynamic_memory_bytes"`
+	WindowStart               pgtype.Timestamptz `json:"window_start"`
+	WindowEnd                 pgtype.Timestamptz `json:"window_end"`
+	Reason                    string             `json:"reason"`
+	Status                    int16              `json:"status"`
+	DecidedBy                 uuid.NullUUID      `json:"decided_by"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote              string             `json:"decision_note"`
+	SizeSnapshotQuotaBytes    pgtype.Int8        `json:"size_snapshot_quota_bytes"`
+	DynamicSnapshotQuotaBytes pgtype.Int8        `json:"dynamic_snapshot_quota_bytes"`
 }
 
 type ResourceReservation struct {
@@ -909,17 +924,21 @@ type ResourceReservation struct {
 	CreatedAt                  time.Time          `json:"created_at"`
 	UpdatedAt                  time.Time          `json:"updated_at"`
 	CanceledAt                 pgtype.Timestamptz `json:"canceled_at"`
+	PerTeamSnapshotQuotaBytes  int64              `json:"per_team_snapshot_quota_bytes"`
+	DynamicSnapshotQuotaBytes  int64              `json:"dynamic_snapshot_quota_bytes"`
+	SizeSnapshotQuotaBytes     int64              `json:"size_snapshot_quota_bytes"`
 }
 
 type ResourceTestLabHold struct {
-	ID            uuid.UUID     `json:"id"`
-	OwnerID       uuid.UUID     `json:"owner_id"`
-	Via           string        `json:"via"`
-	ReservationID uuid.NullUUID `json:"reservation_id"`
-	CpuMillicores int64         `json:"cpu_millicores"`
-	MemoryBytes   int64         `json:"memory_bytes"`
-	StartsAt      time.Time     `json:"starts_at"`
-	ExpiresAt     time.Time     `json:"expires_at"`
+	ID                 uuid.UUID     `json:"id"`
+	OwnerID            uuid.UUID     `json:"owner_id"`
+	Via                string        `json:"via"`
+	ReservationID      uuid.NullUUID `json:"reservation_id"`
+	CpuMillicores      int64         `json:"cpu_millicores"`
+	MemoryBytes        int64         `json:"memory_bytes"`
+	StartsAt           time.Time     `json:"starts_at"`
+	ExpiresAt          time.Time     `json:"expires_at"`
+	SnapshotQuotaBytes int64         `json:"snapshot_quota_bytes"`
 }
 
 type SecretEnvelope struct {

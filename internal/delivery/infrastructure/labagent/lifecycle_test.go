@@ -269,7 +269,7 @@ func TestLifecycleAdapterAndDomainKeepHeldAllocationUntilExactCurrentRelease(t *
 			}
 			lab.Observe(o, time.Unix(211, 0))
 			if name == "current" {
-				if lab.Allocation.RuntimeState != "Released" || lab.Allocation.AllocatedRequests.MemoryBytes != 0 || lab.AgentGeneration != 9 {
+				if lab.Allocation.RuntimeState != "Released" || lab.HeldCompute().MemoryBytes != 0 || lab.AgentGeneration != 9 {
 					t.Fatalf("certificate refused: %+v", lab)
 				}
 			} else if lab.Allocation.RuntimeState == "Released" || lab.Allocation.AllocatedRequests.MemoryBytes != 512 || lab.Allocation.SnapshotQuotaBytes != 2048 {
@@ -307,7 +307,7 @@ func TestLifecycleInformationalReasonDoesNotBlockHealthyRelease(t *testing.T) {
 				t.Fatal("current observation did not reach domain ledger")
 			}
 			if tc.released {
-				if lab.ActualState != "Stopped" || lab.Allocation.RuntimeState != "Released" || lab.Allocation.ReleasedAt == nil || lab.Allocation.AllocatedRequests != (eventLabModel.Compute{}) || lab.FailureCode != "" || lab.FailureMessage != "" {
+				if lab.ActualState != "Stopped" || lab.Allocation.RuntimeState != "Released" || lab.Allocation.ReleasedAt == nil || lab.HeldCompute() != (eventLabModel.Compute{}) || lab.FailureCode != "" || lab.FailureMessage != "" {
 					t.Fatalf("healthy certificate refused: observation=%+v lab=%+v", o, lab)
 				}
 			} else if lab.Allocation.RuntimeState == "Released" || lab.Allocation.ReleasedAt != nil || lab.Allocation.AllocatedRequests != (eventLabModel.Compute{CPUMillicores: 750, MemoryBytes: 512}) || lab.Allocation.SnapshotQuotaBytes != 2048 {
