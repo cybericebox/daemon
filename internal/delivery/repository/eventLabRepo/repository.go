@@ -15,6 +15,8 @@ import (
 )
 
 type Queries interface {
+	ListPendingStoppedEventTeamLabs(context.Context, postgres.ListPendingStoppedEventTeamLabsParams) ([]postgres.EventTeamLab, error)
+	ScheduleEventTeamLabLifecycleRetry(context.Context, postgres.ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
 	AttachEventLabAssignmentBindings(ctx context.Context, labID uuid.NullUUID) (int64, error)
 	CreateEventTeamLab(ctx context.Context, arg postgres.CreateEventTeamLabParams) error
 	GetEventTeamLab(ctx context.Context, id uuid.UUID) (postgres.EventTeamLab, error)
@@ -261,5 +263,25 @@ func (r *Repository) MissingAssignments(ctx context.Context, eventID uuid.UUID) 
 }
 func (r *Repository) LockAdmission(ctx context.Context, teamID uuid.UUID) error {
 	_, err := r.q.LockEventTeamForLabAdmission(ctx, teamID)
+	return err
+}
+
+func (r *Repository) PendingStopped(ctx context.Context, now time.Time, limit int32) ([]eventLabModel.Lab, error) {
+	rows, err := r.q.ListPendingStoppedEventTeamLabs(ctx, postgres.ListPendingStoppedEventTeamLabsParams{Now: now, LimitVal: limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]eventLabModel.Lab, 0, len(rows))
+	for _, row := range rows {
+		l, err := ToDomain(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, nil
+}
+func (r *Repository) ScheduleLifecycleRetry(ctx context.Context, l eventLabModel.Lab, now, next time.Time) error {
+	_, err := r.q.ScheduleEventTeamLabLifecycleRetry(ctx, postgres.ScheduleEventTeamLabLifecycleRetryParams{ID: l.ID, DesiredRevision: l.Revision, OperationID: l.OperationID, Now: now, NextAttemptAt: next})
 	return err
 }

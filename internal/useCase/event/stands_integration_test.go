@@ -23,6 +23,7 @@ import (
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	eventTeamModel "github.com/cybericebox/daemon/internal/model/eventTeam"
@@ -38,13 +39,17 @@ import (
 
 // standAgent is an in-memory Laboratory: Labs become ready or fail on demand.
 type standAgent struct {
-	mu        sync.Mutex
-	deployed  []string
-	topos     map[string]exerciseModel.Topology
-	deleted   []string
-	destroyed []string
-	ready     map[string]bool
-	failed    map[string]bool
+	stopCalls          []eventLabModel.StopRequest
+	observations       map[eventLabModel.Ref]eventLabModel.Observation
+	stopErr, statusErr error
+	stopErrs           map[eventLabModel.Ref]error
+	mu                 sync.Mutex
+	deployed           []string
+	topos              map[string]exerciseModel.Topology
+	deleted            []string
+	destroyed          []string
+	ready              map[string]bool
+	failed             map[string]bool
 	// queued labs report phase Queued with this queue state.
 	queued       map[string]*exerciseModel.LabQueue
 	metas        map[string]infraModel.LabMeta
@@ -112,7 +117,7 @@ func (a *standAgent) LabStatus(_ context.Context, group, lab string) (exerciseMo
 	case a.failed[key]:
 		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseFailed}, nil
 	case a.ready[key]:
-		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseReady, Ready: true}, nil
+		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseReady, Ready: true, LabUID: "uid-" + key, LabGeneration: 1}, nil
 	default:
 		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseProvisioning}, nil
 	}
@@ -940,4 +945,22 @@ func TestStandEngine_WaitsForReservation(t *testing.T) {
 	if n := f.count(t, `SELECT count(*) FROM event_team_stands WHERE reason = $1`, eventStandModel.ReasonAwaitingReservation); n != 0 {
 		t.Fatalf("the waiting reason must be gone, %d stands still carry it", n)
 	}
+}
+
+func (a *standAgent) StopLab(_ context.Context, in eventLabModel.StopRequest) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stopCalls = append(a.stopCalls, in)
+	if err := a.stopErrs[in.Target.Ref]; err != nil {
+		return err
+	}
+	return a.stopErr
+}
+func (a *standAgent) StartLab(context.Context, eventLabModel.Target) error {
+	return errors.New("unexpected start")
+}
+func (a *standAgent) ObserveLab(_ context.Context, ref eventLabModel.Ref) (eventLabModel.Observation, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.observations[ref], a.statusErr
 }

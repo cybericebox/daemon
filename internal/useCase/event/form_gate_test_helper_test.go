@@ -16,6 +16,8 @@ import (
 // behavior itself is asserted by the focused internal-package tests.
 func newFormGateMock(ctrl *gomock.Controller) *postgresMocks.MockQuerier {
 	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().LockEventTeamForLabAdmission(gomock.Any(), gomock.Any()).Return(uuid.Nil, nil).AnyTimes()
+	q.EXPECT().GetEventTeamLabForChallenge(gomock.Any(), gomock.Any()).Return(postgres.EventTeamLab{}, pgx.ErrNoRows).AnyTimes()
 	q.EXPECT().GetLatestEventFormVersion(gomock.Any(), gomock.Any()).
 		Return(postgres.EventFormVersion{}, pgx.ErrNoRows).AnyTimes()
 	q.EXPECT().GetEventParticipantFieldsMissing(gomock.Any(), gomock.Any()).Return(int32(0), nil).AnyTimes()

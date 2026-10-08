@@ -105,9 +105,10 @@ type (
 		Password   *password.Client
 		AuthConfig config.AuthConfig
 		// Sessions is the cookie codec, the revoked-session set and the last_seen batching of this replica.
-		Sessions       *session.Runtime
-		MediaConfig    config.MediaConfig
-		ExerciseConfig config.ExerciseConfig
+		Sessions           *session.Runtime
+		MediaConfig        config.MediaConfig
+		LabLifecycleConfig config.LabLifecycleConfig
+		ExerciseConfig     config.ExerciseConfig
 		// ResourcesPolicy is the platform's device resources settings (presets, frame, ceiling); zero: the
 		// owner's defaults.
 		ResourcesPolicy resourcesModel.Policy
@@ -224,6 +225,9 @@ func NewUseCase(deps Dependencies) *UseCase {
 
 	eventUC := eventUseCase.NewEventUseCase(
 		eventUseCase.Dependencies{
+			LabLifecycleBatch:        deps.LabLifecycleConfig.Batch,
+			LabLifecycleRetryMin:     deps.LabLifecycleConfig.RetryMin,
+			LabLifecycleRetryMax:     deps.LabLifecycleConfig.RetryMax,
 			Repo:                     deps.Repo,
 			UoW:                      postgres.NewUnitOfWorker[eventUseCase.IRepository](deps.Repo.UoWFactory()),
 			Infra:                    deps.LabAgent,
@@ -265,6 +269,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		labJobs := deps.EnqueuerFactory.NewEnqueuer()
 		exerciseUC.SetTestDeployExpiry(testDeployExpiry{enq: labJobs})
 		exerciseUC.SetTestDeployRemovalCheck(testDeployExpiry{enq: labJobs})
+		eventUC.SetLabLifecycleWake(func(ctx context.Context) error { return labJobs.Enqueue(ctx, jobsModel.LabLifecycleArgs{}) })
 		eventUC.SetLabCleanupWake(func(ctx context.Context) error { return labJobs.Enqueue(ctx, jobsModel.LabCleanupArgs{}) })
 	}
 

@@ -455,6 +455,75 @@ func (q *Queries) ListEventLabAssignmentsMissingIdentity(ctx context.Context, ev
 	return items, nil
 }
 
+const listPendingStoppedEventTeamLabs = `-- name: ListPendingStoppedEventTeamLabs :many
+SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at FROM event_team_labs
+WHERE desired_state='Stopped' AND next_attempt_at<=$1
+ AND NOT COALESCE((desired_state='Stopped' AND actual_state='Stopped' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'ReleasedAt' IS NOT NULL AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
+ AND NOT COALESCE((desired_state='Deleted' AND actual_state='Deleted' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'StorageState'='Deleted' AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
+ORDER BY next_attempt_at,id LIMIT $2
+`
+
+type ListPendingStoppedEventTeamLabsParams struct {
+	Now      time.Time `json:"now"`
+	LimitVal int32     `json:"limit_val"`
+}
+
+func (q *Queries) ListPendingStoppedEventTeamLabs(ctx context.Context, arg ListPendingStoppedEventTeamLabsParams) ([]EventTeamLab, error) {
+	rows, err := q.db.Query(ctx, listPendingStoppedEventTeamLabs, arg.Now, arg.LimitVal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventTeamLab{}
+	for rows.Next() {
+		var i EventTeamLab
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.EventTeamID,
+			&i.EventExerciseID,
+			&i.VariantIndex,
+			&i.Generation,
+			&i.LabGroupName,
+			&i.LabName,
+			&i.AgentUid,
+			&i.AgentGeneration,
+			&i.DesiredRevision,
+			&i.ObservedRevision,
+			&i.OperationID,
+			&i.DesiredState,
+			&i.ActualState,
+			&i.RuntimeReady,
+			&i.CloseReason,
+			&i.LogicalClosedAt,
+			&i.SnapshotMode,
+			&i.SnapshotState,
+			&i.RetentionUntil,
+			&i.ProtectedUntil,
+			&i.ActualStoppedAt,
+			&i.ObservedAt,
+			&i.ObjectiveCount,
+			&i.Materialized,
+			&i.Allocation,
+			&i.FailureCode,
+			&i.FailureMessage,
+			&i.AccessFenced,
+			&i.AccessFencedAt,
+			&i.AccessFenceVpnBootID,
+			&i.NextAttemptAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockEventTeamForLabAdmission = `-- name: LockEventTeamForLabAdmission :one
 SELECT id FROM event_teams WHERE id=$1 FOR UPDATE
 `
@@ -610,6 +679,34 @@ func (q *Queries) RecordEventTeamLabObservation(ctx context.Context, arg RecordE
 		arg.DesiredState,
 		arg.ExpectedUpdatedAt,
 		arg.ExpectedObservedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const scheduleEventTeamLabLifecycleRetry = `-- name: ScheduleEventTeamLabLifecycleRetry :execrows
+UPDATE event_team_labs SET next_attempt_at=$1,updated_at=$2
+WHERE id=$3 AND desired_revision=$4 AND operation_id=$5
+`
+
+type ScheduleEventTeamLabLifecycleRetryParams struct {
+	NextAttemptAt   time.Time `json:"next_attempt_at"`
+	Now             time.Time `json:"now"`
+	ID              uuid.UUID `json:"id"`
+	DesiredRevision int64     `json:"desired_revision"`
+	OperationID     uuid.UUID `json:"operation_id"`
+}
+
+// Narrow retry write; never copies physical state over a concurrent observation.
+func (q *Queries) ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg ScheduleEventTeamLabLifecycleRetryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, scheduleEventTeamLabLifecycleRetry,
+		arg.NextAttemptAt,
+		arg.Now,
+		arg.ID,
+		arg.DesiredRevision,
+		arg.OperationID,
 	)
 	if err != nil {
 		return 0, err

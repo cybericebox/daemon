@@ -113,3 +113,16 @@ SELECT DISTINCT b.event_team_id,ec.event_exercise_id
 FROM lab_bindings b JOIN event_challenges ec ON ec.id=b.event_challenge_id
 WHERE b.event_id=sqlc.arg(event_id) AND b.lab_id IS NULL AND b.lab_name NOT LIKE 'c-%'
 ORDER BY b.event_team_id,ec.event_exercise_id;
+
+-- name: ListPendingStoppedEventTeamLabs :many
+SELECT * FROM event_team_labs
+WHERE desired_state='Stopped' AND next_attempt_at<=sqlc.arg(now)
+ AND NOT COALESCE((desired_state='Stopped' AND actual_state='Stopped' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'ReleasedAt' IS NOT NULL AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
+ AND NOT COALESCE((desired_state='Deleted' AND actual_state='Deleted' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'StorageState'='Deleted' AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
+ORDER BY next_attempt_at,id LIMIT sqlc.arg(limit_val);
+
+
+-- name: ScheduleEventTeamLabLifecycleRetry :execrows
+-- Narrow retry write; never copies physical state over a concurrent observation.
+UPDATE event_team_labs SET next_attempt_at=sqlc.arg(next_attempt_at),updated_at=sqlc.arg(now)
+WHERE id=sqlc.arg(id) AND desired_revision=sqlc.arg(desired_revision) AND operation_id=sqlc.arg(operation_id);

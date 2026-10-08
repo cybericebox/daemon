@@ -99,7 +99,7 @@ FROM (
     JOIN event_challenges ec ON ec.id = lb.event_challenge_id
     JOIN event_exercises ee ON ee.id = ec.event_exercise_id
     WHERE lb.event_id = sqlc.arg(event_id)
-      AND lb.readiness = 0
+      AND (lb.readiness = 0 OR (lb.readiness=1 AND lab.agent_uid=''))
       -- Labs of a later stage wait until their deploy lead before they open.
       AND ee.id <> ALL (sqlc.arg(not_due_exercise_ids)::uuid[])
     ORDER BY lb.event_team_id, lb.lab_name, lb.created_at, lb.id
@@ -138,9 +138,13 @@ WHERE leader.id = sqlc.arg(id)
 WITH leader AS (
     SELECT first.event_team_id, first.lab_group_name, first.lab_name
     FROM lab_bindings first
+ JOIN event_team_labs canonical ON canonical.id=first.lab_id
     WHERE first.id = sqlc.arg(id)
       AND first.generation = sqlc.arg(generation)
       AND first.readiness = 0
+      AND canonical.generation=first.generation AND canonical.agent_uid<>'' AND canonical.agent_generation>0
+       AND canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL
+    FOR UPDATE OF canonical
 ), lab AS (
     UPDATE lab_bindings binding
     SET readiness = 1

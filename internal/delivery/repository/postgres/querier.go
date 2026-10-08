@@ -401,6 +401,7 @@ type Querier interface {
 	// Locking the team challenge serializes a manual verdict with submission-time
 	// scoring, so the derived solved_at remains a faithful projection.
 	GetEventSolutionAttemptForDecision(ctx context.Context, arg GetEventSolutionAttemptForDecisionParams) (GetEventSolutionAttemptForDecisionRow, error)
+	GetEventSolutionAttemptIdentity(ctx context.Context, arg GetEventSolutionAttemptIdentityParams) (GetEventSolutionAttemptIdentityRow, error)
 	GetEventStage(ctx context.Context, arg GetEventStageParams) (EventStage, error)
 	GetEventStandRollout(ctx context.Context, eventID uuid.UUID) (EventStandRollout, error)
 	GetEventTeamAdmitted(ctx context.Context, arg GetEventTeamAdmittedParams) (bool, error)
@@ -1010,6 +1011,7 @@ type Querier interface {
 	// of one exercise share a Lab, so each Lab is listed once, by its first binding.
 	ListPendingEventLabBindings(ctx context.Context, arg ListPendingEventLabBindingsParams) ([]ListPendingEventLabBindingsRow, error)
 	ListPendingLabGroupCleanupRequests(ctx context.Context) ([]string, error)
+	ListPendingStoppedEventTeamLabs(ctx context.Context, arg ListPendingStoppedEventTeamLabsParams) ([]EventTeamLab, error)
 	ListPendingTeamInvitations(ctx context.Context, arg ListPendingTeamInvitationsParams) ([]ListPendingTeamInvitationsRow, error)
 	// Active platform administrators (super admins and admins; read-only admin
 	// viewers cannot act on requests).
@@ -1452,6 +1454,8 @@ type Querier interface {
 	// Saves the editor's draft. A page that was never published also mirrors the
 	// draft into its columns, so its slug stays reserved by the unique index.
 	SaveEventPageDraft(ctx context.Context, arg SaveEventPageDraftParams) (EventPage, error)
+	// Narrow retry write; never copies physical state over a concurrent observation.
+	ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
 	SetDispatchStatus(ctx context.Context, arg SetDispatchStatusParams) error
 	SetErrorGroupStatus(ctx context.Context, arg SetErrorGroupStatusParams) (ErrorGroup, error)
 	SetErrorTelegramChatFailing(ctx context.Context, arg SetErrorTelegramChatFailingParams) error

@@ -34,6 +34,7 @@ type (
 		Infrastructure InfrastructureConfig `                                   envPrefix:""`
 		Auth           AuthConfig           `                                   envPrefix:""`
 		Media          MediaConfig          `                                   envPrefix:"MEDIA_"`
+		LabLifecycle   LabLifecycleConfig   `envPrefix:"EVENT_LAB_LIFECYCLE_"`
 		Exercise       ExerciseConfig       `                                   envPrefix:"EXERCISE_"`
 		Resources      ResourcesConfig      `                                   envPrefix:"RESOURCES_"`
 		Calendar       CalendarConfig       `                                   envPrefix:"CALENDAR_"`
@@ -934,6 +935,9 @@ func MustGetConfig() *Config {
 	if err = instance.ErrorJournal.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid error journal configuration")
 	}
+	if err = instance.LabLifecycle.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid laboratory lifecycle configuration")
+	}
 	if err = instance.Exercise.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid exercise configuration")
 	}
@@ -984,4 +988,19 @@ func (c *Config) populateForAllConfig() {
 	}
 
 	c.Auth.OAuth.RedirectURLTemplate = c.Auth.Hosts.APIURL("/api/auth/%s/callback")
+}
+
+// LabLifecycleConfig bounds durable stop convergence independently of stand rollout.
+type LabLifecycleConfig struct {
+	Interval time.Duration `env:"INTERVAL" envDefault:"2s"`
+	Batch    int32         `env:"BATCH" envDefault:"100"`
+	RetryMin time.Duration `env:"RETRY_MIN" envDefault:"10s"`
+	RetryMax time.Duration `env:"RETRY_MAX" envDefault:"5m"`
+}
+
+func (c LabLifecycleConfig) Validate() error {
+	if c.Interval < time.Second || c.Interval > time.Hour || c.Batch < 1 || c.Batch > 1000 || c.RetryMin < time.Second || c.RetryMax < c.RetryMin || c.RetryMax > time.Hour {
+		return fmt.Errorf("invalid EVENT_LAB_LIFECYCLE interval, batch or retry bounds")
+	}
+	return nil
 }

@@ -594,6 +594,7 @@ type ChallengeAvailability struct {
 // SubmitChallengeResult intentionally exposes only the participant-safe
 // outcome; the expected flag remains exclusively in TeamChallenge storage.
 type SubmitChallengeResult struct {
+	Lab        *ParticipantLabView
 	Correct    bool
 	FirstSolve bool
 	// Practice: the answer came after a returnable stage closed; it was verified but is not rated.

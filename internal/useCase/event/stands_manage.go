@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	"sort"
 	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -219,8 +221,50 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 	if err != nil {
 		return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list team stand labs").Err()
 	}
+	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return StandTeamView{}, err
+	}
+	defer unit.Restore()
+
+	// Admission/team locks precede every shared Lab lock. Keep locks through the
+	// recreation decision so a concurrent final answer cannot lose its generation.
+	if err = eventLabRepo.New(txRepo).LockAdmission(txCtx, teamID); err != nil {
+		return StandTeamView{}, err
+	}
+	labs, err = labBindingRepo.New(txRepo).ListTeamLive(txCtx, teamID)
+	if err != nil {
+		return StandTeamView{}, err
+	}
+	ids := map[uuid.UUID]bool{}
+	var ordered []uuid.UUID
+	for _, binding := range labs {
+		if binding.LabID.Valid && !ids[binding.LabID.UUID] {
+			ids[binding.LabID.UUID] = true
+			ordered = append(ordered, binding.LabID.UUID)
+		}
+	}
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].String() < ordered[j].String() })
+	terminal := map[uuid.UUID]bool{}
+	for _, id := range ordered {
+		lab, lockErr := eventLabRepo.New(txRepo).Lock(txCtx, id)
+		if lockErr != nil {
+			return StandTeamView{}, lockErr
+		}
+		terminal[id] = lab.CloseReason == "solved"
+	}
+	originalLabs := labs
+	labs = nil
+	preserved := map[[2]string]struct{}{}
+	for _, binding := range originalLabs {
+		if binding.LabID.Valid && terminal[binding.LabID.UUID] {
+			preserved[[2]string{binding.LabGroupName, binding.LabName}] = struct{}{}
+			continue
+		}
+		labs = append(labs, binding)
+	}
 	// The tasks of an exercise share one Lab: each Lab is deleted once.
-	deleted := make(map[[2]string]struct{}, len(labs))
+	deleted := preserved
 	for _, lab := range labs {
 		key := [2]string{lab.LabGroupName, lab.LabName}
 		if _, done := deleted[key]; done {
@@ -231,14 +275,9 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 			return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to delete team stand lab").Err()
 		}
 	}
-	if err = u.deleteStaleTeamLabs(ctx, teamID, labs, deleted); err != nil {
+	if err = u.deleteStaleTeamLabs(ctx, teamID, originalLabs, deleted); err != nil {
 		return StandTeamView{}, err
 	}
-	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
-	if err != nil {
-		return StandTeamView{}, err
-	}
-	defer unit.Restore()
 	bindings := labBindingRepo.New(txRepo)
 	if err = bindings.ResetUnpublishedForRecreate(txCtx, teamID); err != nil {
 		return StandTeamView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to reset team challenges").Err()

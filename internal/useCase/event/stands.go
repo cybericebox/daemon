@@ -477,6 +477,31 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 		}
 		switch outcome, reason := eventStandModel.Classify(status, *binding.DeployedAt, now); outcome {
 		case eventStandModel.OutcomeReady:
+			if binding.LabID.Valid {
+				canonical, identityErr := u.labs.Get(ctx, binding.LabID.UUID)
+				if identityErr != nil {
+					errs = append(errs, identityErr)
+					continue
+				}
+				if canonical.ClosedAt != nil || canonical.DesiredState != "Running" {
+					continue
+				}
+				if canonical.AgentUID == "" {
+					if status.LabUID == "" || status.LabGeneration <= 0 {
+						continue
+					}
+					adopted, identityErr := u.labs.RecordInitialIdentity(ctx, canonical.ID, canonical.Ref, status.LabUID, status.LabGeneration, now)
+					if identityErr != nil {
+						errs = append(errs, identityErr)
+						continue
+					}
+					if !adopted {
+						continue
+					}
+				} else if canonical.AgentUID != status.LabUID || status.LabGeneration < canonical.AgentGeneration {
+					continue
+				}
+			}
 			changed, markErr := u.labBindings.MarkReady(ctx, binding)
 			if markErr != nil {
 				errs = append(errs, model.ErrPlatform.WithError(markErr).WithMessage("Failed to mark stand lab ready").Err())

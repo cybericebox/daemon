@@ -92,6 +92,7 @@ ORDER BY user_id;
 SELECT lb.lab_group_name,
        lb.lab_name,
        CASE WHEN lb.readiness = 1 AND tc.readiness = 2
+ AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL))
                 AND (team.moderators
                     OR (ec.published
                         AND ee.status <> 2
@@ -107,6 +108,7 @@ SELECT lb.lab_group_name,
                                                             AND own.event_challenge_id = prerequisite.prerequisite_challenge_id))))
            THEN true ELSE false END AS available
 FROM lab_bindings lb
+LEFT JOIN event_team_labs canonical ON canonical.id=lb.lab_id
 JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
                        AND tc.event_challenge_id = lb.event_challenge_id
 JOIN event_teams team ON team.id = lb.event_team_id

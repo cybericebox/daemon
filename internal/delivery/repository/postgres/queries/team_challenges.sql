@@ -177,6 +177,9 @@ WHERE tc.event_id = sqlc.arg(event_id)
   AND ec.id = tc.event_challenge_id
   AND ec.published
   AND tc.readiness = 1
+  AND NOT EXISTS (SELECT 1 FROM lab_bindings lb LEFT JOIN event_team_labs lab ON lab.id=lb.lab_id
+   WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id
+    AND (lab.id IS NULL OR lab.agent_uid='' OR lab.agent_generation<=0))
   AND EXISTS (SELECT 1
               FROM event_teams team
               WHERE team.id = tc.event_team_id

@@ -149,6 +149,9 @@ func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uui
 }
 
 type EventUseCase struct {
+	labLifecycleWake                           func(context.Context) error
+	labLifecycleBatch                          int32
+	labLifecycleRetryMin, labLifecycleRetryMax time.Duration
 	// labCleanupWake runs the queued laboratory group teardown now instead of at the next periodic tick; nil: no wake.
 	labCleanupWake func(context.Context) error
 	// cancelNotices cancels the queued notices of a deleted event; nil: nothing is cancelled.
@@ -231,14 +234,16 @@ type EventUseCase struct {
 }
 
 type Dependencies struct {
-	Repo                     IRepository
-	UoW                      postgres.IUnitOfWorker[IRepository]
-	Infra                    Infrastructure
-	InfrastructureCapability InfrastructureCapability
-	Topologies               TopologyResolver
-	VPN                      VPNStore
-	SignalPublishers         SignalPublisherFactory
-	FlagRandomBytes          int
+	LabLifecycleBatch                          int32
+	LabLifecycleRetryMin, LabLifecycleRetryMax time.Duration
+	Repo                                       IRepository
+	UoW                                        postgres.IUnitOfWorker[IRepository]
+	Infra                                      Infrastructure
+	InfrastructureCapability                   InfrastructureCapability
+	Topologies                                 TopologyResolver
+	VPN                                        VPNStore
+	SignalPublishers                           SignalPublisherFactory
+	FlagRandomBytes                            int
 	// StandDeployBudget is the Lab deploy calls per event and engine pass; 0 means the default.
 	StandDeployBudget int
 	// StandPrewarmLead is how long before an event's stand deploy time its images are prewarmed in
@@ -314,7 +319,17 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 	if standDeployBudget <= 0 {
 		standDeployBudget = DefaultStandDeployBudget
 	}
-	return &EventUseCase{
+	batch, retryMin, retryMax := deps.LabLifecycleBatch, deps.LabLifecycleRetryMin, deps.LabLifecycleRetryMax
+	if batch <= 0 {
+		batch = 100
+	}
+	if retryMin <= 0 {
+		retryMin = 10 * time.Second
+	}
+	if retryMax < retryMin {
+		retryMax = 5 * time.Minute
+	}
+	return &EventUseCase{labLifecycleBatch: batch, labLifecycleRetryMin: retryMin, labLifecycleRetryMax: retryMax,
 		standDeployBudget:        standDeployBudget,
 		prewarmLead:              deps.StandPrewarmLead,
 		labSweepGrace:            labSweepGrace(deps.LabSweepGrace),
