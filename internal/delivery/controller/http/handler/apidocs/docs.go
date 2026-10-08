@@ -26974,10 +26974,16 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "FirstAt": {
-                    "type": "string"
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "LabInitiatedAttempts": {
+                    "description": "New permitted VPN flows started by the laboratory, separate from\nparticipant Attempts. Zero for a proxy-only row or an older sender.",
+                    "type": "integer"
                 },
                 "LastAt": {
-                    "type": "string"
+                    "type": "string",
+                    "x-nullable": true
                 },
                 "Surface": {
                     "type": "string"

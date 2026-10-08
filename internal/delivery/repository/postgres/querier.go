@@ -1485,7 +1485,9 @@ type Querier interface {
 	SetPlatformSMTPProviderEnabled(ctx context.Context, arg SetPlatformSMTPProviderEnabledParams) (MailSmtpConfig, error)
 	SetResourceCalendarSettings(ctx context.Context, arg SetResourceCalendarSettingsParams) error
 	// What a user (or, with a nil user, anybody in the team) did against one task
-	// before a moment. One row per surface.
+	// before a moment. Keep lab-only rows separate from participant observations:
+	// their packets cannot supply missing participant response evidence.
+	// A teammate's known date must not hide another participant's missing date.
 	SummarizeLabTouches(ctx context.Context, arg SummarizeLabTouchesParams) ([]SummarizeLabTouchesRow, error)
 	SupersedeEventExercise(ctx context.Context, arg SupersedeEventExerciseParams) (int64, error)
 	TearDownEventStandRollout(ctx context.Context, arg TearDownEventStandRolloutParams) error

@@ -15,14 +15,15 @@ import (
 
 const applyLabTrafficTouch = `-- name: ApplyLabTrafficTouch :exec
 INSERT INTO event_lab_touches (id, event_id, team_id, user_id, event_challenge_id, surface,
-                               attempts_count, first_seen_at, last_seen_at, first_responded_at,
+                               attempts_count, lab_initiated_attempts_count, first_seen_at, last_seen_at, first_responded_at,
                                packets_out, packets_in, bytes_out, bytes_in)
 VALUES ($1, $2, $3, $4::uuid, $5, $6,
-        $7, $8, $9, $10::timestamptz,
-        $11, $12, $13, $14)
+        $7, $8, $9::timestamptz, $10::timestamptz, $11::timestamptz,
+        $12, $13, $14, $15)
 ON CONFLICT (event_id, team_id, user_id, event_challenge_id, surface) WHERE user_id IS NOT NULL
 DO UPDATE SET
     attempts_count     = GREATEST(event_lab_touches.attempts_count, EXCLUDED.attempts_count),
+    lab_initiated_attempts_count = GREATEST(event_lab_touches.lab_initiated_attempts_count, EXCLUDED.lab_initiated_attempts_count),
     first_seen_at      = LEAST(event_lab_touches.first_seen_at, EXCLUDED.first_seen_at),
     last_seen_at       = GREATEST(event_lab_touches.last_seen_at, EXCLUDED.last_seen_at),
     first_responded_at = LEAST(event_lab_touches.first_responded_at, EXCLUDED.first_responded_at),
@@ -33,20 +34,21 @@ DO UPDATE SET
 `
 
 type ApplyLabTrafficTouchParams struct {
-	ID               uuid.UUID          `json:"id"`
-	EventID          uuid.UUID          `json:"event_id"`
-	TeamID           uuid.UUID          `json:"team_id"`
-	UserID           uuid.UUID          `json:"user_id"`
-	EventChallengeID uuid.UUID          `json:"event_challenge_id"`
-	Surface          string             `json:"surface"`
-	AttemptsCount    int64              `json:"attempts_count"`
-	FirstSeenAt      time.Time          `json:"first_seen_at"`
-	LastSeenAt       time.Time          `json:"last_seen_at"`
-	FirstRespondedAt pgtype.Timestamptz `json:"first_responded_at"`
-	PacketsOut       int64              `json:"packets_out"`
-	PacketsIn        int64              `json:"packets_in"`
-	BytesOut         int64              `json:"bytes_out"`
-	BytesIn          int64              `json:"bytes_in"`
+	ID                        uuid.UUID          `json:"id"`
+	EventID                   uuid.UUID          `json:"event_id"`
+	TeamID                    uuid.UUID          `json:"team_id"`
+	UserID                    uuid.UUID          `json:"user_id"`
+	EventChallengeID          uuid.UUID          `json:"event_challenge_id"`
+	Surface                   string             `json:"surface"`
+	AttemptsCount             int64              `json:"attempts_count"`
+	LabInitiatedAttemptsCount int64              `json:"lab_initiated_attempts_count"`
+	FirstSeenAt               pgtype.Timestamptz `json:"first_seen_at"`
+	LastSeenAt                pgtype.Timestamptz `json:"last_seen_at"`
+	FirstRespondedAt          pgtype.Timestamptz `json:"first_responded_at"`
+	PacketsOut                int64              `json:"packets_out"`
+	PacketsIn                 int64              `json:"packets_in"`
+	BytesOut                  int64              `json:"bytes_out"`
+	BytesIn                   int64              `json:"bytes_in"`
 }
 
 // Overwrites the final row of a user x lab x access type with the collector's
@@ -61,6 +63,7 @@ func (q *Queries) ApplyLabTrafficTouch(ctx context.Context, arg ApplyLabTrafficT
 		arg.EventChallengeID,
 		arg.Surface,
 		arg.AttemptsCount,
+		arg.LabInitiatedAttemptsCount,
 		arg.FirstSeenAt,
 		arg.LastSeenAt,
 		arg.FirstRespondedAt,
@@ -73,11 +76,11 @@ func (q *Queries) ApplyLabTrafficTouch(ctx context.Context, arg ApplyLabTrafficT
 }
 
 const createLabTrafficCoverage = `-- name: CreateLabTrafficCoverage :exec
-INSERT INTO lab_traffic_coverage (id, event_id, team_id, surface, source, boot_id, covered_from, covered_to, partial)
+INSERT INTO lab_traffic_coverage (id, event_id, team_id, surface, source, boot_id, covered_from, covered_to, partial, explicit)
 SELECT $1, e.id, $2, $3, $4, $5,
-       $6::timestamptz, $7::timestamptz, $8::boolean
+       $6::timestamptz, $7::timestamptz, $8::boolean, $9::boolean
 FROM events e
-WHERE e.id = $9
+WHERE e.id = $10
 `
 
 type CreateLabTrafficCoverageParams struct {
@@ -89,6 +92,7 @@ type CreateLabTrafficCoverageParams struct {
 	CoveredFrom time.Time `json:"covered_from"`
 	CoveredTo   time.Time `json:"covered_to"`
 	Partial     bool      `json:"partial"`
+	Explicit    bool      `json:"explicit"`
 	EventID     uuid.UUID `json:"event_id"`
 }
 
@@ -103,6 +107,7 @@ func (q *Queries) CreateLabTrafficCoverage(ctx context.Context, arg CreateLabTra
 		arg.CoveredFrom,
 		arg.CoveredTo,
 		arg.Partial,
+		arg.Explicit,
 		arg.EventID,
 	)
 	return err
@@ -120,7 +125,9 @@ WHERE id = (SELECT s.id
               AND s.source = $6
               AND s.boot_id = $7
               AND s.partial = $8
-              AND s.covered_to >= $1::timestamptz - make_interval(secs => $9::double precision)
+              AND s.explicit = $9
+              AND s.covered_to >= $1::timestamptz - make_interval(secs => $10::double precision)
+              AND s.covered_from <= $2::timestamptz + make_interval(secs => $10::double precision)
             ORDER BY s.covered_to DESC
             LIMIT 1)
 `
@@ -134,6 +141,7 @@ type ExtendLabTrafficCoverageParams struct {
 	Source           string    `json:"source"`
 	BootID           string    `json:"boot_id"`
 	Partial          bool      `json:"partial"`
+	Explicit         bool      `json:"explicit"`
 	ToleranceSeconds float64   `json:"tolerance_seconds"`
 }
 
@@ -149,6 +157,7 @@ func (q *Queries) ExtendLabTrafficCoverage(ctx context.Context, arg ExtendLabTra
 		arg.Source,
 		arg.BootID,
 		arg.Partial,
+		arg.Explicit,
 		arg.ToleranceSeconds,
 	)
 	if err != nil {
@@ -202,7 +211,7 @@ func (q *Queries) IsUserInEventTeam(ctx context.Context, arg IsUserInEventTeamPa
 }
 
 const listLabTrafficCoverage = `-- name: ListLabTrafficCoverage :many
-SELECT surface, covered_from, covered_to, partial
+SELECT surface, covered_from, covered_to, partial, explicit
 FROM lab_traffic_coverage
 WHERE event_id = $1
   AND team_id = $2
@@ -223,6 +232,7 @@ type ListLabTrafficCoverageRow struct {
 	CoveredFrom time.Time `json:"covered_from"`
 	CoveredTo   time.Time `json:"covered_to"`
 	Partial     bool      `json:"partial"`
+	Explicit    bool      `json:"explicit"`
 }
 
 // Spans of a team that overlap [since, until].
@@ -245,6 +255,7 @@ func (q *Queries) ListLabTrafficCoverage(ctx context.Context, arg ListLabTraffic
 			&i.CoveredFrom,
 			&i.CoveredTo,
 			&i.Partial,
+			&i.Explicit,
 		); err != nil {
 			return nil, err
 		}
@@ -307,18 +318,23 @@ func (q *Queries) PurgeEventLabTrafficCoverage(ctx context.Context, arg PurgeEve
 
 const summarizeLabTouches = `-- name: SummarizeLabTouches :many
 SELECT surface,
-       COALESCE(SUM(attempts_count), 0)::bigint AS attempts,
-       MIN(first_seen_at)::timestamptz          AS first_seen_at,
-       -- 0001-01-01 stands for «never answered».
+       LEAST(COALESCE(SUM(attempts_count), 0), 9223372036854775807)::bigint AS attempts,
+       LEAST(COALESCE(SUM(lab_initiated_attempts_count), 0), 9223372036854775807)::bigint AS lab_initiated_attempts,
+       -- The repository maps year one back to the compatible zero-valued
+       -- model edge. Persisted participant dates remain SQL NULL.
+       COALESCE(MIN(first_seen_at), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz AS first_seen_at,
        COALESCE(MIN(first_responded_at), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz AS first_responded_at,
-       COALESCE(SUM(bytes_in), 0)::bigint       AS bytes_in
+       LEAST(COALESCE(SUM(packets_out), 0), 9223372036854775807)::bigint AS packets_out,
+       LEAST(COALESCE(SUM(packets_in), 0), 9223372036854775807)::bigint AS packets_in,
+       LEAST(COALESCE(SUM(bytes_out), 0), 9223372036854775807)::bigint AS bytes_out,
+       LEAST(COALESCE(SUM(bytes_in), 0), 9223372036854775807)::bigint       AS bytes_in
 FROM event_lab_touches
 WHERE event_id = $1
   AND team_id = $2
   AND event_challenge_id = $3
   AND ($4::uuid = '00000000-0000-0000-0000-000000000000' OR user_id = $4::uuid)
-  AND first_seen_at < $5::timestamptz
-GROUP BY surface
+  AND (first_seen_at IS NULL OR first_seen_at < $5::timestamptz)
+GROUP BY surface, (first_seen_at IS NULL), (first_seen_at IS NULL AND attempts_count = 0 AND lab_initiated_attempts_count > 0)
 `
 
 type SummarizeLabTouchesParams struct {
@@ -330,15 +346,21 @@ type SummarizeLabTouchesParams struct {
 }
 
 type SummarizeLabTouchesRow struct {
-	Surface          string    `json:"surface"`
-	Attempts         int64     `json:"attempts"`
-	FirstSeenAt      time.Time `json:"first_seen_at"`
-	FirstRespondedAt time.Time `json:"first_responded_at"`
-	BytesIn          int64     `json:"bytes_in"`
+	Surface              string    `json:"surface"`
+	Attempts             int64     `json:"attempts"`
+	LabInitiatedAttempts int64     `json:"lab_initiated_attempts"`
+	FirstSeenAt          time.Time `json:"first_seen_at"`
+	FirstRespondedAt     time.Time `json:"first_responded_at"`
+	PacketsOut           int64     `json:"packets_out"`
+	PacketsIn            int64     `json:"packets_in"`
+	BytesOut             int64     `json:"bytes_out"`
+	BytesIn              int64     `json:"bytes_in"`
 }
 
 // What a user (or, with a nil user, anybody in the team) did against one task
-// before a moment. One row per surface.
+// before a moment. Keep lab-only rows separate from participant observations:
+// their packets cannot supply missing participant response evidence.
+// A teammate's known date must not hide another participant's missing date.
 func (q *Queries) SummarizeLabTouches(ctx context.Context, arg SummarizeLabTouchesParams) ([]SummarizeLabTouchesRow, error) {
 	rows, err := q.db.Query(ctx, summarizeLabTouches,
 		arg.EventID,
@@ -357,8 +379,12 @@ func (q *Queries) SummarizeLabTouches(ctx context.Context, arg SummarizeLabTouch
 		if err := rows.Scan(
 			&i.Surface,
 			&i.Attempts,
+			&i.LabInitiatedAttempts,
 			&i.FirstSeenAt,
 			&i.FirstRespondedAt,
+			&i.PacketsOut,
+			&i.PacketsIn,
+			&i.BytesOut,
 			&i.BytesIn,
 		); err != nil {
 			return nil, err

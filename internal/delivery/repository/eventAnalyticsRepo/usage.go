@@ -61,6 +61,7 @@ type (
 		Task                    string
 		Surface                 string
 		Attempts                int64
+		LabInitiatedAttempts    int64
 		BytesIn, BytesOut       int64
 		FirstSeenAt, LastSeenAt time.Time
 	}
@@ -140,10 +141,20 @@ func (r *Repository) UsageTouches(ctx context.Context, eventID uuid.UUID) ([]Usa
 	for _, row := range rows {
 		out = append(out, UsageTouch{
 			UserID: row.UserID, ChallengeID: row.EventChallengeID, Task: row.ChallengeName, Surface: row.Surface,
-			Attempts: row.AttemptsCount, BytesIn: row.BytesIn, BytesOut: row.BytesOut, FirstSeenAt: row.FirstSeenAt, LastSeenAt: row.LastSeenAt,
+			Attempts: row.AttemptsCount, LabInitiatedAttempts: row.LabInitiatedAttemptsCount, BytesIn: row.BytesIn, BytesOut: row.BytesOut,
+			FirstSeenAt: usageTimeValue(row.FirstSeenAt), LastSeenAt: usageTimeValue(row.LastSeenAt),
 		})
 	}
 	return out, nil
+}
+
+// UsageTouch keeps its compatible time.Time edge; zero means no participant
+// action, and its public projection exposes absent dates as null.
+func usageTimeValue(value pgtype.Timestamptz) time.Time {
+	if !value.Valid {
+		return time.Time{}
+	}
+	return value.Time
 }
 
 func usageTimePtr(value pgtype.Timestamptz) *time.Time {
