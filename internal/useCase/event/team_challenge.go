@@ -64,7 +64,7 @@ func (u *EventUseCase) SubmitModeratorsChallenge(ctx context.Context, eventID, u
 // moderatorsSubmitTeam returns the moderators team for a submission and checks
 // that the event still runs: the moderators may answer before the start and
 // outside the window, but not after it is withdrawn.
-func (u *EventUseCase) moderatorsSubmitTeam(ctx context.Context, txRepo eventRepo.Queries, eventID uuid.UUID, at time.Time) (uuid.UUID, error) {
+func (u *EventUseCase) moderatorsSubmitTeam(ctx context.Context, txRepo IRepository, eventID uuid.UUID, at time.Time) (uuid.UUID, error) {
 	event, err := eventRepo.New(txRepo).GetByID(ctx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -75,7 +75,7 @@ func (u *EventUseCase) moderatorsSubmitTeam(ctx context.Context, txRepo eventRep
 	if event.Lifecycle.Status(at) == eventModel.LifecycleWithdrawn || event.Status(at) == eventModel.EventArchivedStatus {
 		return uuid.Nil, eventModel.ErrEventRuntimeNotOpen.Err()
 	}
-	return u.resolveModeratorsTeam(ctx, event)
+	return u.resolveModeratorsTeamInTransaction(ctx, txRepo, event)
 }
 
 // requirePrerequisitesSolved is the board's lock: a challenge opens for a team

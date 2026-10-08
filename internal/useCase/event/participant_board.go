@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -479,6 +480,22 @@ func (u *EventUseCase) resolveModeratorsTeam(ctx context.Context, e eventModel.E
 		return uuid.Nil, err
 	}
 	team, err := u.stands.GetModeratorsTeam(ctx, e.ID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return uuid.Nil, eventStandModel.ErrStandModeratorsTeamUnavailable.Err()
+		}
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
+	}
+	return team.ID, nil
+}
+
+// resolveModeratorsTeamInTransaction preserves the caller's repository and
+// unit of work through both creation and the subsequent identity read.
+func (u *EventUseCase) resolveModeratorsTeamInTransaction(ctx context.Context, repo IRepository, e eventModel.Event) (uuid.UUID, error) {
+	if err := u.ensureModeratorsTeamInTransaction(ctx, repo, e.ID, time.Now(), e.InfrastructureAllowed); err != nil {
+		return uuid.Nil, err
+	}
+	team, err := eventStandRepo.New(repo).GetModeratorsTeam(ctx, e.ID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return uuid.Nil, eventStandModel.ErrStandModeratorsTeamUnavailable.Err()

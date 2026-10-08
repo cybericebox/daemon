@@ -181,24 +181,63 @@ func (u *EventUseCase) laboratoriesUsable(ctx context.Context) bool {
 // infrastructure event (syncAccess) its ACL is requested immediately so the
 // managers' VPN clients follow the first sync; otherwise it has no VPN/Labs.
 func (u *EventUseCase) ensureModeratorsTeam(ctx context.Context, eventID uuid.UUID, now time.Time, syncAccess bool) error {
+	// Keep existing-team reads free of roster locks and transaction creation.
 	if _, err := u.stands.GetModeratorsTeam(ctx, eventID); err == nil {
 		return nil
 	} else if !repositoryTools.IsObjectNotFoundError(err) {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
 	}
-	if err := u.stands.EnsureModeratorsTeam(ctx, eventID, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV4()).String(), now); err != nil {
+	if u.uow == nil {
+		return model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
+	}
+	txCtx, repo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	if err = u.ensureModeratorsTeamInTransaction(txCtx, repo, eventID, now, syncAccess); err != nil {
+		return err
+	}
+	if err = unit.Save(); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to save moderators team").Err()
+	}
+	return nil
+}
+
+// Caller transactions pass their own repository here: no nested transaction
+// and no global-pool reads while the caller owns its connection/locks. A caller
+// that may create the missing team invokes this before team/Lab/question locks,
+// preserving event guard -> team admission -> canonical Lab ordering.
+func (u *EventUseCase) ensureModeratorsTeamInTransaction(ctx context.Context, repo IRepository, eventID uuid.UUID, now time.Time, syncAccess bool) error {
+	stands := eventStandRepo.New(repo)
+	if _, err := stands.GetModeratorsTeam(ctx, eventID); err == nil {
+		return nil
+	} else if !repositoryTools.IsObjectNotFoundError(err) {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
+	}
+	// Creation shares the regular roster guard, conflicting with the source
+	// change's NO KEY UPDATE guard before a new team can enter its lock snapshot.
+	if err := lockTeamRoster(ctx, repo, eventID); err != nil {
+		return err
+	}
+	// Another creator may have committed while this transaction waited.
+	if _, err := stands.GetModeratorsTeam(ctx, eventID); err == nil {
+		return nil
+	} else if !repositoryTools.IsObjectNotFoundError(err) {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
+	}
+	if err := stands.EnsureModeratorsTeam(ctx, eventID, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV4()).String(), now); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to create moderators team").Err()
 	}
-	team, err := u.stands.GetModeratorsTeam(ctx, eventID)
+	team, err := stands.GetModeratorsTeam(ctx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			// No owner yet: nothing to create the team for.
 			return nil
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
 	}
-	if syncAccess && u.supportsLabAccessPolicy() {
-		return u.RequestLabAccessSync(ctx, team.ID)
+	if syncAccess {
+		return u.requestLabAccessSyncInTransaction(ctx, repo, team.ID, now)
 	}
 	return nil
 }

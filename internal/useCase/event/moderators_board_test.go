@@ -61,7 +61,7 @@ func TestModeratorsBoardWithoutOwnerIsUnavailable(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
 	eventID := uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, CreatedAt: time.Now()}, nil)
-	q.EXPECT().GetModeratorsTeam(gomock.Any(), eventID).Return(postgres.EventTeam{}, pgx.ErrNoRows).Times(3)
+	q.EXPECT().GetModeratorsTeam(gomock.Any(), eventID).Return(postgres.EventTeam{}, pgx.ErrNoRows).Times(5)
 	q.EXPECT().CreateModeratorsTeam(gomock.Any(), gomock.Any()).Return(nil)
 	if _, err := newUC(q).ListModeratorsBoard(context.Background(), eventID); !errors.Is(err, eventStandModel.ErrStandModeratorsTeamUnavailable.Err()) {
 		t.Fatalf("err = %v", err)
@@ -145,7 +145,7 @@ func TestGetModeratorsTeamWithoutOwnerIsUnavailable(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
 	eventID := uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, CreatedAt: time.Now()}, nil)
-	q.EXPECT().GetModeratorsTeam(gomock.Any(), eventID).Return(postgres.EventTeam{}, pgx.ErrNoRows).Times(3)
+	q.EXPECT().GetModeratorsTeam(gomock.Any(), eventID).Return(postgres.EventTeam{}, pgx.ErrNoRows).Times(5)
 	q.EXPECT().CreateModeratorsTeam(gomock.Any(), gomock.Any()).Return(nil)
 	if _, err := newUC(q).GetModeratorsTeam(context.Background(), eventID); !errors.Is(err, eventStandModel.ErrStandModeratorsTeamUnavailable.Err()) {
 		t.Fatalf("err = %v", err)
