@@ -186,3 +186,6 @@ require (
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	sigs.k8s.io/json v0.0.0-20260909141634-11ed52e25bc5 // indirect
 )
+
+// Scoped immutable SDK source; published v1.0.0 is not the lifecycle contract.
+replace github.com/cybericebox/laboratory => ./third_party/laboratory-sdk
