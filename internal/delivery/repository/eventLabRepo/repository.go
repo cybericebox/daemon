@@ -1,6 +1,7 @@
 // Package eventLabRepo persists whole lifecycle aggregates and immutable objective pins.
-// RecordObservation and RecordInitialIdentity are conditional narrow-write exceptions:
-// the former never changes desired intent, the latter only adopts a first deployment UID.
+// RecordObservation, RecordInitialIdentity and RecordInitialReadiness are narrow-write
+// exceptions. They preserve desired intent; initial adoption/readiness is restricted
+// to revision1 Running and its exact current live UID/reference/generation.
 package eventLabRepo
 
 import (
@@ -15,6 +16,7 @@ import (
 )
 
 type Queries interface {
+	RecordEventTeamLabInitialReadiness(context.Context, postgres.RecordEventTeamLabInitialReadinessParams) (int64, error)
 	LockEventForLabSourceChange(context.Context, uuid.UUID) (uuid.UUID, error)
 	LockEventTeamsForLabSourceChange(context.Context, uuid.UUID) ([]uuid.UUID, error)
 	LockEventTeamLabsForSourceChange(context.Context, postgres.LockEventTeamLabsForSourceChangeParams) ([]postgres.EventTeamLab, error)
@@ -313,4 +315,9 @@ func (r *Repository) LockSourceChange(ctx context.Context, eventID, exerciseID u
 		}
 	}
 	return terminal, nil
+}
+
+func (r *Repository) RecordInitialReadiness(ctx context.Context, id uuid.UUID, ref eventLabModel.Ref, uid string, generation int64, ready bool, now time.Time) (bool, error) {
+	n, err := r.q.RecordEventTeamLabInitialReadiness(ctx, postgres.RecordEventTeamLabInitialReadinessParams{ID: id, LabGroupName: ref.Group, LabName: ref.Lab, AgentUid: uid, AgentGeneration: generation, RuntimeReady: ready, Now: timestamp(&now)})
+	return n == 1, err
 }

@@ -44,12 +44,14 @@ type Availability struct {
 // event board's current presentation metadata. ExpectedFlag stays in the
 // domain object and must never be serialized to participant responses.
 type PublishedChallenge struct {
-	Challenge  teamChallengeModel.TeamChallenge
-	Points     int32
-	Order      int32 // the place inside the group (the manage page's group order)
-	GroupID    *uuid.UUID
-	GroupName  string
-	GroupOrder int32
+	EventExerciseID uuid.UUID
+	LabID           uuid.NullUUID
+	Challenge       teamChallengeModel.TeamChallenge
+	Points          int32
+	Order           int32 // the place inside the group (the manage page's group order)
+	GroupID         *uuid.UUID
+	GroupName       string
+	GroupOrder      int32
 	// ContentUpdatedAt marks a content replacement (W4); nil when never replaced.
 	ContentUpdatedAt *time.Time
 	HintsEnabled     bool
@@ -160,7 +162,7 @@ func (r *Repository) listBoard(ctx context.Context, teamID uuid.UUID, publishedO
 			stageID = &id
 		}
 		out = append(out, PublishedChallenge{
-			StageID: stageID, StagePhase: eventModel.StagePhase(row.StagePhase), PracticeSolved: row.PracticeSolved,
+			EventExerciseID: row.EventExerciseID, LabID: row.LabID, StageID: stageID, StagePhase: eventModel.StagePhase(row.StagePhase), PracticeSolved: row.PracticeSolved,
 			Challenge: challenge, BoardHints: boardHints, HintCosts: costs,
 			Points: row.Points, Order: row.BoardPosition, GroupID: groupID, GroupName: row.GroupName, GroupOrder: row.GroupOrder,
 			ContentUpdatedAt: contentUpdatedAt, HintsEnabled: row.HintsEnabled, Published: row.Published, Infrastructure: row.Infrastructure,

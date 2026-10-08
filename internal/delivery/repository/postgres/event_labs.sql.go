@@ -721,6 +721,43 @@ func (q *Queries) RecordEventTeamLabInitialIdentity(ctx context.Context, arg Rec
 	return result.RowsAffected(), nil
 }
 
+const recordEventTeamLabInitialReadiness = `-- name: RecordEventTeamLabInitialReadiness :execrows
+UPDATE event_team_labs SET runtime_ready=$1,
+ actual_state=CASE WHEN $1::boolean THEN 'Running' ELSE 'Unknown' END,
+ agent_generation=$2,observed_at=$3,updated_at=$3
+WHERE id=$4 AND desired_revision=1 AND desired_state='Running' AND logical_closed_at IS NULL
+ AND agent_uid=$5 AND agent_uid<>'' AND agent_generation<=$2
+ AND lab_group_name=$6 AND lab_name=$7
+`
+
+type RecordEventTeamLabInitialReadinessParams struct {
+	RuntimeReady    bool               `json:"runtime_ready"`
+	AgentGeneration int64              `json:"agent_generation"`
+	Now             pgtype.Timestamptz `json:"now"`
+	ID              uuid.UUID          `json:"id"`
+	AgentUid        string             `json:"agent_uid"`
+	LabGroupName    string             `json:"lab_group_name"`
+	LabName         string             `json:"lab_name"`
+}
+
+// Initial deployment has no lifecycle operation status yet. Adopt current
+// readiness only for the original Running revision and matching live identity.
+func (q *Queries) RecordEventTeamLabInitialReadiness(ctx context.Context, arg RecordEventTeamLabInitialReadinessParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordEventTeamLabInitialReadiness,
+		arg.RuntimeReady,
+		arg.AgentGeneration,
+		arg.Now,
+		arg.ID,
+		arg.AgentUid,
+		arg.LabGroupName,
+		arg.LabName,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const recordEventTeamLabObservation = `-- name: RecordEventTeamLabObservation :execrows
 UPDATE event_team_labs SET agent_generation=$1,observed_revision=$2,actual_state=$3,snapshot_state=$4,
  actual_stopped_at=$5,observed_at=$6,runtime_ready=($7 AND logical_closed_at IS NULL),

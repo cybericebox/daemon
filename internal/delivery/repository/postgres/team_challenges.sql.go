@@ -522,7 +522,7 @@ const listTeamBoardChallenges = `-- name: ListTeamBoardChallenges :many
 SELECT tc.id, tc.event_id, tc.event_team_id, tc.event_challenge_id, tc.variant_index,
        tc.snapshot, tc.expected_flag, tc.readiness, solved.solved_at, tc.created_at,
        tc.content_updated_at, tc.hints AS team_hints,
-       ee.stage_id,
+       ee.stage_id, ee.id AS event_exercise_id, board_binding.lab_id,
        event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, $1::timestamptz) AS stage_phase,
        (practice.team_challenge_id IS NOT NULL)::boolean AS practice_solved,
        (CASE WHEN e.static_points IS NOT NULL AND e.scoring_mode = 0
@@ -546,6 +546,7 @@ LEFT JOIN event_challenge_groups ecg ON ecg.id = ec.group_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
 LEFT JOIN team_challenge_practice_solves practice ON practice.team_challenge_id = tc.id
 LEFT JOIN event_stages stage ON stage.id = ee.stage_id
+LEFT JOIN lab_bindings board_binding ON board_binding.event_team_id=tc.event_team_id AND board_binding.event_challenge_id=tc.event_challenge_id
 WHERE tc.event_team_id = $2
   AND (ec.published OR NOT $3::boolean)
   -- A task of an upcoming stage is hidden from participants entirely; the moderators board keeps everything.
@@ -574,6 +575,8 @@ type ListTeamBoardChallengesRow struct {
 	ContentUpdatedAt pgtype.Timestamptz `json:"content_updated_at"`
 	TeamHints        []byte             `json:"team_hints"`
 	StageID          uuid.NullUUID      `json:"stage_id"`
+	EventExerciseID  uuid.UUID          `json:"event_exercise_id"`
+	LabID            uuid.NullUUID      `json:"lab_id"`
 	StagePhase       int16              `json:"stage_phase"`
 	PracticeSolved   bool               `json:"practice_solved"`
 	Points           int32              `json:"points"`
@@ -619,6 +622,8 @@ func (q *Queries) ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoard
 			&i.ContentUpdatedAt,
 			&i.TeamHints,
 			&i.StageID,
+			&i.EventExerciseID,
+			&i.LabID,
 			&i.StagePhase,
 			&i.PracticeSolved,
 			&i.Points,

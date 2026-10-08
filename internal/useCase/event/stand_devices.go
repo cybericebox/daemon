@@ -2,11 +2,15 @@ package event
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
+	"sort"
 
 	"github.com/gofrs/uuid"
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
@@ -24,10 +28,13 @@ type StandDetailView struct {
 	Reason                string
 	Generation            int32
 	LaboratoriesAvailable bool
+	Group                 ManagedGroupView
 	Labs                  []StandLabDetailView
 }
 
 type StandLabDetailView struct {
+	Lab           *ManagedLabView
+	Questions     []StandLabQuestionView
 	ChallengeID   uuid.UUID
 	ChallengeName string
 	Readiness     labBindingModel.Readiness
@@ -36,6 +43,11 @@ type StandLabDetailView struct {
 	// cannot answer (LiveUnavailable).
 	Live            *exerciseModel.LabDeployStatus
 	LiveUnavailable bool
+}
+
+type StandLabQuestionView struct {
+	EventChallengeID uuid.UUID `json:"EventChallengeID"`
+	Name             string    `json:"Name"`
 }
 
 // GetTeamStandDetail reads the stand of one team (the moderators team included) with the live
@@ -69,12 +81,35 @@ func (u *EventUseCase) GetTeamStandDetail(ctx context.Context, eventID, teamID u
 		// The stored name is technical; clients label the moderators team.
 		view.TeamName = ""
 	}
+	index := map[uuid.UUID]int{}
 	for _, lab := range labs {
 		if lab.TeamID != teamID {
 			continue
 		}
-		item := StandLabDetailView{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Readiness: lab.Readiness, Reason: lab.FailureReason}
-		if binding, found := byChallenge[lab.ChallengeID]; found && binding.DeployedAt != nil && usable {
+		item := StandLabDetailView{Questions: []StandLabQuestionView{{EventChallengeID: lab.ChallengeID, Name: lab.ChallengeName}}, ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Readiness: lab.Readiness, Reason: lab.FailureReason}
+		binding, found := byChallenge[lab.ChallengeID]
+		if found && binding.LabID.Valid {
+			if at, seen := index[binding.LabID.UUID]; seen {
+				view.Labs[at].Questions = append(view.Labs[at].Questions, item.Questions...)
+				continue
+			}
+			canonical, getErr := u.labs.Get(ctx, binding.LabID.UUID)
+			if getErr != nil {
+				return StandDetailView{}, model.ErrPlatform.WithError(getErr).WithMessage("Failed to read managed laboratory lifecycle").Err()
+			}
+			set, getErr := u.eventExercises.GetByID(ctx, eventID, canonical.EventExerciseID)
+			if getErr != nil {
+				return StandDetailView{}, getErr
+			}
+			exercise, getErr := u.exercises.GetByID(ctx, set.ExerciseID)
+			if getErr != nil {
+				return StandDetailView{}, getErr
+			}
+			managed := managedLabView(canonical, exercise.Name)
+			item.Lab = &managed
+			index[canonical.ID] = len(view.Labs)
+		}
+		if found && binding.DeployedAt != nil && usable && (item.Lab == nil || item.Lab.ClosedAt == nil) {
 			status, statusErr := u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
 			if statusErr != nil {
 				item.LiveUnavailable = true
@@ -83,6 +118,23 @@ func (u *EventUseCase) GetTeamStandDetail(ctx context.Context, eventID, teamID u
 			}
 		}
 		view.Labs = append(view.Labs, item)
+	}
+	for i := range view.Labs {
+		row := &view.Labs[i]
+		sort.Slice(row.Questions, func(a, b int) bool {
+			return row.Questions[a].EventChallengeID.String() < row.Questions[b].EventChallengeID.String()
+		})
+		if len(row.Questions) > 0 {
+			row.ChallengeID = row.Questions[0].EventChallengeID
+			row.ChallengeName = row.Questions[0].Name
+		}
+	}
+	group, _ := labBindingModel.GroupName(eventID, teamID)
+	view.Group = ManagedGroupView{Name: group, Revision: "0", ObservedRevision: "0", DesiredState: "Running", ActualState: "Unknown", Resources: allocationView(eventLabModel.Allocation{RuntimeState: "Unknown", StorageState: "Unknown"})}
+	if observation, readErr := u.observations.Group(ctx, eventID, teamID, group); readErr == nil {
+		view.Group = managedGroupView(observation)
+	} else if !repositoryTools.IsObjectNotFoundError(readErr) {
+		return StandDetailView{}, model.ErrPlatform.WithError(readErr).WithMessage("Failed to read managed group lifecycle").Err()
 	}
 	return view, nil
 }
@@ -94,7 +146,7 @@ func (u *EventUseCase) ResetStandDevice(ctx context.Context, eventID, teamID, ch
 	if err != nil {
 		return err
 	}
-	return controller.ResetDevice(ctx, group, lab, device)
+	return u.mutateStandDevice(ctx, eventID, teamID, challengeID, group, lab, func(ctx context.Context) error { return controller.ResetDevice(ctx, group, lab, device) })
 }
 
 // RescueStandDevice starts one device of a team Lab from its latest snapshot with a shell
@@ -104,7 +156,7 @@ func (u *EventUseCase) RescueStandDevice(ctx context.Context, eventID, teamID, c
 	if err != nil {
 		return err
 	}
-	return controller.RescueDevice(ctx, group, lab, device, enable)
+	return u.mutateStandDevice(ctx, eventID, teamID, challengeID, group, lab, func(ctx context.Context) error { return controller.RescueDevice(ctx, group, lab, device, enable) })
 }
 
 // standDeviceTarget resolves the deployed Lab of one team challenge and the agent capability.
@@ -133,4 +185,49 @@ func (u *EventUseCase) standDeviceTarget(ctx context.Context, eventID, teamID, c
 		return "", "", nil, infraUnavailable()
 	}
 	return binding.LabGroupName, binding.LabName, controller, nil
+}
+
+// Device mutations serialize with final solves on the canonical admission/Lab
+// locks. A queued write rechecks closure after taking those locks; an already
+// admitted write finishes before the logical close commits. The legacy RPC has
+// no revision target, so releasing this guard before the mutation would reopen
+// the solve-vs-reset race.
+func (u *EventUseCase) mutateStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, group, lab string, mutate func(context.Context) error) error {
+	binding, err := u.labBindings.Get(ctx, teamID, challengeID)
+	if err != nil {
+		return err
+	}
+	if !binding.LabID.Valid {
+		return mutate(ctx)
+	}
+	if u.uow == nil {
+		return model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
+	}
+	txCtx, repo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	labs := eventLabRepo.New(repo)
+	if err = labs.LockAdmission(txCtx, teamID); err != nil {
+		return err
+	}
+	currentBinding, err := labBindingRepo.New(repo).Get(txCtx, teamID, challengeID)
+	if err != nil {
+		return err
+	}
+	if currentBinding.EventID != eventID || currentBinding.LabID != binding.LabID || currentBinding.LabGroupName != group || currentBinding.LabName != lab {
+		return eventStandModel.ErrStandLabNotFound.Err()
+	}
+	canonical, err := labs.Lock(txCtx, binding.LabID.UUID)
+	if err != nil {
+		return err
+	}
+	if err = requireLabOpen(canonical); err != nil {
+		return err
+	}
+	if err = mutate(txCtx); err != nil {
+		return err
+	}
+	return unit.Save()
 }

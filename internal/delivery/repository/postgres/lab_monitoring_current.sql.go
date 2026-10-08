@@ -29,6 +29,30 @@ func (q *Queries) DeleteStaleLabMonitoringCurrent(ctx context.Context, arg Delet
 	return err
 }
 
+const findEventTeamForLabMonitoring = `-- name: FindEventTeamForLabMonitoring :one
+SELECT event_id,id AS event_team_id FROM event_teams
+WHERE event_id=$1 AND id=$2
+`
+
+type FindEventTeamForLabMonitoringParams struct {
+	EventID     uuid.UUID `json:"event_id"`
+	EventTeamID uuid.UUID `json:"event_team_id"`
+}
+
+type FindEventTeamForLabMonitoringRow struct {
+	EventID     uuid.UUID `json:"event_id"`
+	EventTeamID uuid.UUID `json:"event_team_id"`
+}
+
+// A team's group exists before question/Lab bindings, including the hidden
+// moderators group. The trusted group name is parsed by the repository.
+func (q *Queries) FindEventTeamForLabMonitoring(ctx context.Context, arg FindEventTeamForLabMonitoringParams) (FindEventTeamForLabMonitoringRow, error) {
+	row := q.db.QueryRow(ctx, findEventTeamForLabMonitoring, arg.EventID, arg.EventTeamID)
+	var i FindEventTeamForLabMonitoringRow
+	err := row.Scan(&i.EventID, &i.EventTeamID)
+	return i, err
+}
+
 const findEventTeamsByLabGroup = `-- name: FindEventTeamsByLabGroup :many
 SELECT DISTINCT lb.event_id, lb.event_team_id
 FROM lab_bindings lb

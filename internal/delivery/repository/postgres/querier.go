@@ -316,6 +316,9 @@ type Querier interface {
 	FindActiveEventTeamsByLabGroup(ctx context.Context, arg FindActiveEventTeamsByLabGroupParams) ([]FindActiveEventTeamsByLabGroupRow, error)
 	// The event's own, active fork of a source exercise (reused by "fork").
 	FindEventFork(ctx context.Context, arg FindEventForkParams) (Exercise, error)
+	// A team's group exists before question/Lab bindings, including the hidden
+	// moderators group. The trusted group name is parsed by the repository.
+	FindEventTeamForLabMonitoring(ctx context.Context, arg FindEventTeamForLabMonitoringParams) (FindEventTeamForLabMonitoringRow, error)
 	// Every event team bound to the lab group, whatever the event lifecycle: the
 	// current state must already be there when an event becomes active.
 	FindEventTeamsByLabGroup(ctx context.Context, labGroupName string) ([]FindEventTeamsByLabGroupRow, error)
@@ -326,6 +329,7 @@ type Querier interface {
 	GetActiveChannels(ctx context.Context, arg GetActiveChannelsParams) ([]string, error)
 	// The event's one working link (unrevoked and not expired).
 	GetActiveEventLiveScreenLink(ctx context.Context, arg GetActiveEventLiveScreenLinkParams) (EventLiveScreenLink, error)
+	GetCurrentEventLabAccessMonitoring(ctx context.Context, eventTeamID uuid.UUID) (LabMonitoringCurrent, error)
 	GetDatabaseTime(ctx context.Context) (time.Time, error)
 	GetDispatch(ctx context.Context, id uuid.UUID) (GetDispatchRow, error)
 	GetDraftVersion(ctx context.Context, exerciseID uuid.UUID) (ExerciseVersion, error)
@@ -1307,6 +1311,9 @@ type Querier interface {
 	// time an invitation email was queued for a still unconfirmed account; the
 	// retention clock of unconfirmed accounts runs from it.
 	MarkUserInvitationSent(ctx context.Context, arg MarkUserInvitationSentParams) (int64, error)
+	// A Request already allocated a new revision and reset its fingerprint. A
+	// boundary-derived policy change allocates exactly one more revision before RPC.
+	MaterializeEventLabAccessPolicy(ctx context.Context, arg MaterializeEventLabAccessPolicyParams) (EventLabAccessSync, error)
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
 	OpenEventStandRollout(ctx context.Context, arg OpenEventStandRolloutParams) error
 	// Ready -> Published for board-published challenges. A challenge without a lab
@@ -1389,6 +1396,9 @@ type Querier interface {
 	// On withdrawal, make those groups eligible for the same durable cleanup job.
 	QueueWithdrawnEmptyLabGroups(ctx context.Context, now time.Time) error
 	RecordEventTeamLabInitialIdentity(ctx context.Context, arg RecordEventTeamLabInitialIdentityParams) (int64, error)
+	// Initial deployment has no lifecycle operation status yet. Adopt current
+	// readiness only for the original Running revision and matching live identity.
+	RecordEventTeamLabInitialReadiness(ctx context.Context, arg RecordEventTeamLabInitialReadinessParams) (int64, error)
 	// Deliberate narrow write: only physical observation fields, exactly fenced.
 	RecordEventTeamLabObservation(ctx context.Context, arg RecordEventTeamLabObservationParams) (int64, error)
 	// A recreated Lab moves to the next generation under a new name, so the

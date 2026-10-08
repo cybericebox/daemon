@@ -255,6 +255,7 @@
   "32510": "Booking not found",
   "32511": "Readiness alarm not found",
   "32513": "The event has no resource reservation",
+  "32610": "Laboratory not found",
   "40211": "Event already has its own template for this notification type",
   "40903": "Exercise with this name already exists",
   "41102": "Event with this tag already exists",
@@ -293,6 +294,7 @@
   "62201": "User cannot view the analytics of this event",
   "62202": "Only the event owner, write moderators and platform admins can view answers and integrity signals",
   "62603": "A solved laboratory cannot be restarted",
+  "62609": "The laboratory is closed",
   "70219": "Inbox request is already resolved",
   "70303": "User was modified concurrently",
   "70428": "Too many attempts, try again later",
@@ -399,5 +401,8 @@
   "72605": "A new laboratory lifecycle operation is required",
   "72606": "Required laboratory snapshots are unavailable",
   "72607": "Laboratory closure data is invalid",
-  "72608": "The laboratory assignment is being repaired, try again"
+  "72608": "The laboratory assignment is being repaired, try again",
+  "72611": "The laboratory changed while opening the link",
+  "72612": "The laboratory binding changed while opening the link",
+  "72613": "The laboratory changed before opening the link"
 }

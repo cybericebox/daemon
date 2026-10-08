@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/gofrs/uuid"
 	"strings"
 	"time"
 
 	labclient "github.com/cybericebox/laboratory/pkg/agent/client"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
@@ -342,6 +344,15 @@ func (c *Client) DeleteLab(ctx context.Context, group, lab string) error {
 // Laboratory agent. The group policy is default-deny, so callers must always
 // pass the complete desired access snapshot.
 func (c *Client) ReconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy) error {
+	return c.reconcileLabGroupAccess(ctx, group, policies, nil)
+}
+func (c *Client) ReconcileLabGroupAccessRevision(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target eventLabModel.AccessTarget) error {
+	if target.Group != group || target.ExpectedGroupUID == "" || target.OperationID == uuid.Nil || target.Revision <= 0 {
+		return fmt.Errorf("replace lab group access policy: incomplete or foreign revision target")
+	}
+	return c.reconcileLabGroupAccess(ctx, group, policies, &target)
+}
+func (c *Client) reconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target *eventLabModel.AccessTarget) error {
 	rules := make([]*labpb.LabGroupAccessRule, 0, len(policies))
 	for _, policy := range policies {
 		// An empty LabNames list means "all Labs" in the operator protocol.
@@ -356,9 +367,15 @@ func (c *Client) ReconcileLabGroupAccess(ctx context.Context, group string, poli
 			LabNames:    append([]string(nil), policy.AllowedLabs...),
 		})
 	}
+	wire := &labpb.LabGroupAccessPolicy{LabGroupName: group, Rules: rules}
+	if target != nil {
+		wire.OperationId = target.OperationID.String()
+		wire.DesiredRevision = target.Revision
+		wire.ExpectedGroupUid = target.ExpectedGroupUID
+	}
 	res, err := c.SetLabGroupAccess(ctx, &labpb.SetLabGroupAccessRequest{
 		Labels:   c.requestLabels(),
-		Policies: []*labpb.LabGroupAccessPolicy{{LabGroupName: group, Rules: rules}},
+		Policies: []*labpb.LabGroupAccessPolicy{wire},
 	})
 	if err != nil {
 		return agentErr("replace lab group access policy", err)

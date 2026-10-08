@@ -2,6 +2,11 @@ package event
 
 import (
 	"context"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"strconv"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -37,12 +42,15 @@ func (u *EventUseCase) OpenOwnLabLink(ctx context.Context, eventID, userID, chal
 	if err != nil {
 		return labaccess.Link{}, err
 	}
-	if _, err = u.requireEventLaboratories(ctx, eventID); err != nil {
-		return labaccess.Link{}, err
-	}
 	binding, err := u.labBindings.Get(ctx, *p.TeamID, challengeID)
 	if err != nil {
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab binding").Err()
+	}
+	if err = u.requireBindingLabOpen(ctx, eventID, binding); err != nil {
+		return labaccess.Link{}, err
+	}
+	if _, err = u.requireEventLaboratories(ctx, eventID); err != nil {
+		return labaccess.Link{}, err
 	}
 	if err = u.requireMemberLabClient(ctx, eventID, userID); err != nil {
 		return labaccess.Link{}, err
@@ -59,9 +67,6 @@ func (u *EventUseCase) OpenModeratorsLabLink(ctx context.Context, eventID, userI
 	if u.labSessions == nil {
 		return labaccess.Link{}, infraUnavailable()
 	}
-	if _, err := u.requireEventLaboratories(ctx, eventID); err != nil {
-		return labaccess.Link{}, err
-	}
 	teamID, err := u.moderatorsTeam(ctx, eventID)
 	if err != nil {
 		return labaccess.Link{}, err
@@ -72,6 +77,12 @@ func (u *EventUseCase) OpenModeratorsLabLink(ctx context.Context, eventID, userI
 			return labaccess.Link{}, eventStandModel.ErrStandLabNotFound.Err()
 		}
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab binding").Err()
+	}
+	if err = u.requireBindingLabOpen(ctx, eventID, binding); err != nil {
+		return labaccess.Link{}, err
+	}
+	if _, err = u.requireEventLaboratories(ctx, eventID); err != nil {
+		return labaccess.Link{}, err
 	}
 	// Staff clients of the moderators team are created by the access sync when a
 	// manager is assigned, never here.
@@ -84,12 +95,57 @@ func (u *EventUseCase) OpenModeratorsLabLink(ctx context.Context, eventID, userI
 // issueLabLink finds the device's web address in the live lab status and signs
 // the handoff for it.
 func (u *EventUseCase) issueLabLink(ctx context.Context, eventID, userID uuid.UUID, binding labBindingModel.Binding, device string, port int32) (labaccess.Link, error) {
+	var pinned *eventLabModel.Lab
+	if binding.LabID.Valid {
+		// A short canonical transaction pins the revision, then releases every lock
+		// before a remote read or signing call.
+		if u.uow == nil {
+			return labaccess.Link{}, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
+		}
+		txCtx, repo, unit, err := u.uow.UnitOfWork(ctx)
+		if err != nil {
+			return labaccess.Link{}, err
+		}
+		labs := eventLabRepo.New(repo)
+		if err = labs.LockAdmission(txCtx, binding.EventTeamID); err == nil {
+			currentBinding, readErr := labBindingRepo.New(repo).Get(txCtx, binding.EventTeamID, binding.EventChallengeID)
+			if readErr != nil {
+				err = readErr
+			} else if currentBinding.LabID != binding.LabID || currentBinding.LabGroupName != binding.LabGroupName || currentBinding.LabName != binding.LabName || currentBinding.Generation != binding.Generation {
+				err = eventLabModel.ErrLinkChangedBeforePin.Err()
+			}
+			if err != nil {
+				_ = unit.Restore()
+				return labaccess.Link{}, err
+			}
+			var lab eventLabModel.Lab
+			lab, err = labs.Lock(txCtx, binding.LabID.UUID)
+			if err == nil {
+				err = requireLabOpen(lab)
+				pinned = &lab
+			}
+		}
+		if err == nil {
+			err = unit.Save()
+		}
+		_ = unit.Restore()
+		if err != nil {
+			return labaccess.Link{}, err
+		}
+	}
 	if u.infra == nil {
 		return labaccess.Link{}, infraUnavailable()
 	}
-	status, err := u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
+	var status exerciseModel.LabDeployStatus
+	var err error
+	if pinned == nil || pinned.RuntimeReady {
+		status, err = u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
+	}
 	if err != nil {
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab status").Err()
+	}
+	if pinned != nil && (!status.Ready || status.LabUID != pinned.AgentUID || status.LabGeneration < pinned.AgentGeneration) {
+		status.Access = nil
 	}
 	accessURL, ok := status.WebURL(device, port)
 	if !ok {
@@ -103,6 +159,23 @@ func (u *EventUseCase) issueLabLink(ctx context.Context, eventID, userID uuid.UU
 	link, err := u.labSessions.Issue(ctx, labaccess.Session{Group: binding.LabGroupName, Client: participantLabClientName(userID), AccessURL: accessURL, ExpiresAt: expiresAt}, now)
 	if err != nil {
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to issue the laboratory web link").Err()
+	}
+	if pinned != nil {
+		current, err := u.labs.GetForChallenge(ctx, binding.EventTeamID, binding.EventChallengeID)
+		if err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return labaccess.Link{}, eventLabModel.ErrLinkRebound.Err()
+			}
+			return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to recheck laboratory link lifecycle").Err()
+		}
+		if err = requireLabOpen(current); err != nil {
+			return labaccess.Link{}, err
+		}
+		if !current.RuntimeReady || current.ID != pinned.ID || current.Revision != pinned.Revision || current.OperationID != pinned.OperationID {
+			return labaccess.Link{}, eventLabModel.ErrLinkChanged.Err()
+		}
+		link.LabID = current.ID
+		link.Revision = strconv.FormatInt(current.Revision, 10)
 	}
 	return link, nil
 }
@@ -165,4 +238,21 @@ func (u *EventUseCase) requireMemberLabClient(ctx context.Context, eventID, user
 		}
 	}
 	return eventStandModel.ErrStandLabClientMissing.Err()
+}
+
+func (u *EventUseCase) requireBindingLabOpen(ctx context.Context, eventID uuid.UUID, binding labBindingModel.Binding) error {
+	if binding.EventID != eventID {
+		return eventStandModel.ErrStandLabNotFound.Err()
+	}
+	if !binding.LabID.Valid {
+		return nil
+	}
+	lab, err := u.labs.Get(ctx, binding.LabID.UUID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read link laboratory lifecycle").Err()
+	}
+	if lab.EventID != eventID || lab.TeamID != binding.EventTeamID || lab.Ref.Group != binding.LabGroupName || lab.Ref.Lab != binding.LabName {
+		return eventStandModel.ErrStandLabNotFound.Err()
+	}
+	return requireLabOpen(lab)
 }

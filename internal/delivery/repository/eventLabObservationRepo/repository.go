@@ -10,10 +10,12 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	labMonitoringModel "github.com/cybericebox/daemon/internal/model/labMonitoring"
 )
 
 type Queries interface {
+	FindEventTeamForLabMonitoring(context.Context, postgres.FindEventTeamForLabMonitoringParams) (postgres.FindEventTeamForLabMonitoringRow, error)
 	FindActiveEventTeamsByLabGroup(context.Context, postgres.FindActiveEventTeamsByLabGroupParams) ([]postgres.FindActiveEventTeamsByLabGroupRow, error)
 	FindEventTeamsByLabGroup(context.Context, string) ([]postgres.FindEventTeamsByLabGroupRow, error)
 	GetLabMonitoringCurrent(context.Context, postgres.GetLabMonitoringCurrentParams) (postgres.LabMonitoringCurrent, error)
@@ -118,6 +120,18 @@ func (r *Repository) ApplyCurrent(ctx context.Context, labGroupName, agentID str
 	teams, err := r.q.FindEventTeamsByLabGroup(ctx, labGroupName)
 	if err != nil {
 		return err
+	}
+	if len(teams) == 0 {
+		eventID, teamID, ok := labBindingModel.ParseGroupName(labGroupName)
+		if ok {
+			identity, readErr := r.q.FindEventTeamForLabMonitoring(ctx, postgres.FindEventTeamForLabMonitoringParams{EventID: eventID, EventTeamID: teamID})
+			if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+				return readErr
+			}
+			if readErr == nil {
+				teams = append(teams, postgres.FindEventTeamsByLabGroupRow{EventID: identity.EventID, EventTeamID: identity.EventTeamID})
+			}
+		}
 	}
 	for _, team := range teams {
 		var current json.RawMessage

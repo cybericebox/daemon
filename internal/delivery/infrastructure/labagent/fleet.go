@@ -594,3 +594,11 @@ func (f *Fleet) lifecycleRoute(ctx context.Context, group string) (*Client, erro
 	}
 	return m.Client, nil
 }
+
+func (f *Fleet) ReconcileLabGroupAccessRevision(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target eventLabModel.AccessTarget) error {
+	c, err := f.route(ctx, group)
+	if err != nil {
+		return err
+	}
+	return c.ReconcileLabGroupAccessRevision(ctx, group, policies, target)
+}

@@ -540,6 +540,12 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				} else if canonical.AgentUID != status.LabUID || status.LabGeneration < canonical.AgentGeneration {
 					continue
 				}
+				if canonical.Revision == 1 {
+					if _, readyErr := u.labs.RecordInitialReadiness(ctx, canonical.ID, canonical.Ref, status.LabUID, status.LabGeneration, status.Ready, now); readyErr != nil {
+						errs = append(errs, readyErr)
+						continue
+					}
+				}
 			}
 			changed, markErr := u.labBindings.MarkReady(ctx, binding)
 			if markErr != nil {

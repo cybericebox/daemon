@@ -12,12 +12,33 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const getCurrentEventLabAccessMonitoring = `-- name: GetCurrentEventLabAccessMonitoring :one
+SELECT m.event_id, m.event_team_id, m.lab_group_name, m.agent_id, m.sequence, m.observed_at, m.updated_at, m.payload FROM lab_monitoring_current m JOIN event_teams t ON t.id=m.event_team_id AND t.event_id=m.event_id
+WHERE m.event_team_id=$1 ORDER BY m.observed_at DESC,m.lab_group_name LIMIT 1
+`
+
+func (q *Queries) GetCurrentEventLabAccessMonitoring(ctx context.Context, eventTeamID uuid.UUID) (LabMonitoringCurrent, error) {
+	row := q.db.QueryRow(ctx, getCurrentEventLabAccessMonitoring, eventTeamID)
+	var i LabMonitoringCurrent
+	err := row.Scan(
+		&i.EventID,
+		&i.EventTeamID,
+		&i.LabGroupName,
+		&i.AgentID,
+		&i.Sequence,
+		&i.ObservedAt,
+		&i.UpdatedAt,
+		&i.Payload,
+	)
+	return i, err
+}
+
 const listDirtyEventLabAccessSyncs = `-- name: ListDirtyEventLabAccessSyncs :many
 WITH access_state AS (
     SELECT sync.event_team_id,
            team.event_id,
            sync.desired_revision,
-           sync.applied_revision,
+           sync.applied_revision, sync.operation_id, sync.policy_fingerprint, sync.expected_group_uid, sync.access_fence_vpn_boot_id,
            sync.updated_at,
            sync.runtime_open AS applied_runtime_open,
            sync.vpn_enabled AS applied_vpn_enabled,
@@ -39,25 +60,33 @@ WITH access_state AS (
     JOIN events event ON event.id = team.event_id
     LEFT JOIN event_stand_rollouts rollout ON rollout.event_id = event.id
 )
-SELECT event_team_id, event_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, stage_epoch
+SELECT event_team_id, event_id, desired_revision, applied_revision, operation_id, policy_fingerprint, expected_group_uid, updated_at, runtime_open, vpn_enabled, stage_epoch
 FROM access_state
 WHERE desired_revision > applied_revision
    OR applied_runtime_open IS DISTINCT FROM runtime_open
    OR applied_vpn_enabled IS DISTINCT FROM vpn_enabled
    OR applied_stage_epoch IS DISTINCT FROM stage_epoch
+   OR EXISTS (SELECT 1 FROM lab_monitoring_current m,
+      jsonb_array_elements(COALESCE(m.payload->'groups','[]'::jsonb)) witness
+      WHERE m.event_team_id=access_state.event_team_id AND witness->>'name'=m.lab_group_name
+        AND (COALESCE(witness->'status'->>'currentVpnBootAvailable','false')<>'true'
+          OR COALESCE(witness->'status'->>'currentVpnBootId','')<>access_state.access_fence_vpn_boot_id))
 ORDER BY updated_at, event_team_id
 LIMIT $1
 `
 
 type ListDirtyEventLabAccessSyncsRow struct {
-	EventTeamID     uuid.UUID `json:"event_team_id"`
-	EventID         uuid.UUID `json:"event_id"`
-	DesiredRevision int64     `json:"desired_revision"`
-	AppliedRevision int64     `json:"applied_revision"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	RuntimeOpen     bool      `json:"runtime_open"`
-	VpnEnabled      bool      `json:"vpn_enabled"`
-	StageEpoch      int32     `json:"stage_epoch"`
+	EventTeamID       uuid.UUID     `json:"event_team_id"`
+	EventID           uuid.UUID     `json:"event_id"`
+	DesiredRevision   int64         `json:"desired_revision"`
+	AppliedRevision   int64         `json:"applied_revision"`
+	OperationID       uuid.NullUUID `json:"operation_id"`
+	PolicyFingerprint string        `json:"policy_fingerprint"`
+	ExpectedGroupUid  string        `json:"expected_group_uid"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	RuntimeOpen       bool          `json:"runtime_open"`
+	VpnEnabled        bool          `json:"vpn_enabled"`
+	StageEpoch        int32         `json:"stage_epoch"`
 }
 
 func (q *Queries) ListDirtyEventLabAccessSyncs(ctx context.Context, limitVal int32) ([]ListDirtyEventLabAccessSyncsRow, error) {
@@ -74,6 +103,9 @@ func (q *Queries) ListDirtyEventLabAccessSyncs(ctx context.Context, limitVal int
 			&i.EventID,
 			&i.DesiredRevision,
 			&i.AppliedRevision,
+			&i.OperationID,
+			&i.PolicyFingerprint,
+			&i.ExpectedGroupUid,
 			&i.UpdatedAt,
 			&i.RuntimeOpen,
 			&i.VpnEnabled,
@@ -188,37 +220,72 @@ func (q *Queries) ListEventLabAccessLabs(ctx context.Context, eventTeamID uuid.U
 }
 
 const markEventLabAccessSyncApplied = `-- name: MarkEventLabAccessSyncApplied :execrows
-UPDATE event_lab_access_syncs
+UPDATE event_lab_access_syncs AS sync
 SET applied_revision = $1,
-    runtime_open = $2,
-    vpn_enabled = $3,
-    applied_stage_epoch = $4,
-    updated_at = $5
-WHERE event_team_id = $6
-  AND desired_revision = $1
-  AND (applied_revision < $1
-       OR runtime_open IS DISTINCT FROM $2
-       OR vpn_enabled IS DISTINCT FROM $3
-       OR applied_stage_epoch IS DISTINCT FROM $4)
+    access_fence_vpn_boot_id=$2,
+    runtime_open = $3,
+    vpn_enabled = $4,
+    applied_stage_epoch = $5,
+    updated_at = $6
+WHERE sync.event_team_id = $7
+  AND sync.desired_revision = $1
+  AND sync.operation_id=$8::uuid
+  AND sync.policy_fingerprint=$9
+  AND sync.expected_group_uid=$10
+  -- Recheck the current Monitoring tuple in the acknowledgement statement.
+  -- A VPN restart after the worker read must not acknowledge the old boot.
+  AND EXISTS (SELECT 1 FROM lab_monitoring_current m,
+      jsonb_array_elements(COALESCE(m.payload->'groups','[]'::jsonb)) g,
+      jsonb_array_elements(COALESCE(m.payload->'policies','[]'::jsonb)) p
+    WHERE m.event_team_id=$7 AND m.lab_group_name=$11
+      AND m.observed_at BETWEEN $6::timestamptz-interval '30 seconds' AND $6::timestamptz
+      AND g->>'name'=m.lab_group_name AND g->>'uid'=$10
+      AND g->'status'->>'currentVpnBootAvailable'='true'
+      AND g->'status'->>'currentVpnBootId'=$2
+      AND CASE WHEN g->'status'->>'currentVpnBootObservedUnixMs' ~ '^[0-9]{1,16}$' THEN (g->'status'->>'currentVpnBootObservedUnixMs')::bigint ELSE 0 END
+          BETWEEN (extract(epoch FROM $6::timestamptz)*1000)::bigint-30000 AND (extract(epoch FROM $6::timestamptz)*1000)::bigint
+      AND p->>'labGroupName'=m.lab_group_name AND p->>'expectedGroupUid'=$10
+      AND COALESCE(p->>'policyUid','')<>'' AND p->>'operationId'=$8::uuid::text
+      AND p->>'desiredRevision'=$1::bigint::text
+      AND p->'status'->>'operationId'=$8::uuid::text
+      AND p->'status'->>'appliedRevision'=$1::bigint::text
+      AND p->'status'->>'state'='Applied' AND COALESCE(p->'status'->>'lastError','')=''
+      AND COALESCE(p->>'generation','0')<>'0' AND p->>'generation'=p->'status'->>'observedGeneration'
+      AND p->'status'->>'vpnBootId'=$2)
+  AND (sync.applied_revision < $1
+       OR sync.runtime_open IS DISTINCT FROM $3
+       OR sync.vpn_enabled IS DISTINCT FROM $4
+       OR sync.applied_stage_epoch IS DISTINCT FROM $5
+       OR sync.access_fence_vpn_boot_id IS DISTINCT FROM $2)
 `
 
 type MarkEventLabAccessSyncAppliedParams struct {
-	DesiredRevision int64     `json:"desired_revision"`
-	RuntimeOpen     bool      `json:"runtime_open"`
-	VpnEnabled      bool      `json:"vpn_enabled"`
-	StageEpoch      int32     `json:"stage_epoch"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	EventTeamID     uuid.UUID `json:"event_team_id"`
+	DesiredRevision      int64     `json:"desired_revision"`
+	AccessFenceVpnBootID string    `json:"access_fence_vpn_boot_id"`
+	RuntimeOpen          bool      `json:"runtime_open"`
+	VpnEnabled           bool      `json:"vpn_enabled"`
+	StageEpoch           int32     `json:"stage_epoch"`
+	UpdatedAt            time.Time `json:"updated_at"`
+	EventTeamID          uuid.UUID `json:"event_team_id"`
+	OperationID          uuid.UUID `json:"operation_id"`
+	PolicyFingerprint    string    `json:"policy_fingerprint"`
+	ExpectedGroupUid     string    `json:"expected_group_uid"`
+	LabGroupName         string    `json:"lab_group_name"`
 }
 
 func (q *Queries) MarkEventLabAccessSyncApplied(ctx context.Context, arg MarkEventLabAccessSyncAppliedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markEventLabAccessSyncApplied,
 		arg.DesiredRevision,
+		arg.AccessFenceVpnBootID,
 		arg.RuntimeOpen,
 		arg.VpnEnabled,
 		arg.StageEpoch,
 		arg.UpdatedAt,
 		arg.EventTeamID,
+		arg.OperationID,
+		arg.PolicyFingerprint,
+		arg.ExpectedGroupUid,
+		arg.LabGroupName,
 	)
 	if err != nil {
 		return 0, err
@@ -226,13 +293,62 @@ func (q *Queries) MarkEventLabAccessSyncApplied(ctx context.Context, arg MarkEve
 	return result.RowsAffected(), nil
 }
 
+const materializeEventLabAccessPolicy = `-- name: MaterializeEventLabAccessPolicy :one
+UPDATE event_lab_access_syncs
+SET desired_revision=desired_revision + CASE WHEN policy_fingerprint='' THEN 0 ELSE 1 END,
+ operation_id=$1,policy_fingerprint=$2,
+ expected_group_uid=$3,updated_at=$4
+WHERE event_team_id=$5
+ AND desired_revision=$6
+ AND (policy_fingerprint<>$2 OR expected_group_uid<>$3 OR operation_id IS NULL)
+RETURNING event_team_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, applied_stage_epoch, operation_id, policy_fingerprint, expected_group_uid, access_fence_vpn_boot_id
+`
+
+type MaterializeEventLabAccessPolicyParams struct {
+	OperationID       uuid.NullUUID `json:"operation_id"`
+	PolicyFingerprint string        `json:"policy_fingerprint"`
+	ExpectedGroupUid  string        `json:"expected_group_uid"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	EventTeamID       uuid.UUID     `json:"event_team_id"`
+	ExpectedRevision  int64         `json:"expected_revision"`
+}
+
+// A Request already allocated a new revision and reset its fingerprint. A
+// boundary-derived policy change allocates exactly one more revision before RPC.
+func (q *Queries) MaterializeEventLabAccessPolicy(ctx context.Context, arg MaterializeEventLabAccessPolicyParams) (EventLabAccessSync, error) {
+	row := q.db.QueryRow(ctx, materializeEventLabAccessPolicy,
+		arg.OperationID,
+		arg.PolicyFingerprint,
+		arg.ExpectedGroupUid,
+		arg.UpdatedAt,
+		arg.EventTeamID,
+		arg.ExpectedRevision,
+	)
+	var i EventLabAccessSync
+	err := row.Scan(
+		&i.EventTeamID,
+		&i.DesiredRevision,
+		&i.AppliedRevision,
+		&i.UpdatedAt,
+		&i.RuntimeOpen,
+		&i.VpnEnabled,
+		&i.AppliedStageEpoch,
+		&i.OperationID,
+		&i.PolicyFingerprint,
+		&i.ExpectedGroupUid,
+		&i.AccessFenceVpnBootID,
+	)
+	return i, err
+}
+
 const requestEventLabAccessSync = `-- name: RequestEventLabAccessSync :one
 INSERT INTO event_lab_access_syncs (event_team_id, desired_revision, applied_revision, updated_at)
 VALUES ($1, 1, 0, $2)
 ON CONFLICT (event_team_id) DO UPDATE
 SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    operation_id=NULL, policy_fingerprint='', expected_group_uid='',
     updated_at = EXCLUDED.updated_at
-RETURNING event_team_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, applied_stage_epoch
+RETURNING event_team_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, applied_stage_epoch, operation_id, policy_fingerprint, expected_group_uid, access_fence_vpn_boot_id
 `
 
 type RequestEventLabAccessSyncParams struct {
@@ -251,6 +367,10 @@ func (q *Queries) RequestEventLabAccessSync(ctx context.Context, arg RequestEven
 		&i.RuntimeOpen,
 		&i.VpnEnabled,
 		&i.AppliedStageEpoch,
+		&i.OperationID,
+		&i.PolicyFingerprint,
+		&i.ExpectedGroupUid,
+		&i.AccessFenceVpnBootID,
 	)
 	return i, err
 }
@@ -266,6 +386,7 @@ WHERE team.event_id = $2
     OR EXISTS (SELECT 1 FROM events event WHERE event.id = team.event_id AND event.infrastructure_allowed))
 ON CONFLICT (event_team_id) DO UPDATE
 SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    operation_id=NULL, policy_fingerprint='', expected_group_uid='',
     updated_at = EXCLUDED.updated_at
 `
 
@@ -288,6 +409,7 @@ WHERE team.event_id = $2
   AND EXISTS (SELECT 1 FROM events event WHERE event.id = team.event_id AND event.infrastructure_allowed)
 ON CONFLICT (event_team_id) DO UPDATE
 SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    operation_id=NULL, policy_fingerprint='', expected_group_uid='',
     updated_at = EXCLUDED.updated_at
 `
 

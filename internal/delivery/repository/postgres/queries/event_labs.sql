@@ -141,3 +141,13 @@ ORDER BY id FOR UPDATE;
 -- Serialize roster creation/change without blocking the KEY SHARE locks of
 -- concurrent answer inserts while we wait for their team admission locks.
 SELECT id FROM events WHERE id=sqlc.arg(id) FOR NO KEY UPDATE;
+
+-- name: RecordEventTeamLabInitialReadiness :execrows
+-- Initial deployment has no lifecycle operation status yet. Adopt current
+-- readiness only for the original Running revision and matching live identity.
+UPDATE event_team_labs SET runtime_ready=sqlc.arg(runtime_ready),
+ actual_state=CASE WHEN sqlc.arg(runtime_ready)::boolean THEN 'Running' ELSE 'Unknown' END,
+ agent_generation=sqlc.arg(agent_generation),observed_at=sqlc.arg(now),updated_at=sqlc.arg(now)
+WHERE id=sqlc.arg(id) AND desired_revision=1 AND desired_state='Running' AND logical_closed_at IS NULL
+ AND agent_uid=sqlc.arg(agent_uid) AND agent_uid<>'' AND agent_generation<=sqlc.arg(agent_generation)
+ AND lab_group_name=sqlc.arg(lab_group_name) AND lab_name=sqlc.arg(lab_name);

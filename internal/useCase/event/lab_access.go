@@ -2,8 +2,13 @@ package event
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	"sort"
 	"sync"
 	"time"
 
@@ -29,6 +34,10 @@ type labAccessInfrastructure interface {
 	SetLabGroupVPNDisabled(context.Context, string, bool) error
 	SetLabGroupSuspended(context.Context, string, bool) error
 	ReconcileLabGroupAccess(context.Context, string, []labAccessModel.ClientPolicy) error
+}
+
+type labAccessRevisionInfrastructure interface {
+	ReconcileLabGroupAccessRevision(context.Context, string, []labAccessModel.ClientPolicy, eventLabModel.AccessTarget) error
 }
 
 const labAccessSyncBatchSize = 100
@@ -165,6 +174,9 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to suspend team laboratory group").Err()
 		}
 	}
+	var revisionTarget eventLabModel.AccessTarget
+	var fingerprint string
+	revisionAccess, revisionSupported := u.infra.(labAccessRevisionInfrastructure)
 	if sync.VPNEnabled || len(labs) > 0 {
 		// Every member has a LabGroupClient from the moment they are in the team
 		// (or on the staff), before any lab is open; only the access config is
@@ -180,7 +192,29 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 		for _, userID := range clients {
 			policy = append(policy, LabClientAccess{Name: participantLabClientName(userID), AllowedLabs: append([]string(nil), allowed...)})
 		}
-		if err = access.ReconcileLabGroupAccess(ctx, group, policy); err != nil {
+		if revisionSupported {
+			observation, readErr := u.labAccessSyncs.ObserveAccessFence(ctx, sync.TeamID)
+			if readErr != nil {
+				return model.ErrPlatform.WithError(readErr).WithMessage("Failed to read current laboratory policy identity").Err()
+			}
+			if observation.Group != group || observation.ExpectedGroupUID == "" {
+				return nil
+			}
+			fingerprint = labPolicyFingerprint(policy, sync)
+			var current bool
+			revisionTarget, current, err = u.labAccessSyncs.Materialize(ctx, sync, fingerprint, observation.ExpectedGroupUID, time.Now())
+			if err != nil {
+				return model.ErrPlatform.WithError(err).WithMessage("Failed to materialize laboratory policy revision").Err()
+			}
+			if !current {
+				return nil
+			}
+			revisionTarget.Group = group
+			err = revisionAccess.ReconcileLabGroupAccessRevision(ctx, group, policy, revisionTarget)
+		} else {
+			err = access.ReconcileLabGroupAccess(ctx, group, policy)
+		}
+		if err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to reconcile laboratory access policy").Err()
 		}
 	}
@@ -195,7 +229,15 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to start team laboratory group services").Err()
 		}
 	}
-	if affected, markErr := u.labAccessSyncs.MarkApplied(ctx, sync.TeamID, sync.DesiredRevision, sync.RuntimeOpen, sync.VPNEnabled, sync.StageEpoch, time.Now()); markErr != nil {
+	// Legacy acceptance leaves the revision dirty. It is not physical denial.
+	if !revisionSupported || revisionTarget.OperationID == uuid.Nil {
+		return nil
+	}
+	observation, readErr := u.labAccessSyncs.ObserveAccessFence(ctx, sync.TeamID)
+	if readErr != nil {
+		return model.ErrPlatform.WithError(readErr).WithMessage("Failed to observe laboratory access fence").Err()
+	}
+	if affected, markErr := u.labAccessSyncs.MarkApplied(ctx, sync, revisionTarget, fingerprint, observation, time.Now()); markErr != nil {
 		return model.ErrPlatform.WithError(markErr).WithMessage("Failed to acknowledge laboratory access policy").Err()
 	} else if affected == 0 {
 		// Desired state changed while the agent was applying the old replacement;
@@ -277,4 +319,20 @@ func (u *EventUseCase) labGroupExists(ctx context.Context, group string) (bool, 
 		return false, nil
 	}
 	return checker.LabGroupExists(ctx, group)
+}
+
+func labPolicyFingerprint(policy []LabClientAccess, sync labAccessSyncModel.Sync) string {
+	normalized := make([]LabClientAccess, len(policy))
+	for i, item := range policy {
+		normalized[i] = LabClientAccess{Name: item.Name, AllowedLabs: append([]string(nil), item.AllowedLabs...)}
+		sort.Strings(normalized[i].AllowedLabs)
+	}
+	sort.Slice(normalized, func(i, j int) bool { return normalized[i].Name < normalized[j].Name })
+	raw, _ := json.Marshal(struct {
+		Policy                  []LabClientAccess
+		RuntimeOpen, VPNEnabled bool
+		StageEpoch              int32
+	}{normalized, sync.RuntimeOpen, sync.VPNEnabled, sync.StageEpoch})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }

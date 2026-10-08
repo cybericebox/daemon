@@ -34,7 +34,7 @@ ORDER BY tc.created_at ASC, tc.id ASC;
 SELECT tc.id, tc.event_id, tc.event_team_id, tc.event_challenge_id, tc.variant_index,
        tc.snapshot, tc.expected_flag, tc.readiness, solved.solved_at, tc.created_at,
        tc.content_updated_at, tc.hints AS team_hints,
-       ee.stage_id,
+       ee.stage_id, ee.id AS event_exercise_id, board_binding.lab_id,
        event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, sqlc.arg(at)::timestamptz) AS stage_phase,
        (practice.team_challenge_id IS NOT NULL)::boolean AS practice_solved,
        (CASE WHEN e.static_points IS NOT NULL AND e.scoring_mode = 0
@@ -58,6 +58,7 @@ LEFT JOIN event_challenge_groups ecg ON ecg.id = ec.group_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
 LEFT JOIN team_challenge_practice_solves practice ON practice.team_challenge_id = tc.id
 LEFT JOIN event_stages stage ON stage.id = ee.stage_id
+LEFT JOIN lab_bindings board_binding ON board_binding.event_team_id=tc.event_team_id AND board_binding.event_challenge_id=tc.event_challenge_id
 WHERE tc.event_team_id = sqlc.arg(event_team_id)
   AND (ec.published OR NOT sqlc.arg(published_only)::boolean)
   -- A task of an upcoming stage is hidden from participants entirely; the moderators board keeps everything.

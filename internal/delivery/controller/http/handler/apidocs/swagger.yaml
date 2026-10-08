@@ -461,6 +461,44 @@ definitions:
       Target:
         type: string
     type: object
+  event.AllocationView:
+    properties:
+      AllocatedRequests:
+        $ref: '#/definitions/event.ComputeView'
+      ConfiguredLimits:
+        $ref: '#/definitions/event.ComputeView'
+      ConfiguredRequests:
+        $ref: '#/definitions/event.ComputeView'
+      ObservedAt:
+        type: string
+        x-nullable: true
+      PhysicalStorageBytes:
+        type: string
+      PhysicalStorageBytesAvailable:
+        type: boolean
+      ReleasedAt:
+        type: string
+        x-nullable: true
+      ReleasedRequests:
+        $ref: '#/definitions/event.ComputeView'
+      RuntimeState:
+        type: string
+      SnapshotQuotaBytes:
+        type: string
+      StorageState:
+        type: string
+      UsageAvailable:
+        type: boolean
+      Used:
+        $ref: '#/definitions/event.ComputeView'
+    type: object
+  event.ComputeView:
+    properties:
+      CPUMillicores:
+        type: string
+      MemoryBytes:
+        type: string
+    type: object
   event.LiveResultChangeView:
     properties:
       CreatedAt:
@@ -473,6 +511,78 @@ definitions:
         type: array
       Revision:
         type: integer
+    type: object
+  event.ManagedGroupView:
+    properties:
+      ActualState:
+        type: string
+      AgentUID:
+        type: string
+      DesiredState:
+        type: string
+      FailureCode:
+        type: string
+      FailureMessage:
+        type: string
+      Name:
+        type: string
+      ObservedAt:
+        type: string
+        x-nullable: true
+      ObservedRevision:
+        type: string
+      Ready:
+        type: boolean
+      Resources:
+        $ref: '#/definitions/event.AllocationView'
+      Revision:
+        type: string
+    type: object
+  event.ManagedLabView:
+    properties:
+      ActualState:
+        type: string
+      ActualStoppedAt:
+        type: string
+        x-nullable: true
+      AgentUID:
+        type: string
+      CloseReason:
+        type: string
+        x-nullable: true
+      ClosedAt:
+        type: string
+        x-nullable: true
+      DesiredState:
+        type: string
+      EventExerciseID:
+        type: string
+      ExerciseName:
+        type: string
+      FailureCode:
+        type: string
+      FailureMessage:
+        type: string
+      Generation:
+        type: integer
+      ID:
+        type: string
+      ObservedAt:
+        type: string
+        x-nullable: true
+      ObservedRevision:
+        type: string
+      Resources:
+        $ref: '#/definitions/event.AllocationView'
+      RetentionUntil:
+        type: string
+        x-nullable: true
+      Revision:
+        type: string
+      SnapshotState:
+        type: string
+      TeamID:
+        type: string
     type: object
   event.ParticipantInvitationResult:
     properties:
@@ -487,6 +597,13 @@ definitions:
       error:
         type: string
       userID:
+        type: string
+    type: object
+  event.StandLabQuestionView:
+    properties:
+      EventChallengeID:
+        type: string
+      Name:
         type: string
     type: object
   event.annulSolveRequest:
@@ -4435,6 +4552,11 @@ definitions:
       URL:
         type: string
     type: object
+  eventself.labLifecycleResponse:
+    properties:
+      Lab:
+        $ref: '#/definitions/labview.ParticipantLabResponse'
+    type: object
   eventself.labLinkRequest:
     properties:
       Device:
@@ -4448,6 +4570,10 @@ definitions:
     properties:
       expiresAt:
         type: string
+      labID:
+        type: string
+      revision:
+        type: string
       url:
         type: string
     type: object
@@ -4459,6 +4585,8 @@ definitions:
         type: array
       InternetCIDR:
         type: string
+      Lab:
+        $ref: '#/definitions/labview.ParticipantLabResponse'
       Phase:
         type: string
       Queue:
@@ -4521,6 +4649,8 @@ definitions:
         type: string
       EventChallengeID:
         type: string
+      EventExerciseID:
+        type: string
       Files:
         items:
           $ref: '#/definitions/eventself.challengeFileResponse'
@@ -4547,6 +4677,8 @@ definitions:
         type: string
       Infrastructure:
         type: boolean
+      Lab:
+        $ref: '#/definitions/labview.ParticipantLabResponse'
       Locked:
         description: |-
           Locked: a prerequisite is unsolved; Snapshot then holds only name and
@@ -5010,6 +5142,8 @@ definitions:
         type: boolean
       FirstSolve:
         type: boolean
+      Lab:
+        $ref: '#/definitions/labview.ParticipantLabResponse'
       Practice:
         description: 'Practice: the answer came after a returnable stage closed; verified,
           not rated.'
@@ -6869,6 +7003,34 @@ definitions:
       RestartCount:
         type: integer
     type: object
+  labview.ParticipantLabResponse:
+    properties:
+      CanRestart:
+        type: boolean
+      CanStop:
+        type: boolean
+      CloseReason:
+        type: string
+        x-nullable: true
+      ClosedAt:
+        type: string
+        x-nullable: true
+      EventExerciseID:
+        type: string
+      ID:
+        type: string
+      LogicalClosed:
+        type: boolean
+      RetentionUntil:
+        type: string
+        x-nullable: true
+      Revision:
+        type: string
+      RuntimeState:
+        type: string
+      SnapshotPolicy:
+        type: string
+    type: object
   labview.QueueResponse:
     properties:
       Length:
@@ -6914,6 +7076,8 @@ definitions:
     properties:
       Generation:
         type: integer
+      Group:
+        $ref: '#/definitions/event.ManagedGroupView'
       LaboratoriesAvailable:
         type: boolean
       Labs:
@@ -6937,6 +7101,8 @@ definitions:
         type: string
       ChallengeName:
         type: string
+      Lab:
+        $ref: '#/definitions/event.ManagedLabView'
       Live:
         allOf:
         - $ref: '#/definitions/labview.StatusResponse'
@@ -6944,6 +7110,10 @@ definitions:
           not answer (LiveUnavailable).
       LiveUnavailable:
         type: boolean
+      Questions:
+        items:
+          $ref: '#/definitions/event.StandLabQuestionView'
+        type: array
       Reason:
         type: string
       Status:
@@ -17851,6 +18021,34 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Join a team in an explicitly selected event
+      tags:
+      - events-self
+  /events/{id}/teams/labs/{labID}:
+    get:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: canonical lab ID
+        in: path
+        name: labID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.labLifecycleResponse'
+              type: object
+      summary: Get the caller's canonical laboratory lifecycle
       tags:
       - events-self
   /events/{id}/teams/labs/stand:

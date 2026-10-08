@@ -13330,6 +13330,53 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/teams/labs/{labID}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Get the caller's canonical laboratory lifecycle",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "canonical lab ID",
+                        "name": "labID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.labLifecycleResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/teams/mine": {
             "get": {
                 "produces": [
@@ -22042,6 +22089,63 @@ const docTemplate = `{
                 }
             }
         },
+        "event.AllocationView": {
+            "type": "object",
+            "properties": {
+                "AllocatedRequests": {
+                    "$ref": "#/definitions/event.ComputeView"
+                },
+                "ConfiguredLimits": {
+                    "$ref": "#/definitions/event.ComputeView"
+                },
+                "ConfiguredRequests": {
+                    "$ref": "#/definitions/event.ComputeView"
+                },
+                "ObservedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "PhysicalStorageBytes": {
+                    "type": "string"
+                },
+                "PhysicalStorageBytesAvailable": {
+                    "type": "boolean"
+                },
+                "ReleasedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "ReleasedRequests": {
+                    "$ref": "#/definitions/event.ComputeView"
+                },
+                "RuntimeState": {
+                    "type": "string"
+                },
+                "SnapshotQuotaBytes": {
+                    "type": "string"
+                },
+                "StorageState": {
+                    "type": "string"
+                },
+                "UsageAvailable": {
+                    "type": "boolean"
+                },
+                "Used": {
+                    "$ref": "#/definitions/event.ComputeView"
+                }
+            }
+        },
+        "event.ComputeView": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "string"
+                },
+                "MemoryBytes": {
+                    "type": "string"
+                }
+            }
+        },
         "event.LiveResultChangeView": {
             "type": "object",
             "properties": {
@@ -22059,6 +22163,112 @@ const docTemplate = `{
                 },
                 "Revision": {
                     "type": "integer"
+                }
+            }
+        },
+        "event.ManagedGroupView": {
+            "type": "object",
+            "properties": {
+                "ActualState": {
+                    "type": "string"
+                },
+                "AgentUID": {
+                    "type": "string"
+                },
+                "DesiredState": {
+                    "type": "string"
+                },
+                "FailureCode": {
+                    "type": "string"
+                },
+                "FailureMessage": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "ObservedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "ObservedRevision": {
+                    "type": "string"
+                },
+                "Ready": {
+                    "type": "boolean"
+                },
+                "Resources": {
+                    "$ref": "#/definitions/event.AllocationView"
+                },
+                "Revision": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.ManagedLabView": {
+            "type": "object",
+            "properties": {
+                "ActualState": {
+                    "type": "string"
+                },
+                "ActualStoppedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "AgentUID": {
+                    "type": "string"
+                },
+                "CloseReason": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "ClosedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "DesiredState": {
+                    "type": "string"
+                },
+                "EventExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseName": {
+                    "type": "string"
+                },
+                "FailureCode": {
+                    "type": "string"
+                },
+                "FailureMessage": {
+                    "type": "string"
+                },
+                "Generation": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "ObservedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "ObservedRevision": {
+                    "type": "string"
+                },
+                "Resources": {
+                    "$ref": "#/definitions/event.AllocationView"
+                },
+                "RetentionUntil": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "Revision": {
+                    "type": "string"
+                },
+                "SnapshotState": {
+                    "type": "string"
+                },
+                "TeamID": {
+                    "type": "string"
                 }
             }
         },
@@ -22080,6 +22290,17 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "userID": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.StandLabQuestionView": {
+            "type": "object",
+            "properties": {
+                "EventChallengeID": {
+                    "type": "string"
+                },
+                "Name": {
                     "type": "string"
                 }
             }
@@ -27927,6 +28148,14 @@ const docTemplate = `{
                 }
             }
         },
+        "eventself.labLifecycleResponse": {
+            "type": "object",
+            "properties": {
+                "Lab": {
+                    "$ref": "#/definitions/labview.ParticipantLabResponse"
+                }
+            }
+        },
         "eventself.labLinkRequest": {
             "type": "object",
             "required": [
@@ -27947,6 +28176,12 @@ const docTemplate = `{
                 "expiresAt": {
                     "type": "string"
                 },
+                "labID": {
+                    "type": "string"
+                },
+                "revision": {
+                    "type": "string"
+                },
                 "url": {
                     "type": "string"
                 }
@@ -27963,6 +28198,9 @@ const docTemplate = `{
                 },
                 "InternetCIDR": {
                     "type": "string"
+                },
+                "Lab": {
+                    "$ref": "#/definitions/labview.ParticipantLabResponse"
                 },
                 "Phase": {
                     "type": "string"
@@ -28054,6 +28292,9 @@ const docTemplate = `{
                 "EventChallengeID": {
                     "type": "string"
                 },
+                "EventExerciseID": {
+                    "type": "string"
+                },
                 "Files": {
                     "type": "array",
                     "items": {
@@ -28090,6 +28331,9 @@ const docTemplate = `{
                 },
                 "Infrastructure": {
                     "type": "boolean"
+                },
+                "Lab": {
+                    "$ref": "#/definitions/labview.ParticipantLabResponse"
                 },
                 "Locked": {
                     "description": "Locked: a prerequisite is unsolved; Snapshot then holds only name and\ndifficulty and Files is empty.",
@@ -28747,6 +28991,9 @@ const docTemplate = `{
                 },
                 "FirstSolve": {
                     "type": "boolean"
+                },
+                "Lab": {
+                    "$ref": "#/definitions/labview.ParticipantLabResponse"
                 },
                 "Practice": {
                     "description": "Practice: the answer came after a returnable stage closed; verified, not rated.",
@@ -31459,6 +31706,47 @@ const docTemplate = `{
                 }
             }
         },
+        "labview.ParticipantLabResponse": {
+            "type": "object",
+            "properties": {
+                "CanRestart": {
+                    "type": "boolean"
+                },
+                "CanStop": {
+                    "type": "boolean"
+                },
+                "CloseReason": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "ClosedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "EventExerciseID": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "LogicalClosed": {
+                    "type": "boolean"
+                },
+                "RetentionUntil": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "Revision": {
+                    "type": "string"
+                },
+                "RuntimeState": {
+                    "type": "string"
+                },
+                "SnapshotPolicy": {
+                    "type": "string"
+                }
+            }
+        },
         "labview.QueueResponse": {
             "type": "object",
             "properties": {
@@ -31528,6 +31816,9 @@ const docTemplate = `{
                 "Generation": {
                     "type": "integer"
                 },
+                "Group": {
+                    "$ref": "#/definitions/event.ManagedGroupView"
+                },
                 "LaboratoriesAvailable": {
                     "type": "boolean"
                 },
@@ -31563,6 +31854,9 @@ const docTemplate = `{
                 "ChallengeName": {
                     "type": "string"
                 },
+                "Lab": {
+                    "$ref": "#/definitions/event.ManagedLabView"
+                },
                 "Live": {
                     "description": "Live is null while the Lab is not deployed yet or the agent did not answer (LiveUnavailable).",
                     "allOf": [
@@ -31573,6 +31867,12 @@ const docTemplate = `{
                 },
                 "LiveUnavailable": {
                     "type": "boolean"
+                },
+                "Questions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.StandLabQuestionView"
+                    }
                 },
                 "Reason": {
                     "type": "string"

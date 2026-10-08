@@ -751,3 +751,11 @@ func TestOwnStandStatusIsReadOnlyStatus(t *testing.T) {
 func (fakeUseCase) GetOwnParticipantFormAnswers(context.Context, uuid.UUID, uuid.UUID) (map[string]any, error) {
 	return map[string]any{}, nil
 }
+
+func (f fakeUseCase) GetOwnChallengeRuntime(ctx context.Context, eventID, userID, challengeID uuid.UUID) (eventUseCase.ChallengeRuntimeView, error) {
+	status, err := f.GetOwnChallengeLabStatus(ctx, eventID, userID, challengeID)
+	return eventUseCase.ChallengeRuntimeView{Status: status}, err
+}
+func (f fakeUseCase) GetOwnLabLifecycle(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (eventUseCase.ParticipantLabView, error) {
+	return eventUseCase.ParticipantLabView{}, nil
+}

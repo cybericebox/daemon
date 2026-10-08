@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -307,7 +308,13 @@ VALUES ($1, $2, $3, $4, $5, $6, 1, $7, $7)`, uuid.Must(uuid.NewV7()), f.event, f
 			t.Fatal(err)
 		}
 		for _, row := range dirty {
-			if _, err = db.Queries.MarkEventLabAccessSyncApplied(ctx, postgres.MarkEventLabAccessSyncAppliedParams{EventTeamID: row.EventTeamID, DesiredRevision: row.DesiredRevision,
+			operation := uuid.Must(uuid.NewV7())
+			target, materializeErr := db.Queries.MaterializeEventLabAccessPolicy(ctx, postgres.MaterializeEventLabAccessPolicyParams{EventTeamID: row.EventTeamID, ExpectedRevision: row.DesiredRevision, OperationID: uuid.NullUUID{UUID: operation, Valid: true}, PolicyFingerprint: fmt.Sprintf("%t/%t/%d", row.RuntimeOpen, row.VpnEnabled, row.StageEpoch), ExpectedGroupUid: "group-uid", UpdatedAt: now})
+			if materializeErr != nil {
+				t.Fatal(materializeErr)
+			}
+			seedACLMonitoringCertificate(t, db, f.event, row.EventTeamID, "group", operation, target.DesiredRevision, now)
+			if _, err = db.Queries.MarkEventLabAccessSyncApplied(ctx, postgres.MarkEventLabAccessSyncAppliedParams{LabGroupName: "group", EventTeamID: row.EventTeamID, DesiredRevision: target.DesiredRevision, OperationID: operation, PolicyFingerprint: target.PolicyFingerprint, ExpectedGroupUid: "group-uid", AccessFenceVpnBootID: "boot",
 				RuntimeOpen: row.RuntimeOpen, VpnEnabled: row.VpnEnabled, StageEpoch: row.StageEpoch, UpdatedAt: now}); err != nil {
 				t.Fatal(err)
 			}

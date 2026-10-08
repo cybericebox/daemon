@@ -300,13 +300,17 @@ type EventFormVersion struct {
 }
 
 type EventLabAccessSync struct {
-	EventTeamID       uuid.UUID `json:"event_team_id"`
-	DesiredRevision   int64     `json:"desired_revision"`
-	AppliedRevision   int64     `json:"applied_revision"`
-	UpdatedAt         time.Time `json:"updated_at"`
-	RuntimeOpen       bool      `json:"runtime_open"`
-	VpnEnabled        bool      `json:"vpn_enabled"`
-	AppliedStageEpoch int32     `json:"applied_stage_epoch"`
+	EventTeamID          uuid.UUID     `json:"event_team_id"`
+	DesiredRevision      int64         `json:"desired_revision"`
+	AppliedRevision      int64         `json:"applied_revision"`
+	UpdatedAt            time.Time     `json:"updated_at"`
+	RuntimeOpen          bool          `json:"runtime_open"`
+	VpnEnabled           bool          `json:"vpn_enabled"`
+	AppliedStageEpoch    int32         `json:"applied_stage_epoch"`
+	OperationID          uuid.NullUUID `json:"operation_id"`
+	PolicyFingerprint    string        `json:"policy_fingerprint"`
+	ExpectedGroupUid     string        `json:"expected_group_uid"`
+	AccessFenceVpnBootID string        `json:"access_fence_vpn_boot_id"`
 }
 
 type EventLabObservation struct {

@@ -13,19 +13,21 @@ import (
 )
 
 type ownChallengeResponse struct {
-	ID               uuid.UUID       `json:"ID"`
-	EventChallengeID uuid.UUID       `json:"EventChallengeID"`
-	Snapshot         json.RawMessage `json:"Snapshot" swaggertype:"object"`
-	Readiness        int16           `json:"Readiness"`
-	SolvedAt         *time.Time      `json:"SolvedAt"`
-	Points           int32           `json:"Points"`
-	Order            int32           `json:"Order"`
-	GroupID          *uuid.UUID      `json:"GroupID"`
-	GroupName        string          `json:"GroupName"`
-	GroupOrder       int32           `json:"GroupOrder"`
-	ContentUpdatedAt *time.Time      `json:"ContentUpdatedAt"`
-	Infrastructure   bool            `json:"Infrastructure"`
-	HintsEnabled     bool            `json:"HintsEnabled"`
+	EventExerciseID  uuid.UUID                       `json:"EventExerciseID"`
+	Lab              *labview.ParticipantLabResponse `json:"Lab"`
+	ID               uuid.UUID                       `json:"ID"`
+	EventChallengeID uuid.UUID                       `json:"EventChallengeID"`
+	Snapshot         json.RawMessage                 `json:"Snapshot" swaggertype:"object"`
+	Readiness        int16                           `json:"Readiness"`
+	SolvedAt         *time.Time                      `json:"SolvedAt"`
+	Points           int32                           `json:"Points"`
+	Order            int32                           `json:"Order"`
+	GroupID          *uuid.UUID                      `json:"GroupID"`
+	GroupName        string                          `json:"GroupName"`
+	GroupOrder       int32                           `json:"GroupOrder"`
+	ContentUpdatedAt *time.Time                      `json:"ContentUpdatedAt"`
+	Infrastructure   bool                            `json:"Infrastructure"`
+	HintsEnabled     bool                            `json:"HintsEnabled"`
 	// MaxAttempts / AttemptsLeft: the team's wrong flag submissions allowed on this task and what remains; both
 	// null when unlimited or already solved. At AttemptsLeft 0 submissions are refused.
 	MaxAttempts  *int32 `json:"MaxAttempts"`
@@ -302,11 +304,12 @@ func toParticipantFormAnswerResponse(v eventUseCase.ParticipantFormAnswerView) p
 }
 
 type labStatusResponse struct {
-	Phase        string              `json:"Phase"`
-	Ready        bool                `json:"Ready"`
-	VPNCIDR      string              `json:"VPNCIDR"`
-	InternetCIDR string              `json:"InternetCIDR"`
-	Access       []labAccessResponse `json:"Access"`
+	Lab          *labview.ParticipantLabResponse `json:"Lab"`
+	Phase        string                          `json:"Phase"`
+	Ready        bool                            `json:"Ready"`
+	VPNCIDR      string                          `json:"VPNCIDR"`
+	InternetCIDR string                          `json:"InternetCIDR"`
+	Access       []labAccessResponse             `json:"Access"`
 	// Queue is set while the Lab waits in the launch queue (Phase Queued); otherwise null.
 	Queue *labview.QueueResponse `json:"Queue"`
 }
@@ -330,7 +333,7 @@ type labAccessResponse struct {
 }
 
 func toOwnChallengeResponse(v eventUseCase.OwnChallengeView) ownChallengeResponse {
-	out := ownChallengeResponse{ID: v.ID, EventChallengeID: v.EventChallengeID, Snapshot: v.Snapshot, Readiness: int16(v.Readiness), SolvedAt: v.SolvedAt, Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder,
+	out := ownChallengeResponse{EventExerciseID: v.EventExerciseID, Lab: labview.ParticipantLab(v.Lab), ID: v.ID, EventChallengeID: v.EventChallengeID, Snapshot: v.Snapshot, Readiness: int16(v.Readiness), SolvedAt: v.SolvedAt, Points: v.Points, Order: v.Order, GroupID: v.GroupID, GroupName: v.GroupName, GroupOrder: v.GroupOrder,
 		ContentUpdatedAt: v.ContentUpdatedAt, Infrastructure: v.Infrastructure, HintsEnabled: v.HintsEnabled, MaxAttempts: v.MaxAttempts, AttemptsLeft: v.AttemptsLeft, Locked: v.Locked, SolveCount: v.SolveCount, StageID: v.StageID, Closed: v.Closed, Practice: v.Practice,
 		Prerequisites: make([]challengePrerequisiteResponse, 0, len(v.Prerequisites)), Files: make([]challengeFileResponse, 0, len(v.Files)),
 		Hints: ToOwnHintResponses(v.Hints), HintCostTotal: v.HintCostTotal, AwardedPoints: v.AwardedPoints, HintPenalty: v.HintPenalty}
@@ -651,8 +654,9 @@ type submitChallengeRequest struct {
 	Answer string `json:"Answer"`
 }
 type submitChallengeResponse struct {
-	Correct    bool `json:"Correct"`
-	FirstSolve bool `json:"FirstSolve"`
+	Lab        *labview.ParticipantLabResponse `json:"Lab"`
+	Correct    bool                            `json:"Correct"`
+	FirstSolve bool                            `json:"FirstSolve"`
 	// Practice: the answer came after a returnable stage closed; verified, not rated.
 	Practice bool `json:"Practice"`
 }

@@ -396,12 +396,30 @@ func (u *EventUseCase) GetModeratorsChallengeLabStatus(ctx context.Context, even
 		}
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab binding").Err()
 	}
+	if binding.LabID.Valid {
+		canonical, getErr := u.labs.Get(ctx, binding.LabID.UUID)
+		if getErr != nil {
+			return exerciseModel.LabDeployStatus{}, getErr
+		}
+		if canonical.ClosedAt != nil || canonical.DesiredState != "Running" {
+			return exerciseModel.LabDeployStatus{Phase: "Closed", Access: []exerciseModel.LabAccess{}}, nil
+		}
+	}
 	if u.infra == nil {
 		return exerciseModel.LabDeployStatus{}, infraUnavailable()
 	}
 	status, err := u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
 	if err != nil {
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab status").Err()
+	}
+	if binding.LabID.Valid {
+		canonical, getErr := u.labs.Get(ctx, binding.LabID.UUID)
+		if getErr != nil {
+			return exerciseModel.LabDeployStatus{}, getErr
+		}
+		if canonical.ClosedAt != nil || canonical.DesiredState != "Running" {
+			return exerciseModel.LabDeployStatus{Phase: "Closed", Access: []exerciseModel.LabAccess{}}, nil
+		}
 	}
 	return status, nil
 }

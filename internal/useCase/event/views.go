@@ -602,6 +602,8 @@ type SubmitChallengeResult struct {
 }
 
 type OwnChallengeView struct {
+	EventExerciseID      uuid.UUID
+	Lab                  *ParticipantLabView
 	ID, EventChallengeID uuid.UUID
 	// Snapshot is reduced to name and difficulty while Locked.
 	Snapshot         json.RawMessage

@@ -156,7 +156,7 @@ func lifecycleObservation(ref eventLabModel.Ref, l *labpb.Lab) eventLabModel.Obs
 	} else if o.ActualState == "StopFailed" {
 		o.SnapshotState = "Failed"
 	}
-	o.AccessFenced = life.GetAccessFenced() && life.GetAccessFencedUnixMs() > 0
+	o.AccessFenced = life.GetAccessFenced() && life.GetAccessFencedUnixMs() > 0 && life.GetAccessFenceVpnBootId() != ""
 	if o.AccessFenced {
 		o.AccessFencedAt = positiveMillis(life.GetAccessFencedUnixMs())
 		o.AccessFenceVPNBootID = life.GetAccessFenceVpnBootId()

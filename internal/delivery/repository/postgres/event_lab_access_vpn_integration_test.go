@@ -2,6 +2,8 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/labAccessSyncRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	eventTeamModel "github.com/cybericebox/daemon/internal/model/eventTeam"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
@@ -96,7 +99,16 @@ func TestEventLabAccessSyncDetectsVPNSettingChanges(t *testing.T) {
 		if err != nil || len(rows) != 1 || rows[0].TeamID != team.ID || rows[0].VPNEnabled != want {
 			t.Fatalf("dirty rows=%+v err=%v want VPN=%t", rows, err, want)
 		}
-		if _, err := syncs.MarkApplied(ctx, team.ID, rows[0].DesiredRevision, rows[0].RuntimeOpen, rows[0].VPNEnabled, rows[0].StageEpoch, time.Now()); err != nil {
+		at := time.Now()
+		target, current, err := syncs.Materialize(ctx, rows[0], fmt.Sprintf("%t/%t/%d", rows[0].RuntimeOpen, rows[0].VPNEnabled, rows[0].StageEpoch), "group-uid", at)
+		if err != nil || !current {
+			t.Fatal(err, current)
+		}
+		target.Group = "group"
+		// Synthetic exact certificate: this test covers SQL state changes, not VPN physics.
+		seedACLMonitoringCertificate(t, db, event.ID, team.ID, target.Group, target.OperationID, target.Revision, at)
+		got := eventLabModel.AccessFenceObservation{Group: target.Group, ExpectedGroupUID: target.ExpectedGroupUID, OperationID: target.OperationID, DesiredRevision: target.Revision, AppliedRevision: target.Revision, PolicyUID: "policy", Generation: 1, ObservedGeneration: 1, State: "Applied", VPNBootID: "boot", CurrentVPNBootID: "boot", ObservedAt: at, VPNObservedAt: at}
+		if _, err := syncs.MarkApplied(ctx, rows[0], target, fmt.Sprintf("%t/%t/%d", rows[0].RuntimeOpen, rows[0].VPNEnabled, rows[0].StageEpoch), got, at); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -188,5 +200,19 @@ func TestModeratorsTeamIsHiddenAndItsVPNClientsAreManagers(t *testing.T) {
 	rows, err = syncs.ListDirty(ctx, 10)
 	if err != nil || len(rows) != 1 || rows[0].VPNEnabled {
 		t.Fatalf("after teardown no team VPN group may be ensured again: %+v, %v", rows, err)
+	}
+}
+
+// Synthetic producer certificate for SQL boundary tests only; no native VPN
+// or physical acknowledgement is exercised by this fixture.
+func seedACLMonitoringCertificate(t *testing.T, db *testhelpers.TestDB, eventID, teamID uuid.UUID, group string, operation uuid.UUID, revision int64, at time.Time) {
+	t.Helper()
+	payload := map[string]any{"groups": []any{map[string]any{"name": group, "uid": "group-uid", "status": map[string]any{"currentVpnBootAvailable": true, "currentVpnBootId": "boot", "currentVpnBootObservedUnixMs": at.UnixMilli()}}}, "policies": []any{map[string]any{"labGroupName": group, "expectedGroupUid": "group-uid", "policyUid": "policy", "generation": "1", "operationId": operation.String(), "desiredRevision": revision, "status": map[string]any{"observedGeneration": "1", "operationId": operation.String(), "appliedRevision": revision, "state": "Applied", "vpnBootId": "boot"}}}}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.Queries.UpsertLabMonitoringCurrent(context.Background(), postgres.UpsertLabMonitoringCurrentParams{EventID: eventID, EventTeamID: teamID, LabGroupName: group, AgentID: "synthetic", Sequence: 1, ObservedAt: at, UpdatedAt: at, Payload: raw}); err != nil {
+		t.Fatal(err)
 	}
 }
