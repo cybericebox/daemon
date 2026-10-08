@@ -313,6 +313,8 @@ POST   /api/events/:id/teams/challenges/:challengeID/submit | gate: self | layer
 GET    /api/events/:id/teams/challenges/mine | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/teams/join | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/labs/:labID | gate: self | layers: eventself.touchPresence
+POST   /api/events/:id/teams/labs/:labID/restart | gate: self | layers: eventself.touchPresence
+POST   /api/events/:id/teams/labs/:labID/stop | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/labs/stand | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/labs/vpn | gate: self | layers: eventself.touchPresence
 GET    /api/events/:id/teams/labs/vpn/status | gate: self | layers: eventself.touchPresence

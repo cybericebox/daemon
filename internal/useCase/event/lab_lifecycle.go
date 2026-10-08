@@ -104,7 +104,7 @@ func (u *EventUseCase) ReconcilePendingLabLifecycles(ctx context.Context) error 
 	var errs []error
 	for _, lab := range labs {
 		err = nil
-		if u.lifecycleControls && lab.DesiredState == "Running" && lab.Revision > 1 {
+		if u.lifecycleControls && lab.DesiredState == "Running" {
 			err = u.reconcileRunningLab(ctx, lab, now)
 		} else if lab.DesiredState == "Stopped" {
 			err = u.reconcileStoppedLab(ctx, lab)
@@ -182,12 +182,21 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 	if !ok {
 		return infraUnavailable()
 	}
-	if !u.groupAllowsDeployment(ctx, l.TeamID, now) {
-		return nil
-	}
 	o, err := port.ObserveLab(ctx, l.Ref)
 	if err != nil {
 		return err
+	}
+	if l.AgentUID == "" {
+		if l.Revision != 1 || o.UID == "" || o.OperationID != l.OperationID || o.Revision != l.Revision || o.DesiredState != "Running" || o.Generation <= 0 || o.ObservedGeneration != o.Generation {
+			return nil
+		}
+		adopted, err := u.labs.RecordInitialIdentity(ctx, l.ID, l.Ref, o.UID, o.Generation, now)
+		if err != nil {
+			return err
+		}
+		if !adopted {
+			return nil
+		}
 	}
 	if _, err = u.labs.RecordObservation(ctx, l.ID, o); err != nil {
 		return err
@@ -200,6 +209,9 @@ func (u *EventUseCase) reconcileRunningLab(ctx context.Context, l eventLabModel.
 		return nil
 	}
 	if current.RuntimeReady && current.ActualState == "Running" && current.ObservedRevision == current.Revision {
+		return nil
+	}
+	if current.AgentUID == "" || !u.groupAllowsDeployment(ctx, current.TeamID, now) {
 		return nil
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

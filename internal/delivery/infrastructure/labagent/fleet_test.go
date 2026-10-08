@@ -531,7 +531,8 @@ func TestGroupSizesUseTheAgentsFormula(t *testing.T) {
 func TestExplicitSizesReachTheCreateCall(t *testing.T) {
 	f := newFleetFixture(t)
 	sizing := infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 1 << 20}, PerUnit: resourcesModel.Amount{CPUMillicores: 1, MemoryBytes: 1 << 20}}
-	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing}})
+	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: sizing, Gateway: sizing}})
+	f.bm.Features = f.am.Features
 	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 5}})
 	got, ok := infraModel.GroupSizesFrom(f.fleet.withSizes(ctx, f.am))
 	if !ok || got.VPN.CPUMillicores != 15 {
@@ -596,6 +597,7 @@ func TestFeaturesOfReadsTheGroupPodSizingAndSendsExplicitSizes(t *testing.T) {
 	}
 	f := newFleetFixture(t)
 	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{Limits: infraModel.LimitsFeature{VPN: got.VPN, Gateway: got.Gateway}})
+	f.bm.Features = f.am.Features
 	ctx := infraModel.WithPlacementNeed(context.Background(), infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 5, InternetLabs: 1}})
 	if err := f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"); err != nil {
 		t.Fatal(err)

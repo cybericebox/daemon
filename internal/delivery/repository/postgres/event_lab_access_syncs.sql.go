@@ -208,7 +208,7 @@ const listEventLabAccessLabs = `-- name: ListEventLabAccessLabs :many
 SELECT lb.lab_group_name,
        lb.lab_name,
        CASE WHEN lb.readiness = 1 AND tc.readiness = 2
- AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL AND canonical.actual_state='Running' AND canonical.runtime_ready AND (canonical.desired_revision=1 OR canonical.observed_revision=canonical.desired_revision)))
+ AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL AND canonical.actual_state='Running' AND canonical.runtime_ready AND canonical.observed_revision=canonical.desired_revision))
                 AND (team.moderators
                     OR (ec.published
                         AND ee.status <> 2

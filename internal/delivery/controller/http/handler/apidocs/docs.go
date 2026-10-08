@@ -13377,6 +13377,124 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/teams/labs/{labID}/restart": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Restart the caller's retained manually stopped progressive laboratory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "canonical laboratory ID",
+                        "name": "labID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "current revision and idempotency key",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/eventself.manualLabRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.labLifecycleResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/teams/labs/{labID}/stop": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Stop the caller's unresolved progressive laboratory",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "canonical laboratory ID",
+                        "name": "labID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "current revision and idempotency key",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/eventself.manualLabRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.labLifecycleResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/teams/mine": {
             "get": {
                 "produces": [
@@ -22264,6 +22382,9 @@ const docTemplate = `{
                 "Revision": {
                     "type": "string"
                 },
+                "SnapshotPolicy": {
+                    "type": "string"
+                },
                 "SnapshotState": {
                     "type": "string"
                 },
@@ -22714,6 +22835,9 @@ const docTemplate = `{
             "properties": {
                 "ClosesAt": {
                     "type": "string"
+                },
+                "LabRetentionMinutes": {
+                    "type": "integer"
                 },
                 "Name": {
                     "type": "string"
@@ -23371,6 +23495,9 @@ const docTemplate = `{
                     "description": "NoAgentFits: some task cannot be placed on any laboratory that is used.",
                     "type": "boolean"
                 },
+                "Observation": {
+                    "$ref": "#/definitions/resourceCalendarUseCase.ResourceObservation"
+                },
                 "PerTeam": {
                     "$ref": "#/definitions/event.eventResourceTotalsResponse"
                 },
@@ -23479,6 +23606,10 @@ const docTemplate = `{
                 },
                 "ID": {
                     "type": "string"
+                },
+                "LabRetentionMinutes": {
+                    "type": "integer",
+                    "x-nullable": true
                 },
                 "Last": {
                     "type": "boolean"
@@ -25320,6 +25451,9 @@ const docTemplate = `{
                 },
                 "ClosesAt": {
                     "type": "string"
+                },
+                "LabRetentionMinutes": {
+                    "type": "integer"
                 },
                 "Name": {
                     "type": "string"
@@ -28240,6 +28374,17 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "eventself.manualLabRequest": {
+            "type": "object",
+            "properties": {
+                "IdempotencyKey": {
+                    "type": "string"
+                },
+                "Revision": {
+                    "type": "string"
                 }
             }
         },
@@ -34467,6 +34612,9 @@ const docTemplate = `{
                 "InUse": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
                 },
+                "Observation": {
+                    "$ref": "#/definitions/resourceCalendarUseCase.ResourceObservation"
+                },
                 "Reserved": {
                     "description": "Reserved is false when the event has no reservation (nothing else is set then).",
                     "type": "boolean"
@@ -34600,11 +34748,19 @@ const docTemplate = `{
                 "Dynamic": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
                 },
+                "DynamicSnapshotQuotaBytes": {
+                    "type": "string",
+                    "example": ""
+                },
                 "Reason": {
                     "type": "string"
                 },
                 "Size": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "SizeSnapshotQuotaBytes": {
+                    "type": "string",
+                    "example": ""
                 },
                 "WindowEnd": {
                     "type": "string"
@@ -34632,6 +34788,10 @@ const docTemplate = `{
                 },
                 "Dynamic": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "DynamicSnapshotQuotaBytes": {
+                    "type": "string",
+                    "example": ""
                 },
                 "EventID": {
                     "type": "string"
@@ -34664,6 +34824,10 @@ const docTemplate = `{
                 "PerTeam": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
                 },
+                "PerTeamSnapshotQuotaBytes": {
+                    "type": "string",
+                    "example": ""
+                },
                 "Placement": {
                     "type": "array",
                     "items": {
@@ -34672,6 +34836,10 @@ const docTemplate = `{
                 },
                 "Size": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "SizeSnapshotQuotaBytes": {
+                    "type": "string",
+                    "example": ""
                 },
                 "TailGapMinutes": {
                     "type": "integer"
@@ -34750,8 +34918,16 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "DynamicSnapshotQuotaBytes": {
+                    "type": "string",
+                    "example": ""
+                },
                 "PerTeam": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "PerTeamSnapshotQuotaBytes": {
+                    "type": "string",
+                    "example": ""
                 },
                 "TailGapMinutes": {
                     "description": "TailGapMinutes is the gap after the event end; never shorter than the default (60), may be more.",
@@ -34843,6 +35019,9 @@ const docTemplate = `{
                         "$ref": "#/definitions/resourceCalendar.eventStatDTO"
                     }
                 },
+                "Observation": {
+                    "$ref": "#/definitions/resourceCalendarUseCase.ResourceObservation"
+                },
                 "OpenAlarms": {
                     "type": "integer"
                 },
@@ -34922,6 +35101,58 @@ const docTemplate = `{
                 },
                 "To": {
                     "type": "string"
+                }
+            }
+        },
+        "resourceCalendarUseCase.ObservationCompute": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "string"
+                },
+                "MemoryBytes": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendarUseCase.ObservationHeld": {
+            "type": "object",
+            "properties": {
+                "CPUMillicores": {
+                    "type": "string"
+                },
+                "MemoryBytes": {
+                    "type": "string"
+                },
+                "SnapshotQuotaBytes": {
+                    "type": "string"
+                }
+            }
+        },
+        "resourceCalendarUseCase.ResourceObservation": {
+            "type": "object",
+            "properties": {
+                "Complete": {
+                    "type": "boolean"
+                },
+                "GroupServices": {
+                    "$ref": "#/definitions/resourceCalendarUseCase.ObservationCompute"
+                },
+                "Held": {
+                    "$ref": "#/definitions/resourceCalendarUseCase.ObservationHeld"
+                },
+                "ObservedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "PendingStarts": {
+                    "$ref": "#/definitions/resourceCalendarUseCase.ObservationCompute"
+                },
+                "PhysicalStorageBytes": {
+                    "type": "string"
+                },
+                "PhysicalStorageBytesAvailable": {
+                    "type": "boolean"
                 }
             }
         },

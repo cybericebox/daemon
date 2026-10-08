@@ -194,7 +194,13 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 		storage += l.Allocation.SnapshotQuotaBytes
 	}
 	for _, g := range groups {
-		c := g.Sizes.Total()
+		c := g.Lifecycle.HeldCompute()
+		if g.TeamID == teamID {
+			// This admission also wakes its own group; reserve services once.
+			total := g.Sizes.Total()
+			c.CPUMillicores = max(c.CPUMillicores, total.CPUMillicores)
+			c.MemoryBytes = max(c.MemoryBytes, total.MemoryBytes)
+		}
 		held.CPUMillicores += c.CPUMillicores
 		held.MemoryBytes += c.MemoryBytes
 		if g.TeamID == teamID {

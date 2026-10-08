@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabGroupRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"sort"
 	"sync"

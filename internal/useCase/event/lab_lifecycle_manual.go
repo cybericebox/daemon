@@ -220,7 +220,12 @@ func (u *EventUseCase) reserveLabCandidateInTransaction(ctx context.Context, q I
 		return eventLabModel.ErrManualLimit.Err()
 	}
 	for _, g := range groups {
-		c := g.Sizes.Total()
+		c := g.Lifecycle.HeldCompute()
+		if g.TeamID == lab.TeamID {
+			total := g.Sizes.Total()
+			c.CPUMillicores = max(c.CPUMillicores, total.CPUMillicores)
+			c.MemoryBytes = max(c.MemoryBytes, total.MemoryBytes)
+		}
 		held.CPUMillicores += c.CPUMillicores
 		held.MemoryBytes += c.MemoryBytes
 		if g.TeamID == lab.TeamID {

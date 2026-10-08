@@ -10,10 +10,12 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labAccessSyncRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
@@ -198,6 +200,27 @@ func TestStandEngine_OneLabPerExerciseWithEveryTaskFlag(t *testing.T) {
 		}
 	}
 
+	// Synthetic current-operation receipts for this SQL/assignment fixture.
+	// Generic initial Ready deliberately carries no operation acknowledgement.
+	rows, err := f.db.Queries.ListEventLabAllocations(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.EventTeamID != f.blueID {
+			continue
+		}
+		canonical, err := eventLabRepo.New(f.db.Queries).Get(ctx, row.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().UTC()
+		ack := eventLabModel.Observation{Ref: canonical.Ref, UID: canonical.AgentUID, Generation: canonical.AgentGeneration, ObservedGeneration: canonical.AgentGeneration, OperationID: canonical.OperationID, Revision: canonical.Revision, DesiredState: "Running", ActualState: "Running", RuntimeReady: true, ObservedAt: &at, Allocation: eventLabModel.Allocation{RuntimeState: "Allocated", ObservedAt: &at}}
+		ok, err := eventLabRepo.New(f.db.Queries).RecordObservation(ctx, canonical.ID, ack)
+		if err != nil || !ok {
+			t.Fatal("synthetic current-operation receipt", ok, err)
+		}
+	}
 	// Access lists the Lab once for the three tasks.
 	access, err := labAccessSyncRepo.New(f.db.Queries).Labs(ctx, f.blueID)
 	if err != nil {

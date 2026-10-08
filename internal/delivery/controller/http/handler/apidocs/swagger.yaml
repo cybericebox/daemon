@@ -579,6 +579,8 @@ definitions:
         x-nullable: true
       Revision:
         type: string
+      SnapshotPolicy:
+        type: string
       SnapshotState:
         type: string
       TeamID:
@@ -884,6 +886,8 @@ definitions:
     properties:
       ClosesAt:
         type: string
+      LabRetentionMinutes:
+        type: integer
       Name:
         type: string
       OpensAt:
@@ -1335,6 +1339,8 @@ definitions:
         description: 'NoAgentFits: some task cannot be placed on any laboratory that
           is used.'
         type: boolean
+      Observation:
+        $ref: '#/definitions/resourceCalendarUseCase.ResourceObservation'
       PerTeam:
         $ref: '#/definitions/event.eventResourceTotalsResponse'
       Tasks:
@@ -1413,6 +1419,9 @@ definitions:
         type: boolean
       ID:
         type: string
+      LabRetentionMinutes:
+        type: integer
+        x-nullable: true
       Last:
         type: boolean
       Name:
@@ -2646,6 +2655,8 @@ definitions:
         type: boolean
       ClosesAt:
         type: string
+      LabRetentionMinutes:
+        type: integer
       Name:
         type: string
       OpensAt:
@@ -4612,6 +4623,13 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  eventself.manualLabRequest:
+    properties:
+      IdempotencyKey:
+        type: string
+      Revision:
+        type: string
     type: object
   eventself.ownBoardResponse:
     properties:
@@ -8848,6 +8866,8 @@ definitions:
         type: string
       InUse:
         $ref: '#/definitions/resourceCalendar.amountDTO'
+      Observation:
+        $ref: '#/definitions/resourceCalendarUseCase.ResourceObservation'
       Reserved:
         description: Reserved is false when the event has no reservation (nothing
           else is set then).
@@ -8937,10 +8957,16 @@ definitions:
     properties:
       Dynamic:
         $ref: '#/definitions/resourceCalendar.amountDTO'
+      DynamicSnapshotQuotaBytes:
+        example: ""
+        type: string
       Reason:
         type: string
       Size:
         $ref: '#/definitions/resourceCalendar.amountDTO'
+      SizeSnapshotQuotaBytes:
+        example: ""
+        type: string
       WindowEnd:
         type: string
       WindowStart:
@@ -8960,6 +8986,9 @@ definitions:
         type: boolean
       Dynamic:
         $ref: '#/definitions/resourceCalendar.amountDTO'
+      DynamicSnapshotQuotaBytes:
+        example: ""
+        type: string
       EventID:
         type: string
       EventName:
@@ -8981,12 +9010,18 @@ definitions:
         type: string
       PerTeam:
         $ref: '#/definitions/resourceCalendar.amountDTO'
+      PerTeamSnapshotQuotaBytes:
+        example: ""
+        type: string
       Placement:
         items:
           $ref: '#/definitions/resourceCalendar.shareDTO'
         type: array
       Size:
         $ref: '#/definitions/resourceCalendar.amountDTO'
+      SizeSnapshotQuotaBytes:
+        example: ""
+        type: string
       TailGapMinutes:
         type: integer
       Teams:
@@ -9037,8 +9072,14 @@ definitions:
         allOf:
         - $ref: '#/definitions/resourceCalendar.amountDTO'
         description: Dynamic is the estimate for tasks that appear later.
+      DynamicSnapshotQuotaBytes:
+        example: ""
+        type: string
       PerTeam:
         $ref: '#/definitions/resourceCalendar.amountDTO'
+      PerTeamSnapshotQuotaBytes:
+        example: ""
+        type: string
       TailGapMinutes:
         description: TailGapMinutes is the gap after the event end; never shorter
           than the default (60), may be more.
@@ -9101,6 +9142,8 @@ definitions:
         items:
           $ref: '#/definitions/resourceCalendar.eventStatDTO'
         type: array
+      Observation:
+        $ref: '#/definitions/resourceCalendarUseCase.ResourceObservation'
       OpenAlarms:
         type: integer
       PendingChangeRequests:
@@ -9161,6 +9204,40 @@ definitions:
         type: integer
       To:
         type: string
+    type: object
+  resourceCalendarUseCase.ObservationCompute:
+    properties:
+      CPUMillicores:
+        type: string
+      MemoryBytes:
+        type: string
+    type: object
+  resourceCalendarUseCase.ObservationHeld:
+    properties:
+      CPUMillicores:
+        type: string
+      MemoryBytes:
+        type: string
+      SnapshotQuotaBytes:
+        type: string
+    type: object
+  resourceCalendarUseCase.ResourceObservation:
+    properties:
+      Complete:
+        type: boolean
+      GroupServices:
+        $ref: '#/definitions/resourceCalendarUseCase.ObservationCompute'
+      Held:
+        $ref: '#/definitions/resourceCalendarUseCase.ObservationHeld'
+      ObservedAt:
+        type: string
+        x-nullable: true
+      PendingStarts:
+        $ref: '#/definitions/resourceCalendarUseCase.ObservationCompute'
+      PhysicalStorageBytes:
+        type: string
+      PhysicalStorageBytesAvailable:
+        type: boolean
     type: object
   response.Response:
     properties:
@@ -18053,6 +18130,78 @@ paths:
                   $ref: '#/definitions/eventself.labLifecycleResponse'
               type: object
       summary: Get the caller's canonical laboratory lifecycle
+      tags:
+      - events-self
+  /events/{id}/teams/labs/{labID}/restart:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: canonical laboratory ID
+        in: path
+        name: labID
+        required: true
+        type: string
+      - description: current revision and idempotency key
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/eventself.manualLabRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.labLifecycleResponse'
+              type: object
+      summary: Restart the caller's retained manually stopped progressive laboratory
+      tags:
+      - events-self
+  /events/{id}/teams/labs/{labID}/stop:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: canonical laboratory ID
+        in: path
+        name: labID
+        required: true
+        type: string
+      - description: current revision and idempotency key
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/eventself.manualLabRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.labLifecycleResponse'
+              type: object
+      summary: Stop the caller's unresolved progressive laboratory
       tags:
       - events-self
   /events/{id}/teams/labs/stand:

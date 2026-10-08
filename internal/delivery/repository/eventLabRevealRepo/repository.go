@@ -6,6 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"time"
 )
 
@@ -24,7 +25,7 @@ func (r *Repository) Freeze(ctx context.Context, eventID, setID uuid.UUID, now t
 	return row.EligibleTeamIds, err
 }
 func (r *Repository) OpenReady(ctx context.Context, eventID uuid.UUID, now time.Time) error {
-	_, err := r.q.OpenReadyEventLabRevealBarriers(ctx, postgres.OpenReadyEventLabRevealBarriersParams{EventID: eventID, Now: now})
+	_, err := r.q.OpenReadyEventLabRevealBarriers(ctx, postgres.OpenReadyEventLabRevealBarriersParams{EventID: eventID, Now: pgtype.Timestamptz{Time: now, Valid: true}})
 	return err
 }
 func (r *Repository) Reachable(ctx context.Context, labID uuid.UUID, now time.Time) (bool, error) {

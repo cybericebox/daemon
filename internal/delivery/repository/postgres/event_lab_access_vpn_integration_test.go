@@ -198,8 +198,8 @@ func TestModeratorsTeamIsHiddenAndItsVPNClientsAreManagers(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows, err = syncs.ListDirty(ctx, 10)
-	if err != nil || len(rows) != 1 || rows[0].VPNEnabled {
-		t.Fatalf("after teardown no team VPN group may be ensured again: %+v, %v", rows, err)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("terminal teardown must not queue a group recreation: %+v, %v", rows, err)
 	}
 }
 

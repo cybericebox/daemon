@@ -95,6 +95,7 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 		groupByTeam[g.TeamID] = g
 	}
 	candidates := map[uuid.UUID]eventLabModel.Lab{}
+	candidateTeams := map[uuid.UUID]bool{}
 	for _, snapshot := range labs {
 		l, err := eventLabRepo.New(q).Lock(txCtx, snapshot.ID)
 		if err != nil {
@@ -129,6 +130,7 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 			groupByTeam[l.TeamID] = g
 		}
 		candidates[l.ID] = l
+		candidateTeams[l.TeamID] = true
 	}
 	all, err := allocations.Labs(txCtx, eventID)
 	if err != nil {
@@ -160,7 +162,12 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 	}
 	slot := budget.TeamSlot()
 	for id, g := range groupByTeam {
-		h := g.Sizes.Total()
+		h := g.Lifecycle.HeldCompute()
+		if candidateTeams[id] {
+			total := g.Sizes.Total()
+			h.CPUMillicores = max(h.CPUMillicores, total.CPUMillicores)
+			h.MemoryBytes = max(h.MemoryBytes, total.MemoryBytes)
+		}
 		held.CPUMillicores += h.CPUMillicores
 		held.MemoryBytes += h.MemoryBytes
 		t := perTeam[id]

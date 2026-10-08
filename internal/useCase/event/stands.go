@@ -15,7 +15,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
-	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
@@ -556,9 +555,19 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 			continue
 		}
 		if u.lifecycleControls && status.Ready {
+			certified, certificateErr := u.observeInitialManagedLab(ctx, binding, status, now)
+			if certificateErr != nil {
+				errs = append(errs, certificateErr)
+				continue
+			}
+			if !certified {
+				continue
+			}
 			network, networkErr := u.labAccessSyncs.NetworkCurrent(ctx, binding.EventTeamID, now)
 			if networkErr != nil {
-				errs = append(errs, networkErr)
+				if !repositoryTools.IsObjectNotFoundError(networkErr) {
+					errs = append(errs, networkErr)
+				}
 				continue
 			}
 			if !network {
@@ -591,7 +600,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				} else if canonical.AgentUID != status.LabUID || status.LabGeneration < canonical.AgentGeneration {
 					continue
 				}
-				if canonical.Revision == 1 {
+				if canonical.Revision == 1 && !u.lifecycleControls {
 					if _, readyErr := u.labs.RecordInitialReadiness(ctx, canonical.ID, canonical.Ref, status.LabUID, status.LabGeneration, status.Ready, now); readyErr != nil {
 						errs = append(errs, readyErr)
 						continue
@@ -678,8 +687,19 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	if u.lifecycleControls && !u.groupAllowsDeployment(ctx, lab.Binding.EventTeamID, now) {
 		return nil
 	}
+	meta := standLabMeta(e, lab)
+	if u.allocationAccounting || u.lifecycleControls {
+		canonical, err := u.labs.Get(ctx, lab.Binding.LabID.UUID)
+		if err != nil {
+			return err
+		}
+		if canonical.Ref.Group != lab.Binding.LabGroupName || canonical.Ref.Lab != lab.Binding.LabName || canonical.DesiredState != "Running" || canonical.ClosedAt != nil || canonical.Revision != 1 || canonical.OperationID == uuid.Nil || !canonical.Allocation.ConfiguredRequestsKnown || canonical.Allocation.RuntimeState != "Admitted" {
+			return nil
+		}
+		meta.InitialLifecycle = &infraModel.LabInitialLifecycle{OperationID: canonical.OperationID, Revision: canonical.Revision}
+	}
 	// The team's group is placed and sized by what the whole event puts on it (largest device, team size, internet labs).
-	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, standLabMeta(e, lab), topology); err != nil {
+	if err := u.infra.DeployLab(u.withPlacementNeed(ctx, e.ID), lab.Binding.LabGroupName, lab.Binding.LabName, meta, topology); err != nil {
 		// The previous group or Lab of this name is still being deleted: not a
 		// failure. The binding stays pending and the next pass deploys again.
 		if terminating, ok := infraModel.AsTerminating(err); ok {

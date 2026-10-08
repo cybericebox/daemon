@@ -941,7 +941,7 @@ WHERE tc.event_id = $1
    LEFT JOIN event_lab_reveal_barriers barrier ON barrier.event_exercise_id=ee.id AND barrier.revision=ee.revision
    WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id AND lb.readiness=1
     AND l.desired_state='Running' AND l.logical_closed_at IS NULL AND l.actual_state='Running' AND l.runtime_ready
-    AND l.agent_uid<>'' AND l.agent_generation>0 AND (l.desired_revision=1 OR l.observed_revision=l.desired_revision)
+    AND l.agent_uid<>'' AND l.agent_generation>0 AND l.observed_revision=l.desired_revision
     AND (cfg.task_reveal_mode='as_ready' OR (barrier.mode='all_ready' AND barrier.opened_at IS NOT NULL)))))
 RETURNING tc.event_team_id
 `

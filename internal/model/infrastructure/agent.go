@@ -218,8 +218,16 @@ type LabGroupSweeper interface {
 	DestroyLabGroupOn(ctx context.Context, agent uuid.UUID, group string) error
 }
 
+// LabInitialLifecycle is the persisted intent of a newly created managed Lab.
+// UID is acquired from the created object and never guessed before Create.
+type LabInitialLifecycle struct {
+	OperationID uuid.UUID
+	Revision    int64
+}
+
 // LabMeta is what a deploy tells the infrastructure about a lab besides its topology.
 type LabMeta struct {
+	InitialLifecycle *LabInitialLifecycle
 	// Labels go onto the lab (the instance label is added by the adapter); GroupLabels onto its group.
 	Labels      map[string]string
 	GroupLabels map[string]string

@@ -31,3 +31,7 @@ Specific high-risk end probes: all_ready two-team delayed-ready and per-set inde
 ## Current inspection concerns for final integration
 
 This large cohesive checkpoint has not been compiled or exercised after the workflow change. Final testing must confirm network-sync bootstrap avoids publication deadlock, all retention/schedule operations take compatible locks, explicit membership cannot be reclosed by its old stage while active, group work retries/final tombstones do not starve batches, publication/initial readiness old fixtures stay appropriate, and retained group placement is released only after the exact final tombstone and all child allocations retired. Existing names-only APIs remain for unowned/author policy paths; managed paths must not reach them. Native receipt timestamps were corrected by the SDK owner to the same operator component; no aggregate/resource/node crossclock comparisons are allowed.
+
+## Integrated END follow-up
+
+See [backend-END-report.md](backend-END-report.md) for fresh integrated Go/SDK/PostgreSQL/River/race results, reproduced initial lifecycle/read guard and group-budget fixes, raw evidence and owned fixture inventory. Database/recording-port proof remains distinct from actual native/API/browser/fresh OS-process proof and independent whole-system review.

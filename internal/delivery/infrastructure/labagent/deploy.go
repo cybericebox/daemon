@@ -2,6 +2,7 @@ package labagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/gofrs/uuid"
@@ -49,6 +50,9 @@ func (c *Client) requestLabels() map[string]string {
 // the caller polls LabStatus. The namespace wait is short (group namespace creation is
 // fast), so this returns once the objects are created, not once the lab is Ready.
 func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
+	if meta.InitialLifecycle != nil && (meta.InitialLifecycle.OperationID == uuid.Nil || meta.InitialLifecycle.Revision != 1) {
+		return fmt.Errorf("managed initial lifecycle requires a persisted operation and revision1")
+	}
 	if err := c.ensureGroup(ctx, group, meta.GroupLabels); err != nil {
 		return err
 	}
@@ -58,6 +62,16 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	specJSON, env, err := BuildLabSpec(topo)
 	if err != nil {
 		return fmt.Errorf("build lab spec: %w", err)
+	}
+	if meta.InitialLifecycle != nil {
+		var spec labSpec
+		if err = json.Unmarshal(specJSON, &spec); err != nil {
+			return err
+		}
+		spec.Lifecycle = &labInitialLifecycle{DesiredState: "Running", OperationID: meta.InitialLifecycle.OperationID.String(), Revision: meta.InitialLifecycle.Revision}
+		if specJSON, err = json.Marshal(spec); err != nil {
+			return err
+		}
 	}
 	res, err := c.CreateLabs(ctx, &labpb.CreateLabsRequest{
 		Labels:   c.requestLabels(),

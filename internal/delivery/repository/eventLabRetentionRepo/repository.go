@@ -7,6 +7,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"time"
 )
 
@@ -46,7 +47,7 @@ func labs(rows []postgres.EventTeamLab) ([]eventLabModel.Lab, error) {
 	return out, nil
 }
 func (r *Repository) DueLabs(ctx context.Context, now time.Time, limit int32) ([]eventLabModel.Lab, error) {
-	rows, e := r.q.ListDueRetainedEventLabs(ctx, postgres.ListDueRetainedEventLabsParams{Now: now, LimitVal: limit})
+	rows, e := r.q.ListDueRetainedEventLabs(ctx, postgres.ListDueRetainedEventLabsParams{Now: pgtype.Timestamptz{Time: now, Valid: true}, LimitVal: limit})
 	if e != nil {
 		return nil, e
 	}
@@ -98,7 +99,7 @@ func (r *Repository) OwnedGroup(ctx context.Context, name string) (bool, error) 
 	return r.q.IsOwnedRetainedLabGroup(ctx, name)
 }
 func (r *Repository) DueGroups(ctx context.Context, now time.Time, limit int32) ([]eventLabModel.Group, error) {
-	rows, e := r.q.ListDueRetainedGroups(ctx, postgres.ListDueRetainedGroupsParams{Now: now, LimitVal: limit})
+	rows, e := r.q.ListDueRetainedGroups(ctx, postgres.ListDueRetainedGroupsParams{Now: pgtype.Timestamptz{Time: now, Valid: true}, LimitVal: limit})
 	out := make([]eventLabModel.Group, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, eventLabAllocationRepo.ToGroupDomain(row))

@@ -182,7 +182,7 @@ AND NOT EXISTS (
  WHERE NOT EXISTS(SELECT 1 FROM event_team_labs l WHERE l.event_team_id=team.id AND l.event_exercise_id=barrier.event_exercise_id
   AND l.materialized AND l.agent_uid<>'' AND l.agent_generation>0 AND l.desired_state='Running' AND l.logical_closed_at IS NULL
   AND l.actual_state='Running' AND l.runtime_ready
-  AND (l.desired_revision=1 OR l.observed_revision=l.desired_revision)
+  AND l.observed_revision=l.desired_revision
   AND NOT EXISTS(SELECT 1 FROM lab_bindings b WHERE b.lab_id=l.id AND b.readiness<>1))
 )
 `
