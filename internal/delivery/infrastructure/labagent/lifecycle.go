@@ -137,8 +137,17 @@ func lifecycleObservation(ref eventLabModel.Ref, l *labpb.Lab) eventLabModel.Obs
 		return o
 	}
 	o.ActualState = knownState(life.GetObservedState(), "Running", "Snapshotting", "Stopping", "Stopped", "StopFailed", "Starting", "Deleted")
-	o.FailureCode = life.GetReason()
 	o.FailureMessage = life.GetError()
+	// Reason is generic producer context, not evidence of failure. Only an
+	// explicit failed state or actual error belongs in the failure projection.
+	if o.ActualState == "StopFailed" {
+		o.FailureCode = life.GetReason()
+		if o.FailureCode == "" {
+			o.FailureCode = "StopFailed"
+		}
+	} else if o.FailureMessage != "" {
+		o.FailureCode = "LifecycleError"
+	}
 	o.StoppedAt = positiveMillis(life.GetStoppedUnixMs())
 	if life.GetSnapshotComplete() {
 		o.SnapshotState = "Succeeded"

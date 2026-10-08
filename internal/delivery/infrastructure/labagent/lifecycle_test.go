@@ -279,6 +279,47 @@ func TestLifecycleAdapterAndDomainKeepHeldAllocationUntilExactCurrentRelease(t *
 	}
 }
 
+func TestLifecycleInformationalReasonDoesNotBlockHealthyRelease(t *testing.T) {
+	for _, tc := range []struct {
+		name, state, reason, producerError, failureCode string
+		released                                        bool
+	}{
+		{name: "healthy blank reason", state: "Stopped", released: true},
+		{name: "healthy informational reason", state: "Stopped", reason: "RuntimeConfirmed", released: true},
+		{name: "failed stop reason", state: "StopFailed", reason: "CaptureFailed", failureCode: "CaptureFailed"},
+		{name: "failed stop without reason", state: "StopFailed", failureCode: "StopFailed"},
+		{name: "actual error with informational reason", state: "Stopped", reason: "RuntimeConfirmed", producerError: "runtime confirmation failed", failureCode: "LifecycleError"},
+		{name: "actual error without reason", state: "Stopped", producerError: "runtime confirmation failed", failureCode: "LifecycleError"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, a, target := lifecycleFixture()
+			wire := releasedWire(target)
+			wire.Status.Lifecycle.ObservedState = tc.state
+			wire.Status.Lifecycle.Reason = tc.reason
+			wire.Status.Lifecycle.Error = tc.producerError
+			a.labs = []*labpb.Lab{wire}
+			lab := eventLabModel.Lab{Ref: target.Ref, AgentUID: "uid-1", AgentGeneration: 7, Revision: 4, OperationID: target.OperationID, DesiredState: "Stopped", ActualState: "Running", SnapshotMode: "required", Allocation: eventLabModel.Allocation{RuntimeState: "Allocated", AllocatedRequests: eventLabModel.Compute{CPUMillicores: 750, MemoryBytes: 512}, SnapshotQuotaBytes: 2048, StorageState: "Retained"}}
+			o, err := c.ObserveLab(context.Background(), target.Ref)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !lab.Observe(o, time.Unix(211, 0)) {
+				t.Fatal("current observation did not reach domain ledger")
+			}
+			if tc.released {
+				if lab.ActualState != "Stopped" || lab.Allocation.RuntimeState != "Released" || lab.Allocation.ReleasedAt == nil || lab.Allocation.AllocatedRequests != (eventLabModel.Compute{}) || lab.FailureCode != "" || lab.FailureMessage != "" {
+					t.Fatalf("healthy certificate refused: observation=%+v lab=%+v", o, lab)
+				}
+			} else if lab.Allocation.RuntimeState == "Released" || lab.Allocation.ReleasedAt != nil || lab.Allocation.AllocatedRequests != (eventLabModel.Compute{CPUMillicores: 750, MemoryBytes: 512}) || lab.Allocation.SnapshotQuotaBytes != 2048 {
+				t.Fatalf("failed stop/error released held allocation: %+v", lab)
+			}
+			if o.FailureCode != tc.failureCode || o.FailureMessage != tc.producerError {
+				t.Fatalf("generic reason misclassified: observation=%+v", o)
+			}
+		})
+	}
+}
+
 func TestLifecycleMissingAllocatedAmountsCannotEraseHeldCompute(t *testing.T) {
 	c, a, target := lifecycleFixture()
 	wire := releasedWire(target)
