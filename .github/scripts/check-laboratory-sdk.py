@@ -57,7 +57,7 @@ def check(root):
     pb = (root / 'pkg/agent/protobuf/agent.pb.go').read_text()
     grpc = (root / 'pkg/agent/protobuf/agent_grpc.pb.go').read_text()
     for tool, content in [('protoc-gen-go', pb), ('protoc-gen-go-grpc', grpc), ('protoc', pb), ('protoc', grpc)]:
-        if not re.search(r'//\s*' + re.escape(tool) + r'\s+' + re.escape(manifest['Generator'][tool]) + r'\s*$', content, re.M):
+        if not re.search(r'//\s*(?:-\s*)?' + re.escape(tool) + r'\s+' + re.escape(manifest['Generator'][tool]) + r'\s*$', content, re.M):
             raise ValueError('generator banner mismatch: ' + tool)
     proto = (root / 'pkg/agent/protobuf/agent.proto').read_text()
     client = (root / 'pkg/agent/client/client.go').read_text()
