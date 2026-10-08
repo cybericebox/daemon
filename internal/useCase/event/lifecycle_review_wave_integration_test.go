@@ -248,6 +248,12 @@ func TestReviewSourceSwitchResetsImmutableAllReadyCohort(t *testing.T) {
 	next := publishLifecycleSource(t, f, set)
 	_, err = f.uc.ReplaceEventExercise(ctx, f.eventID, set.exerciseID, event.ReplaceEventExerciseInput{ExerciseVersionID: next, RecreateStands: true}, f.ownerID)
 	require.NoError(t, err)
+	_, err = repo.Barrier(ctx, f.eventID, set.exerciseID)
+	require.Error(t, err, "source change invalidates preparation without eagerly freezing another cohort")
+	// Simulate the replacement assignment preparation boundary, where cohort
+	// reservation/creation is actually authorized.
+	_, err = repo.Freeze(ctx, f.eventID, set.exerciseID, at)
+	require.NoError(t, err)
 	barrier, err := repo.Barrier(ctx, f.eventID, set.exerciseID)
 	require.NoError(t, err)
 	require.Greater(t, barrier.Revision, int64(1))

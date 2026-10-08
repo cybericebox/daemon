@@ -622,7 +622,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to switch event exercise").Err()
 	}
 	if u.lifecycleControls {
-		if _, err = eventLabRevealRepo.New(repo).Freeze(ctx, eventID, switched.ID, now); err != nil {
+		if err = eventLabRevealRepo.New(repo).Invalidate(ctx, eventID, switched.ID); err != nil {
 			return eventExerciseModel.EventExercise{}, err
 		}
 	}

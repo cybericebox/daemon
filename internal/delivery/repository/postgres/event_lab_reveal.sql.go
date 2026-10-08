@@ -73,6 +73,26 @@ func (q *Queries) GetEventLabRevealBarrier(ctx context.Context, arg GetEventLabR
 	return i, err
 }
 
+const invalidateEventLabRevealBarrier = `-- name: InvalidateEventLabRevealBarrier :exec
+DELETE FROM event_lab_reveal_barriers b
+USING event_exercises ee,event_configs cfg
+WHERE b.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
+ AND ee.event_id=$1 AND ee.id=$2
+ AND (b.revision<>ee.revision OR b.mode<>cfg.task_reveal_mode)
+`
+
+type InvalidateEventLabRevealBarrierParams struct {
+	EventID         uuid.UUID `json:"event_id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+}
+
+// Authorized edits invalidate a different preparation tuple atomically. They
+// never insert/freeze a cohort before the assignment preparation boundary.
+func (q *Queries) InvalidateEventLabRevealBarrier(ctx context.Context, arg InvalidateEventLabRevealBarrierParams) error {
+	_, err := q.db.Exec(ctx, invalidateEventLabRevealBarrier, arg.EventID, arg.EventExerciseID)
+	return err
+}
+
 const isEventLabManualReachable = `-- name: IsEventLabManualReachable :one
 SELECT EXISTS(SELECT 1 FROM event_lab_objectives o
  JOIN event_team_labs l ON l.id=o.lab_id

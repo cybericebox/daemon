@@ -11,6 +11,7 @@ import (
 )
 
 type Queries interface {
+	InvalidateEventLabRevealBarrier(context.Context, postgres.InvalidateEventLabRevealBarrierParams) error
 	GetEventLabRevealBarrier(context.Context, postgres.GetEventLabRevealBarrierParams) (postgres.EventLabRevealBarrier, error)
 	ListRevealSetLabs(context.Context, postgres.ListRevealSetLabsParams) ([]postgres.EventTeamLab, error)
 	FreezeEventLabRevealBarrier(context.Context, postgres.FreezeEventLabRevealBarrierParams) (postgres.EventLabRevealBarrier, error)
@@ -49,4 +50,8 @@ func (r *Repository) Labs(ctx context.Context, eventID, setID uuid.UUID, teams [
 		out = append(out, l)
 	}
 	return out, nil
+}
+
+func (r *Repository) Invalidate(ctx context.Context, eventID, setID uuid.UUID) error {
+	return r.q.InvalidateEventLabRevealBarrier(ctx, postgres.InvalidateEventLabRevealBarrierParams{EventID: eventID, EventExerciseID: setID})
 }

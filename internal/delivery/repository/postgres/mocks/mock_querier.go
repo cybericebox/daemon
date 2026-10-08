@@ -5212,6 +5212,20 @@ func (mr *MockQuerierMockRecorder) InsertPlatformSMTPProvider(ctx, arg any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertPlatformSMTPProvider", reflect.TypeOf((*MockQuerier)(nil).InsertPlatformSMTPProvider), ctx, arg)
 }
 
+// InvalidateEventLabRevealBarrier mocks base method.
+func (m *MockQuerier) InvalidateEventLabRevealBarrier(ctx context.Context, arg postgres.InvalidateEventLabRevealBarrierParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InvalidateEventLabRevealBarrier", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InvalidateEventLabRevealBarrier indicates an expected call of InvalidateEventLabRevealBarrier.
+func (mr *MockQuerierMockRecorder) InvalidateEventLabRevealBarrier(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InvalidateEventLabRevealBarrier", reflect.TypeOf((*MockQuerier)(nil).InvalidateEventLabRevealBarrier), ctx, arg)
+}
+
 // InviteEventParticipant mocks base method.
 func (m *MockQuerier) InviteEventParticipant(ctx context.Context, arg postgres.InviteEventParticipantParams) (postgres.EventParticipant, error) {
 	m.ctrl.T.Helper()

@@ -50,3 +50,12 @@ WHERE l.event_id=sqlc.arg(event_id) AND l.event_exercise_id=sqlc.arg(event_exerc
  AND l.event_team_id=ANY(sqlc.arg(team_ids)::uuid[])
  AND EXISTS(SELECT 1 FROM lab_bindings b WHERE b.lab_id=l.id AND b.generation=l.generation)
 ORDER BY l.event_team_id,l.id;
+
+-- name: InvalidateEventLabRevealBarrier :exec
+-- Authorized edits invalidate a different preparation tuple atomically. They
+-- never insert/freeze a cohort before the assignment preparation boundary.
+DELETE FROM event_lab_reveal_barriers b
+USING event_exercises ee,event_configs cfg
+WHERE b.event_exercise_id=ee.id AND cfg.event_id=ee.event_id
+ AND ee.event_id=sqlc.arg(event_id) AND ee.id=sqlc.arg(event_exercise_id)
+ AND (b.revision<>ee.revision OR b.mode<>cfg.task_reveal_mode);

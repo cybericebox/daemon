@@ -595,6 +595,9 @@ type Querier interface {
 	InsertExerciseEventAccess(ctx context.Context, arg InsertExerciseEventAccessParams) error
 	InsertImportedExerciseVersion(ctx context.Context, arg InsertImportedExerciseVersionParams) (ExerciseVersion, error)
 	InsertPlatformSMTPProvider(ctx context.Context, arg InsertPlatformSMTPProviderParams) (MailSmtpConfig, error)
+	// Authorized edits invalidate a different preparation tuple atomically. They
+	// never insert/freeze a cohort before the assignment preparation boundary.
+	InvalidateEventLabRevealBarrier(ctx context.Context, arg InvalidateEventLabRevealBarrierParams) error
 	InviteEventParticipant(ctx context.Context, arg InviteEventParticipantParams) (EventParticipant, error)
 	IsEventChallengePublished(ctx context.Context, id uuid.UUID) (bool, error)
 	IsEventLabManualReachable(ctx context.Context, arg IsEventLabManualReachableParams) (bool, error)

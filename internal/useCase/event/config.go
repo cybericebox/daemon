@@ -139,7 +139,7 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 		return EventConfigView{}, err
 	}
 	for _, set := range activeAttachments(sets) {
-		if _, err = eventLabRevealRepo.New(q).Freeze(txCtx, eventID, set.ID, time.Now().UTC()); err != nil {
+		if err = eventLabRevealRepo.New(q).Invalidate(txCtx, eventID, set.ID); err != nil {
 			return EventConfigView{}, err
 		}
 	}
