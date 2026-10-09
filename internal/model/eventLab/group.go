@@ -60,10 +60,8 @@ func (g *Group) RequestStop(children []Lab, operation uuid.UUID, authorizedRunti
 	if g.AgentUID == "" || g.AgentGeneration <= 0 || g.PendingStarts != 0 || authorizedRuntime || g.DesiredState == "Deleted" || operation == uuid.Nil {
 		return false
 	}
-	for _, l := range children {
-		if l.DesiredState == "Running" || (l.ActualState != "Stopped" && l.ActualState != "Deleted") || l.HeldCompute() != (Compute{}) || l.AgentUID == "" || l.ObservedRevision != l.Revision || l.Allocation.RuntimeState != "Released" || !l.AccessFenced || (l.SnapshotMode == "required" && l.SnapshotState != "Succeeded") {
-			return false
-		}
+	if !groupChildrenStopped(children) {
+		return false
 	}
 	if g.DesiredState == "Stopped" {
 		return false
@@ -75,6 +73,46 @@ func (g *Group) RequestStop(children []Lab, operation uuid.UUID, authorizedRunti
 	g.UpdatedAt = now
 	g.NextAttemptAt = now
 	return true
+}
+
+func groupChildrenStopped(children []Lab) bool {
+	for _, l := range children {
+		if l.DesiredState == "Running" || (l.ActualState != "Stopped" && l.ActualState != "Deleted") || l.HeldCompute() != (Compute{}) || l.AgentUID == "" || l.ObservedRevision != l.Revision || l.Allocation.RuntimeState != "Released" || !l.AccessFenced || (l.SnapshotMode == "required" && l.SnapshotState != "Succeeded") {
+			return false
+		}
+	}
+	return true
+}
+
+// RecoverInitialIdentityForStop authorizes only the original object's stop,
+// using committed child births already adopted by the normal receipt CAS.
+// It never repairs sizing, grants readiness or changes allocation evidence.
+func (g *Group) RecoverInitialIdentityForStop(o GroupObservation, children []Lab, now time.Time) bool {
+	if g.AgentUID != "" || g.Revision != 1 || g.DesiredState != "Running" || g.PendingStarts != 0 || o.Name != g.Name || o.UID == "" || o.Generation <= 0 || o.ObservedAt == nil || o.ObservedAt.After(now) || now.Sub(*o.ObservedAt) > 30*time.Second || !o.ImmutableSizesKnown || !g.immutableSizeMismatch(o) || len(children) == 0 || !groupChildrenStopped(children) {
+		return false
+	}
+	namespace := ""
+	for _, l := range children {
+		e := l.CreateEvidence
+		if l.EventID != g.EventID || l.TeamID != g.TeamID || l.Ref.Group != g.Name || l.Ref.Lab == "" || l.Generation < 0 || l.AgentGeneration <= 0 || l.DefinitionVersionID == uuid.Nil || l.DefinitionHash == "" || e == nil || e.Ref != l.Ref || e.GroupUID != o.UID || e.NamespaceUID == "" || e.CreationID == "" || e.DefinitionHash == "" || e.OperationID == uuid.Nil || e.Revision != 1 || e.DeploymentGeneration != l.Generation {
+			return false
+		}
+		// The wire creation hash differs from the admission topology hash. Its
+		// equality to the committed receipt was verified during birth adoption.
+		if namespace != "" && namespace != e.NamespaceUID {
+			return false
+		}
+		namespace = e.NamespaceUID
+	}
+	g.AgentUID = o.UID
+	g.AgentGeneration = o.Generation
+	g.Ready = false
+	g.UpdatedAt = now
+	return true
+}
+
+func (g *Group) immutableSizeMismatch(o GroupObservation) bool {
+	return o.ImmutableSizesKnown && (o.VPNSize.CPUMillicores+o.GatewaySize.CPUMillicores < g.ConfiguredRequests.CPUMillicores || o.VPNSize.MemoryBytes+o.GatewaySize.MemoryBytes < g.ConfiguredRequests.MemoryBytes)
 }
 func (g *Group) Observe(o GroupObservation, now time.Time) bool {
 	if g.DesiredState == "Deleted" && g.RetirementStopTarget != nil {
@@ -93,7 +131,7 @@ func (g *Group) Observe(o GroupObservation, now time.Time) bool {
 	if o.UID != g.AgentUID || o.Generation < g.AgentGeneration {
 		return false
 	}
-	initial := g.Revision == 1 && g.DesiredState == "Running" && o.DesiredState == "Running" && o.InitialReady
+	initial := g.Revision == 1 && g.DesiredState == "Running" && o.DesiredState == "Running" && o.InitialReady && !g.immutableSizeMismatch(o)
 	exact := o.OperationID == g.OperationID && o.Revision == g.Revision && o.ObservedGeneration == o.Generation && o.DesiredState == g.DesiredState
 	if !initial && !exact {
 		if g.Revision == 1 && g.DesiredState == "Running" && o.OperationID == uuid.Nil && o.Revision == 0 && o.ImmutableSizesKnown {
@@ -115,7 +153,7 @@ func (g *Group) Observe(o GroupObservation, now time.Time) bool {
 	}
 	g.ObservedRevision = o.Revision
 	g.ActualState = o.ActualState
-	g.Ready = o.Ready && g.DesiredState == "Running"
+	g.Ready = o.Ready && g.DesiredState == "Running" && !g.immutableSizeMismatch(o)
 	g.AccessFenced = o.AccessFenced
 	release := g.DesiredState != "Running" && (o.ActualState == "Stopped" || o.ActualState == "Deleted") && o.Allocation.RuntimeState == "Released" && o.Allocation.ReleasedAt != nil && o.AccessFenced && o.FailureCode == "" && o.FailureMessage == ""
 	if release {

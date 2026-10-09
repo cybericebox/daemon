@@ -11,6 +11,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
@@ -211,12 +212,12 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 				return
 			}
 			expected := g.Revision
-			g.Observe(observation, now)
 			children, err := repo.LockChildren(txCtx, g.TeamID)
 			if err != nil {
 				errs = append(errs, err)
 				return
 			}
+			g.Observe(observation, now)
 			pending, err := repo.Pending(txCtx, g.TeamID)
 			if err != nil {
 				errs = append(errs, err)
@@ -229,6 +230,12 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 				return
 			}
 			if !authorized && pending == 0 {
+				// Receipt-bound recovery can make an overreserved original group
+				// stoppable; it cannot authorize runtime or credit any resources.
+				if err := u.recoverGroupIdentityForStop(txCtx, q, &g, observation, children, time.Now().UTC()); err != nil {
+					errs = append(errs, err)
+					return
+				}
 				if g.RequestStop(children, uuid.Must(uuid.NewV7()), false, now) {
 					deadline := now
 					for _, child := range children {
@@ -273,6 +280,24 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 		}()
 	}
 	return errors.Join(errs...)
+}
+
+func (u *EventUseCase) recoverGroupIdentityForStop(ctx context.Context, q IRepository, g *eventLabModel.Group, observation eventLabModel.GroupObservation, children []eventLabModel.Lab, now time.Time) error {
+	candidate := *g
+	if !candidate.RecoverInitialIdentityForStop(observation, children, now) {
+		return nil
+	}
+	for _, child := range children {
+		version, err := exerciseRepo.New(q).GetVersion(ctx, child.DefinitionVersionID)
+		if err != nil {
+			return err
+		}
+		if child.VariantIndex < 0 || int(child.VariantIndex) >= len(version.Variants) || definitionHash(version.ID, child.Generation, version.Variants[child.VariantIndex].Topology) != child.DefinitionHash {
+			return nil
+		}
+	}
+	*g = candidate
+	return nil
 }
 func (u *EventUseCase) groupRuntimeAuthorized(ctx context.Context, q IRepository, eventID uuid.UUID, children []eventLabModel.Lab, now time.Time) (bool, error) {
 	e, err := eventRepo.New(q).GetByID(ctx, eventID)
