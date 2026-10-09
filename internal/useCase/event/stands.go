@@ -131,6 +131,11 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	if err = u.prepareMissingAssignments(ctx, e, now); err != nil {
 		errs = append(errs, err)
 	}
+	if u.lifecycleControls {
+		if err := u.retryEmptyRevealPreparation(ctx, e.ID, now, schedule.NotDue); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	readyTeams := map[uuid.UUID]struct{}{}
 	allReady := false
 	awaiting := e.InfrastructureAllowed && u.awaitingReservation(ctx, eventID)
@@ -170,6 +175,37 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Old unopened empty cohorts may predate the first eligible regular team. Only
+// those exact current tuples retry; already prepared pins/bindings stay intact.
+func (u *EventUseCase) retryEmptyRevealPreparation(ctx context.Context, eventID uuid.UUID, now time.Time, notDue []uuid.UUID) error {
+	txCtx, q, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	if _, err := q.LockEventForLabSourceChange(txCtx, eventID); err != nil {
+		return err
+	}
+	repo := eventLabRevealRepo.New(q)
+	sets, err := repo.RetryableEmpty(txCtx, eventID)
+	if err != nil {
+		return err
+	}
+	for _, setID := range sets {
+		deferred := false
+		for _, id := range notDue {
+			deferred = deferred || id == setID
+		}
+		if deferred {
+			continue
+		}
+		if _, err := repo.Freeze(txCtx, eventID, setID, now); err != nil {
+			return err
+		}
+	}
+	return unit.Save()
 }
 
 func (u *EventUseCase) standRollout(ctx context.Context, eventID uuid.UUID) (eventStandRepo.Rollout, error) {

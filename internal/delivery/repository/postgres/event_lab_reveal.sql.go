@@ -14,39 +14,44 @@ import (
 )
 
 const freezeEventLabRevealBarrier = `-- name: FreezeEventLabRevealBarrier :one
-INSERT INTO event_lab_reveal_barriers(event_id,event_exercise_id,revision,mode,eligible_team_ids,created_at)
-SELECT ee.event_id,ee.id,ee.revision,ec.task_reveal_mode,
+WITH candidate AS (
+ SELECT ee.event_id,ee.id AS event_exercise_id,ee.revision,ec.task_reveal_mode AS mode,
  COALESCE((SELECT array_agg(team.id ORDER BY team.id) FROM event_teams team WHERE team.event_id=ee.event_id
-  AND NOT team.moderators AND event_team_admitted(team.event_id,team.individual,team.admitted_manually,team.admission_locked,team.member_count) AND event_team_stand_wanted(team.event_id,team.formed_at)), '{}'::uuid[]),$1
-FROM event_exercises ee JOIN event_configs ec ON ec.event_id=ee.event_id
-WHERE ee.id=$2 AND ee.event_id=$3 AND ee.status=0
-ON CONFLICT(event_exercise_id) DO UPDATE SET
+  AND NOT team.moderators AND event_team_admitted(team.event_id,team.individual,team.admitted_manually,team.admission_locked,team.member_count) AND event_team_stand_wanted(team.event_id,team.formed_at)), '{}'::uuid[]) AS eligible_team_ids
+ FROM event_exercises ee JOIN event_configs ec ON ec.event_id=ee.event_id
+ WHERE ee.id=$1 AND ee.event_id=$2 AND ee.status=0
+), frozen AS (
+ INSERT INTO event_lab_reveal_barriers(event_id,event_exercise_id,revision,mode,eligible_team_ids,created_at)
+ SELECT event_id,event_exercise_id,revision,mode,eligible_team_ids,$3 FROM candidate
+ WHERE cardinality(eligible_team_ids)>0
+ ON CONFLICT(event_exercise_id) DO UPDATE SET
  revision=EXCLUDED.revision,mode=EXCLUDED.mode,
- eligible_team_ids=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode THEN EXCLUDED.eligible_team_ids ELSE event_lab_reveal_barriers.eligible_team_ids END,
+ eligible_team_ids=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode OR (event_lab_reveal_barriers.opened_at IS NULL AND cardinality(event_lab_reveal_barriers.eligible_team_ids)=0) THEN EXCLUDED.eligible_team_ids ELSE event_lab_reveal_barriers.eligible_team_ids END,
  opened_at=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode THEN NULL ELSE event_lab_reveal_barriers.opened_at END,
- created_at=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode THEN EXCLUDED.created_at ELSE event_lab_reveal_barriers.created_at END
-RETURNING event_id, event_exercise_id, revision, mode, eligible_team_ids, opened_at, created_at
+ created_at=CASE WHEN event_lab_reveal_barriers.revision<>EXCLUDED.revision OR event_lab_reveal_barriers.mode<>EXCLUDED.mode OR (event_lab_reveal_barriers.opened_at IS NULL AND cardinality(event_lab_reveal_barriers.eligible_team_ids)=0) THEN EXCLUDED.created_at ELSE event_lab_reveal_barriers.created_at END
+ RETURNING eligible_team_ids
+)
+SELECT eligible_team_ids FROM frozen
+UNION ALL
+SELECT b.eligible_team_ids FROM candidate c JOIN event_lab_reveal_barriers b ON b.event_exercise_id=c.event_exercise_id
+ WHERE cardinality(c.eligible_team_ids)=0 AND b.revision=c.revision AND b.mode=c.mode
+UNION ALL
+SELECT eligible_team_ids FROM candidate WHERE cardinality(eligible_team_ids)=0
+ AND NOT EXISTS(SELECT 1 FROM event_lab_reveal_barriers b WHERE b.event_exercise_id=candidate.event_exercise_id)
 `
 
 type FreezeEventLabRevealBarrierParams struct {
-	Now             time.Time `json:"now"`
 	EventExerciseID uuid.UUID `json:"event_exercise_id"`
 	EventID         uuid.UUID `json:"event_id"`
+	Now             time.Time `json:"now"`
 }
 
-func (q *Queries) FreezeEventLabRevealBarrier(ctx context.Context, arg FreezeEventLabRevealBarrierParams) (EventLabRevealBarrier, error) {
-	row := q.db.QueryRow(ctx, freezeEventLabRevealBarrier, arg.Now, arg.EventExerciseID, arg.EventID)
-	var i EventLabRevealBarrier
-	err := row.Scan(
-		&i.EventID,
-		&i.EventExerciseID,
-		&i.Revision,
-		&i.Mode,
-		&i.EligibleTeamIds,
-		&i.OpenedAt,
-		&i.CreatedAt,
-	)
-	return i, err
+// An empty eligible roster is deferred, not an immutable prepared cohort.
+func (q *Queries) FreezeEventLabRevealBarrier(ctx context.Context, arg FreezeEventLabRevealBarrierParams) ([]uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, freezeEventLabRevealBarrier, arg.EventExerciseID, arg.EventID, arg.Now)
+	var eligible_team_ids []uuid.UUID
+	err := row.Scan(&eligible_team_ids)
+	return eligible_team_ids, err
 }
 
 const getEventLabRevealBarrier = `-- name: GetEventLabRevealBarrier :one
@@ -118,6 +123,35 @@ func (q *Queries) IsEventLabManualReachable(ctx context.Context, arg IsEventLabM
 	var reachable bool
 	err := row.Scan(&reachable)
 	return reachable, err
+}
+
+const listRetryableEmptyEventLabRevealBarriers = `-- name: ListRetryableEmptyEventLabRevealBarriers :many
+SELECT b.event_exercise_id FROM event_lab_reveal_barriers b
+JOIN event_exercises ee ON ee.id=b.event_exercise_id AND ee.event_id=b.event_id
+JOIN event_configs cfg ON cfg.event_id=b.event_id
+WHERE b.event_id=$1 AND b.opened_at IS NULL AND cardinality(b.eligible_team_ids)=0
+ AND ee.status=0 AND b.revision=ee.revision AND b.mode=cfg.task_reveal_mode
+ORDER BY b.event_exercise_id
+`
+
+func (q *Queries) ListRetryableEmptyEventLabRevealBarriers(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listRetryableEmptyEventLabRevealBarriers, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var event_exercise_id uuid.UUID
+		if err := rows.Scan(&event_exercise_id); err != nil {
+			return nil, err
+		}
+		items = append(items, event_exercise_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRevealSetLabs = `-- name: ListRevealSetLabs :many

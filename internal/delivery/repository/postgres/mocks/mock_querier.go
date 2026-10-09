@@ -2891,10 +2891,10 @@ func (mr *MockQuerierMockRecorder) FormEventTeam(ctx, arg any) *gomock.Call {
 }
 
 // FreezeEventLabRevealBarrier mocks base method.
-func (m *MockQuerier) FreezeEventLabRevealBarrier(ctx context.Context, arg postgres.FreezeEventLabRevealBarrierParams) (postgres.EventLabRevealBarrier, error) {
+func (m *MockQuerier) FreezeEventLabRevealBarrier(ctx context.Context, arg postgres.FreezeEventLabRevealBarrierParams) ([]uuid.UUID, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FreezeEventLabRevealBarrier", ctx, arg)
-	ret0, _ := ret[0].(postgres.EventLabRevealBarrier)
+	ret0, _ := ret[0].([]uuid.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -8583,6 +8583,21 @@ func (m *MockQuerier) ListRetiringEventLabs(ctx context.Context, limitVal int32)
 func (mr *MockQuerierMockRecorder) ListRetiringEventLabs(ctx, limitVal any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRetiringEventLabs", reflect.TypeOf((*MockQuerier)(nil).ListRetiringEventLabs), ctx, limitVal)
+}
+
+// ListRetryableEmptyEventLabRevealBarriers mocks base method.
+func (m *MockQuerier) ListRetryableEmptyEventLabRevealBarriers(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRetryableEmptyEventLabRevealBarriers", ctx, eventID)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRetryableEmptyEventLabRevealBarriers indicates an expected call of ListRetryableEmptyEventLabRevealBarriers.
+func (mr *MockQuerierMockRecorder) ListRetryableEmptyEventLabRevealBarriers(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRetryableEmptyEventLabRevealBarriers", reflect.TypeOf((*MockQuerier)(nil).ListRetryableEmptyEventLabRevealBarriers), ctx, eventID)
 }
 
 // ListRevealSetLabs mocks base method.

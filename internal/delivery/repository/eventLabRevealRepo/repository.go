@@ -14,7 +14,8 @@ type Queries interface {
 	InvalidateEventLabRevealBarrier(context.Context, postgres.InvalidateEventLabRevealBarrierParams) error
 	GetEventLabRevealBarrier(context.Context, postgres.GetEventLabRevealBarrierParams) (postgres.EventLabRevealBarrier, error)
 	ListRevealSetLabs(context.Context, postgres.ListRevealSetLabsParams) ([]postgres.EventTeamLab, error)
-	FreezeEventLabRevealBarrier(context.Context, postgres.FreezeEventLabRevealBarrierParams) (postgres.EventLabRevealBarrier, error)
+	FreezeEventLabRevealBarrier(context.Context, postgres.FreezeEventLabRevealBarrierParams) ([]uuid.UUID, error)
+	ListRetryableEmptyEventLabRevealBarriers(context.Context, uuid.UUID) ([]uuid.UUID, error)
 	OpenReadyEventLabRevealBarriers(context.Context, postgres.OpenReadyEventLabRevealBarriersParams) (int64, error)
 	IsEventLabManualReachable(context.Context, postgres.IsEventLabManualReachableParams) (bool, error)
 }
@@ -22,8 +23,11 @@ type Repository struct{ q Queries }
 
 func New(q Queries) *Repository { return &Repository{q} }
 func (r *Repository) Freeze(ctx context.Context, eventID, setID uuid.UUID, now time.Time) ([]uuid.UUID, error) {
-	row, err := r.q.FreezeEventLabRevealBarrier(ctx, postgres.FreezeEventLabRevealBarrierParams{EventID: eventID, EventExerciseID: setID, Now: now})
-	return row.EligibleTeamIds, err
+	return r.q.FreezeEventLabRevealBarrier(ctx, postgres.FreezeEventLabRevealBarrierParams{EventID: eventID, EventExerciseID: setID, Now: now})
+}
+
+func (r *Repository) RetryableEmpty(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error) {
+	return r.q.ListRetryableEmptyEventLabRevealBarriers(ctx, eventID)
 }
 func (r *Repository) OpenReady(ctx context.Context, eventID uuid.UUID, now time.Time) error {
 	_, err := r.q.OpenReadyEventLabRevealBarriers(ctx, postgres.OpenReadyEventLabRevealBarriersParams{EventID: eventID, Now: pgtype.Timestamptz{Time: now, Valid: true}})

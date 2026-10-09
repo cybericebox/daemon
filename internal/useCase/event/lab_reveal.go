@@ -40,7 +40,15 @@ func (u *EventUseCase) reserveRevealSet(ctx context.Context, eventID, setID uuid
 	if _, err = q.LockEventConfigForLabSizing(txCtx, eventID); err != nil {
 		return err
 	}
-	barrier, err := eventLabRevealRepo.New(q).Barrier(txCtx, eventID, setID)
+	reveal := eventLabRevealRepo.New(q)
+	cohort, err := reveal.Freeze(txCtx, eventID, setID, now)
+	if err != nil {
+		return err
+	}
+	if len(cohort) == 0 {
+		return nil // legitimate deferred preparation has no copies to reserve
+	}
+	barrier, err := reveal.Barrier(txCtx, eventID, setID)
 	if err != nil {
 		return err
 	}
