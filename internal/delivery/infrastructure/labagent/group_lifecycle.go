@@ -124,6 +124,7 @@ func groupLifecycleObservation(name string, g *labpb.LabGroup, now time.Time) ev
 			a.GetRuntimeState() == "Released" && a.GetReleasedUnixMs() > 0 && allocated != nil &&
 			allocated.GetCpuMillicores() == 0 && allocated.GetMemoryBytes() == 0 {
 			out.AccessFenced = true
+			out.ServiceReleaseCertified = true
 		}
 	}
 	out.Ready = out.ActualState == "Running" && out.DesiredState == "Running" && s.GetPhase() == "Ready" && s.GetVpnRegistered() && !s.GetSuspended() && network

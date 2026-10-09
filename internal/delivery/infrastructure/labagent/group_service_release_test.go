@@ -104,6 +104,15 @@ func TestGroupServiceReleaseCertificateRejectsIncompleteOrForeignProof(t *testin
 			if ledger.HeldCompute() == (eventLabModel.Compute{}) {
 				t.Fatal("unqualified certificate granted free capacity")
 			}
+			ledger = groupLedgerForCertificate(original)
+			ledger.AgentGeneration = original.Generation
+			ledger.ObservedRevision = ledger.Revision
+			ledger.ActualState = "Stopped"
+			at := time.UnixMilli(original.Status.Resources.ObservedUnixMs)
+			ledger.ObservedAt = &at
+			if ledger.Observe(observation, now) || ledger.HeldCompute() == (eventLabModel.Compute{}) {
+				t.Fatal("partial equal-time certificate mutated an already observed held ledger")
+			}
 		})
 	}
 }
@@ -117,5 +126,26 @@ func TestGroupServiceReleasePreservesExistingVPNFenceCompatibility(t *testing.T)
 	g.Status.Lifecycle.AccessFenceVpnBootId = "original-vpn-boot"
 	if !groupLifecycleObservation(g.Name, g, now).AccessFenced {
 		t.Fatal("existing complete VPN fence certificate was lost")
+	}
+}
+
+func TestGroupServiceReleaseUpgradesPreviouslyObservedCertificateOnce(t *testing.T) {
+	g, now := stoppedGroupServiceCertificate()
+	observation := groupLifecycleObservation(g.Name, g, now)
+	ledger := groupLedgerForCertificate(g)
+	ledger.AgentGeneration = g.Generation
+	ledger.ObservedRevision = ledger.Revision
+	ledger.ActualState = "Stopped"
+	at := *observation.ObservedAt
+	ledger.ObservedAt = &at
+	previous := ledger.ConfiguredRequests
+	if !ledger.Observe(observation, now) || ledger.HeldCompute() != (eventLabModel.Compute{}) {
+		t.Fatal("same-current full service certificate must qualify a previously observed held ledger")
+	}
+	if ledger.ConfiguredRequests != previous || ledger.Allocation.AllocatedRequests != previous || ledger.Ready {
+		t.Fatal("qualification changed historical sizing or readiness")
+	}
+	if ledger.Observe(observation, now.Add(time.Second)) {
+		t.Fatal("alreadyqualified equal-time duplicate must not mutate")
 	}
 }

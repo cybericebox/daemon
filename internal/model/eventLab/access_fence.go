@@ -30,6 +30,8 @@ func AccessFenceMatches(want AccessTarget, got AccessFenceObservation, currentVP
 }
 
 type GroupObservation struct {
+	// ServiceReleaseCertified records the adapter's complete current service-absence proof.
+	ServiceReleaseCertified                                           bool
 	Retirement                                                        *RetirementObservation
 	OperationID                                                       uuid.UUID
 	Generation, ObservedGeneration                                    int64

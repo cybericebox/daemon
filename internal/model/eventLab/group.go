@@ -118,7 +118,10 @@ func (g *Group) Observe(o GroupObservation, now time.Time) bool {
 	if g.DesiredState == "Deleted" && g.RetirementStopTarget != nil {
 		return g.ObserveRetirement(o, now)
 	}
-	if o.Name != g.Name || o.UID == "" || o.Generation <= 0 || o.ObservedAt == nil || (g.ObservedAt != nil && !o.ObservedAt.After(*g.ObservedAt)) {
+	if o.Name != g.Name || o.UID == "" || o.Generation <= 0 || o.ObservedAt == nil {
+		return false
+	}
+	if g.ObservedAt != nil && !o.ObservedAt.After(*g.ObservedAt) && !g.qualifiesEqualServiceRelease(o, now) {
 		return false
 	}
 	if g.AgentUID == "" {
@@ -168,6 +171,22 @@ func (g *Group) Observe(o GroupObservation, now time.Time) bool {
 	}
 	return true
 }
+
+// qualifiesEqualServiceRelease consumes a newly understood irreversible proof
+// without changing its native timestamp or accepting ordinary equal-time updates.
+func (g *Group) qualifiesEqualServiceRelease(o GroupObservation, now time.Time) bool {
+	if g.ObservedAt == nil || o.ObservedAt == nil || !o.ObservedAt.Equal(*g.ObservedAt) || o.ObservedAt.UnixMilli() <= 0 || o.ObservedAt.After(now) ||
+		g.AgentUID == "" || g.AgentGeneration <= 0 || g.OperationID == uuid.Nil || g.Revision < 1 || g.ObservedRevision != g.Revision ||
+		o.UID != g.AgentUID || o.Generation != g.AgentGeneration || o.ObservedGeneration != g.AgentGeneration || o.OperationID != g.OperationID || o.Revision != g.Revision || o.ObservedRevision != g.Revision ||
+		g.DesiredState != "Stopped" || g.ActualState != "Stopped" || g.Ready || g.FailureCode != "" || g.FailureMessage != "" ||
+		o.DesiredState != "Stopped" || o.ActualState != "Stopped" || o.Ready || o.FailureCode != "" || o.FailureMessage != "" ||
+		!o.ServiceReleaseCertified || !o.AccessFenced || o.Allocation.RuntimeState != "Released" || o.Allocation.AllocatedRequests != (Compute{}) ||
+		o.Allocation.ObservedAt == nil || !o.Allocation.ObservedAt.Equal(*o.ObservedAt) || o.Allocation.ReleasedAt == nil || o.Allocation.ReleasedAt.UnixMilli() <= 0 || o.Allocation.ReleasedAt.After(now) {
+		return false
+	}
+	return !(g.AccessFenced && g.Allocation.RuntimeState == "Released" && g.Allocation.ReleasedAt != nil)
+}
+
 func (g *Group) AllowsChildren(now time.Time) bool {
 	return g.DesiredState == "Running" && g.ActualState == "Running" && g.Ready && g.AgentUID != "" && g.ObservedAt != nil && !g.ObservedAt.After(now) && now.Sub(*g.ObservedAt) <= 30*time.Second && (g.Revision == 1 || g.ObservedRevision == g.Revision)
 }
