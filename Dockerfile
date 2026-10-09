@@ -6,18 +6,14 @@
 # Boot uses ENV != "development" so the in-app MigrationsPath resolves to
 # "migrations" (relative to /app), not the source-tree path.
 # The build runs on the build platform and cross-compiles (pure Go, CGO off): arm64 images need no emulation.
-ARG LABORATORY_CONTRACT_SOURCE=50b0e26b9e4b579d9774ba9d13f90189568defd2
+ARG LABORATORY_CONTRACT_SOURCE=v1.1.0
 FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 ARG LABORATORY_CONTRACT_SOURCE
 ARG TARGETOS=linux
 ARG TARGETARCH
 WORKDIR /build
 COPY go.mod go.sum ./
-# The relative replace selects a byte-exact scoped SDK without sibling repositories.
-COPY third_party/laboratory-sdk ./third_party/laboratory-sdk
-RUN cd third_party/laboratory-sdk && sha256sum -c SHA256SUMS && \
-    source=$(sed -n 's/.*"SourceCommit": "\([0-9a-f]*\)".*/\1/p' PROVENANCE.json) && \
-    test "$source" = "$LABORATORY_CONTRACT_SOURCE"
+# Resolve the published Laboratory release pinned in go.mod.
 RUN GOWORK=off go mod download
 COPY . .
 COPY ./internal/delivery/repository/postgres/migrations /build/migrations

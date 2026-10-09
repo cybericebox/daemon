@@ -7,7 +7,7 @@ toolchain go1.27.1
 require (
 	cloud.google.com/go/recaptchaenterprise/v2 v2.28.0
 	github.com/caarlos0/env/v11 v11.4.1
-	github.com/cybericebox/laboratory v1.0.0
+	github.com/cybericebox/laboratory v1.1.0
 	github.com/gin-gonic/gin v1.12.0
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/golang-jwt/jwt/v5 v5.3.1
@@ -186,6 +186,3 @@ require (
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	sigs.k8s.io/json v0.0.0-20260909141634-11ed52e25bc5 // indirect
 )
-
-// Scoped immutable SDK source; published v1.0.0 is not the lifecycle contract.
-replace github.com/cybericebox/laboratory => ./third_party/laboratory-sdk
