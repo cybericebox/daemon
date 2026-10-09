@@ -160,7 +160,13 @@ func TestReviewRealRuntimeRoutePreservesBoardCapabilitiesAtEqualRevision(t *test
 	require.True(t, remembered.CanStop)
 	lifecycle, err := uc.GetOwnLabLifecycle(ctx, f.eventID, user, lab.ID)
 	require.NoError(t, err)
-	require.Equal(t, *remembered, lifecycle)
+	// Compare the complete public contract. UTC and Local can encode the same
+	// instant identically while retaining different internal time.Location values.
+	wantWire, err := json.Marshal(remembered)
+	require.NoError(t, err)
+	gotWire, err := json.Marshal(lifecycle)
+	require.NoError(t, err)
+	require.JSONEq(t, string(wantWire), string(gotWire))
 }
 func TestReviewRestartCannotSpendOtherTeamsPlacementSlot(t *testing.T) {
 	f, ids := allocationFixture(t, 0)
