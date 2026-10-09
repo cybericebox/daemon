@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -123,7 +124,7 @@ func (u *EventUseCase) GetParticipationStats(ctx context.Context, eventID, userI
 // may read it; there is no rank because the team is not in the results.
 func (u *EventUseCase) GetModeratorsParticipationStats(ctx context.Context, eventID, userID uuid.UUID) (ParticipationStatsView, error) {
 	if _, err := u.managers.Get(ctx, eventID, userID); err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
+		if errors.Is(err, eventManagerModel.ErrEventManagerNotFound.Err()) || repositoryTools.IsObjectNotFoundError(err) {
 			return ParticipationStatsView{}, eventManagerModel.ErrEventManagementForbidden.Err()
 		}
 		return ParticipationStatsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event manager").Err()
