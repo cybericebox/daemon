@@ -6,10 +6,14 @@ import (
 	"time"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	"github.com/gofrs/uuid"
 )
 
 type Queries interface {
+	GetEventLabAccessSync(context.Context, uuid.UUID) (postgres.EventLabAccessSync, error)
+	MaterializeEventLabAccessPolicy(context.Context, postgres.MaterializeEventLabAccessPolicyParams) (postgres.EventLabAccessSync, error)
+	GetCurrentEventLabAccessMonitoring(context.Context, uuid.UUID) (postgres.LabMonitoringCurrent, error)
 	RequestEventLabAccessSync(context.Context, postgres.RequestEventLabAccessSyncParams) (postgres.EventLabAccessSync, error)
 	RequestEventLabAccessSyncsForEvent(context.Context, postgres.RequestEventLabAccessSyncsForEventParams) error
 	ListDirtyEventLabAccessSyncs(context.Context, int32) ([]postgres.ListDirtyEventLabAccessSyncsRow, error)
@@ -24,11 +28,13 @@ type Repository struct{ q Queries }
 func New(q Queries) *Repository { return &Repository{q: q} }
 
 type Sync struct {
-	TeamID, EventID                  uuid.UUID
-	DesiredRevision, AppliedRevision int64
-	UpdatedAt                        time.Time
-	RuntimeOpen                      bool
-	VPNEnabled                       bool
+	OperationID                         uuid.UUID
+	PolicyFingerprint, ExpectedGroupUID string
+	TeamID, EventID                     uuid.UUID
+	DesiredRevision, AppliedRevision    int64
+	UpdatedAt                           time.Time
+	RuntimeOpen                         bool
+	VPNEnabled                          bool
 	// StageEpoch is how many stage boundaries of the event have passed: a change wakes the sync.
 	StageEpoch int32
 }
@@ -60,13 +66,9 @@ func (r *Repository) ListDirty(ctx context.Context, limit int32) ([]Sync, error)
 	}
 	out := make([]Sync, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Sync{TeamID: row.EventTeamID, EventID: row.EventID, DesiredRevision: row.DesiredRevision, AppliedRevision: row.AppliedRevision, UpdatedAt: row.UpdatedAt, RuntimeOpen: row.RuntimeOpen, VPNEnabled: row.VpnEnabled, StageEpoch: row.StageEpoch})
+		out = append(out, Sync{OperationID: row.OperationID.UUID, PolicyFingerprint: row.PolicyFingerprint, ExpectedGroupUID: row.ExpectedGroupUid, TeamID: row.EventTeamID, EventID: row.EventID, DesiredRevision: row.DesiredRevision, AppliedRevision: row.AppliedRevision, UpdatedAt: row.UpdatedAt, RuntimeOpen: row.RuntimeOpen, VPNEnabled: row.VpnEnabled, StageEpoch: row.StageEpoch})
 	}
 	return out, nil
-}
-
-func (r *Repository) MarkApplied(ctx context.Context, teamID uuid.UUID, desired int64, runtimeOpen, vpnEnabled bool, stageEpoch int32, now time.Time) (int64, error) {
-	return r.q.MarkEventLabAccessSyncApplied(ctx, postgres.MarkEventLabAccessSyncAppliedParams{EventTeamID: teamID, DesiredRevision: desired, RuntimeOpen: runtimeOpen, VpnEnabled: vpnEnabled, StageEpoch: stageEpoch, UpdatedAt: now})
 }
 
 func (r *Repository) Clients(ctx context.Context, teamID uuid.UUID) ([]uuid.UUID, error) {
@@ -91,4 +93,23 @@ func (r *Repository) Labs(ctx context.Context, teamID uuid.UUID) ([]Lab, error) 
 		out = append(out, Lab{Group: row.LabGroupName, Name: row.LabName, Available: row.Available})
 	}
 	return out, nil
+}
+
+func (r *Repository) NetworkCurrent(ctx context.Context, teamID uuid.UUID, now time.Time) (bool, error) {
+	row, err := r.q.GetEventLabAccessSync(ctx, teamID)
+	if err != nil {
+		return false, err
+	}
+	if !row.OperationID.Valid || row.OperationID.UUID == uuid.Nil || row.PolicyFingerprint == "" || row.ExpectedGroupUid == "" || row.DesiredRevision <= 0 || row.AppliedRevision != row.DesiredRevision {
+		return false, nil
+	}
+	observation, err := r.ObserveAccessFence(ctx, teamID)
+	if err != nil {
+		return false, err
+	}
+	if observation.ObservedAt.After(now) || now.Sub(observation.ObservedAt) > 30*time.Second || observation.VPNObservedAt.After(now) || now.Sub(observation.VPNObservedAt) > 30*time.Second {
+		return false, nil
+	}
+	target := eventLabModel.AccessTarget{Group: observation.Group, ExpectedGroupUID: row.ExpectedGroupUid, OperationID: row.OperationID.UUID, Revision: row.DesiredRevision}
+	return eventLabModel.AccessFenceMatches(target, observation, observation.CurrentVPNBootID), nil
 }

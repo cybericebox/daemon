@@ -23,6 +23,7 @@ import (
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	eventTeamModel "github.com/cybericebox/daemon/internal/model/eventTeam"
@@ -38,13 +39,19 @@ import (
 
 // standAgent is an in-memory Laboratory: Labs become ready or fail on demand.
 type standAgent struct {
-	mu        sync.Mutex
-	deployed  []string
-	topos     map[string]exerciseModel.Topology
-	deleted   []string
-	destroyed []string
-	ready     map[string]bool
-	failed    map[string]bool
+	beforeDeploy        func(context.Context, string, string) error
+	preGroupCreateError error
+	stopCalls           []eventLabModel.StopRequest
+	observations        map[eventLabModel.Ref]eventLabModel.Observation
+	stopErr, statusErr  error
+	stopErrs            map[eventLabModel.Ref]error
+	mu                  sync.Mutex
+	deployed            []string
+	topos               map[string]exerciseModel.Topology
+	deleted             []string
+	destroyed           []string
+	ready               map[string]bool
+	failed              map[string]bool
 	// queued labs report phase Queued with this queue state.
 	queued       map[string]*exerciseModel.LabQueue
 	metas        map[string]infraModel.LabMeta
@@ -91,9 +98,26 @@ func (a *standAgent) RescueDevice(_ context.Context, group, lab, device string, 
 	return a.deviceErr
 }
 
-func (a *standAgent) DeployLab(_ context.Context, group, lab string, meta infraModel.LabMeta, topology exerciseModel.Topology) error {
+func (a *standAgent) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topology exerciseModel.Topology) error {
+	if a.preGroupCreateError != nil {
+		return a.preGroupCreateError
+	}
+	// Synthetic immutable creation identity for managed consumer/SQL tests only.
+	if meta.InitialLifecycle != nil {
+		if meta.BeforeCreate == nil {
+			return errors.New("managed fixture missing before-create reservation")
+		}
+		if err := meta.BeforeCreate(ctx, infraModel.LabCreateDispatch{GroupUID: "fixture-group-" + group, DefinitionHash: "fixture-create-definition"}); err != nil {
+			return err
+		}
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.beforeDeploy != nil {
+		if err := a.beforeDeploy(ctx, group, lab); err != nil {
+			return err
+		}
+	}
 	a.metas[group+"/"+lab] = meta
 	if len(topology.Devices) == 0 {
 		return errors.New("static topology must never be deployed")
@@ -112,7 +136,7 @@ func (a *standAgent) LabStatus(_ context.Context, group, lab string) (exerciseMo
 	case a.failed[key]:
 		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseFailed}, nil
 	case a.ready[key]:
-		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseReady, Ready: true}, nil
+		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseReady, Ready: true, LabUID: "uid-" + key, LabGeneration: 1}, nil
 	default:
 		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseProvisioning}, nil
 	}
@@ -171,7 +195,7 @@ func (s standTopologies) ResolveDeployedTopology(_ context.Context, versionID uu
 	if topology, ok := s.sets.topology[versionID]; ok {
 		return topology, nil
 	}
-	return exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: s.deviceID, Name: "web"}}}, nil
+	return exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: s.deviceID, Name: "web", Type: exerciseModel.DeviceTypeContainer}}}, nil
 }
 
 func (s standTopologies) ResolveVersionTopologies(context.Context, uuid.UUID) ([]exerciseModel.Topology, error) {
@@ -940,4 +964,33 @@ func TestStandEngine_WaitsForReservation(t *testing.T) {
 	if n := f.count(t, `SELECT count(*) FROM event_team_stands WHERE reason = $1`, eventStandModel.ReasonAwaitingReservation); n != 0 {
 		t.Fatalf("the waiting reason must be gone, %d stands still carry it", n)
 	}
+}
+
+func (a *standAgent) StopLab(_ context.Context, in eventLabModel.StopRequest) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.stopCalls = append(a.stopCalls, in)
+	if err := a.stopErrs[in.Target.Ref]; err != nil {
+		return err
+	}
+	return a.stopErr
+}
+func (a *standAgent) StartLab(context.Context, eventLabModel.Target) error {
+	return errors.New("unexpected start")
+}
+func (a *standAgent) ObserveLab(_ context.Context, ref eventLabModel.Ref) (eventLabModel.Observation, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	o := a.observations[ref]
+	if meta, ok := a.metas[ref.Group+"/"+ref.Lab]; ok && meta.InitialLifecycle != nil {
+		if o.UID == "" {
+			o.Ref = ref
+			o.UID = "uid-" + ref.Group + "/" + ref.Lab
+			o.Generation = 1
+			o.DesiredState = "Running"
+			o.ActualState = "Unknown"
+		}
+		o.Creation = &eventLabModel.CreationReceipt{GroupUID: "fixture-group-" + ref.Group, NamespaceUID: "fixture-namespace", DefinitionHash: "fixture-create-definition", CreationID: "fixture-birth-" + ref.Lab, LabUID: "uid-" + ref.Group + "/" + ref.Lab, OperationID: meta.InitialLifecycle.OperationID, Revision: 1, Committed: true}
+	}
+	return o, a.statusErr
 }

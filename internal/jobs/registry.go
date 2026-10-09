@@ -20,6 +20,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/labaccesssync"
 	"github.com/cybericebox/daemon/internal/jobs/labcleanup"
 	"github.com/cybericebox/daemon/internal/jobs/labgroupsweep"
+	"github.com/cybericebox/daemon/internal/jobs/lablifecycle"
 	"github.com/cybericebox/daemon/internal/jobs/mediagc"
 	"github.com/cybericebox/daemon/internal/jobs/notify"
 	"github.com/cybericebox/daemon/internal/jobs/resourcecalendar"
@@ -53,6 +54,7 @@ type (
 		labcleanupJob.IUseCase
 		labgroupsweepJob.IUseCase
 		labaccesssyncJob.IUseCase
+		lablifecycleJob.IUseCase
 		signalprocessingJob.IUseCase
 		dataretentionJob.IUseCase
 		accountinactivityJob.IUseCase
@@ -61,9 +63,10 @@ type (
 		resourcecalendarJob.IUseCase
 	}
 	workerRegistry struct {
-		uc                  iUseCase
-		laboratoriesEnabled bool
-		labSweepInterval    time.Duration
+		uc                   iUseCase
+		laboratoriesEnabled  bool
+		labSweepInterval     time.Duration
+		labLifecycleInterval time.Duration
 	}
 )
 
@@ -81,11 +84,15 @@ const labTeardownInterval = 30 * time.Second
 // retained for recovery, while no configured agent must create no lab jobs.
 //
 // labSweepInterval is the period of the orphan lab group sweep (a non-positive value means the default).
-func NewWorkerRegistry(uc iUseCase, laboratoriesEnabled bool, labSweepInterval time.Duration) *workerRegistry {
+func NewWorkerRegistry(uc iUseCase, laboratoriesEnabled bool, labSweepInterval time.Duration, lifecycleInterval ...time.Duration) *workerRegistry {
 	if labSweepInterval <= 0 {
 		labSweepInterval = DefaultLabSweepInterval
 	}
-	return &workerRegistry{uc: uc, laboratoriesEnabled: laboratoriesEnabled, labSweepInterval: labSweepInterval}
+	interval := 2 * time.Second
+	if len(lifecycleInterval) > 0 && lifecycleInterval[0] > 0 {
+		interval = lifecycleInterval[0]
+	}
+	return &workerRegistry{uc: uc, laboratoriesEnabled: laboratoriesEnabled, labSweepInterval: labSweepInterval, labLifecycleInterval: interval}
 }
 
 // RegisterAll adds every job's worker to the bundle — one AddWorker line per job.
@@ -112,6 +119,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 		river.AddWorker(workers, labcleanupJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labgroupsweepJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labaccesssyncJob.NewWorker(wr.uc))
+		river.AddWorker(workers, lablifecycleJob.NewWorker(wr.uc))
 	}
 	river.AddWorker(workers, signalprocessingJob.NewWorker(wr.uc))
 	river.AddWorker(workers, dataretentionJob.NewWorker(wr.uc))
@@ -173,6 +181,7 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 	}
 	if wr.laboratoriesEnabled {
 		jobs = append(jobs,
+			river.NewPeriodicJob(river.PeriodicInterval(wr.labLifecycleInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabLifecycleArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
 			// Test labs end at their lease through a scheduled TestDeployExpiryArgs job; this sweep is the safety
 			// net (a lost job, a restart before the insert) and retries the labs whose agent deletion failed.
 			river.NewPeriodicJob(river.PeriodicInterval(labTeardownInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),

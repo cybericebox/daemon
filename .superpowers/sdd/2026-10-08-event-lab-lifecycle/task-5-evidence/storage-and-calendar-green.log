@@ -1,0 +1,4 @@
+ok  	github.com/cybericebox/daemon/internal/model/eventLab	0.109s
+ok  	github.com/cybericebox/daemon/internal/model/resourceCalendar	0.222s
+ok  	github.com/cybericebox/daemon/internal/useCase/resourceCalendar	0.404s
+ok  	github.com/cybericebox/daemon/internal/delivery/repository/postgres	13.104s

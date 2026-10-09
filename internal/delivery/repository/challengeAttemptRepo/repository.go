@@ -13,6 +13,7 @@ import (
 )
 
 type Queries interface {
+	GetEventSolutionAttemptIdentity(context.Context, postgres.GetEventSolutionAttemptIdentityParams) (postgres.GetEventSolutionAttemptIdentityRow, error)
 	CreateChallengeAttempt(context.Context, postgres.CreateChallengeAttemptParams) (postgres.ChallengeAttempt, error)
 	GetEventSolutionAttemptForDecision(context.Context, postgres.GetEventSolutionAttemptForDecisionParams) (postgres.GetEventSolutionAttemptForDecisionRow, error)
 	CreateChallengeAttemptDecision(context.Context, postgres.CreateChallengeAttemptDecisionParams) (postgres.ChallengeAttemptDecision, error)
@@ -331,4 +332,11 @@ func optionalTime(value *time.Time) pgtype.Timestamptz {
 
 func ToDomain(row postgres.ChallengeAttempt) challengeAttempt.Attempt {
 	return challengeAttempt.Attempt{ID: row.ID, EventID: row.EventID, EventTeamID: row.EventTeamID, TeamChallengeID: row.TeamChallengeID, UserID: row.UserID, Answer: row.Answer, Correct: row.Correct, ReceivedAt: row.ReceivedAt, CreatedAt: row.CreatedAt, Practice: row.Practice}
+}
+
+type Identity struct{ TeamID, ChallengeID uuid.UUID }
+
+func (r *Repository) Identity(ctx context.Context, eventID, attemptID uuid.UUID) (Identity, error) {
+	row, err := r.q.GetEventSolutionAttemptIdentity(ctx, postgres.GetEventSolutionAttemptIdentityParams{ID: attemptID, EventID: eventID})
+	return Identity{TeamID: row.EventTeamID, ChallengeID: row.EventChallengeID}, err
 }

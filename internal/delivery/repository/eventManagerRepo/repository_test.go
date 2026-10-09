@@ -6,7 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cybericebox/daemon/internal/model/rbac"
+	access "github.com/cybericebox/daemon/internal/useCase/eventManager"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
 
 	eventManagerRepo "github.com/cybericebox/daemon/internal/delivery/repository/eventManagerRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -78,5 +81,25 @@ func TestCreatePersistsTheOwnerMembership(t *testing.T) {
 	}
 	if got != membership {
 		t.Fatalf("created membership: got %+v, want %+v", got, membership)
+	}
+}
+
+func TestMissingSQLMembershipBecomesForbiddenAtActualAccessBoundary(t *testing.T) {
+	eventID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	repo := eventManagerRepo.New(fakeQueries{err: pgx.ErrNoRows})
+	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: userID, Role: rbac.RoleUser})
+	uc := access.NewAccessUseCase(repo)
+	if err := uc.RequireRead(ctx, eventID, userID); !errors.Is(err, eventManagerModel.ErrEventManagementForbidden.Err()) {
+		t.Fatalf("plain participant missing SQL membership must be forbidden, got %v", err)
+	}
+	if err := uc.RequireManage(ctx, eventID, userID); !errors.Is(err, eventManagerModel.ErrEventManagementForbidden.Err()) {
+		t.Fatalf("missing membership must never grant management: %v", err)
+	}
+}
+func TestSQLMembershipStorageErrorIsNotHiddenAsForbidden(t *testing.T) {
+	failure := errors.New("database unavailable")
+	uc := access.NewAccessUseCase(eventManagerRepo.New(fakeQueries{err: failure}))
+	if err := uc.RequireRead(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())); !errors.Is(err, failure) {
+		t.Fatal(err)
 	}
 }

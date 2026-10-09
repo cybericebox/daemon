@@ -93,26 +93,27 @@ func Run(cfg *config.Config) {
 
 	// ── useCases ──
 	deps := useCase.Dependencies{
-		Repo:             repo,
-		EnqueuerFactory:  wc,
-		SMTPEnv:          cfg.Infrastructure.SMTP,
-		OAuth:            cls.oauthClient,
-		Storage:          cls.storageClient,
-		Token:            cls.tokenClient,
-		Password:         cls.passwordClient,
-		AuthConfig:       cfg.Auth,
-		Sessions:         sessions,
-		MediaConfig:      cfg.Media,
-		ExerciseConfig:   cfg.Exercise,
-		ResourcesPolicy:  resourcesPolicy,
-		Calendar:         calendarConfig(cfg.Calendar, cfg.Exercise),
-		SMTPAllowedPorts: cfg.Tunables.SMTPAllowedPorts,
-		RetentionPolicy:  cfg.Retention.Policy(),
-		ExerciseCipher:   cls.exerciseCipher,
-		VPNCipher:        cls.vpnCipher,
-		PlatformCipher:   cls.platformCipher,
-		ErrorJournal:     errorJournalConfig(cfg),
-		Telegram:         telegram.New(cfg.Telegram.BotToken),
+		Repo:               repo,
+		EnqueuerFactory:    wc,
+		SMTPEnv:            cfg.Infrastructure.SMTP,
+		OAuth:              cls.oauthClient,
+		Storage:            cls.storageClient,
+		Token:              cls.tokenClient,
+		Password:           cls.passwordClient,
+		AuthConfig:         cfg.Auth,
+		Sessions:           sessions,
+		MediaConfig:        cfg.Media,
+		LabLifecycleConfig: cfg.LabLifecycle,
+		ExerciseConfig:     cfg.Exercise,
+		ResourcesPolicy:    resourcesPolicy,
+		Calendar:           calendarConfig(cfg.Calendar, cfg.Exercise),
+		SMTPAllowedPorts:   cfg.Tunables.SMTPAllowedPorts,
+		RetentionPolicy:    cfg.Retention.Policy(),
+		ExerciseCipher:     cls.exerciseCipher,
+		VPNCipher:          cls.vpnCipher,
+		PlatformCipher:     cls.platformCipher,
+		ErrorJournal:       errorJournalConfig(cfg),
+		Telegram:           telegram.New(cfg.Telegram.BotToken),
 	}
 	applyTunables(cfg.Tunables)
 	labIssuer, err := labaccess.New(labaccess.Config{
@@ -208,7 +209,7 @@ func Run(cfg *config.Config) {
 		log.Error().Err(err).Msg("Failed to promote designated super admin")
 	}
 	// job worker registry
-	wr := jobsRegistry.NewWorkerRegistry(ucs, true, cfg.Exercise.LabSweepInterval)
+	wr := jobsRegistry.NewWorkerRegistry(ucs, true, cfg.Exercise.LabSweepInterval, cfg.LabLifecycle.Interval)
 
 	// ── jobs ──
 	// The full ucs aggregate is handed to every worker registrar; each worker

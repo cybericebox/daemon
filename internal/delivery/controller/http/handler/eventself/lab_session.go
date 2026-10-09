@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/labview"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"github.com/cybericebox/daemon/pkg/labaccess"
@@ -25,8 +26,10 @@ type labLinkRequest struct {
 }
 
 type labLinkResponse struct {
-	URL       string
-	ExpiresAt time.Time
+	LabID     uuid.UUID `json:"LabID"`
+	Revision  string    `json:"Revision"`
+	URL       string    `json:"URL"`
+	ExpiresAt time.Time `json:"ExpiresAt"`
 }
 
 // openLabLink godoc
@@ -70,5 +73,40 @@ func (h *Handler) openLabLink(ctx *gin.Context) {
 		return
 	}
 	ctx.Header("Cache-Control", "private, no-store")
-	response.AbortWithData(ctx, labLinkResponse{URL: link.URL, ExpiresAt: link.ExpiresAt})
+	response.AbortWithData(ctx, labLinkResponse{URL: link.URL, ExpiresAt: link.ExpiresAt, LabID: link.LabID, Revision: link.Revision})
+}
+
+// labLifecycle godoc
+// @Summary Get the caller's canonical laboratory lifecycle
+// @Tags events-self
+// @Produce json
+// @Param id path string true "event ID"
+// @Param labID path string true "canonical lab ID"
+// @Success 200 {object} response.Response{data=labLifecycleResponse}
+// @Router /events/{id}/teams/labs/{labID} [get]
+func (h *Handler) labLifecycle(ctx *gin.Context) {
+	eventID, ok := eventIDFromPath(ctx)
+	if !ok {
+		return
+	}
+	labID, err := uuid.FromString(ctx.Param("labID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	claims, ok := claimsFromContext(ctx)
+	if !ok {
+		return
+	}
+	lab, err := h.useCase.GetOwnLabLifecycle(ctx, eventID, claims.UserID, labID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, labLifecycleResponse{Lab: labview.ParticipantLab(&lab)})
+}
+
+type labLifecycleResponse struct {
+	Lab *labview.ParticipantLabResponse `json:"Lab"`
 }

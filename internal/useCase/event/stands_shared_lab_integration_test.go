@@ -10,10 +10,12 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labAccessSyncRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
@@ -198,6 +200,27 @@ func TestStandEngine_OneLabPerExerciseWithEveryTaskFlag(t *testing.T) {
 		}
 	}
 
+	// Synthetic current-operation receipts for this SQL/assignment fixture.
+	// Generic initial Ready deliberately carries no operation acknowledgement.
+	rows, err := f.db.Queries.ListEventLabAllocations(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.EventTeamID != f.blueID {
+			continue
+		}
+		canonical, err := eventLabRepo.New(f.db.Queries).Get(ctx, row.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().UTC()
+		ack := eventLabModel.Observation{Ref: canonical.Ref, UID: canonical.AgentUID, Generation: canonical.AgentGeneration, ObservedGeneration: canonical.AgentGeneration, OperationID: canonical.OperationID, Revision: canonical.Revision, DesiredState: "Running", ActualState: "Running", RuntimeReady: true, ObservedAt: &at, Allocation: eventLabModel.Allocation{RuntimeState: "Allocated", ObservedAt: &at}}
+		ok, err := eventLabRepo.New(f.db.Queries).RecordObservation(ctx, canonical.ID, ack)
+		if err != nil || !ok {
+			t.Fatal("synthetic current-operation receipt", ok, err)
+		}
+	}
 	// Access lists the Lab once for the three tasks.
 	access, err := labAccessSyncRepo.New(f.db.Queries).Labs(ctx, f.blueID)
 	if err != nil {
@@ -350,5 +373,163 @@ func TestStandEngine_MovesPerTaskLabsToTheSharedLab(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("shared Lab deployed %d times (%v)", count, f.agent.deployed)
+	}
+}
+
+func TestEventLabsAssignmentPinsFullSharedSet(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	set := f.attachSharedSet(t)
+	f.pass(t)
+	var n int
+	var materialized bool
+	if err := f.db.Pool.QueryRow(ctx, `SELECT objective_count,materialized FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2`, f.blueID, set.exerciseID).Scan(&n, &materialized); err != nil || n != 3 || !materialized {
+		t.Fatalf("full canonical pin: count=%d materialized=%v err=%v", n, materialized, err)
+	}
+	var distinct int
+	if err := f.db.Pool.QueryRow(ctx, `SELECT count(DISTINCT lab_id) FROM lab_bindings WHERE event_team_id=$1 AND event_challenge_id=ANY($2)`, f.blueID, set.challenges).Scan(&distinct); err != nil || distinct != 1 {
+		t.Fatal(distinct, err)
+	}
+}
+func TestEventLabsBackfillPreservesSharedIdentity(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	set := f.attachSharedSet(t)
+	f.pass(t)
+	var beforeGroup, beforeName string
+	var generation int32
+	if err := f.db.Pool.QueryRow(ctx, `SELECT lab_group_name,lab_name,generation FROM lab_bindings WHERE event_team_id=$1 AND event_challenge_id=$2`, f.blueID, set.challenges[0]).Scan(&beforeGroup, &beforeName, &generation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE lab_bindings SET lab_id=NULL WHERE event_team_id=$1 AND event_challenge_id=ANY($2)`, f.blueID, set.challenges); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Pool.Exec(ctx, `DELETE FROM event_lab_objectives WHERE lab_id IN (SELECT id FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2)`, f.blueID, set.exerciseID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Pool.Exec(ctx, `DELETE FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2`, f.blueID, set.exerciseID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE team_challenges SET readiness=2 WHERE event_team_id=$1 AND event_challenge_id=ANY($2)`, f.blueID, set.challenges); err != nil {
+		t.Fatal(err)
+	}
+	f.pass(t)
+	var id uuid.UUID
+	var group, name string
+	var gotGeneration int32
+	var count int
+	var materialized bool
+	if err := f.db.Pool.QueryRow(ctx, `SELECT id,lab_group_name,lab_name,generation,objective_count,materialized FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2`, f.blueID, set.exerciseID).Scan(&id, &group, &name, &gotGeneration, &count, &materialized); err != nil {
+		t.Fatal(err)
+	}
+	if group != beforeGroup || name != beforeName || gotGeneration != generation || count != 3 || !materialized {
+		t.Fatal(group, name, gotGeneration, count, materialized)
+	}
+	f.pass(t)
+	var copies int
+	if err := f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2`, f.blueID, set.exerciseID).Scan(&copies); err != nil || copies != 1 {
+		t.Fatal(copies, err)
+	}
+	var attached int
+	if err := f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM lab_bindings WHERE lab_id=$1`, id).Scan(&attached); err != nil || attached != 3 {
+		t.Fatal(attached, err)
+	}
+}
+
+func TestRequiredLabPolicyFailsBeforeProvisioning(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE event_configs SET lab_policy='{"SnapshotMode":"required","MaxActiveLabsPerTeam":null,"RetentionMinutes":60}' WHERE event_id=$1`, f.eventID); err != nil {
+		t.Fatal(err)
+	}
+	err := f.uc.ReconcileEventStands(ctx)
+	if err == nil {
+		t.Fatal("REQUIRED without capture support prepared labs")
+	}
+	var n int
+	if err := f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM lab_bindings WHERE event_id=$1`, f.eventID).Scan(&n); err != nil || n != 0 {
+		t.Fatal("provisioned unsupported required labs", n, err)
+	}
+	if labs := f.deployedLike("x-"); len(labs) != 0 {
+		t.Fatal("deployed", labs)
+	}
+}
+
+func TestEventLabsInconsistentBackfillNeverProvisions(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	set := f.attachSharedSet(t)
+	f.pass(t)
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE lab_bindings SET lab_id=NULL,generation=CASE WHEN event_challenge_id=$3 THEN 1 ELSE 0 END,deployed_at=NULL,readiness=0 WHERE event_team_id=$1 AND event_challenge_id=ANY($2)`, f.blueID, set.challenges, set.challenges[0]); err != nil {
+		t.Fatal(err)
+	}
+	f.agent.mu.Lock()
+	f.agent.deployed = nil
+	f.agent.mu.Unlock()
+	if err := f.uc.ReconcileEventStands(ctx); err == nil {
+		t.Fatal("inconsistent assignment silently repaired")
+	}
+	f.agent.mu.Lock()
+	defer f.agent.mu.Unlock()
+	for _, ref := range f.agent.deployed {
+		if strings.Contains(ref, "/x-"+labBindingModel.ShortID(set.exerciseID)) {
+			t.Fatal("inconsistent canonical-missing lab provisioned", ref)
+		}
+	}
+	var materialized int
+	if err := f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM lab_bindings WHERE event_team_id=$1 AND event_challenge_id=ANY($2) AND lab_id IS NOT NULL`, f.blueID, set.challenges).Scan(&materialized); err != nil || materialized != 0 {
+		t.Fatal(materialized, err)
+	}
+}
+
+func TestEventLabsPartialBackfillPinsEveryObjectiveWithoutMaterializing(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	set := f.attachSharedSet(t)
+	f.pass(t)
+	for _, query := range []string{
+		`UPDATE lab_bindings SET lab_id=NULL WHERE event_team_id=$1 AND event_challenge_id=ANY($2)`,
+		`DELETE FROM event_lab_objectives WHERE lab_id IN (SELECT id FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=(SELECT event_exercise_id FROM event_challenges WHERE id=ANY($2) LIMIT 1))`,
+		`DELETE FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=(SELECT event_exercise_id FROM event_challenges WHERE id=ANY($2) LIMIT 1)`,
+		`DELETE FROM lab_bindings WHERE event_team_id=$1 AND event_challenge_id=(SELECT event_challenge_id FROM team_challenges WHERE event_team_id=$1 AND event_challenge_id=ANY($2) ORDER BY event_challenge_id LIMIT 1)`,
+		`UPDATE team_challenges SET readiness=2 WHERE event_team_id=$1 AND event_challenge_id=ANY($2)`,
+	} {
+		if _, err := f.db.Pool.Exec(ctx, query, f.blueID, set.challenges); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.uc.ReconcileEventStands(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	var materialized bool
+	if err := f.db.Pool.QueryRow(ctx, `SELECT objective_count,materialized FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2`, f.blueID, set.exerciseID).Scan(&count, &materialized); err != nil || count != 3 || materialized {
+		t.Fatal(count, materialized, err)
+	}
+}
+
+func TestEventLabsRequiredBackfillRequiresPreparationValidation(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	set := f.attachSharedSet(t)
+	f.pass(t)
+	for _, query := range []string{
+		`UPDATE lab_bindings SET lab_id=NULL WHERE event_team_id=$1 AND event_challenge_id=ANY($2)`,
+		`DELETE FROM event_lab_objectives WHERE lab_id IN (SELECT id FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=(SELECT event_exercise_id FROM event_challenges WHERE id=ANY($2) LIMIT 1))`,
+		`DELETE FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=(SELECT event_exercise_id FROM event_challenges WHERE id=ANY($2) LIMIT 1)`,
+	} {
+		if _, err := f.db.Pool.Exec(ctx, query, f.blueID, set.challenges); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE event_configs SET lab_policy='{"SnapshotMode":"required","MaxActiveLabsPerTeam":null,"RetentionMinutes":60}' WHERE event_id=$1`, f.eventID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.uc.ReconcileEventStands(ctx); err == nil {
+		t.Fatal("unsupported REQUIRED legacy assignment silently backfilled")
+	}
+	var count int
+	if err := f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM event_team_labs WHERE event_team_id=$1 AND event_exercise_id=$2`, f.blueID, set.exerciseID).Scan(&count); err != nil || count != 0 {
+		t.Fatal("unvalidated required policy was captured", count, err)
 	}
 }

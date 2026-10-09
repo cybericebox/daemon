@@ -2,17 +2,21 @@ package labagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gofrs/uuid"
 	"strings"
 	"time"
 
 	labclient "github.com/cybericebox/laboratory/pkg/agent/client"
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
 // Conventional names within a deploy: the lab group name is the caller's deploy
@@ -46,6 +50,9 @@ func (c *Client) requestLabels() map[string]string {
 // the caller polls LabStatus. The namespace wait is short (group namespace creation is
 // fast), so this returns once the objects are created, not once the lab is Ready.
 func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
+	if meta.InitialLifecycle != nil && (meta.InitialLifecycle.OperationID == uuid.Nil || meta.InitialLifecycle.Revision != 1 || meta.BeforeCreate == nil) {
+		return fmt.Errorf("managed initial lifecycle requires a persisted operation and revision1")
+	}
 	if err := c.ensureGroup(ctx, group, meta.GroupLabels); err != nil {
 		return err
 	}
@@ -56,11 +63,39 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	if err != nil {
 		return fmt.Errorf("build lab spec: %w", err)
 	}
+	if meta.InitialLifecycle != nil {
+		var spec labSpec
+		if err = json.Unmarshal(specJSON, &spec); err != nil {
+			return err
+		}
+		spec.Lifecycle = &labInitialLifecycle{DesiredState: "Running", OperationID: meta.InitialLifecycle.OperationID.String(), Revision: meta.InitialLifecycle.Revision}
+		if specJSON, err = json.Marshal(spec); err != nil {
+			return err
+		}
+	}
+	expectedGroupUID := ""
+	if meta.InitialLifecycle != nil {
+		g, err := c.getGroup(ctx, group)
+		if err != nil {
+			return err
+		}
+		if g.GetUid() == "" {
+			return fmt.Errorf("managed create group identity unavailable")
+		}
+		expectedGroupUID = g.GetUid()
+		hash, err := labclient.CreationDefinitionHash(specJSON, meta.DeployGroup, nil)
+		if err != nil {
+			return err
+		}
+		if err = meta.BeforeCreate(ctx, infraModel.LabCreateDispatch{GroupUID: expectedGroupUID, DefinitionHash: hash}); err != nil {
+			return err
+		}
+	}
 	res, err := c.CreateLabs(ctx, &labpb.CreateLabsRequest{
 		Labels:   c.requestLabels(),
 		Variants: []*labpb.LabVariant{{VariantId: deployVariantID, SpecJson: specJSON}},
 		Items: []*labpb.LabItem{{
-			LabGroup: group, Name: lab, VariantId: deployVariantID, Env: env,
+			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: env,
 			Labels: meta.Labels, DeployGroup: meta.DeployGroup,
 		}},
 	})
@@ -121,8 +156,24 @@ func (c *Client) ensureGroup(ctx context.Context, group string, labels map[strin
 	// The group exists with another spec: its sizes were planned when it was created, and its
 	// suspended / VPN-disabled flags are owned by the access sync (SetLabGroup*), so a create
 	// request cannot match them and never will. Adopt it as it is, instead of failing forever.
-	if _, getErr := c.getGroup(ctx, group); getErr != nil {
+	existing, getErr := c.getGroup(ctx, group)
+	if getErr != nil {
 		return err
+	}
+
+	if sizes, ok := infraModel.GroupSizesFrom(ctx); ok && sizes.Total() != (resourcesModel.Amount{}) {
+		projected, hasProjection := any(existing).(interface {
+			GetVpnSize() *labpb.PodSize
+			GetGatewaySize() *labpb.PodSize
+		})
+		if !hasProjection || existing.GetUid() == "" || projected.GetVpnSize() == nil || projected.GetGatewaySize() == nil {
+			return fmt.Errorf("existing laboratory group sizes are unavailable: %w", err)
+		}
+		vpn, gateway := projected.GetVpnSize(), projected.GetGatewaySize()
+		actual := infraModel.GroupSizes{VPN: resourcesModel.Amount{CPUMillicores: vpn.GetCpuMillicores(), MemoryBytes: vpn.GetMemoryBytes()}, Gateway: resourcesModel.Amount{CPUMillicores: gateway.GetCpuMillicores(), MemoryBytes: gateway.GetMemoryBytes()}}
+		if actual.VPN.CPUMillicores <= 0 || actual.VPN.MemoryBytes <= 0 || actual.Gateway.CPUMillicores <= 0 || actual.Gateway.MemoryBytes <= 0 || !actual.Holds(sizes) {
+			return fmt.Errorf("existing laboratory group is undersized: %w", err)
+		}
 	}
 	return nil
 }
@@ -342,6 +393,15 @@ func (c *Client) DeleteLab(ctx context.Context, group, lab string) error {
 // Laboratory agent. The group policy is default-deny, so callers must always
 // pass the complete desired access snapshot.
 func (c *Client) ReconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy) error {
+	return c.reconcileLabGroupAccess(ctx, group, policies, nil)
+}
+func (c *Client) ReconcileLabGroupAccessRevision(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target eventLabModel.AccessTarget) error {
+	if target.Group != group || target.ExpectedGroupUID == "" || target.OperationID == uuid.Nil || target.Revision <= 0 {
+		return fmt.Errorf("replace lab group access policy: incomplete or foreign revision target")
+	}
+	return c.reconcileLabGroupAccess(ctx, group, policies, &target)
+}
+func (c *Client) reconcileLabGroupAccess(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target *eventLabModel.AccessTarget) error {
 	rules := make([]*labpb.LabGroupAccessRule, 0, len(policies))
 	for _, policy := range policies {
 		// An empty LabNames list means "all Labs" in the operator protocol.
@@ -356,9 +416,15 @@ func (c *Client) ReconcileLabGroupAccess(ctx context.Context, group string, poli
 			LabNames:    append([]string(nil), policy.AllowedLabs...),
 		})
 	}
+	wire := &labpb.LabGroupAccessPolicy{LabGroupName: group, Rules: rules}
+	if target != nil {
+		wire.OperationId = target.OperationID.String()
+		wire.DesiredRevision = target.Revision
+		wire.ExpectedGroupUid = target.ExpectedGroupUID
+	}
 	res, err := c.SetLabGroupAccess(ctx, &labpb.SetLabGroupAccessRequest{
 		Labels:   c.requestLabels(),
-		Policies: []*labpb.LabGroupAccessPolicy{{LabGroupName: group, Rules: rules}},
+		Policies: []*labpb.LabGroupAccessPolicy{wire},
 	})
 	if err != nil {
 		return agentErr("replace lab group access policy", err)
@@ -519,9 +585,10 @@ func deviceActionErr(op string, err error) error {
 func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 	st := l.GetStatus()
 	if st == nil {
-		return exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhasePending}
+		return exerciseModel.LabDeployStatus{LabUID: l.GetUid(), LabGeneration: l.GetGeneration(), Phase: exerciseModel.DeployPhasePending}
 	}
 	out := exerciseModel.LabDeployStatus{
+		LabUID: l.GetUid(), LabGeneration: l.GetGeneration(),
 		Phase:        st.GetPhase(),
 		Ready:        st.GetReady(),
 		VPNCIDR:      st.GetVpnCidr(),

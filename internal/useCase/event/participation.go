@@ -17,6 +17,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
+	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	eventTeamModel "github.com/cybericebox/daemon/internal/model/eventTeam"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
@@ -118,7 +119,7 @@ func (u *EventUseCase) isEventStaff(ctx context.Context, eventID, userID uuid.UU
 	if err == nil {
 		return true, nil
 	}
-	if repositoryTools.IsObjectNotFoundError(err) || errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, eventManagerModel.ErrEventManagerNotFound.Err()) || repositoryTools.IsObjectNotFoundError(err) || errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	return false, model.ErrPlatform.WithError(err).WithMessage("Failed to check event staff membership").Err()

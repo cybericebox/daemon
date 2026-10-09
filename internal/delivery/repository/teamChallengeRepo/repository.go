@@ -44,12 +44,14 @@ type Availability struct {
 // event board's current presentation metadata. ExpectedFlag stays in the
 // domain object and must never be serialized to participant responses.
 type PublishedChallenge struct {
-	Challenge  teamChallengeModel.TeamChallenge
-	Points     int32
-	Order      int32 // the place inside the group (the manage page's group order)
-	GroupID    *uuid.UUID
-	GroupName  string
-	GroupOrder int32
+	EventExerciseID uuid.UUID
+	LabID           uuid.NullUUID
+	Challenge       teamChallengeModel.TeamChallenge
+	Points          int32
+	Order           int32 // the place inside the group (the manage page's group order)
+	GroupID         *uuid.UUID
+	GroupName       string
+	GroupOrder      int32
 	// ContentUpdatedAt marks a content replacement (W4); nil when never replaced.
 	ContentUpdatedAt *time.Time
 	HintsEnabled     bool
@@ -87,7 +89,10 @@ type Solve struct {
 	FirstBlood      bool
 }
 
-type Repository struct{ q Queries }
+type Repository struct {
+	q              Queries
+	revealBarriers bool
+}
 
 func New(q Queries) *Repository { return &Repository{q: q} }
 func (r *Repository) Create(ctx context.Context, v teamChallengeModel.TeamChallenge) (teamChallengeModel.TeamChallenge, error) {
@@ -160,7 +165,7 @@ func (r *Repository) listBoard(ctx context.Context, teamID uuid.UUID, publishedO
 			stageID = &id
 		}
 		out = append(out, PublishedChallenge{
-			StageID: stageID, StagePhase: eventModel.StagePhase(row.StagePhase), PracticeSolved: row.PracticeSolved,
+			EventExerciseID: row.EventExerciseID, LabID: row.LabID, StageID: stageID, StagePhase: eventModel.StagePhase(row.StagePhase), PracticeSolved: row.PracticeSolved,
 			Challenge: challenge, BoardHints: boardHints, HintCosts: costs,
 			Points: row.Points, Order: row.BoardPosition, GroupID: groupID, GroupName: row.GroupName, GroupOrder: row.GroupOrder,
 			ContentUpdatedAt: contentUpdatedAt, HintsEnabled: row.HintsEnabled, Published: row.Published, Infrastructure: row.Infrastructure,
@@ -274,7 +279,7 @@ func (r *Repository) UpdateReadiness(ctx context.Context, id uuid.UUID, expected
 // published: static ones always, infrastructure ones only when labsOpen (the
 // event's strict barrier). It returns the distinct affected teams.
 func (r *Repository) PublishAvailable(ctx context.Context, eventID uuid.UUID, labsOpen bool) ([]uuid.UUID, error) {
-	rows, err := r.q.PublishAvailableTeamChallenges(ctx, postgres.PublishAvailableTeamChallengesParams{EventID: eventID, LabsOpen: labsOpen})
+	rows, err := r.q.PublishAvailableTeamChallenges(ctx, postgres.PublishAvailableTeamChallengesParams{EventID: eventID, UseRevealBarriers: r.revealBarriers, LabsOpen: labsOpen})
 	if err != nil {
 		return nil, err
 	}
@@ -453,3 +458,5 @@ func (r *Repository) EventUnlocks(ctx context.Context, eventID uuid.UUID) ([]Hin
 	}
 	return out, nil
 }
+
+func NewWithRevealBarriers(q Queries) *Repository { return &Repository{q: q, revealBarriers: true} }

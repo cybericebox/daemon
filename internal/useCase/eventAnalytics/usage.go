@@ -98,12 +98,13 @@ type (
 	}
 
 	UsageLabView struct {
-		ChallengeID       uuid.UUID
-		Task              string
-		Surface           string
-		Attempts          int64
-		BytesIn, BytesOut int64
-		FirstAt, LastAt   time.Time
+		ChallengeID          uuid.UUID
+		Task                 string
+		Surface              string
+		Attempts             int64
+		LabInitiatedAttempts int64
+		BytesIn, BytesOut    int64
+		FirstAt, LastAt      *time.Time
 	}
 )
 
@@ -209,8 +210,8 @@ func buildUsage(users []eventAnalyticsRepo.UsageUser, vpn []eventAnalyticsRepo.U
 
 		for _, t := range touchesOf[user.UserID] {
 			uv.Labs = append(uv.Labs, UsageLabView{
-				ChallengeID: t.ChallengeID, Task: t.Task, Surface: t.Surface, Attempts: t.Attempts,
-				BytesIn: t.BytesIn, BytesOut: t.BytesOut, FirstAt: t.FirstSeenAt, LastAt: t.LastSeenAt,
+				ChallengeID: t.ChallengeID, Task: t.Task, Surface: t.Surface, Attempts: t.Attempts, LabInitiatedAttempts: t.LabInitiatedAttempts,
+				BytesIn: t.BytesIn, BytesOut: t.BytesOut, FirstAt: usageActionTime(t.FirstSeenAt), LastAt: usageActionTime(t.LastSeenAt),
 			})
 			if t.Surface != string(labTrafficModel.SurfaceProxy) {
 				continue
@@ -219,11 +220,11 @@ func buildUsage(users []eventAnalyticsRepo.UsageUser, vpn []eventAnalyticsRepo.U
 			p.Requests += t.Attempts
 			p.BytesIn += t.BytesIn
 			p.BytesOut += t.BytesOut
-			if p.FirstAt == nil || t.FirstSeenAt.Before(*p.FirstAt) {
+			if !t.FirstSeenAt.IsZero() && (p.FirstAt == nil || t.FirstSeenAt.Before(*p.FirstAt)) {
 				first := t.FirstSeenAt
 				p.FirstAt = &first
 			}
-			if p.LastAt == nil || t.LastSeenAt.After(*p.LastAt) {
+			if !t.LastSeenAt.IsZero() && (p.LastAt == nil || t.LastSeenAt.After(*p.LastAt)) {
 				lastSeen := t.LastSeenAt
 				p.LastAt = &lastSeen
 			}
@@ -252,4 +253,13 @@ func buildUsage(users []eventAnalyticsRepo.UsageUser, vpn []eventAnalyticsRepo.U
 		return strings.ToLower(a.UserName) < strings.ToLower(b.UserName)
 	})
 	return view
+}
+
+// Missing participant observations stay unknown; lab-originated counters do
+// not create an action date or a WireGuard online state.
+func usageActionTime(at time.Time) *time.Time {
+	if at.IsZero() {
+		return nil
+	}
+	return &at
 }

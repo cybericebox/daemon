@@ -3,6 +3,7 @@ INSERT INTO event_lab_access_syncs (event_team_id, desired_revision, applied_rev
 VALUES (sqlc.arg(event_team_id), 1, 0, sqlc.arg(updated_at))
 ON CONFLICT (event_team_id) DO UPDATE
 SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    operation_id=NULL, policy_fingerprint='', expected_group_uid='',
     updated_at = EXCLUDED.updated_at
 RETURNING *;
 
@@ -17,6 +18,7 @@ WHERE team.event_id = sqlc.arg(event_id)
     OR EXISTS (SELECT 1 FROM events event WHERE event.id = team.event_id AND event.infrastructure_allowed))
 ON CONFLICT (event_team_id) DO UPDATE
 SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    operation_id=NULL, policy_fingerprint='', expected_group_uid='',
     updated_at = EXCLUDED.updated_at;
 
 -- name: ListDirtyEventLabAccessSyncs :many
@@ -24,7 +26,7 @@ WITH access_state AS (
     SELECT sync.event_team_id,
            team.event_id,
            sync.desired_revision,
-           sync.applied_revision,
+           sync.applied_revision, sync.operation_id, sync.policy_fingerprint, sync.expected_group_uid, sync.access_fence_vpn_boot_id,
            sync.updated_at,
            sync.runtime_open AS applied_runtime_open,
            sync.vpn_enabled AS applied_vpn_enabled,
@@ -45,29 +47,84 @@ WITH access_state AS (
     JOIN event_teams team ON team.id = sync.event_team_id
     JOIN events event ON event.id = team.event_id
     LEFT JOIN event_stand_rollouts rollout ON rollout.event_id = event.id
+    -- Teardown is terminal for this group; absence must not recreate it.
+    WHERE rollout.torn_down_at IS NULL
 )
-SELECT event_team_id, event_id, desired_revision, applied_revision, updated_at, runtime_open, vpn_enabled, stage_epoch
+SELECT event_team_id, event_id, desired_revision, applied_revision, operation_id, policy_fingerprint, expected_group_uid, updated_at, runtime_open, vpn_enabled, stage_epoch
 FROM access_state
 WHERE desired_revision > applied_revision
    OR applied_runtime_open IS DISTINCT FROM runtime_open
    OR applied_vpn_enabled IS DISTINCT FROM vpn_enabled
    OR applied_stage_epoch IS DISTINCT FROM stage_epoch
+   -- An old applied revision is historical evidence only. Keep reconciling
+   -- whenever its complete current certificate disappears or loses freshness.
+   OR NOT EXISTS (SELECT 1 FROM lab_monitoring_current m,
+      jsonb_array_elements(COALESCE(m.payload->'groups','[]'::jsonb)) g,
+      jsonb_array_elements(COALESCE(m.payload->'policies','[]'::jsonb)) p
+    WHERE m.event_team_id=access_state.event_team_id AND m.event_id=access_state.event_id
+      AND access_state.operation_id IS NOT NULL
+      AND access_state.operation_id<>'00000000-0000-0000-0000-000000000000'::uuid
+      AND access_state.policy_fingerprint<>'' AND access_state.expected_group_uid<>''
+      AND access_state.access_fence_vpn_boot_id<>''
+      AND m.observed_at BETWEEN now()-interval '30 seconds' AND now()
+      AND g->>'name'=m.lab_group_name AND g->>'uid'=access_state.expected_group_uid
+      AND g->'status'->>'currentVpnBootAvailable'='true'
+      AND g->'status'->>'currentVpnBootId'=access_state.access_fence_vpn_boot_id
+      AND CASE WHEN g->'status'->>'currentVpnBootObservedUnixMs' ~ '^[0-9]{1,16}$' THEN (g->'status'->>'currentVpnBootObservedUnixMs')::bigint ELSE 0 END
+          BETWEEN (extract(epoch FROM now())*1000)::bigint-30000 AND (extract(epoch FROM now())*1000)::bigint
+      AND p->>'labGroupName'=m.lab_group_name AND p->>'expectedGroupUid'=access_state.expected_group_uid
+      AND COALESCE(p->>'policyUid','')<>'' AND p->>'operationId'=access_state.operation_id::text
+      AND p->>'desiredRevision'=access_state.desired_revision::text
+      AND p->'status'->>'operationId'=access_state.operation_id::text
+      AND p->'status'->>'appliedRevision'=access_state.desired_revision::text
+      AND p->'status'->>'state'='Applied' AND COALESCE(p->'status'->>'lastError','')=''
+      AND CASE WHEN p->>'generation' ~ '^[0-9]{1,16}$' THEN (p->>'generation')::bigint ELSE 0 END>0
+      AND p->>'generation'=p->'status'->>'observedGeneration'
+      AND CASE WHEN p->'status'->>'appliedAtUnixMs' ~ '^[0-9]{1,16}$' THEN (p->'status'->>'appliedAtUnixMs')::bigint ELSE 0 END>0
+      AND p->'status'->>'vpnBootId'=access_state.access_fence_vpn_boot_id)
 ORDER BY updated_at, event_team_id
 LIMIT sqlc.arg(limit_val);
 
 -- name: MarkEventLabAccessSyncApplied :execrows
-UPDATE event_lab_access_syncs
+UPDATE event_lab_access_syncs AS sync
 SET applied_revision = sqlc.arg(desired_revision),
+    access_fence_vpn_boot_id=sqlc.arg(access_fence_vpn_boot_id),
     runtime_open = sqlc.arg(runtime_open),
     vpn_enabled = sqlc.arg(vpn_enabled),
     applied_stage_epoch = sqlc.arg(stage_epoch),
     updated_at = sqlc.arg(updated_at)
-WHERE event_team_id = sqlc.arg(event_team_id)
-  AND desired_revision = sqlc.arg(desired_revision)
-  AND (applied_revision < sqlc.arg(desired_revision)
-       OR runtime_open IS DISTINCT FROM sqlc.arg(runtime_open)
-       OR vpn_enabled IS DISTINCT FROM sqlc.arg(vpn_enabled)
-       OR applied_stage_epoch IS DISTINCT FROM sqlc.arg(stage_epoch));
+WHERE sync.event_team_id = sqlc.arg(event_team_id)
+  AND sync.desired_revision = sqlc.arg(desired_revision)
+  AND sync.operation_id=sqlc.arg(operation_id)::uuid
+  AND sync.policy_fingerprint=sqlc.arg(policy_fingerprint)
+  AND sync.expected_group_uid=sqlc.arg(expected_group_uid)
+  -- Recheck the current Monitoring tuple in the acknowledgement statement.
+  -- A VPN restart after the worker read must not acknowledge the old boot.
+  AND EXISTS (SELECT 1 FROM lab_monitoring_current m,
+      jsonb_array_elements(COALESCE(m.payload->'groups','[]'::jsonb)) g,
+      jsonb_array_elements(COALESCE(m.payload->'policies','[]'::jsonb)) p
+    WHERE m.event_team_id=sqlc.arg(event_team_id) AND m.lab_group_name=sqlc.arg(lab_group_name)
+      AND m.observed_at BETWEEN sqlc.arg(updated_at)::timestamptz-interval '30 seconds' AND sqlc.arg(updated_at)::timestamptz
+      AND g->>'name'=m.lab_group_name AND g->>'uid'=sqlc.arg(expected_group_uid)
+      AND g->'status'->>'currentVpnBootAvailable'='true'
+      AND g->'status'->>'currentVpnBootId'=sqlc.arg(access_fence_vpn_boot_id)
+      AND CASE WHEN g->'status'->>'currentVpnBootObservedUnixMs' ~ '^[0-9]{1,16}$' THEN (g->'status'->>'currentVpnBootObservedUnixMs')::bigint ELSE 0 END
+          BETWEEN (extract(epoch FROM sqlc.arg(updated_at)::timestamptz)*1000)::bigint-30000 AND (extract(epoch FROM sqlc.arg(updated_at)::timestamptz)*1000)::bigint
+      AND p->>'labGroupName'=m.lab_group_name AND p->>'expectedGroupUid'=sqlc.arg(expected_group_uid)
+      AND COALESCE(p->>'policyUid','')<>'' AND p->>'operationId'=sqlc.arg(operation_id)::uuid::text
+      AND p->>'desiredRevision'=sqlc.arg(desired_revision)::bigint::text
+      AND p->'status'->>'operationId'=sqlc.arg(operation_id)::uuid::text
+      AND p->'status'->>'appliedRevision'=sqlc.arg(desired_revision)::bigint::text
+      AND p->'status'->>'state'='Applied' AND COALESCE(p->'status'->>'lastError','')=''
+      AND CASE WHEN p->>'generation' ~ '^[0-9]{1,16}$' THEN (p->>'generation')::bigint ELSE 0 END>0
+      AND p->>'generation'=p->'status'->>'observedGeneration'
+      AND CASE WHEN p->'status'->>'appliedAtUnixMs' ~ '^[0-9]{1,16}$' THEN (p->'status'->>'appliedAtUnixMs')::bigint ELSE 0 END>0
+      AND p->'status'->>'vpnBootId'=sqlc.arg(access_fence_vpn_boot_id))
+  AND (sync.applied_revision < sqlc.arg(desired_revision)
+       OR sync.runtime_open IS DISTINCT FROM sqlc.arg(runtime_open)
+       OR sync.vpn_enabled IS DISTINCT FROM sqlc.arg(vpn_enabled)
+       OR sync.applied_stage_epoch IS DISTINCT FROM sqlc.arg(stage_epoch)
+       OR sync.access_fence_vpn_boot_id IS DISTINCT FROM sqlc.arg(access_fence_vpn_boot_id));
 
 -- name: ListEventLabAccessClients :many
 -- The hidden moderators team has no participant rows: its VPN clients are the
@@ -92,6 +149,7 @@ ORDER BY user_id;
 SELECT lb.lab_group_name,
        lb.lab_name,
        CASE WHEN lb.readiness = 1 AND tc.readiness = 2
+ AND (lb.lab_id IS NULL OR (canonical.desired_state='Running' AND canonical.logical_closed_at IS NULL AND canonical.actual_state='Running' AND canonical.runtime_ready AND canonical.observed_revision=canonical.desired_revision))
                 AND (team.moderators
                     OR (ec.published
                         AND ee.status <> 2
@@ -107,6 +165,7 @@ SELECT lb.lab_group_name,
                                                             AND own.event_challenge_id = prerequisite.prerequisite_challenge_id))))
            THEN true ELSE false END AS available
 FROM lab_bindings lb
+LEFT JOIN event_team_labs canonical ON canonical.id=lb.lab_id
 JOIN team_challenges tc ON tc.event_team_id = lb.event_team_id
                        AND tc.event_challenge_id = lb.event_challenge_id
 JOIN event_teams team ON team.id = lb.event_team_id
@@ -127,4 +186,24 @@ WHERE team.event_id = sqlc.arg(event_id)
   AND EXISTS (SELECT 1 FROM events event WHERE event.id = team.event_id AND event.infrastructure_allowed)
 ON CONFLICT (event_team_id) DO UPDATE
 SET desired_revision = event_lab_access_syncs.desired_revision + 1,
+    operation_id=NULL, policy_fingerprint='', expected_group_uid='',
     updated_at = EXCLUDED.updated_at;
+
+-- name: MaterializeEventLabAccessPolicy :one
+-- A Request already allocated a new revision and reset its fingerprint. A
+-- boundary-derived policy change allocates exactly one more revision before RPC.
+UPDATE event_lab_access_syncs
+SET desired_revision=desired_revision + CASE WHEN policy_fingerprint='' THEN 0 ELSE 1 END,
+ operation_id=sqlc.arg(operation_id),policy_fingerprint=sqlc.arg(policy_fingerprint),
+ expected_group_uid=sqlc.arg(expected_group_uid),updated_at=sqlc.arg(updated_at)
+WHERE event_team_id=sqlc.arg(event_team_id)
+ AND desired_revision=sqlc.arg(expected_revision)
+ AND (policy_fingerprint<>sqlc.arg(policy_fingerprint) OR expected_group_uid<>sqlc.arg(expected_group_uid) OR operation_id IS NULL)
+RETURNING *;
+
+-- name: GetCurrentEventLabAccessMonitoring :one
+SELECT m.* FROM lab_monitoring_current m JOIN event_teams t ON t.id=m.event_team_id AND t.event_id=m.event_id
+WHERE m.event_team_id=sqlc.arg(event_team_id) ORDER BY m.observed_at DESC,m.lab_group_name LIMIT 1;
+
+-- name: GetEventLabAccessSync :one
+SELECT * FROM event_lab_access_syncs WHERE event_team_id=sqlc.arg(event_team_id);

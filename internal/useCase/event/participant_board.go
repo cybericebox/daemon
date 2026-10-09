@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -345,7 +346,11 @@ func (u *EventUseCase) ownBoard(ctx context.Context, eventID, userID uuid.UUID, 
 		}
 	}
 	onBoard := func(r teamChallengeModel.Readiness) bool { return r == teamChallengeModel.ReadinessPublished }
-	return *p.TeamID, boardViews(rows, prerequisites, unlocks, onBoard, true), nil
+	views := boardViews(rows, prerequisites, unlocks, onBoard, true)
+	if err = u.fillBoardLabs(ctx, rows, views); err != nil {
+		return uuid.Nil, nil, err
+	}
+	return *p.TeamID, views, nil
 }
 
 func (u *EventUseCase) moderatorsBoard(ctx context.Context, teamID uuid.UUID) ([]OwnChallengeView, error) {
@@ -357,7 +362,11 @@ func (u *EventUseCase) moderatorsBoard(ctx context.Context, teamID uuid.UUID) ([
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list challenge prerequisites").Err()
 	}
-	return boardViews(rows, prerequisites, nil, onModeratorsBoard, false), nil
+	views := boardViews(rows, prerequisites, nil, onModeratorsBoard, false)
+	if err = u.fillBoardLabs(ctx, rows, views); err != nil {
+		return nil, err
+	}
+	return views, nil
 }
 
 // onModeratorsBoard: moderators see prepared assignments (not preparing or
@@ -379,7 +388,7 @@ func boardViews(rows []teamChallengeRepo.PublishedChallenge, prerequisites map[u
 			continue
 		}
 		view := OwnChallengeView{
-			ID: challenge.ID, EventChallengeID: challenge.EventChallengeID, Snapshot: challenge.Snapshot, Readiness: challenge.Readiness,
+			EventExerciseID: row.EventExerciseID, ID: challenge.ID, EventChallengeID: challenge.EventChallengeID, Snapshot: challenge.Snapshot, Readiness: challenge.Readiness,
 			SolvedAt: challenge.SolvedAt, Points: row.Points, Order: row.Order, GroupID: row.GroupID, GroupName: row.GroupName, GroupOrder: row.GroupOrder,
 			ContentUpdatedAt: row.ContentUpdatedAt, Infrastructure: row.Infrastructure, HintsEnabled: row.HintsEnabled, BoardPublished: row.Published,
 			StageID: row.StageID, Closed: row.StagePhase == eventModel.StagePhaseClosed, Practice: row.PracticeSolved,
@@ -479,6 +488,22 @@ func (u *EventUseCase) resolveModeratorsTeam(ctx context.Context, e eventModel.E
 		return uuid.Nil, err
 	}
 	team, err := u.stands.GetModeratorsTeam(ctx, e.ID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return uuid.Nil, eventStandModel.ErrStandModeratorsTeamUnavailable.Err()
+		}
+		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
+	}
+	return team.ID, nil
+}
+
+// resolveModeratorsTeamInTransaction preserves the caller's repository and
+// unit of work through both creation and the subsequent identity read.
+func (u *EventUseCase) resolveModeratorsTeamInTransaction(ctx context.Context, repo IRepository, e eventModel.Event) (uuid.UUID, error) {
+	if err := u.ensureModeratorsTeamInTransaction(ctx, repo, e.ID, time.Now(), e.InfrastructureAllowed); err != nil {
+		return uuid.Nil, err
+	}
+	team, err := eventStandRepo.New(repo).GetModeratorsTeam(ctx, e.ID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return uuid.Nil, eventStandModel.ErrStandModeratorsTeamUnavailable.Err()

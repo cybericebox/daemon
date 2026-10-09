@@ -129,6 +129,7 @@ SELECT t.user_id::uuid                                   AS user_id,
        COALESCE(ec.snapshot ->> 'name', '')::text        AS challenge_name,
        t.surface::text                                   AS surface,
        t.attempts_count,
+       t.lab_initiated_attempts_count,
        t.bytes_in,
        t.bytes_out,
        t.first_seen_at,
@@ -141,15 +142,16 @@ ORDER BY t.user_id, challenge_name, t.surface
 `
 
 type ListEventUsageTouchesRow struct {
-	UserID           uuid.UUID `json:"user_id"`
-	EventChallengeID uuid.UUID `json:"event_challenge_id"`
-	ChallengeName    string    `json:"challenge_name"`
-	Surface          string    `json:"surface"`
-	AttemptsCount    int64     `json:"attempts_count"`
-	BytesIn          int64     `json:"bytes_in"`
-	BytesOut         int64     `json:"bytes_out"`
-	FirstSeenAt      time.Time `json:"first_seen_at"`
-	LastSeenAt       time.Time `json:"last_seen_at"`
+	UserID                    uuid.UUID          `json:"user_id"`
+	EventChallengeID          uuid.UUID          `json:"event_challenge_id"`
+	ChallengeName             string             `json:"challenge_name"`
+	Surface                   string             `json:"surface"`
+	AttemptsCount             int64              `json:"attempts_count"`
+	LabInitiatedAttemptsCount int64              `json:"lab_initiated_attempts_count"`
+	BytesIn                   int64              `json:"bytes_in"`
+	BytesOut                  int64              `json:"bytes_out"`
+	FirstSeenAt               pgtype.Timestamptz `json:"first_seen_at"`
+	LastSeenAt                pgtype.Timestamptz `json:"last_seen_at"`
 }
 
 // Lab access per participant, task and access type (vpn or proxy): the
@@ -170,6 +172,7 @@ func (q *Queries) ListEventUsageTouches(ctx context.Context, eventID uuid.UUID) 
 			&i.ChallengeName,
 			&i.Surface,
 			&i.AttemptsCount,
+			&i.LabInitiatedAttemptsCount,
 			&i.BytesIn,
 			&i.BytesOut,
 			&i.FirstSeenAt,

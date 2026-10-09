@@ -73,6 +73,16 @@ func (u *EventUseCase) DecideSolutionAttempt(ctx context.Context, eventID, attem
 		return SolutionAttemptDecisionView{}, err
 	}
 	defer unit.Restore()
+	identity, err := challengeAttemptRepo.New(txRepo).Identity(txCtx, eventID, attemptID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return SolutionAttemptDecisionView{}, challengeAttemptModel.ErrAttemptNotFound.Err()
+		}
+		return SolutionAttemptDecisionView{}, err
+	}
+	if _, err = lockChallengeLabInTransaction(txCtx, txRepo, identity.TeamID, identity.ChallengeID); err != nil {
+		return SolutionAttemptDecisionView{}, err
+	}
 	attempts := challengeAttemptRepo.New(txRepo)
 	target, err := attempts.GetForDecision(txCtx, eventID, attemptID)
 	if err != nil {
@@ -120,8 +130,12 @@ func (u *EventUseCase) DecideSolutionAttempt(ctx context.Context, eventID, attem
 			return SolutionAttemptDecisionView{}, err
 		}
 	}
+	if _, err = completeLabInTransaction(txCtx, txRepo, target.EventTeamID, target.EventChallengeID, decision.DecidedAt); err != nil {
+		return SolutionAttemptDecisionView{}, err
+	}
 	if err = unit.Save(); err != nil {
 		return SolutionAttemptDecisionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to decide challenge attempt").Err()
 	}
+	u.wakeLabLifecycle(ctx)
 	return SolutionAttemptDecisionView{AttemptID: attemptID, Decision: decision.Decision, Reason: decision.Reason, DecidedBy: decision.DecidedBy, DecidedAt: decision.DecidedAt, Correct: decision.Decision.EffectiveCorrect(target.AutomaticCorrect)}, nil
 }

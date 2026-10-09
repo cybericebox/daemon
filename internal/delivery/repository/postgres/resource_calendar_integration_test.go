@@ -172,3 +172,49 @@ func TestResourceCalendarAlarmsSettingsAndHolds(t *testing.T) {
 	require.NoError(t, repo.SaveHold(ctx, hold))
 	require.NoError(t, repo.DeleteHold(ctx, hold.ID))
 }
+
+func TestResourceCalendarStorageRoundTripAndConstraints(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := resourceCalendarRepo.New(db.Queries)
+	e := mustSeedEventForParticipants(t, db, "storagequota")
+	r, err := calModel.NewEventReservation(calModel.EventInput{EventID: e.ID, Window: rcWindow(0, 4), Teams: 2, PerTeam: calModel.Amount{CPUMillicores: 500, MemoryBytes: 1 << 29}, PerTeamSnapshotQuotaBytes: 1 << 30, DynamicSnapshotQuotaBytes: 3 << 30}, e.CreatedBy.UUID, rcT0)
+	require.NoError(t, err)
+	require.NoError(t, repo.CreateReservation(ctx, r))
+	got, err := repo.GetEventReservation(ctx, e.ID)
+	require.NoError(t, err)
+	assert.EqualValues(t, 5<<30, got.SizeSnapshotQuotaBytes)
+	assert.EqualValues(t, 1<<30, got.PerTeamSnapshotQuotaBytes)
+	assert.EqualValues(t, 3<<30, got.DynamicSnapshotQuotaBytes)
+	_, err = db.Pool.Exec(ctx, `UPDATE resource_reservations SET per_team_snapshot_quota_bytes=-1 WHERE id=$1`, r.ID)
+	require.Error(t, err)
+	quota := int64(6 << 30)
+	dynamic := int64(4 << 30)
+	change, err := calModel.NewChangeRequest(r, e.CreatedBy.UUID, &r.Size, nil, nil, nil, "storage quota", rcT0)
+	require.NoError(t, err)
+	change.SizeSnapshotQuotaBytes = &quota
+	change.DynamicSnapshotQuotaBytes = &dynamic
+	require.NoError(t, repo.CreateChangeRequest(ctx, change))
+	saved, err := repo.GetChangeRequest(ctx, change.ID)
+	require.NoError(t, err)
+	require.Equal(t, quota, *saved.SizeSnapshotQuotaBytes)
+	require.Equal(t, dynamic, *saved.DynamicSnapshotQuotaBytes)
+	list, err := repo.ListChangeRequests(ctx, nil, &e.ID)
+	require.NoError(t, err)
+	require.Equal(t, quota, *list[0].SizeSnapshotQuotaBytes)
+	settings, err := repo.Settings(ctx)
+	require.NoError(t, err)
+	settings.TestPoolSnapshotQuotaBytes = 7 << 30
+	require.NoError(t, repo.SetSettings(ctx, settings))
+	settings, err = repo.Settings(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 7<<30, settings.TestPoolSnapshotQuotaBytes)
+	hold := calModel.TestLabHold{ID: uuid.Must(uuid.NewV7()), OwnerID: e.CreatedBy.UUID, Via: calModel.ViaPool, Size: calModel.Amount{CPUMillicores: 20, MemoryBytes: 32 << 20}, SnapshotQuotaBytes: 1 << 30, StartsAt: rcT0, ExpiresAt: rcT0.Add(time.Hour)}
+	require.NoError(t, repo.SaveHold(ctx, hold))
+	hold.SnapshotQuotaBytes = 0
+	hold.ExpiresAt = rcT0.Add(2 * time.Hour)
+	require.NoError(t, repo.SaveHold(ctx, hold))
+	holds, err := repo.ActiveHolds(ctx, rcT0)
+	require.NoError(t, err)
+	require.EqualValues(t, 1<<30, holds[0].SnapshotQuotaBytes, "lease renewal cannot silently erase storage quota")
+}

@@ -63,26 +63,28 @@ func (q *Queries) CreateResourceAlarm(ctx context.Context, arg CreateResourceAla
 
 const createResourceChangeRequest = `-- name: CreateResourceChangeRequest :exec
 INSERT INTO resource_change_requests (id, reservation_id, event_id, requested_by, requested_at,
-                                      size_cpu_millicores, size_memory_bytes, dynamic_cpu_millicores, dynamic_memory_bytes,
+                                      size_cpu_millicores, size_memory_bytes, dynamic_cpu_millicores, dynamic_memory_bytes, size_snapshot_quota_bytes, dynamic_snapshot_quota_bytes,
                                       window_start, window_end, reason, status)
 VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8, $9,
-        $10, $11, $12, 0)
+        $6, $7, $8, $9, $10, $11,
+        $12, $13, $14, 0)
 `
 
 type CreateResourceChangeRequestParams struct {
-	ID                   uuid.UUID          `json:"id"`
-	ReservationID        uuid.UUID          `json:"reservation_id"`
-	EventID              uuid.UUID          `json:"event_id"`
-	RequestedBy          uuid.NullUUID      `json:"requested_by"`
-	RequestedAt          time.Time          `json:"requested_at"`
-	SizeCpuMillicores    pgtype.Int8        `json:"size_cpu_millicores"`
-	SizeMemoryBytes      pgtype.Int8        `json:"size_memory_bytes"`
-	DynamicCpuMillicores pgtype.Int8        `json:"dynamic_cpu_millicores"`
-	DynamicMemoryBytes   pgtype.Int8        `json:"dynamic_memory_bytes"`
-	WindowStart          pgtype.Timestamptz `json:"window_start"`
-	WindowEnd            pgtype.Timestamptz `json:"window_end"`
-	Reason               string             `json:"reason"`
+	ID                        uuid.UUID          `json:"id"`
+	ReservationID             uuid.UUID          `json:"reservation_id"`
+	EventID                   uuid.UUID          `json:"event_id"`
+	RequestedBy               uuid.NullUUID      `json:"requested_by"`
+	RequestedAt               time.Time          `json:"requested_at"`
+	SizeCpuMillicores         pgtype.Int8        `json:"size_cpu_millicores"`
+	SizeMemoryBytes           pgtype.Int8        `json:"size_memory_bytes"`
+	DynamicCpuMillicores      pgtype.Int8        `json:"dynamic_cpu_millicores"`
+	DynamicMemoryBytes        pgtype.Int8        `json:"dynamic_memory_bytes"`
+	SizeSnapshotQuotaBytes    pgtype.Int8        `json:"size_snapshot_quota_bytes"`
+	DynamicSnapshotQuotaBytes pgtype.Int8        `json:"dynamic_snapshot_quota_bytes"`
+	WindowStart               pgtype.Timestamptz `json:"window_start"`
+	WindowEnd                 pgtype.Timestamptz `json:"window_end"`
+	Reason                    string             `json:"reason"`
 }
 
 func (q *Queries) CreateResourceChangeRequest(ctx context.Context, arg CreateResourceChangeRequestParams) error {
@@ -96,6 +98,8 @@ func (q *Queries) CreateResourceChangeRequest(ctx context.Context, arg CreateRes
 		arg.SizeMemoryBytes,
 		arg.DynamicCpuMillicores,
 		arg.DynamicMemoryBytes,
+		arg.SizeSnapshotQuotaBytes,
+		arg.DynamicSnapshotQuotaBytes,
 		arg.WindowStart,
 		arg.WindowEnd,
 		arg.Reason,
@@ -105,17 +109,17 @@ func (q *Queries) CreateResourceChangeRequest(ctx context.Context, arg CreateRes
 
 const createResourceReservation = `-- name: CreateResourceReservation :exec
 INSERT INTO resource_reservations (id, kind, event_id, owner_id, starts_at, ends_at, teams,
-                                   per_team_cpu_millicores, per_team_memory_bytes,
+                                   per_team_cpu_millicores, per_team_memory_bytes, per_team_snapshot_quota_bytes,
                                    largest_device_cpu_millicores, largest_device_memory_bytes,
-                                   buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds,
-                                   size_cpu_millicores, size_memory_bytes, placement, unplaced,
+                                   buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, dynamic_snapshot_quota_bytes, tail_gap_seconds,
+                                   size_cpu_millicores, size_memory_bytes, size_snapshot_quota_bytes, placement, unplaced,
                                    created_by, created_at, updated_at, canceled_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
-        $8, $9,
-        $10, $11,
-        $12, $13, $14, $15,
-        $16, $17, $18, $19,
-        $20, $21, $22, $23)
+        $8, $9, $10,
+        $11, $12,
+        $13, $14, $15, $16, $17,
+        $18, $19, $20, $21, $22,
+        $23, $24, $25, $26)
 `
 
 type CreateResourceReservationParams struct {
@@ -128,14 +132,17 @@ type CreateResourceReservationParams struct {
 	Teams                      int32              `json:"teams"`
 	PerTeamCpuMillicores       int64              `json:"per_team_cpu_millicores"`
 	PerTeamMemoryBytes         int64              `json:"per_team_memory_bytes"`
+	PerTeamSnapshotQuotaBytes  int64              `json:"per_team_snapshot_quota_bytes"`
 	LargestDeviceCpuMillicores int64              `json:"largest_device_cpu_millicores"`
 	LargestDeviceMemoryBytes   int64              `json:"largest_device_memory_bytes"`
 	BufferPercent              int32              `json:"buffer_percent"`
 	DynamicCpuMillicores       int64              `json:"dynamic_cpu_millicores"`
 	DynamicMemoryBytes         int64              `json:"dynamic_memory_bytes"`
+	DynamicSnapshotQuotaBytes  int64              `json:"dynamic_snapshot_quota_bytes"`
 	TailGapSeconds             int32              `json:"tail_gap_seconds"`
 	SizeCpuMillicores          int64              `json:"size_cpu_millicores"`
 	SizeMemoryBytes            int64              `json:"size_memory_bytes"`
+	SizeSnapshotQuotaBytes     int64              `json:"size_snapshot_quota_bytes"`
 	Placement                  []byte             `json:"placement"`
 	Unplaced                   int32              `json:"unplaced"`
 	CreatedBy                  uuid.NullUUID      `json:"created_by"`
@@ -155,14 +162,17 @@ func (q *Queries) CreateResourceReservation(ctx context.Context, arg CreateResou
 		arg.Teams,
 		arg.PerTeamCpuMillicores,
 		arg.PerTeamMemoryBytes,
+		arg.PerTeamSnapshotQuotaBytes,
 		arg.LargestDeviceCpuMillicores,
 		arg.LargestDeviceMemoryBytes,
 		arg.BufferPercent,
 		arg.DynamicCpuMillicores,
 		arg.DynamicMemoryBytes,
+		arg.DynamicSnapshotQuotaBytes,
 		arg.TailGapSeconds,
 		arg.SizeCpuMillicores,
 		arg.SizeMemoryBytes,
+		arg.SizeSnapshotQuotaBytes,
 		arg.Placement,
 		arg.Unplaced,
 		arg.CreatedBy,
@@ -174,20 +184,21 @@ func (q *Queries) CreateResourceReservation(ctx context.Context, arg CreateResou
 }
 
 const createResourceTestLabHold = `-- name: CreateResourceTestLabHold :exec
-INSERT INTO resource_test_lab_holds (id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, starts_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at
+INSERT INTO resource_test_lab_holds (id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, snapshot_quota_bytes, starts_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at, snapshot_quota_bytes=GREATEST(resource_test_lab_holds.snapshot_quota_bytes,EXCLUDED.snapshot_quota_bytes)
 `
 
 type CreateResourceTestLabHoldParams struct {
-	ID            uuid.UUID     `json:"id"`
-	OwnerID       uuid.UUID     `json:"owner_id"`
-	Via           string        `json:"via"`
-	ReservationID uuid.NullUUID `json:"reservation_id"`
-	CpuMillicores int64         `json:"cpu_millicores"`
-	MemoryBytes   int64         `json:"memory_bytes"`
-	StartsAt      time.Time     `json:"starts_at"`
-	ExpiresAt     time.Time     `json:"expires_at"`
+	ID                 uuid.UUID     `json:"id"`
+	OwnerID            uuid.UUID     `json:"owner_id"`
+	Via                string        `json:"via"`
+	ReservationID      uuid.NullUUID `json:"reservation_id"`
+	CpuMillicores      int64         `json:"cpu_millicores"`
+	MemoryBytes        int64         `json:"memory_bytes"`
+	SnapshotQuotaBytes int64         `json:"snapshot_quota_bytes"`
+	StartsAt           time.Time     `json:"starts_at"`
+	ExpiresAt          time.Time     `json:"expires_at"`
 }
 
 func (q *Queries) CreateResourceTestLabHold(ctx context.Context, arg CreateResourceTestLabHoldParams) error {
@@ -198,6 +209,7 @@ func (q *Queries) CreateResourceTestLabHold(ctx context.Context, arg CreateResou
 		arg.ReservationID,
 		arg.CpuMillicores,
 		arg.MemoryBytes,
+		arg.SnapshotQuotaBytes,
 		arg.StartsAt,
 		arg.ExpiresAt,
 	)
@@ -255,7 +267,7 @@ func (q *Queries) DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) e
 }
 
 const getEventResourceReservation = `-- name: GetEventResourceReservation :one
-SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at FROM resource_reservations WHERE event_id = $1 AND kind = 'event' AND canceled_at IS NULL
+SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at, per_team_snapshot_quota_bytes, dynamic_snapshot_quota_bytes, size_snapshot_quota_bytes FROM resource_reservations WHERE event_id = $1 AND kind = 'event' AND canceled_at IS NULL
 `
 
 func (q *Queries) GetEventResourceReservation(ctx context.Context, eventID uuid.NullUUID) (ResourceReservation, error) {
@@ -285,6 +297,9 @@ func (q *Queries) GetEventResourceReservation(ctx context.Context, eventID uuid.
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CanceledAt,
+		&i.PerTeamSnapshotQuotaBytes,
+		&i.DynamicSnapshotQuotaBytes,
+		&i.SizeSnapshotQuotaBytes,
 	)
 	return i, err
 }
@@ -351,7 +366,7 @@ func (q *Queries) GetResourceAlarm(ctx context.Context, id uuid.UUID) (ResourceA
 }
 
 const getResourceCalendarSettings = `-- name: GetResourceCalendarSettings :one
-SELECT id, test_pool_cpu_millicores, test_pool_memory_bytes, updated_at FROM resource_calendar_settings WHERE id
+SELECT id, test_pool_cpu_millicores, test_pool_memory_bytes, updated_at, test_pool_snapshot_quota_bytes FROM resource_calendar_settings WHERE id
 `
 
 func (q *Queries) GetResourceCalendarSettings(ctx context.Context) (ResourceCalendarSetting, error) {
@@ -362,12 +377,13 @@ func (q *Queries) GetResourceCalendarSettings(ctx context.Context) (ResourceCale
 		&i.TestPoolCpuMillicores,
 		&i.TestPoolMemoryBytes,
 		&i.UpdatedAt,
+		&i.TestPoolSnapshotQuotaBytes,
 	)
 	return i, err
 }
 
 const getResourceChangeRequest = `-- name: GetResourceChangeRequest :one
-SELECT id, reservation_id, event_id, requested_by, requested_at, size_cpu_millicores, size_memory_bytes, dynamic_cpu_millicores, dynamic_memory_bytes, window_start, window_end, reason, status, decided_by, decided_at, decision_note FROM resource_change_requests WHERE id = $1
+SELECT id, reservation_id, event_id, requested_by, requested_at, size_cpu_millicores, size_memory_bytes, dynamic_cpu_millicores, dynamic_memory_bytes, window_start, window_end, reason, status, decided_by, decided_at, decision_note, size_snapshot_quota_bytes, dynamic_snapshot_quota_bytes FROM resource_change_requests WHERE id = $1
 `
 
 func (q *Queries) GetResourceChangeRequest(ctx context.Context, id uuid.UUID) (ResourceChangeRequest, error) {
@@ -390,12 +406,14 @@ func (q *Queries) GetResourceChangeRequest(ctx context.Context, id uuid.UUID) (R
 		&i.DecidedBy,
 		&i.DecidedAt,
 		&i.DecisionNote,
+		&i.SizeSnapshotQuotaBytes,
+		&i.DynamicSnapshotQuotaBytes,
 	)
 	return i, err
 }
 
 const getResourceReservation = `-- name: GetResourceReservation :one
-SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at FROM resource_reservations WHERE id = $1
+SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at, per_team_snapshot_quota_bytes, dynamic_snapshot_quota_bytes, size_snapshot_quota_bytes FROM resource_reservations WHERE id = $1
 `
 
 func (q *Queries) GetResourceReservation(ctx context.Context, id uuid.UUID) (ResourceReservation, error) {
@@ -425,12 +443,15 @@ func (q *Queries) GetResourceReservation(ctx context.Context, id uuid.UUID) (Res
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CanceledAt,
+		&i.PerTeamSnapshotQuotaBytes,
+		&i.DynamicSnapshotQuotaBytes,
+		&i.SizeSnapshotQuotaBytes,
 	)
 	return i, err
 }
 
 const listActiveResourceTestLabHolds = `-- name: ListActiveResourceTestLabHolds :many
-SELECT id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, starts_at, expires_at FROM resource_test_lab_holds WHERE expires_at > $1 ORDER BY starts_at, id
+SELECT id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, starts_at, expires_at, snapshot_quota_bytes FROM resource_test_lab_holds WHERE expires_at > $1 ORDER BY starts_at, id
 `
 
 func (q *Queries) ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]ResourceTestLabHold, error) {
@@ -451,6 +472,7 @@ func (q *Queries) ListActiveResourceTestLabHolds(ctx context.Context, now time.T
 			&i.MemoryBytes,
 			&i.StartsAt,
 			&i.ExpiresAt,
+			&i.SnapshotQuotaBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -502,7 +524,7 @@ func (q *Queries) ListOpenResourceAlarmsOfReservation(ctx context.Context, reser
 }
 
 const listOwnedResourceBookings = `-- name: ListOwnedResourceBookings :many
-SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at FROM resource_reservations
+SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at, per_team_snapshot_quota_bytes, dynamic_snapshot_quota_bytes, size_snapshot_quota_bytes FROM resource_reservations
 WHERE kind = 'test_booking' AND owner_id = $1 AND canceled_at IS NULL AND ends_at > $2
 ORDER BY starts_at, id
 `
@@ -545,6 +567,9 @@ func (q *Queries) ListOwnedResourceBookings(ctx context.Context, arg ListOwnedRe
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CanceledAt,
+			&i.PerTeamSnapshotQuotaBytes,
+			&i.DynamicSnapshotQuotaBytes,
+			&i.SizeSnapshotQuotaBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -628,7 +653,7 @@ func (q *Queries) ListResourceAlarms(ctx context.Context, arg ListResourceAlarms
 }
 
 const listResourceChangeRequests = `-- name: ListResourceChangeRequests :many
-SELECT c.id, c.reservation_id, c.event_id, c.requested_by, c.requested_at, c.size_cpu_millicores, c.size_memory_bytes, c.dynamic_cpu_millicores, c.dynamic_memory_bytes, c.window_start, c.window_end, c.reason, c.status, c.decided_by, c.decided_at, c.decision_note, e.name AS event_name, e.tag AS event_tag
+SELECT c.id, c.reservation_id, c.event_id, c.requested_by, c.requested_at, c.size_cpu_millicores, c.size_memory_bytes, c.dynamic_cpu_millicores, c.dynamic_memory_bytes, c.window_start, c.window_end, c.reason, c.status, c.decided_by, c.decided_at, c.decision_note, c.size_snapshot_quota_bytes, c.dynamic_snapshot_quota_bytes, e.name AS event_name, e.tag AS event_tag
 FROM resource_change_requests c
 JOIN events e ON e.id = c.event_id
 WHERE ($1::smallint IS NULL OR c.status = $1::smallint)
@@ -642,24 +667,26 @@ type ListResourceChangeRequestsParams struct {
 }
 
 type ListResourceChangeRequestsRow struct {
-	ID                   uuid.UUID          `json:"id"`
-	ReservationID        uuid.UUID          `json:"reservation_id"`
-	EventID              uuid.UUID          `json:"event_id"`
-	RequestedBy          uuid.NullUUID      `json:"requested_by"`
-	RequestedAt          time.Time          `json:"requested_at"`
-	SizeCpuMillicores    pgtype.Int8        `json:"size_cpu_millicores"`
-	SizeMemoryBytes      pgtype.Int8        `json:"size_memory_bytes"`
-	DynamicCpuMillicores pgtype.Int8        `json:"dynamic_cpu_millicores"`
-	DynamicMemoryBytes   pgtype.Int8        `json:"dynamic_memory_bytes"`
-	WindowStart          pgtype.Timestamptz `json:"window_start"`
-	WindowEnd            pgtype.Timestamptz `json:"window_end"`
-	Reason               string             `json:"reason"`
-	Status               int16              `json:"status"`
-	DecidedBy            uuid.NullUUID      `json:"decided_by"`
-	DecidedAt            pgtype.Timestamptz `json:"decided_at"`
-	DecisionNote         string             `json:"decision_note"`
-	EventName            string             `json:"event_name"`
-	EventTag             string             `json:"event_tag"`
+	ID                        uuid.UUID          `json:"id"`
+	ReservationID             uuid.UUID          `json:"reservation_id"`
+	EventID                   uuid.UUID          `json:"event_id"`
+	RequestedBy               uuid.NullUUID      `json:"requested_by"`
+	RequestedAt               time.Time          `json:"requested_at"`
+	SizeCpuMillicores         pgtype.Int8        `json:"size_cpu_millicores"`
+	SizeMemoryBytes           pgtype.Int8        `json:"size_memory_bytes"`
+	DynamicCpuMillicores      pgtype.Int8        `json:"dynamic_cpu_millicores"`
+	DynamicMemoryBytes        pgtype.Int8        `json:"dynamic_memory_bytes"`
+	WindowStart               pgtype.Timestamptz `json:"window_start"`
+	WindowEnd                 pgtype.Timestamptz `json:"window_end"`
+	Reason                    string             `json:"reason"`
+	Status                    int16              `json:"status"`
+	DecidedBy                 uuid.NullUUID      `json:"decided_by"`
+	DecidedAt                 pgtype.Timestamptz `json:"decided_at"`
+	DecisionNote              string             `json:"decision_note"`
+	SizeSnapshotQuotaBytes    pgtype.Int8        `json:"size_snapshot_quota_bytes"`
+	DynamicSnapshotQuotaBytes pgtype.Int8        `json:"dynamic_snapshot_quota_bytes"`
+	EventName                 string             `json:"event_name"`
+	EventTag                  string             `json:"event_tag"`
 }
 
 // Newest first; status and event narrow it (a null argument matches everything).
@@ -689,6 +716,8 @@ func (q *Queries) ListResourceChangeRequests(ctx context.Context, arg ListResour
 			&i.DecidedBy,
 			&i.DecidedAt,
 			&i.DecisionNote,
+			&i.SizeSnapshotQuotaBytes,
+			&i.DynamicSnapshotQuotaBytes,
 			&i.EventName,
 			&i.EventTag,
 		); err != nil {
@@ -737,7 +766,7 @@ func (q *Queries) ListResourceReservationLabels(ctx context.Context, ids []uuid.
 }
 
 const listResourceReservationsEndingAfter = `-- name: ListResourceReservationsEndingAfter :many
-SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at FROM resource_reservations
+SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at, per_team_snapshot_quota_bytes, dynamic_snapshot_quota_bytes, size_snapshot_quota_bytes FROM resource_reservations
 WHERE canceled_at IS NULL AND ends_at > $1
 ORDER BY starts_at, id
 `
@@ -776,6 +805,9 @@ func (q *Queries) ListResourceReservationsEndingAfter(ctx context.Context, after
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CanceledAt,
+			&i.PerTeamSnapshotQuotaBytes,
+			&i.DynamicSnapshotQuotaBytes,
+			&i.SizeSnapshotQuotaBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -788,7 +820,7 @@ func (q *Queries) ListResourceReservationsEndingAfter(ctx context.Context, after
 }
 
 const listResourceReservationsInWindow = `-- name: ListResourceReservationsInWindow :many
-SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at FROM resource_reservations
+SELECT id, kind, event_id, owner_id, starts_at, ends_at, teams, per_team_cpu_millicores, per_team_memory_bytes, largest_device_cpu_millicores, largest_device_memory_bytes, buffer_percent, dynamic_cpu_millicores, dynamic_memory_bytes, tail_gap_seconds, size_cpu_millicores, size_memory_bytes, placement, unplaced, created_by, created_at, updated_at, canceled_at, per_team_snapshot_quota_bytes, dynamic_snapshot_quota_bytes, size_snapshot_quota_bytes FROM resource_reservations
 WHERE canceled_at IS NULL AND starts_at < $1 AND ends_at > $2
 ORDER BY starts_at, id
 `
@@ -832,6 +864,9 @@ func (q *Queries) ListResourceReservationsInWindow(ctx context.Context, arg List
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CanceledAt,
+			&i.PerTeamSnapshotQuotaBytes,
+			&i.DynamicSnapshotQuotaBytes,
+			&i.SizeSnapshotQuotaBytes,
 		); err != nil {
 			return nil, err
 		}
@@ -859,18 +894,24 @@ func (q *Queries) LockResourceCalendar(ctx context.Context) error {
 
 const setResourceCalendarSettings = `-- name: SetResourceCalendarSettings :exec
 UPDATE resource_calendar_settings
-SET test_pool_cpu_millicores = $1, test_pool_memory_bytes = $2, updated_at = $3
+SET test_pool_snapshot_quota_bytes=$1, test_pool_cpu_millicores = $2, test_pool_memory_bytes = $3, updated_at = $4
 WHERE id
 `
 
 type SetResourceCalendarSettingsParams struct {
-	TestPoolCpuMillicores int64     `json:"test_pool_cpu_millicores"`
-	TestPoolMemoryBytes   int64     `json:"test_pool_memory_bytes"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	TestPoolSnapshotQuotaBytes int64     `json:"test_pool_snapshot_quota_bytes"`
+	TestPoolCpuMillicores      int64     `json:"test_pool_cpu_millicores"`
+	TestPoolMemoryBytes        int64     `json:"test_pool_memory_bytes"`
+	UpdatedAt                  time.Time `json:"updated_at"`
 }
 
 func (q *Queries) SetResourceCalendarSettings(ctx context.Context, arg SetResourceCalendarSettingsParams) error {
-	_, err := q.db.Exec(ctx, setResourceCalendarSettings, arg.TestPoolCpuMillicores, arg.TestPoolMemoryBytes, arg.UpdatedAt)
+	_, err := q.db.Exec(ctx, setResourceCalendarSettings,
+		arg.TestPoolSnapshotQuotaBytes,
+		arg.TestPoolCpuMillicores,
+		arg.TestPoolMemoryBytes,
+		arg.UpdatedAt,
+	)
 	return err
 }
 
@@ -913,18 +954,21 @@ func (q *Queries) UpdateResourceAlarm(ctx context.Context, arg UpdateResourceAla
 
 const updateResourceReservation = `-- name: UpdateResourceReservation :execrows
 UPDATE resource_reservations
-SET starts_at = $1, ends_at = $2, teams = $3,
-    per_team_cpu_millicores = $4, per_team_memory_bytes = $5,
-    largest_device_cpu_millicores = $6, largest_device_memory_bytes = $7,
-    buffer_percent = $8, dynamic_cpu_millicores = $9,
-    dynamic_memory_bytes = $10, tail_gap_seconds = $11,
-    size_cpu_millicores = $12, size_memory_bytes = $13,
-    placement = $14, unplaced = $15,
-    updated_at = $16, canceled_at = $17
-WHERE id = $18
+SET per_team_snapshot_quota_bytes=$1,dynamic_snapshot_quota_bytes=$2,size_snapshot_quota_bytes=$3, starts_at = $4, ends_at = $5, teams = $6,
+    per_team_cpu_millicores = $7, per_team_memory_bytes = $8,
+    largest_device_cpu_millicores = $9, largest_device_memory_bytes = $10,
+    buffer_percent = $11, dynamic_cpu_millicores = $12,
+    dynamic_memory_bytes = $13, tail_gap_seconds = $14,
+    size_cpu_millicores = $15, size_memory_bytes = $16,
+    placement = $17, unplaced = $18,
+    updated_at = $19, canceled_at = $20
+WHERE id = $21
 `
 
 type UpdateResourceReservationParams struct {
+	PerTeamSnapshotQuotaBytes  int64              `json:"per_team_snapshot_quota_bytes"`
+	DynamicSnapshotQuotaBytes  int64              `json:"dynamic_snapshot_quota_bytes"`
+	SizeSnapshotQuotaBytes     int64              `json:"size_snapshot_quota_bytes"`
 	StartsAt                   time.Time          `json:"starts_at"`
 	EndsAt                     time.Time          `json:"ends_at"`
 	Teams                      int32              `json:"teams"`
@@ -947,6 +991,9 @@ type UpdateResourceReservationParams struct {
 
 func (q *Queries) UpdateResourceReservation(ctx context.Context, arg UpdateResourceReservationParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateResourceReservation,
+		arg.PerTeamSnapshotQuotaBytes,
+		arg.DynamicSnapshotQuotaBytes,
+		arg.SizeSnapshotQuotaBytes,
 		arg.StartsAt,
 		arg.EndsAt,
 		arg.Teams,

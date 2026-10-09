@@ -11,11 +11,12 @@ import (
 )
 
 type eventStageResponse struct {
-	ID         uuid.UUID `json:"ID"`
-	Name       string    `json:"Name"`
-	OpensAt    time.Time `json:"OpensAt"`
-	ClosesAt   time.Time `json:"ClosesAt"`
-	Returnable bool      `json:"Returnable"`
+	LabRetentionMinutes *int32    `json:"LabRetentionMinutes" extensions:"x-nullable"`
+	ID                  uuid.UUID `json:"ID"`
+	Name                string    `json:"Name"`
+	OpensAt             time.Time `json:"OpensAt"`
+	ClosesAt            time.Time `json:"ClosesAt"`
+	Returnable          bool      `json:"Returnable"`
 	// State is computed from time: upcoming | open | closed.
 	State string `json:"State"`
 	// First opens with the event and Last closes with it: those two times are the event's own.
@@ -27,17 +28,19 @@ type eventStageResponse struct {
 }
 
 type createEventStageRequest struct {
-	Name       string    `json:"Name"`
-	OpensAt    time.Time `json:"OpensAt"`
-	ClosesAt   time.Time `json:"ClosesAt"`
-	Returnable bool      `json:"Returnable"`
+	LabRetentionMinutes *int32    `json:"LabRetentionMinutes"`
+	Name                string    `json:"Name"`
+	OpensAt             time.Time `json:"OpensAt"`
+	ClosesAt            time.Time `json:"ClosesAt"`
+	Returnable          bool      `json:"Returnable"`
 }
 
 type updateEventStageRequest struct {
-	Name       *string    `json:"Name"`
-	OpensAt    *time.Time `json:"OpensAt"`
-	ClosesAt   *time.Time `json:"ClosesAt"`
-	Returnable *bool      `json:"Returnable"`
+	LabRetentionMinutes eventUseCase.OptionalLimit `json:"LabRetentionMinutes" swaggertype:"integer"`
+	Name                *string                    `json:"Name"`
+	OpensAt             *time.Time                 `json:"OpensAt"`
+	ClosesAt            *time.Time                 `json:"ClosesAt"`
+	Returnable          *bool                      `json:"Returnable"`
 	// CloseNow ends an open stage now («Закрити зараз»).
 	CloseNow bool `json:"CloseNow"`
 }
@@ -48,7 +51,7 @@ type setEventExerciseStageRequest struct {
 }
 
 func toEventStageResponse(v eventUseCase.EventStageView) eventStageResponse {
-	return eventStageResponse{ID: v.ID, Name: v.Name, OpensAt: v.OpensAt, ClosesAt: v.ClosesAt, Returnable: v.Returnable, State: string(v.State), First: v.First, Last: v.Last, DeployLeadMinutes: v.DeployLeadMinutes}
+	return eventStageResponse{LabRetentionMinutes: v.LabRetentionMinutes, ID: v.ID, Name: v.Name, OpensAt: v.OpensAt, ClosesAt: v.ClosesAt, Returnable: v.Returnable, State: string(v.State), First: v.First, Last: v.Last, DeployLeadMinutes: v.DeployLeadMinutes}
 }
 
 // listEventStages godoc
@@ -95,7 +98,7 @@ func (h *Handler) createEventStage(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	view, err := h.useCase.CreateEventStage(ctx, eventID, eventUseCase.CreateStageInput{Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable})
+	view, err := h.useCase.CreateEventStage(ctx, eventID, eventUseCase.CreateStageInput{LabRetentionMinutes: req.LabRetentionMinutes, Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable})
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -137,7 +140,7 @@ func (h *Handler) updateEventStage(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	view, err := h.useCase.UpdateEventStage(ctx, eventID, stageID, eventUseCase.UpdateStageInput{Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable, CloseNow: req.CloseNow})
+	view, err := h.useCase.UpdateEventStage(ctx, eventID, stageID, eventUseCase.UpdateStageInput{LabRetentionMinutes: req.LabRetentionMinutes, Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable, CloseNow: req.CloseNow})
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

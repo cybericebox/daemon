@@ -46,6 +46,20 @@ cybericebox/
   laboratory/
 ```
 
+The statistics-contract work on `feat/proxy-traffic-contract` is validated against
+the local laboratory revision `8f55694c66dbc18abe9022cd4928e62e1189f2e8` using this
+workspace workflow. The remote module pin still predates its new protobuf fields;
+standalone CI and release builds need that producer revision published and the
+pin updated first. No local-path replacement is committed.
+
+In the existing event Usage API, `Labs[].LabInitiatedAttempts` counts permitted
+VPN flows started by the laboratory separately from participant `Attempts`.
+`FirstAt` and `LastAt` are nullable participant observations. Per-lab byte totals
+cover the whole event: inner IP packets for VPN, HTTP bodies or relayed WebSocket
+data payloads for proxy. They are separate from period-based WireGuard session
+totals. Explicit coverage preserves collector gaps; incomplete observations do
+not prove per-lab absence. Raw coverage and collector identities remain private.
+
 ## Running locally
 
 1. Start PostgreSQL (and, if you need them, an S3-compatible store and a mail catcher). The infrastructure repository has a local stand for this.

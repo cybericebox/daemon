@@ -13,6 +13,7 @@ import (
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 )
 
@@ -127,6 +128,7 @@ type UpdateConfigInput struct {
 	MaxFlagAttempts OptionalLimit
 	// TaskRevealMode nil keeps the current value; a change is accepted until the event starts.
 	TaskRevealMode *eventConfigModel.TaskRevealMode
+	LabPolicy      *UpdateLabPolicyInput
 	// Countdown fields nil keep the current value.
 	ShowStartCountdown     *bool
 	ShowFinishCountdown    *bool
@@ -326,4 +328,22 @@ type SubmitChallengeInput struct {
 	Answer         string
 	IdempotencyKey uuid.UUID
 	ReceivedAt     time.Time
+}
+
+// UpdateLabPolicyInput preserves omitted nested settings. Null clears the active limit.
+type UpdateLabPolicyInput struct {
+	SnapshotMode         *string
+	MaxActiveLabsPerTeam OptionalLimit
+	RetentionMinutes     *int32
+}
+
+func (in UpdateLabPolicyInput) Resolve(current eventLabModel.Policy) eventLabModel.Policy {
+	if in.SnapshotMode != nil {
+		current.SnapshotMode = *in.SnapshotMode
+	}
+	if in.RetentionMinutes != nil {
+		current.RetentionMinutes = *in.RetentionMinutes
+	}
+	current.MaxActiveLabsPerTeam = in.MaxActiveLabsPerTeam.Or(current.MaxActiveLabsPerTeam)
+	return current
 }

@@ -31,7 +31,8 @@ type admission struct {
 // inside the guaranteed pool, else from room no event has reserved above the pool; otherwise it says when the
 // nearest free window starts. The calendar lock is held by the caller.
 func (u *ResourceCalendarUseCase) decideTestLab(ctx context.Context, s Store, states []agentState, size, device Amount, owner uuid.UUID, lease time.Duration, now time.Time) (admission, error) {
-	settings, err := s.Settings(ctx)
+	if err:=u.requireHeldCoverage(ctx,s,now,nil);err!=nil{return admission{},err}
+ settings, err := s.Settings(ctx)
 	if err != nil {
 		return admission{}, platformErr(err, "Failed to read the calendar settings")
 	}

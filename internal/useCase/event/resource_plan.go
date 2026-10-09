@@ -2,6 +2,9 @@ package event
 
 import (
 	"context"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
@@ -53,6 +56,7 @@ type PlanTask struct {
 	// variants and the most devices of one variant.
 	deviceMax  resourcesModel.Amount
 	labDevices int
+	hasLab     bool
 }
 
 // GroupOverhead is a team's lab group's own pods, computed with the agents' formula for the plan.
@@ -75,7 +79,8 @@ type GroupOverhead struct {
 // EventResourcePlan is what the event reserves: per team the devices of its tasks plus the group's VPN and
 // gateway, and the total for the teams.
 type EventResourcePlan struct {
-	Tasks []PlanTask
+	Observation calendarUseCase.ResourceObservation
+	Tasks       []PlanTask
 	// TeamTasks is the sum of Reserved over the tasks.
 	TeamTasks resourcesModel.Totals
 	Group     GroupOverhead
@@ -92,21 +97,23 @@ type EventResourcePlan struct {
 
 // planInputs is what the plan is computed from.
 type planInputs struct {
-	policy      resourcesModel.Policy
-	maxUsers    int
-	teams       int
-	teamsBasis  string
-	tasks       []PlanTask
-	maxDevice   resourcesModel.Amount
-	maxLabSize  int
-	internetLab int
+	policy           resourcesModel.Policy
+	maxUsers         int
+	teams            int
+	teamsBasis       string
+	tasks            []PlanTask
+	maxDevice        resourcesModel.Amount
+	maxLabSize       int
+	internetLab      int
+	activeLabs       int
+	allowedRelations int
 }
 
 // placementNeed is what a team's group asks of an agent.
 func (p planInputs) placementNeed() infraModel.PlacementNeed {
 	return infraModel.PlacementNeed{
 		Device: p.maxDevice, LabDevices: p.maxLabSize,
-		Plan: infraModel.GroupPlan{MaxUsers: p.maxUsers, InternetLabs: p.internetLab},
+		Plan: infraModel.GroupPlan{MaxUsers: p.maxUsers, InternetLabs: p.internetLab, MaxActiveLabs: p.activeLabs, AllowedRelations: p.allowedRelations},
 	}
 }
 
@@ -119,12 +126,28 @@ func (u *EventUseCase) resourcePlanInputs(ctx context.Context, eventID uuid.UUID
 		return in, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config for the resource plan").Err()
 	}
 	if config.IsTeamMode() {
-		in.maxUsers = int(max(config.MaxTeamSize, 1))
+		in.maxUsers = plannedUsers(int(config.MaxTeamSize), 0, false, false)
 		if config.MaxTeams != nil {
 			in.teams, in.teamsBasis = int(*config.MaxTeams), "max_teams"
 		} else if count, countErr := u.teams.Count(ctx, eventID); countErr == nil {
 			in.teams = int(max(count, 1))
 		}
+	}
+
+	if u.allocationAccounting {
+		e, eErr := u.events.GetByID(ctx, eventID)
+		if eErr != nil {
+			return in, eErr
+		}
+		if config.IsTeamMode() && e.Lifecycle.FormsTeamsAtStart(time.Now().UTC()) {
+			users, uErr := u.repo.GetEventPlannedMaxUsers(ctx, eventID)
+			if uErr != nil {
+				return in, uErr
+			}
+			in.maxUsers = plannedUsers(int(config.MaxTeamSize), int(users), true, true)
+		}
+		// Moderators are a separate participation unit with their own shared Lab.
+		in.teams++
 	}
 	all, err := u.eventExercises.List(ctx, eventID)
 	if err != nil {
@@ -153,10 +176,18 @@ func (u *EventUseCase) resourcePlanInputs(ctx context.Context, eventID uuid.UUID
 		in.tasks = append(in.tasks, task)
 		in.maxLabSize = max(in.maxLabSize, task.labDevices)
 		in.maxDevice = in.maxDevice.Max(task.deviceMax)
-		if task.InternetLab {
+		if task.hasLab {
+			in.activeLabs++
+		}
+		if task.InternetLab && task.hasLab {
 			in.internetLab++
 		}
 	}
+	if config.LabPolicy.MaxActiveLabsPerTeam != nil {
+		in.activeLabs = min(in.activeLabs, int(*config.LabPolicy.MaxActiveLabsPerTeam))
+		in.internetLab = min(in.internetLab, in.activeLabs)
+	}
+	in.allowedRelations = in.maxUsers * in.activeLabs
 	return in, nil
 }
 
@@ -174,7 +205,14 @@ func planTask(policy resourcesModel.Policy, link eventExerciseModel.EventExercis
 			break
 		}
 	}
-	for _, v := range variants {
+	plannedVariants := variants
+	if link.VariantMode == eventExerciseModel.VariantModeFixed && link.FixedVariantIndex != nil && int(*link.FixedVariantIndex) >= 0 && int(*link.FixedVariantIndex) < len(variants) {
+		plannedVariants = variants[*link.FixedVariantIndex : *link.FixedVariantIndex+1]
+	}
+	for _, v := range plannedVariants {
+		if len(v.Topology.Devices) > 0 {
+			task.hasLab = true
+		}
 		if v.Topology.Internet.Enabled {
 			task.InternetLab = true
 		}
@@ -208,7 +246,7 @@ func (u *EventUseCase) GetResourcePlan(ctx context.Context, eventID uuid.UUID) (
 	if err != nil {
 		return EventResourcePlan{}, err
 	}
-	plan := EventResourcePlan{Tasks: in.tasks, Teams: in.teams, TeamsBasis: in.teamsBasis}
+	plan := EventResourcePlan{Observation: calendarUseCase.ObservationView(eventLabModel.ResourceTotals{}), Tasks: in.tasks, Teams: in.teams, TeamsBasis: in.teamsBasis}
 	if plan.Tasks == nil {
 		plan.Tasks = []PlanTask{}
 	}
@@ -224,12 +262,12 @@ func (u *EventUseCase) GetResourcePlan(ctx context.Context, eventID uuid.UUID) (
 	}
 	plan.Group = GroupOverhead{MaxUsers: in.maxUsers, InternetLabs: in.internetLab}
 	if planner != nil {
-		if sizes, known := planner.GroupSizes(infraModel.GroupPlan{MaxUsers: in.maxUsers, InternetLabs: in.internetLab}); known {
+		if sizes, known := planner.GroupSizes(in.placementNeed().Plan); known {
 			plan.Group.VPN, plan.Group.Gateway, plan.Group.Known = sizes.VPN, sizes.Gateway, true
 			plan.Group.VPNBlocks, plan.Group.GatewayBlocks = u.resourcePolicy().BlocksOf(sizes.VPN), u.resourcePolicy().BlocksOf(sizes.Gateway)
 		}
 	}
-	if planner != nil && planner.NeedFit(infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: in.maxUsers, InternetLabs: in.internetLab}}) != nil {
+	if planner != nil && planner.NeedFit(infraModel.PlacementNeed{Plan: in.placementNeed().Plan}) != nil {
 		plan.Group.TooLarge, plan.NoAgentFits = true, true
 	}
 	plan.PerTeam = plan.TeamTasks
@@ -237,6 +275,14 @@ func (u *EventUseCase) GetResourcePlan(ctx context.Context, eventID uuid.UUID) (
 	plan.PerTeam.Blocks += plan.Group.VPNBlocks + plan.Group.GatewayBlocks
 	for i := 0; i < plan.Teams; i++ {
 		plan.Total = plan.Total.Add(plan.PerTeam)
+	}
+
+	if u.allocationAccounting {
+		totals, e := u.labResourceTotals(ctx, eventID, time.Now().UTC())
+		if e != nil {
+			return EventResourcePlan{}, e
+		}
+		plan.Observation = calendarUseCase.ObservationView(totals)
 	}
 	return plan, nil
 }

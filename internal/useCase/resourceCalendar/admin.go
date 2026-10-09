@@ -206,7 +206,7 @@ func (u *ResourceCalendarUseCase) GetResourceCalendarStats(ctx context.Context) 
 		}
 	}
 	allocated := calModel.PeakLoad(slot, rs)
-	view := StatsView{At: now, TestPool: settings.TestPool, Agents: make([]AgentStatView, 0, len(states)), Events: []EventStatView{}}
+	view := StatsView{Observation: ObservationView(usage.Observation), At: now, TestPool: settings.TestPool, Agents: make([]AgentStatView, 0, len(states)), Events: []EventStatView{}}
 	for _, st := range states {
 		a := AgentStatView{ID: st.ID, Name: st.Name, Priority: st.Priority, Used: st.Used, Connected: st.Connected, Allocated: allocated[st.ID], InUse: usage.ByAgent[st.ID]}
 		if st.Used {

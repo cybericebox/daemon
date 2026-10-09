@@ -30,6 +30,7 @@ func TestDecideSolutionAttempt_Accepted_RecalculatesUsingOriginalAttemptTime(t *
 
 	eventChallengeID := uuid.Must(uuid.NewV7())
 	teamID := uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventSolutionAttemptIdentity(gomock.Any(), postgres.GetEventSolutionAttemptIdentityParams{ID: attemptID, EventID: eventID}).Return(postgres.GetEventSolutionAttemptIdentityRow{EventTeamID: teamID, EventChallengeID: eventChallengeID}, nil)
 	q.EXPECT().GetEventSolutionAttemptForDecision(gomock.Any(), postgres.GetEventSolutionAttemptForDecisionParams{ID: attemptID, EventID: eventID}).Return(postgres.GetEventSolutionAttemptForDecisionRow{ID: attemptID, EventID: eventID, EventTeamID: teamID, TeamChallengeID: teamChallengeID, EventChallengeID: eventChallengeID, Correct: false, ReceivedAt: receivedAt}, nil)
 	q.EXPECT().GetTeamChallenge(gomock.Any(), postgres.GetTeamChallengeParams{EventTeamID: teamID, EventChallengeID: eventChallengeID}).Return(postgres.GetTeamChallengeRow{ID: teamChallengeID, EventID: eventID, EventTeamID: teamID, EventChallengeID: eventChallengeID, CreatedAt: receivedAt}, nil)
 	q.EXPECT().CreateChallengeAttemptDecision(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, in postgres.CreateChallengeAttemptDecisionParams) (postgres.ChallengeAttemptDecision, error) {
@@ -66,6 +67,7 @@ func TestDecideSolutionAttempt_RejectedLastSolveRecordsUnsolvedChange(t *testing
 	actorID := uuid.Must(uuid.NewV7())
 	receivedAt := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
 
+	q.EXPECT().GetEventSolutionAttemptIdentity(gomock.Any(), postgres.GetEventSolutionAttemptIdentityParams{ID: attemptID, EventID: eventID}).Return(postgres.GetEventSolutionAttemptIdentityRow{EventTeamID: teamID, EventChallengeID: eventChallengeID}, nil)
 	q.EXPECT().GetEventSolutionAttemptForDecision(gomock.Any(), postgres.GetEventSolutionAttemptForDecisionParams{ID: attemptID, EventID: eventID}).Return(postgres.GetEventSolutionAttemptForDecisionRow{ID: attemptID, EventID: eventID, EventTeamID: teamID, TeamChallengeID: teamChallengeID, EventChallengeID: eventChallengeID, Correct: true, ReceivedAt: receivedAt}, nil)
 	q.EXPECT().GetTeamChallenge(gomock.Any(), postgres.GetTeamChallengeParams{EventTeamID: teamID, EventChallengeID: eventChallengeID}).Return(postgres.GetTeamChallengeRow{ID: teamChallengeID, EventID: eventID, EventTeamID: teamID, EventChallengeID: eventChallengeID, SolvedAt: pgtype.Timestamptz{Time: receivedAt, Valid: true}, CreatedAt: receivedAt}, nil)
 	q.EXPECT().CreateChallengeAttemptDecision(gomock.Any(), gomock.Any()).Return(postgres.ChallengeAttemptDecision{}, nil)

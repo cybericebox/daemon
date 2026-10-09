@@ -96,7 +96,8 @@ type (
 		GetOwnTeamResults(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.OwnTeamResultsView, error)
 		GetParticipationStats(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.ParticipationStatsView, error)
 		GetModeratorsParticipationStats(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.ParticipationStatsView, error)
-		GetOwnChallengeLabStatus(ctx context.Context, eventID, userID, challengeID uuid.UUID) (exerciseModel.LabDeployStatus, error)
+		GetOwnChallengeRuntime(ctx context.Context, eventID, userID, challengeID uuid.UUID) (eventUseCase.ChallengeRuntimeView, error)
+		GetOwnLabLifecycle(ctx context.Context, eventID, userID, labID uuid.UUID) (eventUseCase.ParticipantLabView, error)
 		GetOwnLabVPNConfig(ctx context.Context, eventID, userID uuid.UUID) (string, error)
 		GetOwnVPNProbeStatus(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.VPNProbeStatusView, error)
 		GetOwnStandStatus(ctx context.Context, eventID, userID uuid.UUID) (eventStandModel.Status, error)
@@ -160,6 +161,9 @@ func (h *Handler) Init(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 		// read the lab status, their team stand status and their VPN config.
 		teams.GET("challenges/:challengeID/lab", h.labStatus)
 		teams.POST("challenges/:challengeID/lab/link", h.openLabLink)
+		teams.GET("labs/:labID", h.labLifecycle)
+		teams.POST("labs/:labID/stop", h.stopLab)
+		teams.POST("labs/:labID/restart", h.restartLab)
 		teams.GET("labs/stand", h.standStatus)
 		teams.GET("labs/vpn", h.labVPNConfig)
 		teams.GET("labs/vpn/status", h.labVPNStatus)
@@ -587,7 +591,7 @@ func (h *Handler) submitChallenge(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, submitChallengeResponse{Correct: v.Correct, FirstSolve: v.FirstSolve, Practice: v.Practice})
+	response.AbortWithData(ctx, submitChallengeResponse{Lab: labview.ParticipantLab(v.Lab), Correct: v.Correct, FirstSolve: v.FirstSolve, Practice: v.Practice})
 }
 
 // unlockHint godoc
@@ -720,12 +724,14 @@ func (h *Handler) labStatus(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.GetOwnChallengeLabStatus(ctx, eventID, claims.UserID, challengeID)
+	v, err := h.useCase.GetOwnChallengeRuntime(ctx, eventID, claims.UserID, challengeID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, toLabStatusResponse(v))
+	out := toLabStatusResponse(v.Status)
+	out.Lab = labview.ParticipantLab(v.Lab)
+	response.AbortWithData(ctx, out)
 }
 
 func toLabStatusResponse(v exerciseModel.LabDeployStatus) labStatusResponse {

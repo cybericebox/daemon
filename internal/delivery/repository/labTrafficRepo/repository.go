@@ -54,11 +54,12 @@ func (r *Repository) ApplyTouch(ctx context.Context, touch labTraffic.Touch) err
 	}
 	params := postgres.ApplyLabTrafficTouchParams{
 		ID: id, EventID: touch.EventID, TeamID: touch.TeamID, UserID: touch.UserID, EventChallengeID: touch.EventChallengeID,
-		Surface: string(touch.Surface), AttemptsCount: touch.Attempts, FirstSeenAt: touch.FirstSeenAt, LastSeenAt: touch.LastSeenAt,
+		Surface: string(touch.Surface), AttemptsCount: touch.Attempts, LabInitiatedAttemptsCount: touch.LabInitiatedAttempts,
+		FirstSeenAt: nullableTime(touch.FirstSeenAt), LastSeenAt: nullableTime(touch.LastSeenAt),
 		PacketsOut: touch.PacketsOut, PacketsIn: touch.PacketsIn, BytesOut: touch.BytesOut, BytesIn: touch.BytesIn,
 	}
 	if touch.FirstRespondAt != nil {
-		params.FirstRespondedAt = pgtype.Timestamptz{Time: *touch.FirstRespondAt, Valid: true}
+		params.FirstRespondedAt = nullableTime(*touch.FirstRespondAt)
 	}
 	err = r.q.ApplyLabTrafficTouch(ctx, params)
 	if isForeignKeyViolation(err) {
@@ -70,10 +71,17 @@ func (r *Repository) ApplyTouch(ctx context.Context, touch labTraffic.Touch) err
 // RecordCoverage extends the collector's latest segment when the span joins it,
 // otherwise opens a new one.
 func (r *Repository) RecordCoverage(ctx context.Context, eventID, teamID uuid.UUID, surface labTraffic.Surface, source, bootID string, span labTraffic.Coverage) error {
+	if span.From.IsZero() || span.To.IsZero() || !span.From.Before(span.To) {
+		return nil
+	}
+	tolerance := labTraffic.CoverageTolerance.Seconds()
+	if span.Explicit {
+		tolerance = 0
+	}
 	extended, err := r.q.ExtendLabTrafficCoverage(ctx, postgres.ExtendLabTrafficCoverageParams{
 		CoveredFrom: span.From, CoveredTo: span.To,
-		EventID: eventID, TeamID: teamID, Surface: string(surface), Source: source, BootID: bootID, Partial: span.Partial,
-		ToleranceSeconds: labTraffic.CoverageTolerance.Seconds(),
+		EventID: eventID, TeamID: teamID, Surface: string(surface), Source: source, BootID: bootID, Partial: span.Partial, Explicit: span.Explicit,
+		ToleranceSeconds: tolerance,
 	})
 	if err != nil || extended > 0 {
 		return err
@@ -84,7 +92,7 @@ func (r *Repository) RecordCoverage(ctx context.Context, eventID, teamID uuid.UU
 	}
 	return r.q.CreateLabTrafficCoverage(ctx, postgres.CreateLabTrafficCoverageParams{
 		ID: id, EventID: eventID, TeamID: teamID, Surface: string(surface), Source: source, BootID: bootID,
-		CoveredFrom: span.From, CoveredTo: span.To, Partial: span.Partial,
+		CoveredFrom: span.From, CoveredTo: span.To, Partial: span.Partial, Explicit: span.Explicit,
 	})
 }
 
@@ -114,7 +122,10 @@ func (r *Repository) Ask(ctx context.Context, q labTraffic.Question) (labTraffic
 	}
 	rows := make([]labTraffic.Aggregate, 0, len(summary))
 	for _, row := range summary {
-		aggregate := labTraffic.Aggregate{Surface: labTraffic.Surface(row.Surface), Attempts: row.Attempts, FirstSeenAt: row.FirstSeenAt, BytesIn: row.BytesIn}
+		aggregate := labTraffic.Aggregate{
+			Surface: labTraffic.Surface(row.Surface), Attempts: row.Attempts, LabInitiatedAttempts: row.LabInitiatedAttempts,
+			FirstSeenAt: row.FirstSeenAt, PacketsOut: row.PacketsOut, PacketsIn: row.PacketsIn, BytesOut: row.BytesOut, BytesIn: row.BytesIn,
+		}
 		if !row.FirstRespondedAt.Equal(zeroTime) {
 			responded := row.FirstRespondedAt
 			aggregate.FirstRespondAt = &responded
@@ -129,10 +140,14 @@ func (r *Repository) Ask(ctx context.Context, q labTraffic.Question) (labTraffic
 		}
 		for _, span := range spans {
 			surface := labTraffic.Surface(span.Surface)
-			coverage[surface] = append(coverage[surface], labTraffic.Coverage{From: span.CoveredFrom, To: span.CoveredTo, Partial: span.Partial})
+			coverage[surface] = append(coverage[surface], labTraffic.Coverage{From: span.CoveredFrom, To: span.CoveredTo, Partial: span.Partial, Explicit: span.Explicit})
 		}
 	}
 	return labTraffic.Classify(q, rows, coverage), nil
+}
+
+func nullableTime(value time.Time) pgtype.Timestamptz {
+	return pgtype.Timestamptz{Time: value, Valid: !value.IsZero()}
 }
 
 func isForeignKeyViolation(err error) bool {

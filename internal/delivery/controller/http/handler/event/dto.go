@@ -2,6 +2,7 @@ package event
 
 import (
 	"encoding/json"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/pagination"
 	"time"
 
@@ -385,7 +386,8 @@ type configResponse struct {
 	FinishCountdownMode string `json:"FinishCountdownMode"`
 	// TaskRevealMode: all_ready (a task is revealed when it is ready for every team, the default) |
 	// as_ready (per team, as soon as its lab is ready). Changeable until the event starts.
-	TaskRevealMode string `json:"TaskRevealMode"`
+	TaskRevealMode string            `json:"TaskRevealMode"`
+	LabPolicy      labPolicyResponse `json:"LabPolicy"`
 	// InfrastructureAllowed is the admin's creation-time decision (read-only).
 	InfrastructureAllowed bool                   `json:"InfrastructureAllowed"`
 	Theme                 eventConfigModel.Theme `json:"Theme"`
@@ -424,7 +426,8 @@ type updateConfigRequest struct {
 	FinishCountdownMode *string `json:"FinishCountdownMode"`
 	// TaskRevealMode omitted keeps the current value: all_ready | as_ready. Changing it after the event
 	// starts is refused (400, 21222); an unknown value is 400 (21221).
-	TaskRevealMode *string `json:"TaskRevealMode"`
+	TaskRevealMode *string           `json:"TaskRevealMode"`
+	LabPolicy      *labPolicyRequest `json:"LabPolicy"`
 }
 
 type participantResponse struct {
@@ -789,6 +792,7 @@ func toConfigResponse(v eventUseCase.EventConfigView) configResponse {
 		FinishCountdownMinutes: v.Countdown.FinishMinutes,
 		FinishCountdownMode:    string(v.Countdown.Mode()),
 		TaskRevealMode:         string(v.TaskRevealMode),
+		LabPolicy:              labPolicyResponse{SnapshotMode: v.LabPolicy.SnapshotMode, MaxActiveLabsPerTeam: v.LabPolicy.MaxActiveLabsPerTeam, RetentionMinutes: v.LabPolicy.RetentionMinutes},
 		Theme:                  v.Theme,
 		UpdatedAt:              v.UpdatedAt,
 	}
@@ -820,6 +824,7 @@ func (r updateConfigRequest) toInput() eventUseCase.UpdateConfigInput {
 		FinishCountdownMinutes: r.FinishCountdownMinutes,
 		FinishCountdownMode:    parseFinishCountdownMode(r.FinishCountdownMode),
 		TaskRevealMode:         parseTaskRevealMode(r.TaskRevealMode),
+		LabPolicy:              r.LabPolicy.toInput(),
 	}
 }
 
@@ -1023,10 +1028,11 @@ type resourcePlanGroupResponse struct {
 // eventResourcePlanResponse is what the event reserves: per team the devices of its tasks plus the group
 // overhead as a separate line, and the total for the teams.
 type eventResourcePlanResponse struct {
-	Tasks     []resourcePlanTaskResponse  `json:"Tasks"`
-	TeamTasks eventResourceTotalsResponse `json:"TeamTasks"`
-	Group     resourcePlanGroupResponse   `json:"Group"`
-	PerTeam   eventResourceTotalsResponse `json:"PerTeam"`
+	Observation calendarUseCase.ResourceObservation `json:"Observation"`
+	Tasks       []resourcePlanTaskResponse          `json:"Tasks"`
+	TeamTasks   eventResourceTotalsResponse         `json:"TeamTasks"`
+	Group       resourcePlanGroupResponse           `json:"Group"`
+	PerTeam     eventResourceTotalsResponse         `json:"PerTeam"`
 	// Teams is the number of teams reserved for: MaxTeams when set, else the teams there are now (at least 1).
 	Teams      int                         `json:"Teams"`
 	TeamsBasis string                      `json:"TeamsBasis" enums:"max_teams,current"`
@@ -1036,7 +1042,7 @@ type eventResourcePlanResponse struct {
 }
 
 func toResourcePlanResponse(p eventUseCase.EventResourcePlan) eventResourcePlanResponse {
-	out := eventResourcePlanResponse{
+	out := eventResourcePlanResponse{Observation: p.Observation,
 		Tasks:     make([]resourcePlanTaskResponse, 0, len(p.Tasks)),
 		TeamTasks: totalsResponse(p.TeamTasks), PerTeam: totalsResponse(p.PerTeam), Total: totalsResponse(p.Total),
 		Teams: p.Teams, TeamsBasis: p.TeamsBasis, NoAgentFits: p.NoAgentFits,
@@ -1063,4 +1069,23 @@ func parseFinishCountdownMode(raw *string) *eventConfigModel.FinishCountdownMode
 	}
 	mode := eventConfigModel.FinishCountdownMode(*raw)
 	return &mode
+}
+
+type labPolicyRequest struct {
+	SnapshotMode         *string                    `json:"SnapshotMode"`
+	MaxActiveLabsPerTeam eventUseCase.OptionalLimit `json:"MaxActiveLabsPerTeam" swaggertype:"integer"`
+	RetentionMinutes     *int32                     `json:"RetentionMinutes"`
+}
+
+func (r *labPolicyRequest) toInput() *eventUseCase.UpdateLabPolicyInput {
+	if r == nil {
+		return nil
+	}
+	return &eventUseCase.UpdateLabPolicyInput{SnapshotMode: r.SnapshotMode, MaxActiveLabsPerTeam: r.MaxActiveLabsPerTeam, RetentionMinutes: r.RetentionMinutes}
+}
+
+type labPolicyResponse struct {
+	SnapshotMode         string `json:"SnapshotMode"`
+	MaxActiveLabsPerTeam *int32 `json:"MaxActiveLabsPerTeam"`
+	RetentionMinutes     int32  `json:"RetentionMinutes"`
 }

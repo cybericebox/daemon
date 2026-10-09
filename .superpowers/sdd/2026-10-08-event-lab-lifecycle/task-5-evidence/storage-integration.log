@@ -1,0 +1,7 @@
+# github.com/cybericebox/daemon/internal/useCase/resourceCalendar
+internal/useCase/resourceCalendar/reservations.go:308:28: undefined: eventID
+ok  	github.com/cybericebox/daemon/internal/delivery/repository/postgres	11.255s
+FAIL	github.com/cybericebox/daemon/internal/useCase/resourceCalendar [build failed]
+FAIL	github.com/cybericebox/daemon/internal/delivery/controller/http/handler/resourceCalendar [build failed]
+ok  	github.com/cybericebox/daemon/internal/model/eventLab	0.323s
+FAIL

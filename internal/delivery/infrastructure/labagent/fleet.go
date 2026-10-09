@@ -12,6 +12,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
@@ -291,7 +292,7 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	}
 	// A group that lives on an agent stays there: a lab that passes its maxima is refused here, with the
 	// same error the placement gives.
-	if v := f.fitOf(m, need); v != nil {
+	if v := f.fitOf(m, infraModel.PlacementNeedFrom(ctx)); v != nil {
 		return noAgentFits(v)
 	}
 	// The agent says what it offers: a topology that needs more is refused here, before anything is created.
@@ -305,6 +306,9 @@ func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
+	}
+	if v := f.fitOf(m, infraModel.PlacementNeedFrom(ctx)); v != nil {
+		return noAgentFits(v)
 	}
 	return m.Client.EnsureVPNGroup(f.withSizes(ctx, m), group)
 }
@@ -543,4 +547,61 @@ func mergePrewarm(into, more []infraModel.ImagePrewarm) []infraModel.ImagePrewar
 		}
 	}
 	return into
+}
+
+func (f *Fleet) StopLab(ctx context.Context, in eventLabModel.StopRequest) error {
+	c, err := f.lifecycleRoute(ctx, in.Target.Ref.Group)
+	if err != nil {
+		return err
+	}
+	return c.StopLab(ctx, in)
+}
+func (f *Fleet) StartLab(ctx context.Context, in eventLabModel.Target) error {
+	c, err := f.lifecycleRoute(ctx, in.Ref.Group)
+	if err != nil {
+		return err
+	}
+	return c.StartLab(ctx, in)
+}
+func (f *Fleet) ObserveLab(ctx context.Context, ref eventLabModel.Ref) (eventLabModel.Observation, error) {
+	c, err := f.lifecycleRoute(ctx, ref.Group)
+	if err != nil {
+		return unknownObservation(ref), err
+	}
+	return c.ObserveLab(ctx, ref)
+}
+
+// Lifecycle reads/mutations use existing placement only. Legacy locate may
+// claim a placement, so it is deliberately not used here.
+func (f *Fleet) lifecycleRoute(ctx context.Context, group string) (*Client, error) {
+	members := f.Members()
+	if len(members) == 0 {
+		return nil, infraModel.ErrInfrastructureUnavailable.Err()
+	}
+	if len(members) == 1 {
+		return members[0].Client, nil
+	}
+	if f.store == nil {
+		return nil, fmt.Errorf("lab group placement store is not configured")
+	}
+	id, found, err := f.store.Get(ctx, group)
+	if err != nil {
+		return nil, fmt.Errorf("lab group placement: %w", err)
+	}
+	if !found {
+		return nil, errNoPlacement
+	}
+	m := f.member(id)
+	if m == nil {
+		return nil, fmt.Errorf("lab group %q agent unavailable", group)
+	}
+	return m.Client, nil
+}
+
+func (f *Fleet) ReconcileLabGroupAccessRevision(ctx context.Context, group string, policies []labAccessModel.ClientPolicy, target eventLabModel.AccessTarget) error {
+	c, err := f.route(ctx, group)
+	if err != nil {
+		return err
+	}
+	return c.ReconcileLabGroupAccessRevision(ctx, group, policies, target)
 }

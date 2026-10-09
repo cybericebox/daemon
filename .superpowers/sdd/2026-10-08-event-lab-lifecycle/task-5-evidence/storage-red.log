@@ -1,0 +1,10 @@
+--- FAIL: TestStorageReservationArithmeticAndAdmission (0.00s)
+    storage_test.go:4: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/model/resourceCalendar/storage_test.go:4
+        	Error:      	Not equal: 
+        	            	expected: int(5368709120)
+        	            	actual  : int64(0)
+        	Test:       	TestStorageReservationArithmeticAndAdmission
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/model/resourceCalendar	0.339s
+FAIL

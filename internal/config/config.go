@@ -34,6 +34,7 @@ type (
 		Infrastructure InfrastructureConfig `                                   envPrefix:""`
 		Auth           AuthConfig           `                                   envPrefix:""`
 		Media          MediaConfig          `                                   envPrefix:"MEDIA_"`
+		LabLifecycle   LabLifecycleConfig   `envPrefix:"EVENT_LAB_LIFECYCLE_"`
 		Exercise       ExerciseConfig       `                                   envPrefix:"EXERCISE_"`
 		Resources      ResourcesConfig      `                                   envPrefix:"RESOURCES_"`
 		Calendar       CalendarConfig       `                                   envPrefix:"CALENDAR_"`
@@ -143,7 +144,10 @@ type (
 		// LiveScreenLinkMaxTTL caps «until the event ends» of a live screen link.
 		LiveScreenLinkMaxTTL time.Duration `env:"LIVE_SCREEN_LINK_MAX_TTL" envDefault:"1440h"`
 		// EventDefaultMaxTeamSize is the team size limit of a new event.
-		EventDefaultMaxTeamSize int32 `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
+		EventLabSnapshotMode     string `env:"EVENT_LAB_SNAPSHOT_MODE" envDefault:"skip"`
+		EventLabMaxActive        int32  `env:"EVENT_LAB_MAX_ACTIVE" envDefault:"0"`
+		EventLabRetentionMinutes int32  `env:"EVENT_LAB_RETENTION_MINUTES" envDefault:"60"`
+		EventDefaultMaxTeamSize  int32  `env:"EVENT_DEFAULT_MAX_TEAM_SIZE" envDefault:"5"`
 
 		// JobCompletedRetention and JobFailedRetention are how long the job queue keeps finished jobs: the
 		// arguments of a notification job hold an address, a name and a link, so they do not stay for days.
@@ -648,6 +652,9 @@ func (c TunablesConfig) Validate() error {
 			return fmt.Errorf("%s must be at least 1", name)
 		}
 	}
+	if (c.EventLabSnapshotMode != "skip" && c.EventLabSnapshotMode != "required") || c.EventLabMaxActive < 0 || c.EventLabMaxActive > 1000 || c.EventLabRetentionMinutes < 0 || c.EventLabRetentionMinutes > 10080 {
+		return errors.New("invalid event lab policy defaults")
+	}
 	for _, port := range c.SMTPAllowedPorts {
 		if port < 1 || port > 65535 {
 			return errors.New("SMTP_ALLOWED_PORTS must list ports between 1 and 65535")
@@ -934,6 +941,9 @@ func MustGetConfig() *Config {
 	if err = instance.ErrorJournal.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid error journal configuration")
 	}
+	if err = instance.LabLifecycle.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid laboratory lifecycle configuration")
+	}
 	if err = instance.Exercise.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid exercise configuration")
 	}
@@ -984,4 +994,19 @@ func (c *Config) populateForAllConfig() {
 	}
 
 	c.Auth.OAuth.RedirectURLTemplate = c.Auth.Hosts.APIURL("/api/auth/%s/callback")
+}
+
+// LabLifecycleConfig bounds durable stop convergence independently of stand rollout.
+type LabLifecycleConfig struct {
+	Interval time.Duration `env:"INTERVAL" envDefault:"2s"`
+	Batch    int32         `env:"BATCH" envDefault:"100"`
+	RetryMin time.Duration `env:"RETRY_MIN" envDefault:"10s"`
+	RetryMax time.Duration `env:"RETRY_MAX" envDefault:"5m"`
+}
+
+func (c LabLifecycleConfig) Validate() error {
+	if c.Interval < time.Second || c.Interval > time.Hour || c.Batch < 1 || c.Batch > 1000 || c.RetryMin < time.Second || c.RetryMax < c.RetryMin || c.RetryMax > time.Hour {
+		return fmt.Errorf("invalid EVENT_LAB_LIFECYCLE interval, batch or retry bounds")
+	}
+	return nil
 }

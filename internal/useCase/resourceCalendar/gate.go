@@ -52,3 +52,14 @@ func (u *ResourceCalendarUseCase) HasEventReservation(ctx context.Context, event
 	}
 	return true, nil
 }
+
+// HoldsStorageForAllTeams checks configured logical snapshot quotas. Measured
+// idle disk is never the reservation budget, and missing configuration cannot
+// authorize a persistent generation.
+func (u *ResourceCalendarUseCase) HoldsStorageForAllTeams(ctx context.Context, eventID uuid.UUID, perTeamBytes int64, teams int) error {
+	r, err := u.store.GetEventReservation(ctx, eventID)
+	if err != nil || teams < 1 || teams > r.Teams || perTeamBytes < 0 || (perTeamBytes > 0 && r.SizeSnapshotQuotaBytes == 0) || perTeamBytes > r.SizeSnapshotQuotaBytes/int64(teams) {
+		return calModel.ErrNotEnoughReserved.Err()
+	}
+	return nil
+}

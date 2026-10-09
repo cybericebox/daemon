@@ -7,6 +7,10 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
@@ -108,6 +112,43 @@ func (u *EventUseCase) GetApprovedParticipantInfo(ctx context.Context, eventID, 
 // can change only until publication. The infrastructure flag is admin-owned
 // (set at event creation) and never changes here. Route gate: events.write.
 func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID, in UpdateConfigInput, by uuid.UUID) (EventConfigView, error) {
+	if !u.lifecycleControls || in.TaskRevealMode == nil {
+		return u.updateEventConfig(ctx, eventID, in, by)
+	}
+	if u.uow == nil {
+		return EventConfigView{}, model.ErrPlatform.WithMessage("Reveal mode transaction is not configured").Err()
+	}
+	txCtx, q, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return EventConfigView{}, err
+	}
+	defer unit.Restore()
+	if _, err = q.LockEventForLabSourceChange(txCtx, eventID); err != nil {
+		return EventConfigView{}, err
+	}
+	inner := *u
+	inner.repo = q
+	inner.configs = eventConfigRepo.New(q)
+	inner.events = eventRepo.New(q)
+	view, err := inner.updateEventConfig(txCtx, eventID, in, by)
+	if err != nil {
+		return EventConfigView{}, err
+	}
+	sets, err := eventExerciseRepo.New(q).List(txCtx, eventID)
+	if err != nil {
+		return EventConfigView{}, err
+	}
+	for _, set := range activeAttachments(sets) {
+		if err = eventLabRevealRepo.New(q).Invalidate(txCtx, eventID, set.ID); err != nil {
+			return EventConfigView{}, err
+		}
+	}
+	if err = unit.Save(); err != nil {
+		return EventConfigView{}, err
+	}
+	return view, nil
+}
+func (u *EventUseCase) updateEventConfig(ctx context.Context, eventID uuid.UUID, in UpdateConfigInput, by uuid.UUID) (EventConfigView, error) {
 	now := time.Now()
 	c, err := u.mutateEventConfig(ctx, eventID, func(cfg *eventConfigModel.EventConfig) error {
 		participationChanged := in.Participation != nil && (cfg.Participation == nil || *cfg.Participation != *in.Participation)
@@ -136,6 +177,11 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 		if err := cfg.Update(in.toConfigInput(*cfg), now, by); err != nil {
 			return err
 		}
+		if in.LabPolicy != nil {
+			if err := cfg.SetLabPolicy(in.LabPolicy.Resolve(cfg.EffectiveLabPolicy()), now, by); err != nil {
+				return err
+			}
+		}
 		if in.TaskRevealMode != nil {
 			started := false
 			if *in.TaskRevealMode != cfg.TaskRevealMode {
@@ -148,7 +194,16 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 				}
 				started = event.Lifecycle.HasStarted(now)
 			}
-			return cfg.SetTaskRevealMode(*in.TaskRevealMode, started, now, by)
+			if err := cfg.SetTaskRevealMode(*in.TaskRevealMode, started, now, by); err != nil {
+				return err
+			}
+			if u.lifecycleControls {
+				return u.validateExistingGroupSizing(ctx, eventID, *cfg)
+			}
+			return nil
+		}
+		if u.lifecycleControls {
+			return u.validateExistingGroupSizing(ctx, eventID, *cfg)
 		}
 		return nil
 	})

@@ -14,8 +14,11 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRevealRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -472,13 +475,6 @@ type standPolicy struct {
 // prepared teams' stands to the new version (see planStandRecreation).
 func (u *EventUseCase) switchInTransaction(ctx context.Context, link eventExerciseModel.EventExercise, entry exerciseModel.Exercise, version exerciseModel.ExerciseVersion, prepare func(context.Context, IRepository) error, policy standPolicy) (EventExerciseView, error) {
 	eventID, eventExerciseID := link.EventID, link.ID
-	var recreation *standRecreation
-	if !policy.keep {
-		var planErr error
-		if recreation, planErr = u.planStandRecreation(ctx, link, version, policy.confirmed, time.Now()); planErr != nil {
-			return EventExerciseView{}, planErr
-		}
-	}
 	if u.uow == nil {
 		return EventExerciseView{}, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
 	}
@@ -487,13 +483,23 @@ func (u *EventUseCase) switchInTransaction(ctx context.Context, link eventExerci
 		return EventExerciseView{}, err
 	}
 	defer unit.Restore()
+	terminalLabs, err := eventLabRepo.New(txRepo).LockSourceChange(txCtx, eventID, eventExerciseID)
+	if err != nil {
+		return EventExerciseView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to lock source-change laboratory generations").Err()
+	}
+	var recreation *standRecreation
+	if !policy.keep {
+		if recreation, err = u.planStandRecreation(txCtx, txRepo, terminalLabs, link, version, policy.confirmed, time.Now()); err != nil {
+			return EventExerciseView{}, err
+		}
+	}
 	if prepare != nil {
 		if err = prepare(txCtx, txRepo); err != nil {
 			return EventExerciseView{}, err
 		}
 		entry.ID = version.ExerciseID
 	}
-	switched, err := u.switchSource(txCtx, txRepo, eventID, eventExerciseID, version, time.Now())
+	switched, err := u.switchSource(txCtx, txRepo, eventID, eventExerciseID, version, terminalLabs, time.Now())
 	if err != nil {
 		return EventExerciseView{}, err
 	}
@@ -514,7 +520,7 @@ func (u *EventUseCase) switchInTransaction(ctx context.Context, link eventExerci
 // get unpublished challenges; removed tasks are deleted unless attempted
 // (then the switch is refused). Team assignments are refreshed for their
 // pinned variant and marked «Оновлено» when their visible content changed.
-func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, eventID, eventExerciseID uuid.UUID, version exerciseModel.ExerciseVersion, now time.Time) (eventExerciseModel.EventExercise, error) {
+func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, eventID, eventExerciseID uuid.UUID, version exerciseModel.ExerciseVersion, terminalLabs map[uuid.UUID]bool, now time.Time) (eventExerciseModel.EventExercise, error) {
 	attachments := eventExerciseRepo.New(repo)
 	link, err := attachments.GetByID(ctx, eventID, eventExerciseID)
 	if err != nil {
@@ -605,7 +611,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 			return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to materialize event challenge").Err()
 		}
 	}
-	if err = u.refreshTeamAssignments(ctx, repo, link, previous, version, board, now); err != nil {
+	if err = u.refreshTeamAssignments(ctx, repo, link, previous, version, board, terminalLabs, now); err != nil {
 		return eventExerciseModel.EventExercise{}, err
 	}
 	switched, err := attachments.UpdateSource(ctx, eventID, link.ID, version.ExerciseID, version.ID)
@@ -615,6 +621,11 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 		}
 		return eventExerciseModel.EventExercise{}, model.ErrPlatform.WithError(err).WithMessage("Failed to switch event exercise").Err()
 	}
+	if u.lifecycleControls {
+		if err = eventLabRevealRepo.New(repo).Invalidate(ctx, eventID, switched.ID); err != nil {
+			return eventExerciseModel.EventExercise{}, err
+		}
+	}
 	return switched, nil
 }
 
@@ -623,7 +634,7 @@ func (u *EventUseCase) switchSource(ctx context.Context, repo IRepository, event
 // longer exists), new snapshot and hint texts; the flag of an unsolved static
 // task is re-resolved only when its flag source changed (lab-injected flags
 // stay with the running Lab).
-func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IRepository, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, board []eventChallengeModel.EventChallenge, now time.Time) error {
+func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IRepository, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, board []eventChallengeModel.EventChallenge, terminalLabs map[uuid.UUID]bool, now time.Time) error {
 	taskOf := make(map[uuid.UUID]uuid.UUID, len(board))
 	ids := make([]uuid.UUID, 0, len(board))
 	for _, challenge := range board {
@@ -636,6 +647,17 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list team challenges").Err()
 	}
 	for _, row := range rows {
+		// Retained solved generations keep their pinned variant/content/flags and
+		// history. An annulled rated solve still belongs to that terminal Lab.
+		if len(terminalLabs) > 0 {
+			binding, bindingErr := labBindingRepo.New(repo).Get(ctx, row.EventTeamID, row.EventChallengeID)
+			if bindingErr != nil && !repositoryTools.IsObjectNotFoundError(bindingErr) {
+				return model.ErrPlatform.WithError(bindingErr).WithMessage("Failed to read source-change laboratory binding").Err()
+			}
+			if bindingErr == nil && binding.LabID.Valid && terminalLabs[binding.LabID.UUID] {
+				continue
+			}
+		}
 		taskID, known := taskOf[row.EventChallengeID]
 		if !known {
 			continue

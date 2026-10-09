@@ -201,6 +201,9 @@ func (u *EventUseCase) AnnulSolve(ctx context.Context, eventID, teamID, challeng
 		return AnnulSolveView{}, err
 	}
 	defer unit.Restore()
+	if _, err = lockChallengeLabInTransaction(txCtx, txRepo, teamID, challengeID); err != nil {
+		return AnnulSolveView{}, err
+	}
 	attempts := challengeAttemptRepo.New(txRepo)
 	// A missing team challenge has nothing accepted either.
 	var accepted []uuid.UUID

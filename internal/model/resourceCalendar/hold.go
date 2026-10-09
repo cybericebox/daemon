@@ -18,13 +18,14 @@ const (
 
 // TestLabHold is the room a running test laboratory was admitted with, until its lease ends.
 type TestLabHold struct {
-	ID            uuid.UUID
-	OwnerID       uuid.UUID
-	Via           string
-	ReservationID *uuid.UUID
-	Size          Amount
-	StartsAt      time.Time
-	ExpiresAt     time.Time
+	ID                 uuid.UUID
+	OwnerID            uuid.UUID
+	Via                string
+	ReservationID      *uuid.UUID
+	SnapshotQuotaBytes int64
+	Size               Amount
+	StartsAt           time.Time
+	ExpiresAt          time.Time
 }
 
 // NamedChangeRequest is a change request with the name of its event, for the admin list.

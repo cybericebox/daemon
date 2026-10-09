@@ -13,6 +13,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/challengeAttemptRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
@@ -34,9 +35,10 @@ import (
 const challengeSubmissionIdempotencyScope = "event.challenge.submit"
 
 type storedChallengeSubmissionResult struct {
-	Correct    bool `json:"correct"`
-	FirstSolve bool `json:"firstSolve"`
-	Practice   bool `json:"practice,omitempty"`
+	Lab        *ParticipantLabView `json:"lab"`
+	Correct    bool                `json:"correct"`
+	FirstSolve bool                `json:"firstSolve"`
+	Practice   bool                `json:"practice,omitempty"`
 }
 
 // SubmitChallenge checks an answer; a refused submission (rate limit,
@@ -62,7 +64,7 @@ func (u *EventUseCase) SubmitModeratorsChallenge(ctx context.Context, eventID, u
 // moderatorsSubmitTeam returns the moderators team for a submission and checks
 // that the event still runs: the moderators may answer before the start and
 // outside the window, but not after it is withdrawn.
-func (u *EventUseCase) moderatorsSubmitTeam(ctx context.Context, txRepo eventRepo.Queries, eventID uuid.UUID, at time.Time) (uuid.UUID, error) {
+func (u *EventUseCase) moderatorsSubmitTeam(ctx context.Context, txRepo IRepository, eventID uuid.UUID, at time.Time) (uuid.UUID, error) {
 	event, err := eventRepo.New(txRepo).GetByID(ctx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -73,7 +75,7 @@ func (u *EventUseCase) moderatorsSubmitTeam(ctx context.Context, txRepo eventRep
 	if event.Lifecycle.Status(at) == eventModel.LifecycleWithdrawn || event.Status(at) == eventModel.EventArchivedStatus {
 		return uuid.Nil, eventModel.ErrEventRuntimeNotOpen.Err()
 	}
-	return u.resolveModeratorsTeam(ctx, event)
+	return u.resolveModeratorsTeamInTransaction(ctx, txRepo, event)
 }
 
 // requirePrerequisitesSolved is the board's lock: a challenge opens for a team
@@ -126,7 +128,15 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 		if err = json.Unmarshal(record.ResponseBody, &stored); err != nil {
 			return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read idempotent response").Err()
 		}
-		return SubmitChallengeResult{Correct: stored.Correct, FirstSolve: stored.FirstSolve, Practice: stored.Practice}, nil
+		if stored.Lab != nil {
+			lab, getErr := eventLabRepo.New(txRepo).Get(txCtx, stored.Lab.ID)
+			if getErr != nil {
+				return SubmitChallengeResult{}, getErr
+			}
+			view := participantLabView(lab)
+			stored.Lab = &view
+		}
+		return SubmitChallengeResult{Correct: stored.Correct, FirstSolve: stored.FirstSolve, Practice: stored.Practice, Lab: stored.Lab}, nil
 	}
 	var teamID uuid.UUID
 	// practice: the stage closed but is returnable, so the answer is verified and shown, never rated.
@@ -156,6 +166,9 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 		if err = requireRuntimeOpenAt(txCtx, eventRepo.New(txRepo), eventID, in.ReceivedAt); err != nil {
 			return SubmitChallengeResult{}, err
 		}
+	}
+	if _, err = lockChallengeLabInTransaction(txCtx, txRepo, teamID, challengeID); err != nil {
+		return SubmitChallengeResult{}, err
 	}
 	tc, err := teamChallengeRepo.New(txRepo).Get(txCtx, teamID, challengeID)
 	if err != nil {
@@ -267,7 +280,11 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 			}
 		}
 	}
-	body, marshalErr := json.Marshal(storedChallengeSubmissionResult{Correct: correct, FirstSolve: first, Practice: practice})
+	labView, err := completeLabInTransaction(txCtx, txRepo, teamID, challengeID, now)
+	if err != nil {
+		return SubmitChallengeResult{}, err
+	}
+	body, marshalErr := json.Marshal(storedChallengeSubmissionResult{Correct: correct, FirstSolve: first, Practice: practice, Lab: labView})
 	if marshalErr != nil {
 		return SubmitChallengeResult{}, model.ErrPlatform.WithError(marshalErr).WithMessage("Failed to encode idempotent response").Err()
 	}
@@ -281,13 +298,14 @@ func (u *EventUseCase) submitChallenge(ctx context.Context, eventID, userID, cha
 	if err = unit.Save(); err != nil {
 		return SubmitChallengeResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to submit challenge").Err()
 	}
-	return SubmitChallengeResult{Correct: correct, FirstSolve: first, Practice: practice}, nil
+	u.wakeLabLifecycle(ctx)
+	return SubmitChallengeResult{Correct: correct, FirstSolve: first, Practice: practice, Lab: labView}, nil
 }
 
 // throttleSubmission enforces the flag rate limits on the attempts already
 // stored. Locking the team challenge serializes concurrent submissions of one
 // challenge, so a burst cannot pass the count before any of it is recorded;
-// the looser team-wide limit may overshoot by the parallel requests at most.
+// the earlier team admission lock also serializes the team-wide count.
 // With enforceAttemptLimit the task's flag attempt limit is checked first, on the locked row, so parallel wrong
 // answers cannot pass it together; a submission refused by the rate limit is not stored and so never counts.
 // Moderators testing on their board are not limited.
