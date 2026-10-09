@@ -1,6 +1,6 @@
 {
   "Repository": "https://github.com/cybericebox/laboratory",
-  "SourceCommit": "06564032af3ae39897f3f83235d526f347021b0d",
+  "SourceCommit": "f219ce5146ab142beeb2f2b5275932f13609c73e",
   "Files": {
     "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "NOTICE": "af7950f47969c28959f6768d82ec71a798761169385b317fae8b964a39694f17",
@@ -19,7 +19,7 @@
   "BundleFiles": {
     "go.mod": "92fa616b29eec8fcf48e0b2fcae312535ada0512c4b03c04f5315d231367a96f",
     "go.sum": "86e35a7e85201b56f148f85fc3ebd477d7a9c501e99ae36dfaa9fcaf2aec1236",
-    "SOURCE_COMMIT": "f51e66b58b582f9cac72694753774272e30e3c8f5ef15d5f6604e17e7c08817c",
+    "SOURCE_COMMIT": "6ae6e1fffec533245fa490f1f0757df313c45f61270c159f326bcfc3c1e778cf",
     "README.md": "4724ed0c35300de7603d90bbce0da7abc477f30fb874b76d601d3a8c06a27d1f"
   },
   "Generator": {
@@ -28,5 +28,5 @@
     "protoc-gen-go-grpc": "v1.6.2"
   },
   "GeneratorRecipe": "protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative pkg/agent/protobuf/agent.proto",
-  "CopiedAt": "2026-10-09T09:02:52.622012+00:00"
+  "CopiedAt": "2026-10-09T09:39:24.161979+00:00"
 }
