@@ -293,3 +293,8 @@ func (l *Lab) AdoptCreationReceipt(o Observation, now time.Time) bool {
 	l.UpdatedAt = now
 	return true
 }
+
+// CanRetryInitialDeployment never changes the admitted aggregate or its pins.
+func (l *Lab) CanRetryInitialDeployment() bool {
+	return l.Materialized && l.DesiredState == "Running" && l.ClosedAt == nil && l.CloseReason == "" && l.Revision == 1 && l.OperationID != uuid.Nil && l.AgentUID == "" && l.AgentGeneration == 0 && l.CreateEvidence == nil && !l.RuntimeReady
+}

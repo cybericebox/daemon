@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 )
 
@@ -249,4 +250,15 @@ func (r *Repository) ExistingTeamIDs(ctx context.Context, ids []uuid.UUID) ([]uu
 // TestDeployGroups returns those of names that still hold a test deploy row.
 func (r *Repository) TestDeployGroups(ctx context.Context, names []string) ([]string, error) {
 	return r.q.ListTestDeployGroupNames(ctx, names)
+}
+
+// RetryInitial preserves every canonical identity and clears only failed birth readiness.
+func (r *Repository) RetryInitial(ctx context.Context, lab eventLabModel.Lab) (int64, error) {
+	q, ok := r.q.(interface {
+		RetryNeverCreatedLabBindings(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, int64, uuid.UUID) (int64, error)
+	})
+	if !ok {
+		return 0, errors.New("initial retry query unavailable")
+	}
+	return q.RetryNeverCreatedLabBindings(ctx, lab.ID, lab.TeamID, lab.EventID, lab.Revision, lab.OperationID)
 }

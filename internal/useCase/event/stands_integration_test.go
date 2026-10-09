@@ -39,18 +39,19 @@ import (
 
 // standAgent is an in-memory Laboratory: Labs become ready or fail on demand.
 type standAgent struct {
-	beforeDeploy       func(context.Context, string, string) error
-	stopCalls          []eventLabModel.StopRequest
-	observations       map[eventLabModel.Ref]eventLabModel.Observation
-	stopErr, statusErr error
-	stopErrs           map[eventLabModel.Ref]error
-	mu                 sync.Mutex
-	deployed           []string
-	topos              map[string]exerciseModel.Topology
-	deleted            []string
-	destroyed          []string
-	ready              map[string]bool
-	failed             map[string]bool
+	beforeDeploy        func(context.Context, string, string) error
+	preGroupCreateError error
+	stopCalls           []eventLabModel.StopRequest
+	observations        map[eventLabModel.Ref]eventLabModel.Observation
+	stopErr, statusErr  error
+	stopErrs            map[eventLabModel.Ref]error
+	mu                  sync.Mutex
+	deployed            []string
+	topos               map[string]exerciseModel.Topology
+	deleted             []string
+	destroyed           []string
+	ready               map[string]bool
+	failed              map[string]bool
 	// queued labs report phase Queued with this queue state.
 	queued       map[string]*exerciseModel.LabQueue
 	metas        map[string]infraModel.LabMeta
@@ -98,6 +99,9 @@ func (a *standAgent) RescueDevice(_ context.Context, group, lab, device string, 
 }
 
 func (a *standAgent) DeployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topology exerciseModel.Topology) error {
+	if a.preGroupCreateError != nil {
+		return a.preGroupCreateError
+	}
 	// Synthetic immutable creation identity for managed consumer/SQL tests only.
 	if meta.InitialLifecycle != nil {
 		if meta.BeforeCreate == nil {

@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"math"
 
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
@@ -46,10 +47,16 @@ func (s GroupPodSizing) Size(units int) resourcesModel.Amount {
 	if s.MaxUnits > 0 {
 		units = min(units, int(s.MaxUnits))
 	}
-	return resourcesModel.Amount{
-		CPUMillicores: s.Base.CPUMillicores + int64(units)*s.PerUnit.CPUMillicores,
-		MemoryBytes:   s.Base.MemoryBytes + int64(units)*s.PerUnit.MemoryBytes,
+	add := func(base, per int64) int64 {
+		if base < 0 || per < 0 {
+			return math.MaxInt64
+		}
+		if per > 0 && int64(units) > (math.MaxInt64-base)/per {
+			return math.MaxInt64
+		}
+		return base + int64(units)*per
 	}
+	return resourcesModel.Amount{CPUMillicores: add(s.Base.CPUMillicores, s.PerUnit.CPUMillicores), MemoryBytes: add(s.Base.MemoryBytes, s.PerUnit.MemoryBytes)}
 }
 
 // Resources a violation can name.

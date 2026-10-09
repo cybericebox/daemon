@@ -214,6 +214,12 @@ func (u *EventUseCase) RecreateTeamStand(ctx context.Context, eventID, teamID, b
 		return StandTeamView{}, infraUnavailable()
 	}
 	if u.lifecycleControls {
+		if retried, err := u.retryInitialFailedTeam(ctx, eventID, teamID); err != nil {
+			return StandTeamView{}, err
+		} else if retried {
+			u.wakeLabLifecycle(ctx)
+			return u.standTeamViewAfterInitialRetry(ctx, eventID, teamID)
+		}
 		return u.recreateRetainedTeamStand(ctx, eventID, teamID, by, now)
 	}
 	deleter, ok := u.infra.(standLabDeleter)

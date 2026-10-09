@@ -434,7 +434,7 @@ func TestPlacementTakesOnlyAgentsWhoseMaximaHoldTheNeed(t *testing.T) {
 		t.Fatalf("no agent fits = %v", err)
 	}
 	if _, placed := f.store.groups["e-1-t-2"]; placed {
-		t.Fatal("a refused group is not placed")
+		t.Fatal("an accepted service group is placed")
 	}
 	// An agent that has not reported is never filtered out.
 	f.am.Features = nil
@@ -512,14 +512,13 @@ func TestGroupSizesUseTheAgentsFormula(t *testing.T) {
 	if !known {
 		t.Fatal("sizing reported")
 	}
-	// a: vpn 30, gateway 35; b: vpn 40, gateway 35. The plan holds wherever the group lands, rounded up to whole
-	// sizes (CPU follows memory at 250m per Gi, so 40m needs 256Mi / 62m).
-	if sizes.VPN.CPUMillicores != 62 || sizes.Gateway.CPUMillicores != 62 || sizes.VPN.MemoryBytes != 256<<20 {
+	// a: vpn30, gateway35; b: vpn40, gateway35. The exact worst case is reserved.
+	if sizes.VPN.CPUMillicores != 40 || sizes.Gateway.CPUMillicores != 35 || sizes.VPN.MemoryBytes != 40<<20 {
 		t.Fatalf("sizes %+v", sizes)
 	}
 	// The maximum caps the growth.
 	capped, _ := f.fleet.GroupSizes(infraModel.GroupPlan{MaxUsers: 1000, InternetLabs: 1000})
-	if capped.VPN.CPUMillicores != 62 || capped.Gateway.CPUMillicores != 125 {
+	if capped.VPN.CPUMillicores != 40 || capped.Gateway.CPUMillicores != 105 {
 		t.Fatalf("capped %+v", capped)
 	}
 	f.am.Features, f.bm.Features = nil, nil
@@ -602,14 +601,13 @@ func TestFeaturesOfReadsTheGroupPodSizingAndSendsExplicitSizes(t *testing.T) {
 	if err := f.fleet.EnsureVPNGroup(ctx, "e-1-t-1"); err != nil {
 		t.Fatal(err)
 	}
-	if item := f.a.createGroup.GetItems()[0]; item.GetVpnSize().GetCpuMillicores() != 31 || item.GetGatewaySize().GetCpuMillicores() != 31 {
-		t.Fatalf("CreateLabGroups carries the sizes explicitly, rounded up to a preset size (20m and 25m are the 128Mi size, 31m): %+v", item)
+	if item := f.a.createGroup.GetItems()[0]; item.GetVpnSize().GetCpuMillicores() != 20 || item.GetGatewaySize().GetCpuMillicores() != 25 {
+		t.Fatalf("CreateLabGroups carries the exact service formula sizes: %+v", item)
 	}
 }
 
-// A group whose pod, rounded up to a preset size, passes the largest preset is a planning error: it is refused
-// with the no-agent-fits error and never sent unrounded or oversized.
-func TestGroupPodAboveTheLargestPresetIsRefused(t *testing.T) {
+// Service pods use the producer maximum, independently of device preset ceilings.
+func TestServicePodMayExceedDevicePresetWithinProducerMaximum(t *testing.T) {
 	f := newFleetFixture(t)
 	ctx := context.Background()
 	vpn := infraModel.GroupPodSizing{Base: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 2 << 30}, PerUnit: resourcesModel.Amount{CPUMillicores: 10, MemoryBytes: 1 << 30}, MaxUnits: 20}
@@ -621,13 +619,13 @@ func TestGroupPodAboveTheLargestPresetIsRefused(t *testing.T) {
 	}
 	big := infraModel.PlacementNeed{Plan: infraModel.GroupPlan{MaxUsers: 5}}
 	v := f.fleet.NeedFit(big)
-	if v == nil || v.Resource != infraModel.FitMemory || v.Requested != 7<<30 || v.Max != 4<<30 {
-		t.Fatalf("7Gi passes the 4Gi largest preset: %+v", v)
+	if v != nil {
+		t.Fatalf("7Gi fits the published service maximum: %+v", v)
 	}
-	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, big), "e-1-t-9"); !errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
-		t.Fatalf("an oversized group is refused: %v", err)
+	if err := f.fleet.EnsureVPNGroup(infraModel.WithPlacementNeed(ctx, big), "e-1-t-9"); err != nil {
+		t.Fatalf("service sizes within the producer maximum are accepted: %v", err)
 	}
-	if _, placed := f.store.groups["e-1-t-9"]; placed {
-		t.Fatal("a refused group is not placed")
+	if _, placed := f.store.groups["e-1-t-9"]; !placed {
+		t.Fatal("an accepted service group is placed")
 	}
 }

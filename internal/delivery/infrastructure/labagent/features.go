@@ -135,26 +135,27 @@ func (f *Fleet) fitOf(m *Member, need infraModel.PlacementNeed) *infraModel.FitV
 	return f.groupPodsFit(feat.Limits, need.Plan)
 }
 
-// groupPodsFit refuses a plan whose group pods, rounded up to a preset size, would pass the largest preset or the
-// agent's per-pod maximum (its sizing at the most units, rounded the same way): never an oversized group, never an
-// unrounded one. The violation names the memory.
+// groupPodsFit compares exact service formula/default sizes to the producer's
+// raw maxima. Device presets never change the resources of group services.
 func (f *Fleet) groupPodsFit(l infraModel.LimitsFeature, plan infraModel.GroupPlan) *infraModel.FitViolation {
-	policy := f.Policy()
+	sizes := l.SizesFor(plan)
 	for _, pod := range []struct {
 		sizing infraModel.GroupPodSizing
-		units  int
-	}{{l.VPN, plan.MaxUsers}, {l.Gateway, plan.InternetLabs}} {
-		if !pod.sizing.Reported() {
+		size   resourcesModel.Amount
+	}{{l.VPN, sizes.VPN}, {l.Gateway, sizes.Gateway}} {
+		if !pod.sizing.Reported() && pod.size == (resourcesModel.Amount{}) {
 			continue
 		}
-		size := pod.sizing.Size(pod.units)
-		rounded, ok := policy.RoundUpWithin(size)
-		if !ok {
-			return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: size.MemoryBytes, Max: policy.LargestPreset().MemoryBytes}
+		if pod.size.CPUMillicores <= 0 || pod.size.MemoryBytes <= 0 {
+			return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: pod.size.MemoryBytes}
 		}
 		if pod.sizing.MaxUnits > 0 {
-			if podMax, fits := policy.RoundUpWithin(pod.sizing.Size(int(pod.sizing.MaxUnits))); fits && !rounded.Within(podMax) {
-				return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: rounded.MemoryBytes, Max: podMax.MemoryBytes}
+			maximum := pod.sizing.Size(int(pod.sizing.MaxUnits))
+			if pod.size.CPUMillicores > maximum.CPUMillicores {
+				return &infraModel.FitViolation{Resource: infraModel.FitCPU, Requested: pod.size.CPUMillicores, Max: maximum.CPUMillicores}
+			}
+			if pod.size.MemoryBytes > maximum.MemoryBytes {
+				return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: pod.size.MemoryBytes, Max: maximum.MemoryBytes}
 			}
 		}
 	}
@@ -219,14 +220,8 @@ func (f *Fleet) NeedFit(need infraModel.PlacementNeed) *infraModel.FitViolation 
 	return worst
 }
 
-// roundedSizes is the group's pod sizes rounded up to whole blocks: what is reserved and sent to the agent.
-func (f *Fleet) roundedSizes(s infraModel.GroupSizes) infraModel.GroupSizes {
-	policy := f.Policy()
-	return infraModel.GroupSizes{VPN: policy.RoundUp(s.VPN), Gateway: policy.RoundUp(s.Gateway)}
-}
-
 // GroupSizes computes the sizes of a group's own pods for a plan with the formula of the agents that are
-// used, rounded up to whole blocks; with several agents the largest of each is taken, so the plan holds
+// used; with several agents the largest of each is taken, so the reservation holds
 // wherever the group lands. known is false when no agent has reported its sizing.
 func (f *Fleet) GroupSizes(plan infraModel.GroupPlan) (sizes infraModel.GroupSizes, known bool) {
 	for _, m := range f.eligible() {
@@ -241,7 +236,7 @@ func (f *Fleet) GroupSizes(plan infraModel.GroupPlan) (sizes infraModel.GroupSiz
 		sizes = infraModel.GroupSizes{VPN: sizes.VPN.Max(s.VPN), Gateway: sizes.Gateway.Max(s.Gateway)}
 		known = true
 	}
-	return f.roundedSizes(sizes), known
+	return sizes, known
 }
 
 // labNeed is what one lab asks of an agent: its largest device and its container devices.
@@ -269,8 +264,8 @@ func (f *Fleet) withSizes(ctx context.Context, m *Member) context.Context {
 	if feat == nil {
 		return ctx
 	}
-	sizes, known := f.GroupSizes(infraModel.PlacementNeedFrom(ctx).Plan)
-	if !known {
+	sizes := feat.Limits.SizesFor(infraModel.PlacementNeedFrom(ctx).Plan)
+	if sizes == (infraModel.GroupSizes{}) {
 		return ctx
 	}
 	return infraModel.WithGroupSizes(ctx, sizes)
