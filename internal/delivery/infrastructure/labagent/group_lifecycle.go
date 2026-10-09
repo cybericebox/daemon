@@ -113,6 +113,18 @@ func groupLifecycleObservation(name string, g *labpb.LabGroup, now time.Time) ev
 	if a != nil && a.GetOperationId() == life.GetOperationId() && a.GetLifecycleRevision() == life.GetLifecycleRevision() && a.GetObservedUnixMs() > 0 {
 		out.Allocation = resourceAllocation(a)
 		out.ObservedAt = positiveMillis(a.GetObservedUnixMs())
+		// A stopped group's services are absent, so no live VPN boot remains to
+		// fence. Only its exact current native service-release certificate can
+		// substitute for the per-lab VPN fencing evidence above.
+		allocated := a.GetAllocatedRequests()
+		if out.OperationID != uuid.Nil && out.Revision > 0 &&
+			out.DesiredState == "Stopped" && out.ActualState == "Stopped" && spec.GetRequireAllLabsStopped() &&
+			life.GetStoppedUnixMs() > 0 && life.GetReason() == "ServicesReleased" && out.FailureMessage == "" &&
+			s.GetPhase() == "Suspended" && s.GetSuspended() && !s.GetVpnRegistered() &&
+			a.GetRuntimeState() == "Released" && a.GetReleasedUnixMs() > 0 && allocated != nil &&
+			allocated.GetCpuMillicores() == 0 && allocated.GetMemoryBytes() == 0 {
+			out.AccessFenced = true
+		}
 	}
 	out.Ready = out.ActualState == "Running" && out.DesiredState == "Running" && s.GetPhase() == "Ready" && s.GetVpnRegistered() && !s.GetSuspended() && network
 	out.Retirement = retirementObservation(s.GetRetirement())
