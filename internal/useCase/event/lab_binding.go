@@ -28,25 +28,8 @@ import (
 // is available. A board-configured challenge that is still preparing has no
 // participant runtime surface.
 func (u *EventUseCase) GetOwnChallengeLabStatus(ctx context.Context, eventID, userID, challengeID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
-	p, err := u.requireOwnAvailableChallenge(ctx, eventID, userID, challengeID)
-	if err != nil {
-		return exerciseModel.LabDeployStatus{}, err
-	}
-	if _, err = u.requireEventLaboratories(ctx, eventID); err != nil {
-		return exerciseModel.LabDeployStatus{}, err
-	}
-	if u.infra == nil {
-		return exerciseModel.LabDeployStatus{}, infraUnavailable()
-	}
-	binding, err := u.labBindings.Get(ctx, *p.TeamID, challengeID)
-	if err != nil {
-		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab binding").Err()
-	}
-	status, err := u.infra.LabStatus(ctx, binding.LabGroupName, binding.LabName)
-	if err != nil {
-		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get lab status").Err()
-	}
-	return status, nil
+	out, err := u.GetOwnChallengeRuntime(ctx, eventID, userID, challengeID)
+	return out.Status, err
 }
 
 // requireRuntimeOpenAt makes request-time boundary checks explicit for

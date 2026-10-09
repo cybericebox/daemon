@@ -275,3 +275,8 @@ WHERE tc.event_team_id = sqlc.arg(event_team_id)
 INSERT INTO team_challenge_practice_solves (team_challenge_id, solved_at)
 VALUES (sqlc.arg(team_challenge_id), sqlc.arg(solved_at))
 ON CONFLICT (team_challenge_id) DO NOTHING;
+
+-- name: GetEventSolutionAttemptIdentity :one
+SELECT ca.event_team_id,tc.event_challenge_id
+FROM challenge_attempts ca JOIN team_challenges tc ON tc.id=ca.team_challenge_id
+WHERE ca.id=sqlc.arg(id) AND ca.event_id=sqlc.arg(event_id);

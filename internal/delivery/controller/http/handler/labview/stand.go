@@ -10,19 +10,22 @@ import (
 type (
 	// StandDetailResponse is one team stand with the live state of each Lab.
 	StandDetailResponse struct {
-		TeamID                uuid.UUID                `json:"TeamID"`
-		TeamName              string                   `json:"TeamName"`
-		Moderators            bool                     `json:"Moderators"`
-		Status                string                   `json:"Status"`
-		Reason                string                   `json:"Reason"`
-		Generation            int32                    `json:"Generation"`
-		LaboratoriesAvailable bool                     `json:"LaboratoriesAvailable"`
-		Labs                  []StandLabDetailResponse `json:"Labs"`
+		TeamID                uuid.UUID                     `json:"TeamID"`
+		TeamName              string                        `json:"TeamName"`
+		Moderators            bool                          `json:"Moderators"`
+		Status                string                        `json:"Status"`
+		Reason                string                        `json:"Reason"`
+		Generation            int32                         `json:"Generation"`
+		LaboratoriesAvailable bool                          `json:"LaboratoriesAvailable"`
+		Group                 eventUseCase.ManagedGroupView `json:"Group"`
+		Labs                  []StandLabDetailResponse      `json:"Labs"`
 	}
 
 	StandLabDetailResponse struct {
-		ChallengeID   uuid.UUID `json:"ChallengeID"`
-		ChallengeName string    `json:"ChallengeName"`
+		Lab           *eventUseCase.ManagedLabView        `json:"Lab"`
+		Questions     []eventUseCase.StandLabQuestionView `json:"Questions"`
+		ChallengeID   uuid.UUID                           `json:"ChallengeID"`
+		ChallengeName string                              `json:"ChallengeName"`
 		// Status is pending, ready, failed or removed.
 		Status string `json:"Status"`
 		Reason string `json:"Reason"`
@@ -36,10 +39,10 @@ type (
 func StandDetail(v eventUseCase.StandDetailView) StandDetailResponse {
 	out := StandDetailResponse{
 		TeamID: v.TeamID, TeamName: v.TeamName, Moderators: v.Moderators, Status: v.Status.String(), Reason: v.Reason,
-		Generation: v.Generation, LaboratoriesAvailable: v.LaboratoriesAvailable, Labs: make([]StandLabDetailResponse, 0, len(v.Labs)),
+		Group: v.Group, Generation: v.Generation, LaboratoriesAvailable: v.LaboratoriesAvailable, Labs: make([]StandLabDetailResponse, 0, len(v.Labs)),
 	}
 	for _, lab := range v.Labs {
-		item := StandLabDetailResponse{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason, LiveUnavailable: lab.LiveUnavailable}
+		item := StandLabDetailResponse{Lab: lab.Lab, Questions: lab.Questions, ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason, LiveUnavailable: lab.LiveUnavailable}
 		if lab.Live != nil {
 			live := Status(*lab.Live)
 			item.Live = &live

@@ -4,6 +4,8 @@ package eventManagerRepo
 
 import (
 	"context"
+	"errors"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gofrs/uuid"
 
@@ -68,6 +70,9 @@ func (r *Repository) Create(ctx context.Context, membership eventManagerModel.Ev
 
 func (r *Repository) Get(ctx context.Context, eventID, userID uuid.UUID) (eventManagerModel.EventManager, error) {
 	row, err := r.q.GetEventManager(ctx, postgres.GetEventManagerParams{EventID: eventID, UserID: userID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return eventManagerModel.EventManager{}, eventManagerModel.ErrEventManagerNotFound.Err()
+	}
 	if err != nil {
 		return eventManagerModel.EventManager{}, err
 	}

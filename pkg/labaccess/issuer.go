@@ -25,6 +25,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"github.com/gofrs/uuid"
 	"net/url"
 	"strings"
 	"time"
@@ -88,6 +89,8 @@ type Session struct {
 
 // Link is a signed handoff link.
 type Link struct {
+	LabID    uuid.UUID
+	Revision string
 	// URL is the full link to open in the browser.
 	URL string
 	// Token is the signed JWT inside the link.

@@ -2,6 +2,7 @@ package lab
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -51,8 +52,8 @@ type appliedKey struct {
 }
 
 type appliedRow struct {
-	attempts, bytesIn, bytesOut, packets int64
-	lastSeenMs, respondedMs              int64
+	attempts, labInitiated, bytesIn, bytesOut, packetsIn, packetsOut int64
+	firstSeenMs, lastSeenMs, respondedMs                             int64
 }
 
 // TrafficIngest resolves collector reports to events, teams, users and tasks
@@ -113,22 +114,70 @@ func (t *TrafficIngest) applyReport(ctx context.Context, report *labpb.TrafficRe
 		return nil
 	}
 
-	// Coverage first, and also when the ledger is empty: an idle team that was
-	// watched is what makes «did not touch» a fact.
-	if to := report.GetCoveredToUnixMs(); to > 0 {
-		from := report.GetCoveredFromUnixMs()
-		if from <= 0 || from > to {
-			from = to
-		}
-		span := labTraffic.Coverage{From: time.UnixMilli(from).UTC(), To: time.UnixMilli(to).UTC(), Partial: report.GetPartial()}
-		if err := t.store.RecordCoverage(ctx, eventID, teamID, surface, source, boot, span); err != nil {
-			return err
-		}
+	// Persist actual spans before rows, including idle heartbeats. An envelope
+	// around disjoint epochs never proves observation during their downtime.
+	if err := t.applyCoverage(ctx, eventID, teamID, surface, report); err != nil {
+		return err
 	}
 
 	now := t.now()
 	for _, row := range report.GetLedger() {
 		if err := t.applyRow(ctx, eventID, teamID, report.GetLabGroupName(), surface, row, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *TrafficIngest) applyCoverage(ctx context.Context, eventID, teamID uuid.UUID, surface labTraffic.Surface, report *labpb.TrafficReport) error {
+	spans := report.GetCoverageSpans()
+	invalidLedger := false
+	for _, row := range report.GetLedger() {
+		invalidLedger = invalidLedger || !validTrafficFacts(row)
+	}
+	explicit := len(spans) > 0
+	invalidCoverage := false
+	for _, span := range spans {
+		invalidCoverage = invalidCoverage || span.GetFromUnixMs() <= 0 || span.GetToUnixMs() < span.GetFromUnixMs()
+	}
+	if !explicit {
+		spans = []*labpb.TrafficCoverageSpan{{FromUnixMs: report.GetCoveredFromUnixMs(), ToUnixMs: report.GetCoveredToUnixMs()}}
+	}
+	for _, raw := range spans {
+		from, to := raw.GetFromUnixMs(), raw.GetToUnixMs()
+		// Discarding one malformed sibling cannot turn the remainder into
+		// evidence that all of this report's traffic was observed.
+		partial := raw.GetPartial() || report.GetPartial() || report.GetTruncated() || invalidLedger || invalidCoverage
+		if from <= 0 || to <= 0 || from > to {
+			// A malformed explicit interval must not fall back to a healthy
+			// scalar envelope. Record the available envelope as incomplete.
+			partial = true
+			from, to = report.GetCoveredFromUnixMs(), report.GetCoveredToUnixMs()
+			if to <= 0 {
+				continue
+			}
+			if from <= 0 || from > to {
+				from = to
+			}
+		}
+		source, instance, boot := raw.GetSource(), raw.GetInstance(), raw.GetBootId()
+		if source == "" {
+			source = report.GetSource()
+		}
+		if instance == "" {
+			instance = report.GetInstance()
+		}
+		if boot == "" {
+			boot = report.GetBootId()
+		}
+		if explicit {
+			// A tuple keeps replica identities distinct even if their strings
+			// contain the separator another source uses.
+			identity, _ := json.Marshal([2]string{source, instance})
+			source = string(identity)
+		}
+		span := labTraffic.Coverage{From: time.UnixMilli(from).UTC(), To: time.UnixMilli(to).UTC(), Partial: partial, Explicit: explicit}
+		if err := t.store.RecordCoverage(ctx, eventID, teamID, surface, source, boot, span); err != nil {
 			return err
 		}
 	}
@@ -159,7 +208,12 @@ func (t *TrafficIngest) applyRow(ctx context.Context, eventID, teamID uuid.UUID,
 	if row.GetLabName() == "" {
 		return nil
 	}
-	if row.GetAttempts() <= 0 || row.GetFirstSeenUnixMs() <= 0 {
+	// Signed counters/timestamps are facts, never deltas. Invalid negative
+	// facts are discarded; lab-initiated or timestamp-less rows remain useful.
+	if !validTrafficFacts(row) {
+		return nil
+	}
+	if row.GetAttempts() == 0 && row.GetLabInitiatedAttempts() == 0 && row.GetPacketsIn() == 0 && row.GetPacketsOut() == 0 && row.GetBytesIn() == 0 && row.GetBytesOut() == 0 {
 		return nil
 	}
 	member, err := t.isMember(ctx, eventID, teamID, userID, now)
@@ -182,15 +236,30 @@ func (t *TrafficIngest) applyRow(ctx context.Context, eventID, teamID uuid.UUID,
 	return nil
 }
 
+func validTrafficFacts(row *labpb.TrafficTouch) bool {
+	for _, n := range []int64{row.GetAttempts(), row.GetLabInitiatedAttempts(), row.GetPacketsIn(), row.GetPacketsOut(), row.GetBytesIn(), row.GetBytesOut(), row.GetFirstSeenUnixMs(), row.GetLastSeenUnixMs(), row.GetFirstRespondedUnixMs()} {
+		if n < 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (t *TrafficIngest) applyChallenge(ctx context.Context, eventID, teamID, userID, challengeID uuid.UUID, surface labTraffic.Surface, row *labpb.TrafficTouch) error {
 	key := appliedKey{eventID, teamID, userID, challengeID, surface}
-	first, last := time.UnixMilli(row.GetFirstSeenUnixMs()).UTC(), time.UnixMilli(row.GetLastSeenUnixMs()).UTC()
-	if last.Before(first) {
+	var first, last time.Time
+	if ms := row.GetFirstSeenUnixMs(); ms > 0 {
+		first = time.UnixMilli(ms).UTC()
+	}
+	if ms := row.GetLastSeenUnixMs(); ms > 0 {
+		last = time.UnixMilli(ms).UTC()
+	}
+	if !first.IsZero() && !last.IsZero() && last.Before(first) {
 		last = first
 	}
 	touch := labTraffic.Touch{
 		EventID: eventID, TeamID: teamID, UserID: userID, EventChallengeID: challengeID, Surface: surface,
-		Attempts: row.GetAttempts(), PacketsOut: row.GetPacketsOut(), PacketsIn: row.GetPacketsIn(),
+		Attempts: row.GetAttempts(), LabInitiatedAttempts: row.GetLabInitiatedAttempts(), PacketsOut: row.GetPacketsOut(), PacketsIn: row.GetPacketsIn(),
 		BytesOut: row.GetBytesOut(), BytesIn: row.GetBytesIn(), FirstSeenAt: first, LastSeenAt: last,
 	}
 	if ms := row.GetFirstRespondedUnixMs(); ms > 0 {
@@ -198,8 +267,8 @@ func (t *TrafficIngest) applyChallenge(ctx context.Context, eventID, teamID, use
 		touch.FirstRespondAt = &responded
 	}
 	snapshot := appliedRow{
-		attempts: touch.Attempts, bytesIn: touch.BytesIn, bytesOut: touch.BytesOut, packets: touch.PacketsIn + touch.PacketsOut,
-		lastSeenMs: row.GetLastSeenUnixMs(), respondedMs: row.GetFirstRespondedUnixMs(),
+		attempts: touch.Attempts, labInitiated: touch.LabInitiatedAttempts, bytesIn: touch.BytesIn, bytesOut: touch.BytesOut, packetsIn: touch.PacketsIn, packetsOut: touch.PacketsOut,
+		firstSeenMs: row.GetFirstSeenUnixMs(), lastSeenMs: row.GetLastSeenUnixMs(), respondedMs: row.GetFirstRespondedUnixMs(),
 	}
 	if t.applied[key] == snapshot {
 		return nil // the same state again, nothing new

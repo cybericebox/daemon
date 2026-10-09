@@ -1,0 +1,10 @@
+--- FAIL: TestSizingFallsBackToFiveOnlyWhenUsersUnknown (0.00s)
+    lab_allocations_test.go:4: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/useCase/event/lab_allocations_test.go:4
+        	Error:      	Not equal: 
+        	            	expected: 3
+        	            	actual  : 5
+        	Test:       	TestSizingFallsBackToFiveOnlyWhenUsersUnknown
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/useCase/event	0.599s
+FAIL

@@ -1,0 +1,21 @@
+--- FAIL: TestPlacementNeedIsTheEventsLargestDeviceAndItsGroupPlan (0.00s)
+    placement_test.go:183: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/useCase/event/placement_test.go:183
+        	Error:      	Not equal: 
+        	            	expected: infrastructure.PlacementNeed{Device:resourcesModel.Amount{CPUMillicores:500, MemoryBytes:2147483648}, LabDevices:2, Plan:infrastructure.GroupPlan{MaxUsers:6, InternetLabs:1, MaxActiveLabs:0, AllowedRelations:0, ProfileID:"", Envelope:infrastructure.TrafficEnvelope{VPNRetainedFlows:0, GatewayRetainedFlows:0, VPNNewFlowsPerSecond:0, GatewayNewFlowsPerSecond:0, VPNPacketsPerSecond:0, GatewayPacketsPerSecond:0, VPNPayloadMbps:0, GatewayPayloadMbps:0}}}
+        	            	actual  : infrastructure.PlacementNeed{Device:resourcesModel.Amount{CPUMillicores:500, MemoryBytes:2147483648}, LabDevices:2, Plan:infrastructure.GroupPlan{MaxUsers:6, InternetLabs:1, MaxActiveLabs:1, AllowedRelations:6, ProfileID:"", Envelope:infrastructure.TrafficEnvelope{VPNRetainedFlows:0, GatewayRetainedFlows:0, VPNNewFlowsPerSecond:0, GatewayNewFlowsPerSecond:0, VPNPacketsPerSecond:0, GatewayPacketsPerSecond:0, VPNPayloadMbps:0, GatewayPayloadMbps:0}}}
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -9,4 +9,4 @@
+        	            	   InternetLabs: (int) 1,
+        	            	-  MaxActiveLabs: (int) 0,
+        	            	-  AllowedRelations: (int) 0,
+        	            	+  MaxActiveLabs: (int) 1,
+        	            	+  AllowedRelations: (int) 6,
+        	            	   ProfileID: (string) "",
+        	Test:       	TestPlacementNeedIsTheEventsLargestDeviceAndItsGroupPlan
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/useCase/event	0.507s
+FAIL

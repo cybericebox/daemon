@@ -112,8 +112,9 @@ func reservationFrom(row postgres.ResourceReservation) calModel.Reservation {
 	}
 	return calModel.Reservation{
 		ID: row.ID, Kind: calModel.Kind(row.Kind), EventID: uuidPtr(row.EventID), OwnerID: uuidPtr(row.OwnerID),
-		Window: calModel.Window{Start: row.StartsAt.UTC(), End: row.EndsAt.UTC()},
-		Teams:  int(row.Teams), PerTeam: calModel.Amount{CPUMillicores: row.PerTeamCpuMillicores, MemoryBytes: row.PerTeamMemoryBytes},
+		Window:                    calModel.Window{Start: row.StartsAt.UTC(), End: row.EndsAt.UTC()},
+		PerTeamSnapshotQuotaBytes: row.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: row.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: row.SizeSnapshotQuotaBytes,
+		Teams: int(row.Teams), PerTeam: calModel.Amount{CPUMillicores: row.PerTeamCpuMillicores, MemoryBytes: row.PerTeamMemoryBytes},
 		LargestDevice: calModel.Amount{CPUMillicores: row.LargestDeviceCpuMillicores, MemoryBytes: row.LargestDeviceMemoryBytes},
 		BufferPercent: int(row.BufferPercent), Dynamic: calModel.Amount{CPUMillicores: row.DynamicCpuMillicores, MemoryBytes: row.DynamicMemoryBytes},
 		TailGap:   time.Duration(row.TailGapSeconds) * time.Second,
@@ -135,6 +136,7 @@ func placementJSON(shares []calModel.Share) []byte {
 // CreateReservation inserts a reservation.
 func (r *Repository) CreateReservation(ctx context.Context, v *calModel.Reservation) error {
 	return r.q.CreateResourceReservation(ctx, postgres.CreateResourceReservationParams{
+		PerTeamSnapshotQuotaBytes: v.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: v.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: v.SizeSnapshotQuotaBytes,
 		ID: v.ID, Kind: string(v.Kind), EventID: nullUUID(v.EventID), OwnerID: nullUUID(v.OwnerID),
 		StartsAt: v.Window.Start, EndsAt: v.Window.End, Teams: int32(v.Teams),
 		PerTeamCpuMillicores: v.PerTeam.CPUMillicores, PerTeamMemoryBytes: v.PerTeam.MemoryBytes,
@@ -149,6 +151,7 @@ func (r *Repository) CreateReservation(ctx context.Context, v *calModel.Reservat
 // UpdateReservation writes the whole reservation; false when it is gone.
 func (r *Repository) UpdateReservation(ctx context.Context, v *calModel.Reservation) (bool, error) {
 	n, err := r.q.UpdateResourceReservation(ctx, postgres.UpdateResourceReservationParams{
+		PerTeamSnapshotQuotaBytes: v.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: v.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: v.SizeSnapshotQuotaBytes,
 		ID: v.ID, StartsAt: v.Window.Start, EndsAt: v.Window.End, Teams: int32(v.Teams),
 		PerTeamCpuMillicores: v.PerTeam.CPUMillicores, PerTeamMemoryBytes: v.PerTeam.MemoryBytes,
 		LargestDeviceCpuMillicores: v.LargestDevice.CPUMillicores, LargestDeviceMemoryBytes: v.LargestDevice.MemoryBytes,
@@ -222,6 +225,7 @@ func (r *Repository) Labels(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID
 func changeFrom(row postgres.ResourceChangeRequest) calModel.ChangeRequest {
 	return calModel.ChangeRequest{
 		ID: row.ID, ReservationID: row.ReservationID, EventID: row.EventID, RequestedBy: row.RequestedBy.UUID, RequestedAt: row.RequestedAt.UTC(),
+		SizeSnapshotQuotaBytes: int64Ptr(row.SizeSnapshotQuotaBytes), DynamicSnapshotQuotaBytes: int64Ptr(row.DynamicSnapshotQuotaBytes),
 		Size: amountPtr(row.SizeCpuMillicores, row.SizeMemoryBytes), Dynamic: amountPtr(row.DynamicCpuMillicores, row.DynamicMemoryBytes),
 		WindowStart: timePtr(row.WindowStart), WindowEnd: timePtr(row.WindowEnd), Reason: row.Reason, Status: changeStatus(row.Status),
 		DecidedBy: uuidPtr(row.DecidedBy), DecidedAt: timePtr(row.DecidedAt), DecisionNote: row.DecisionNote,
@@ -251,6 +255,7 @@ func changeStatusCode(s calModel.ChangeStatus) int16 {
 // CreateChangeRequest inserts a pending request.
 func (r *Repository) CreateChangeRequest(ctx context.Context, c *calModel.ChangeRequest) error {
 	return r.q.CreateResourceChangeRequest(ctx, postgres.CreateResourceChangeRequestParams{
+		SizeSnapshotQuotaBytes: int8Ptr(c.SizeSnapshotQuotaBytes), DynamicSnapshotQuotaBytes: int8Ptr(c.DynamicSnapshotQuotaBytes),
 		ID: c.ID, ReservationID: c.ReservationID, EventID: c.EventID, RequestedBy: nullUUID(&c.RequestedBy), RequestedAt: c.RequestedAt,
 		SizeCpuMillicores: int8Of(c.Size, true), SizeMemoryBytes: int8Of(c.Size, false),
 		DynamicCpuMillicores: int8Of(c.Dynamic, true), DynamicMemoryBytes: int8Of(c.Dynamic, false),
@@ -289,6 +294,7 @@ func (r *Repository) ListChangeRequests(ctx context.Context, status *calModel.Ch
 	out := make([]calModel.NamedChangeRequest, 0, len(rows))
 	for _, row := range rows {
 		c := changeFrom(postgres.ResourceChangeRequest{
+			SizeSnapshotQuotaBytes: row.SizeSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: row.DynamicSnapshotQuotaBytes,
 			ID: row.ID, ReservationID: row.ReservationID, EventID: row.EventID, RequestedBy: row.RequestedBy, RequestedAt: row.RequestedAt,
 			SizeCpuMillicores: row.SizeCpuMillicores, SizeMemoryBytes: row.SizeMemoryBytes, DynamicCpuMillicores: row.DynamicCpuMillicores,
 			DynamicMemoryBytes: row.DynamicMemoryBytes, WindowStart: row.WindowStart, WindowEnd: row.WindowEnd, Reason: row.Reason,
@@ -388,20 +394,20 @@ func (r *Repository) Settings(ctx context.Context) (calModel.Settings, error) {
 	if err != nil {
 		return calModel.Settings{}, err
 	}
-	return calModel.Settings{TestPool: calModel.Amount{CPUMillicores: row.TestPoolCpuMillicores, MemoryBytes: row.TestPoolMemoryBytes}, UpdatedAt: row.UpdatedAt}, nil
+	return calModel.Settings{TestPoolSnapshotQuotaBytes: row.TestPoolSnapshotQuotaBytes, TestPool: calModel.Amount{CPUMillicores: row.TestPoolCpuMillicores, MemoryBytes: row.TestPoolMemoryBytes}, UpdatedAt: row.UpdatedAt}, nil
 }
 
 // SetSettings stores the calendar settings.
 func (r *Repository) SetSettings(ctx context.Context, s calModel.Settings) error {
 	return r.q.SetResourceCalendarSettings(ctx, postgres.SetResourceCalendarSettingsParams{
-		TestPoolCpuMillicores: s.TestPool.CPUMillicores, TestPoolMemoryBytes: s.TestPool.MemoryBytes, UpdatedAt: s.UpdatedAt,
+		TestPoolSnapshotQuotaBytes: s.TestPoolSnapshotQuotaBytes, TestPoolCpuMillicores: s.TestPool.CPUMillicores, TestPoolMemoryBytes: s.TestPool.MemoryBytes, UpdatedAt: s.UpdatedAt,
 	})
 }
 
 // SaveHold records the room a test laboratory was admitted with (again: the lease may be extended).
 func (r *Repository) SaveHold(ctx context.Context, h calModel.TestLabHold) error {
 	return r.q.CreateResourceTestLabHold(ctx, postgres.CreateResourceTestLabHoldParams{
-		ID: h.ID, OwnerID: h.OwnerID, Via: h.Via, ReservationID: nullUUID(h.ReservationID),
+		SnapshotQuotaBytes: h.SnapshotQuotaBytes, ID: h.ID, OwnerID: h.OwnerID, Via: h.Via, ReservationID: nullUUID(h.ReservationID),
 		CpuMillicores: h.Size.CPUMillicores, MemoryBytes: h.Size.MemoryBytes, StartsAt: h.StartsAt, ExpiresAt: h.ExpiresAt,
 	})
 }
@@ -420,7 +426,7 @@ func (r *Repository) ActiveHolds(ctx context.Context, now time.Time) ([]calModel
 	out := make([]calModel.TestLabHold, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, calModel.TestLabHold{
-			ID: row.ID, OwnerID: row.OwnerID, Via: row.Via, ReservationID: uuidPtr(row.ReservationID),
+			SnapshotQuotaBytes: row.SnapshotQuotaBytes, ID: row.ID, OwnerID: row.OwnerID, Via: row.Via, ReservationID: uuidPtr(row.ReservationID),
 			Size: calModel.Amount{CPUMillicores: row.CpuMillicores, MemoryBytes: row.MemoryBytes}, StartsAt: row.StartsAt.UTC(), ExpiresAt: row.ExpiresAt.UTC(),
 		})
 	}
@@ -431,3 +437,19 @@ func (r *Repository) ActiveHolds(ctx context.Context, now time.Time) ([]calModel
 func (r *Repository) PurgeHolds(ctx context.Context, now time.Time) (int64, error) {
 	return r.q.DeleteExpiredResourceTestLabHolds(ctx, now)
 }
+
+func int64Ptr(v pgtype.Int8) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	return &v.Int64
+}
+func int8Ptr(v *int64) pgtype.Int8 {
+	if v == nil {
+		return pgtype.Int8{}
+	}
+	return pgtype.Int8{Int64: *v, Valid: true}
+}
+
+// FromRow decodes the whole persisted reservation for narrow budget readers.
+func FromRow(row postgres.ResourceReservation) calModel.Reservation { return reservationFrom(row) }

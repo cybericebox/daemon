@@ -55,3 +55,9 @@ SELECT event_team_id, lab_group_name, payload
 FROM lab_monitoring_current
 WHERE event_id = sqlc.arg(event_id)
 ORDER BY event_team_id, lab_group_name;
+
+-- name: FindEventTeamForLabMonitoring :one
+-- A team's group exists before question/Lab bindings, including the hidden
+-- moderators group. The trusted group name is parsed by the repository.
+SELECT event_id,id AS event_team_id FROM event_teams
+WHERE event_id=sqlc.arg(event_id) AND id=sqlc.arg(event_team_id);

@@ -157,3 +157,7 @@ func TestApplyCurrentBuildsTheFullStateFromSnapshotPlusDeltas(t *testing.T) {
 		}
 	}
 }
+
+func (q *duplicateQueries) FindEventTeamForLabMonitoring(context.Context, postgres.FindEventTeamForLabMonitoringParams) (postgres.FindEventTeamForLabMonitoringRow, error) {
+	return postgres.FindEventTeamForLabMonitoringRow{}, pgx.ErrNoRows
+}

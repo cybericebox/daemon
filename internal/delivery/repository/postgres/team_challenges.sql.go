@@ -522,7 +522,7 @@ const listTeamBoardChallenges = `-- name: ListTeamBoardChallenges :many
 SELECT tc.id, tc.event_id, tc.event_team_id, tc.event_challenge_id, tc.variant_index,
        tc.snapshot, tc.expected_flag, tc.readiness, solved.solved_at, tc.created_at,
        tc.content_updated_at, tc.hints AS team_hints,
-       ee.stage_id,
+       ee.stage_id, ee.id AS event_exercise_id, board_binding.lab_id,
        event_stage_phase(stage.opens_at, stage.closes_at, stage.returnable, $1::timestamptz) AS stage_phase,
        (practice.team_challenge_id IS NOT NULL)::boolean AS practice_solved,
        (CASE WHEN e.static_points IS NOT NULL AND e.scoring_mode = 0
@@ -546,6 +546,7 @@ LEFT JOIN event_challenge_groups ecg ON ecg.id = ec.group_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
 LEFT JOIN team_challenge_practice_solves practice ON practice.team_challenge_id = tc.id
 LEFT JOIN event_stages stage ON stage.id = ee.stage_id
+LEFT JOIN lab_bindings board_binding ON board_binding.event_team_id=tc.event_team_id AND board_binding.event_challenge_id=tc.event_challenge_id
 WHERE tc.event_team_id = $2
   AND (ec.published OR NOT $3::boolean)
   -- A task of an upcoming stage is hidden from participants entirely; the moderators board keeps everything.
@@ -574,6 +575,8 @@ type ListTeamBoardChallengesRow struct {
 	ContentUpdatedAt pgtype.Timestamptz `json:"content_updated_at"`
 	TeamHints        []byte             `json:"team_hints"`
 	StageID          uuid.NullUUID      `json:"stage_id"`
+	EventExerciseID  uuid.UUID          `json:"event_exercise_id"`
+	LabID            uuid.NullUUID      `json:"lab_id"`
 	StagePhase       int16              `json:"stage_phase"`
 	PracticeSolved   bool               `json:"practice_solved"`
 	Points           int32              `json:"points"`
@@ -619,6 +622,8 @@ func (q *Queries) ListTeamBoardChallenges(ctx context.Context, arg ListTeamBoard
 			&i.ContentUpdatedAt,
 			&i.TeamHints,
 			&i.StageID,
+			&i.EventExerciseID,
+			&i.LabID,
 			&i.StagePhase,
 			&i.PracticeSolved,
 			&i.Points,
@@ -919,28 +924,39 @@ WHERE tc.event_id = $1
   AND ec.id = tc.event_challenge_id
   AND ec.published
   AND tc.readiness = 1
+  AND NOT EXISTS (SELECT 1 FROM lab_bindings lb LEFT JOIN event_team_labs lab ON lab.id=lb.lab_id
+   WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id
+    AND (lab.id IS NULL OR lab.agent_uid='' OR lab.agent_generation<=0))
   AND EXISTS (SELECT 1
               FROM event_teams team
               WHERE team.id = tc.event_team_id
                 AND (team.moderators OR event_team_formed(team.event_id, team.formed_at)))
-  AND ($2::boolean
-    OR NOT EXISTS (SELECT 1
-                   FROM lab_bindings lb
-                   WHERE lb.event_team_id = tc.event_team_id
-                     AND lb.event_challenge_id = tc.event_challenge_id))
+  AND (NOT EXISTS(SELECT 1 FROM lab_bindings lb WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id)
+ OR (NOT $2::boolean AND $3::boolean)
+ OR ($2::boolean
+  AND EXISTS(SELECT 1 FROM events e WHERE e.id=tc.event_id AND e.infrastructure_allowed
+    AND e.lifecycle_configured AND e.start_at<=now() AND (e.finish_at IS NULL OR e.finish_at>now()) AND (e.manual_finished_at IS NULL OR e.manual_finished_at>now()))
+  AND EXISTS(SELECT 1 FROM lab_bindings lb JOIN event_team_labs l ON l.id=lb.lab_id
+   JOIN event_exercises ee ON ee.id=l.event_exercise_id JOIN event_configs cfg ON cfg.event_id=ee.event_id
+   LEFT JOIN event_lab_reveal_barriers barrier ON barrier.event_exercise_id=ee.id AND barrier.revision=ee.revision
+   WHERE lb.event_team_id=tc.event_team_id AND lb.event_challenge_id=tc.event_challenge_id AND lb.readiness=1
+    AND l.desired_state='Running' AND l.logical_closed_at IS NULL AND l.actual_state='Running' AND l.runtime_ready
+    AND l.agent_uid<>'' AND l.agent_generation>0 AND l.observed_revision=l.desired_revision
+    AND (cfg.task_reveal_mode='as_ready' OR (barrier.mode='all_ready' AND barrier.opened_at IS NOT NULL)))))
 RETURNING tc.event_team_id
 `
 
 type PublishAvailableTeamChallengesParams struct {
-	EventID  uuid.UUID `json:"event_id"`
-	LabsOpen bool      `json:"labs_open"`
+	EventID           uuid.UUID `json:"event_id"`
+	UseRevealBarriers bool      `json:"use_reveal_barriers"`
+	LabsOpen          bool      `json:"labs_open"`
 }
 
 // Ready -> Published for board-published challenges. A challenge without a lab
 // binding is static and opens at once; one with a binding is infrastructure
 // and opens only when the caller passes the event's strict barrier.
 func (q *Queries) PublishAvailableTeamChallenges(ctx context.Context, arg PublishAvailableTeamChallengesParams) ([]uuid.UUID, error) {
-	rows, err := q.db.Query(ctx, publishAvailableTeamChallenges, arg.EventID, arg.LabsOpen)
+	rows, err := q.db.Query(ctx, publishAvailableTeamChallenges, arg.EventID, arg.UseRevealBarriers, arg.LabsOpen)
 	if err != nil {
 		return nil, err
 	}

@@ -272,6 +272,29 @@ func (q *Queries) GetEventSolutionAttemptForDecision(ctx context.Context, arg Ge
 	return i, err
 }
 
+const getEventSolutionAttemptIdentity = `-- name: GetEventSolutionAttemptIdentity :one
+SELECT ca.event_team_id,tc.event_challenge_id
+FROM challenge_attempts ca JOIN team_challenges tc ON tc.id=ca.team_challenge_id
+WHERE ca.id=$1 AND ca.event_id=$2
+`
+
+type GetEventSolutionAttemptIdentityParams struct {
+	ID      uuid.UUID `json:"id"`
+	EventID uuid.UUID `json:"event_id"`
+}
+
+type GetEventSolutionAttemptIdentityRow struct {
+	EventTeamID      uuid.UUID `json:"event_team_id"`
+	EventChallengeID uuid.UUID `json:"event_challenge_id"`
+}
+
+func (q *Queries) GetEventSolutionAttemptIdentity(ctx context.Context, arg GetEventSolutionAttemptIdentityParams) (GetEventSolutionAttemptIdentityRow, error) {
+	row := q.db.QueryRow(ctx, getEventSolutionAttemptIdentity, arg.ID, arg.EventID)
+	var i GetEventSolutionAttemptIdentityRow
+	err := row.Scan(&i.EventTeamID, &i.EventChallengeID)
+	return i, err
+}
+
 const getTeamAttemptWindow = `-- name: GetTeamAttemptWindow :one
 SELECT count(*)::bigint AS attempts,
        COALESCE(min(recent.received_at), 'epoch'::timestamptz)::timestamptz AS oldest

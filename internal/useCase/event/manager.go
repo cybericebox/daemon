@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -73,7 +74,7 @@ func (u *EventUseCase) SetEventManager(ctx context.Context, eventID uuid.UUID, i
 	defer unit.Restore()
 	managers := eventManagerRepo.New(txRepo)
 	old, err := managers.Get(txCtx, eventID, in.UserID)
-	if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
+	if err != nil && !errors.Is(err, eventManagerModel.ErrEventManagerNotFound.Err()) && !repositoryTools.IsObjectNotFoundError(err) {
 		return EventManagerView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event manager").Err()
 	}
 	if err == nil {

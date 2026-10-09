@@ -6,6 +6,7 @@ import (
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
 
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -44,7 +45,8 @@ func (c *FeatureCell) Set(f infraModel.AgentFeatures) {
 // FeaturesOf converts the agent's report.
 func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 	p, ic, sch, ep, cert, proxy := r.GetStatePersistence(), r.GetImageCache(), r.GetScheduler(), r.GetEndpoints(), r.GetCertificate(), r.GetProxy()
-	return infraModel.AgentFeatures{
+	life := r.GetLifecycle()
+	return infraModel.AgentFeatures{Lifecycle: infraModel.LifecycleCapabilities{PerLabStop: life.GetPerLabStop(), RequiredSnapshot: life.GetRequiredSnapshot(), ConfirmedRuntime: life.GetConfirmedRuntime(), RetainedRestart: life.GetRetainedRestart(), FullGroupStop: life.GetFullGroupStop()},
 		Persistence: infraModel.PersistenceFeature{
 			Available: p.GetAvailable(), DefaultDebounce: p.GetDefaultDebounceMs(), WriteQuotaBytes: p.GetWriteQuotaBytes(),
 			MaxFileSizeBytes: p.GetMaxFileSizeBytes(), ExcludedPaths: p.GetExcludedPaths(),
@@ -82,6 +84,7 @@ func limitsOf(r *labpb.FeaturesResponse) infraModel.LimitsFeature {
 		DeviceMaxCPUMillicores: dev.GetMaxCpuMillicores(), DeviceMaxMemoryBytes: dev.GetMaxMemoryBytes(),
 		LabMaxDevices: lab.GetMaxDevices(), TenantMaxLabs: r.GetLimits().GetTenant().GetMaxLabs(),
 		VPN: sizingOf(pods.GetVpn()), Gateway: sizingOf(pods.GetGateway()), DeviceProfiles: r.GetDeviceProfiles(),
+		SizingV2:       sizingV2Of(pods.GetSizingV2()),
 		DefaultVPN:     resourcesModel.Amount{CPUMillicores: pods.GetDefaultVpn().GetCpuMillicores(), MemoryBytes: pods.GetDefaultVpn().GetMemoryBytes()},
 		DefaultGateway: resourcesModel.Amount{CPUMillicores: pods.GetDefaultGateway().GetCpuMillicores(), MemoryBytes: pods.GetDefaultGateway().GetMemoryBytes()},
 	}
@@ -132,26 +135,27 @@ func (f *Fleet) fitOf(m *Member, need infraModel.PlacementNeed) *infraModel.FitV
 	return f.groupPodsFit(feat.Limits, need.Plan)
 }
 
-// groupPodsFit refuses a plan whose group pods, rounded up to a preset size, would pass the largest preset or the
-// agent's per-pod maximum (its sizing at the most units, rounded the same way): never an oversized group, never an
-// unrounded one. The violation names the memory.
+// groupPodsFit compares exact service formula/default sizes to the producer's
+// raw maxima. Device presets never change the resources of group services.
 func (f *Fleet) groupPodsFit(l infraModel.LimitsFeature, plan infraModel.GroupPlan) *infraModel.FitViolation {
-	policy := f.Policy()
+	sizes := l.SizesFor(plan)
 	for _, pod := range []struct {
 		sizing infraModel.GroupPodSizing
-		units  int
-	}{{l.VPN, plan.MaxUsers}, {l.Gateway, plan.InternetLabs}} {
-		if !pod.sizing.Reported() {
+		size   resourcesModel.Amount
+	}{{l.VPN, sizes.VPN}, {l.Gateway, sizes.Gateway}} {
+		if !pod.sizing.Reported() && pod.size == (resourcesModel.Amount{}) {
 			continue
 		}
-		size := pod.sizing.Size(pod.units)
-		rounded, ok := policy.RoundUpWithin(size)
-		if !ok {
-			return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: size.MemoryBytes, Max: policy.LargestPreset().MemoryBytes}
+		if pod.size.CPUMillicores <= 0 || pod.size.MemoryBytes <= 0 {
+			return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: pod.size.MemoryBytes}
 		}
 		if pod.sizing.MaxUnits > 0 {
-			if podMax, fits := policy.RoundUpWithin(pod.sizing.Size(int(pod.sizing.MaxUnits))); fits && !rounded.Within(podMax) {
-				return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: rounded.MemoryBytes, Max: podMax.MemoryBytes}
+			maximum := pod.sizing.Size(int(pod.sizing.MaxUnits))
+			if pod.size.CPUMillicores > maximum.CPUMillicores {
+				return &infraModel.FitViolation{Resource: infraModel.FitCPU, Requested: pod.size.CPUMillicores, Max: maximum.CPUMillicores}
+			}
+			if pod.size.MemoryBytes > maximum.MemoryBytes {
+				return &infraModel.FitViolation{Resource: infraModel.FitMemory, Requested: pod.size.MemoryBytes, Max: maximum.MemoryBytes}
 			}
 		}
 	}
@@ -216,26 +220,23 @@ func (f *Fleet) NeedFit(need infraModel.PlacementNeed) *infraModel.FitViolation 
 	return worst
 }
 
-// roundedSizes is the group's pod sizes rounded up to whole blocks: what is reserved and sent to the agent.
-func (f *Fleet) roundedSizes(s infraModel.GroupSizes) infraModel.GroupSizes {
-	policy := f.Policy()
-	return infraModel.GroupSizes{VPN: policy.RoundUp(s.VPN), Gateway: policy.RoundUp(s.Gateway)}
-}
-
 // GroupSizes computes the sizes of a group's own pods for a plan with the formula of the agents that are
-// used, rounded up to whole blocks; with several agents the largest of each is taken, so the plan holds
+// used; with several agents the largest of each is taken, so the reservation holds
 // wherever the group lands. known is false when no agent has reported its sizing.
 func (f *Fleet) GroupSizes(plan infraModel.GroupPlan) (sizes infraModel.GroupSizes, known bool) {
 	for _, m := range f.eligible() {
 		feat := m.Features.Get()
-		if feat == nil || !(feat.Limits.VPN.Reported() || feat.Limits.Gateway.Reported()) {
-			continue
+		if feat == nil || !(feat.Limits.VPN.Reported() || feat.Limits.Gateway.Reported() || feat.Limits.DefaultVPN != (resourcesModel.Amount{}) || feat.Limits.DefaultGateway != (resourcesModel.Amount{}) || len(feat.Limits.SizingV2) > 0) {
+			return sizes, false
 		}
 		s := feat.Limits.SizesFor(plan)
+		if s.VPN.CPUMillicores <= 0 || s.VPN.MemoryBytes <= 0 || s.Gateway.CPUMillicores <= 0 || s.Gateway.MemoryBytes <= 0 {
+			return sizes, false
+		}
 		sizes = infraModel.GroupSizes{VPN: sizes.VPN.Max(s.VPN), Gateway: sizes.Gateway.Max(s.Gateway)}
 		known = true
 	}
-	return f.roundedSizes(sizes), known
+	return sizes, known
 }
 
 // labNeed is what one lab asks of an agent: its largest device and its container devices.
@@ -263,7 +264,11 @@ func (f *Fleet) withSizes(ctx context.Context, m *Member) context.Context {
 	if feat == nil {
 		return ctx
 	}
-	return infraModel.WithGroupSizes(ctx, f.roundedSizes(feat.Limits.SizesFor(infraModel.PlacementNeedFrom(ctx).Plan)))
+	sizes := feat.Limits.SizesFor(infraModel.PlacementNeedFrom(ctx).Plan)
+	if sizes == (infraModel.GroupSizes{}) {
+		return ctx
+	}
+	return infraModel.WithGroupSizes(ctx, sizes)
 }
 
 // setGroupSizes writes the planned pod sizes into a group to create, explicitly; the agent rejects a size over
@@ -289,4 +294,113 @@ func (f *Fleet) SchedulerMaxPods() int {
 		total += int(feat.Scheduler.MaxPods)
 	}
 	return total
+}
+
+// RequireLabLifecyclePreparation checks the actual selected producer; ordinary
+// persistence support is not a required capture barrier.
+func (c *Client) RequireLabLifecyclePreparation(ctx context.Context, _ string, policy eventLabModel.Policy, topology exerciseModel.Topology) error {
+	if err := policy.ValidatePreparation(topology, true); err != nil {
+		return err
+	}
+	if policy.SnapshotMode != "required" {
+		return nil
+	}
+	feature, err := c.lifecycleFeature(ctx)
+	if err != nil {
+		return err
+	}
+	return policy.ValidatePreparation(topology, feature.GetPerLabStop() && feature.GetRequiredSnapshot() && feature.GetConfirmedRuntime())
+}
+func (c *Client) lifecycleFeature(ctx context.Context) (*labpb.LifecycleFeature, error) {
+	response, err := c.GetFeatures(ctx, &labpb.Empty{})
+	if err != nil {
+		return nil, agentErr("get lab lifecycle features", err)
+	}
+	return response.GetLifecycle(), nil
+}
+
+func (f *Fleet) RequireLabLifecyclePreparation(ctx context.Context, group string, policy eventLabModel.Policy, topology exerciseModel.Topology) error {
+	if err := policy.ValidatePreparation(topology, true); err != nil {
+		return err
+	}
+	if policy.SnapshotMode != "required" {
+		return nil
+	}
+	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), labNeed(f.Policy(), topology)))
+	m, err := f.memberForCreate(ctx, group)
+	if err != nil {
+		return err
+	}
+	return m.Client.RequireLabLifecyclePreparation(ctx, group, policy, topology)
+}
+
+func sizingV2Of(v *labpb.GroupPodsSizingV2) []infraModel.GroupSizingProfile {
+	if len(v.GetProfiles()) == 0 {
+		return nil
+	}
+	amount := func(p *labpb.PodSize) resourcesModel.Amount {
+		return resourcesModel.Amount{CPUMillicores: p.GetCpuMillicores(), MemoryBytes: p.GetMemoryBytes()}
+	}
+	formula := func(f *labpb.GroupPodFormula) infraModel.GroupPodFormula {
+		return infraModel.GroupPodFormula{Base: amount(f.GetBase()), PerUser: amount(f.GetPerUser()), PerActiveLab: amount(f.GetPerActiveLab()), PerInternetLab: amount(f.GetPerInternetLab()), PerAllowedRelation: amount(f.GetPerAllowedRelation()), PerRetainedFlow: amount(f.GetPerRetainedFlow()), Floor: amount(f.GetFloor()), RoundTo: amount(f.GetRoundTo())}
+	}
+	out := make([]infraModel.GroupSizingProfile, 0, len(v.GetProfiles()))
+	for _, p := range v.GetProfiles() {
+		in := p.GetMaxInputs()
+		e := in.GetEnvelope()
+		out = append(out, infraModel.GroupSizingProfile{ID: p.GetId(), SupportState: p.GetSupportState(), ValidationProvenance: p.GetValidationProvenance(), Scope: p.GetScope(), MaxInputs: infraModel.GroupPlan{MaxUsers: int(in.GetMaxUsers()), MaxActiveLabs: int(in.GetMaxActiveLabs()), InternetLabs: int(in.GetInternetLabs()), AllowedRelations: int(in.GetAllowedRelations()), Envelope: infraModel.TrafficEnvelope{VPNRetainedFlows: e.GetVpnRetainedFlows(), GatewayRetainedFlows: e.GetGatewayRetainedFlows(), VPNNewFlowsPerSecond: e.GetVpnNewFlowsPerSecond(), GatewayNewFlowsPerSecond: e.GetGatewayNewFlowsPerSecond(), VPNPacketsPerSecond: e.GetVpnPacketsPerSecond(), GatewayPacketsPerSecond: e.GetGatewayPacketsPerSecond(), VPNPayloadMbps: e.GetVpnPayloadMbps(), GatewayPayloadMbps: e.GetGatewayPayloadMbps()}}, VPN: formula(p.GetVpn()), Gateway: formula(p.GetGateway())})
+	}
+	return out
+}
+
+// SnapshotQuotaFor reserves the configured per-device write quota; absent quota
+// is unknown and cannot authorize persistent generation creation.
+func (f *Fleet) SnapshotQuotaFor(t exerciseModel.Topology) (int64, bool) {
+	count := int64(0)
+	for _, d := range t.Devices {
+		if d.Persistence != nil && d.Persistence.Enabled {
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, true
+	}
+	var quota int64
+	known := false
+	for _, m := range f.eligible() {
+		feat := m.Features.Get()
+		if feat == nil || !feat.Persistence.Available || feat.Persistence.WriteQuotaBytes <= 0 {
+			return 0, false
+		}
+		quota = max(quota, feat.Persistence.WriteQuotaBytes)
+		known = true
+	}
+	if quota > 0 && count > (1<<63-1)/quota {
+		return 0, false
+	}
+	return count * quota, known
+}
+
+// LabLifecycleCapabilities reads the selected owner's cached feature report.
+// An unrecorded group or missing report is unknown; this never locates via RPC.
+func (f *Fleet) LabLifecycleCapabilities(ctx context.Context, group string) (infraModel.LifecycleCapabilities, bool) {
+	members := f.Members()
+	var m *Member
+	if len(members) == 1 {
+		m = members[0]
+	} else if f.store != nil {
+		id, found, err := f.store.Get(ctx, group)
+		if err != nil || !found {
+			return infraModel.LifecycleCapabilities{}, false
+		}
+		m = f.member(id)
+	}
+	if m == nil {
+		return infraModel.LifecycleCapabilities{}, false
+	}
+	feat := m.Features.Get()
+	if feat == nil {
+		return infraModel.LifecycleCapabilities{}, false
+	}
+	return feat.Lifecycle, true
 }

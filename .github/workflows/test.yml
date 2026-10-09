@@ -18,10 +18,18 @@ jobs:
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
-      # No go.work in CI: the build follows go.mod, so a wrong laboratory pin fails here.
+      # No sibling checkout: verify the scoped SDK before an independent build.
+      - name: Laboratory SDK source provenance
+        run: python3 .github/scripts/check-laboratory-sdk.py
       - name: Build
         run: make build
       - name: Vet
         run: make vet
+      - name: Login to Docker Hub for container tests
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Test
         run: make test

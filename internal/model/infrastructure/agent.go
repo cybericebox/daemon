@@ -88,13 +88,14 @@ type AgentMaintenanceWindow struct {
 // AgentFeatures is what a laboratory agent offers the platform's tenant. The platform keeps no copy of
 // these settings in its own configuration: it stores the last report of each agent.
 type AgentFeatures struct {
-	Persistence PersistenceFeature `json:"persistence"`
-	ImageCache  ImageCacheFeature  `json:"image_cache"`
-	Scheduler   SchedulerFeature   `json:"scheduler"`
-	Endpoints   EndpointsFeature   `json:"endpoints"`
-	Certificate CertificateFeature `json:"certificate"`
-	Proxy       ProxyFeature       `json:"proxy"`
-	Limits      LimitsFeature      `json:"limits"`
+	Lifecycle   LifecycleCapabilities `json:"lifecycle"`
+	Persistence PersistenceFeature    `json:"persistence"`
+	ImageCache  ImageCacheFeature     `json:"image_cache"`
+	Scheduler   SchedulerFeature      `json:"scheduler"`
+	Endpoints   EndpointsFeature      `json:"endpoints"`
+	Certificate CertificateFeature    `json:"certificate"`
+	Proxy       ProxyFeature          `json:"proxy"`
+	Limits      LimitsFeature         `json:"limits"`
 	// TenantQuota is the cluster owner's limit for this platform; the calendar's capacity comes from it.
 	TenantQuota TenantQuotaFeature `json:"tenant_quota"`
 }
@@ -217,8 +218,18 @@ type LabGroupSweeper interface {
 	DestroyLabGroupOn(ctx context.Context, agent uuid.UUID, group string) error
 }
 
+// LabInitialLifecycle is the persisted intent of a newly created managed Lab.
+// UID is acquired from the created object and never guessed before Create.
+type LabInitialLifecycle struct {
+	OperationID uuid.UUID
+	Revision    int64
+}
+
 // LabMeta is what a deploy tells the infrastructure about a lab besides its topology.
+type LabCreateDispatch struct{ GroupUID, DefinitionHash string }
 type LabMeta struct {
+	BeforeCreate     func(context.Context, LabCreateDispatch) error
+	InitialLifecycle *LabInitialLifecycle
 	// Labels go onto the lab (the instance label is added by the adapter); GroupLabels onto its group.
 	Labels      map[string]string
 	GroupLabels map[string]string
@@ -277,3 +288,5 @@ func AgentSecretContext(id uuid.UUID, field string) []byte {
 // ErrEnrollmentDenied is what the agent adapter returns when the agent refuses the enrollment token or
 // the request (a used, expired or unknown token is PERMISSION_DENIED).
 var ErrEnrollmentDenied = errors.New("the agent denied the enrollment")
+
+type LifecycleCapabilities struct{ PerLabStop, RequiredSnapshot, ConfirmedRuntime, RetainedRestart, FullGroupStop bool }

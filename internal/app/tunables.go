@@ -6,6 +6,7 @@ import (
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -22,6 +23,12 @@ func applyTunables(t config.TunablesConfig) {
 	sse.SetMaxLifetime(t.SSEMaxLifetime)
 	eventContentModel.LiveScreenLinkMaxTTL = t.LiveScreenLinkMaxTTL
 	eventConfigModel.SetDefaultMaxTeamSize(t.EventDefaultMaxTeamSize)
+	p := eventLabModel.Policy{SnapshotMode: t.EventLabSnapshotMode, RetentionMinutes: t.EventLabRetentionMinutes}
+	if t.EventLabMaxActive > 0 {
+		n := t.EventLabMaxActive
+		p.MaxActiveLabsPerTeam = &n
+	}
+	eventLabModel.SetDefaultPolicy(p)
 
 	mailUseCase.ConfigureLimiter(mailUseCase.LimiterTimings{
 		MaxRateWait: t.MailMaxRateWait, QuotaRetryAfter: t.MailQuotaRetryAfter,

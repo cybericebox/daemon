@@ -41,14 +41,17 @@ type shareDTO struct {
 
 // reservationDTO is one reservation on the admin timeline.
 type reservationDTO struct {
-	ID        uuid.UUID  `json:"ID"`
-	Kind      string     `json:"Kind" enums:"event,test_booking"`
-	EventID   *uuid.UUID `json:"EventID"`
-	EventName string     `json:"EventName"`
-	EventTag  string     `json:"EventTag"`
-	OwnerID   *uuid.UUID `json:"OwnerID"`
-	From      time.Time  `json:"From"`
-	To        time.Time  `json:"To"`
+	PerTeamSnapshotQuotaBytes int64      `json:"PerTeamSnapshotQuotaBytes,string" swaggertype:"string"`
+	DynamicSnapshotQuotaBytes int64      `json:"DynamicSnapshotQuotaBytes,string" swaggertype:"string"`
+	SizeSnapshotQuotaBytes    int64      `json:"SizeSnapshotQuotaBytes,string" swaggertype:"string"`
+	ID                        uuid.UUID  `json:"ID"`
+	Kind                      string     `json:"Kind" enums:"event,test_booking"`
+	EventID                   *uuid.UUID `json:"EventID"`
+	EventName                 string     `json:"EventName"`
+	EventTag                  string     `json:"EventTag"`
+	OwnerID                   *uuid.UUID `json:"OwnerID"`
+	From                      time.Time  `json:"From"`
+	To                        time.Time  `json:"To"`
 
 	Teams          int       `json:"Teams"`
 	PerTeam        amountDTO `json:"PerTeam"`
@@ -69,7 +72,7 @@ type reservationDTO struct {
 
 func reservation(v calUseCase.ReservationView) reservationDTO {
 	out := reservationDTO{
-		ID: v.ID, Kind: string(v.Kind), EventID: v.EventID, EventName: v.EventName, EventTag: v.EventTag, OwnerID: v.OwnerID,
+		PerTeamSnapshotQuotaBytes: v.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: v.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: v.SizeSnapshotQuotaBytes, ID: v.ID, Kind: string(v.Kind), EventID: v.EventID, EventName: v.EventName, EventTag: v.EventTag, OwnerID: v.OwnerID,
 		From: v.From, To: v.To, Teams: v.Teams, PerTeam: amount(v.PerTeam), LargestDevice: amount(v.LargestDevice), BufferPercent: v.BufferPercent,
 		Dynamic: amount(v.Dynamic), TailGapMinutes: int(v.TailGap / time.Minute), Size: amount(v.Size), Placement: make([]shareDTO, 0, len(v.Placement)),
 		Unplaced: v.Unplaced, Covered: v.Covered, Used: amount(v.Used), Alarms: make([]alarmDTO, 0, len(v.Alarms)),
@@ -207,8 +210,10 @@ func reservationResult(v calUseCase.ReservationResult) reservationResultDTO {
 // event gives the teams and the size per team, the settings give the buffer and the gap, the event gives the
 // window.
 type setReservationRequest struct {
-	Teams   *int       `json:"Teams"`
-	PerTeam *amountDTO `json:"PerTeam"`
+	PerTeamSnapshotQuotaBytes *int64     `json:"PerTeamSnapshotQuotaBytes,string" swaggertype:"string"`
+	DynamicSnapshotQuotaBytes *int64     `json:"DynamicSnapshotQuotaBytes,string" swaggertype:"string"`
+	Teams                     *int       `json:"Teams"`
+	PerTeam                   *amountDTO `json:"PerTeam"`
 	// BufferPercent overrides the default buffer (0).
 	BufferPercent *int `json:"BufferPercent"`
 	// Dynamic is the estimate for tasks that appear later.
@@ -226,7 +231,7 @@ type setReservationRequest struct {
 
 func (r setReservationRequest) model() calUseCase.EventReservationInput {
 	in := calUseCase.EventReservationInput{
-		Teams: r.Teams, PerTeam: r.PerTeam.model(), BufferPercent: r.BufferPercent, Dynamic: r.Dynamic.model(),
+		PerTeamSnapshotQuotaBytes: r.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: r.DynamicSnapshotQuotaBytes, Teams: r.Teams, PerTeam: r.PerTeam.model(), BufferPercent: r.BufferPercent, Dynamic: r.Dynamic.model(),
 		WindowStart: r.WindowStart, WindowEnd: r.WindowEnd, AllowConflicts: r.AllowConflicts, DryRun: r.DryRun,
 	}
 	if r.TailGapMinutes != nil {
@@ -333,18 +338,19 @@ type eventStatDTO struct {
 }
 
 type statsDTO struct {
-	At                    time.Time      `json:"At"`
-	Agents                []agentStatDTO `json:"Agents"`
-	Events                []eventStatDTO `json:"Events"`
-	TestPool              amountDTO      `json:"TestPool"`
-	TestLabsHeld          amountDTO      `json:"TestLabsHeld"`
-	PendingChangeRequests int64          `json:"PendingChangeRequests"`
-	OpenAlarms            int            `json:"OpenAlarms"`
+	Observation           calUseCase.ResourceObservation `json:"Observation"`
+	At                    time.Time                      `json:"At"`
+	Agents                []agentStatDTO                 `json:"Agents"`
+	Events                []eventStatDTO                 `json:"Events"`
+	TestPool              amountDTO                      `json:"TestPool"`
+	TestLabsHeld          amountDTO                      `json:"TestLabsHeld"`
+	PendingChangeRequests int64                          `json:"PendingChangeRequests"`
+	OpenAlarms            int                            `json:"OpenAlarms"`
 }
 
 func stats(v calUseCase.StatsView) statsDTO {
 	out := statsDTO{
-		At: v.At, Agents: make([]agentStatDTO, 0, len(v.Agents)), Events: make([]eventStatDTO, 0, len(v.Events)), TestPool: amount(v.TestPool),
+		Observation: v.Observation, At: v.At, Agents: make([]agentStatDTO, 0, len(v.Agents)), Events: make([]eventStatDTO, 0, len(v.Events)), TestPool: amount(v.TestPool),
 		TestLabsHeld: amount(v.TestLabsHeld), PendingChangeRequests: v.PendingChangeRequests, OpenAlarms: v.OpenAlarms,
 	}
 	for _, a := range v.Agents {
@@ -402,6 +408,7 @@ func organizerChange(c calUseCase.OrganizerChangeView) organizerChangeDTO {
 
 // eventResourcesDTO is what an organizer sees: allocated vs used and the change requests; never an agent.
 type eventResourcesDTO struct {
+	Observation calUseCase.ResourceObservation `json:"Observation"`
 	// Reserved is false when the event has no reservation (nothing else is set then).
 	Reserved  bool      `json:"Reserved"`
 	From      time.Time `json:"From"`
@@ -420,7 +427,7 @@ type eventResourcesDTO struct {
 
 func eventResources(v calUseCase.OrganizerReservationView) eventResourcesDTO {
 	out := eventResourcesDTO{
-		Reserved: v.Reserved, From: v.From, To: v.To, Teams: v.Teams, Allocated: amount(v.Allocated), InUse: amount(v.InUse), Free: amount(v.Free),
+		Observation: v.Observation, Reserved: v.Reserved, From: v.From, To: v.To, Teams: v.Teams, Allocated: amount(v.Allocated), InUse: amount(v.InUse), Free: amount(v.Free),
 		BufferPercent: v.BufferPercent, Dynamic: amount(v.Dynamic), Covered: v.Covered, Changes: make([]organizerChangeDTO, 0, len(v.Changes)),
 	}
 	for _, c := range v.Changes {
@@ -432,11 +439,13 @@ func eventResources(v calUseCase.OrganizerReservationView) eventResourcesDTO {
 // requestChangeRequest is an organizer's change request: size, window and/or the estimate for future dynamic
 // tasks, with a reason.
 type requestChangeRequest struct {
-	Size        *amountDTO `json:"Size"`
-	Dynamic     *amountDTO `json:"Dynamic"`
-	WindowStart *time.Time `json:"WindowStart"`
-	WindowEnd   *time.Time `json:"WindowEnd"`
-	Reason      string     `json:"Reason"`
+	SizeSnapshotQuotaBytes    *int64     `json:"SizeSnapshotQuotaBytes,string" swaggertype:"string"`
+	DynamicSnapshotQuotaBytes *int64     `json:"DynamicSnapshotQuotaBytes,string" swaggertype:"string"`
+	Size                      *amountDTO `json:"Size"`
+	Dynamic                   *amountDTO `json:"Dynamic"`
+	WindowStart               *time.Time `json:"WindowStart"`
+	WindowEnd                 *time.Time `json:"WindowEnd"`
+	Reason                    string     `json:"Reason"`
 }
 
 // testLabRoomDTO answers whether a test laboratory fits now.

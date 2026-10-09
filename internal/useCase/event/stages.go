@@ -3,6 +3,9 @@ package event
 import (
 	"context"
 	"errors"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -21,14 +24,15 @@ import (
 // EventStageView is a stage with its computed state and its place in the order. First and Last say which
 // boundary of the event window the stage is anchored to (the first opens with the event, the last closes with it).
 type EventStageView struct {
-	ID         uuid.UUID
-	Name       string
-	OpensAt    time.Time
-	ClosesAt   time.Time
-	Returnable bool
-	State      eventModel.StageState
-	First      bool
-	Last       bool
+	LabRetentionMinutes *int32
+	ID                  uuid.UUID
+	Name                string
+	OpensAt             time.Time
+	ClosesAt            time.Time
+	Returnable          bool
+	State               eventModel.StageState
+	First               bool
+	Last                bool
 	// DeployLeadMinutes is the lead the platform computes for the labs that open with this stage (the first stage:
 	// with the event start): its deploy starts that long before OpensAt. 0 when the workload cannot be read.
 	DeployLeadMinutes int
@@ -37,18 +41,20 @@ type EventStageView struct {
 // CreateStageInput is a stage creation request. The boundary times of the first and last stage are the event's own,
 // whatever is sent.
 type CreateStageInput struct {
-	Name       string
-	OpensAt    time.Time
-	ClosesAt   time.Time
-	Returnable bool
+	LabRetentionMinutes *int32
+	Name                string
+	OpensAt             time.Time
+	ClosesAt            time.Time
+	Returnable          bool
 }
 
 // UpdateStageInput is a partial update; nil fields keep their value.
 type UpdateStageInput struct {
-	Name       *string
-	OpensAt    *time.Time
-	ClosesAt   *time.Time
-	Returnable *bool
+	LabRetentionMinutes OptionalLimit
+	Name                *string
+	OpensAt             *time.Time
+	ClosesAt            *time.Time
+	Returnable          *bool
 	// CloseNow is «Закрити зараз»: an open stage ends now.
 	CloseNow bool
 }
@@ -56,7 +62,7 @@ type UpdateStageInput struct {
 func toStageViews(stages []eventModel.Stage, now time.Time) []EventStageView {
 	out := make([]EventStageView, 0, len(stages))
 	for i, stage := range stages {
-		out = append(out, EventStageView{ID: stage.ID, Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt,
+		out = append(out, EventStageView{LabRetentionMinutes: stage.LabRetentionMinutes, ID: stage.ID, Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt,
 			Returnable: stage.Returnable, State: stage.State(now), First: i == 0, Last: i == len(stages)-1})
 	}
 	return out
@@ -167,6 +173,11 @@ func (u *EventUseCase) CreateEventStage(ctx context.Context, eventID uuid.UUID, 
 		return EventStageView{}, err
 	}
 	defer unit.Restore()
+	if u.lifecycleControls {
+		if _, err = txRepo.LockEventForLabSourceChange(txCtx, eventID); err != nil {
+			return EventStageView{}, err
+		}
+	}
 	e, err := u.stageEvent(txCtx, txRepo, eventID)
 	if err != nil {
 		return EventStageView{}, err
@@ -188,8 +199,16 @@ func (u *EventUseCase) CreateEventStage(ctx context.Context, eventID uuid.UUID, 
 			return EventStageView{}, classifyStageWriteError(err, "update")
 		}
 	}
+	if err = plan.Created.SetLabRetentionMinutes(in.LabRetentionMinutes, now); err != nil {
+		return EventStageView{}, err
+	}
 	if _, err = repo.Create(txCtx, plan.Created); err != nil {
 		return EventStageView{}, classifyStageWriteError(err, "create")
+	}
+	if u.lifecycleControls {
+		if err = u.recomputeRetentionPinsInTransaction(txCtx, txRepo, eventID, now); err != nil {
+			return EventStageView{}, err
+		}
 	}
 	if err = unit.Save(); err != nil {
 		return EventStageView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create event stage").Err()
@@ -224,6 +243,11 @@ func (u *EventUseCase) UpdateEventStage(ctx context.Context, eventID, stageID uu
 		return EventStageView{}, err
 	}
 	defer unit.Restore()
+	if u.lifecycleControls {
+		if _, err = txRepo.LockEventForLabSourceChange(txCtx, eventID); err != nil {
+			return EventStageView{}, err
+		}
+	}
 	e, err := u.stageEvent(txCtx, txRepo, eventID)
 	if err != nil {
 		return EventStageView{}, err
@@ -252,8 +276,18 @@ func (u *EventUseCase) UpdateEventStage(ctx context.Context, eventID, stageID uu
 	if err = eventModel.ValidateStages(next, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now); err != nil {
 		return EventStageView{}, err
 	}
+	if in.LabRetentionMinutes.Set {
+		if err = edited.SetLabRetentionMinutes(in.LabRetentionMinutes.Value, now); err != nil {
+			return EventStageView{}, err
+		}
+	}
 	if _, err = repo.Update(txCtx, edited); err != nil {
 		return EventStageView{}, classifyStageWriteError(err, "update")
+	}
+	if u.lifecycleControls {
+		if err = u.recomputeRetentionPinsInTransaction(txCtx, txRepo, eventID, now); err != nil {
+			return EventStageView{}, err
+		}
 	}
 	if err = unit.Save(); err != nil {
 		return EventStageView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to update event stage").Err()
@@ -276,6 +310,11 @@ func (u *EventUseCase) DeleteEventStage(ctx context.Context, eventID, stageID uu
 		return err
 	}
 	defer unit.Restore()
+	if u.lifecycleControls {
+		if _, err = txRepo.LockEventForLabSourceChange(txCtx, eventID); err != nil {
+			return err
+		}
+	}
 	e, err := eventRepo.New(txRepo).GetByID(txCtx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -298,6 +337,11 @@ func (u *EventUseCase) DeleteEventStage(ctx context.Context, eventID, stageID uu
 	if err = eventModel.CheckStageDelete(stage, sets, now); err != nil {
 		return err
 	}
+	if u.lifecycleControls {
+		if err = txRepo.RemoveEventStageRuntimeSelections(txCtx, stageID); err != nil {
+			return err
+		}
+	}
 	if _, err = repo.Delete(txCtx, eventID, stageID); err != nil {
 		return classifyStageWriteError(err, "delete")
 	}
@@ -308,6 +352,11 @@ func (u *EventUseCase) DeleteEventStage(ctx context.Context, eventID, stageID uu
 	for _, changed := range eventModel.AnchorAfterDelete(remaining, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now) {
 		if _, err = repo.Update(txCtx, changed); err != nil {
 			return classifyStageWriteError(err, "update")
+		}
+	}
+	if u.lifecycleControls {
+		if err = u.recomputeRetentionPinsInTransaction(txCtx, txRepo, eventID, now); err != nil {
+			return err
 		}
 	}
 	if err = unit.Save(); err != nil {
@@ -328,6 +377,11 @@ func (u *EventUseCase) SetEventExerciseStage(ctx context.Context, eventID, event
 		return EventExerciseView{}, err
 	}
 	defer unit.Restore()
+	if u.lifecycleControls {
+		if _, err = txRepo.LockEventForLabSourceChange(txCtx, eventID); err != nil {
+			return EventExerciseView{}, err
+		}
+	}
 	sets := eventExerciseRepo.New(txRepo)
 	link, err := sets.GetByID(txCtx, eventID, eventExerciseID)
 	if err != nil {
@@ -364,12 +418,63 @@ func (u *EventUseCase) SetEventExerciseStage(ctx context.Context, eventID, event
 	if err = eventModel.CheckSetMove(from, to, now); err != nil {
 		return EventExerciseView{}, err
 	}
+	if u.lifecycleControls {
+		all, err := eventLabAllocationRepo.New(txRepo).Labs(txCtx, eventID)
+		if err != nil {
+			return EventExerciseView{}, err
+		}
+		teams := map[uuid.UUID]bool{}
+		for _, l := range all {
+			if l.EventExerciseID == eventExerciseID {
+				teams[l.TeamID] = true
+			}
+		}
+		for _, team := range orderedTeamIDs(teams) {
+			if err = eventLabRepo.New(txRepo).LockAdmission(txCtx, team); err != nil {
+				return EventExerciseView{}, err
+			}
+		}
+		for _, snapshot := range all {
+			if snapshot.EventExerciseID != eventExerciseID {
+				continue
+			}
+			l, err := eventLabRepo.New(txRepo).Lock(txCtx, snapshot.ID)
+			if err != nil {
+				return EventExerciseView{}, err
+			}
+			l.CaptureRuntimeStage(link.StageID, now)
+			if _, err = eventLabRepo.New(txRepo).Update(txCtx, l, l.Revision); err != nil {
+				return EventExerciseView{}, err
+			}
+		}
+		if err = eventLabRetentionRepo.New(txRepo).RemoveSetSelections(txCtx, eventID, eventExerciseID); err != nil {
+			return EventExerciseView{}, err
+		}
+	}
 	moved, err := sets.SetStage(txCtx, eventID, eventExerciseID, stageID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return EventExerciseView{}, eventExerciseModel.ErrEventExerciseNotActive.Err()
 		}
 		return EventExerciseView{}, classifyStageWriteError(err, "move set to")
+	}
+	if u.lifecycleControls {
+		if stageID != nil {
+			all, pinErr := eventLabAllocationRepo.New(txRepo).Labs(txCtx, eventID)
+			if pinErr != nil {
+				return EventExerciseView{}, pinErr
+			}
+			for _, l := range all {
+				if l.EventExerciseID == eventExerciseID && l.CloseReason != "solved" && l.DesiredState != "Deleted" {
+					if pinErr = eventLabRetentionRepo.New(txRepo).Select(txCtx, eventID, *stageID, l.ID, now); pinErr != nil {
+						return EventExerciseView{}, pinErr
+					}
+				}
+			}
+		}
+		if err = u.recomputeRetentionPinsInTransaction(txCtx, txRepo, eventID, now); err != nil {
+			return EventExerciseView{}, err
+		}
 	}
 	if err = unit.Save(); err != nil {
 		return EventExerciseView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to set the stage of the event exercise").Err()

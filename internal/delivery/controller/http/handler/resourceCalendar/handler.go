@@ -573,7 +573,7 @@ func (h *Handler) requestChange(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, err := h.useCase.RequestResourceChange(ctx, eventID, by, calUseCase.ChangeInput{
+	v, err := h.useCase.RequestResourceChange(ctx, eventID, by, calUseCase.ChangeInput{SizeSnapshotQuotaBytes: req.SizeSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: req.DynamicSnapshotQuotaBytes,
 		Size: req.Size.model(), Dynamic: req.Dynamic.model(), WindowStart: req.WindowStart, WindowEnd: req.WindowEnd, Reason: req.Reason,
 	})
 	if err != nil {

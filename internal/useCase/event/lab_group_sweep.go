@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 )
@@ -58,6 +59,16 @@ func (u *EventUseCase) SweepOrphanLabGroupsAt(ctx context.Context, now time.Time
 	var stands, tests []infraModel.LabGroupInfo
 	kept := 0
 	for _, g := range groups {
+		if u.lifecycleControls {
+			owned, e := eventLabRetentionRepo.New(u.repo).OwnedGroup(ctx, g.Name)
+			if e != nil {
+				return e
+			}
+			if owned {
+				kept++
+				continue
+			}
+		}
 		switch {
 		case g.CreatedAt.IsZero() || now.Sub(g.CreatedAt) < u.labSweepGrace:
 			kept++

@@ -94,16 +94,21 @@ type (
 	}
 
 	// usageLabResponse: Surface is vpn or proxy; the counters cover the whole
-	// event.
+	// event. VPN bytes count inner IP packets after decapsulation; proxy bytes
+	// count HTTP bodies or relayed WebSocket data payloads (compressed if so
+	// negotiated). They exclude the encrypted WireGuard demux traffic.
 	usageLabResponse struct {
 		ChallengeID uuid.UUID `json:"ChallengeID"`
 		Task        string    `json:"Task"`
 		Surface     string    `json:"Surface"`
 		Attempts    int64     `json:"Attempts"`
-		BytesIn     int64     `json:"BytesIn"`
-		BytesOut    int64     `json:"BytesOut"`
-		FirstAt     time.Time `json:"FirstAt"`
-		LastAt      time.Time `json:"LastAt"`
+		// New permitted VPN flows started by the laboratory, separate from
+		// participant Attempts. Zero for a proxy-only row or an older sender.
+		LabInitiatedAttempts int64      `json:"LabInitiatedAttempts"`
+		BytesIn              int64      `json:"BytesIn"`
+		BytesOut             int64      `json:"BytesOut"`
+		FirstAt              *time.Time `json:"FirstAt" extensions:"x-nullable"`
+		LastAt               *time.Time `json:"LastAt" extensions:"x-nullable"`
 	}
 )
 
@@ -170,7 +175,7 @@ func toUsageResponse(v eventAnalyticsUseCase.UsageView) usageResponse {
 		labs := make([]usageLabResponse, 0, len(u.Labs))
 		for _, l := range u.Labs {
 			labs = append(labs, usageLabResponse{
-				ChallengeID: l.ChallengeID, Task: l.Task, Surface: l.Surface, Attempts: l.Attempts,
+				ChallengeID: l.ChallengeID, Task: l.Task, Surface: l.Surface, Attempts: l.Attempts, LabInitiatedAttempts: l.LabInitiatedAttempts,
 				BytesIn: l.BytesIn, BytesOut: l.BytesOut, FirstAt: l.FirstAt, LastAt: l.LastAt,
 			})
 		}

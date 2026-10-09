@@ -6,6 +6,7 @@
 package labTraffic
 
 import (
+	"math"
 	"slices"
 	"time"
 
@@ -21,8 +22,8 @@ const (
 	SurfaceProxy Surface = "proxy"
 )
 
-// CoverageTolerance is the largest silence between two reports of a healthy
-// collector (reports are one minute apart) that still counts as continuous.
+// CoverageTolerance is the largest report silence accepted for legacy scalar
+// coverage. Explicit observation spans preserve even the smallest real gap.
 const CoverageTolerance = 150 * time.Second
 
 // UserFromSubject returns the user of a LabGroupClient name. Both the VPN and
@@ -41,6 +42,7 @@ type Touch struct {
 	EventID, TeamID, UserID, EventChallengeID uuid.UUID
 	Surface                                   Surface
 	Attempts                                  int64
+	LabInitiatedAttempts                      int64
 	PacketsOut, PacketsIn                     int64
 	BytesOut, BytesIn                         int64
 	FirstSeenAt                               time.Time
@@ -52,6 +54,7 @@ type Touch struct {
 type Coverage struct {
 	From, To time.Time
 	Partial  bool
+	Explicit bool
 }
 
 // Verdict is the tri-state answer. Missing data is never «no touch».
@@ -65,11 +68,14 @@ const (
 
 // Aggregate is the stored summary of the rows that match a question.
 type Aggregate struct {
-	Surface        Surface
-	Attempts       int64
-	FirstSeenAt    time.Time
-	FirstRespondAt *time.Time
-	BytesIn        int64
+	Surface               Surface
+	Attempts              int64
+	LabInitiatedAttempts  int64
+	PacketsOut, PacketsIn int64
+	BytesOut              int64
+	FirstSeenAt           time.Time
+	FirstRespondAt        *time.Time
+	BytesIn               int64
 }
 
 // Question asks whether User (or the whole team when User is nil) touched one
@@ -106,22 +112,38 @@ type Answer struct {
 //   - otherwise: Unknown.
 func Classify(q Question, rows []Aggregate, coverage map[Surface][]Coverage) Answer {
 	var answer Answer
+	uncertain := false
 	for _, row := range rows {
-		if !row.FirstSeenAt.Before(q.Before) || (len(q.Surfaces) > 0 && !slices.Contains(q.Surfaces, row.Surface)) {
+		if (len(q.Surfaces) > 0 && !slices.Contains(q.Surfaces, row.Surface)) || (!row.FirstSeenAt.IsZero() && !row.FirstSeenAt.Before(q.Before)) {
+			continue
+		}
+		if row.FirstSeenAt.IsZero() && row.Attempts == 0 && row.LabInitiatedAttempts > 0 {
+			// Packets in either direction may belong to a lab-initiated flow.
 			continue
 		}
 		answer.Attempted = answer.Attempted || row.Attempts > 0
-		if answer.FirstSeenAt == nil || row.FirstSeenAt.Before(*answer.FirstSeenAt) {
+		if !row.FirstSeenAt.IsZero() && (answer.FirstSeenAt == nil || row.FirstSeenAt.Before(*answer.FirstSeenAt)) {
 			t := row.FirstSeenAt
 			answer.FirstSeenAt = &t
 		}
-		if row.FirstRespondAt != nil && row.FirstRespondAt.Before(q.Before) {
+		hasResponse := row.FirstRespondAt != nil && !row.FirstRespondAt.IsZero()
+		evidence := row.PacketsOut > 0 || row.PacketsIn > 0 || row.BytesOut > 0 || row.BytesIn > 0
+		if row.FirstSeenAt.IsZero() {
+			uncertain = uncertain || row.Attempts > 0 || evidence || hasResponse
+			continue
+		}
+		if hasResponse && row.FirstRespondAt.Before(row.FirstSeenAt) {
+			uncertain = true
+			continue
+		}
+		uncertain = uncertain || (!hasResponse && evidence)
+		if hasResponse && row.FirstRespondAt.Before(q.Before) {
 			if answer.FirstRespondAt == nil || row.FirstRespondAt.Before(*answer.FirstRespondAt) {
 				t := *row.FirstRespondAt
 				answer.FirstRespondAt = &t
 				answer.Surface = row.Surface
 			}
-			answer.BytesIn += row.BytesIn
+			answer.BytesIn = saturatedSum(answer.BytesIn, row.BytesIn)
 		}
 	}
 	if answer.FirstRespondAt != nil {
@@ -135,34 +157,59 @@ func Classify(q Question, rows []Aggregate, coverage map[Surface][]Coverage) Ans
 			break
 		}
 	}
-	if len(q.Surfaces) == 0 || q.Since.IsZero() {
+	if uncertain || len(q.Surfaces) == 0 || q.Since.IsZero() {
 		answer.Verdict = Unknown
 	}
 	return answer
 }
 
-// Covered reports whether the non-partial spans join, within CoverageTolerance,
-// into one run that includes [from, to].
+func saturatedSum(a, b int64) int64 {
+	if b > 0 && a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	if b < 0 && a < math.MinInt64-b {
+		return math.MinInt64
+	}
+	return a + b
+}
+
+// Covered reports whether the complete observations include [from, to]. A
+// partial ledger overlapping the question cannot prove absence, even alongside
+// a complete replica. Only wholly legacy windows allow cadence tolerance.
 func Covered(spans []Coverage, from, to time.Time) bool {
-	if !from.Before(to) {
-		return len(spans) > 0
+	if from.IsZero() || to.IsZero() || !from.Before(to) {
+		return false
 	}
 	cursor := from
+	tolerance := CoverageTolerance
 	remaining := make([]Coverage, 0, len(spans))
 	for _, s := range spans {
-		if !s.Partial {
-			remaining = append(remaining, s)
+		if s.From.IsZero() || s.To.IsZero() || !s.From.Before(s.To) {
+			return false
 		}
+		if !s.From.Before(to) || !s.To.After(from) {
+			continue
+		}
+		if s.Partial {
+			return false
+		}
+		if s.Explicit {
+			tolerance = 0
+		}
+		remaining = append(remaining, s)
+	}
+	if len(remaining) == 0 {
+		return false
 	}
 	// Repeatedly extend the covered run; span counts are small.
 	for progressed := true; progressed && cursor.Before(to); {
 		progressed = false
 		for _, s := range remaining {
-			if !s.From.After(cursor.Add(CoverageTolerance)) && s.To.After(cursor) {
+			if !s.From.After(cursor.Add(tolerance)) && s.To.After(cursor) {
 				cursor = s.To
 				progressed = true
 			}
 		}
 	}
-	return !cursor.Before(to.Add(-CoverageTolerance))
+	return !cursor.Before(to.Add(-tolerance))
 }

@@ -10,6 +10,7 @@ import (
 
 type Binding struct {
 	ID, EventID, EventTeamID, EventChallengeID uuid.UUID
+	LabID                                      uuid.NullUUID
 	LabGroupName, LabName                      string
 	CreatedAt                                  time.Time
 	Readiness                                  Readiness

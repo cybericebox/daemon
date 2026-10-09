@@ -26,10 +26,10 @@ INSERT INTO event_configs (event_id, participation, registration, scoreboard_vis
                            results_live_freeze, results_chart_enabled, results_chart_teams,
                            results_rows_limit, hint_charge_mode,
                            show_start_countdown, show_finish_countdown, finish_countdown_minutes,
-                           task_reveal_mode, max_flag_attempts, finish_countdown_mode)
+                           task_reveal_mode, max_flag_attempts, finish_countdown_mode, lab_policy)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
         $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-        $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37) RETURNING event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts, finish_countdown_mode
+        $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38) RETURNING event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts, finish_countdown_mode, lab_policy
 `
 
 type CreateEventConfigParams struct {
@@ -70,6 +70,7 @@ type CreateEventConfigParams struct {
 	TaskRevealMode            string             `json:"task_reveal_mode"`
 	MaxFlagAttempts           pgtype.Int4        `json:"max_flag_attempts"`
 	FinishCountdownMode       int16              `json:"finish_countdown_mode"`
+	LabPolicy                 []byte             `json:"lab_policy"`
 }
 
 // Timestamps come from the domain factory. participation is null at creation.
@@ -112,6 +113,7 @@ func (q *Queries) CreateEventConfig(ctx context.Context, arg CreateEventConfigPa
 		arg.TaskRevealMode,
 		arg.MaxFlagAttempts,
 		arg.FinishCountdownMode,
+		arg.LabPolicy,
 	)
 	var i EventConfig
 	err := row.Scan(
@@ -155,6 +157,7 @@ func (q *Queries) CreateEventConfig(ctx context.Context, arg CreateEventConfigPa
 		&i.TaskRevealMode,
 		&i.MaxFlagAttempts,
 		&i.FinishCountdownMode,
+		&i.LabPolicy,
 	)
 	return i, err
 }
@@ -181,7 +184,7 @@ func (q *Queries) GetEventCapacityEstimate(ctx context.Context, eventID uuid.UUI
 }
 
 const getEventConfig = `-- name: GetEventConfig :one
-SELECT event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts, finish_countdown_mode
+SELECT event_id, participation, registration, scoreboard_visibility, participants_visibility, preview_description, preview_picture, created_at, updated_at, updated_by, max_team_size, min_team_size, max_teams, brand_color, accent_color, accent_light, accent_dark, accent_live, theme_version, allow_pseudonyms, stand_teardown_delay_minutes, show_difficulty, results_freeze_enabled, results_freeze_minutes, results_opened_at, results_live_freeze, results_chart_enabled, results_chart_teams, results_rows_limit, hint_charge_mode, hints_disabled, show_start_countdown, show_finish_countdown, finish_countdown_minutes, capacity_expected_dynamic_tasks, capacity_avg_task_cpu_millicores, capacity_avg_task_memory_bytes, task_reveal_mode, max_flag_attempts, finish_countdown_mode, lab_policy
 FROM event_configs
 WHERE event_id = $1
 `
@@ -230,6 +233,7 @@ func (q *Queries) GetEventConfig(ctx context.Context, eventID uuid.UUID) (EventC
 		&i.TaskRevealMode,
 		&i.MaxFlagAttempts,
 		&i.FinishCountdownMode,
+		&i.LabPolicy,
 	)
 	return i, err
 }
@@ -298,9 +302,10 @@ SET participation            = $2,
     finish_countdown_minutes     = $33,
     task_reveal_mode             = $34,
     max_flag_attempts            = $35,
-    finish_countdown_mode        = $36
+    finish_countdown_mode        = $36,
+    lab_policy                  = $37
 WHERE event_id = $1
-  AND updated_at IS NOT DISTINCT FROM $37
+  AND updated_at IS NOT DISTINCT FROM $38
 `
 
 type UpdateEventConfigParams struct {
@@ -340,6 +345,7 @@ type UpdateEventConfigParams struct {
 	TaskRevealMode            string             `json:"task_reveal_mode"`
 	MaxFlagAttempts           pgtype.Int4        `json:"max_flag_attempts"`
 	FinishCountdownMode       int16              `json:"finish_countdown_mode"`
+	LabPolicy                 []byte             `json:"lab_policy"`
 	ExpectedUpdatedAt         pgtype.Timestamptz `json:"expected_updated_at"`
 }
 
@@ -384,6 +390,7 @@ func (q *Queries) UpdateEventConfig(ctx context.Context, arg UpdateEventConfigPa
 		arg.TaskRevealMode,
 		arg.MaxFlagAttempts,
 		arg.FinishCountdownMode,
+		arg.LabPolicy,
 		arg.ExpectedUpdatedAt,
 	)
 	if err != nil {

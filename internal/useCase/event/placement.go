@@ -35,7 +35,15 @@ func (u *EventUseCase) withPlacementNeed(ctx context.Context, eventID uuid.UUID)
 	if _, ok := u.infra.(resourcePlanner); !ok {
 		return ctx
 	}
-	need, err := u.eventPlacementNeed(ctx, eventID)
+	var need infraModel.PlacementNeed
+	var err error
+	if u.lifecycleControls {
+		var input planInputs
+		input, err = u.resourcePlanInputs(ctx, eventID)
+		need = input.placementNeed()
+	} else {
+		need, err = u.eventPlacementNeed(ctx, eventID)
+	}
 	if err != nil {
 		log.Warn().Err(err).Str("event_id", eventID.String()).Msg("Placement: cannot read the labs of the event, placing without its needs")
 		return ctx

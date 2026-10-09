@@ -1,0 +1,4 @@
+docker: Error response from daemon: error while creating mount source path '/host_mnt/Volumes/Projects/My/CyberICEBox/daemon/internal/delivery/repository/postgres': mkdir /host_mnt/Volumes/Projects: file exists
+
+Run 'docker run --help' for more information
+make: *** [sqlcGenerate] Error 125

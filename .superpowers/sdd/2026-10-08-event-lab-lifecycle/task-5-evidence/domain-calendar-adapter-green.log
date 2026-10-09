@@ -1,0 +1,5 @@
+ok  	github.com/cybericebox/daemon/internal/delivery/infrastructure/labagent	0.321s
+ok  	github.com/cybericebox/daemon/internal/model/infrastructure	0.110s
+ok  	github.com/cybericebox/daemon/internal/model/eventLab	0.215s
+ok  	github.com/cybericebox/daemon/internal/model/resourceCalendar	0.215s
+ok  	github.com/cybericebox/daemon/internal/useCase/resourceCalendar	0.381s

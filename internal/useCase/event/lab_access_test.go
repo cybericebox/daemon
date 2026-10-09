@@ -74,7 +74,6 @@ func TestReconcilePendingLabAccess_UsesOnlyAvailableLabs(t *testing.T) {
 	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, AppliedRevision: 1, UpdatedAt: now, RuntimeOpen: true, VpnEnabled: true}}, nil)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{firstUser, secondUser}, nil)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return([]postgres.ListEventLabAccessLabsRow{{LabGroupName: testLabGroup(eventID, teamID), LabName: "c-ready", Available: true}}, nil)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatalf("ReconcilePendingLabAccess: %v", err)
@@ -102,7 +101,6 @@ func TestReconcilePendingLabAccessRevokesUnavailableLabs(t *testing.T) {
 	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, AppliedRevision: 1, UpdatedAt: now, RuntimeOpen: false, VpnEnabled: true}}, nil)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{userID}, nil)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return([]postgres.ListEventLabAccessLabsRow{{LabGroupName: testLabGroup(eventID, teamID), LabName: "c-preparing", Available: false}}, nil)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatalf("ReconcilePendingLabAccess: %v", err)
@@ -124,7 +122,6 @@ func TestReconcilePendingLabAccessKeepsTestTunnelBeforeAnyLab(t *testing.T) {
 	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 1, VpnEnabled: true}}, nil)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{userID}, nil)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +142,6 @@ func TestReconcilePendingLabAccessDisablesExistingTunnel(t *testing.T) {
 	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, VpnEnabled: false}}, nil)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return(nil, nil)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +159,6 @@ func TestReconcilePendingLabAccessVPNOffStopsGroupServices(t *testing.T) {
 	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, RuntimeOpen: true, VpnEnabled: false}}, nil)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{userID}, nil)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return([]postgres.ListEventLabAccessLabsRow{{LabGroupName: testLabGroup(eventID, teamID), LabName: "internet-only", Available: true}}, nil)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +236,6 @@ func TestReconcilePendingLabAccessListsMembersWithVPNOff(t *testing.T) {
 	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, AppliedRevision: 1, RuntimeOpen: true, VpnEnabled: false}}, nil)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{firstUser, secondUser}, nil)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return([]postgres.ListEventLabAccessLabsRow{{LabGroupName: testLabGroup(eventID, teamID), LabName: "web-task", Available: true}}, nil)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatal(err)
@@ -290,7 +284,6 @@ func TestReconcilePendingLabAccessCreatesMemberClientsEagerly(t *testing.T) {
 	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 1, UpdatedAt: now, RuntimeOpen: false, VpnEnabled: true}}, nil)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{newMember, oldMember}, nil)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 		t.Fatalf("ReconcilePendingLabAccess: %v", err)
 	}
@@ -354,7 +347,6 @@ func TestReconcilePendingLabAccess_FailingTeamBacksOffAndDoesNotBlockOthers(t *t
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil).Times(1)
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), otherTeam).Return(nil, nil).Times(2)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), otherTeam).Return(nil, nil).Times(2)
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(2)
 
 	if err := uc.ReconcilePendingLabAccess(context.Background()); err == nil {
 		t.Fatal("the failing team's error is reported")
@@ -380,7 +372,6 @@ func TestReconcilePendingLabAccess_RevocationWaitsForGroupAndNeverGrantsRevoked(
 	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{kept}, nil).Times(2)
 	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(labs, nil).Times(2)
 	// Only the second pass may acknowledge.
-	q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
 
 	notReady := &recordingLabAccessInfra{err: fmt.Errorf("replace: %w", infraModel.ErrGroupNotReady)}
 	if err := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: notReady}).ReconcilePendingLabAccess(context.Background()); err != nil {
@@ -420,7 +411,6 @@ func TestReconcilePendingLabAccess_AwaitingReservationStillRevokesOnExistingGrou
 		if exists {
 			q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{kept}, nil)
 			q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil)
-			q.EXPECT().MarkEventLabAccessSyncApplied(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 		}
 		if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
 			t.Fatalf("exists=%v: %v", exists, err)

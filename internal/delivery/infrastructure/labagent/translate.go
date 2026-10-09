@@ -14,11 +14,17 @@ import (
 // daemon does not pull controller-runtime into its dependency graph. The field
 // tags MUST match api/laboratory/v1alpha1 LabSpec exactly.
 type (
+	labInitialLifecycle struct {
+		DesiredState string `json:"desiredState"`
+		OperationID  string `json:"operationId"`
+		Revision     int64  `json:"revision"`
+	}
 	labSpec struct {
-		VPN         labNetwork      `json:"vpn,omitempty"`
-		Internet    labNetwork      `json:"internet,omitempty"`
-		Devices     []labDevice     `json:"devices,omitempty"`
-		Connections []labConnection `json:"connections,omitempty"`
+		Lifecycle   *labInitialLifecycle `json:"lifecycle,omitempty"`
+		VPN         labNetwork           `json:"vpn,omitempty"`
+		Internet    labNetwork           `json:"internet,omitempty"`
+		Devices     []labDevice          `json:"devices,omitempty"`
+		Connections []labConnection      `json:"connections,omitempty"`
 	}
 
 	labNetwork struct {

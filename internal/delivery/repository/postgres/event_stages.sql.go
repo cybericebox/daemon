@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countEventStageSets = `-- name: CountEventStageSets :one
@@ -27,21 +28,22 @@ func (q *Queries) CountEventStageSets(ctx context.Context, stageID uuid.NullUUID
 }
 
 const createEventStage = `-- name: CreateEventStage :one
-INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6,
-        $7, $8)
-RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at
+INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, lab_retention_minutes, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6,$7,
+ $8, $9)
+RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
 `
 
 type CreateEventStageParams struct {
-	ID         uuid.UUID `json:"id"`
-	EventID    uuid.UUID `json:"event_id"`
-	Name       string    `json:"name"`
-	OpensAt    time.Time `json:"opens_at"`
-	ClosesAt   time.Time `json:"closes_at"`
-	Returnable bool      `json:"returnable"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID                  uuid.UUID   `json:"id"`
+	EventID             uuid.UUID   `json:"event_id"`
+	Name                string      `json:"name"`
+	OpensAt             time.Time   `json:"opens_at"`
+	ClosesAt            time.Time   `json:"closes_at"`
+	Returnable          bool        `json:"returnable"`
+	LabRetentionMinutes pgtype.Int4 `json:"lab_retention_minutes"`
+	CreatedAt           time.Time   `json:"created_at"`
+	UpdatedAt           time.Time   `json:"updated_at"`
 }
 
 func (q *Queries) CreateEventStage(ctx context.Context, arg CreateEventStageParams) (EventStage, error) {
@@ -52,6 +54,7 @@ func (q *Queries) CreateEventStage(ctx context.Context, arg CreateEventStagePara
 		arg.OpensAt,
 		arg.ClosesAt,
 		arg.Returnable,
+		arg.LabRetentionMinutes,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -65,6 +68,7 @@ func (q *Queries) CreateEventStage(ctx context.Context, arg CreateEventStagePara
 		&i.Returnable,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LabRetentionMinutes,
 	)
 	return i, err
 }
@@ -89,7 +93,7 @@ func (q *Queries) DeleteEventStage(ctx context.Context, arg DeleteEventStagePara
 }
 
 const getEventStage = `-- name: GetEventStage :one
-SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at
+SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
 FROM event_stages
 WHERE id = $1
   AND event_id = $2
@@ -112,12 +116,13 @@ func (q *Queries) GetEventStage(ctx context.Context, arg GetEventStageParams) (E
 		&i.Returnable,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LabRetentionMinutes,
 	)
 	return i, err
 }
 
 const listEventStages = `-- name: ListEventStages :many
-SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at
+SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
 FROM event_stages
 WHERE event_id = $1
 ORDER BY opens_at ASC, id ASC
@@ -142,6 +147,7 @@ func (q *Queries) ListEventStages(ctx context.Context, eventID uuid.UUID) ([]Eve
 			&i.Returnable,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LabRetentionMinutes,
 		); err != nil {
 			return nil, err
 		}
@@ -193,28 +199,30 @@ func (q *Queries) SetEventExerciseStage(ctx context.Context, arg SetEventExercis
 
 const updateEventStage = `-- name: UpdateEventStage :one
 UPDATE event_stages
-SET name       = $1,
-    opens_at   = $2,
-    closes_at  = $3,
-    returnable = $4,
-    updated_at = $5
-WHERE id = $6
-  AND event_id = $7
-RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at
+SET lab_retention_minutes=$1,name       = $2,
+    opens_at   = $3,
+    closes_at  = $4,
+    returnable = $5,
+    updated_at = $6
+WHERE id = $7
+  AND event_id = $8
+RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
 `
 
 type UpdateEventStageParams struct {
-	Name       string    `json:"name"`
-	OpensAt    time.Time `json:"opens_at"`
-	ClosesAt   time.Time `json:"closes_at"`
-	Returnable bool      `json:"returnable"`
-	UpdatedAt  time.Time `json:"updated_at"`
-	ID         uuid.UUID `json:"id"`
-	EventID    uuid.UUID `json:"event_id"`
+	LabRetentionMinutes pgtype.Int4 `json:"lab_retention_minutes"`
+	Name                string      `json:"name"`
+	OpensAt             time.Time   `json:"opens_at"`
+	ClosesAt            time.Time   `json:"closes_at"`
+	Returnable          bool        `json:"returnable"`
+	UpdatedAt           time.Time   `json:"updated_at"`
+	ID                  uuid.UUID   `json:"id"`
+	EventID             uuid.UUID   `json:"event_id"`
 }
 
 func (q *Queries) UpdateEventStage(ctx context.Context, arg UpdateEventStageParams) (EventStage, error) {
 	row := q.db.QueryRow(ctx, updateEventStage,
+		arg.LabRetentionMinutes,
 		arg.Name,
 		arg.OpensAt,
 		arg.ClosesAt,
@@ -233,6 +241,7 @@ func (q *Queries) UpdateEventStage(ctx context.Context, arg UpdateEventStagePara
 		&i.Returnable,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LabRetentionMinutes,
 	)
 	return i, err
 }

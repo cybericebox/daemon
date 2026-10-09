@@ -1,0 +1,39 @@
+2026/10/08 19:04:06 github.com/testcontainers/testcontainers-go - Connected to docker: 
+  Server Version: 29.8.2
+  API Version: 1.56
+  Operating System: Docker Desktop
+  Total Memory: 7933 MB
+  Labels:
+    com.docker.desktop.address=unix:///Users/volodymyrporokhniak/Library/Containers/com.docker.docker/Data/docker-cli.sock
+  Testcontainers for Go Version: v0.44.0
+  Resolved Docker Host: unix:///var/run/docker.sock
+  Resolved Docker Socket Path: /var/run/docker.sock
+  Test SessionID: 88e7edac2cd6f1c36709563a85b28269e7428fe11cb2dfc704de9a79f98a6b4d
+  Test ProcessID: 54e70999-8c8b-489b-8d29-ca1c9f31125c
+2026/10/08 19:04:06 🐳 Creating container for image postgres:17-alpine
+2026/10/08 19:04:07 🐳 Creating container for image testcontainers/ryuk:0.14.0
+2026/10/08 19:04:07 ✅ Container created: 40622192fa15
+2026/10/08 19:04:07 🐳 Starting container: 40622192fa15
+2026/10/08 19:04:07 ✅ Container started: 40622192fa15
+2026/10/08 19:04:07 ⏳ Waiting for container id 40622192fa15 image: testcontainers/ryuk:0.14.0. Waiting for: all of: [log message "Started", port 8080/tcp to be listening]
+2026/10/08 19:04:07 Shell not found in container
+2026/10/08 19:04:07 🔔 Container is ready: 40622192fa15
+2026/10/08 19:04:07 ✅ Container created: 09450f442df4
+2026/10/08 19:04:07 🐳 Starting container: 09450f442df4
+2026/10/08 19:04:07 ✅ Container started: 09450f442df4
+2026/10/08 19:04:07 ⏳ Waiting for container id 09450f442df4 image: postgres:17-alpine. Waiting for: all of: [all of: [log message "database system is ready to accept connections" (occurrence: 2), port 5432/tcp to be listening]]
+2026/10/08 19:04:08 🔔 Container is ready: 09450f442df4
+--- FAIL: TestInitialProvisioningRequiresPersistedAdmission (2.35s)
+    lab_allocations_integration_test.go:17: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/useCase/event/lab_allocations_integration_test.go:17
+        	Error:      	Should be empty, but was [e-03h0gytmh6xeo3jep0w5k1a8v-t-03h0gytmi97g75rnmf98acpae/x-03h0gytmk8aov8bmwhi6a5yju-v0 e-03h0gytmh6xeo3jep0w5k1a8v-t-03h0gytmik56ciunzoblmywbx/x-03h0gytmk8aov8bmwhi6a5yju-v0 e-03h0gytmh6xeo3jep0w5k1a8v-t-03h0gytmmt9dd9r6f997jy4gs/x-03h0gytmk8aov8bmwhi6a5yju-v0]
+        	Test:       	TestInitialProvisioningRequiresPersistedAdmission
+        	Messages:   	missing event reservation must not reach create RPC
+--- FAIL: TestInitialProvisioningHoldsBeforeRPCAndNodeQueueIsNotReady (0.15s)
+    lab_allocations_integration_test.go:27: 
+        	Error Trace:	/Volumes/Projects/My/CyberICEBox/daemon/internal/useCase/event/lab_allocations_integration_test.go:27
+        	Error:      	"{\"Used\": {\"MemoryBytes\": 0, \"CPUMillicores\": 0}, \"ObservedAt\": null, \"ReleasedAt\": null, \"RuntimeState\": \"Unknown\", \"StorageState\": \"Unknown\", \"UsageAvailable\": false, \"ConfiguredLimits\": {\"MemoryBytes\": 0, \"CPUMillicores\": 0}, \"AllocatedRequests\": {\"MemoryBytes\": 0, \"CPUMillicores\": 0}, \"ConfiguredRequests\": {\"MemoryBytes\": 0, \"CPUMillicores\": 0}, \"SnapshotQuotaBytes\": 0, \"PhysicalStorageBytes\": 0, \"PhysicalStorageEverKnown\": false, \"PhysicalStorageBytesAvailable\": false}" does not contain "\"RuntimeState\":\"Admitted\""
+        	Test:       	TestInitialProvisioningHoldsBeforeRPCAndNodeQueueIsNotReady
+FAIL
+FAIL	github.com/cybericebox/daemon/internal/useCase/event	2.995s
+FAIL

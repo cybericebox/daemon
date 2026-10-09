@@ -64,14 +64,15 @@ const (
 
 // Stage is one time-boxed stage of an event.
 type Stage struct {
-	ID         uuid.UUID
-	EventID    uuid.UUID
-	Name       string
-	OpensAt    time.Time
-	ClosesAt   time.Time
-	Returnable bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	LabRetentionMinutes *int32
+	ID                  uuid.UUID
+	EventID             uuid.UUID
+	Name                string
+	OpensAt             time.Time
+	ClosesAt            time.Time
+	Returnable          bool
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // StagePhaseAt is the phase of a set at a moment: a set without a stage is always open.
@@ -428,5 +429,19 @@ func CheckSetChange(stage *Stage, adds, removes bool, now time.Time) error {
 	if adds && stage.State(now) == StageClosed {
 		return ErrEventStageClosedLocked.Err()
 	}
+	return nil
+}
+
+func (s *Stage) SetLabRetentionMinutes(minutes *int32, now time.Time) error {
+	if minutes != nil && (*minutes < 0 || *minutes > 10080) {
+		return ErrEventStageInvalid.Err()
+	}
+	if minutes == nil {
+		s.LabRetentionMinutes = nil
+	} else {
+		n := *minutes
+		s.LabRetentionMinutes = &n
+	}
+	s.UpdatedAt = now
 	return nil
 }

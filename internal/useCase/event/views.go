@@ -12,6 +12,7 @@ import (
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
+	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -138,6 +139,7 @@ type EventConfigView struct {
 	MaxFlagAttempts        *int32
 	Countdown              eventConfigModel.CountdownSettings
 	TaskRevealMode         eventConfigModel.TaskRevealMode
+	LabPolicy              eventLabModel.Policy
 	Theme                  eventConfigModel.Theme
 	StandTiming            eventStandModel.Timing
 	UpdatedAt              time.Time
@@ -287,6 +289,7 @@ func toEventConfigView(c eventConfigModel.EventConfig) EventConfigView {
 		MaxFlagAttempts:        c.MaxFlagAttempts,
 		Countdown:              c.Countdown,
 		TaskRevealMode:         c.TaskRevealMode,
+		LabPolicy:              c.EffectiveLabPolicy(),
 		Theme:                  c.Theme,
 		StandTiming:            c.StandTiming,
 		UpdatedAt:              c.UpdatedAt,
@@ -591,6 +594,7 @@ type ChallengeAvailability struct {
 // SubmitChallengeResult intentionally exposes only the participant-safe
 // outcome; the expected flag remains exclusively in TeamChallenge storage.
 type SubmitChallengeResult struct {
+	Lab        *ParticipantLabView
 	Correct    bool
 	FirstSolve bool
 	// Practice: the answer came after a returnable stage closed; it was verified but is not rated.
@@ -598,6 +602,8 @@ type SubmitChallengeResult struct {
 }
 
 type OwnChallengeView struct {
+	EventExerciseID      uuid.UUID
+	Lab                  *ParticipantLabView
 	ID, EventChallengeID uuid.UUID
 	// Snapshot is reduced to name and difficulty while Locked.
 	Snapshot         json.RawMessage
