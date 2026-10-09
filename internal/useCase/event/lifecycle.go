@@ -105,7 +105,7 @@ func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel
 	if err != nil {
 		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
 	}
-	if len(stages) == 0 {
+	if len(stages) == 0 && !u.lifecycleControls {
 		affected, updateErr := u.events.UpdateLifecycle(ctx, e, expected)
 		if updateErr != nil {
 			return 0, model.ErrPlatform.WithError(updateErr).WithMessage("Failed to update event lifecycle").Err()
@@ -125,6 +125,21 @@ func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel
 	}
 	defer unit.Restore()
 	stageRepo := eventStageRepo.New(txRepo)
+	if u.lifecycleControls {
+		if _, err = txRepo.LockEventForLabSourceChange(txCtx, e.ID); err != nil {
+			return 0, err
+		}
+		// Source/selection changes share this event lock. Re-read their stage
+		// anchors before updating the schedule and its dependent retention.
+		stages, err = stageRepo.List(txCtx, e.ID)
+		if err != nil {
+			return 0, err
+		}
+		changed, err = eventModel.AnchorToLifecycle(stages, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now)
+		if err != nil {
+			return 0, err
+		}
+	}
 	// A start moved later shrinks the first stage and a finish moved earlier the last one, so apply the order that
 	// never makes two stages overlap midway: the boundary stages only ever shrink or grow outwards one at a time.
 	for _, stage := range changed {
@@ -138,6 +153,14 @@ func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel
 	}
 	if affected == 0 {
 		return 0, nil
+	}
+	if u.lifecycleControls {
+		if err = u.refreshWholeEventRetentionInTransaction(txCtx, txRepo, e, now); err != nil {
+			return 0, err
+		}
+		if err = u.recomputeRetentionPinsInTransaction(txCtx, txRepo, e.ID, now); err != nil {
+			return 0, err
+		}
 	}
 	if err = unit.Save(); err != nil {
 		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to update event lifecycle").Err()

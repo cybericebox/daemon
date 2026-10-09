@@ -243,6 +243,26 @@ func (l *Lab) ApplyBoundaryRetention(base time.Time, override *int32, now time.T
 	}
 	l.SetRetentionDeadline(base.Add(time.Duration(minutes)*time.Minute), now)
 }
+
+// RefreshWholeEventRetention moves only a current generation's schedule-based
+// deadline. Its captured TTL and runtime scope remain immutable; manual stops
+// retain their own close-time deadline and retirement is never reversed.
+func (l *Lab) RefreshWholeEventRetention(finish *time.Time, now time.Time) bool {
+	if !l.RuntimeStageKnown || l.RuntimeStageID != nil || l.CloseReason == "manual" || l.DesiredState == "Deleted" || l.RetirementStopTarget != nil {
+		return false
+	}
+	var until *time.Time
+	if finish != nil {
+		deadline := finish.Add(time.Duration(l.RetentionMinutes) * time.Minute)
+		until = &deadline
+	}
+	if (until == nil && l.RetentionUntil == nil) || (until != nil && l.RetentionUntil != nil && until.Equal(*l.RetentionUntil)) {
+		return false
+	}
+	l.RetentionUntil = cloneTime(until)
+	l.UpdatedAt = now
+	return true
+}
 func (l *Lab) RestartBudgetCandidate() Lab {
 	candidate := *l
 	candidate.DesiredState = "Running"

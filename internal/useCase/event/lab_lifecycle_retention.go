@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabGroupRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
@@ -24,6 +25,50 @@ import (
 type LabRetirementInfrastructure interface {
 	RetireLab(context.Context, eventLabModel.RetirementRequest) error
 	RetireLabGroup(context.Context, eventLabModel.GroupRetirementRequest) error
+}
+
+// The event schedule and its live generation deadlines commit together. A
+// sweeper holding an older due-list snapshot re-reads these rows under the same
+// admission/Lab locks before it can initiate retirement.
+func (u *EventUseCase) refreshWholeEventRetentionInTransaction(ctx context.Context, q IRepository, e eventModel.Event, now time.Time) error {
+	rows, err := eventLabAllocationRepo.New(q).Labs(ctx, e.ID)
+	if err != nil {
+		return err
+	}
+	finish := e.Lifecycle.EffectiveFinishAt()
+	teams := map[uuid.UUID]bool{}
+	for _, row := range rows {
+		if row.RefreshWholeEventRetention(finish, now) {
+			teams[row.TeamID] = true
+		}
+	}
+	repo := eventLabRepo.New(q)
+	for _, teamID := range orderedTeamIDs(teams) {
+		if err := repo.LockAdmission(ctx, teamID); err != nil {
+			return err
+		}
+	}
+	for _, row := range rows {
+		if !teams[row.TeamID] {
+			continue
+		}
+		live, err := repo.Lock(ctx, row.ID)
+		if err != nil {
+			return err
+		}
+		expected := live.Revision
+		if !live.RefreshWholeEventRetention(finish, now) {
+			continue
+		}
+		updated, err := repo.Update(ctx, live, expected)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return fmt.Errorf("scheduled retention revision changed")
+		}
+	}
+	return nil
 }
 
 // SelectRetainedLabsForStage is an internal coordinator port. No participant or
