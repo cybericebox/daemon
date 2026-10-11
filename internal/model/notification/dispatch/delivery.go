@@ -3,6 +3,8 @@ package dispatchModel
 import (
 	"context"
 
+	"github.com/gofrs/uuid"
+
 	inboxModel "github.com/cybericebox/daemon/internal/model/notification/inbox"
 )
 
@@ -28,6 +30,9 @@ type DeliveryNote struct {
 	// ExtraAttempts counts sends beyond the dispatcher's own call (an Event
 	// SMTP failure retried via the platform transport adds one).
 	ExtraAttempts int32
+	// SMTP test bookkeeping; the connection fingerprint contains no secret.
+	SMTPConnectionKey string
+	SMTPProviderID    *uuid.UUID
 }
 
 type deliveryNoteKey struct{}

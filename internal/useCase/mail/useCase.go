@@ -110,7 +110,8 @@ type transport struct {
 	eventID *uuid.UUID
 	// providerID is set for a stored platform provider: its daily allowance is
 	// claimed on its row before each send.
-	providerID *uuid.UUID
+	providerID        *uuid.UUID
+	smtpConnectionKey string
 }
 
 // limitKey identifies the transport for rate limiting.

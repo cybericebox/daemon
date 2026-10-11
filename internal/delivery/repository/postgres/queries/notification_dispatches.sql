@@ -11,8 +11,8 @@ WHERE id = $1;
 -- name: UpsertDispatchTarget :exec
 -- attempts is the real number of delivery attempts of this run (dispatcher
 -- rounds plus an SMTP fallback), added to any earlier run of the same target.
-INSERT INTO notification_dispatch_targets (dispatch_id, channel, status, error, attempts, transport, recipient, fallback_error)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (dispatch_id, channel) DO
+INSERT INTO notification_dispatch_targets (dispatch_id, channel, status, error, attempts, transport, recipient, fallback_error, smtp_connection_key, smtp_provider_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (dispatch_id, channel) DO
 UPDATE
     SET status = EXCLUDED.status,
     error = EXCLUDED.error,
@@ -20,6 +20,8 @@ UPDATE
     transport = EXCLUDED.transport,
     recipient = EXCLUDED.recipient,
     fallback_error = EXCLUDED.fallback_error,
+    smtp_connection_key = EXCLUDED.smtp_connection_key,
+    smtp_provider_id = EXCLUDED.smtp_provider_id,
     updated_at = now();
 
 -- name: GetDispatch :one

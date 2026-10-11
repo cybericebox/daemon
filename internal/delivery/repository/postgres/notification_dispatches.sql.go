@@ -261,7 +261,7 @@ func (q *Queries) GetDispatch(ctx context.Context, id uuid.UUID) (GetDispatchRow
 }
 
 const listDispatchTargets = `-- name: ListDispatchTargets :many
-SELECT dispatch_id, channel, status, error, attempts, updated_at, transport, recipient, fallback_error
+SELECT dispatch_id, channel, status, error, attempts, updated_at, transport, recipient, fallback_error, smtp_connection_key, smtp_provider_id
 FROM notification_dispatch_targets
 WHERE dispatch_id = $1
 ORDER BY channel
@@ -286,6 +286,8 @@ func (q *Queries) ListDispatchTargets(ctx context.Context, dispatchID uuid.UUID)
 			&i.Transport,
 			&i.Recipient,
 			&i.FallbackError,
+			&i.SmtpConnectionKey,
+			&i.SmtpProviderID,
 		); err != nil {
 			return nil, err
 		}
@@ -298,7 +300,7 @@ func (q *Queries) ListDispatchTargets(ctx context.Context, dispatchID uuid.UUID)
 }
 
 const listDispatchTargetsByDispatches = `-- name: ListDispatchTargetsByDispatches :many
-SELECT dispatch_id, channel, status, error, attempts, updated_at, transport, recipient, fallback_error
+SELECT dispatch_id, channel, status, error, attempts, updated_at, transport, recipient, fallback_error, smtp_connection_key, smtp_provider_id
 FROM notification_dispatch_targets
 WHERE dispatch_id = ANY($1::uuid[])
 ORDER BY dispatch_id, channel
@@ -323,6 +325,8 @@ func (q *Queries) ListDispatchTargetsByDispatches(ctx context.Context, dispatchI
 			&i.Transport,
 			&i.Recipient,
 			&i.FallbackError,
+			&i.SmtpConnectionKey,
+			&i.SmtpProviderID,
 		); err != nil {
 			return nil, err
 		}
@@ -446,8 +450,8 @@ func (q *Queries) SetDispatchStatus(ctx context.Context, arg SetDispatchStatusPa
 }
 
 const upsertDispatchTarget = `-- name: UpsertDispatchTarget :exec
-INSERT INTO notification_dispatch_targets (dispatch_id, channel, status, error, attempts, transport, recipient, fallback_error)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (dispatch_id, channel) DO
+INSERT INTO notification_dispatch_targets (dispatch_id, channel, status, error, attempts, transport, recipient, fallback_error, smtp_connection_key, smtp_provider_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (dispatch_id, channel) DO
 UPDATE
     SET status = EXCLUDED.status,
     error = EXCLUDED.error,
@@ -455,18 +459,22 @@ UPDATE
     transport = EXCLUDED.transport,
     recipient = EXCLUDED.recipient,
     fallback_error = EXCLUDED.fallback_error,
+    smtp_connection_key = EXCLUDED.smtp_connection_key,
+    smtp_provider_id = EXCLUDED.smtp_provider_id,
     updated_at = now()
 `
 
 type UpsertDispatchTargetParams struct {
-	DispatchID    uuid.UUID `json:"dispatch_id"`
-	Channel       string    `json:"channel"`
-	Status        string    `json:"status"`
-	Error         string    `json:"error"`
-	Attempts      int32     `json:"attempts"`
-	Transport     string    `json:"transport"`
-	Recipient     string    `json:"recipient"`
-	FallbackError string    `json:"fallback_error"`
+	DispatchID        uuid.UUID     `json:"dispatch_id"`
+	Channel           string        `json:"channel"`
+	Status            string        `json:"status"`
+	Error             string        `json:"error"`
+	Attempts          int32         `json:"attempts"`
+	Transport         string        `json:"transport"`
+	Recipient         string        `json:"recipient"`
+	FallbackError     string        `json:"fallback_error"`
+	SmtpConnectionKey string        `json:"smtp_connection_key"`
+	SmtpProviderID    uuid.NullUUID `json:"smtp_provider_id"`
 }
 
 // attempts is the real number of delivery attempts of this run (dispatcher
@@ -481,6 +489,8 @@ func (q *Queries) UpsertDispatchTarget(ctx context.Context, arg UpsertDispatchTa
 		arg.Transport,
 		arg.Recipient,
 		arg.FallbackError,
+		arg.SmtpConnectionKey,
+		arg.SmtpProviderID,
 	)
 	return err
 }

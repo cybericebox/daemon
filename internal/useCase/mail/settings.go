@@ -183,10 +183,12 @@ type (
 
 	// TestResult reports a synchronous test send to the current user.
 	TestResult struct {
-		Sent      bool
-		Recipient string
-		Transport string
-		Error     string
+		Sent              bool
+		Recipient         string
+		Transport         string
+		Error             string
+		SMTPConnectionKey string     `json:"-"`
+		SMTPProviderID    *uuid.UUID `json:"-"`
 	}
 )
 
@@ -449,8 +451,9 @@ func (u *MailUseCase) ReorderPlatformProviders(ctx context.Context, ids []uuid.U
 // TestPlatformProvider sends a test email to the current user through the form
 // values (in != nil; an empty password uses the stored one of provider id, when
 // given), the stored provider id, or, with neither, the transport platform mail
-// goes out through now (the SMTP_* env one, or the first available provider). A test through a stored provider counts
-// against its daily limit and updates its last error like any other message.
+// goes out through now (the SMTP_* env one, or the first available provider).
+// Stored-provider form tests count against its allowance and update its error.
+// A new connection's successful tests are imported when that user saves it.
 func (u *MailUseCase) TestPlatformProvider(ctx context.Context, id *uuid.UUID, in *mailModel.SMTPInput, userID uuid.UUID) (TestResult, error) {
 	res, err := u.testPlatformProvider(ctx, id, in, userID)
 	if err == nil {
@@ -488,6 +491,12 @@ func (u *MailUseCase) testPlatformProvider(ctx context.Context, id *uuid.UUID, i
 		t.identity = mailModel.Overlay(sender.identity, stored.Identity)
 		t.conn = withSender(t.conn, t.identity)
 		t.source = dispatchModel.TransportPlatform
+		if found {
+			t.providerID = &stored.ID
+			t.limits = mailModel.Limits{PerSecond: stored.StoredLimits().PerSecond}
+		} else {
+			t.smtpConnectionKey = normalized.ConnectionKey()
+		}
 	case found:
 		if t, err = u.providerTransport(stored, sender); err != nil {
 			return TestResult{}, err
@@ -822,7 +831,8 @@ func (u *MailUseCase) journalTest(ctx context.Context, userID uuid.UUID, scope *
 	}
 	target := dispatchRepo.TargetResult{
 		Status: dispatchModel.TargetStatusDone, Attempts: 1,
-		Note: dispatchModel.DeliveryNote{Transport: transport, Recipient: res.Recipient},
+		Note: dispatchModel.DeliveryNote{Transport: transport, Recipient: res.Recipient,
+			SMTPConnectionKey: res.SMTPConnectionKey, SMTPProviderID: res.SMTPProviderID},
 	}
 	if !res.Sent {
 		target.Status, target.Error = dispatchModel.TargetStatusError, res.Error
@@ -838,7 +848,8 @@ func (u *MailUseCase) journalTest(ctx context.Context, userID uuid.UUID, scope *
 }
 
 func (u *MailUseCase) testSend(ctx context.Context, t transport, identity mailModel.Identity, recipient, label string) TestResult {
-	result := TestResult{Recipient: recipient, Transport: t.source}
+	result := TestResult{Recipient: recipient, Transport: t.source,
+		SMTPConnectionKey: t.smtpConnectionKey, SMTPProviderID: t.providerID}
 	msg := withIdentity(email.Message{
 		To:      recipient,
 		Subject: "Перевірка пошти Cyber ICE Box",
