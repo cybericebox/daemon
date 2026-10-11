@@ -26,12 +26,14 @@ type reservationHolder interface {
 	HasEventReservation(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
 
-// errAwaitingReservation: the event has lab tasks and no reservation yet. It is a wait, not a fault: nothing is
-// deployed and nothing reaches the error journal; the work starts by itself once the reservation exists.
+// errAwaitingReservation: the event needs lab tasks or accounted group services and has no reservation yet.
+// It is a wait, not a fault: nothing is deployed and nothing reaches the error journal; the work starts by
+// itself once the reservation exists.
 var errAwaitingReservation = errors.New("event is waiting for its resource reservation")
 
-// awaitingReservation reports whether the event has lab tasks but no reservation. A gate that cannot say (no
-// calendar wired) does not hold anything back; a failed read holds the pass back and is only logged.
+// awaitingReservation reports whether the event needs lab tasks or accounted group services but has no
+// reservation. A gate that cannot say (no calendar wired) does not hold anything back; a failed read holds
+// the pass back and is only logged.
 func (u *EventUseCase) awaitingReservation(ctx context.Context, eventID uuid.UUID) bool {
 	if u.reservationWait != nil {
 		return u.reservationWait(ctx, eventID)
@@ -45,7 +47,8 @@ func (u *EventUseCase) awaitingReservation(ctx context.Context, eventID uuid.UUI
 		log.Warn().Err(err).Str("event_id", eventID.String()).Msg("Reservation wait: cannot read the labs of the event")
 		return true
 	}
-	if need.LabDevices == 0 {
+	// VPN and gateway services still need a budget when there are no lab devices.
+	if need.LabDevices == 0 && !u.allocationAccounting {
 		return false
 	}
 	reserved, err := holder.HasEventReservation(ctx, eventID)

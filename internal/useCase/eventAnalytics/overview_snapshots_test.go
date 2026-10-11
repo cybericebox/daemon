@@ -35,9 +35,9 @@ func TestGetEventAnalyticsOverview_Snapshots(t *testing.T) {
 	blood := now.Add(-time.Hour)
 	fake := &fakeStore{}
 	fake.dispatches = []eventAnalyticsRepo.DispatchCount{
-		{Type: "invite", Channel: "email", Status: "done", Targets: 8},
-		{Type: "invite", Channel: "email", Status: "error", Targets: 2},
-		{Type: "invite", Channel: "in_app", Status: "done", Targets: 50},
+		{Type: "participant.invitation.sent", Channel: "email", Status: "done", Targets: 8},
+		{Type: "participant.invitation.sent", Channel: "email", Status: "error", Targets: 2},
+		{Type: "participant.invitation.sent", Channel: "in_app", Status: "done", Targets: 50},
 	}
 	store := &snapshotStore{
 		fakeStore: fake,
@@ -83,6 +83,29 @@ func TestGetEventAnalyticsOverview_Snapshots(t *testing.T) {
 	// Only mail counts, and the window is the last 24 hours.
 	if v.Comms.EmailSent != 8 || v.Comms.EmailFailed != 2 || !v.Comms.Since.Equal(now.Add(-24*time.Hour)) {
 		t.Fatalf("comms: %+v", v.Comms)
+	}
+}
+
+func TestGetEventAnalyticsOverview_CommsExcludePlatformNotifications(t *testing.T) {
+	clock := now
+	event := runningEvent()
+	fake := &fakeStore{}
+	fake.dispatches = []eventAnalyticsRepo.DispatchCount{
+		{Type: "participant.invitation.sent", Channel: "email", Status: "done", Targets: 8},
+		{Type: "participant.invitation.sent", Channel: "email", Status: "error", Targets: 2},
+		{Type: "broadcast", Channel: "email", Status: "done", Targets: 3},
+		{Type: "broadcast", Channel: "email", Status: "error", Targets: 1},
+		{Type: "event.manager.assigned", Channel: "email", Status: "done", Targets: 100},
+		{Type: "event.lab.failed", Channel: "email", Status: "error", Targets: 20},
+		{Type: "event.moderator.future", Channel: "email", Status: "done", Targets: 50},
+	}
+	store := &snapshotStore{fakeStore: fake}
+	v, err := newUCWithStore(store, event, &clock).GetEventAnalyticsOverview(context.Background(), event.ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Comms.EmailSent != 11 || v.Comms.EmailFailed != 3 || !v.Comms.Since.Equal(now.Add(-24*time.Hour)) {
+		t.Fatalf("participant and broadcast mail only: %+v", v.Comms)
 	}
 }
 

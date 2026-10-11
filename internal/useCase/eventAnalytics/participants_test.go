@@ -248,13 +248,13 @@ func TestParticipants_AnswerDistributionsPerQuestionType(t *testing.T) {
 func TestCommunications_GroupsTypesAndComputesRates(t *testing.T) {
 	store := &fakeStore{participantFake: participantFake{
 		dispatches: []eventAnalyticsRepo.DispatchCount{
-			{Type: "event.start", Channel: "email", Status: "done", Targets: 10},
-			{Type: "event.start", Channel: "email", Status: "error", Targets: 2},
-			{Type: "event.start", Channel: "in_app", Status: "done", Targets: 12},
-			{Type: "team.invite", Channel: "email", Status: "done", Targets: 30},
-			{Type: "team.invite", Channel: "email", Status: "pending", Targets: 5},
+			{Type: "participant.event.start_reminder", Channel: "email", Status: "done", Targets: 10},
+			{Type: "participant.event.start_reminder", Channel: "email", Status: "error", Targets: 2},
+			{Type: "participant.event.start_reminder", Channel: "in_app", Status: "done", Targets: 12},
+			{Type: "participant.team_invitation.sent", Channel: "email", Status: "done", Targets: 30},
+			{Type: "participant.team_invitation.sent", Channel: "email", Status: "pending", Targets: 5},
 		},
-		inApp: []eventAnalyticsRepo.InAppCount{{Type: "event.start", Total: 12, Read: 9}, {Type: "inbox.note", Total: 4, Read: 0}},
+		inApp: []eventAnalyticsRepo.InAppCount{{Type: "participant.event.start_reminder", Total: 12, Read: 9}, {Type: "broadcast", Total: 4, Read: 0}},
 		forms: []eventAnalyticsRepo.FormCompletion{
 			{ID: uuid.Must(uuid.NewV7()), Title: "Registration", Purpose: "registration", Enabled: true, Answers: 40},
 			{ID: uuid.Must(uuid.NewV7()), Title: "Feedback", Purpose: "other", Enabled: true, Assigned: 20, Completed: 5, Answers: 5},
@@ -265,12 +265,12 @@ func TestCommunications_GroupsTypesAndComputesRates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(v.Types) != 3 || v.Types[0].Type != "team.invite" || v.Types[1].Type != "event.start" {
+	if len(v.Types) != 3 || v.Types[0].Type != "participant.team_invitation.sent" || v.Types[1].Type != "participant.event.start_reminder" {
 		t.Fatalf("types are ordered by volume: %+v", v.Types)
 	}
 	start := v.Types[1]
 	if start.EmailSent != 10 || start.EmailErrors != 2 || start.InAppSent != 12 || start.ReadRate == nil || *start.ReadRate != 0.75 {
-		t.Fatalf("event.start: %+v", start)
+		t.Fatalf("start reminder: %+v", start)
 	}
 	if v.Types[0].ReadRate != nil {
 		t.Fatal("no in-app items, no read rate")
@@ -280,6 +280,69 @@ func TestCommunications_GroupsTypesAndComputesRates(t *testing.T) {
 	}
 	if len(v.Forms) != 2 || !v.Forms[0].Registration || v.Forms[0].CompletionRate != nil || v.Forms[1].CompletionRate == nil || *v.Forms[1].CompletionRate != 0.25 {
 		t.Fatalf("forms: %+v", v.Forms)
+	}
+}
+
+func TestCommunications_ExcludesPlatformNotifications(t *testing.T) {
+	for _, excluded := range []string{
+		"event.manager.assigned",
+		"event.lab.failed",
+		"email_confirmation",
+		"account_exists",
+		"event.moderator.future",
+		"participant.enrolled",
+		"",
+	} {
+		t.Run(excluded, func(t *testing.T) {
+			store := &fakeStore{participantFake: participantFake{
+				dispatches: []eventAnalyticsRepo.DispatchCount{
+					{Type: "participant.invitation.sent", Channel: "email", Status: "done", Targets: 10},
+					{Type: "participant.invitation.sent", Channel: "email", Status: "error", Targets: 2},
+					{Type: "participant.invitation.sent", Channel: "in_app", Status: "done", Targets: 12},
+					{Type: "participant.invitation.sent", Channel: "in_app", Status: "error", Targets: 1},
+					{Type: "broadcast", Channel: "email", Status: "done", Targets: 5},
+					{Type: "broadcast", Channel: "email", Status: "error", Targets: 1},
+					{Type: "broadcast", Channel: "in_app", Status: "done", Targets: 4},
+					{Type: "broadcast", Channel: "in_app", Status: "error", Targets: 2},
+					{Type: excluded, Channel: "email", Status: "done", Targets: 100},
+					{Type: excluded, Channel: "email", Status: "error", Targets: 20},
+					{Type: excluded, Channel: "in_app", Status: "done", Targets: 200},
+					{Type: excluded, Channel: "in_app", Status: "error", Targets: 30},
+				},
+				inApp: []eventAnalyticsRepo.InAppCount{
+					{Type: "participant.invitation.sent", Total: 12, Read: 9},
+					{Type: "broadcast", Total: 4, Read: 1},
+					{Type: excluded, Total: 200, Read: 200},
+				},
+			}}
+			uc, id := participationUC(store, eventConfigModel.ParticipationIndividual)
+			v, err := uc.GetEventAnalyticsCommunications(context.Background(), id, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(v.Types) != 2 || v.Types[0].Type != "participant.invitation.sent" || v.Types[1].Type != "broadcast" {
+				t.Errorf("participant notifications and broadcasts only: %+v", v.Types)
+			}
+			if got := v.Totals; got.EmailSent != 15 || got.EmailErrors != 3 || got.InAppSent != 16 || got.InAppErrors != 3 ||
+				got.InAppCreated != 16 || got.InAppRead != 10 || got.ReadRate == nil || *got.ReadRate != 0.625 {
+				t.Errorf("participant totals exclude %q: %+v", excluded, got)
+			}
+		})
+	}
+}
+
+func TestCommunications_PlatformNotificationsOnlyHaveNoTotals(t *testing.T) {
+	store := &fakeStore{participantFake: participantFake{
+		dispatches: []eventAnalyticsRepo.DispatchCount{{Type: "event.manager.assigned", Channel: "email", Status: "done", Targets: 3}},
+		inApp:      []eventAnalyticsRepo.InAppCount{{Type: "event.manager.assigned", Total: 3, Read: 2}},
+	}}
+	uc, id := participationUC(store, eventConfigModel.ParticipationIndividual)
+	v, err := uc.GetEventAnalyticsCommunications(context.Background(), id, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Types) != 0 || v.Totals != (eventAnalytics.CommsTypeView{}) {
+		t.Fatalf("no participant communications: types %+v totals %+v", v.Types, v.Totals)
 	}
 }
 

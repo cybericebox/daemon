@@ -28154,6 +28154,9 @@ const docTemplate = `{
                 "EventID": {
                     "type": "string"
                 },
+                "FaviconURL": {
+                    "type": "string"
+                },
                 "FinishCountdownMinutes": {
                     "type": "integer"
                 },
@@ -28906,6 +28909,9 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "EventID": {
+                    "type": "string"
+                },
+                "FaviconURL": {
                     "type": "string"
                 },
                 "FinishCountdownMinutes": {

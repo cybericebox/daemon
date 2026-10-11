@@ -130,7 +130,8 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 	}
 	// Nothing of the team's group is DEPLOYED before the event has its reservation. A group that already exists
 	// is still reconciled: waiting is only for grants, a revocation is never put off.
-	if u.awaitingReservation(ctx, sync.EventID) {
+	awaiting := u.awaitingReservation(ctx, sync.EventID)
+	if awaiting {
 		exists, existsErr := u.labGroupExists(ctx, group)
 		if existsErr != nil {
 			return model.ErrPlatform.WithError(existsErr).WithMessage("Failed to check team laboratory group").Err()
@@ -156,7 +157,10 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 			return e
 		}
 	}
-	if sync.VPNEnabled && !groupPaused {
+	// An existing accounted group still receives revocations while its reservation is missing, but is not
+	// recreated or resumed. Legacy reconciliation keeps its existing behavior without ledger admission.
+	canRunGroup := !awaiting || !u.allocationAccounting
+	if sync.VPNEnabled && !groupPaused && canRunGroup {
 		if err = u.admitGroupAllocation(ctx, sync.EventID, sync.TeamID); err != nil {
 			return err
 		}
@@ -235,13 +239,18 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 	// On enable, install the complete (possibly empty) ACL before bringing the
 	// group's VPN and internet gateway back. Lab routes remain closed until
 	// runtime access is open, even though both group services run before start.
-	if sync.VPNEnabled && !groupPaused {
+	if sync.VPNEnabled && !groupPaused && canRunGroup {
 		if err = access.SetLabGroupVPNDisabled(ctx, group, false); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to resume team VPN group").Err()
 		}
 		if err = access.SetLabGroupSuspended(ctx, group, false); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to start team laboratory group services").Err()
 		}
+	}
+	// An ACL certificate proves revocation, not the admission/start deferred above. Keep the revision dirty
+	// so a reservation appearing later retries those steps without another access-change request.
+	if sync.VPNEnabled && !groupPaused && !canRunGroup {
+		return errAwaitingReservation
 	}
 	// Legacy acceptance leaves the revision dirty. It is not physical denial.
 	if !revisionSupported || revisionTarget.OperationID == uuid.Nil {
