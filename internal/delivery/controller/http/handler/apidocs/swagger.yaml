@@ -4476,6 +4476,8 @@ definitions:
         type: boolean
       EventID:
         type: string
+      FaviconURL:
+        type: string
       FinishCountdownMinutes:
         type: integer
       FinishCountdownMode:
@@ -4997,6 +4999,8 @@ definitions:
       CanViewResults:
         type: boolean
       EventID:
+        type: string
+      FaviconURL:
         type: string
       FinishCountdownMinutes:
         type: integer

@@ -418,6 +418,9 @@ func TestReconcilePendingLabAccess_AwaitingReservationStillRevokesOnExistingGrou
 		if exists && (len(rec.policies) != 1 || len(rec.policies[0].AllowedLabs) != 0) {
 			t.Fatalf("revocation not applied on the existing group: %+v", rec.policies)
 		}
+		if exists && !sameLabAccessOperations(rec.operations, []string{"ensure", "policy", "resume", "group-resume"}) {
+			t.Fatalf("legacy reservation waiting must preserve reconciliation of an existing group: %v", rec.operations)
+		}
 		if !exists && len(rec.operations) != 0 {
 			t.Fatalf("nothing may be done while the group is missing and the reservation absent: %v", rec.operations)
 		}

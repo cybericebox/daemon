@@ -8,6 +8,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/model"
+	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 )
 
 // Dispatch statuses and channels as stored by the notification dispatcher.
@@ -62,6 +63,10 @@ func (u *EventAnalyticsUseCase) loadCommunications(ctx context.Context, eventID 
 		return byType[t]
 	}
 	for _, d := range dispatches {
+		// An event link also exists on platform-only administrative messages.
+		if !notificationTypes.IsEventScoped(notificationTypes.NotificationType(d.Type)) {
+			continue
+		}
 		r := row(d.Type)
 		switch {
 		case d.Channel == channelEmail && d.Status == dispatchDone:
@@ -75,6 +80,9 @@ func (u *EventAnalyticsUseCase) loadCommunications(ctx context.Context, eventID 
 		}
 	}
 	for _, n := range inApp {
+		if !notificationTypes.IsEventScoped(notificationTypes.NotificationType(n.Type)) {
+			continue
+		}
 		r := row(n.Type)
 		r.InAppCreated += n.Total
 		r.InAppRead += n.Read

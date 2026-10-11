@@ -28147,6 +28147,9 @@
                 "EventID": {
                     "type": "string"
                 },
+                "FaviconURL": {
+                    "type": "string"
+                },
                 "FinishCountdownMinutes": {
                     "type": "integer"
                 },
@@ -28899,6 +28902,9 @@
                     "type": "boolean"
                 },
                 "EventID": {
+                    "type": "string"
+                },
+                "FaviconURL": {
                     "type": "string"
                 },
                 "FinishCountdownMinutes": {
