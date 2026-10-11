@@ -77,6 +77,8 @@ func (r *Repository) CreateProvider(ctx context.Context, c mailModel.SMTPConfig)
 		ReplyToName: c.Identity.ReplyToName, ReplyToAddress: c.Identity.ReplyToAddress,
 		MaxPerSecond: float8(c.MaxPerSecond), DailyQuota: int4(c.DailyQuota),
 		UpdatedBy: nullable(c.UpdatedBy), UpdatedAt: c.UpdatedAt,
+		UsageDay:      date(c.UpdatedAt),
+		ConnectionKey: (mailModel.SMTPInput{Host: c.Host, Port: c.Port, TLSMode: c.TLSMode, Username: c.Username}).ConnectionKey(),
 	})
 	if err != nil {
 		return mailModel.SMTPConfig{}, nameTaken(err)

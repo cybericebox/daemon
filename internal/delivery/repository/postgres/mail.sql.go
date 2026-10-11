@@ -165,13 +165,30 @@ func (q *Queries) GetPlatformSMTPProvider(ctx context.Context, id uuid.UUID) (Ma
 }
 
 const insertPlatformSMTPProvider = `-- name: InsertPlatformSMTPProvider :one
+WITH claimed AS (
+    UPDATE notification_dispatch_targets t
+    SET smtp_provider_id = $1
+    FROM notification_dispatches d
+    WHERE d.id = t.dispatch_id
+      AND d.notification_type = 'smtp_test' AND d.scope_event_id IS NULL
+      AND d.recipient_user_id = $15
+      AND d.created_at >= $17::date::timestamp AT TIME ZONE 'UTC'
+      AND d.created_at < ($17::date + 1)::timestamp AT TIME ZONE 'UTC'
+      AND t.channel = 'email' AND t.status = 'done'
+      AND t.smtp_connection_key = $18::text
+      AND t.smtp_provider_id IS NULL
+    RETURNING d.created_at
+)
 INSERT INTO mail_smtp_configs
     (id, scope_event_id, name, priority, enabled, host, port, tls_mode, username, password_ciphertext,
      from_name, from_address, reply_to_name, reply_to_address,
-     max_per_second, daily_quota, updated_by, updated_at, created_at)
+     max_per_second, daily_quota, updated_by, updated_at, created_at, usage_day, sent_today, last_used_at)
 VALUES ($1, NULL, $2,
         (SELECT COALESCE(MAX(p.priority) + 1, 0) FROM mail_smtp_configs p WHERE p.scope_event_id IS NULL),
-        $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+        $3, $4, $5, $6, $7, $8,
+        $9, $10, $11, $12,
+        $13, $14, $15, $16, $16,
+        $17, (SELECT count(*)::integer FROM claimed), (SELECT max(created_at) FROM claimed))
 RETURNING id, scope_event_id, host, port, tls_mode, username, password_ciphertext, updated_by, updated_at, max_per_second, daily_quota, name, priority, enabled, created_at, from_name, from_address, reply_to_name, reply_to_address, usage_day, sent_today, last_used_at, last_error, last_error_at
 `
 
@@ -192,6 +209,8 @@ type InsertPlatformSMTPProviderParams struct {
 	DailyQuota         pgtype.Int4   `json:"daily_quota"`
 	UpdatedBy          uuid.NullUUID `json:"updated_by"`
 	UpdatedAt          time.Time     `json:"updated_at"`
+	UsageDay           pgtype.Date   `json:"usage_day"`
+	ConnectionKey      string        `json:"connection_key"`
 }
 
 func (q *Queries) InsertPlatformSMTPProvider(ctx context.Context, arg InsertPlatformSMTPProviderParams) (MailSmtpConfig, error) {
@@ -212,6 +231,8 @@ func (q *Queries) InsertPlatformSMTPProvider(ctx context.Context, arg InsertPlat
 		arg.DailyQuota,
 		arg.UpdatedBy,
 		arg.UpdatedAt,
+		arg.UsageDay,
+		arg.ConnectionKey,
 	)
 	var i MailSmtpConfig
 	err := row.Scan(

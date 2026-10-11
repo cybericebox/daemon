@@ -13,13 +13,30 @@ WHERE id = $1
   AND scope_event_id IS NULL;
 
 -- name: InsertPlatformSMTPProvider :one
+WITH claimed AS (
+    UPDATE notification_dispatch_targets t
+    SET smtp_provider_id = sqlc.arg(id)
+    FROM notification_dispatches d
+    WHERE d.id = t.dispatch_id
+      AND d.notification_type = 'smtp_test' AND d.scope_event_id IS NULL
+      AND d.recipient_user_id = sqlc.narg(updated_by)
+      AND d.created_at >= sqlc.arg(usage_day)::date::timestamp AT TIME ZONE 'UTC'
+      AND d.created_at < (sqlc.arg(usage_day)::date + 1)::timestamp AT TIME ZONE 'UTC'
+      AND t.channel = 'email' AND t.status = 'done'
+      AND t.smtp_connection_key = sqlc.arg(connection_key)::text
+      AND t.smtp_provider_id IS NULL
+    RETURNING d.created_at
+)
 INSERT INTO mail_smtp_configs
     (id, scope_event_id, name, priority, enabled, host, port, tls_mode, username, password_ciphertext,
      from_name, from_address, reply_to_name, reply_to_address,
-     max_per_second, daily_quota, updated_by, updated_at, created_at)
-VALUES ($1, NULL, $2,
+     max_per_second, daily_quota, updated_by, updated_at, created_at, usage_day, sent_today, last_used_at)
+VALUES (sqlc.arg(id), NULL, sqlc.arg(name),
         (SELECT COALESCE(MAX(p.priority) + 1, 0) FROM mail_smtp_configs p WHERE p.scope_event_id IS NULL),
-        $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+        sqlc.arg(enabled), sqlc.arg(host), sqlc.arg(port), sqlc.arg(tls_mode), sqlc.arg(username), sqlc.arg(password_ciphertext),
+        sqlc.arg(from_name), sqlc.arg(from_address), sqlc.arg(reply_to_name), sqlc.arg(reply_to_address),
+        sqlc.narg(max_per_second), sqlc.narg(daily_quota), sqlc.narg(updated_by), sqlc.arg(updated_at), sqlc.arg(updated_at),
+        sqlc.arg(usage_day), (SELECT count(*)::integer FROM claimed), (SELECT max(created_at) FROM claimed))
 RETURNING *;
 
 -- name: UpdatePlatformSMTPProvider :one

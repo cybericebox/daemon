@@ -805,15 +805,17 @@ type NotificationDispatch struct {
 }
 
 type NotificationDispatchTarget struct {
-	DispatchID    uuid.UUID `json:"dispatch_id"`
-	Channel       string    `json:"channel"`
-	Status        string    `json:"status"`
-	Error         string    `json:"error"`
-	Attempts      int32     `json:"attempts"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	Transport     string    `json:"transport"`
-	Recipient     string    `json:"recipient"`
-	FallbackError string    `json:"fallback_error"`
+	DispatchID        uuid.UUID     `json:"dispatch_id"`
+	Channel           string        `json:"channel"`
+	Status            string        `json:"status"`
+	Error             string        `json:"error"`
+	Attempts          int32         `json:"attempts"`
+	UpdatedAt         time.Time     `json:"updated_at"`
+	Transport         string        `json:"transport"`
+	Recipient         string        `json:"recipient"`
+	FallbackError     string        `json:"fallback_error"`
+	SmtpConnectionKey string        `json:"smtp_connection_key"`
+	SmtpProviderID    uuid.NullUUID `json:"smtp_provider_id"`
 }
 
 type NotificationEmailBlockPreset struct {

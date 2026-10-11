@@ -87,8 +87,17 @@ func (r *Repository) UpsertTarget(
 	return r.q.UpsertDispatchTarget(ctx, postgres.UpsertDispatchTargetParams{
 		DispatchID: dispatchID, Channel: string(channel), Status: string(result.Status), Error: result.Error,
 		Attempts: result.Attempts, Transport: result.Note.Transport, Recipient: result.Note.Recipient,
-		FallbackError: result.Note.FallbackError,
+		FallbackError:     result.Note.FallbackError,
+		SmtpConnectionKey: result.Note.SMTPConnectionKey,
+		SmtpProviderID:    nullableUUID(result.Note.SMTPProviderID),
 	})
+}
+
+func nullableUUID(id *uuid.UUID) uuid.NullUUID {
+	if id == nil {
+		return uuid.NullUUID{}
+	}
+	return uuid.NullUUID{UUID: *id, Valid: true}
 }
 
 // ActiveChannels resolves the enabled channels for a user + notification type

@@ -3,6 +3,7 @@
 package mailModel
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net/mail"
 	"net/netip"
@@ -18,6 +19,11 @@ import (
 )
 
 type TLSMode string
+
+// ConnectionKey identifies a tested SMTP account without storing its secret.
+func (in SMTPInput) ConnectionKey() string {
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s\x00%d\x00%s\x00%s", strings.ToLower(in.Host), in.Port, in.TLSMode, in.Username))))
+}
 
 const (
 	TLSStartTLS TLSMode = "starttls"
