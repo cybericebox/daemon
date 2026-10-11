@@ -35,6 +35,52 @@ func reserveOK(repo *postgresMocks.MockQuerier, id uuid.UUID) *gomock.Call {
 	return repo.EXPECT().ReservePlatformSMTPSend(gomock.Any(), postgres.ReservePlatformSMTPSendParams{Day: testDay, ID: id}).Return(int32(1), nil)
 }
 
+func TestPlatformProvider_FormCountsAgainstStoredProvider(t *testing.T) {
+	uc, repo, _ := newBareTestUseCase(t, config.SMTPConfig{}, nil)
+	p := providerRow("a", "smtp.a", 0)
+	userID := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), userID).Return(postgres.User{ID: userID, Email: "admin@example.org"}, nil)
+	expectPlatformIdentity(repo, &platformIdentityRow)
+	repo.EXPECT().GetPlatformSMTPProvider(gomock.Any(), p.ID).Return(p, nil)
+	reserveOK(repo, p.ID)
+	repo.EXPECT().MarkPlatformSMTPUsed(gomock.Any(), postgres.MarkPlatformSMTPUsedParams{At: uc.now(), ID: p.ID}).Return(nil)
+	expectJournaled(repo)
+	res, err := uc.TestPlatformProvider(context.Background(), &p.ID, &mailModel.SMTPInput{Host: p.Host, Port: 587, TLSMode: mailModel.TLSStartTLS}, userID)
+	require.NoError(t, err)
+	require.True(t, res.Sent)
+}
+
+func TestPlatformProvider_FormDoesNotBypassDailyQuota(t *testing.T) {
+	uc, repo, smtp := newBareTestUseCase(t, config.SMTPConfig{}, nil)
+	p := providerRow("a", "smtp.a", 0)
+	userID := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), userID).Return(postgres.User{ID: userID, Email: "admin@example.org"}, nil)
+	expectPlatformIdentity(repo, &platformIdentityRow)
+	repo.EXPECT().GetPlatformSMTPProvider(gomock.Any(), p.ID).Return(p, nil)
+	repo.EXPECT().ReservePlatformSMTPSend(gomock.Any(), gomock.Any()).Return(int32(0), pgx.ErrNoRows)
+	expectJournaled(repo)
+	res, err := uc.TestPlatformProvider(context.Background(), &p.ID, &mailModel.SMTPInput{Host: p.Host, Port: 587, TLSMode: mailModel.TLSStartTLS}, userID)
+	require.NoError(t, err)
+	require.False(t, res.Sent)
+	require.NotEmpty(t, res.Error)
+	require.Empty(t, smtp.sends)
+}
+
+func TestPlatformProvider_NewFormJournalsConnectionWithoutSecret(t *testing.T) {
+	uc, repo, _ := newBareTestUseCase(t, config.SMTPConfig{}, nil)
+	userID := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByID(gomock.Any(), userID).Return(postgres.User{ID: userID, Email: "admin@example.org"}, nil)
+	expectPlatformIdentity(repo, &platformIdentityRow)
+	_, target := expectJournaled(repo)
+	in := mailModel.SMTPInput{Host: "smtp.a", Port: 587, TLSMode: mailModel.TLSStartTLS, Username: "user", Password: "secret"}
+	res, err := uc.TestPlatformProvider(context.Background(), nil, &in, userID)
+	require.NoError(t, err)
+	require.True(t, res.Sent)
+	require.Equal(t, in.ConnectionKey(), target.SmtpConnectionKey)
+	require.Len(t, target.SmtpConnectionKey, 64)
+	require.False(t, target.SmtpProviderID.Valid)
+}
+
 func TestDeliver_FailsOverToNextProviderOnAuthError(t *testing.T) {
 	uc, repo, smtp := newBareTestUseCase(t, config.SMTPConfig{}, nil)
 	a, b := providerRow("a", "smtp.a", 0), providerRow("b", "smtp.b", 1)

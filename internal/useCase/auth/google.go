@@ -101,6 +101,9 @@ func (u *AuthUseCase) BeginGoogleRegistration(
 	}
 	if provErr == nil {
 		if linked.IsIncomplete() {
+			if linked.Picture == "" {
+				u.adoptProviderAvatar(ctx, linked.ID, googleUser.Picture)
+			}
 			return u.setupResult(ctx, linked.ID, returnTo)
 		}
 		if err = refuseBlocked(&linked); err != nil {
@@ -202,6 +205,10 @@ func (u *AuthUseCase) linkGoogleProvider(ctx context.Context, userID uuid.UUID, 
 // account's own address, otherwise anyone could bind THEIR Google identity (or,
 // via a forced GET, a victim's) to an account set up by someone else.
 func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleProviderID, googleEmail string) error {
+	return u.linkGoogleToSetup(ctx, setupToken, googleProviderID, googleEmail, "")
+}
+
+func (u *AuthUseCase) linkGoogleToSetup(ctx context.Context, setupToken, googleProviderID, googleEmail, googlePicture string) error {
 	userID, err := u.setupTokens.Verify(ctx, setupToken)
 	if err != nil {
 		return err
@@ -219,7 +226,15 @@ func (u *AuthUseCase) LinkGoogleToSetup(ctx context.Context, setupToken, googleP
 	if normalizeEmail(googleEmail) != normalizeEmail(user.Email) {
 		return authModel.ErrAuthGoogleEmailMismatch.WithError(errors.New("google-link-setup: google email differs from the account email")).Err()
 	}
-	return u.linkGoogleProvider(ctx, userID, googleProviderID)
+	if err = u.linkGoogleProvider(ctx, userID, googleProviderID); err != nil {
+		return err
+	}
+	// Continuing registration (including an invitation) adopts the provider
+	// photo just like Google-first signup. Keep any photo already chosen.
+	if user.Picture == "" {
+		u.adoptProviderAvatar(ctx, userID, googlePicture)
+	}
+	return nil
 }
 
 // LinkGoogleToSetupFromOAuth resolves a Google OAuth callback and links the provider
@@ -232,7 +247,7 @@ func (u *AuthUseCase) LinkGoogleToSetupFromOAuth(ctx context.Context, setupToken
 		return "", err
 	}
 	returnTo = u.trustedReturnTo(stateRedirect)
-	return returnTo, u.LinkGoogleToSetup(ctx, setupToken, googleUser.GoogleID, googleUser.Email)
+	return returnTo, u.linkGoogleToSetup(ctx, setupToken, googleUser.GoogleID, googleUser.Email, googleUser.Picture)
 }
 
 // LinkGoogleToAccountFromOAuth links a Google identity to the signed-in user.
