@@ -405,6 +405,7 @@ type eventInfoResponse struct {
 	PreviewDescription  string                 `json:"PreviewDescription"`
 	PreviewPicture      string                 `json:"PreviewPicture"`
 	LogoURL             string                 `json:"LogoURL"`
+	FaviconURL          string                 `json:"FaviconURL"`
 	Theme               eventConfigModel.Theme `json:"Theme"`
 	// Countdown policy for the challenges and results pages.
 	ShowStartCountdown     bool  `json:"ShowStartCountdown"`
@@ -486,6 +487,7 @@ type publicEventInfoResponse struct {
 	PreviewDescription  string                 `json:"PreviewDescription"`
 	PreviewPicture      string                 `json:"PreviewPicture"`
 	LogoURL             string                 `json:"LogoURL"`
+	FaviconURL          string                 `json:"FaviconURL"`
 	Theme               eventConfigModel.Theme `json:"Theme"`
 	// Countdown policy for the challenges and results pages.
 	ShowStartCountdown     bool  `json:"ShowStartCountdown"`
@@ -511,6 +513,7 @@ func toPublicEventInfoResponse(v eventUseCase.EventInfoView) publicEventInfoResp
 		CanViewParticipants: v.ParticipantsVisibility == eventConfigModel.VisibilityPublic,
 		PreviewDescription:  v.PreviewDescription, PreviewPicture: v.PreviewPicture,
 		LogoURL:            v.LogoURL,
+		FaviconURL:         v.FaviconURL,
 		Theme:              v.Theme,
 		ShowStartCountdown: v.Countdown.ShowStart, ShowFinishCountdown: v.Countdown.ShowFinish, FinishCountdownMinutes: v.Countdown.FinishMinutes, FinishCountdownMode: string(v.Countdown.Mode()),
 	}
@@ -537,6 +540,7 @@ func toEventInfoResponse(v eventUseCase.EventInfoView) eventInfoResponse {
 		PreviewDescription:  v.PreviewDescription,
 		PreviewPicture:      v.PreviewPicture,
 		LogoURL:             v.LogoURL,
+		FaviconURL:          v.FaviconURL,
 		Theme:               v.Theme,
 		ShowStartCountdown:  v.Countdown.ShowStart, ShowFinishCountdown: v.Countdown.ShowFinish, FinishCountdownMinutes: v.Countdown.FinishMinutes, FinishCountdownMode: string(v.Countdown.Mode()),
 	}

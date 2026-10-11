@@ -9,6 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
+	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 )
 
 // leadersLimit is how many teams the overview's mini leaderboard shows.
@@ -92,7 +93,7 @@ func tasksSnapshotOf(challenges []eventAnalyticsRepo.Challenge, stats []eventAna
 func commsSnapshot(dispatches []eventAnalyticsRepo.DispatchCount, since time.Time) CommsSnapshotView {
 	v := CommsSnapshotView{Since: since}
 	for _, d := range dispatches {
-		if d.Channel != channelEmail {
+		if d.Channel != channelEmail || !notificationTypes.IsEventScoped(notificationTypes.NotificationType(d.Type)) {
 			continue
 		}
 		switch d.Status {
