@@ -5,6 +5,7 @@
 package errjournal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -98,6 +99,9 @@ func capture(c *gin.Context, sink Sink, rid string) {
 	case status == http.StatusNotFound:
 		sink.CountNotFound(route) // empty route: the path matched nothing
 	case status >= http.StatusInternalServerError:
+		if isRequestCancellation(c) {
+			return
+		}
 		e := base(c, rid, route, status)
 		e.Kind = errorJournal.KindHTTP5xx
 		e.Message = errorText(c, fmt.Sprintf("HTTP %d without an error", status))
@@ -116,6 +120,53 @@ func capture(c *gin.Context, sink Sink, rid string) {
 		sink.Report(e)
 		// 429 is protection working (a rate limit refusing a flood), not a fault: it is not recorded here. The
 		// organizers see it as the rejected attempts of the integrity analytics.
+	}
+}
+
+// A disconnected request is routine only when its actual error is cancellation too.
+// A dependency cancellation, timeout, or another failure must still reach the journal.
+func isRequestCancellation(c *gin.Context) bool {
+	if c.Request.Context().Err() != context.Canceled {
+		return false
+	}
+	found := false
+	if value, ok := c.Get(response.ErrorCtxKey); ok {
+		err, ok := value.(error)
+		if !ok || !onlyCancellation(err) {
+			return false
+		}
+		found = true
+	}
+	for _, err := range c.Errors {
+		if !onlyCancellation(err.Err) {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+// Inspect every branch of a joined error: cancellation must not hide a simultaneous server fault.
+func onlyCancellation(err error) bool {
+	if err == context.Canceled {
+		return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() []error }:
+		children := wrapped.Unwrap()
+		if len(children) == 0 {
+			return false
+		}
+		for _, child := range children {
+			if !onlyCancellation(child) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return onlyCancellation(wrapped.Unwrap())
+	default:
+		return false
 	}
 }
 

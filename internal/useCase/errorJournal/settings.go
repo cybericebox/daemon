@@ -147,7 +147,7 @@ func (j *Journal) mergeChats(ctx context.Context, in []ChatInput) ([]errorJourna
 func (j *Journal) SendErrorJournalTest(ctx context.Context) ([]TestResult, error) {
 	text := "[" + j.envLabel() + "] test\nThis is a test message of the platform error journal."
 	g := errorJournal.Group{ID: uuid.Nil}
-	results := j.dispatch(ctx, g, text, true)
+	results := j.dispatch(ctx, g, text, text, true)
 	if results == nil {
 		results = []TestResult{}
 	}
