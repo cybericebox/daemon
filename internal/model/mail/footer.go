@@ -39,7 +39,7 @@ func (id Identity) WithPlatformDefaults(supportEmail string) Identity {
 	return id
 }
 
-// Footer is the text every email ends with, in both MIME parts.
+// Footer is the standard email footer, with HTML and plain-text representations.
 type Footer struct {
 	HTML string
 	Text string
@@ -49,8 +49,8 @@ type Footer struct {
 // (render.FooterMarker; the model cannot import the renderer).
 const footerMarker = "<!--cib-footer-->"
 
-// Append adds the footer to the end of both parts of a message body, then
-// keeps the product name unbreakable in both (KeepBrandHTML / KeepBrandText).
+// Append adds the footer to the message bodies, keeping text-only messages text-only,
+// then keeps the product name unbreakable (KeepBrandHTML / KeepBrandText).
 func (f Footer) Append(htmlBody, textBody string) (string, string) {
 	htmlBody, textBody = f.append(htmlBody, textBody)
 	return KeepBrandHTML(htmlBody), KeepBrandText(textBody)
@@ -63,6 +63,10 @@ func (f Footer) append(htmlBody, textBody string) (string, string) {
 	text := f.Text
 	if strings.TrimSpace(textBody) != "" {
 		text = textBody + "\n\n" + f.Text
+	}
+	// A text-only message stays text-only: a footer-only HTML alternative would hide its body.
+	if htmlBody == "" && strings.TrimSpace(textBody) != "" {
+		return "", text
 	}
 	if i := strings.Index(htmlBody, footerMarker); i >= 0 {
 		return htmlBody[:i] + f.HTML + htmlBody[i+len(footerMarker):], text
