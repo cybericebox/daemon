@@ -185,3 +185,24 @@ func TestStatus_Boundaries(t *testing.T) {
 		t.Fatalf("want Archived at ArchiveAt, got %v", got)
 	}
 }
+
+func TestPlatformArchiveCannotPrecedeConfiguredFinishWithoutWithdrawal(t *testing.T) {
+	e, err := NewEvent("finishbounds", "Event", from, until, someUser, fixedNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish := until.Add(-time.Hour)
+	l, err := NewLifecycle(JoinPolicyLockedAtStart, from, from.Add(time.Hour), &finish, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.UpdateLifecycle(l, someUser, fixedNow)
+	earlierArchive := finish.Add(-time.Minute)
+	before := e
+	if err := e.UpdateEvent(e.Tag, e.Name, from, earlierArchive, someUser, fixedNow.Add(time.Hour)); !errors.Is(err, ErrEventDatesInvalid.Err()) {
+		t.Fatalf("archive before finish must be refused: %v", err)
+	}
+	if e != before {
+		t.Fatal("rejected boundary update mutated the event")
+	}
+}

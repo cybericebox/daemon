@@ -14,8 +14,8 @@ type SetLoad struct {
 	Pods    int
 }
 
-// StageDeployPlan says which sets' labs are due for deployment at a moment: the labs of the event's first moment
-// (sets without a stage and the first stage) are due from startAt - lead; a later stage's labs are due at
+// StageDeployPlan says which sets' labs are due for deployment at a moment: sets without a stage and a stage
+// opening at the event start share the initial deployment. Other stages' labs are due at
 // opens_at - lead, and never before the previous stage opened (a break shorter than the lead starts deploying as
 // soon as the previous stage opens). A set of a stage that has opened is always due.
 // lead maps the pods to start to the lead before they are needed; initialExtra are the pods of the groups
@@ -32,7 +32,7 @@ func PlanStageDeploy(startAt time.Time, stages []Stage, sets []SetLoad, initialE
 	podsByStage := map[uuid.UUID]int{}
 	initial := initialExtra
 	firstID := uuid.Nil
-	if len(ordered) > 0 {
+	if len(ordered) > 0 && sameInstant(ordered[0].OpensAt, startAt) {
 		firstID = ordered[0].ID
 	}
 	for _, set := range sets {
@@ -46,13 +46,19 @@ func PlanStageDeploy(startAt time.Time, stages []Stage, sets []SetLoad, initialE
 	initialDue := startAt.Add(-plan.InitialLead)
 	stageDue := make(map[uuid.UUID]time.Time, len(ordered))
 	for i, stage := range ordered {
-		if i == 0 {
+		if stage.ID == firstID {
 			stageDue[stage.ID] = initialDue
 			continue
 		}
 		due := stage.OpensAt.Add(-lead(podsByStage[stage.ID]))
-		if previous := ordered[i-1].OpensAt; due.Before(previous) {
-			due = previous
+		if i > 0 {
+			if previous := ordered[i-1].OpensAt; due.Before(previous) {
+				due = previous
+			}
+		} else if due.Before(initialDue) {
+			// Infrastructure must exist when the first stage's own preparation becomes due.
+			initialDue = due
+			plan.InitialLead = startAt.Sub(due)
 		}
 		stageDue[stage.ID] = due
 	}

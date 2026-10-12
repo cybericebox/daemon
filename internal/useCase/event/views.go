@@ -665,15 +665,14 @@ type BoardStageView struct {
 	State      eventModel.StageState
 }
 
-// CurrentStageView is the stage that is open now. EndsAt is set only while the stage countdown is visible (the
-// last stage ends with the event, so it has none: its countdown is the event's; the mode and minutes of the
-// event's countdown settings decide the rest).
+// CurrentStageView is the stage that is open now. EndsAt is set while its own closing countdown is visible,
+// according to the event's countdown mode and minutes. This applies to every stage.
 type CurrentStageView struct {
 	ID      uuid.UUID
 	Name    string
 	OpensAt time.Time
 	EndsAt  *time.Time
-	// Last: the stage ends with the event.
+	// Last marks the final stage in time order; its closing does not finish the event.
 	Last bool
 }
 

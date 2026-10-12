@@ -11152,7 +11152,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "The first stage is the whole event window; a later stage opens where asked and closes with the event, ending the previous last stage where it opens. Needs a scheduled event finish.",
+                "description": "Each boundary is custom or explicitly bound to the scheduled event StartAt/FinishAt through OpensWithEvent/ClosesWithEvent. Boundaries follow future schedule edits until they occur. Windows cannot overlap or exceed the event schedule and platform availability window; other stages keep their dates. A finish binding requires a scheduled event finish.",
                 "consumes": [
                     "application/json"
                 ],
@@ -22836,6 +22836,9 @@ const docTemplate = `{
                 "ClosesAt": {
                     "type": "string"
                 },
+                "ClosesWithEvent": {
+                    "type": "boolean"
+                },
                 "LabRetentionMinutes": {
                     "type": "integer"
                 },
@@ -22844,6 +22847,9 @@ const docTemplate = `{
                 },
                 "OpensAt": {
                     "type": "string"
+                },
+                "OpensWithEvent": {
+                    "type": "boolean"
                 },
                 "Returnable": {
                     "type": "boolean"
@@ -23596,12 +23602,15 @@ const docTemplate = `{
                 "ClosesAt": {
                     "type": "string"
                 },
+                "ClosesWithEvent": {
+                    "type": "boolean"
+                },
                 "DeployLeadMinutes": {
                     "description": "DeployLeadMinutes is the lead the platform computes for the labs that open with this stage: their deploy\nstarts that long before OpensAt (0 when unknown).",
                     "type": "integer"
                 },
                 "First": {
-                    "description": "First opens with the event and Last closes with it: those two times are the event's own.",
+                    "description": "First and Last mark the stage’s place in time order. All stages have independent dates.",
                     "type": "boolean"
                 },
                 "ID": {
@@ -23619,6 +23628,9 @@ const docTemplate = `{
                 },
                 "OpensAt": {
                     "type": "string"
+                },
+                "OpensWithEvent": {
+                    "type": "boolean"
                 },
                 "Returnable": {
                     "type": "boolean"
@@ -25452,6 +25464,9 @@ const docTemplate = `{
                 "ClosesAt": {
                     "type": "string"
                 },
+                "ClosesWithEvent": {
+                    "type": "boolean"
+                },
                 "LabRetentionMinutes": {
                     "type": "integer"
                 },
@@ -25460,6 +25475,9 @@ const docTemplate = `{
                 },
                 "OpensAt": {
                     "type": "string"
+                },
+                "OpensWithEvent": {
+                    "type": "boolean"
                 },
                 "Returnable": {
                     "type": "boolean"

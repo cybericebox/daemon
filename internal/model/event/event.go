@@ -161,6 +161,7 @@ func (e *Event) UpdateEvent(tag, name string, availableFrom, archiveAt time.Time
 	if e.Lifecycle.Configured {
 		if e.Lifecycle.PublishAt.Before(availableFrom) ||
 			(!archiveAt.IsZero() && (!e.Lifecycle.StartAt.Before(archiveAt) ||
+				(e.Lifecycle.FinishAt != nil && e.Lifecycle.FinishAt.After(archiveAt)) ||
 				(e.Lifecycle.WithdrawAt != nil && e.Lifecycle.WithdrawAt.After(archiveAt)))) {
 			return ErrEventDatesInvalid.Err()
 		}

@@ -94,7 +94,7 @@ func buildOwnBoard(challenges []OwnChallengeView, stages []eventModel.Stage, cou
 		}
 		last := i == len(stages)-1
 		current := &CurrentStageView{ID: stage.ID, Name: stage.Name, OpensAt: stage.OpensAt, Last: last}
-		if !last && countdown.ShowFinish && stageCountdownVisible(countdown, stage, now) {
+		if countdown.ShowFinish && stageCountdownVisible(countdown, stage, now) {
 			ends := stage.ClosesAt
 			current.EndsAt = &ends
 		}

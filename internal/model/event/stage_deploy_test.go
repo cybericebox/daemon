@@ -79,3 +79,16 @@ func TestPlanStageDeployWithoutStages(t *testing.T) {
 		t.Fatalf("after the start nothing waits: %v", got)
 	}
 }
+
+func TestPlanStageDeployFirstStageAfterEventStartUsesItsOwnOpening(t *testing.T) {
+	a := stage("Later first", 4, 6, false)
+	unstaged, staged := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	sets := []eventModel.SetLoad{{ExerciseID: unstaged, Pods: 5}, {ExerciseID: staged, StageID: &a.ID, Pods: 20}}
+	plan := eventModel.PlanStageDeploy(at(0), []eventModel.Stage{a}, sets, 2, lead)
+	if plan.InitialLead != lead(7) || !plan.DueAt[unstaged].Equal(at(0).Add(-lead(7))) {
+		t.Fatalf("future first-stage workload changes event preparation: %+v", plan)
+	}
+	if !plan.DueAt[staged].Equal(at(4).Add(-lead(20))) {
+		t.Fatalf("first stage should deploy for its explicit opening: %v", plan.DueAt[staged])
+	}
+}
