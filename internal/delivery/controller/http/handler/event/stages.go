@@ -17,9 +17,11 @@ type eventStageResponse struct {
 	OpensAt             time.Time `json:"OpensAt"`
 	ClosesAt            time.Time `json:"ClosesAt"`
 	Returnable          bool      `json:"Returnable"`
+	OpensWithEvent      bool      `json:"OpensWithEvent"`
+	ClosesWithEvent     bool      `json:"ClosesWithEvent"`
 	// State is computed from time: upcoming | open | closed.
 	State string `json:"State"`
-	// First opens with the event and Last closes with it: those two times are the event's own.
+	// First and Last mark the stage’s place in time order. All stages have independent dates.
 	First bool `json:"First"`
 	Last  bool `json:"Last"`
 	// DeployLeadMinutes is the lead the platform computes for the labs that open with this stage: their deploy
@@ -33,6 +35,8 @@ type createEventStageRequest struct {
 	OpensAt             time.Time `json:"OpensAt"`
 	ClosesAt            time.Time `json:"ClosesAt"`
 	Returnable          bool      `json:"Returnable"`
+	OpensWithEvent      bool      `json:"OpensWithEvent"`
+	ClosesWithEvent     bool      `json:"ClosesWithEvent"`
 }
 
 type updateEventStageRequest struct {
@@ -41,6 +45,8 @@ type updateEventStageRequest struct {
 	OpensAt             *time.Time                 `json:"OpensAt"`
 	ClosesAt            *time.Time                 `json:"ClosesAt"`
 	Returnable          *bool                      `json:"Returnable"`
+	OpensWithEvent      *bool                      `json:"OpensWithEvent"`
+	ClosesWithEvent     *bool                      `json:"ClosesWithEvent"`
 	// CloseNow ends an open stage now («Закрити зараз»).
 	CloseNow bool `json:"CloseNow"`
 }
@@ -51,7 +57,7 @@ type setEventExerciseStageRequest struct {
 }
 
 func toEventStageResponse(v eventUseCase.EventStageView) eventStageResponse {
-	return eventStageResponse{LabRetentionMinutes: v.LabRetentionMinutes, ID: v.ID, Name: v.Name, OpensAt: v.OpensAt, ClosesAt: v.ClosesAt, Returnable: v.Returnable, State: string(v.State), First: v.First, Last: v.Last, DeployLeadMinutes: v.DeployLeadMinutes}
+	return eventStageResponse{LabRetentionMinutes: v.LabRetentionMinutes, ID: v.ID, Name: v.Name, OpensAt: v.OpensAt, ClosesAt: v.ClosesAt, Returnable: v.Returnable, OpensWithEvent: v.OpensWithEvent, ClosesWithEvent: v.ClosesWithEvent, State: string(v.State), First: v.First, Last: v.Last, DeployLeadMinutes: v.DeployLeadMinutes}
 }
 
 // listEventStages godoc
@@ -80,7 +86,7 @@ func (h *Handler) listEventStages(ctx *gin.Context) {
 
 // createEventStage godoc
 // @Summary Add a stage to an event
-// @Description The first stage is the whole event window; a later stage opens where asked and closes with the event, ending the previous last stage where it opens. Needs a scheduled event finish.
+// @Description Each boundary is custom or explicitly bound to the scheduled event StartAt/FinishAt through OpensWithEvent/ClosesWithEvent. Boundaries follow future schedule edits until they occur. Windows cannot overlap or exceed the event schedule and platform availability window; other stages keep their dates. A finish binding requires a scheduled event finish.
 // @Tags events
 // @Accept json
 // @Produce json
@@ -98,7 +104,7 @@ func (h *Handler) createEventStage(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	view, err := h.useCase.CreateEventStage(ctx, eventID, eventUseCase.CreateStageInput{LabRetentionMinutes: req.LabRetentionMinutes, Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable})
+	view, err := h.useCase.CreateEventStage(ctx, eventID, eventUseCase.CreateStageInput{LabRetentionMinutes: req.LabRetentionMinutes, Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable, OpensWithEvent: req.OpensWithEvent, ClosesWithEvent: req.ClosesWithEvent})
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -140,7 +146,7 @@ func (h *Handler) updateEventStage(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	view, err := h.useCase.UpdateEventStage(ctx, eventID, stageID, eventUseCase.UpdateStageInput{LabRetentionMinutes: req.LabRetentionMinutes, Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable, CloseNow: req.CloseNow})
+	view, err := h.useCase.UpdateEventStage(ctx, eventID, stageID, eventUseCase.UpdateStageInput{LabRetentionMinutes: req.LabRetentionMinutes, Name: req.Name, OpensAt: req.OpensAt, ClosesAt: req.ClosesAt, Returnable: req.Returnable, OpensWithEvent: req.OpensWithEvent, ClosesWithEvent: req.ClosesWithEvent, CloseNow: req.CloseNow})
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

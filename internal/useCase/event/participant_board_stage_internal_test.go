@@ -77,9 +77,9 @@ func TestBuildOwnBoard_StageContext(t *testing.T) {
 			t.Fatalf("next change = %v", v.NextChangeAt)
 		}
 	})
-	t.Run("the last stage ends with the event: no stage countdown", func(t *testing.T) {
+	t.Run("the last stage has its own closing countdown", func(t *testing.T) {
 		v := buildOwnBoard(nil, stages, fromStart, boardAt(9))
-		if v.CurrentStage == nil || !v.CurrentStage.Last || v.CurrentStage.EndsAt != nil || v.NextOpensAt != nil || len(v.Stages) != 3 {
+		if v.CurrentStage == nil || !v.CurrentStage.Last || v.CurrentStage.EndsAt == nil || !v.CurrentStage.EndsAt.Equal(boardAt(10)) || v.NextOpensAt != nil || len(v.Stages) != 3 {
 			t.Fatalf("%+v", v)
 		}
 	})

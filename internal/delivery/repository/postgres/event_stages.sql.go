@@ -28,10 +28,10 @@ func (q *Queries) CountEventStageSets(ctx context.Context, stageID uuid.NullUUID
 }
 
 const createEventStage = `-- name: CreateEventStage :one
-INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, lab_retention_minutes, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6,$7,
- $8, $9)
-RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
+INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, opens_with_event, closes_with_event, lab_retention_minutes, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+ $10, $11)
+RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes, opens_with_event, closes_with_event
 `
 
 type CreateEventStageParams struct {
@@ -41,6 +41,8 @@ type CreateEventStageParams struct {
 	OpensAt             time.Time   `json:"opens_at"`
 	ClosesAt            time.Time   `json:"closes_at"`
 	Returnable          bool        `json:"returnable"`
+	OpensWithEvent      bool        `json:"opens_with_event"`
+	ClosesWithEvent     bool        `json:"closes_with_event"`
 	LabRetentionMinutes pgtype.Int4 `json:"lab_retention_minutes"`
 	CreatedAt           time.Time   `json:"created_at"`
 	UpdatedAt           time.Time   `json:"updated_at"`
@@ -54,6 +56,8 @@ func (q *Queries) CreateEventStage(ctx context.Context, arg CreateEventStagePara
 		arg.OpensAt,
 		arg.ClosesAt,
 		arg.Returnable,
+		arg.OpensWithEvent,
+		arg.ClosesWithEvent,
 		arg.LabRetentionMinutes,
 		arg.CreatedAt,
 		arg.UpdatedAt,
@@ -69,6 +73,8 @@ func (q *Queries) CreateEventStage(ctx context.Context, arg CreateEventStagePara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LabRetentionMinutes,
+		&i.OpensWithEvent,
+		&i.ClosesWithEvent,
 	)
 	return i, err
 }
@@ -93,7 +99,7 @@ func (q *Queries) DeleteEventStage(ctx context.Context, arg DeleteEventStagePara
 }
 
 const getEventStage = `-- name: GetEventStage :one
-SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
+SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes, opens_with_event, closes_with_event
 FROM event_stages
 WHERE id = $1
   AND event_id = $2
@@ -117,12 +123,14 @@ func (q *Queries) GetEventStage(ctx context.Context, arg GetEventStageParams) (E
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LabRetentionMinutes,
+		&i.OpensWithEvent,
+		&i.ClosesWithEvent,
 	)
 	return i, err
 }
 
 const listEventStages = `-- name: ListEventStages :many
-SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
+SELECT id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes, opens_with_event, closes_with_event
 FROM event_stages
 WHERE event_id = $1
 ORDER BY opens_at ASC, id ASC
@@ -148,6 +156,8 @@ func (q *Queries) ListEventStages(ctx context.Context, eventID uuid.UUID) ([]Eve
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.LabRetentionMinutes,
+			&i.OpensWithEvent,
+			&i.ClosesWithEvent,
 		); err != nil {
 			return nil, err
 		}
@@ -203,10 +213,12 @@ SET lab_retention_minutes=$1,name       = $2,
     opens_at   = $3,
     closes_at  = $4,
     returnable = $5,
-    updated_at = $6
-WHERE id = $7
-  AND event_id = $8
-RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes
+    opens_with_event = $6,
+    closes_with_event = $7,
+    updated_at = $8
+WHERE id = $9
+  AND event_id = $10
+RETURNING id, event_id, name, opens_at, closes_at, returnable, created_at, updated_at, lab_retention_minutes, opens_with_event, closes_with_event
 `
 
 type UpdateEventStageParams struct {
@@ -215,6 +227,8 @@ type UpdateEventStageParams struct {
 	OpensAt             time.Time   `json:"opens_at"`
 	ClosesAt            time.Time   `json:"closes_at"`
 	Returnable          bool        `json:"returnable"`
+	OpensWithEvent      bool        `json:"opens_with_event"`
+	ClosesWithEvent     bool        `json:"closes_with_event"`
 	UpdatedAt           time.Time   `json:"updated_at"`
 	ID                  uuid.UUID   `json:"id"`
 	EventID             uuid.UUID   `json:"event_id"`
@@ -227,6 +241,8 @@ func (q *Queries) UpdateEventStage(ctx context.Context, arg UpdateEventStagePara
 		arg.OpensAt,
 		arg.ClosesAt,
 		arg.Returnable,
+		arg.OpensWithEvent,
+		arg.ClosesWithEvent,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.EventID,
@@ -242,6 +258,8 @@ func (q *Queries) UpdateEventStage(ctx context.Context, arg UpdateEventStagePara
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.LabRetentionMinutes,
+		&i.OpensWithEvent,
+		&i.ClosesWithEvent,
 	)
 	return i, err
 }

@@ -21,8 +21,7 @@ import (
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 )
 
-// EventStageView is a stage with its computed state and its place in the order. First and Last say which
-// boundary of the event window the stage is anchored to (the first opens with the event, the last closes with it).
+// EventStageView is a stage with explicit dates and computed state. First and Last describe its place in the order.
 type EventStageView struct {
 	LabRetentionMinutes *int32
 	ID                  uuid.UUID
@@ -30,22 +29,25 @@ type EventStageView struct {
 	OpensAt             time.Time
 	ClosesAt            time.Time
 	Returnable          bool
+	OpensWithEvent      bool
+	ClosesWithEvent     bool
 	State               eventModel.StageState
 	First               bool
 	Last                bool
-	// DeployLeadMinutes is the lead the platform computes for the labs that open with this stage (the first stage:
-	// with the event start): its deploy starts that long before OpensAt. 0 when the workload cannot be read.
+	// DeployLeadMinutes is the lead before this stage's own opening. A stage that opens with the event shares
+	// its initial deployment workload. 0 when the workload cannot be read.
 	DeployLeadMinutes int
 }
 
-// CreateStageInput is a stage creation request. The boundary times of the first and last stage are the event's own,
-// whatever is sent.
+// CreateStageInput is a stage creation request with both dates required.
 type CreateStageInput struct {
 	LabRetentionMinutes *int32
 	Name                string
 	OpensAt             time.Time
 	ClosesAt            time.Time
 	Returnable          bool
+	OpensWithEvent      bool
+	ClosesWithEvent     bool
 }
 
 // UpdateStageInput is a partial update; nil fields keep their value.
@@ -55,6 +57,8 @@ type UpdateStageInput struct {
 	OpensAt             *time.Time
 	ClosesAt            *time.Time
 	Returnable          *bool
+	OpensWithEvent      *bool
+	ClosesWithEvent     *bool
 	// CloseNow is «Закрити зараз»: an open stage ends now.
 	CloseNow bool
 }
@@ -63,7 +67,7 @@ func toStageViews(stages []eventModel.Stage, now time.Time) []EventStageView {
 	out := make([]EventStageView, 0, len(stages))
 	for i, stage := range stages {
 		out = append(out, EventStageView{LabRetentionMinutes: stage.LabRetentionMinutes, ID: stage.ID, Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt,
-			Returnable: stage.Returnable, State: stage.State(now), First: i == 0, Last: i == len(stages)-1})
+			Returnable: stage.Returnable, OpensWithEvent: stage.OpensWithEvent, ClosesWithEvent: stage.ClosesWithEvent, State: stage.State(now), First: i == 0, Last: i == len(stages)-1})
 	}
 	return out
 }
@@ -128,8 +132,9 @@ func (u *EventUseCase) fillStageLeads(ctx context.Context, eventID uuid.UUID, st
 	lead := u.leadFunc()
 	pods := make(map[uuid.UUID]int, len(stages))
 	initial := extra
+	initialStage := stages[0].OpensAt.Equal(e.Lifecycle.StartAt)
 	for _, set := range sets {
-		if set.StageID == nil || *set.StageID == stages[0].ID {
+		if set.StageID == nil || initialStage && *set.StageID == stages[0].ID {
 			initial += set.Pods
 			continue
 		}
@@ -137,7 +142,7 @@ func (u *EventUseCase) fillStageLeads(ctx context.Context, eventID uuid.UUID, st
 	}
 	for i := range views {
 		n := pods[views[i].ID]
-		if i == 0 {
+		if i == 0 && initialStage {
 			n = initial
 		}
 		views[i].DeployLeadMinutes = int((lead(n) + time.Minute - 1) / time.Minute)
@@ -152,8 +157,8 @@ func (u *EventUseCase) stageEvent(ctx context.Context, repo eventRepo.Queries, e
 		}
 		return eventModel.Event{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
-	if !e.Lifecycle.Configured || e.Lifecycle.FinishAt == nil {
-		return eventModel.Event{}, eventModel.ErrEventStageNeedsFinish.Err()
+	if !e.Lifecycle.Configured {
+		return eventModel.Event{}, eventModel.ErrEventStageNeedsSchedule.Err()
 	}
 	return e, nil
 }
@@ -164,10 +169,6 @@ func (u *EventUseCase) CreateEventStage(ctx context.Context, eventID uuid.UUID, 
 		return EventStageView{}, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
 	}
 	now := time.Now()
-	candidate, err := eventModel.NewStage(eventID, in.Name, in.OpensAt, in.ClosesAt, in.Returnable, now)
-	if err != nil {
-		return EventStageView{}, err
-	}
 	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
 	if err != nil {
 		return EventStageView{}, err
@@ -182,22 +183,19 @@ func (u *EventUseCase) CreateEventStage(ctx context.Context, eventID uuid.UUID, 
 	if err != nil {
 		return EventStageView{}, err
 	}
+	candidate, err := eventModel.NewStage(eventID, in.Name, eventModel.StageDates{OpensAt: in.OpensAt, ClosesAt: in.ClosesAt, OpensWithEvent: in.OpensWithEvent, ClosesWithEvent: in.ClosesWithEvent}, in.Returnable, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now)
+	if err != nil {
+		return EventStageView{}, err
+	}
+
 	repo := eventStageRepo.New(txRepo)
 	existing, err := repo.List(txCtx, eventID)
 	if err != nil {
 		return EventStageView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
 	}
-	if len(existing) > 0 && in.OpensAt.IsZero() {
-		return EventStageView{}, eventModel.ErrEventStageInvalid.Err()
-	}
-	plan, err := eventModel.PlanCreateStage(existing, candidate, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now)
+	plan, err := eventModel.PlanCreateStage(existing, candidate, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, e.ArchiveAt, now)
 	if err != nil {
 		return EventStageView{}, err
-	}
-	if plan.Trimmed != nil {
-		if _, err = repo.Update(txCtx, *plan.Trimmed); err != nil {
-			return EventStageView{}, classifyStageWriteError(err, "update")
-		}
 	}
 	if err = plan.Created.SetLabRetentionMinutes(in.LabRetentionMinutes, now); err != nil {
 		return EventStageView{}, err
@@ -224,7 +222,9 @@ func (u *EventUseCase) stageView(ctx context.Context, eventID, stageID uuid.UUID
 	if err != nil {
 		return EventStageView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
 	}
-	for _, view := range toStageViews(stages, now) {
+	views := toStageViews(stages, now)
+	u.fillStageLeads(ctx, eventID, stages, views, now)
+	for _, view := range views {
 		if view.ID == stageID {
 			return view, nil
 		}
@@ -266,14 +266,14 @@ func (u *EventUseCase) UpdateEventStage(ctx context.Context, eventID, stageID uu
 	if index < 0 {
 		return EventStageView{}, eventModel.ErrEventStageNotFound.Err()
 	}
-	edited, err := stages[index].Apply(eventModel.StageEdit{Name: in.Name, OpensAt: in.OpensAt, ClosesAt: in.ClosesAt, Returnable: in.Returnable, CloseNow: in.CloseNow},
-		now, index == 0, index == len(stages)-1, e.Lifecycle.StartAt, e.Lifecycle.FinishAt)
+	edited, err := stages[index].Apply(eventModel.StageEdit{Name: in.Name, OpensAt: in.OpensAt, ClosesAt: in.ClosesAt, Returnable: in.Returnable, OpensWithEvent: in.OpensWithEvent, ClosesWithEvent: in.ClosesWithEvent, CloseNow: in.CloseNow},
+		now, e.Lifecycle.StartAt, e.Lifecycle.FinishAt)
 	if err != nil {
 		return EventStageView{}, err
 	}
 	next := append([]eventModel.Stage(nil), stages...)
 	next[index] = edited
-	if err = eventModel.ValidateStages(next, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now); err != nil {
+	if err = eventModel.ValidateStages(next, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, e.ArchiveAt); err != nil {
 		return EventStageView{}, err
 	}
 	if in.LabRetentionMinutes.Set {
@@ -298,8 +298,7 @@ func (u *EventUseCase) UpdateEventStage(ctx context.Context, eventID, stageID uu
 	return u.stageView(ctx, eventID, stageID, now)
 }
 
-// DeleteEventStage removes an upcoming stage without exercises; the stage that becomes first or last is anchored to the
-// event start or finish.
+// DeleteEventStage removes an upcoming stage without exercises, keeping every other stage unchanged.
 func (u *EventUseCase) DeleteEventStage(ctx context.Context, eventID, stageID uuid.UUID) error {
 	if u.uow == nil {
 		return model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
@@ -315,7 +314,7 @@ func (u *EventUseCase) DeleteEventStage(ctx context.Context, eventID, stageID uu
 			return err
 		}
 	}
-	e, err := eventRepo.New(txRepo).GetByID(txCtx, eventID)
+	_, err = eventRepo.New(txRepo).GetByID(txCtx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return eventModel.ErrEventNotFound.Err()
@@ -344,15 +343,6 @@ func (u *EventUseCase) DeleteEventStage(ctx context.Context, eventID, stageID uu
 	}
 	if _, err = repo.Delete(txCtx, eventID, stageID); err != nil {
 		return classifyStageWriteError(err, "delete")
-	}
-	remaining, err := repo.List(txCtx, eventID)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
-	}
-	for _, changed := range eventModel.AnchorAfterDelete(remaining, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now) {
-		if _, err = repo.Update(txCtx, changed); err != nil {
-			return classifyStageWriteError(err, "update")
-		}
 	}
 	if u.lifecycleControls {
 		if err = u.recomputeRetentionPinsInTransaction(txCtx, txRepo, eventID, now); err != nil {
