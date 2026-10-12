@@ -1,7 +1,9 @@
 package errjournal
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
@@ -69,6 +72,67 @@ func TestFiveHundredIsRecordedWithRouteTemplateStatusAndRequestID(t *testing.T) 
 	assert.Equal(t, 500, e.HTTPStatus)
 	assert.Equal(t, w.Header().Get(HeaderRequestID), e.RequestID)
 	assert.NotEmpty(t, e.RequestID)
+}
+
+func TestRequestCancellationIsNotAPlatformFault(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		request   error
+		failure   error
+		ginError  bool
+		extra     error
+		wantEvent bool
+	}{
+		{name: "request canceled", request: context.Canceled, failure: context.Canceled},
+		{name: "wrapped request canceled", request: context.Canceled, failure: fmt.Errorf("fetch banners: %w", context.Canceled)},
+		{name: "domain-wrapped request canceled", request: context.Canceled, failure: model.ErrPlatform.WithError(context.Canceled).Err()},
+		{name: "gin request canceled", request: context.Canceled, failure: context.Canceled, ginError: true},
+		{name: "gin cancellation and server fault", request: context.Canceled, failure: context.Canceled, ginError: true, extra: errors.New("database failed"), wantEvent: true},
+		{name: "dependency canceled with active request", failure: context.Canceled, wantEvent: true},
+		{name: "server fault after cancellation", request: context.Canceled, failure: errors.New("database failed"), wantEvent: true},
+		{name: "joined server fault and cancellation", request: context.Canceled, failure: errors.Join(context.Canceled, errors.New("database failed")), wantEvent: true},
+		{name: "request deadline exceeded", request: context.DeadlineExceeded, failure: context.DeadlineExceeded, wantEvent: true},
+		{name: "dependency deadline after cancellation", request: context.Canceled, failure: context.DeadlineExceeded, wantEvent: true},
+		{name: "status without error after cancellation", request: context.Canceled, wantEvent: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &fakeSink{}
+			r := newRouter(sink)
+			r.GET("/api/banners", func(c *gin.Context) {
+				if tc.ginError {
+					_ = c.Error(tc.failure)
+					if tc.extra != nil {
+						_ = c.Error(tc.extra)
+					}
+					c.AbortWithStatus(http.StatusInternalServerError)
+				} else if tc.failure != nil {
+					response.AbortWithError(c, tc.failure)
+				} else {
+					c.AbortWithStatus(http.StatusInternalServerError)
+				}
+			})
+			req := httptest.NewRequest(http.MethodGet, "/api/banners", nil)
+			switch tc.request {
+			case context.Canceled:
+				ctx, cancel := context.WithCancel(req.Context())
+				cancel()
+				req = req.WithContext(ctx)
+			case context.DeadlineExceeded:
+				ctx, cancel := context.WithDeadline(req.Context(), time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC))
+				defer cancel()
+				req = req.WithContext(ctx)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			require.Equal(t, http.StatusInternalServerError, w.Code, "classification does not change the HTTP response")
+			if tc.wantEvent {
+				require.Len(t, sink.events, 1)
+				require.Equal(t, errorJournal.KindHTTP5xx, sink.events[0].Kind)
+			} else {
+				require.Empty(t, sink.events, "only a canceled request and its cancellation error are routine")
+			}
+		})
+	}
 }
 
 func TestPanicIsRecordedWithStackAndStillAnswered(t *testing.T) {

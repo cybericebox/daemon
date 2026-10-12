@@ -53,7 +53,7 @@ type Config struct {
 	ReplyToEmail string
 }
 
-// Client sends HTML emails via SMTP.
+// Client sends email messages via SMTP.
 type Client struct {
 	host        string
 	port        int
@@ -99,8 +99,8 @@ type InlinePart struct {
 	Data        []byte
 }
 
-// Message is one email to a single recipient. Text, when set, is sent as the
-// text/plain alternative of HTML. From and ReplyTo override the client's
+// Message is one email to a single recipient. Text is sent as text/plain,
+// with an HTML alternative only when HTML is also set. From and ReplyTo override the client's
 // configured identity when their Email is set.
 type Message struct {
 	To      string
@@ -129,7 +129,7 @@ func (c *Client) SendMessage(ctx context.Context, msg Message) error {
 }
 
 // BuildMessage composes the MIME message. Inline parts make it
-// multipart/related (with multipart/alternative nested inside when Text is
+// multipart/related (with multipart/alternative nested inside when both Text and HTML are
 // set); there are never attachments, so it is never multipart/mixed and the
 // images are not listed as files by mail clients. Display names are encoded
 // as RFC 2047 words (Event names are Cyrillic). Exported for tests.
@@ -143,7 +143,9 @@ func BuildMessage(from, replyTo Address, msg Message) *gomail.Message {
 	m.SetHeader("Subject", msg.Subject)
 	if msg.Text != "" {
 		m.SetBody("text/plain", msg.Text)
-		m.AddAlternative("text/html", msg.HTML)
+		if msg.HTML != "" {
+			m.AddAlternative("text/html", msg.HTML)
+		}
 	} else {
 		m.SetBody("text/html", msg.HTML)
 	}

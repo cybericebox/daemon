@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -89,7 +90,7 @@ func (j *Journal) notify(ctx context.Context, e errorJournal.Event, rec RecordRe
 		return
 	}
 	text := j.message(rec.Group, sample, suppressed)
-	j.dispatch(ctx, rec.Group, text, false)
+	j.dispatch(ctx, rec.Group, text, j.emailMessage(rec.Group, sample, suppressed), false)
 }
 
 // kindMessageDue claims the one message per cooldown of a noisy kind.
@@ -134,19 +135,42 @@ func (j *Journal) message(g errorJournal.Group, s errorJournal.Sample, sinceLast
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// subject is the e-mail subject: the first line of the text.
+// emailMessage keeps the complete recorded sample in the email body. Telegram uses the concise message above.
+// The sample has already passed the journal's scrubbing and size limits.
+func (j *Journal) emailMessage(g errorJournal.Group, s errorJournal.Sample, sinceLast int64) string {
+	summarySample := s
+	summarySample.Message = ""
+	var b strings.Builder
+	b.WriteString(j.message(g, summarySample, sinceLast))
+	if s.Message != "" {
+		fmt.Fprintf(&b, "\n\n%s", s.Message)
+	}
+	if len(s.Details) > 0 {
+		b.WriteString("\n\nDetails:\n")
+		keys := make([]string, 0, len(s.Details))
+		for key := range s.Details {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			fmt.Fprintf(&b, "%s: %s\n", key, s.Details[key])
+		}
+	}
+	if s.Stack != "" {
+		fmt.Fprintf(&b, "\n\nStack:\n%s", s.Stack)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// subject is only the general error kind and environment, never the diagnostic details.
 func subject(text string) string {
 	line, _, _ := strings.Cut(text, "\n")
-	rest := strings.SplitN(text, "\n", 3)
-	if len(rest) > 1 {
-		line += " · " + errorJournal.Truncate(rest[1], 120)
-	}
 	return line
 }
 
 // dispatch sends the text to every channel. A failure of one chat or address never stops the others. A chat that
 // answers 403 is marked failing in the settings, never dropped. test makes a failed chat count as a result.
-func (j *Journal) dispatch(ctx context.Context, g errorJournal.Group, text string, test bool) []TestResult {
+func (j *Journal) dispatch(ctx context.Context, g errorJournal.Group, text, emailText string, test bool) []TestResult {
 	settings, err := j.repo.GetSettings(ctx)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to read the error journal settings")
@@ -160,7 +184,7 @@ func (j *Journal) dispatch(ctx context.Context, g errorJournal.Group, text strin
 	}
 	if j.mail != nil {
 		for _, to := range j.recipients(ctx, settings) {
-			results = append(results, j.sendEmail(ctx, to, text))
+			results = append(results, j.sendEmail(ctx, to, emailText))
 		}
 	}
 	return results
