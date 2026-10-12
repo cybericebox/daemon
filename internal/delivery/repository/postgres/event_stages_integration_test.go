@@ -563,3 +563,55 @@ func TestEventStagesMigrationDownThenUp(t *testing.T) {
 		t.Fatal("the deploy lead column is dropped on up")
 	}
 }
+
+func TestStageDateSourceMigrationPreservesKnownLegacyBindingsAndActualTimes(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	f := anSeed(t, db, "stagesourcemigration")
+	first := stMustStage(t, db, f.event, "First", 0, 1, false)
+	middle := stMustStage(t, db, f.event, "Middle", 1, 2, false)
+	last := stMustStage(t, db, f.event, "Last", 2, 4, false)
+	get := func(id uuid.UUID) postgres.EventStage {
+		row, err := db.Queries.GetEventStage(ctx, postgres.GetEventStageParams{ID: id, EventID: f.event})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	if row := get(first); row.OpensWithEvent || row.ClosesWithEvent {
+		t.Fatal("new default sources must stay custom even at event boundaries")
+	}
+	down, err := os.ReadFile("migrations/0169_explicit_stage_date_sources.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := os.ReadFile("migrations/0169_explicit_stage_date_sources.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Pool.Exec(ctx, string(down)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Pool.Exec(ctx, string(up)); err != nil {
+		t.Fatal(err)
+	}
+	a, b, c := get(first), get(middle), get(last)
+	if !a.OpensWithEvent || a.ClosesWithEvent || b.OpensWithEvent || b.ClosesWithEvent || c.OpensWithEvent || !c.ClosesWithEvent {
+		t.Fatalf("legacy source backfill: first=%+v middle=%+v last=%+v", a, b, c)
+	}
+	if !a.OpensAt.Equal(stH(0)) || !a.ClosesAt.Equal(stH(1)) || !c.OpensAt.Equal(stH(2)) || !c.ClosesAt.Equal(stH(4)) {
+		t.Fatal("source migration must never change actual timestamps")
+	}
+	if _, err = db.Pool.Exec(ctx, string(down)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Pool.Exec(ctx, `UPDATE event_stages SET closes_at=$2 WHERE id=$1`, last, stH(3)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Pool.Exec(ctx, string(up)); err != nil {
+		t.Fatal(err)
+	}
+	if row := get(last); row.ClosesWithEvent || !row.ClosesAt.Equal(stH(3)) {
+		t.Fatalf("early-closed legacy last stage must stay custom: %+v", row)
+	}
+}

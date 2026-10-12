@@ -71,6 +71,8 @@ type Stage struct {
 	OpensAt             time.Time
 	ClosesAt            time.Time
 	Returnable          bool
+	OpensWithEvent      bool
+	ClosesWithEvent     bool
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }
@@ -125,16 +127,41 @@ func cleanStageName(name string) (string, error) {
 	return name, nil
 }
 
-// NewStage builds a candidate stage for a creation request. Its times are placed by PlanCreateStage: the first
-// stage takes the event window whatever was asked, and the final times are validated there.
-func NewStage(eventID uuid.UUID, name string, opensAt, closesAt time.Time, returnable bool, now time.Time) (Stage, error) {
+// StageDates selects each boundary independently. A bound boundary uses the scheduled event date.
+type StageDates struct {
+	OpensAt, ClosesAt               time.Time
+	OpensWithEvent, ClosesWithEvent bool
+}
+
+func resolveStageDates(dates StageDates, startAt time.Time, finishAt *time.Time) (StageDates, error) {
+	if dates.OpensWithEvent {
+		dates.OpensAt = startAt
+	}
+	if dates.ClosesWithEvent {
+		if finishAt == nil {
+			return StageDates{}, ErrEventStageBoundFinishMissing.Err()
+		}
+		dates.ClosesAt = *finishAt
+	}
+	dates.OpensAt, dates.ClosesAt = micro(dates.OpensAt), micro(dates.ClosesAt)
+	return dates, nil
+}
+
+// NewStage resolves explicitly selected sources, then builds the stage without changing its neighbors.
+func NewStage(eventID uuid.UUID, name string, dates StageDates, returnable bool, startAt time.Time, finishAt *time.Time, now time.Time) (Stage, error) {
 	name, err := cleanStageName(name)
 	if err != nil {
 		return Stage{}, err
 	}
-	opensAt, closesAt = micro(opensAt), micro(closesAt)
-	return Stage{ID: uuid.Must(uuid.NewV7()), EventID: eventID, Name: name, OpensAt: opensAt, ClosesAt: closesAt,
-		Returnable: returnable, CreatedAt: now, UpdatedAt: now}, nil
+	dates, err = resolveStageDates(dates, startAt, finishAt)
+	if err != nil {
+		return Stage{}, err
+	}
+	if dates.OpensAt.IsZero() || dates.ClosesAt.IsZero() || !dates.OpensAt.Before(dates.ClosesAt) {
+		return Stage{}, ErrEventStageInvalid.Err()
+	}
+	return Stage{ID: uuid.Must(uuid.NewV7()), EventID: eventID, Name: name, OpensAt: dates.OpensAt, ClosesAt: dates.ClosesAt,
+		OpensWithEvent: dates.OpensWithEvent, ClosesWithEvent: dates.ClosesWithEvent, Returnable: returnable, CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func sortedStages(stages []Stage) []Stage {
@@ -148,120 +175,66 @@ func sortedStages(stages []Stage) []Stage {
 	return out
 }
 
-// ValidateStages checks a complete list of stages against the event window: valid names and windows, no overlap
-// (adjacent is fine), unique names, the first stage opening at the event start and the last closing at the event
-// finish. A last stage that was already closed early keeps its time, so the finish anchor is not asked of it.
-func ValidateStages(stages []Stage, startAt time.Time, finishAt *time.Time, now time.Time) error {
-	if len(stages) == 0 {
-		return nil
-	}
-	if finishAt == nil {
-		return ErrEventStageNeedsFinish.Err()
-	}
+// ValidateStages checks valid, distinct names and non-overlapping windows within the event's configured bounds.
+// A custom closing needs no event finish, but every window remains inside platform availability.
+func ValidateStages(stages []Stage, startAt time.Time, finishAt *time.Time, archiveAt time.Time) error {
 	ordered := sortedStages(stages)
 	names := make(map[string]struct{}, len(ordered))
 	for i, stage := range ordered {
-		if _, err := cleanStageName(stage.Name); err != nil || !stage.OpensAt.Before(stage.ClosesAt) {
+		if _, err := cleanStageName(stage.Name); err != nil || stage.OpensAt.IsZero() || stage.ClosesAt.IsZero() || !stage.OpensAt.Before(stage.ClosesAt) {
 			return ErrEventStageInvalid.Err()
 		}
 		key := strings.ToLower(strings.TrimSpace(stage.Name))
-		if _, dup := names[key]; dup {
+		if _, duplicate := names[key]; duplicate {
 			return ErrEventStageNameExists.Err()
 		}
 		names[key] = struct{}{}
 		if i > 0 && stage.OpensAt.Before(ordered[i-1].ClosesAt) {
 			return ErrEventStageOverlap.Err()
 		}
-		if stage.OpensAt.Before(startAt) || stage.ClosesAt.After(*finishAt) {
-			return ErrEventStageAnchor.Err()
+		if stage.OpensAt.Before(startAt) || finishAt != nil && stage.ClosesAt.After(*finishAt) || !archiveAt.IsZero() && stage.ClosesAt.After(archiveAt) {
+			return ErrEventStageOutsideEvent.Err()
 		}
-	}
-	first, last := ordered[0], ordered[len(ordered)-1]
-	if !sameInstant(first.OpensAt, startAt) {
-		return ErrEventStageAnchor.Err()
-	}
-	if !sameInstant(last.ClosesAt, *finishAt) && last.ClosesAt.After(now) {
-		return ErrEventStageAnchor.Err()
 	}
 	return nil
 }
 
-// StageCreatePlan is the outcome of adding a stage: the stage as stored, and the previous last stage when it had
-// to end where the new one opens.
+// StageCreatePlan contains the new stage, retaining its requested window.
 type StageCreatePlan struct {
 	Created Stage
-	Trimmed *Stage
 }
 
-// PlanCreateStage places a new stage. The boundaries are not free input: the first stage of an event is the
-// whole event window (it opens at the start and closes at the finish) and a later stage opens where asked but
-// closes at the event finish, ending the previous last stage where it opens. A stage placed between the first
-// and the last keeps its own times and must fit a gap. A stage cannot open before or with the first one.
-func PlanCreateStage(existing []Stage, candidate Stage, startAt time.Time, finishAt *time.Time, now time.Time) (StageCreatePlan, error) {
-	if finishAt == nil {
-		return StageCreatePlan{}, ErrEventStageNeedsFinish.Err()
-	}
-	if !finishAt.After(now) {
+// PlanCreateStage checks a new stage without changing the event or any other stage.
+func PlanCreateStage(existing []Stage, candidate Stage, startAt time.Time, finishAt *time.Time, archiveAt, now time.Time) (StageCreatePlan, error) {
+	if !candidate.OpensAt.Before(candidate.ClosesAt) || !candidate.ClosesAt.After(now) {
 		return StageCreatePlan{}, ErrEventStageInvalid.Err()
 	}
-	ordered := sortedStages(existing)
-	created := candidate
-	var trimmed *Stage
-	if len(ordered) == 0 {
-		created.OpensAt, created.ClosesAt = micro(startAt), micro(*finishAt)
-	} else {
-		first, last := ordered[0], ordered[len(ordered)-1]
-		if created.OpensAt.Before(now) {
-			created.OpensAt = micro(now)
-		}
-		if !created.OpensAt.After(first.OpensAt) {
-			return StageCreatePlan{}, ErrEventStageAnchor.Err()
-		}
-		if created.OpensAt.After(last.OpensAt) {
-			created.ClosesAt = micro(*finishAt)
-			if !last.ClosesAt.After(now) {
-				return StageCreatePlan{}, ErrEventStageClosedLocked.Err()
-			}
-			cut := last
-			cut.ClosesAt, cut.UpdatedAt = created.OpensAt, now
-			trimmed = &cut
-		}
-	}
-	if !created.OpensAt.Before(created.ClosesAt) || !created.ClosesAt.After(now) {
-		return StageCreatePlan{}, ErrEventStageInvalid.Err()
-	}
-	all := make([]Stage, 0, len(ordered)+1)
-	for _, stage := range ordered {
-		if trimmed != nil && stage.ID == trimmed.ID {
-			stage = *trimmed
-		}
-		all = append(all, stage)
-	}
-	all = append(all, created)
-	if err := ValidateStages(all, startAt, finishAt, now); err != nil {
+	all := append(slices.Clone(existing), candidate)
+	if err := ValidateStages(all, startAt, finishAt, archiveAt); err != nil {
 		return StageCreatePlan{}, err
 	}
-	return StageCreatePlan{Created: created, Trimmed: trimmed}, nil
+	return StageCreatePlan{Created: candidate}, nil
 }
 
 // StageEdit is a partial update of a stage.
 type StageEdit struct {
-	Name       *string
-	OpensAt    *time.Time
-	ClosesAt   *time.Time
-	Returnable *bool
+	Name            *string
+	OpensAt         *time.Time
+	ClosesAt        *time.Time
+	Returnable      *bool
+	OpensWithEvent  *bool
+	ClosesWithEvent *bool
 	// CloseNow is «Закрити зараз» on an open stage: closes_at becomes now.
 	CloseNow bool
 }
 
 // Apply returns the stage after the edit, by what its state allows:
-//   - upcoming: everything; opens_at may be set to now; the first stage's opens_at and the last stage's closes_at
-//     are the event's own and cannot be changed;
+//   - upcoming: everything; a changed opens_at must be now or in the future;
 //   - open: name, returnable and closes_at (which stays in the future); opens_at is locked;
 //   - closed: only the name; times and returnable are locked for good.
 //
 // Overlap with the neighbours is checked by ValidateStages on the whole list.
-func (s Stage) Apply(edit StageEdit, now time.Time, first, last bool, startAt time.Time, finishAt *time.Time) (Stage, error) {
+func (s Stage) Apply(edit StageEdit, now time.Time, startAt time.Time, finishAt *time.Time) (Stage, error) {
 	next := s
 	next.UpdatedAt = now
 	if edit.Name != nil {
@@ -271,52 +244,75 @@ func (s Stage) Apply(edit StageEdit, now time.Time, first, last bool, startAt ti
 		}
 		next.Name = name
 	}
-	changesOpens := edit.OpensAt != nil && !sameInstant(*edit.OpensAt, s.OpensAt)
-	changesCloses := edit.ClosesAt != nil && !sameInstant(*edit.ClosesAt, s.ClosesAt)
+	dates := StageDates{OpensAt: s.OpensAt, ClosesAt: s.ClosesAt, OpensWithEvent: s.OpensWithEvent, ClosesWithEvent: s.ClosesWithEvent}
+	if edit.OpensAt != nil {
+		dates.OpensAt = *edit.OpensAt
+	}
+	if edit.ClosesAt != nil {
+		dates.ClosesAt = *edit.ClosesAt
+	}
+	if edit.OpensWithEvent != nil {
+		dates.OpensWithEvent = *edit.OpensWithEvent
+	}
+	if edit.ClosesWithEvent != nil {
+		dates.ClosesWithEvent = *edit.ClosesWithEvent
+	}
+	state := s.State(now)
+	changesOpenSource := dates.OpensWithEvent != s.OpensWithEvent
+	changesCloseSource := dates.ClosesWithEvent != s.ClosesWithEvent
+	if state == StageClosed && (changesOpenSource || changesCloseSource) {
+		return Stage{}, ErrEventStageClosedLocked.Err()
+	}
+	if state != StageUpcoming && changesOpenSource {
+		return Stage{}, ErrEventStageOpenedLocked.Err()
+	}
+	// Resolve only requested boundaries. Unrelated writes never revisit historical scheduled sources.
+	requested := dates
+	requested.OpensWithEvent = state == StageUpcoming && dates.OpensWithEvent && (edit.OpensAt != nil || edit.OpensWithEvent != nil)
+	requested.ClosesWithEvent = state != StageClosed && !edit.CloseNow && dates.ClosesWithEvent && (edit.ClosesAt != nil || edit.ClosesWithEvent != nil)
+	resolved, err := resolveStageDates(requested, startAt, finishAt)
+	if err != nil {
+		return Stage{}, err
+	}
+	dates.OpensAt, dates.ClosesAt = resolved.OpensAt, resolved.ClosesAt
+	changesOpens := !sameInstant(dates.OpensAt, s.OpensAt)
+	changesCloses := !sameInstant(dates.ClosesAt, s.ClosesAt)
 	changesReturnable := edit.Returnable != nil && *edit.Returnable != s.Returnable
 	switch s.State(now) {
 	case StageClosed:
-		if changesOpens || changesCloses || changesReturnable || edit.CloseNow {
+		if changesOpens || changesCloses || changesOpenSource || changesCloseSource || changesReturnable || edit.CloseNow {
 			return Stage{}, ErrEventStageClosedLocked.Err()
 		}
 		return next, nil
 	case StageOpen:
-		if changesOpens {
+		if changesOpens || changesOpenSource {
 			return Stage{}, ErrEventStageOpenedLocked.Err()
 		}
 		switch {
 		case edit.CloseNow:
-			next.ClosesAt = micro(now)
+			next.ClosesAt, dates.ClosesWithEvent = micro(now), false
 		case changesCloses:
-			if !edit.ClosesAt.After(now) {
+			if !dates.ClosesAt.After(micro(now)) {
 				return Stage{}, ErrEventStageInvalid.Err()
 			}
-			if last && (finishAt == nil || !sameInstant(*edit.ClosesAt, *finishAt)) {
-				return Stage{}, ErrEventStageAnchor.Err()
-			}
-			next.ClosesAt = micro(*edit.ClosesAt)
+			next.ClosesAt = dates.ClosesAt
 		}
 	default:
 		if edit.CloseNow {
 			return Stage{}, ErrEventStageNotOpen.Err()
 		}
 		if changesOpens {
-			if first && !sameInstant(*edit.OpensAt, startAt) {
-				return Stage{}, ErrEventStageAnchor.Err()
-			}
-			opens := micro(*edit.OpensAt)
-			if opens.Before(now) {
-				opens = micro(now)
+			opens := dates.OpensAt
+			if opens.Before(micro(now)) {
+				return Stage{}, ErrEventStageInvalid.Err()
 			}
 			next.OpensAt = opens
 		}
 		if changesCloses {
-			if last && (finishAt == nil || !sameInstant(*edit.ClosesAt, *finishAt)) {
-				return Stage{}, ErrEventStageAnchor.Err()
-			}
-			next.ClosesAt = micro(*edit.ClosesAt)
+			next.ClosesAt = dates.ClosesAt
 		}
 	}
+	next.OpensWithEvent, next.ClosesWithEvent = dates.OpensWithEvent, dates.ClosesWithEvent
 	if changesReturnable {
 		next.Returnable = *edit.Returnable
 	}
@@ -326,83 +322,42 @@ func (s Stage) Apply(edit StageEdit, now time.Time, first, last bool, startAt ti
 	return next, nil
 }
 
+// PlanStageLifecycle follows selected scheduled sources prospectively. Actual boundaries that have
+// already occurred remain immutable; custom dates and sources never depend on position or equality.
+func PlanStageLifecycle(stages []Stage, startAt time.Time, finishAt *time.Time, archiveAt, now time.Time) ([]Stage, error) {
+	next := slices.Clone(stages)
+	changed := []Stage{}
+	yes := true
+	for i, stage := range stages {
+		edit := StageEdit{}
+		if stage.OpensWithEvent && now.Before(stage.OpensAt) && !sameInstant(stage.OpensAt, startAt) {
+			edit.OpensWithEvent = &yes
+		}
+		if stage.ClosesWithEvent && now.Before(stage.ClosesAt) && (finishAt == nil || !sameInstant(stage.ClosesAt, *finishAt)) {
+			edit.ClosesWithEvent = &yes
+		}
+		if edit.OpensWithEvent == nil && edit.ClosesWithEvent == nil {
+			continue
+		}
+		updated, err := stage.Apply(edit, now, startAt, finishAt)
+		if err != nil {
+			return nil, err
+		}
+		next[i] = updated
+		changed = append(changed, updated)
+	}
+	if err := ValidateStages(next, startAt, finishAt, archiveAt); err != nil {
+		return nil, err
+	}
+	return changed, nil
+}
+
 // CheckStageDelete: a stage that has opened is history, and one that still holds sets cannot go.
 func CheckStageDelete(stage Stage, sets int, now time.Time) error {
 	if stage.Opened(now) || sets > 0 {
 		return ErrEventStageNotDeletable.Err()
 	}
 	return nil
-}
-
-// AnchorAfterDelete re-derives the boundary stages after one was removed: the stage that became first opens at the
-// event start, the one that became last closes at the event finish. A stage that stops being first or last keeps
-// its time. It returns only the stages that changed.
-func AnchorAfterDelete(remaining []Stage, startAt time.Time, finishAt *time.Time, now time.Time) []Stage {
-	if len(remaining) == 0 || finishAt == nil {
-		return nil
-	}
-	ordered := sortedStages(remaining)
-	var changed []Stage
-	touch := func(i int, mutate func(*Stage)) {
-		stage := ordered[i]
-		mutate(&stage)
-		stage.UpdatedAt = now
-		ordered[i] = stage
-		for j := range changed {
-			if changed[j].ID == stage.ID {
-				changed[j] = stage
-				return
-			}
-		}
-		changed = append(changed, stage)
-	}
-	if first := ordered[0]; !sameInstant(first.OpensAt, startAt) && !first.Opened(now) {
-		touch(0, func(s *Stage) { s.OpensAt = micro(startAt) })
-	}
-	if last := ordered[len(ordered)-1]; !sameInstant(last.ClosesAt, *finishAt) && last.ClosesAt.After(now) {
-		touch(len(ordered)-1, func(s *Stage) { s.ClosesAt = micro(*finishAt) })
-	}
-	return changed
-}
-
-// AnchorToLifecycle moves the first stage's opens_at and the last stage's closes_at with an edit of the event
-// start and finish. It is refused when the first stage has opened or the event has no scheduled finish, and
-// returns the stages that changed. A last stage that was closed early keeps its time.
-func AnchorToLifecycle(stages []Stage, startAt time.Time, finishAt *time.Time, now time.Time) ([]Stage, error) {
-	if len(stages) == 0 {
-		return nil, nil
-	}
-	if finishAt == nil {
-		return nil, ErrEventStageNeedsFinish.Err()
-	}
-	ordered := sortedStages(stages)
-	var changed []Stage
-	set := func(i int, mutate func(*Stage)) {
-		stage := ordered[i]
-		mutate(&stage)
-		stage.UpdatedAt = now
-		ordered[i] = stage
-		for j := range changed {
-			if changed[j].ID == stage.ID {
-				changed[j] = stage
-				return
-			}
-		}
-		changed = append(changed, stage)
-	}
-	if first := ordered[0]; !sameInstant(first.OpensAt, startAt) {
-		if first.Opened(now) {
-			return nil, ErrEventStageOpenedLocked.Err()
-		}
-		set(0, func(s *Stage) { s.OpensAt = micro(startAt) })
-	}
-	if last := ordered[len(ordered)-1]; !sameInstant(last.ClosesAt, *finishAt) && last.ClosesAt.After(now) {
-		set(len(ordered)-1, func(s *Stage) { s.ClosesAt = micro(*finishAt) })
-	}
-	if err := ValidateStages(ordered, startAt, finishAt, now); err != nil {
-		return nil, err
-	}
-	return changed, nil
 }
 
 // CheckSetMove is the rule for moving an exercise set between stages (nil is «Весь захід»): nothing leaves a stage

@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -387,4 +388,49 @@ func idsOfEvents(rows []postgres.Event) []uuid.UUID {
 		out[i] = r.ID
 	}
 	return out
+}
+
+func TestUpdateEventLifecycle_PersistsFinishWithoutWithdrawal(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := eventRepo.New(db.Queries)
+	created := mustCreateEvent(t, repo, "finishonly", "Finished event", evNow, time.Time{}, uuid.Nil, evNow)
+	start, finish := evNow.Add(time.Hour), evNow.Add(2*time.Hour)
+	updated := created
+	// Bypass domain construction to exercise the actual database invariant independently.
+	updated.UpdateLifecycle(eventModel.Lifecycle{Configured: true, JoinPolicy: eventModel.JoinPolicyRolling, PublishAt: evNow, StartAt: start, FinishAt: &finish}, uuid.Nil, evNow.Add(time.Minute))
+	affected, err := repo.UpdateLifecycle(ctx, updated, created.UpdatedAt)
+	if err != nil || affected != 1 {
+		t.Fatalf("finish-only persistence: affected=%d err=%v", affected, err)
+	}
+	got, err := repo.GetByID(ctx, created.ID)
+	if err != nil || got.Lifecycle.WithdrawAt != nil || got.Lifecycle.FinishAt == nil || !got.Lifecycle.FinishAt.Equal(finish) || !got.ArchiveAt.IsZero() {
+		t.Fatalf("schedule dates must round-trip without adding closure: %+v err=%v", got, err)
+	}
+	if got.Lifecycle.Status(finish.Add(365*24*time.Hour)) != eventModel.LifecycleFinished {
+		t.Fatal("finished event unexpectedly withdrew")
+	}
+	if live, err := repo.GetLiveByTag(ctx, created.Tag, finish.Add(365*24*time.Hour)); err != nil || live.ID != created.ID {
+		t.Fatalf("finished event must stay publicly resolvable: %+v err=%v", live, err)
+	}
+	for _, bounds := range [][2]*time.Time{{nil, &finish}, {&start, nil}, {&finish, &finish}} {
+		_, err := db.Pool.Exec(ctx, `UPDATE events SET finish_at=$2, withdraw_at=$3 WHERE id=$1`, created.ID, bounds[0], bounds[1])
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != pgerrcode.CheckViolation {
+			t.Fatalf("invalid ordered schedule accepted: %v", err)
+		}
+	}
+	rollback, err := os.ReadFile("migrations/0168_optional_event_withdrawal.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Pool.Exec(ctx, string(rollback))
+	var rollbackError *pgconn.PgError
+	if !errors.As(err, &rollbackError) || rollbackError.Code != pgerrcode.CheckViolation {
+		t.Fatalf("downgrade must refuse finish-only schedules: %v", err)
+	}
+	got, err = repo.GetByID(ctx, created.ID)
+	if err != nil || got.Lifecycle.WithdrawAt != nil || !got.Lifecycle.FinishAt.Equal(finish) {
+		t.Fatalf("refused downgrade changed schedule dates: %+v err=%v", got, err)
+	}
 }

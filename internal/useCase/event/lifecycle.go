@@ -45,8 +45,16 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 		}
 		return EventLifecycleView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
+	if e.Lifecycle.ManualFinishAt != nil {
+		// Editing scheduled dates must retain an actual finish already recorded by a manager.
+		lifecycle, err = eventModel.NewLifecycle(in.JoinPolicy, in.PublishAt, in.StartAt, in.FinishAt, in.WithdrawAt, e.Lifecycle.ManualFinishAt)
+		if err != nil {
+			return EventLifecycleView{}, err
+		}
+	}
 	if lifecycle.PublishAt.Before(e.AvailableFrom) ||
 		(!e.ArchiveAt.IsZero() && (!lifecycle.StartAt.Before(e.ArchiveAt) ||
+			(lifecycle.FinishAt != nil && lifecycle.FinishAt.After(e.ArchiveAt)) ||
 			(lifecycle.WithdrawAt != nil && lifecycle.WithdrawAt.After(e.ArchiveAt)))) {
 		return EventLifecycleView{}, eventModel.ErrEventLifecycleInvalid.Err()
 	}
@@ -97,9 +105,8 @@ func (u *EventUseCase) UpdateEventLifecycle(ctx context.Context, id uuid.UUID, i
 	return toEventLifecycleView(e, now, plan), nil
 }
 
-// saveLifecycleWithStages writes the event schedule. When the event has stages, the first stage's opens_at and the
-// last stage's closes_at move with the new start and finish in the same transaction (rejected when the stage has
-// already opened, when the move would collide with a neighbour, or when the finish is removed).
+// saveLifecycleWithStages writes the event schedule after validating the stages within its new bounds.
+// Only explicitly bound, future stage dates follow the event schedule.
 func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel.Event, expected, now time.Time) (int64, error) {
 	stages, err := u.stages.List(ctx, e.ID)
 	if err != nil {
@@ -115,7 +122,7 @@ func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel
 	if u.uow == nil {
 		return 0, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
 	}
-	changed, err := eventModel.AnchorToLifecycle(stages, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now)
+	changed, err := eventModel.PlanStageLifecycle(stages, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, e.ArchiveAt, now)
 	if err != nil {
 		return 0, err
 	}
@@ -130,23 +137,22 @@ func (u *EventUseCase) saveLifecycleWithStages(ctx context.Context, e eventModel
 			return 0, err
 		}
 		// Source/selection changes share this event lock. Re-read their stage
-		// anchors before updating the schedule and its dependent retention.
+		// windows before updating the schedule and its dependent retention.
 		stages, err = stageRepo.List(txCtx, e.ID)
 		if err != nil {
 			return 0, err
 		}
-		changed, err = eventModel.AnchorToLifecycle(stages, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, now)
+		changed, err = eventModel.PlanStageLifecycle(stages, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, e.ArchiveAt, now)
 		if err != nil {
 			return 0, err
 		}
 	}
-	// A start moved later shrinks the first stage and a finish moved earlier the last one, so apply the order that
-	// never makes two stages overlap midway: the boundary stages only ever shrink or grow outwards one at a time.
 	for _, stage := range changed {
 		if _, err = stageRepo.Update(txCtx, stage); err != nil {
 			return 0, classifyStageWriteError(err, "update")
 		}
 	}
+
 	affected, err := u.eventsIn(txRepo).UpdateLifecycle(txCtx, e, expected)
 	if err != nil {
 		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to update event lifecycle").Err()

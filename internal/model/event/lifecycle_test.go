@@ -105,8 +105,7 @@ func TestNewLifecycle_RejectsIncompleteFinishWindow(t *testing.T) {
 		finish   *time.Time
 		withdraw *time.Time
 	}{
-		{"finish needs withdrawal", nil, &withdrawAt},
-		{"withdrawal needs finish", &finishAt, nil},
+		{"withdrawal needs finish", nil, &withdrawAt},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -229,5 +228,22 @@ func TestLifecycleHasStarted(t *testing.T) {
 	}
 	if (Lifecycle{StartAt: start}).HasStarted(start.Add(time.Hour)) {
 		t.Fatal("unscheduled lifecycle reported as started")
+	}
+}
+
+func TestLifecycleScheduledFinishWithoutWithdrawalStaysFinished(t *testing.T) {
+	publish := time.Date(2026, 7, 1, 9, 0, 0, 0, time.UTC)
+	start, finish := publish.Add(time.Hour), publish.Add(2*time.Hour)
+	l, err := NewLifecycle(JoinPolicyRolling, publish, start, &finish, nil, nil)
+	if err != nil {
+		t.Fatalf("optional withdrawal: %v", err)
+	}
+	if l.WithdrawAt != nil {
+		t.Fatal("a withdrawal must never be derived from the finish")
+	}
+	for _, now := range []time.Time{finish, finish.Add(365 * 24 * time.Hour)} {
+		if l.Status(now) != LifecycleFinished || l.RuntimeOpen(now) || l.RegistrationOpen(now) {
+			t.Fatalf("event must stay finished, visible and closed for new runtime: %+v at %v", l, now)
+		}
 	}
 }

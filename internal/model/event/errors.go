@@ -8,6 +8,7 @@ import (
 
 // Error-code convention: see internal/model/exercise/errors.go. Enforced by
 // `make lint-errors`. Each var has exactly one non-test call site.
+// EventObjectCode: next free detail code: 55.
 //
 // EventObjectCode — detail codes 10–13 are reserved by eventContent.
 var (
@@ -100,9 +101,9 @@ var (
 				WithMessage("Event stage overlaps another stage").WithDetailCode(45)
 	ErrEventStageNameExists = err.ErrObjectExists.WithObjectCode(model.EventObjectCode).
 				WithMessage("Event stage with this name already exists").WithDetailCode(46)
-	// ErrEventStageAnchor: the first stage opens with the event and the last closes with it.
-	ErrEventStageAnchor = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
-				WithMessage("The first stage opens at the event start and the last closes at the event finish").WithDetailCode(47)
+	// ErrEventStageOutsideEvent: a stage must stay inside the configured event bounds.
+	ErrEventStageOutsideEvent = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
+					WithMessage("Stage times must stay within the event schedule and platform availability window").WithDetailCode(47)
 	// ErrEventStageClosedLocked: a closed stage accepts only a new name and nothing new in it.
 	ErrEventStageClosedLocked = err.ErrConflict.WithObjectCode(model.EventObjectCode).
 					WithMessage("The stage is closed and cannot be changed").WithDetailCode(48)
@@ -112,12 +113,14 @@ var (
 	// ErrEventStageNotDeletable: only an upcoming stage without exercises can be deleted.
 	ErrEventStageNotDeletable = err.ErrConflict.WithObjectCode(model.EventObjectCode).
 					WithMessage("Only an upcoming stage without exercises can be deleted").WithDetailCode(50)
-	// ErrEventStageNeedsFinish: stages need a scheduled event finish.
-	ErrEventStageNeedsFinish = err.ErrConflict.WithObjectCode(model.EventObjectCode).
-					WithMessage("Stages need a scheduled event start and finish").WithDetailCode(51)
+	// ErrEventStageNeedsSchedule: stages need a configured event start.
+	ErrEventStageNeedsSchedule = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+					WithMessage("Stages need a configured event start").WithDetailCode(51)
 	// ErrEventStageNotOpen: only an open stage can be closed now.
 	ErrEventStageNotOpen = err.ErrConflict.WithObjectCode(model.EventObjectCode).
 				WithMessage("Only an open stage can be closed now").WithDetailCode(52)
+	ErrEventStageBoundFinishMissing = err.ErrConflict.WithObjectCode(model.EventObjectCode).
+					WithMessage("Schedule the event finish before binding a stage closing to it").WithDetailCode(54)
 	// ErrEventArchived: an archived event is read-only for every manage write.
 	ErrEventArchived = err.ErrConflict.WithObjectCode(model.EventObjectCode).
 				WithMessage("Event is archived and read-only").WithDetailCode(53)

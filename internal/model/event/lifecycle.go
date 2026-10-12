@@ -24,9 +24,9 @@ const (
 	LifecycleWithdrawn
 )
 
-// Lifecycle is the timing and behavior part of an event. A scheduled end is
-// represented by the concrete finish/withdraw pair. Its absence means the
-// event runs until a manager sets ManualFinishAt.
+// Lifecycle is the timing and behavior part of an event. FinishAt ends participant runtime;
+// optional WithdrawAt later removes public visibility. Without a scheduled finish, the event
+// runs until a manager sets ManualFinishAt.
 type Lifecycle struct {
 	Configured bool // false until a manager explicitly schedules publication
 	JoinPolicy JoinPolicy
@@ -62,11 +62,10 @@ func (l Lifecycle) valid() bool {
 		return false
 	}
 
-	if l.FinishAt == nil && l.WithdrawAt == nil {
-		return l.FinishAt == nil && l.WithdrawAt == nil && l.validManualFinish(nil)
+	if l.FinishAt != nil && !l.FinishAt.After(l.StartAt) {
+		return false
 	}
-	if l.FinishAt == nil || l.WithdrawAt == nil ||
-		!l.FinishAt.After(l.StartAt) || !l.WithdrawAt.After(*l.FinishAt) {
+	if l.WithdrawAt != nil && (l.FinishAt == nil || !l.WithdrawAt.After(*l.FinishAt)) {
 		return false
 	}
 	return l.validManualFinish(l.WithdrawAt)

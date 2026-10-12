@@ -1,6 +1,6 @@
 -- name: CreateEventStage :one
-INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, lab_retention_minutes, created_at, updated_at)
-VALUES (sqlc.arg(id), sqlc.arg(event_id), sqlc.arg(name), sqlc.arg(opens_at), sqlc.arg(closes_at), sqlc.arg(returnable),sqlc.narg(lab_retention_minutes),
+INSERT INTO event_stages (id, event_id, name, opens_at, closes_at, returnable, opens_with_event, closes_with_event, lab_retention_minutes, created_at, updated_at)
+VALUES (sqlc.arg(id), sqlc.arg(event_id), sqlc.arg(name), sqlc.arg(opens_at), sqlc.arg(closes_at), sqlc.arg(returnable), sqlc.arg(opens_with_event), sqlc.arg(closes_with_event), sqlc.narg(lab_retention_minutes),
  sqlc.arg(created_at), sqlc.arg(updated_at))
 RETURNING *;
 
@@ -23,6 +23,8 @@ SET lab_retention_minutes=sqlc.narg(lab_retention_minutes),name       = sqlc.arg
     opens_at   = sqlc.arg(opens_at),
     closes_at  = sqlc.arg(closes_at),
     returnable = sqlc.arg(returnable),
+    opens_with_event = sqlc.arg(opens_with_event),
+    closes_with_event = sqlc.arg(closes_with_event),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
   AND event_id = sqlc.arg(event_id)

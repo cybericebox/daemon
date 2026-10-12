@@ -26,7 +26,7 @@ func New(q Queries) *Repository { return &Repository{q: q} }
 
 func (r *Repository) Create(ctx context.Context, s eventModel.Stage) (eventModel.Stage, error) {
 	row, err := r.q.CreateEventStage(ctx, postgres.CreateEventStageParams{LabRetentionMinutes: minutes(s.LabRetentionMinutes), ID: s.ID, EventID: s.EventID, Name: s.Name, OpensAt: s.OpensAt,
-		ClosesAt: s.ClosesAt, Returnable: s.Returnable, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt})
+		ClosesAt: s.ClosesAt, Returnable: s.Returnable, OpensWithEvent: s.OpensWithEvent, ClosesWithEvent: s.ClosesWithEvent, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt})
 	if err != nil {
 		return eventModel.Stage{}, err
 	}
@@ -56,7 +56,7 @@ func (r *Repository) List(ctx context.Context, eventID uuid.UUID) ([]eventModel.
 
 func (r *Repository) Update(ctx context.Context, s eventModel.Stage) (eventModel.Stage, error) {
 	row, err := r.q.UpdateEventStage(ctx, postgres.UpdateEventStageParams{LabRetentionMinutes: minutes(s.LabRetentionMinutes), ID: s.ID, EventID: s.EventID, Name: s.Name, OpensAt: s.OpensAt,
-		ClosesAt: s.ClosesAt, Returnable: s.Returnable, UpdatedAt: s.UpdatedAt})
+		ClosesAt: s.ClosesAt, Returnable: s.Returnable, OpensWithEvent: s.OpensWithEvent, ClosesWithEvent: s.ClosesWithEvent, UpdatedAt: s.UpdatedAt})
 	if err != nil {
 		return eventModel.Stage{}, err
 	}
@@ -80,7 +80,7 @@ func ToDomain(row postgres.EventStage) eventModel.Stage {
 		retention = &n
 	}
 	return eventModel.Stage{LabRetentionMinutes: retention, ID: row.ID, EventID: row.EventID, Name: row.Name, OpensAt: row.OpensAt, ClosesAt: row.ClosesAt,
-		Returnable: row.Returnable, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
+		Returnable: row.Returnable, OpensWithEvent: row.OpensWithEvent, ClosesWithEvent: row.ClosesWithEvent, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 }
 
 func minutes(v *int32) pgtype.Int4 {

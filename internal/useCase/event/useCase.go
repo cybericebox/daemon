@@ -464,12 +464,21 @@ func (u *EventUseCase) mutateEvent(ctx context.Context, id uuid.UUID, mutate fun
 		return eventModel.Event{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
 	expectedUpdatedAt := e.UpdatedAt
+	previousAvailableFrom, previousArchiveAt := e.AvailableFrom, e.ArchiveAt
 	if err = mutate(&e); err != nil {
 		return eventModel.Event{}, err
 	}
-	affected, err := u.events.Update(ctx, e, expectedUpdatedAt)
-	if err != nil {
-		return eventModel.Event{}, classifyEventWriteError(err, "update")
+	var affected int64
+	if e.Lifecycle.Configured && (!e.AvailableFrom.Equal(previousAvailableFrom) || !e.ArchiveAt.Equal(previousArchiveAt)) {
+		affected, err = u.saveEventAvailabilityWithStages(ctx, e, expectedUpdatedAt)
+		if err != nil {
+			return eventModel.Event{}, err
+		}
+	} else {
+		affected, err = u.events.Update(ctx, e, expectedUpdatedAt)
+		if err != nil {
+			return eventModel.Event{}, classifyEventWriteError(err, "update")
+		}
 	}
 	if affected == 0 {
 		if _, err = u.events.GetByID(ctx, id); err != nil {
@@ -478,6 +487,54 @@ func (u *EventUseCase) mutateEvent(ctx context.Context, id uuid.UUID, mutate fun
 		return eventModel.Event{}, eventModel.ErrEventModified.Err()
 	}
 	return e, nil
+}
+
+// Availability changes span the event and its stage windows. Validate and write under the
+// event-row lock shared by stage mutations; no stage date or source is rewritten here.
+func (u *EventUseCase) saveEventAvailabilityWithStages(ctx context.Context, e eventModel.Event, expected time.Time) (int64, error) {
+	if u.uow == nil {
+		return 0, model.ErrPlatform.WithMessage("Event transaction is not configured").Err()
+	}
+	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer unit.Restore()
+	if _, err = txRepo.LockEventForLabSourceChange(txCtx, e.ID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return 0, nil
+		}
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to lock event availability").Err()
+	}
+	events := eventRepo.New(txRepo)
+	current, err := events.GetByID(txCtx, e.ID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return 0, nil
+		}
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	if !current.UpdatedAt.Equal(expected) {
+		return 0, nil
+	}
+	stages, err := eventStageRepo.New(txRepo).List(txCtx, e.ID)
+	if err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
+	}
+	if err = eventModel.ValidateStages(stages, e.Lifecycle.StartAt, e.Lifecycle.FinishAt, e.ArchiveAt); err != nil {
+		return 0, err
+	}
+	affected, err := events.Update(txCtx, e, expected)
+	if err != nil {
+		return 0, classifyEventWriteError(err, "update")
+	}
+	if affected == 0 {
+		return 0, nil
+	}
+	if err = unit.Save(); err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to update event availability").Err()
+	}
+	return affected, nil
 }
 
 // classifyEventWriteError maps tag-window collisions to the

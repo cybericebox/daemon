@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	"github.com/cybericebox/daemon/internal/useCase/event"
 )
@@ -30,9 +31,9 @@ func (f *standFixture) stageTimes(t *testing.T, id uuid.UUID, opens, closes time
 
 func (f *standFixture) is(err error, want error) bool { return errors.Is(err, want) }
 
-// The stage lifecycle through the use case: where a new stage lands, what each state allows, and that the
-// first and last boundaries follow the event schedule.
-func TestEventStages_CreateEditDeleteAndAnchoring(t *testing.T) {
+// The stage lifecycle through the use case: where a new stage lands, what each state allows, and how
+// each explicit window remains independent of its neighbors and the event schedule.
+func TestEventStages_CreateEditDeleteWithIndependentWindows(t *testing.T) {
 	f := newStandFixture(t)
 	ctx := context.Background()
 	// the fixture publishes before the event becomes available; a lifecycle edit needs a consistent row
@@ -43,16 +44,16 @@ func TestEventStages_CreateEditDeleteAndAnchoring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start, finish := e.StartAt, *e.FinishAt
+	start := e.StartAt
 
 	one, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "One", OpensAt: start.Add(time.Minute), ClosesAt: start.Add(2 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !one.OpensAt.Equal(start.Truncate(time.Microsecond)) || !one.ClosesAt.Equal(finish.Truncate(time.Microsecond)) || !one.First || !one.Last || one.State != eventModel.StageUpcoming {
-		t.Fatalf("the first stage is the whole event window: %+v", one)
+	if !one.OpensAt.Equal(start.Add(time.Minute).Truncate(time.Microsecond)) || !one.ClosesAt.Equal(start.Add(2*time.Minute).Truncate(time.Microsecond)) || !one.First || !one.Last || one.State != eventModel.StageUpcoming {
+		t.Fatalf("the first stage keeps its explicit window: %+v", one)
 	}
-	two, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Two", OpensAt: start.Add(time.Hour), ClosesAt: start.Add(2 * time.Hour), Returnable: true})
+	two, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Two", OpensAt: start.Add(time.Hour), ClosesAt: start.Add(90 * time.Minute), Returnable: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,28 +61,41 @@ func TestEventStages_CreateEditDeleteAndAnchoring(t *testing.T) {
 	if err != nil || len(stages) != 2 || stages[0].ID != one.ID || stages[1].ID != two.ID {
 		t.Fatalf("stages = %+v err=%v", stages, err)
 	}
-	if !stages[0].ClosesAt.Equal(start.Add(time.Hour).Truncate(time.Microsecond)) || !stages[1].ClosesAt.Equal(finish.Truncate(time.Microsecond)) || stages[0].Last || !stages[1].Last {
-		t.Fatalf("the previous last stage ends where the new one opens: %+v", stages)
+	if !stages[0].ClosesAt.Equal(start.Add(2*time.Minute).Truncate(time.Microsecond)) || !stages[1].ClosesAt.Equal(start.Add(90*time.Minute).Truncate(time.Microsecond)) || stages[0].Last || !stages[1].Last {
+		t.Fatalf("adding a stage must not move either window: %+v", stages)
 	}
 	if _, err = f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "one", OpensAt: start.Add(90 * time.Minute), ClosesAt: start.Add(100 * time.Minute)}); err == nil {
 		t.Fatal("a duplicate name must be refused")
 	}
 
-	// the anchors are the event's: editing them is refused
-	newStart := start.Add(-5 * time.Minute)
-	if _, err = f.uc.UpdateEventStage(ctx, f.eventID, one.ID, event.UpdateStageInput{OpensAt: &newStart}); !f.is(err, eventModel.ErrEventStageAnchor.Err()) {
-		t.Fatalf("the first stage's opens_at is the event start: %v", err)
+	if one.DeployLeadMinutes <= 0 || two.DeployLeadMinutes <= 0 {
+		t.Fatal("stage replies must retain the computed preparation lead")
 	}
-	// ... but moving the event start moves the first stage with it
+	// The first and last stages are editable without moving the event.
+	ownOpen, ownClose := start.Add(3*time.Minute), start.Add(4*time.Minute)
+	if _, err = f.uc.UpdateEventStage(ctx, f.eventID, one.ID, event.UpdateStageInput{OpensAt: &ownOpen, ClosesAt: &ownClose}); err != nil {
+		t.Fatalf("first-stage dates: %v", err)
+	}
+	newStart := start.Add(-5 * time.Minute)
 	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: e.JoinPolicy, PublishAt: e.PublishAt, StartAt: newStart, FinishAt: e.FinishAt, WithdrawAt: e.WithdrawAt}, f.ownerID); err != nil {
 		t.Fatalf("lifecycle edit: %v", err)
 	}
-	if stages, _ = f.uc.ListEventStages(ctx, f.eventID); !stages[0].OpensAt.Equal(newStart.Truncate(time.Microsecond)) {
-		t.Fatalf("the first stage must follow the event start: %+v", stages[0])
+	if stages, _ = f.uc.ListEventStages(ctx, f.eventID); !stages[0].OpensAt.Equal(ownOpen.Truncate(time.Microsecond)) || !stages[0].ClosesAt.Equal(ownClose.Truncate(time.Microsecond)) {
+		t.Fatalf("event schedule must leave stage dates unchanged: %+v", stages[0])
 	}
-	// removing the finish while stages exist is refused
-	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: e.JoinPolicy, PublishAt: e.PublishAt, StartAt: newStart}, f.ownerID); err == nil {
-		t.Fatal("stages need a scheduled finish")
+	// A running event may have no scheduled finish while its stages have explicit closing times.
+	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: e.JoinPolicy, PublishAt: e.PublishAt, StartAt: newStart}, f.ownerID); err != nil {
+		t.Fatalf("finish is optional: %v", err)
+	}
+	third, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Three", OpensAt: start.Add(3 * time.Hour), ClosesAt: start.Add(4 * time.Hour)})
+	if err != nil {
+		t.Fatalf("creation without event finish: %v", err)
+	}
+	if err = f.uc.DeleteEventStage(ctx, f.eventID, third.ID); err != nil {
+		t.Fatal(err)
+	}
+	if stages, _ = f.uc.ListEventStages(ctx, f.eventID); !stages[1].ClosesAt.Equal(start.Add(90 * time.Minute).Truncate(time.Microsecond)) {
+		t.Fatalf("deleting the last stage must not retime its neighbor: %+v", stages)
 	}
 
 	// sets: free before the stage opens
@@ -136,6 +150,10 @@ func TestEventStages_CreateEditDeleteAndAnchoring(t *testing.T) {
 	if err != nil || closed.State != eventModel.StageClosed {
 		t.Fatalf("close now: %+v err=%v", closed, err)
 	}
+	afterClose, lifecycleErr := f.uc.GetEventLifecycle(ctx, f.eventID)
+	if lifecycleErr != nil || afterClose.FinishAt == nil || !afterClose.FinishAt.Equal(*shifted.FinishAt) {
+		t.Fatalf("stage close changed event finish: %+v err=%v", afterClose, lifecycleErr)
+	}
 	stages, _ = f.uc.ListEventStages(ctx, f.eventID)
 	if !stages[1].OpensAt.Equal(now.Add(10 * time.Minute).Truncate(time.Microsecond)) {
 		t.Fatalf("the next stage must not start earlier: %+v", stages[1])
@@ -166,11 +184,11 @@ func TestStandEngine_LaterStageLabsDeployAtTheirLead(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := e.StartAt
-	one, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "One"})
+	one, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "One", OpensAt: start, ClosesAt: start.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Two", OpensAt: start.Add(time.Hour)})
+	two, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Two", OpensAt: start.Add(time.Hour), ClosesAt: *e.FinishAt})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,5 +235,186 @@ func TestStandEngine_LaterStageLabsDeployAtTheirLead(t *testing.T) {
 	f.pass(t)
 	if len(f.agent.deployed) != before+3 {
 		t.Fatalf("a set added to an open stage deploys at once: %d -> %d", before, len(f.agent.deployed))
+	}
+}
+
+func TestEventStages_SelectedBoundariesFollowScheduleAndCustomDatesStay(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE events SET available_from=publish_at-interval '1 hour' WHERE id=$1`, f.eventID); err != nil {
+		t.Fatal(err)
+	}
+	e, err := f.uc.GetEventLifecycle(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, finish := e.StartAt, *e.FinishAt
+	first, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Bound start", OpensAt: start, ClosesAt: start.Add(10 * time.Minute), OpensWithEvent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mid, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Custom", OpensAt: start.Add(20 * time.Minute), ClosesAt: start.Add(30 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Bound finish", OpensAt: start.Add(40 * time.Minute), ClosesAt: finish, ClosesWithEvent: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.OpensWithEvent || first.ClosesWithEvent || mid.OpensWithEvent || mid.ClosesWithEvent || !last.ClosesWithEvent {
+		t.Fatal("explicit source choices were not preserved")
+	}
+	nextStart, nextFinish := start.Add(time.Minute), finish.Add(time.Hour)
+	nextWithdraw := nextFinish.Add(time.Hour)
+	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: e.JoinPolicy, PublishAt: e.PublishAt, StartAt: nextStart, FinishAt: &nextFinish, WithdrawAt: &nextWithdraw}, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := f.uc.ListEventStages(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[uuid.UUID]event.EventStageView{}
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	if !byID[first.ID].OpensAt.Equal(nextStart.Truncate(time.Microsecond)) || !byID[first.ID].ClosesAt.Equal(first.ClosesAt) || !byID[last.ID].ClosesAt.Equal(nextFinish.Truncate(time.Microsecond)) || !byID[mid.ID].OpensAt.Equal(mid.OpensAt) || !byID[mid.ID].ClosesAt.Equal(mid.ClosesAt) {
+		t.Fatalf("only selected boundaries should move: %+v", rows)
+	}
+	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: e.JoinPolicy, PublishAt: e.PublishAt, StartAt: nextStart}, f.ownerID); err == nil {
+		t.Fatal("cannot remove event finish while an upcoming stage closing follows it")
+	}
+}
+
+func TestEventStageScheduleEditPreservesRecordedManualFinish(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	f.shiftLifecycle(t, -time.Hour, 2*time.Hour)
+	actualFinish := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE events SET available_from=publish_at-interval '1 hour', manual_finished_at=$2 WHERE id=$1`, f.eventID, actualFinish); err != nil {
+		t.Fatal(err)
+	}
+	before, err := f.uc.GetEventLifecycle(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finish := before.FinishAt.Add(time.Hour)
+	withdraw := finish.Add(time.Hour)
+	after, err := f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: before.JoinPolicy, PublishAt: before.PublishAt, StartAt: before.StartAt, FinishAt: &finish, WithdrawAt: &withdraw}, f.ownerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recorded *time.Time
+	if err := f.db.Pool.QueryRow(ctx, `SELECT manual_finished_at FROM events WHERE id=$1`, f.eventID).Scan(&recorded); err != nil {
+		t.Fatal(err)
+	}
+	if recorded == nil || !recorded.Equal(actualFinish) || after.Status != eventModel.LifecycleFinished {
+		t.Fatalf("editing scheduled dates must not erase actual finish or reopen runtime: %+v", after)
+	}
+}
+
+func TestCustomStageWindowsStayInsidePlatformAvailabilityWithoutScheduledFinish(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE events SET available_from=publish_at-interval '1 hour' WHERE id=$1`, f.eventID); err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := f.uc.GetEventLifecycle(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: lifecycle.JoinPolicy, PublishAt: lifecycle.PublishAt, StartAt: lifecycle.StartAt}, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	platform, err := f.uc.GetEvent(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := lifecycle.StartAt.Add(90 * time.Minute)
+	if _, err = f.uc.UpdateEvent(ctx, f.eventID, event.UpdateEventInput{Tag: platform.Tag, Name: platform.Name, AvailableFrom: platform.AvailableFrom, ArchiveAt: archive}, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	late := archive.Add(time.Hour)
+	if _, err = f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Unreachable", OpensAt: archive.Add(time.Minute), ClosesAt: late}); !f.is(err, eventModel.ErrEventStageOutsideEvent.Err()) {
+		t.Fatalf("a stage after platform archive must be refused: %v", err)
+	}
+	allowed, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Inside", OpensAt: lifecycle.StartAt.Add(time.Hour), ClosesAt: archive})
+	if err != nil {
+		t.Fatalf("stage closing exactly at archive is valid: %v", err)
+	}
+	if _, err = f.uc.UpdateEventStage(ctx, f.eventID, allowed.ID, event.UpdateStageInput{ClosesAt: &late}); !f.is(err, eventModel.ErrEventStageOutsideEvent.Err()) {
+		t.Fatalf("stage edit cannot outlast availability: %v", err)
+	}
+	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: lifecycle.JoinPolicy, PublishAt: lifecycle.PublishAt, StartAt: lifecycle.StartAt}, f.ownerID); err != nil {
+		t.Fatalf("custom closure with nil event finish should remain valid: %v", err)
+	}
+	if rows, err := f.uc.ListEventStages(ctx, f.eventID); err != nil || len(rows) != 1 || rows[0].ClosesWithEvent || !rows[0].ClosesAt.Equal(archive.Truncate(time.Microsecond)) {
+		t.Fatalf("archive must not become a source or retime a stage: %+v err=%v", rows, err)
+	}
+	smaller := archive.Add(-time.Minute)
+	if _, err = f.uc.UpdateEvent(ctx, f.eventID, event.UpdateEventInput{Tag: platform.Tag, Name: platform.Name, AvailableFrom: platform.AvailableFrom, ArchiveAt: smaller}, f.ownerID); !f.is(err, eventModel.ErrEventStageOutsideEvent.Err()) {
+		t.Fatalf("platform availability edit must not crop existing stage: %v", err)
+	}
+	current, err := f.uc.GetEvent(ctx, f.eventID)
+	if err != nil || !current.ArchiveAt.Equal(archive.Truncate(time.Microsecond)) {
+		t.Fatalf("rejected platform update changed availability: %+v err=%v", current, err)
+	}
+	// Historical/externally written rows are still loaded, but a lifecycle write must not accept an unreachable window.
+	f.stageTimes(t, allowed.ID, allowed.OpensAt, late)
+	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: lifecycle.JoinPolicy, PublishAt: lifecycle.PublishAt, StartAt: lifecycle.StartAt}, f.ownerID); !f.is(err, eventModel.ErrEventStageOutsideEvent.Err()) {
+		t.Fatalf("lifecycle edit must enforce availability independently of optional finish: %v", err)
+	}
+	if rows, err := f.uc.ListEventStages(ctx, f.eventID); err != nil || !rows[0].ClosesAt.Equal(late.Truncate(time.Microsecond)) {
+		t.Fatalf("validation must not rewrite historical timestamps: %+v err=%v", rows, err)
+	}
+}
+
+type availabilityBeforeLockUOW struct {
+	inner        postgres.IUnitOfWorker[event.IRepository]
+	publishStage func() error
+}
+
+func (w availabilityBeforeLockUOW) UnitOfWork(ctx context.Context) (context.Context, event.IRepository, postgres.UoW, error) {
+	txCtx, q, unit, err := w.inner.UnitOfWork(ctx)
+	if err != nil {
+		return txCtx, q, unit, err
+	}
+	if err = w.publishStage(); err != nil {
+		unit.Restore()
+		return txCtx, q, unit, err
+	}
+	return txCtx, q, unit, nil
+}
+
+func TestAdminAvailabilityChecksStagesPublishedAfterInitialEventRead(t *testing.T) {
+	f := newStandFixture(t)
+	ctx := context.Background()
+	if _, err := f.db.Pool.Exec(ctx, `UPDATE events SET available_from=publish_at-interval '1 hour' WHERE id=$1`, f.eventID); err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, err := f.uc.GetEventLifecycle(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.uc.UpdateEventLifecycle(ctx, f.eventID, event.UpdateLifecycleInput{JoinPolicy: lifecycle.JoinPolicy, PublishAt: lifecycle.PublishAt, StartAt: lifecycle.StartAt}, f.ownerID); err != nil {
+		t.Fatal(err)
+	}
+	platform, err := f.uc.GetEvent(ctx, f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := lifecycle.StartAt.Add(time.Hour)
+	staged := false
+	uow := availabilityBeforeLockUOW{inner: postgres.NewUnitOfWorker[event.IRepository](postgres.NewUoWFactory(f.db.Pool)), publishStage: func() error {
+		staged = true
+		_, err := f.uc.CreateEventStage(ctx, f.eventID, event.CreateStageInput{Name: "Arrived before lock", OpensAt: lifecycle.StartAt.Add(30 * time.Minute), ClosesAt: lifecycle.StartAt.Add(90 * time.Minute)})
+		return err
+	}}
+	admin := event.NewEventUseCase(event.Dependencies{Repo: f.db.Queries, UoW: uow})
+	if _, err = admin.UpdateEvent(ctx, f.eventID, event.UpdateEventInput{Tag: platform.Tag, Name: platform.Name, AvailableFrom: platform.AvailableFrom, ArchiveAt: archive}, f.ownerID); !f.is(err, eventModel.ErrEventStageOutsideEvent.Err()) || !staged {
+		t.Fatalf("availability validation must see stages committed after preliminary read: staged=%v err=%v", staged, err)
+	}
+	current, err := f.uc.GetEvent(ctx, f.eventID)
+	if err != nil || !current.ArchiveAt.IsZero() {
+		t.Fatalf("rejected availability edit changed event: %+v err=%v", current, err)
 	}
 }

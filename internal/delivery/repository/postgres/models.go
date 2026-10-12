@@ -420,6 +420,8 @@ type EventStage struct {
 	CreatedAt           time.Time   `json:"created_at"`
 	UpdatedAt           time.Time   `json:"updated_at"`
 	LabRetentionMinutes pgtype.Int4 `json:"lab_retention_minutes"`
+	OpensWithEvent      bool        `json:"opens_with_event"`
+	ClosesWithEvent     bool        `json:"closes_with_event"`
 }
 
 type EventStageLabRuntimeMembership struct {
