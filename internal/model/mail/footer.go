@@ -3,6 +3,7 @@ package mailModel
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -101,10 +102,10 @@ const (
 // defaultFooterTexts are the built-in footers in the legacy text form; the
 // document is derived from them.
 var defaultFooterTexts = map[Language]string{
-	LanguageUK: "Цей лист надіслано автоматично. З питань відповідайте на нього або пишіть на {reply_to}.\n" +
-		"{platform_name} · {site_url} · Політика конфіденційності: {privacy_url}",
-	LanguageEN: "This email was sent automatically. Reply to it or write to {reply_to}.\n" +
-		"{platform_name} · {site_url} · Privacy Policy: {privacy_url}",
+	LanguageUK: "Цей лист надіслано автоматично. [Звʼязатися з нами]({reply_to})\n" +
+		"[{platform_name}]({site_url}) · [Політика конфіденційності]({privacy_url})",
+	LanguageEN: "This email was sent automatically. [Contact us]({reply_to})\n" +
+		"[{platform_name}]({site_url}) · [Privacy Policy]({privacy_url})",
 }
 
 // DefaultFooterDoc is the built-in footer document for lang (unknown values
@@ -114,7 +115,7 @@ func DefaultFooterDoc(lang Language) json.RawMessage {
 	if !ok {
 		text = defaultFooterTexts[LanguageUK]
 	}
-	return LegacyFooterDoc(text)
+	return footerDoc(text, "center")
 }
 
 // FooterValues are the variable values of a message: the platform site and the
@@ -201,12 +202,18 @@ var (
 // LegacyFooterDoc converts a footer in the text form ({name} variables,
 // [label](target) links, one paragraph per line) into a document.
 func LegacyFooterDoc(text string) json.RawMessage {
+	return footerDoc(text, "")
+}
+
+func footerDoc(text, align string) json.RawMessage {
 	var blocks []any
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		blocks = append(blocks, paragraphNode(legacyInline(line)))
+		paragraph := paragraphNode(legacyInline(line))
+		paragraph["format"] = align
+		blocks = append(blocks, paragraph)
 	}
 	if blocks == nil {
 		blocks = []any{}
@@ -280,8 +287,8 @@ var footerNodeTypes = map[string]bool{
 
 // NormalizeFooterDoc validates a footer document and returns its canonical
 // form. Known node types and variables only, links to http(s), mailto or a
-// variable. A document with no content, or the same content as the built-in
-// default, is stored as nil so the default keeps following the platform.
+// variable. Empty documents and visually equivalent built-in defaults are
+// stored as nil so the default keeps following the platform.
 func NormalizeFooterDoc(raw json.RawMessage) (json.RawMessage, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
@@ -296,15 +303,51 @@ func NormalizeFooterDoc(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, ErrFooterInvalid.WithMessage(reason).Err()
 	}
 	sig := strings.TrimSpace(footerSignature(doc["children"]))
-	if sig == "" || sig == strings.TrimSpace(footerSignature(rootChildren(DefaultFooterDoc(LanguageUK)))) ||
-		sig == strings.TrimSpace(footerSignature(rootChildren(DefaultFooterDoc(LanguageEN)))) {
+	if sig == "" {
 		return nil, nil
+	}
+	for _, lang := range []Language{LanguageUK, LanguageEN} {
+		defaultRoot, _ := parseFooterDoc(DefaultFooterDoc(lang))
+		if reflect.DeepEqual(footerComparable(doc), footerComparable(defaultRoot)) {
+			return nil, nil
+		}
 	}
 	canonical, err := json.Marshal(node{"root": doc})
 	if err != nil {
 		return nil, ErrFooterInvalid.WithMessage("Footer is not a valid document").Err()
 	}
 	return canonical, nil
+}
+
+// Lexical fills empty defaults and versions during editing. Ignore this
+// bookkeeping when comparing defaults, while retaining alignment and styles.
+func footerComparable(value any) any {
+	switch value := value.(type) {
+	case []any:
+		out := make([]any, len(value))
+		for i, child := range value {
+			out[i] = footerComparable(child)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(value))
+		for key, item := range value {
+			if key == "version" ||
+				((key == "format" || key == "detail" || key == "indent" || key == "textFormat") && (item == float64(0) || item == "")) ||
+				((key == "style" || key == "textStyle") && item == "") ||
+				(key == "direction" && (item == nil || item == "ltr")) ||
+				(key == "mode" && item == "normal") {
+				continue
+			}
+			if formats, ok := item.([]any); key == "formats" && ok && len(formats) == 0 {
+				continue
+			}
+			out[key] = footerComparable(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func parseFooterDoc(raw []byte) (node, string) {
@@ -437,7 +480,9 @@ func ResolveFooterDoc(doc []byte, vars map[string]string) (resolved json.RawMess
 		}
 		blocks = append(blocks, out...)
 	}
-	return rootDoc(blocks), len(blocks) > 0
+	root["children"] = blocks
+	resolved, err := json.Marshal(node{"root": root})
+	return resolved, err == nil && len(blocks) > 0
 }
 
 func usesEmptyVariable(n node, vars map[string]string) bool {

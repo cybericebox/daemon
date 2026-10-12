@@ -23,10 +23,10 @@ func requireFooter(t *testing.T, msg email.Message, supportEmail string) {
 	t.Helper()
 	require.Contains(t, msg.HTML, `href="mailto:`+supportEmail+`"`)
 	require.Contains(t, msg.HTML, `href="https://cybericebox.com/privacy"`)
-	require.True(t, strings.HasSuffix(msg.Text, "—\n"+
-		"Цей лист надіслано автоматично. З питань відповідайте на нього або пишіть на "+supportEmail+".\n"+
-		"Cyber\u00a0ICE\u00a0Box · cybericebox.com · Політика конфіденційності: cybericebox.com/privacy"), msg.Text)
-	require.Equal(t, 1, strings.Count(msg.HTML, "Cyber&nbsp;ICE&nbsp;Box ·"), "footer appended once")
+	require.True(t, strings.HasSuffix(msg.Text,
+		"Цей лист надіслано автоматично. Звʼязатися з нами (mailto:"+supportEmail+")\n"+
+			"Cyber\u00a0ICE\u00a0Box (https://cybericebox.com) · Політика конфіденційності (https://cybericebox.com/privacy)"), msg.Text)
+	require.Equal(t, 1, strings.Count(msg.HTML, `href="https://cybericebox.com/privacy"`), "footer appended once")
 }
 
 func TestDeliver_PlatformMailEndsWithFooter(t *testing.T) {
@@ -38,7 +38,7 @@ func TestDeliver_PlatformMailEndsWithFooter(t *testing.T) {
 	require.Len(t, smtp.sends, 1)
 	sent := smtp.sends[0].msg
 	require.True(t, strings.HasPrefix(sent.HTML, "<p>Привіт</p>"))
-	require.True(t, strings.HasPrefix(sent.Text, "Привіт\n\n—\n"))
+	require.True(t, strings.HasPrefix(sent.Text, "Привіт\n\nЦей лист надіслано автоматично."))
 	requireFooter(t, sent, "support@cybericebox.com")
 }
 
@@ -148,11 +148,11 @@ func TestFooter_EventUsesOwnReplyToThenPlatformThenSupport(t *testing.T) {
 
 	footer, err := uc.Footer(context.Background(), &eventID)
 	require.NoError(t, err)
-	require.Contains(t, footer.Text, "пишіть на org@uni.edu.")
+	require.Contains(t, footer.Text, "mailto:org@uni.edu")
 
 	footer, err = uc.Footer(context.Background(), &eventID)
 	require.NoError(t, err)
-	require.Contains(t, footer.Text, "пишіть на support@cybericebox.com.")
+	require.Contains(t, footer.Text, "mailto:support@cybericebox.com")
 }
 
 func TestFooter_WithoutPlatformTransportStillUsesSupport(t *testing.T) {
@@ -162,7 +162,7 @@ func TestFooter_WithoutPlatformTransportStillUsesSupport(t *testing.T) {
 
 	footer, err := uc.Footer(context.Background(), nil)
 	require.NoError(t, err)
-	require.Contains(t, footer.Text, "пишіть на support@cybericebox.com.")
+	require.Contains(t, footer.Text, "mailto:support@cybericebox.com")
 }
 
 const savedFooterDoc = `{"root":{"type":"root","children":[{"type":"paragraph","children":[` +
@@ -178,7 +178,7 @@ func TestDeliver_SavedFooterReplacesTheDefault(t *testing.T) {
 
 	require.NoError(t, uc.Deliver(context.Background(), nil, email.Message{To: "u@example.org", HTML: "<p>x</p>", Text: "x"}))
 	sent := smtp.sends[0].msg
-	require.True(t, strings.HasSuffix(sent.Text, "—\nДякуємо! support@cybericebox.com · cybericebox.com"), sent.Text)
+	require.True(t, strings.HasSuffix(sent.Text, "Дякуємо! support@cybericebox.com · cybericebox.com"), sent.Text)
 	require.Contains(t, sent.HTML, "<strong>Дякуємо! </strong>", "formatting comes through the body renderer")
 	require.Contains(t, sent.HTML, `href="mailto:support@cybericebox.com"`)
 	require.NotContains(t, sent.HTML, "Політика")
@@ -193,7 +193,7 @@ func TestDeliver_FooterSavedAsTextIsStillRendered(t *testing.T) {
 
 	require.NoError(t, uc.Deliver(context.Background(), nil, email.Message{To: "u@example.org", HTML: "<p>x</p>", Text: "x"}))
 	sent := smtp.sends[0].msg
-	require.True(t, strings.HasSuffix(sent.Text, "—\nДякуємо! support@cybericebox.com · Політика (https://cybericebox.com/privacy)"), sent.Text)
+	require.True(t, strings.HasSuffix(sent.Text, "Дякуємо! support@cybericebox.com · Політика (https://cybericebox.com/privacy)"), sent.Text)
 	require.Contains(t, sent.HTML, `href="https://cybericebox.com/privacy"`)
 }
 
@@ -212,7 +212,8 @@ func TestFooterHTML_NoShadowsAndEscapesValues(t *testing.T) {
 	footer := renderFooter(nil, `a"<b>@x.y`, "https://x.y")
 	require.NotContains(t, footer.HTML, "shadow")
 	require.NotContains(t, footer.HTML, `a"<b>`)
-	require.Contains(t, footer.HTML, ">—</p>", "the fold line opens the footer")
+	require.NotContains(t, footer.HTML, ">—</p>", "the footer needs no extra decorative line")
+	require.Equal(t, 2, strings.Count(footer.HTML, `align="center"`))
 }
 
 func TestRenderFooter_NothingToShowIsEmpty(t *testing.T) {
@@ -277,7 +278,7 @@ func TestPreviewPlatformFooter_RendersUnsavedDocWithPlatformValues(t *testing.T)
 
 	preview, err := uc.PreviewPlatformFooter(context.Background(), []byte(savedFooterDoc))
 	require.NoError(t, err)
-	require.Equal(t, "—\nДякуємо! support@cybericebox.com · cybericebox.com", preview.Text)
+	require.Equal(t, "Дякуємо! support@cybericebox.com · cybericebox.com", preview.Text)
 	require.Contains(t, preview.HTML, `href="mailto:support@cybericebox.com"`)
 
 	_, err = uc.PreviewPlatformFooter(context.Background(), []byte(`{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"variable","varName":"nope"}]}]}}`))
@@ -286,4 +287,15 @@ func TestPreviewPlatformFooter_RendersUnsavedDocWithPlatformValues(t *testing.T)
 	preview, err = uc.PreviewPlatformFooter(context.Background(), nil)
 	require.NoError(t, err)
 	require.Contains(t, preview.Text, "Політика конфіденційності")
+}
+
+func TestPreviewPlatformFooterKeepsRootAlignment(t *testing.T) {
+	uc, repo, _ := newTestUseCase(t, config.SMTPConfig{}, nil)
+	expectPlatformIdentity(repo, &platformIdentityRow)
+	doc := json.RawMessage(`{"root":{"type":"root","format":"right","children":[{"type":"paragraph","children":[{"type":"text","text":"Contact "},{"type":"variable","varName":"reply_to"}]}]}}`)
+	preview, err := uc.PreviewPlatformFooter(context.Background(), doc)
+	require.NoError(t, err)
+	require.Contains(t, preview.HTML, `text-align:right`)
+	require.Contains(t, preview.HTML, `align="right"`)
+	require.Contains(t, preview.HTML, `href="mailto:support@cybericebox.com"`)
 }

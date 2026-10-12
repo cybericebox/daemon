@@ -422,7 +422,8 @@ func TestRenderEmail_LogoBlock(t *testing.T) {
 	body := json.RawMessage(`[{"type":"logo","align":"center","width_px":64}]`)
 	r, err := render.RenderEmail(body, nil, nil, nil, cidContext(testBrand))
 	require.NoError(t, err)
-	assert.Contains(t, r.HTML, `<div style="text-align:center;margin:0 0 24px"><img src="cid:logo@cybericebox" alt="Cyber ICE Box" width="64"`)
+	assert.Contains(t, r.HTML, `<td align="center"`)
+	assert.Contains(t, r.HTML, `<img src="cid:logo@cybericebox" alt="Cyber ICE Box" width="64"`)
 	assert.Equal(t, []render.Asset{{Kind: render.AssetLogo}}, r.Assets)
 }
 
@@ -438,7 +439,7 @@ func TestRenderEmail_LogoWidthDefaultAndClamp(t *testing.T) {
 		r, err := render.RenderEmail(json.RawMessage(tc.in), nil, nil, nil, cidContext(testBrand))
 		require.NoError(t, err)
 		assert.Contains(t, r.HTML, tc.want, tc.in)
-		assert.Contains(t, r.HTML, `text-align:left`, tc.in)
+		assert.Contains(t, r.HTML, `text-align:center`, tc.in)
 	}
 }
 
