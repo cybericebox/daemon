@@ -165,17 +165,17 @@ type lexicalNode struct {
 
 // Lexical text-format bits.
 const (
-	formatBold          lexicalFormat = 1
-	formatItalic        lexicalFormat = 2
-	formatStrikethrough lexicalFormat = 4
-	formatUnderline     lexicalFormat = 8
-	formatCode          lexicalFormat = 16
+	formatBold          = 1
+	formatItalic        = 2
+	formatStrikethrough = 4
+	formatUnderline     = 8
+	formatCode          = 16
 )
 
 // formatsMask converts a variable node's format names (the editor stores a
 // variable chip's formatting as a list, not a bitmask) into the text bitmask.
-func formatsMask(names []string) lexicalFormat {
-	var f lexicalFormat
+func formatsMask(names []string) int {
+	var f int
 	for _, name := range names {
 		switch name {
 		case "bold":
@@ -195,7 +195,7 @@ func formatsMask(names []string) lexicalFormat {
 
 // wrapTextFormat wraps escaped text in the tags of its format bitmask, in a
 // fixed order (bold innermost, code outermost).
-func wrapTextFormat(s string, f lexicalFormat) string {
+func wrapTextFormat(s string, f int) string {
 	if f&formatBold != 0 {
 		s = "<strong>" + s + "</strong>"
 	}
@@ -214,22 +214,30 @@ func wrapTextFormat(s string, f lexicalFormat) string {
 	return s
 }
 
-// lexicalFormat is the text-format bitmask of a Lexical text node. Lexical
-// reuses the `format` key on element nodes (paragraph, heading, root) for the
-// alignment string ("", "left", "center", ...), which carries no bitmask and
-// reads as 0.
-type lexicalFormat int
+// Lexical uses a numeric format mask for text and a string alignment for
+// elements. Preserve both without interpreting an alignment as a text mask.
+type lexicalFormat struct {
+	mask      int
+	alignment string
+}
 
 func (f *lexicalFormat) UnmarshalJSON(data []byte) error {
 	if len(data) > 0 && data[0] == '"' {
-		*f = 0
+		var align string
+		if err := json.Unmarshal(data, &align); err != nil {
+			return err
+		}
+		*f = lexicalFormat{}
+		if align != "" {
+			f.alignment = safeAlign(align)
+		}
 		return nil
 	}
 	var n int
 	if err := json.Unmarshal(data, &n); err != nil {
 		return err
 	}
-	*f = lexicalFormat(n)
+	*f = lexicalFormat{mask: n}
 	return nil
 }
 
@@ -335,13 +343,14 @@ func (r *renderer) renderBlock(b block) (string, error) {
 			width = logoDefaultWidth
 		}
 		width = min(max(width, logoMinWidth), logoMaxWidth)
+		align := safeAlign(cmpOr(b.Align, "center"))
 		return fmt.Sprintf(
-			`<div style="text-align:%s;margin:0 0 24px"><img src="%s" alt="%s" width="%d" style="width:%dpx;max-width:100%%;height:auto;border:0;display:inline-block"/></div>`,
-			safeAlign(b.Align), html.EscapeString(r.src(Asset{Kind: AssetLogo})), html.EscapeString(cmpOr(r.logoAlt, logoAlt)), width, width,
+			`<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0"><tr><td align="%s" style="text-align:%s;padding:0 0 24px"><img src="%s" alt="%s" width="%d" style="width:%dpx;max-width:100%%;height:auto;border:0;display:inline-block"/></td></tr></table>`,
+			align, align, html.EscapeString(r.src(Asset{Kind: AssetLogo})), html.EscapeString(cmpOr(r.logoAlt, logoAlt)), width, width,
 		), nil
 
 	case "image":
-		align := safeAlign(b.Align) // allowlist: left|center|right|justify
+		align := safeAlign(cmpOr(b.Align, "center"))
 		width := "100%"
 		if b.WidthPct > 0 {
 			width = fmt.Sprintf("%d%%", b.WidthPct)
@@ -353,8 +362,8 @@ func (r *renderer) renderBlock(b block) (string, error) {
 			src = r.src(Asset{Kind: AssetFile, FileID: id})
 		}
 		return fmt.Sprintf(
-			`<div style="text-align:%s"><img src="%s" alt="%s" style="width:%s"/></div>`,
-			align, html.EscapeString(src), html.EscapeString(b.Alt), width,
+			`<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0"><tr><td align="%s" style="text-align:%s"><img src="%s" alt="%s" width="%s" style="width:%s;max-width:100%%;height:auto;border:0;display:inline-block"/></td></tr></table>`,
+			align, align, html.EscapeString(src), html.EscapeString(b.Alt), width, width,
 		), nil
 
 	case "button":
@@ -369,12 +378,19 @@ func (r *renderer) renderBlock(b block) (string, error) {
 			"display:inline-block;background-color:%s;color:%s;border-radius:%s;font-family:%s;font-size:%s;font-weight:600;line-height:1.2;padding:%s;text-decoration:none",
 			bg, fg, safeCSSValue(st.CtaBorderRadius), safeCSSValue(st.FontFamily), safeCSSValue(st.CtaFontSize), padding,
 		)
-		align := safeAlign(b.Align) // allowlist: left|center|right|justify
+		align := safeAlign(cmpOr(b.Align, "center"))
 		// A table cell carries the fill, so the button keeps its colour and
 		// shape in clients that ignore padding or background on links.
+		margin := "0"
+		switch align {
+		case "center":
+			margin = "0 auto"
+		case "right":
+			margin = "0 0 0 auto"
+		}
 		return fmt.Sprintf(
-			`<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0"><tr><td align="%s" style="text-align:%s;padding:8px 0 24px"><table role="presentation" cellspacing="0" cellpadding="0" border="0"><tr><td class="cib-btn" bgcolor="%s" style="background-color:%s;border-radius:%s"><a class="cib-btn" href="%s" style="%s">%s</a></td></tr></table></td></tr></table>`,
-			align, align, bg, bg, safeCSSValue(st.CtaBorderRadius), html.EscapeString(safeURL(url)), linkStyle, label,
+			`<table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0"><tr><td align="%s" style="text-align:%s;padding:8px 0 24px"><table role="presentation" align="%s" cellspacing="0" cellpadding="0" border="0" style="margin:%s"><tr><td class="cib-btn" bgcolor="%s" style="background-color:%s;border-radius:%s"><a class="cib-btn" href="%s" style="%s">%s</a></td></tr></table></td></tr></table>`,
+			align, align, align, margin, bg, bg, safeCSSValue(st.CtaBorderRadius), html.EscapeString(safeURL(url)), linkStyle, label,
 		), nil
 
 	case "facts":
@@ -415,7 +431,7 @@ func renderLexical(content json.RawMessage, st emailStyling, vars map[string]any
 	if err := json.Unmarshal(content, &root); err != nil {
 		return "", fmt.Errorf("render: invalid lexical content: %w", err)
 	}
-	return renderLexicalChildren(root.Root.Children, st, vars)
+	return renderLexicalNode(root.Root, st, vars)
 }
 
 func renderLexicalChildren(children []lexicalNode, st emailStyling, vars map[string]any) (string, error) {
@@ -451,7 +467,19 @@ func usesEmptyVariable(nodes []lexicalNode, vars map[string]any) bool {
 }
 
 func renderLexicalNode(n lexicalNode, st emailStyling, vars map[string]any) (string, error) {
+	alignAttr, alignStyle, alignOnly := "", "", ""
+	if align := n.Format.alignment; align != "" {
+		alignAttr = ` align="` + align + `"`
+		alignStyle = ";text-align:" + align
+		alignOnly = alignAttr + ` style="text-align:` + align + `"`
+	}
 	switch n.Type {
+	case "root":
+		inner, err := renderLexicalChildren(n.Children, st, vars)
+		if err != nil || alignOnly == "" {
+			return inner, err
+		}
+		return `<div` + alignOnly + `>` + inner + `</div>`, nil
 	case "paragraph":
 		// A paragraph that uses a variable with no value is dropped whole, so
 		// an optional value never leaves «Вітаємо, !» behind.
@@ -468,7 +496,7 @@ func renderLexicalNode(n lexicalNode, st emailStyling, vars map[string]any) (str
 			safeCSSValue(st.TextFontSize), safeCSSValue(st.TextLineHeight),
 			safeCSSValue(st.ParagraphBottomMargin),
 		)
-		return fmt.Sprintf(`<p class="cib-t" style="%s">%s</p>`, style, inner), nil
+		return fmt.Sprintf(`<p class="cib-t"%s style="%s%s">%s</p>`, alignAttr, style, alignStyle, inner), nil
 
 	case "heading":
 		tag := safeHeadingTag(n.Tag) // allowlist: h1-h6; unknown → h2
@@ -481,14 +509,14 @@ func renderLexicalNode(n lexicalNode, st emailStyling, vars map[string]any) (str
 			safeCSSValue(st.FontFamily), headingSize(tag), safeCSSValue(st.HeadingColor), safeCSSValue(st.HeadingLineHeight),
 			safeCSSValue(st.HeadingTopMargin), safeCSSValue(st.HeadingBottomMargin),
 		)
-		return fmt.Sprintf(`<%s class="cib-h" style="%s">%s</%s>`, tag, style, inner, tag), nil
+		return fmt.Sprintf(`<%s class="cib-h"%s style="%s%s">%s</%s>`, tag, alignAttr, style, alignStyle, inner, tag), nil
 
 	case "quote":
 		inner, err := renderLexicalChildren(n.Children, st, vars)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf(`<blockquote>%s</blockquote>`, inner), nil
+		return fmt.Sprintf(`<blockquote%s>%s</blockquote>`, alignOnly, inner), nil
 
 	case "list":
 		tag := "ul"
@@ -499,14 +527,14 @@ func renderLexicalNode(n lexicalNode, st emailStyling, vars map[string]any) (str
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf(`<%s>%s</%s>`, tag, inner, tag), nil
+		return fmt.Sprintf(`<%s%s>%s</%s>`, tag, alignOnly, inner, tag), nil
 
 	case "listitem":
 		inner, err := renderLexicalChildren(n.Children, st, vars)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf(`<li>%s</li>`, inner), nil
+		return fmt.Sprintf(`<li%s>%s</li>`, alignOnly, inner), nil
 
 	case "linebreak":
 		return `<br/>`, nil
@@ -523,7 +551,7 @@ func renderLexicalNode(n lexicalNode, st emailStyling, vars map[string]any) (str
 		return fmt.Sprintf(`<a class="cib-a" href="%s" style="color:#3340C4;text-decoration:underline">%s</a>`, html.EscapeString(safeURL(url)), inner), nil
 
 	case "text":
-		return wrapTextFormat(html.EscapeString(n.Text), n.Format), nil
+		return wrapTextFormat(html.EscapeString(n.Text), n.Format.mask), nil
 
 	case "variable":
 		val := ""

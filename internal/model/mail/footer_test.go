@@ -15,12 +15,12 @@ func resolved(t *testing.T, doc json.RawMessage, vars map[string]string) (json.R
 	return ResolveFooterDoc(doc, vars)
 }
 
-func TestDefaultFooterDoc_ResolvesToTheOldText(t *testing.T) {
+func TestDefaultFooterDoc_UsesReadableLinkLabels(t *testing.T) {
 	doc, ok := resolved(t, DefaultFooterDoc(LanguageUK), testVars)
 	require.True(t, ok)
 	require.Equal(t, []string{
-		"Цей лист надіслано автоматично. З питань відповідайте на нього або пишіть на org@uni.edu.",
-		"Cyber ICE Box · cybericebox.com · Політика конфіденційності: cybericebox.com/privacy",
+		"Цей лист надіслано автоматично. Звʼязатися з нами (mailto:org@uni.edu)",
+		"Cyber ICE Box (https://cybericebox.com) · Політика конфіденційності (https://cybericebox.com/privacy)",
 	}, FooterPlainLines(doc))
 }
 
@@ -28,8 +28,8 @@ func TestDefaultFooterDoc_English(t *testing.T) {
 	doc, ok := resolved(t, DefaultFooterDoc(LanguageEN), FooterValues("support@cybericebox.com", "https://cybericebox.com"))
 	require.True(t, ok)
 	require.Equal(t, []string{
-		"This email was sent automatically. Reply to it or write to support@cybericebox.com.",
-		"Cyber ICE Box · cybericebox.com · Privacy Policy: cybericebox.com/privacy",
+		"This email was sent automatically. Contact us (mailto:support@cybericebox.com)",
+		"Cyber ICE Box (https://cybericebox.com) · Privacy Policy (https://cybericebox.com/privacy)",
 	}, FooterPlainLines(doc))
 }
 
@@ -127,6 +127,57 @@ func TestDefaultFooterDocIsValid(t *testing.T) {
 		count := 0
 		require.Empty(t, checkFooterNodes(doc["children"], 0, &count), lang)
 	}
+}
+
+func TestNormalizeFooterDocPreservesFormattingOfDefaultText(t *testing.T) {
+	for _, change := range []string{"alignment", "bold", "style"} {
+		t.Run(change, func(t *testing.T) {
+			var doc map[string]any
+			require.NoError(t, json.Unmarshal(DefaultFooterDoc(LanguageUK), &doc))
+			paragraph := doc["root"].(map[string]any)["children"].([]any)[0].(map[string]any)
+			switch change {
+			case "alignment":
+				paragraph["format"] = "right"
+			case "bold":
+				paragraph["children"].([]any)[0].(map[string]any)["format"] = 1
+			case "style":
+				paragraph["textStyle"] = "font-size:14px"
+			}
+			raw, err := json.Marshal(doc)
+			require.NoError(t, err)
+			got, err := NormalizeFooterDoc(raw)
+			require.NoError(t, err)
+			require.NotEmpty(t, got, "same wording does not mean the same footer formatting")
+			require.JSONEq(t, string(raw), string(got))
+		})
+	}
+}
+
+func TestNormalizeFooterDocIgnoresDefaultEditorMetadata(t *testing.T) {
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(DefaultFooterDoc(LanguageUK), &doc))
+	var visit func(map[string]any)
+	visit = func(n map[string]any) {
+		n["version"] = 9
+		n["direction"] = nil
+		if n["type"] == "variable" {
+			n["formats"] = []any{}
+		}
+		for _, child := range childrenOf(n) {
+			visit(child.(map[string]any))
+		}
+	}
+	visit(doc["root"].(map[string]any))
+	raw, err := json.Marshal(doc)
+	require.NoError(t, err)
+	got, err := NormalizeFooterDoc(raw)
+	require.NoError(t, err)
+	require.Nil(t, got, "loading the built-in footer should not create a custom copy")
+}
+
+func childrenOf(n map[string]any) []any {
+	children, _ := n["children"].([]any)
+	return children
 }
 
 func TestFooter_Append(t *testing.T) {

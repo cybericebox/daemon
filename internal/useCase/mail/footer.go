@@ -8,8 +8,7 @@ import (
 	"github.com/cybericebox/daemon/internal/useCase/notification/channels/render"
 )
 
-// footerBox is muted small text under a «—» line (the fold mark of mail
-// clients); no shadows.
+// footerBox is small, muted footer text. Alignment belongs to its document.
 const footerBox = "margin:0;padding:0;" +
 	"font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#6b7280"
 
@@ -56,8 +55,8 @@ func tryRenderFooter(doc []byte, supportEmail, site string) (mailModel.Footer, b
 	html = strings.ReplaceAll(html, ` class="cib-a"`, "")
 	html = strings.ReplaceAll(html, `style="color:#3340C4;text-decoration:underline"`, `style="`+footerLinkStyle+`"`)
 	return mailModel.Footer{
-		HTML: mailModel.KeepBrandHTML(`<div class="cib-muted" style="` + footerBox + `"><p style="margin:0 0 4px 0">—</p>` + html + `</div>`),
-		Text: mailModel.KeepBrandText("—\n" + strings.Join(mailModel.FooterPlainLines(resolved), "\n")),
+		HTML: mailModel.KeepBrandHTML(`<div class="cib-muted" style="` + footerBox + `">` + html + `</div>`),
+		Text: mailModel.KeepBrandText(strings.Join(mailModel.FooterPlainLines(resolved), "\n")),
 	}, true
 }
 
