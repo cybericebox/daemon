@@ -67,7 +67,7 @@ func (u *AuthUseCase) ListUsers(ctx context.Context, f UsersFilter) (UsersListRe
 		users := make([]UserInfo, 0, len(rows))
 		for _, r := range rows {
 			users = append(users, UserInfo{ID: r.ID, FirstName: r.FirstName, LastName: r.LastName,
-				Picture: r.Picture, Email: r.Email, Role: r.Role, Status: r.Status,
+				Picture: r.Picture, Email: r.Email, EmailConfirmed: r.EmailConfirmed, Role: r.Role, Status: r.Status,
 				LastSeen: r.LastSeen, CreatedAt: r.CreatedAt})
 		}
 		total, err := u.users.Count(ctx, f.Search, roles, string(f.Status))
@@ -99,7 +99,7 @@ func (u *AuthUseCase) ListUsers(ctx context.Context, f UsersFilter) (UsersListRe
 	for _, r := range rows {
 		users = append(users, UserInfo{
 			ID: r.ID, FirstName: r.FirstName, LastName: r.LastName, Picture: r.Picture,
-			Email: r.Email, Role: r.Role, Status: r.Status,
+			Email: r.Email, EmailConfirmed: r.EmailConfirmed, Role: r.Role, Status: r.Status,
 			LastSeen: r.LastSeen, CreatedAt: r.CreatedAt,
 		})
 	}

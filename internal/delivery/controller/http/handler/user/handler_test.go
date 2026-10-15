@@ -403,3 +403,22 @@ func TestInviteEntries_PassesPerPersonRolesAndReturnsCodes(t *testing.T) {
 		t.Fatalf("unexpected response: %s", w.Body.String())
 	}
 }
+
+func TestListUsersIncludesEmailConfirmationForRecipientSearch(t *testing.T) {
+	for _, url := range []string{"/api/users?search=operator&pageSize=10", "/api/users?page=1&pageSize=10"} {
+		t.Run(url, func(t *testing.T) {
+			uc := &fakeUC{users: []authUseCase.UserInfo{{ID: uuid.Must(uuid.NewV7()), Email: "operator@example.test", EmailConfirmed: true}}}
+			w := httptest.NewRecorder()
+			newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+			var env struct {
+				Data struct{ Items []map[string]any }
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+				t.Fatal(err)
+			}
+			if len(env.Data.Items) != 1 || env.Data.Items[0]["EmailConfirmed"] != true {
+				t.Fatalf("missing confirmation metadata: %s", w.Body.String())
+			}
+		})
+	}
+}

@@ -9850,6 +9850,8 @@ definitions:
         type: string
       Email:
         type: string
+      EmailConfirmed:
+        type: boolean
       FirstName:
         type: string
       ID:
