@@ -197,3 +197,7 @@ func TestListDispatches_UserFilter_EmptyPassesEmpty(t *testing.T) {
 		t.Errorf("CountDispatches params UserFilter = %q; want empty string", gotCountUser)
 	}
 }
+
+func (f *fakeRepo) CreateDispatchIfAbsent(context.Context, postgres.CreateDispatchIfAbsentParams) (int64, error) {
+	panic("unexpected dispatch write in stats")
+}

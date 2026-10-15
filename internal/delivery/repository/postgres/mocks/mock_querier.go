@@ -58,6 +58,21 @@ func (mr *MockQuerierMockRecorder) AddErrorNotFound(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddErrorNotFound", reflect.TypeOf((*MockQuerier)(nil).AddErrorNotFound), ctx, arg)
 }
 
+// AddErrorNotificationTarget mocks base method.
+func (m *MockQuerier) AddErrorNotificationTarget(ctx context.Context, arg postgres.AddErrorNotificationTargetParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddErrorNotificationTarget", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AddErrorNotificationTarget indicates an expected call of AddErrorNotificationTarget.
+func (mr *MockQuerierMockRecorder) AddErrorNotificationTarget(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddErrorNotificationTarget", reflect.TypeOf((*MockQuerier)(nil).AddErrorNotificationTarget), ctx, arg)
+}
+
 // AddFileReference mocks base method.
 func (m *MockQuerier) AddFileReference(ctx context.Context, arg postgres.AddFileReferenceParams) error {
 	m.ctrl.T.Helper()
@@ -1056,6 +1071,21 @@ func (m *MockQuerier) CreateDispatch(ctx context.Context, arg postgres.CreateDis
 func (mr *MockQuerierMockRecorder) CreateDispatch(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDispatch", reflect.TypeOf((*MockQuerier)(nil).CreateDispatch), ctx, arg)
+}
+
+// CreateDispatchIfAbsent mocks base method.
+func (m *MockQuerier) CreateDispatchIfAbsent(ctx context.Context, arg postgres.CreateDispatchIfAbsentParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateDispatchIfAbsent", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateDispatchIfAbsent indicates an expected call of CreateDispatchIfAbsent.
+func (mr *MockQuerierMockRecorder) CreateDispatchIfAbsent(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDispatchIfAbsent", reflect.TypeOf((*MockQuerier)(nil).CreateDispatchIfAbsent), ctx, arg)
 }
 
 // CreateDraftFromVersion mocks base method.
@@ -2682,6 +2712,21 @@ func (mr *MockQuerierMockRecorder) EmailTemplateFileUsableByEvent(ctx, arg any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EmailTemplateFileUsableByEvent", reflect.TypeOf((*MockQuerier)(nil).EmailTemplateFileUsableByEvent), ctx, arg)
 }
 
+// EnqueueErrorNotification mocks base method.
+func (m *MockQuerier) EnqueueErrorNotification(ctx context.Context, arg postgres.EnqueueErrorNotificationParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EnqueueErrorNotification", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EnqueueErrorNotification indicates an expected call of EnqueueErrorNotification.
+func (mr *MockQuerierMockRecorder) EnqueueErrorNotification(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueErrorNotification", reflect.TypeOf((*MockQuerier)(nil).EnqueueErrorNotification), ctx, arg)
+}
+
 // EnsureSignalHookExecution mocks base method.
 func (m *MockQuerier) EnsureSignalHookExecution(ctx context.Context, arg postgres.EnsureSignalHookExecutionParams) error {
 	m.ctrl.T.Helper()
@@ -2859,6 +2904,21 @@ func (m *MockQuerier) FindEventTeamsByLabGroup(ctx context.Context, labGroupName
 func (mr *MockQuerierMockRecorder) FindEventTeamsByLabGroup(ctx, labGroupName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindEventTeamsByLabGroup", reflect.TypeOf((*MockQuerier)(nil).FindEventTeamsByLabGroup), ctx, labGroupName)
+}
+
+// FinishErrorNotification mocks base method.
+func (m *MockQuerier) FinishErrorNotification(ctx context.Context, arg postgres.FinishErrorNotificationParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishErrorNotification", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FinishErrorNotification indicates an expected call of FinishErrorNotification.
+func (mr *MockQuerierMockRecorder) FinishErrorNotification(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishErrorNotification", reflect.TypeOf((*MockQuerier)(nil).FinishErrorNotification), ctx, arg)
 }
 
 // FinishNotificationBroadcast mocks base method.
@@ -3083,6 +3143,21 @@ func (m *MockQuerier) GetErrorJournalSettings(ctx context.Context) (postgres.Get
 func (mr *MockQuerierMockRecorder) GetErrorJournalSettings(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrorJournalSettings", reflect.TypeOf((*MockQuerier)(nil).GetErrorJournalSettings), ctx)
+}
+
+// GetErrorNotification mocks base method.
+func (m *MockQuerier) GetErrorNotification(ctx context.Context, id uuid.UUID) (postgres.ErrorNotificationDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetErrorNotification", ctx, id)
+	ret0, _ := ret[0].(postgres.ErrorNotificationDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetErrorNotification indicates an expected call of GetErrorNotification.
+func (mr *MockQuerierMockRecorder) GetErrorNotification(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetErrorNotification", reflect.TypeOf((*MockQuerier)(nil).GetErrorNotification), ctx, id)
 }
 
 // GetEventAnalyticsOverview mocks base method.
@@ -5733,6 +5808,21 @@ func (m *MockQuerier) ListErrorNotFound(ctx context.Context, arg postgres.ListEr
 func (mr *MockQuerierMockRecorder) ListErrorNotFound(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListErrorNotFound", reflect.TypeOf((*MockQuerier)(nil).ListErrorNotFound), ctx, arg)
+}
+
+// ListErrorNotificationDeliveries mocks base method.
+func (m *MockQuerier) ListErrorNotificationDeliveries(ctx context.Context, groupID uuid.UUID) ([]postgres.ErrorNotificationDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListErrorNotificationDeliveries", ctx, groupID)
+	ret0, _ := ret[0].([]postgres.ErrorNotificationDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListErrorNotificationDeliveries indicates an expected call of ListErrorNotificationDeliveries.
+func (mr *MockQuerierMockRecorder) ListErrorNotificationDeliveries(ctx, groupID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListErrorNotificationDeliveries", reflect.TypeOf((*MockQuerier)(nil).ListErrorNotificationDeliveries), ctx, groupID)
 }
 
 // ListErrorSamples mocks base method.
@@ -9035,6 +9125,21 @@ func (mr *MockQuerierMockRecorder) ListWithdrawnLabBindings(ctx, now any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWithdrawnLabBindings", reflect.TypeOf((*MockQuerier)(nil).ListWithdrawnLabBindings), ctx, now)
 }
 
+// LockErrorNotification mocks base method.
+func (m *MockQuerier) LockErrorNotification(ctx context.Context, id uuid.UUID) (postgres.ErrorNotificationDelivery, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockErrorNotification", ctx, id)
+	ret0, _ := ret[0].(postgres.ErrorNotificationDelivery)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockErrorNotification indicates an expected call of LockErrorNotification.
+func (mr *MockQuerierMockRecorder) LockErrorNotification(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockErrorNotification", reflect.TypeOf((*MockQuerier)(nil).LockErrorNotification), ctx, id)
+}
+
 // LockEventConfigForLabSizing mocks base method.
 func (m *MockQuerier) LockEventConfigForLabSizing(ctx context.Context, eventID uuid.UUID) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -11126,6 +11231,20 @@ func (m *MockQuerier) SetResourceCalendarSettings(ctx context.Context, arg postg
 func (mr *MockQuerierMockRecorder) SetResourceCalendarSettings(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetResourceCalendarSettings", reflect.TypeOf((*MockQuerier)(nil).SetResourceCalendarSettings), ctx, arg)
+}
+
+// StartErrorNotification mocks base method.
+func (m *MockQuerier) StartErrorNotification(ctx context.Context, arg postgres.StartErrorNotificationParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartErrorNotification", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StartErrorNotification indicates an expected call of StartErrorNotification.
+func (mr *MockQuerierMockRecorder) StartErrorNotification(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartErrorNotification", reflect.TypeOf((*MockQuerier)(nil).StartErrorNotification), ctx, arg)
 }
 
 // SummarizeLabTouches mocks base method.

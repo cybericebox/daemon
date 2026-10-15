@@ -5,8 +5,6 @@ import (
 	"net/mail"
 	"strings"
 
-	"github.com/gofrs/uuid"
-
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/pkg/telegram"
 )
@@ -29,6 +27,7 @@ type SettingsView struct {
 	errorJournal.Settings
 	// TelegramEnabled is false while TELEGRAM_BOT_TOKEN is not set: chat ids are kept but nothing is sent.
 	TelegramEnabled bool
+	EmailRecipients []RecipientUser
 }
 
 // TestResult is the outcome of the test message for one target.
@@ -57,13 +56,20 @@ func (j *Journal) GetErrorJournalSettings(ctx context.Context) (SettingsView, er
 	if err != nil {
 		return SettingsView{}, err
 	}
-	return SettingsView{Settings: s, TelegramEnabled: j.tg != nil && j.tg.Enabled()}, nil
+	recipients, err := j.recipientMetadata(ctx, s.Emails)
+	if err != nil {
+		return SettingsView{}, err
+	}
+	return SettingsView{Settings: s, TelegramEnabled: j.tg != nil && j.tg.Enabled(), EmailRecipients: recipients}, nil
 }
 
 // SaveSettings validates and stores the lists. A chat id that stays keeps its failing mark.
 func (j *Journal) SaveErrorJournalSettings(ctx context.Context, in SettingsInput) (SettingsView, error) {
 	emails, err := normalizeEmails(in.Emails)
 	if err != nil {
+		return SettingsView{}, err
+	}
+	if err := j.validateRecipientUsers(ctx, emails); err != nil {
 		return SettingsView{}, err
 	}
 	chats, err := j.mergeChats(ctx, in.TelegramChats)
@@ -146,12 +152,7 @@ func (j *Journal) mergeChats(ctx context.Context, in []ChatInput) ([]errorJourna
 // longer marked failing, one that is refused is.
 func (j *Journal) SendErrorJournalTest(ctx context.Context) ([]TestResult, error) {
 	text := "[" + j.envLabel() + "] test\nThis is a test message of the platform error journal."
-	g := errorJournal.Group{ID: uuid.Nil}
-	results := j.dispatch(ctx, g, text, text, true)
-	if results == nil {
-		results = []TestResult{}
-	}
-	return results, nil
+	return j.dispatchTest(ctx, text)
 }
 
 func (j *Journal) envLabel() string {

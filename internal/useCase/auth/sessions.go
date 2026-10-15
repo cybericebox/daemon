@@ -83,6 +83,10 @@ func (u *AuthUseCase) RevokeOtherSessions(ctx context.Context, userID, currentSe
 // revocations are also added to this replica's set at once, the others see them within the poll.
 
 func (u *AuthUseCase) noted(rows []sessionRepo.Revoked, err error) (int64, error) {
+	if u.pendingRevocations != nil {
+		*u.pendingRevocations = append(*u.pendingRevocations, rows...)
+		return int64(len(rows)), err
+	}
 	if u.rt != nil {
 		for _, row := range rows {
 			u.rt.Revocations.Add(row.SessionID, row.ExpiresAt)

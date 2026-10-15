@@ -29,3 +29,14 @@ func (db *DB) Q(ctx context.Context) Querier {
 	}
 	return db.q
 }
+
+// ContextWithTransaction binds the unit of work transaction to repository and queue operations.
+func ContextWithTransaction(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, txKey{}, tx)
+}
+
+// TransactionFromContext exposes the active unit of work to transaction-aware queue operations.
+func TransactionFromContext(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(pgx.Tx)
+	return tx, ok
+}

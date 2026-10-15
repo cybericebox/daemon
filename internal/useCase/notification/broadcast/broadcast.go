@@ -7,6 +7,7 @@ package broadcastUseCase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/gofrs/uuid"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/broadcastRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
@@ -24,6 +26,7 @@ import (
 	notificationTypes "github.com/cybericebox/daemon/internal/model/notification/types"
 	notificationPayloads "github.com/cybericebox/daemon/internal/model/notification/types/payloads"
 	"github.com/cybericebox/daemon/internal/useCase/notification/channels/render"
+	"github.com/cybericebox/daemon/pkg/worker"
 )
 
 const (
@@ -33,7 +36,7 @@ const (
 )
 
 type (
-	repoPort interface {
+	Repository interface {
 		broadcastRepo.Queries
 		eventRepo.Queries
 	}
@@ -44,8 +47,10 @@ type (
 	}
 
 	Dependencies struct {
-		Repo     repoPort
-		Notifier Notifier
+		Repo         Repository
+		UnitOfWorker postgres.IUnitOfWorker[Repository]
+		Enqueuer     worker.IEnqueuer
+		Notifier     Notifier
 		// Enqueue queues one sender run (the River enqueuer in production).
 		Enqueue func(ctx context.Context, args jobsModel.BroadcastSendArgs) error
 		// EventDomain is the domain event sites live under (<tag>.<domain>).
@@ -60,12 +65,14 @@ type (
 	}
 
 	NotificationBroadcastUseCase struct {
-		broadcasts *broadcastRepo.Repository
-		events     *eventRepo.Repository
-		notifier   Notifier
-		enqueue    func(ctx context.Context, args jobsModel.BroadcastSendArgs) error
-		domain     string
-		images     ImagePolicy
+		broadcasts   *broadcastRepo.Repository
+		events       *eventRepo.Repository
+		notifier     Notifier
+		enqueue      func(ctx context.Context, args jobsModel.BroadcastSendArgs) error
+		domain       string
+		images       ImagePolicy
+		unitOfWorker postgres.IUnitOfWorker[Repository]
+		enqueuer     worker.IEnqueuer
 	}
 
 	// SendInput is one broadcast to send. ScopeEventID nil is the platform.
@@ -79,12 +86,13 @@ type (
 
 func NewNotificationBroadcastUseCase(deps Dependencies) *NotificationBroadcastUseCase {
 	u := &NotificationBroadcastUseCase{
-		broadcasts: broadcastRepo.New(deps.Repo),
-		events:     eventRepo.New(deps.Repo),
-		notifier:   deps.Notifier,
-		enqueue:    deps.Enqueue,
-		domain:     deps.EventDomain,
-		images:     deps.Images,
+		broadcasts:   broadcastRepo.New(deps.Repo),
+		events:       eventRepo.New(deps.Repo),
+		notifier:     deps.Notifier,
+		enqueue:      deps.Enqueue,
+		domain:       deps.EventDomain,
+		images:       deps.Images,
+		unitOfWorker: deps.UnitOfWorker, enqueuer: deps.Enqueuer,
 	}
 	return u
 }
@@ -129,13 +137,32 @@ func (u *NotificationBroadcastUseCase) SendBroadcast(ctx context.Context, in Sen
 		RecipientCount: int32(len(recipients)),
 		Status:         broadcastModel.StatusSending,
 	}
-	if err = u.broadcasts.Create(ctx, b); err != nil {
-		return broadcastModel.Broadcast{}, model.ErrPlatform.WithError(err).WithMessage("Failed to store the broadcast").Err()
+	if u.unitOfWorker == nil {
+		return broadcastModel.Broadcast{}, model.ErrPlatform.WithMessage("Broadcast transaction unavailable").Err()
 	}
-	if err = u.enqueue(ctx, jobsModel.BroadcastSendArgs{BroadcastID: b.ID}); err != nil {
-		_ = u.broadcasts.Finish(ctx, b.ID, broadcastModel.StatusFailed, b.RecipientCount)
-		return broadcastModel.Broadcast{}, model.ErrPlatform.WithError(err).WithMessage("Failed to queue the broadcast").Err()
+	queue, ok := u.enqueuer.(worker.TransactionalEnqueuer)
+	if !ok {
+		return broadcastModel.Broadcast{}, model.ErrPlatform.WithMessage("Transactional broadcast queue unavailable").Err()
 	}
+	txCtx, repo, unit, err := u.unitOfWorker.UnitOfWork(ctx)
+	if err != nil {
+		return broadcastModel.Broadcast{}, err
+	}
+	defer unit.Restore()
+	tx, ok := postgres.TransactionFromContext(txCtx)
+	if !ok {
+		return broadcastModel.Broadcast{}, model.ErrPlatform.WithMessage("Broadcast transaction missing").Err()
+	}
+	if err := broadcastRepo.New(repo).Create(txCtx, b); err != nil {
+		return broadcastModel.Broadcast{}, model.ErrPlatform.WithError(err).WithMessage("Failed to store broadcast").Err()
+	}
+	if err := queue.EnqueueTx(txCtx, tx, jobsModel.BroadcastSendArgs{BroadcastID: b.ID}); err != nil {
+		return broadcastModel.Broadcast{}, model.ErrPlatform.WithError(err).WithMessage("Failed to queue broadcast").Err()
+	}
+	if err := unit.Save(); err != nil {
+		return broadcastModel.Broadcast{}, err
+	}
+
 	return b, nil
 }
 
@@ -195,6 +222,7 @@ func (u *NotificationBroadcastUseCase) ProcessBroadcast(ctx context.Context, arg
 		chunk = chunk[:chunkSize]
 	}
 	failed := 0
+	var enqueueErrors []error
 	// Queuing is cheap; the send rate is the SMTP transport's limit, enforced
 	// where each message is sent.
 	for _, r := range chunk {
@@ -207,6 +235,7 @@ func (u *NotificationBroadcastUseCase) ProcessBroadcast(ctx context.Context, arg
 			EventName: eventVars.name, EventTag: eventVars.tag, EventURL: eventVars.url,
 		}
 		opts := []dispatchModel.NotifyOption{
+			dispatchModel.WithDispatchID(uuid.NewV5(b.ID, "broadcast/"+r.ID.String())),
 			dispatchModel.WithOverrideChannels(channels...),
 			dispatchModel.WithBroadcastID(b.ID),
 			dispatchModel.WithInbox(inboxModel.NewMeta(string(notificationTypes.NotificationTypeBroadcast), role, "")),
@@ -216,6 +245,7 @@ func (u *NotificationBroadcastUseCase) ProcessBroadcast(ctx context.Context, arg
 		}
 		if err = u.notifier.Notify(ctx, r.ID, payload, opts...); err != nil {
 			failed++
+			enqueueErrors = append(enqueueErrors, err)
 			log.Error().Err(err).Str("broadcast", b.ID.String()).Str("user", r.ID.String()).Msg("broadcast recipient was not queued")
 		}
 	}
@@ -228,10 +258,10 @@ func (u *NotificationBroadcastUseCase) ProcessBroadcast(ctx context.Context, arg
 		}
 		return nil
 	}
-	status := broadcastModel.StatusDone
-	if failed > 0 && failed == len(chunk) && len(queued) == 0 {
-		status = broadcastModel.StatusFailed
+	if failed > 0 {
+		return errors.Join(enqueueErrors...)
 	}
+	status := broadcastModel.StatusDone
 	if err = u.broadcasts.Finish(ctx, b.ID, status, int32(len(recipients))); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to close the broadcast").Err()
 	}

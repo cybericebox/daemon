@@ -22,6 +22,9 @@ import (
 // silent when the address is unknown (no account-existence leak). An
 // incomplete account gets the continue-registration email instead.
 func (u *AuthUseCase) ForgotPassword(ctx context.Context, emailAddr string) error {
+	if u.delivery != nil {
+		return u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: "reset", Email: normalizeEmail(emailAddr)})
+	}
 	user, err := u.users.GetByEmail(ctx, normalizeEmail(emailAddr))
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -42,7 +45,7 @@ func (u *AuthUseCase) sendPasswordReset(ctx context.Context, user userModel.User
 		return u.sendContinueRegistration(ctx, user.ID, user.Email, user.FirstName, "")
 	}
 	// Mail-bombing guard: over the quota nothing is sent.
-	if !u.mailAllowed(mailKindReset, user.Email) {
+	if !authDeliveryAccepted(ctx) && !u.mailAllowed(mailKindReset, user.Email) {
 		return nil
 	}
 

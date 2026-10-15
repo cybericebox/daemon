@@ -5,8 +5,10 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// ErrorJournalObjectCode — next free detail code: 9
+// ErrorJournalObjectCode — next free detail code: 10
 var (
+	ErrRecipientUnavailable = err.ErrInvalidData.WithObjectCode(model.ErrorJournalObjectCode).
+				WithMessage("Invite the recipient to the platform before adding their address; blocked accounts cannot receive notifications").WithDetailCode(9)
 	ErrGroupNotFound = err.ErrObjectNotFound.WithObjectCode(model.ErrorJournalObjectCode).
 				WithMessage("The error group was not found").WithDetailCode(1)
 	ErrFilterInvalid = err.ErrInvalidData.WithObjectCode(model.ErrorJournalObjectCode).

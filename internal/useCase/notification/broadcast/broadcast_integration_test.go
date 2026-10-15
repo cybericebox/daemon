@@ -7,7 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/dispatchRepo"
@@ -65,10 +70,12 @@ func (n *e2eNotifier) Notify(ctx context.Context, userID uuid.UUID, p notificati
 	if err = json.Unmarshal(raw, &vars); err != nil {
 		return err
 	}
-	return n.dispatcher.ProcessNotification(ctx, dispatchModel.ProcessInput{
+	_ = n.dispatcher.ProcessNotification(ctx, dispatchModel.ProcessInput{
 		DispatchID: id, UserID: userID, Type: string(p.NotificationType()), Vars: vars,
 		OverrideChannels: o.OverrideChannels, ScopeEventID: o.ScopeEventID, Inbox: o.Inbox, BroadcastID: o.BroadcastID,
 	})
+	// Notify accepted the durable dispatch; transport failure belongs to its queued worker.
+	return nil
 }
 
 func seedUser(t *testing.T, db *testhelpers.TestDB, mail, first, last string) uuid.UUID {
@@ -91,8 +98,10 @@ func harness2(t *testing.T) (*testhelpers.TestDB, *mailbox, *broadcastUseCase.No
 		Handlers: []dispatcherUseCase.Handler{inAppUseCase.NewHandler(db.Queries), emailUseCase.NewHandler(db.Queries, box, nil)},
 	})
 	var queued []jobsModel.BroadcastSendArgs
+	enqueuer := &broadcastIntegrationQueue{IEnqueuer: worker.NewEnqueuer(), queued: &queued}
 	uc := broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{
-		Repo:     db.Queries,
+		Repo:         db.Queries,
+		UnitOfWorker: postgres.NewUnitOfWorker[broadcastUseCase.Repository](postgres.NewUoWFactory(db.Pool)), Enqueuer: enqueuer,
 		Notifier: &e2eNotifier{dispatches: dispatchRepo.New(db.Queries), dispatcher: dispatcher},
 		Enqueue: func(_ context.Context, a jobsModel.BroadcastSendArgs) error {
 			queued = append(queued, a)
@@ -212,4 +221,51 @@ func TestBroadcast_EndToEnd_EventScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, platform, "an event broadcast is not in the platform history")
 	require.Equal(t, b.ID, history[0].ID)
+}
+
+type broadcastIntegrationQueue struct {
+	worker.IEnqueuer
+	queued *[]jobsModel.BroadcastSendArgs
+	client *river.Client[pgx.Tx]
+	fail   bool
+}
+
+func (q *broadcastIntegrationQueue) EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+	if q.fail {
+		return errors.New("River unavailable")
+	}
+	if q.client != nil {
+		if _, err := q.client.InsertTx(ctx, tx, args, nil); err != nil {
+			return err
+		}
+	}
+	*q.queued = append(*q.queued, args.(jobsModel.BroadcastSendArgs))
+	return nil
+}
+func TestBroadcastRecordRollsBackWhenRiverInsertFails(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	id := seedUser(t, db, "root@example.org", "Root", "Admin")
+	migrator, err := rivermigrate.New(riverpgxv5.New(db.Pool), nil)
+	require.NoError(t, err)
+	_, err = migrator.Migrate(ctx, rivermigrate.DirectionUp, nil)
+	require.NoError(t, err)
+	client, err := river.NewClient(riverpgxv5.New(db.Pool), &river.Config{})
+	require.NoError(t, err)
+	queued := []jobsModel.BroadcastSendArgs{}
+	queue := &broadcastIntegrationQueue{IEnqueuer: worker.NewEnqueuer(), queued: &queued, client: client, fail: true}
+	uc := broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{Repo: db.Queries, UnitOfWorker: postgres.NewUnitOfWorker[broadcastUseCase.Repository](postgres.NewUoWFactory(db.Pool)), Enqueuer: queue})
+	input := broadcastUseCase.SendInput{ActorID: id, Content: emailAndInApp(), Audience: broadcastModel.Audience{Kind: broadcastModel.KindUsers, UserIDs: []uuid.UUID{id}}}
+	_, err = uc.SendBroadcast(ctx, input)
+	require.Error(t, err)
+	var n int
+	require.NoError(t, db.Pool.QueryRow(ctx, "SELECT count(*) FROM notification_broadcasts").Scan(&n))
+	require.Zero(t, n)
+	queue.fail = false
+	_, err = uc.SendBroadcast(ctx, input)
+	require.NoError(t, err)
+	require.NoError(t, db.Pool.QueryRow(ctx, "SELECT count(*) FROM notification_broadcasts").Scan(&n))
+	require.Equal(t, 1, n)
+	require.NoError(t, db.Pool.QueryRow(ctx, "SELECT count(*) FROM river_job").Scan(&n))
+	require.Equal(t, 1, n)
 }

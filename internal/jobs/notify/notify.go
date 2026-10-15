@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/riverqueue/river"
@@ -29,7 +30,39 @@ type notifyWorker struct {
 	uc IUseCase
 }
 
+// NextRetry bounds the retry horizon below the sealed payload's 14-day retention.
+// The normal 25-attempt River limit still makes terminal failures inspectable as discarded jobs.
+func (w *notifyWorker) NextRetry(job *river.Job[jobsModel.NotifyArgs]) time.Time {
+	return time.Now().Add(notifyRetryDelay(job.Attempt))
+}
+func notifyRetryDelay(attempt int) time.Duration {
+	return min(30*time.Second*time.Duration(1<<min(max(attempt-1, 0), 10)), 6*time.Hour)
+}
+
 func (w *notifyWorker) Work(ctx context.Context, job *river.Job[jobsModel.NotifyArgs]) error {
+	if job.Args.AuthDeliveryID != nil {
+		processor, ok := w.uc.(interface {
+			ProcessAuthDelivery(context.Context, uuid.UUID) error
+		})
+		if !ok {
+			return errors.New("auth delivery processor unavailable")
+		}
+		return processor.ProcessAuthDelivery(ctx, *job.Args.AuthDeliveryID)
+	}
+	if job.Args.JournalDeliveryID != nil {
+		processor, ok := w.uc.(interface {
+			ProcessJournalDelivery(context.Context, uuid.UUID) error
+		})
+		if !ok {
+			return errors.New("journal delivery processor unavailable")
+		}
+		err := processor.ProcessJournalDelivery(ctx, *job.Args.JournalDeliveryID)
+		if d, ok := dispatchModel.AsDeferred(err); ok {
+			return river.JobSnooze(d.RetryAfter)
+		}
+		return err
+	}
+
 	// The arguments hold ids only. A job queued before that still carries its variables: it runs from them.
 	vars, recipient, inbox := job.Args.Vars, job.Args.Recipient, job.Args.Inbox
 	legacy := len(vars) > 0 || recipient != nil || inbox != nil

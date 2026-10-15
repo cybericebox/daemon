@@ -106,8 +106,23 @@ type (
 	}
 
 	detailResponse struct {
-		Group   groupResponse    `json:"Group"`
-		Samples []sampleResponse `json:"Samples"`
+		Group      groupResponse      `json:"Group"`
+		Samples    []sampleResponse   `json:"Samples"`
+		Deliveries []deliveryResponse `json:"Deliveries"`
+	}
+
+	deliveryResponse struct {
+		ID            uuid.UUID  `json:"ID"`
+		Channel       string     `json:"Channel"`
+		Target        string     `json:"Target"`
+		Label         string     `json:"Label"`
+		Attempts      int        `json:"Attempts"`
+		LastError     string     `json:"LastError"`
+		CreatedAt     time.Time  `json:"CreatedAt"`
+		NextAttemptAt time.Time  `json:"NextAttemptAt"`
+		LastAttemptAt *time.Time `json:"LastAttemptAt"`
+		DeliveredAt   *time.Time `json:"DeliveredAt"`
+		CancelledAt   *time.Time `json:"CancelledAt"`
 	}
 
 	statusRequest struct {
@@ -146,12 +161,24 @@ type (
 		LastError    string     `json:"LastError"`
 	}
 
+	emailRecipientResponse struct {
+		Email          string    `json:"Email"`
+		UserID         uuid.UUID `json:"UserID"`
+		FirstName      string    `json:"FirstName"`
+		LastName       string    `json:"LastName"`
+		Role           string    `json:"Role"`
+		Status         string    `json:"Status"`
+		EmailConfirmed bool      `json:"EmailConfirmed"`
+		Eligible       bool      `json:"Eligible"`
+	}
+
 	settingsResponse struct {
-		Emails             []string               `json:"Emails"`
-		EmailToSuperAdmins bool                   `json:"EmailToSuperAdmins"`
-		TelegramEnabled    bool                   `json:"TelegramEnabled"`
-		TelegramChats      []telegramChatResponse `json:"TelegramChats"`
-		UpdatedAt          time.Time              `json:"UpdatedAt"`
+		EmailRecipients    []emailRecipientResponse `json:"EmailRecipients"`
+		Emails             []string                 `json:"Emails"`
+		EmailToSuperAdmins bool                     `json:"EmailToSuperAdmins"`
+		TelegramEnabled    bool                     `json:"TelegramEnabled"`
+		TelegramChats      []telegramChatResponse   `json:"TelegramChats"`
+		UpdatedAt          time.Time                `json:"UpdatedAt"`
 	}
 
 	chatRequest struct {
@@ -209,8 +236,12 @@ func sampleOf(s errorJournalModel.Sample) sampleResponse {
 
 func settingsOf(v errorJournalUseCase.SettingsView) settingsResponse {
 	out := settingsResponse{
-		Emails: append([]string{}, v.Emails...), EmailToSuperAdmins: v.EmailToSuperAdmins, TelegramEnabled: v.TelegramEnabled,
+		EmailRecipients: make([]emailRecipientResponse, 0, len(v.EmailRecipients)),
+		Emails:          append([]string{}, v.Emails...), EmailToSuperAdmins: v.EmailToSuperAdmins, TelegramEnabled: v.TelegramEnabled,
 		TelegramChats: make([]telegramChatResponse, 0, len(v.TelegramChats)), UpdatedAt: v.UpdatedAt,
+	}
+	for _, u := range v.EmailRecipients {
+		out.EmailRecipients = append(out.EmailRecipients, emailRecipientResponse{Email: u.Email, UserID: u.UserID, FirstName: u.FirstName, LastName: u.LastName, Role: u.Role, Status: u.Status, EmailConfirmed: u.EmailConfirmed, Eligible: u.Eligible})
 	}
 	for _, c := range v.TelegramChats {
 		out.TelegramChats = append(out.TelegramChats, telegramChatResponse{
@@ -293,7 +324,10 @@ func (h *Handler) get(c *gin.Context) {
 		response.AbortWithError(c, err)
 		return
 	}
-	out := detailResponse{Group: groupOf(detail.Group), Samples: make([]sampleResponse, 0, len(detail.Samples))}
+	out := detailResponse{Group: groupOf(detail.Group), Samples: make([]sampleResponse, 0, len(detail.Samples)), Deliveries: make([]deliveryResponse, 0, len(detail.Deliveries))}
+	for _, d := range detail.Deliveries {
+		out.Deliveries = append(out.Deliveries, deliveryResponse{ID: d.ID, Channel: d.Channel, Target: d.Target, Label: d.Label, Attempts: d.Attempts, LastError: d.LastError, CreatedAt: d.CreatedAt, NextAttemptAt: d.NextAttemptAt, LastAttemptAt: d.LastAttemptAt, DeliveredAt: d.DeliveredAt, CancelledAt: d.CancelledAt})
+	}
 	for _, s := range detail.Samples {
 		out.Samples = append(out.Samples, sampleOf(s))
 	}

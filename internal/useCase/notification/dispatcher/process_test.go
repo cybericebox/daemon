@@ -31,6 +31,7 @@ func setup(t *testing.T) (
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	repo.EXPECT().ListDispatchTargets(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	uc := dispatcherUseCase.NewNotificationDispatcher(
 		dispatcherUseCase.Dependencies{Repo: repo, Enqueuer: worker.NewEnqueuer(), RetryDelay: time.Millisecond},
 	)
@@ -48,6 +49,7 @@ func setupFull(t *testing.T) (
 	t.Helper()
 	ctrl = gomock.NewController(t)
 	repo = postgresMocks.NewMockQuerier(ctrl)
+	repo.EXPECT().ListDispatchTargets(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	handler = mocks.NewMockHandler(ctrl)
 	// New() calls Channel() once per handler when building its routing map.
 	handler.EXPECT().Channel().Return(notificationTypes.NotificationChannelInApp).AnyTimes()
@@ -612,4 +614,44 @@ func TestProcess_DeferredEmail_RecordsDeferredAndSnoozes(t *testing.T) {
 	got, ok := dispatchModel.AsDeferred(err)
 	require.True(t, ok, "the deferral reaches the worker: %v", err)
 	require.Equal(t, 10*time.Minute, got.RetryAfter)
+}
+
+func TestProcess_FailedDeliveryRemainsRetryable(t *testing.T) {
+	_, repo, handler, uc := setupFull(t)
+	id, uid := tools.NewUUIDv7(), tools.NewUUIDv7()
+	down := errors.New("smtp unavailable")
+	repo.EXPECT().SetDispatchStatus(gomock.Any(), postgres.SetDispatchStatusParams{ID: id, Status: "started"}).Return(nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid}, nil)
+	repo.EXPECT().GetActiveChannels(gomock.Any(), gomock.Any()).Return([]string{"in_app"}, nil)
+	handler.EXPECT().Handle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(down).Times(3)
+	repo.EXPECT().UpsertDispatchTarget(gomock.Any(), gomock.Any()).Return(nil)
+	repo.EXPECT().SetDispatchStatus(gomock.Any(), postgres.SetDispatchStatusParams{ID: id, Status: "done"}).Return(nil).AnyTimes()
+	require.ErrorIs(t, uc.ProcessNotification(context.Background(), dispatchModel.ProcessInput{DispatchID: id, UserID: uid, Type: string(notificationTypes.NotificationTypeFlagAccepted)}), down)
+}
+
+func TestProcess_TargetCheckpointFailureIsRetryable(t *testing.T) {
+	_, repo, handler, uc := setupFull(t)
+	id, uid := tools.NewUUIDv7(), tools.NewUUIDv7()
+	down := errors.New("database unavailable")
+	repo.EXPECT().SetDispatchStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid}, nil)
+	repo.EXPECT().GetActiveChannels(gomock.Any(), gomock.Any()).Return([]string{"in_app"}, nil)
+	handler.EXPECT().Handle(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	repo.EXPECT().UpsertDispatchTarget(gomock.Any(), gomock.Any()).Return(down)
+	require.Error(t, uc.ProcessNotification(context.Background(), dispatchModel.ProcessInput{DispatchID: id, UserID: uid, Type: string(notificationTypes.NotificationTypeFlagAccepted)}))
+}
+
+func TestProcess_SingleCompletedChannelIsNotDeliveredAgain(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	handler := mocks.NewMockHandler(ctrl)
+	handler.EXPECT().Channel().Return(notificationTypes.NotificationChannelInApp)
+	uc := dispatcherUseCase.NewNotificationDispatcher(dispatcherUseCase.Dependencies{Repo: repo, Enqueuer: worker.NewEnqueuer(), Handlers: []dispatcherUseCase.Handler{handler}})
+	id, uid := tools.NewUUIDv7(), tools.NewUUIDv7()
+	repo.EXPECT().SetDispatchStatus(gomock.Any(), postgres.SetDispatchStatusParams{ID: id, Status: "started"}).Return(nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid}, nil)
+	repo.EXPECT().GetActiveChannels(gomock.Any(), gomock.Any()).Return([]string{"in_app"}, nil)
+	repo.EXPECT().ListDispatchTargets(gomock.Any(), id).Return([]postgres.NotificationDispatchTarget{{DispatchID: id, Channel: "in_app", Status: "done"}}, nil)
+	repo.EXPECT().SetDispatchStatus(gomock.Any(), postgres.SetDispatchStatusParams{ID: id, Status: "done"}).Return(nil)
+	require.NoError(t, uc.ProcessNotification(context.Background(), dispatchModel.ProcessInput{DispatchID: id, UserID: uid, Type: string(notificationTypes.NotificationTypeFlagAccepted)}))
 }

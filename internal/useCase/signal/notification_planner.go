@@ -138,6 +138,7 @@ func (p *NotificationPlanner) Handle(ctx context.Context, signal signalModel.Sig
 			continue
 		}
 		if err = p.dispatch.Notify(ctx, recipient, ready,
+			dispatchModel.WithDispatchID(uuid.NewV5(signal.ID, "notification-planner/"+recipient.String())),
 			dispatchModel.WithOverrideChannels(channels...), dispatchModel.WithEventScope(routing.ScopeEventID),
 			dispatchModel.WithInbox(inboxModel.NewMeta(string(signal.Type), roleByRecipient[recipient], subjectRef).Raised(signal.OccurredAt))); err != nil {
 			return err

@@ -14,11 +14,12 @@ import (
 
 // fakeSMTP is a tiny plain-text SMTP server: it records the commands it saw and offers PLAIN auth.
 type fakeSMTP struct {
-	ln       net.Listener
-	mu       sync.Mutex
-	commands []string
-	data     string
-	silent   bool // accepts and never speaks (a tarpit)
+	ln        net.Listener
+	mu        sync.Mutex
+	commands  []string
+	data      string
+	quitFails bool
+	silent    bool // accepts and never speaks (a tarpit)
 }
 
 func newFakeSMTP(t *testing.T, silent bool) *fakeSMTP {
@@ -91,6 +92,12 @@ func (f *fakeSMTP) handle(conn net.Conn) {
 			inData = true
 			say("354 go")
 		case "QUIT":
+			f.mu.Lock()
+			fail := f.quitFails
+			f.mu.Unlock()
+			if fail {
+				return
+			}
 			say("221 bye")
 			return
 		default:
@@ -179,5 +186,16 @@ func TestATarpitIsLetGoWhenTheContextEnds(t *testing.T) {
 	var sendErr *SendError
 	if !errors.As(err, &sendErr) || sendErr.Kind != FailureConnect {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestSMTPAcceptedMessageDoesNotFailWhenQuitDisconnects(t *testing.T) {
+	f := newFakeSMTP(t, false)
+	f.mu.Lock()
+	f.quitFails = true
+	f.mu.Unlock()
+	c := clientFor(f, func(cfg *Config) { cfg.Insecure = true })
+	if err := c.SendMessage(context.Background(), Message{To: "x@example.test", Subject: "accepted", Text: "body"}); err != nil {
+		t.Fatalf("accepted DATA must not be retried after QUIT failure: %v", err)
 	}
 }

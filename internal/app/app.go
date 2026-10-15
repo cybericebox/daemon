@@ -194,11 +194,7 @@ func Run(cfg *config.Config) {
 	// periodic checks (job queue, agent certificates) run until shutdown.
 	errorJournal.SetReporter(ucs.Journal)
 	journalDone := make(chan struct{})
-	go func() {
-		defer close(journalDone)
-		ucs.Journal.Run(runtimeCtx)
-	}()
-	go ucs.Journal.Watch(runtimeCtx)
+
 	bootstrapAgent(ctx, cfg.Infrastructure.Agent, ucs.AgentsUseCase)
 
 	if err := startupdefaults.Seed(ctx, repo.Queries); err != nil {
@@ -216,6 +212,12 @@ func Run(cfg *config.Config) {
 	// narrows it via worker's hidden useCase port (e.g., ProcessNotification).
 	// Late-bind the enqueuer's client so Notify can enqueue jobs after River starts.
 	wc.Initialize(ctx, wr)
+	// Startup capture stays buffered until River can atomically accept notification commands.
+	go func() {
+		defer close(journalDone)
+		ucs.Journal.Run(runtimeCtx)
+	}()
+	go ucs.Journal.Watch(runtimeCtx)
 
 	// ── delivery ──
 	ctrl := controller.NewController(
