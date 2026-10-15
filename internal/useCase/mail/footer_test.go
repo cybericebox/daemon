@@ -124,6 +124,7 @@ func TestTestPlatformSMTP_EndsWithFooter(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, res.Sent, res.Error)
 	require.Len(t, smtp.sends, 1)
+	require.Equal(t, "Перевірка пошти Cyber\u00a0ICE\u00a0Box", smtp.sends[0].msg.Subject)
 	requireFooter(t, smtp.sends[0].msg, "support@cybericebox.com")
 }
 
@@ -298,4 +299,24 @@ func TestPreviewPlatformFooterKeepsRootAlignment(t *testing.T) {
 	require.Contains(t, preview.HTML, `text-align:right`)
 	require.Contains(t, preview.HTML, `align="right"`)
 	require.Contains(t, preview.HTML, `href="mailto:support@cybericebox.com"`)
+}
+
+func TestFooter_ShortLinksStayTogetherWithoutChangingAddresses(t *testing.T) {
+	footer := renderFooter(nil, "support@cybericebox.com", "https://cybericebox.com")
+	require.Contains(t, footer.HTML, "Звʼязатися&nbsp;з&nbsp;нами")
+	require.Contains(t, footer.HTML, "Політика&nbsp;конфіденційності")
+	require.Contains(t, footer.HTML, `href="mailto:support@cybericebox.com"`)
+	require.Contains(t, footer.HTML, `href="https://cybericebox.com/privacy"`)
+	en := renderFooter(mailModel.DefaultFooterDoc(mailModel.LanguageEN), "support@example.org", "https://example.org")
+	require.Contains(t, en.HTML, "Contact&nbsp;us")
+	require.Contains(t, en.HTML, "Privacy&nbsp;Policy")
+	require.Contains(t, en.Text, "Contact us", "plain-text content stays readable")
+}
+
+func TestFooterLinkWords_DoesNotRewriteURLsOrMakeLongCustomLinksUnbreakable(t *testing.T) {
+	markup := `<a href="https://example.org/Contact us">Contact us</a><a href="https://example.org">A long custom footer link with many words</a>`
+	got := keepFooterLinkWords(markup)
+	require.Contains(t, got, `href="https://example.org/Contact us"`)
+	require.Contains(t, got, ">Contact&nbsp;us</a>")
+	require.Contains(t, got, "A long custom footer link with many words")
 }

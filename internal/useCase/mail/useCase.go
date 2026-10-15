@@ -18,6 +18,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/mailRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	"github.com/cybericebox/daemon/internal/model"
+	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/pkg/email"
@@ -111,6 +112,7 @@ type transport struct {
 	// providerID is set for a stored platform provider: its daily allowance is
 	// claimed on its row before each send.
 	providerID        *uuid.UUID
+	providerName      string
 	smtpConnectionKey string
 }
 
@@ -205,8 +207,9 @@ func (u *MailUseCase) providerTransport(p mailModel.SMTPConfig, sender platformS
 	id := p.ID
 	return transport{
 		source: dispatchModel.TransportPlatform, conn: withSender(conn, identity), identity: identity, domain: sender.domain,
-		limits:     mailModel.Limits{PerSecond: p.StoredLimits().PerSecond},
-		providerID: &id,
+		limits:       mailModel.Limits{PerSecond: p.StoredLimits().PerSecond},
+		providerID:   &id,
+		providerName: p.Name,
 	}, nil
 }
 
@@ -311,6 +314,7 @@ func (u *MailUseCase) send(ctx context.Context, t transport, msg email.Message) 
 		return err
 	}
 	msg.HTML, msg.Text = footer.Append(msg.HTML, msg.Text)
+	msg.Subject = mailModel.KeepBrandText(msg.Subject)
 	if err = u.throttle(ctx, t); err != nil {
 		return err
 	}
@@ -359,7 +363,11 @@ func (u *MailUseCase) release(ctx context.Context, t transport, sendErr error) {
 	if mailModel.ProviderFailure(sendErr) {
 		providerError = truncate(sendErr.Error(), maxStoredError)
 	}
-	_ = u.mail.ReleaseSend(context.WithoutCancel(ctx), *t.providerID, u.now(), providerError)
+	now := u.now()
+	_ = u.mail.ReleaseSend(context.WithoutCancel(ctx), *t.providerID, now, providerError)
+	if providerError != "" {
+		errorJournal.Report(errorJournal.SMTPProviderFailure(*t.providerID, t.providerName, providerError, now))
+	}
 }
 
 func (u *MailUseCase) markUsed(ctx context.Context, t transport) {
