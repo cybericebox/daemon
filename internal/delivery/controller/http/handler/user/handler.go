@@ -74,14 +74,15 @@ type (
 	}
 
 	userResponse struct {
-		ID        uuid.UUID            `json:"ID"`
-		FirstName string               `json:"FirstName"`
-		LastName  string               `json:"LastName"`
-		Email     string               `json:"Email"`
-		Role      rbac.Role            `json:"Role"`
-		Status    userModel.UserStatus `json:"Status"`
-		LastSeen  time.Time            `json:"LastSeen"`
-		CreatedAt time.Time            `json:"CreatedAt"`
+		EmailConfirmed bool                 `json:"EmailConfirmed"`
+		ID             uuid.UUID            `json:"ID"`
+		FirstName      string               `json:"FirstName"`
+		LastName       string               `json:"LastName"`
+		Email          string               `json:"Email"`
+		Role           rbac.Role            `json:"Role"`
+		Status         userModel.UserStatus `json:"Status"`
+		LastSeen       time.Time            `json:"LastSeen"`
+		CreatedAt      time.Time            `json:"CreatedAt"`
 	}
 
 	roleCountResponse struct {
@@ -167,7 +168,7 @@ func (h *Handler) listUsers(ctx *gin.Context) {
 		items := make([]userResponse, 0, len(res.Users))
 		for _, x := range res.Users {
 			items = append(items, userResponse{ID: x.ID, FirstName: x.FirstName, LastName: x.LastName,
-				Email: x.Email, Role: x.Role, Status: x.Status, LastSeen: x.LastSeen, CreatedAt: x.CreatedAt})
+				Email: x.Email, EmailConfirmed: x.EmailConfirmed, Role: x.Role, Status: x.Status, LastSeen: x.LastSeen, CreatedAt: x.CreatedAt})
 		}
 		response.AbortWithData(ctx, pagination.NewOffsetPage(items, res.Total, page.Page, page.PageSize))
 		return
@@ -191,14 +192,15 @@ func (h *Handler) listUsers(ctx *gin.Context) {
 	items := make([]userResponse, 0, len(res.Users))
 	for _, x := range res.Users {
 		items = append(items, userResponse{
-			ID:        x.ID,
-			FirstName: x.FirstName,
-			LastName:  x.LastName,
-			Email:     x.Email,
-			Role:      x.Role,
-			Status:    x.Status,
-			LastSeen:  x.LastSeen,
-			CreatedAt: x.CreatedAt,
+			ID:             x.ID,
+			FirstName:      x.FirstName,
+			LastName:       x.LastName,
+			Email:          x.Email,
+			EmailConfirmed: x.EmailConfirmed,
+			Role:           x.Role,
+			Status:         x.Status,
+			LastSeen:       x.LastSeen,
+			CreatedAt:      x.CreatedAt,
 		})
 	}
 	response.AbortWithData(ctx, pagination.NewCursorPage(items, res.HasMore, res.NextCursor, res.Total))

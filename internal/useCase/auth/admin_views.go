@@ -14,15 +14,16 @@ import (
 type (
 	// UserInfo is the admin list / self-profile row view.
 	UserInfo struct {
-		ID        uuid.UUID
-		FirstName string
-		LastName  string
-		Picture   string
-		Email     string
-		Role      rbac.Role
-		Status    userModel.UserStatus
-		LastSeen  time.Time
-		CreatedAt time.Time
+		ID             uuid.UUID
+		FirstName      string
+		LastName       string
+		Picture        string
+		Email          string
+		EmailConfirmed bool
+		Role           rbac.Role
+		Status         userModel.UserStatus
+		LastSeen       time.Time
+		CreatedAt      time.Time
 	}
 
 	// UserDetail is the admin single-user view.
