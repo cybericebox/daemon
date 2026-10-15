@@ -6,6 +6,8 @@ package errorJournalRepo
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/cybericebox/daemon/pkg/worker"
 	"strings"
 	"time"
 
@@ -21,6 +23,12 @@ import (
 
 // Queries is the narrow slice of the sqlc Querier this repository needs.
 type Queries interface {
+	GetUserByEmail(context.Context, string) (postgres.User, error)
+	GetErrorNotification(context.Context, uuid.UUID) (postgres.ErrorNotificationDelivery, error)
+	StartErrorNotification(context.Context, postgres.StartErrorNotificationParams) error
+	FinishErrorNotification(context.Context, postgres.FinishErrorNotificationParams) (int64, error)
+	ListErrorNotificationDeliveries(context.Context, uuid.UUID) ([]postgres.ErrorNotificationDelivery, error)
+
 	UpsertErrorGroup(ctx context.Context, arg postgres.UpsertErrorGroupParams) (postgres.UpsertErrorGroupRow, error)
 	InsertErrorSample(ctx context.Context, arg postgres.InsertErrorSampleParams) error
 	TrimErrorSamples(ctx context.Context, arg postgres.TrimErrorSamplesParams) error
@@ -51,21 +59,45 @@ type Pool interface {
 }
 
 type Repository struct {
-	q    Queries
-	pool Pool
+	q        Queries
+	pool     Pool
+	enqueuer worker.TransactionalEnqueuer
 }
 
-func New(q Queries, pool Pool) *Repository { return &Repository{q: q, pool: pool} }
+func New(q Queries, pool Pool, enqueuers ...worker.IEnqueuer) *Repository {
+	r := &Repository{q: q, pool: pool}
+	if len(enqueuers) > 0 {
+		r.enqueuer, _ = enqueuers[0].(worker.TransactionalEnqueuer)
+	}
+	return r
+}
 
 var _ errorJournalUseCase.Repository = (*Repository)(nil)
 
 func (r *Repository) Record(ctx context.Context, in errorJournalUseCase.RecordInput) (errorJournalUseCase.RecordResult, error) {
+	q := r.q
+	var tx pgx.Tx
+	if in.Notification != nil {
+		pool, ok := r.pool.(interface {
+			Begin(context.Context) (pgx.Tx, error)
+		})
+		if !ok || r.enqueuer == nil {
+			return errorJournalUseCase.RecordResult{}, fmt.Errorf("transactional notification enqueue unavailable")
+		}
+		var err error
+		tx, err = pool.Begin(ctx)
+		if err != nil {
+			return errorJournalUseCase.RecordResult{}, err
+		}
+		defer tx.Rollback(context.WithoutCancel(ctx))
+		q = postgres.New(tx)
+	}
 	count := int64(max(in.Count, 1))
 	groupID, err := uuid.NewV7()
 	if err != nil {
 		return errorJournalUseCase.RecordResult{}, err
 	}
-	row, err := r.q.UpsertErrorGroup(ctx, postgres.UpsertErrorGroupParams{
+	row, err := q.UpsertErrorGroup(ctx, postgres.UpsertErrorGroupParams{
 		ID: groupID, Fingerprint: in.Fingerprint, Kind: string(in.Kind), Source: in.Source, Title: in.Title, At: in.At, N: count,
 	})
 	if err != nil {
@@ -86,13 +118,13 @@ func (r *Repository) Record(ctx context.Context, in errorJournalUseCase.RecordIn
 	if s.UserID != nil {
 		params.UserID = uuid.NullUUID{UUID: *s.UserID, Valid: true}
 	}
-	if err = r.q.InsertErrorSample(ctx, params); err != nil {
+	if err = q.InsertErrorSample(ctx, params); err != nil {
 		return errorJournalUseCase.RecordResult{}, err
 	}
-	if err = r.q.TrimErrorSamples(ctx, postgres.TrimErrorSamplesParams{Gid: row.ID, Keep: int32(in.Keep)}); err != nil {
+	if err = q.TrimErrorSamples(ctx, postgres.TrimErrorSamplesParams{Gid: row.ID, Keep: int32(in.Keep)}); err != nil {
 		return errorJournalUseCase.RecordResult{}, err
 	}
-	return errorJournalUseCase.RecordResult{
+	res := errorJournalUseCase.RecordResult{
 		Group: errorJournal.Group{
 			ID: row.ID, Fingerprint: row.Fingerprint, Kind: errorJournal.Kind(row.Kind), Source: row.Source, Title: row.Title,
 			Status: errorJournal.Status(row.Status), Occurrences: row.Occurrences, FirstSeenAt: row.FirstSeenAt,
@@ -101,7 +133,18 @@ func (r *Repository) Record(ctx context.Context, in errorJournalUseCase.RecordIn
 		},
 		Inserted: row.Occurrences == count,
 		Reopened: row.Reopened,
-	}, nil
+	}
+	if in.Notification != nil {
+		if plan := in.Notification(res); plan != nil {
+			if err := r.enqueueNotification(ctx, tx, res.Group.ID, plan); err != nil {
+				return errorJournalUseCase.RecordResult{}, err
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return errorJournalUseCase.RecordResult{}, err
+		}
+	}
+	return res, nil
 }
 
 func (r *Repository) ListGroups(ctx context.Context, f errorJournalUseCase.GroupFilter) ([]errorJournal.Group, int64, error) {

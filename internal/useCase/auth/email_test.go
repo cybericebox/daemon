@@ -24,7 +24,10 @@ import (
 	userModel "github.com/cybericebox/daemon/internal/model/user"
 	"github.com/cybericebox/daemon/internal/useCase/auth"
 	"github.com/cybericebox/daemon/pkg/password"
+	"github.com/cybericebox/daemon/pkg/secret"
 	"github.com/cybericebox/daemon/pkg/token"
+	"github.com/cybericebox/daemon/pkg/worker"
+	"github.com/stretchr/testify/require"
 )
 
 func newEmailUC(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier, *fakeNotifier) {
@@ -134,5 +137,59 @@ func TestConfirmEmailChange_Success(t *testing.T) {
 	p, ok := notifier.lastPayload.(payloads.EmailChangedPayload)
 	if !ok || notifier.calls != 1 || notifier.lastRecipientEmail != "old@b.test" || p.NewEmail != "new@b.test" || p.Name != "Jane" || !strings.HasSuffix(p.ResetURL, "/forgot-password/") {
 		t.Fatalf("old-address notice: calls=%d to=%q payload=%+v", notifier.calls, notifier.lastRecipientEmail, notifier.lastPayload)
+	}
+}
+
+func TestConfirmEmailChange_NoticeAndSessionRevocationCommitTogether(t *testing.T) {
+	for _, fail := range []bool{true, false} {
+		t.Run(map[bool]string{true: "rollback", false: "commit"}[fail], func(t *testing.T) {
+
+			_, repo, notifier := newEmailUC(t)
+			runtime := testSessions(t)
+			uc := auth.NewAuthUseCase(auth.Dependencies{Repo: repo, Notifier: notifier, Sessions: runtime, Config: config.AuthConfig{SessionIdleTTL: time.Hour, TemporalCodeTTL: time.Hour, Hosts: testHosts("example.test")}})
+
+			tx := &authTransaction{}
+			cipher, err := secret.New(strings.Repeat("ab", 32))
+			require.NoError(t, err)
+			uc.SetDeliveryQueue(&authQueue{IEnqueuer: worker.NewEnqueuer()}, cipher, authUnit{repo, tx})
+			if fail {
+				notifier.err = errors.New("queue unavailable")
+			}
+			uid := uuid.Must(uuid.NewV7())
+			data, _ := json.Marshal(temporalCodeModel.TemporalEmailChangeCodeData{UserID: uid, Email: "new@b.test"})
+			bsCode := strings.ReplaceAll(base64.StdEncoding.EncodeToString([]byte(rawCode)), "=", "")
+			repo.EXPECT().GetTemporalCodeByCode(gomock.Any(), auth.ExportHashTemporalCode(rawCode)).Return(postgres.TemporalCode{
+				ID: uuid.Must(uuid.NewV7()), Type: temporalCodeModel.EmailChangeCodeType, Data: data, ExpiresAt: time.Now().Add(time.Hour),
+			}, nil)
+			repo.EXPECT().DeleteTemporalCode(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+			repo.EXPECT().GetUserByEmail(gomock.Any(), "new@b.test").Return(postgres.User{}, pgx.ErrNoRows)
+			repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).Return(postgres.User{ID: uid, Email: "old@b.test", FirstName: "Jane", Status: "active"}, nil)
+			repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, arg postgres.UpdateUserParams) (int64, error) {
+					if arg.Email != "new@b.test" || !arg.EmailConfirmed {
+						return 0, fmt.Errorf("email change must write address+confirmed: %+v", arg)
+					}
+					return 1, nil
+				})
+			// M6: the pending recovery and email-change codes issued before the change are dead.
+			for _, codeType := range []int32{temporalCodeModel.PasswordResettingCodeType, temporalCodeModel.EmailChangeCodeType} {
+				repo.EXPECT().DeleteTemporalCodesForUser(gomock.Any(), postgres.DeleteTemporalCodesForUserParams{Type: codeType, UserID: uid.String()}).Return(int64(1), nil)
+			}
+			// The Google identity vouched for the old address: it is unlinked.
+			repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(1), nil)
+			// M1: the recovery address changed — every session ends.
+			rows := revokedRows(1)
+			repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(rows, nil)
+
+			err = uc.ConfirmEmailChange(context.Background(), bsCode)
+			if fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, !fail, tx.committed, "the email change and notification must commit together")
+			require.Equal(t, !fail, runtime.Revocations.Revoked(rows[0].SessionID), "local session revocation follows the committed database state")
+			require.True(t, tx.restored)
+		})
 	}
 }

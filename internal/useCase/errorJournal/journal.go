@@ -74,6 +74,11 @@ type Repository interface {
 	// MarkNotified claims the right to send the message of the group: it succeeds when nobody sent one since
 	// cutoff (or ever), resets the suppressed count and returns it. Several replicas race on it safely.
 	MarkNotified(ctx context.Context, id uuid.UUID, now, cutoff time.Time) (suppressed int64, claimed bool, err error)
+	GetDelivery(ctx context.Context, id uuid.UUID) (Delivery, error)
+	StartDelivery(ctx context.Context, id uuid.UUID, now time.Time) error
+	FinishDelivery(ctx context.Context, d Delivery, result TestResult, now, next time.Time) error
+	ExpandDelivery(ctx context.Context, d Delivery, targets []DeliveryTarget, now time.Time) error
+	ListDeliveries(ctx context.Context, groupID uuid.UUID) ([]Delivery, error)
 	AddNotFound(ctx context.Context, day time.Time, route string, hits int64) error
 	ListNotFound(ctx context.Context, from, to time.Time) ([]errorJournal.NotFoundDay, error)
 	Purge(ctx context.Context, cutoff time.Time) (PurgeResult, error)
@@ -83,6 +88,7 @@ type Repository interface {
 	ReplaceChats(ctx context.Context, chats []errorJournal.TelegramChat) error
 	SetChatFailing(ctx context.Context, chatID string, failing bool, reason string, now time.Time) error
 	SuperAdminEmails(ctx context.Context) ([]string, error)
+	RecipientUsers(ctx context.Context, emails []string) ([]RecipientUser, error)
 	// QueueStats reads the job queue: jobs ready to run, and how long the oldest has waited.
 	QueueStats(ctx context.Context, now time.Time) (QueueStats, error)
 }
@@ -114,6 +120,8 @@ type (
 		Keep        int
 		// Count is the occurrences this record adds (at least 1).
 		Count int
+		// Notification is evaluated inside the record transaction, before committing the capture.
+		Notification func(RecordResult) *NotificationPlan
 	}
 	RecordResult struct {
 		Group    errorJournal.Group
@@ -393,15 +401,13 @@ func (j *Journal) Record(ctx context.Context, e errorJournal.Event) (RecordResul
 	rec, err := j.repo.Record(ctx, RecordInput{
 		Fingerprint: fp, Kind: e.Kind, Source: e.Source, Title: errorJournal.Title(e), At: e.At,
 		Sample: sample, Keep: j.cfg.SamplesPerGroup, Count: max(e.Count, 1),
+		Notification: func(rec RecordResult) *NotificationPlan { return j.notificationPlan(e, rec, sample) },
 	})
 	if err != nil {
 		return RecordResult{}, err
 	}
 	sample.GroupID = rec.Group.ID
 	j.hub.Publish(StreamEvent{Group: rec.Group, Sample: &sample, New: rec.Inserted || rec.Reopened})
-	if rec.Group.Status != errorJournal.StatusIgnored {
-		j.notify(ctx, e, rec, sample)
-	}
 	return rec, nil
 }
 
@@ -432,8 +438,9 @@ func (j *Journal) ListErrorGroups(ctx context.Context, f GroupFilter) ([]errorJo
 
 // GroupDetail is a group with its recent samples.
 type GroupDetail struct {
-	Group   errorJournal.Group
-	Samples []errorJournal.Sample
+	Group      errorJournal.Group
+	Samples    []errorJournal.Sample
+	Deliveries []Delivery
 }
 
 func (j *Journal) GetErrorGroup(ctx context.Context, id uuid.UUID) (GroupDetail, error) {
@@ -445,7 +452,11 @@ func (j *Journal) GetErrorGroup(ctx context.Context, id uuid.UUID) (GroupDetail,
 	if err != nil {
 		return GroupDetail{}, err
 	}
-	return GroupDetail{Group: g, Samples: samples}, nil
+	deliveries, err := j.repo.ListDeliveries(ctx, id)
+	if err != nil {
+		return GroupDetail{}, err
+	}
+	return GroupDetail{Group: g, Samples: samples, Deliveries: deliveries}, nil
 }
 
 // SetGroupStatus resolves, ignores or reopens a group.

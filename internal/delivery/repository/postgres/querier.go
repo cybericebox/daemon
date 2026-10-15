@@ -14,6 +14,7 @@ import (
 
 type Querier interface {
 	AddErrorNotFound(ctx context.Context, arg AddErrorNotFoundParams) error
+	AddErrorNotificationTarget(ctx context.Context, arg AddErrorNotificationTargetParams) (int64, error)
 	// An email image is owned by its draft as soon as it is uploaded. Inserting
 	// one link avoids a read/replace race when uploads finish concurrently.
 	AddFileReference(ctx context.Context, arg AddFileReferenceParams) error
@@ -127,6 +128,7 @@ type Querier interface {
 	CreateChallengeAttempt(ctx context.Context, arg CreateChallengeAttemptParams) (ChallengeAttempt, error)
 	CreateChallengeAttemptDecision(ctx context.Context, arg CreateChallengeAttemptDecisionParams) (ChallengeAttemptDecision, error)
 	CreateDispatch(ctx context.Context, arg CreateDispatchParams) (NotificationDispatch, error)
+	CreateDispatchIfAbsent(ctx context.Context, arg CreateDispatchIfAbsentParams) (int64, error)
 	// Rollback: a new draft cloned from a historical version's content. Fails
 	// with zero rows when the source is missing OR a draft already exists; the
 	// caller re-reads to discriminate 404 vs 409.
@@ -298,6 +300,7 @@ type Querier interface {
 	// THIS Event's own template rows — never by another Event's rows or by
 	// unrelated owners (avatars, exercise images).
 	EmailTemplateFileUsableByEvent(ctx context.Context, arg EmailTemplateFileUsableByEventParams) (bool, error)
+	EnqueueErrorNotification(ctx context.Context, arg EnqueueErrorNotificationParams) (int64, error)
 	EnsureSignalHookExecution(ctx context.Context, arg EnsureSignalHookExecutionParams) error
 	EventExerciseHasAttempts(ctx context.Context, eventExerciseID uuid.UUID) (bool, error)
 	// Whether an active attachment of the event already uses the exercise, a fork
@@ -328,6 +331,7 @@ type Querier interface {
 	// Every event team bound to the lab group, whatever the event lifecycle: the
 	// current state must already be there when an event becomes active.
 	FindEventTeamsByLabGroup(ctx context.Context, labGroupName string) ([]FindEventTeamsByLabGroupRow, error)
+	FinishErrorNotification(ctx context.Context, arg FinishErrorNotificationParams) (int64, error)
 	FinishNotificationBroadcast(ctx context.Context, arg FinishNotificationBroadcastParams) error
 	// Closes the roster for good. formed_by NULL means no person did it. Already
 	// formed teams are left alone, so a repeat is a no-op.
@@ -347,6 +351,7 @@ type Querier interface {
 	GetEmailTemplate(ctx context.Context, id uuid.UUID) (NotificationEmailTemplate, error)
 	GetErrorGroup(ctx context.Context, id uuid.UUID) (ErrorGroup, error)
 	GetErrorJournalSettings(ctx context.Context) (GetErrorJournalSettingsRow, error)
+	GetErrorNotification(ctx context.Context, id uuid.UUID) (ErrorNotificationDelivery, error)
 	// The overview counters (§6.1). Registered excludes pending invitations;
 	// active are the distinct participants with an attempt or a task open or
 	// download since active_since.
@@ -652,6 +657,7 @@ type Querier interface {
 	ListEmailTemplates(ctx context.Context, arg ListEmailTemplatesParams) ([]NotificationEmailTemplate, error)
 	ListErrorGroups(ctx context.Context, arg ListErrorGroupsParams) ([]ErrorGroup, error)
 	ListErrorNotFound(ctx context.Context, arg ListErrorNotFoundParams) ([]ErrorNotFoundDaily, error)
+	ListErrorNotificationDeliveries(ctx context.Context, groupID uuid.UUID) ([]ErrorNotificationDelivery, error)
 	ListErrorSamples(ctx context.Context, arg ListErrorSamplesParams) ([]ErrorSample, error)
 	ListErrorTelegramChats(ctx context.Context) ([]ErrorJournalTelegramChat, error)
 	// The event-wide 5-minute series in [from_at, to_at).
@@ -1297,6 +1303,7 @@ type Querier interface {
 	// only once the event is withdrawn. A destroyed binding never re-enters this
 	// queue; a failed agent call leaves it eligible for River's next retry.
 	ListWithdrawnLabBindings(ctx context.Context, now pgtype.Timestamptz) ([]LabBinding, error)
+	LockErrorNotification(ctx context.Context, id uuid.UUID) (ErrorNotificationDelivery, error)
 	// Configured maxima cannot change while an admission validates immutable group sizes.
 	LockEventConfigForLabSizing(ctx context.Context, eventID uuid.UUID) (uuid.UUID, error)
 	// Serialize roster creation/change without blocking the KEY SHARE locks of
@@ -1578,6 +1585,7 @@ type Querier interface {
 	SetPlatformMailFooter(ctx context.Context, arg SetPlatformMailFooterParams) error
 	SetPlatformSMTPProviderEnabled(ctx context.Context, arg SetPlatformSMTPProviderEnabledParams) (MailSmtpConfig, error)
 	SetResourceCalendarSettings(ctx context.Context, arg SetResourceCalendarSettingsParams) error
+	StartErrorNotification(ctx context.Context, arg StartErrorNotificationParams) error
 	// What a user (or, with a nil user, anybody in the team) did against one task
 	// before a moment. Keep lab-only rows separate from participant observations:
 	// their packets cannot supply missing participant response evidence.

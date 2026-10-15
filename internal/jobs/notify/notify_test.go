@@ -162,3 +162,50 @@ func TestNotifyWorker_Work_MissingPayloadCancelsOnce(t *testing.T) {
 	require.ErrorAs(t, err, &cancel)
 	assert.False(t, fake.called)
 }
+
+type operatorProcessor struct {
+	fakeProcessor
+	journalID, authID uuid.UUID
+	journalErr        error
+}
+
+func (p *operatorProcessor) ProcessJournalDelivery(_ context.Context, id uuid.UUID) error {
+	p.journalID = id
+	return p.journalErr
+}
+func (p *operatorProcessor) ProcessAuthDelivery(_ context.Context, id uuid.UUID) error {
+	p.authID = id
+	return nil
+}
+func TestNotifyWorkerRoutesPersistedOperatorCommandAndSnoozesFailure(t *testing.T) {
+	id := tools.NewUUIDv7()
+	p := &operatorProcessor{journalErr: &dispatchModel.DeferredError{Message: "network outage", RetryAfter: time.Minute}}
+	err := NewWorker(p).Work(context.Background(), &river.Job[jobsModel.NotifyArgs]{Args: jobsModel.NotifyArgs{JournalDeliveryID: &id}})
+	require.Error(t, err)
+	require.Equal(t, id, p.journalID)
+	require.False(t, p.loaded)
+	require.False(t, p.discarded)
+	require.False(t, p.called)
+	p.journalErr = nil
+	require.NoError(t, NewWorker(p).Work(context.Background(), &river.Job[jobsModel.NotifyArgs]{Args: jobsModel.NotifyArgs{JournalDeliveryID: &id}}))
+}
+func TestNotifyWorkerRoutesAuthCommand(t *testing.T) {
+	id := tools.NewUUIDv7()
+	p := &operatorProcessor{}
+	require.NoError(t, NewWorker(p).Work(context.Background(), &river.Job[jobsModel.NotifyArgs]{Args: jobsModel.NotifyArgs{AuthDeliveryID: &id}}))
+	require.Equal(t, id, p.authID)
+	require.False(t, p.loaded)
+	require.False(t, p.called)
+}
+
+func TestNotifyRetriesStayWithinSealedPayloadRetention(t *testing.T) {
+	var horizon time.Duration
+	for attempt := 1; attempt <= 25; attempt++ {
+		delay := notifyRetryDelay(attempt)
+		require.Positive(t, delay)
+		require.LessOrEqual(t, delay, 6*time.Hour)
+		horizon += delay
+	}
+	require.Less(t, horizon, 14*24*time.Hour)
+	require.Equal(t, 6*time.Hour, notifyRetryDelay(25))
+}

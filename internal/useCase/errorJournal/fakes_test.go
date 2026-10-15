@@ -17,23 +17,31 @@ import (
 var errNotFound = errors.New("not found")
 
 type fakeRepo struct {
-	mu       sync.Mutex
-	groups   map[string]*errorJournal.Group // by fingerprint
-	samples  map[uuid.UUID][]errorJournal.Sample
-	notFound map[string]int64
-	settings errorJournal.Settings
-	admins   []string
-	queue    QueueStats
-	purgedAt time.Time
+	mu          sync.Mutex
+	groups      map[string]*errorJournal.Group // by fingerprint
+	samples     map[uuid.UUID][]errorJournal.Sample
+	notFound    map[string]int64
+	settings    errorJournal.Settings
+	admins      []string
+	queue       QueueStats
+	purgedAt    time.Time
+	deliveries  map[uuid.UUID]Delivery
+	enqueued    map[uuid.UUID]time.Time
+	afterRecord func()
 }
 
 func newFakeRepo() *fakeRepo {
-	return &fakeRepo{groups: map[string]*errorJournal.Group{}, samples: map[uuid.UUID][]errorJournal.Sample{}, notFound: map[string]int64{}}
+	return &fakeRepo{deliveries: map[uuid.UUID]Delivery{}, enqueued: map[uuid.UUID]time.Time{}, groups: map[string]*errorJournal.Group{}, samples: map[uuid.UUID][]errorJournal.Sample{}, notFound: map[string]int64{}}
 }
 
 func (r *fakeRepo) Record(_ context.Context, in RecordInput) (RecordResult, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	defer func() {
+		r.mu.Unlock()
+		if r.afterRecord != nil {
+			r.afterRecord()
+		}
+	}()
 	g, ok := r.groups[in.Fingerprint]
 	res := RecordResult{}
 	if !ok {
@@ -53,6 +61,22 @@ func (r *fakeRepo) Record(_ context.Context, in RecordInput) (RecordResult, erro
 		r.samples[g.ID] = r.samples[g.ID][:in.Keep]
 	}
 	res.Group = *g
+	if in.Notification != nil {
+		if plan := in.Notification(res); plan != nil {
+			pending := false
+			for _, d := range r.deliveries {
+				if d.GroupID == g.ID && d.DeliveredAt == nil {
+					pending = true
+				}
+			}
+			last, had := r.enqueued[g.ID]
+			if !pending && (!had || !last.After(plan.Cutoff)) {
+				id := uuid.Must(uuid.NewV7())
+				r.deliveries[id] = Delivery{ID: id, GroupID: g.ID, Channel: "prepare", Body: plan.Body, EmailBody: plan.EmailBody, CreatedAt: plan.Now, NextAttemptAt: plan.Now}
+				r.enqueued[g.ID] = plan.Now
+			}
+		}
+	}
 	return res, nil
 }
 
@@ -250,5 +274,92 @@ func newHarness(cfg Config) *harness {
 	h.repo.settings = errorJournal.Settings{TelegramChats: []errorJournal.TelegramChat{{ChatID: "100", Label: "ops"}}, Emails: []string{"ops@example.org"}}
 	h.j = New(Dependencies{Repo: h.repo, Telegram: h.tg, Mailer: h.mail, Config: cfg})
 	h.j.now = func() time.Time { return h.now }
+	h.repo.afterRecord = h.deliverAll
 	return h
+}
+
+func (r *fakeRepo) GetDelivery(_ context.Context, id uuid.UUID) (Delivery, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d, ok := r.deliveries[id]
+	if !ok {
+		return Delivery{}, ErrDeliveryGone
+	}
+	return d, nil
+}
+func (r *fakeRepo) StartDelivery(_ context.Context, id uuid.UUID, now time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.deliveries[id]
+	d.Attempts++
+	d.LastAttemptAt = &now
+	r.deliveries[id] = d
+	return nil
+}
+func (r *fakeRepo) FinishDelivery(_ context.Context, d Delivery, result TestResult, now, next time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := r.deliveries[d.ID]
+	current.CancelledAt = d.CancelledAt
+	current.LastError = result.Error
+	current.NextAttemptAt = next
+	if result.OK {
+		current.DeliveredAt = &now
+		g := r.byID(d.GroupID)
+		g.LastNotifiedAt = &now
+		g.SuppressedSince = 0
+	}
+	r.deliveries[d.ID] = current
+	return nil
+}
+func (r *fakeRepo) ExpandDelivery(_ context.Context, d Delivery, targets []DeliveryTarget, now time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := r.deliveries[d.ID]
+	if current.DeliveredAt != nil {
+		return nil
+	}
+	for _, target := range targets {
+		id := uuid.Must(uuid.NewV7())
+		body := d.Body
+		if target.Channel == ChannelEmail {
+			body = d.EmailBody
+		}
+		r.deliveries[id] = Delivery{ID: id, GroupID: d.GroupID, Channel: target.Channel, Target: target.Target, Label: target.Label, Body: body, CreatedAt: now, NextAttemptAt: now}
+	}
+	current.DeliveredAt = &now
+	r.deliveries[d.ID] = current
+	return nil
+}
+func (r *fakeRepo) ListDeliveries(_ context.Context, id uuid.UUID) ([]Delivery, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := []Delivery{}
+	for _, d := range r.deliveries {
+		if d.GroupID == id && (d.Channel != "prepare" || d.DeliveredAt == nil) {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+
+// Existing rule tests explicitly simulate River completing the jobs after capture. Network calls are
+// never made by production Record; recovery regressions disable this fixture convenience.
+func (h *harness) deliverAll() {
+	for range 20 {
+		var ids []uuid.UUID
+		h.repo.mu.Lock()
+		for _, d := range h.repo.deliveries {
+			if d.DeliveredAt == nil && d.CancelledAt == nil && !d.NextAttemptAt.After(h.now) {
+				ids = append(ids, d.ID)
+			}
+		}
+		h.repo.mu.Unlock()
+		if len(ids) == 0 {
+			return
+		}
+		for _, id := range ids {
+			_ = h.j.ProcessJournalDelivery(context.Background(), id)
+		}
+	}
 }

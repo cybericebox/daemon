@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
@@ -87,5 +88,18 @@ func (e *enqueuer) Enqueue(ctx context.Context, args jobArgs) error {
 		return model.ErrPlatform.WithMessage("River client is not initialized").Err()
 	}
 	_, err := e.factory.client.Insert(ctx, args, nil)
+	return err
+}
+
+// TransactionalEnqueuer joins persisted delivery payloads and their River job in one commit.
+type TransactionalEnqueuer interface {
+	EnqueueTx(context.Context, pgx.Tx, river.JobArgs) error
+}
+
+func (e *enqueuer) EnqueueTx(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+	if e.factory.client == nil {
+		return model.ErrPlatform.WithMessage("River client is not initialized").Err()
+	}
+	_, err := e.factory.client.InsertTx(ctx, tx, args, nil)
 	return err
 }

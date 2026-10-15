@@ -129,3 +129,25 @@ func TestRecipient_GapAndHourlyPerKind(t *testing.T) {
 		t.Fatal("quota restored after the hour")
 	}
 }
+
+func TestRecipientReservationCanBeReleasedWithoutErasingEarlierMail(t *testing.T) {
+	now := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
+	limiter := ratelimit.NewRecipient(time.Minute, 2).WithClock(func() time.Time { return now })
+	if !limiter.Allow("reset", "a@example.test") {
+		t.Fatal("first mail")
+	}
+	now = now.Add(2 * time.Minute)
+	ok, release := limiter.Reserve("reset", "a@example.test")
+	if !ok {
+		t.Fatal("second reservation")
+	}
+	release()
+	release()
+	if !limiter.Allow("reset", "a@example.test") {
+		t.Fatal("failed enqueue must not consume the quota")
+	}
+	now = now.Add(2 * time.Minute)
+	if limiter.Allow("reset", "a@example.test") {
+		t.Fatal("release must preserve the first committed mail")
+	}
+}

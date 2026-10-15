@@ -230,7 +230,9 @@ func (c *Client) converse(ctx context.Context, from, to string, data []byte) err
 	if err = w.Close(); err != nil {
 		return err
 	}
-	return client.Quit()
+	// DATA was accepted. A failed QUIT cannot undo acceptance and must not cause a duplicate retry.
+	_ = client.Quit()
+	return nil
 }
 
 // errTLSRequired: the server does not offer STARTTLS and the transport does not accept an unencrypted session.

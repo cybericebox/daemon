@@ -8,7 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	"github.com/cybericebox/daemon/internal/delivery/repository/temporalCodeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
+	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
@@ -22,6 +25,33 @@ import (
 // account is email-confirmed (authorized by an admin); the invitee finishes via
 // the normal setup link. Requires users.invite and authority to assign the role.
 func (u *AuthUseCase) InviteUser(ctx context.Context, emailAddr string, role rbac.Role, firstName, lastName string) error {
+	if u.delivery == nil || u.delivery.unit == nil {
+		return u.inviteUser(ctx, emailAddr, role, firstName, lastName)
+	}
+	// Authorize before opening a transaction; every write including the invitation command shares it.
+	if err := u.assertCanInvite(ctx, role); err != nil {
+		return err
+	}
+	if tx, ok := postgres.TransactionFromContext(ctx); ok {
+		return u.inviteWithRepository(ctx, postgres.New(tx), emailAddr, role, firstName, lastName)
+	}
+	txCtx, repo, unit, err := u.delivery.unit.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	if err := u.inviteWithRepository(txCtx, repo, emailAddr, role, firstName, lastName); err != nil {
+		return err
+	}
+	return unit.Save()
+}
+
+func (u *AuthUseCase) inviteWithRepository(ctx context.Context, repo IRepository, emailAddr string, role rbac.Role, firstName, lastName string) error {
+	bound := &AuthUseCase{users: userRepo.New(repo), codes: temporalCodeRepo.New(repo), token: u.token, notifier: u.notifier, cfg: u.cfg, limits: u.limits, setupTokens: NewSetupTokenStore(repo, u.token)}
+	return bound.inviteUser(ctx, emailAddr, role, firstName, lastName)
+}
+
+func (u *AuthUseCase) inviteUser(ctx context.Context, emailAddr string, role rbac.Role, firstName, lastName string) error {
 	if err := u.assertCanInvite(ctx, role); err != nil {
 		return err
 	}

@@ -82,23 +82,25 @@ type IAvatarStorage interface {
 }
 
 type AuthUseCase struct {
-	sessions          *sessionRepo.Repository
-	users             *userRepo.Repository
-	codes             *temporalCodeRepo.Repository
-	token             ITokenClient
-	password          IPasswordClient
-	notifier          INotifier
-	oauth             IOAuthClient
-	oauthConfigured   bool
-	storage           IStorageClient
-	storageConfigured bool
-	avatar            IAvatarStorage
-	cfg               config.AuthConfig
-	rt                *session.Runtime
-	inboxRequests     IInboxRequests // nil until wired
-	limits            *authLimits
-	background        func(func())
-	setupTokens       *SetupTokenStore
+	sessions           *sessionRepo.Repository
+	users              *userRepo.Repository
+	codes              *temporalCodeRepo.Repository
+	token              ITokenClient
+	password           IPasswordClient
+	notifier           INotifier
+	oauth              IOAuthClient
+	oauthConfigured    bool
+	storage            IStorageClient
+	storageConfigured  bool
+	avatar             IAvatarStorage
+	cfg                config.AuthConfig
+	rt                 *session.Runtime
+	inboxRequests      IInboxRequests // nil until wired
+	limits             *authLimits
+	background         func(func())
+	delivery           *authDeliveryQueue
+	pendingRevocations *[]sessionRepo.Revoked
+	setupTokens        *SetupTokenStore
 	// superAdminMu serializes the operations that can take a super_admin out of
 	// service (demote, block, delete): the "last one" check and its write are one decision.
 	// In process: with several replicas the window is the length of one request.
@@ -127,8 +129,7 @@ type Dependencies struct {
 	Config   config.AuthConfig
 	// Sessions is the cookie codec, the revoked-session set and the last_seen batching of this replica.
 	Sessions *session.Runtime
-	// Background runs the work a public request must not wait for (nil: a goroutine). Tests pass a
-	// synchronous runner.
+	// Background is an executor seam for isolated auth tests. Production public mail uses the durable delivery queue; nil runs inline.
 	Background func(func())
 	// SetupTokens is shared with the event invitations; nil builds one from Repo and Token.
 	SetupTokens *SetupTokenStore
@@ -280,9 +281,8 @@ func (u *AuthUseCase) deleteUserCascade(ctx context.Context, userID uuid.UUID, a
 // backgroundTimeout bounds one piece of background work.
 const backgroundTimeout = 30 * time.Second
 
-// runInBackground does the mail side of the public flows (sign-up, forgot password) after the answer
-// is sent. Whether an address has an account decides whether work follows the lookup; done inline,
-// the time to answer told it. Now every outcome answers right after the lookup.
+// runInBackground supports callers without a configured delivery queue (isolated tests).
+// Production public auth flows persist a command before acknowledging the request.
 func (u *AuthUseCase) runInBackground(job string, work func(ctx context.Context) error) {
 	run := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), backgroundTimeout)
@@ -295,5 +295,6 @@ func (u *AuthUseCase) runInBackground(job string, work func(ctx context.Context)
 		u.background(run)
 		return
 	}
-	go run()
+	// Production public mail is persisted through delivery. A caller without it must complete work inline.
+	run()
 }

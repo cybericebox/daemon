@@ -21911,9 +21911,53 @@ const docTemplate = `{
                 }
             }
         },
+        "errorJournal.deliveryResponse": {
+            "type": "object",
+            "properties": {
+                "Attempts": {
+                    "type": "integer"
+                },
+                "CancelledAt": {
+                    "type": "string"
+                },
+                "Channel": {
+                    "type": "string"
+                },
+                "CreatedAt": {
+                    "type": "string"
+                },
+                "DeliveredAt": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Label": {
+                    "type": "string"
+                },
+                "LastAttemptAt": {
+                    "type": "string"
+                },
+                "LastError": {
+                    "type": "string"
+                },
+                "NextAttemptAt": {
+                    "type": "string"
+                },
+                "Target": {
+                    "type": "string"
+                }
+            }
+        },
         "errorJournal.detailResponse": {
             "type": "object",
             "properties": {
+                "Deliveries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.deliveryResponse"
+                    }
+                },
                 "Group": {
                     "$ref": "#/definitions/errorJournal.groupResponse"
                 },
@@ -21922,6 +21966,35 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/errorJournal.sampleResponse"
                     }
+                }
+            }
+        },
+        "errorJournal.emailRecipientResponse": {
+            "type": "object",
+            "properties": {
+                "Eligible": {
+                    "type": "boolean"
+                },
+                "Email": {
+                    "type": "string"
+                },
+                "EmailConfirmed": {
+                    "type": "boolean"
+                },
+                "FirstName": {
+                    "type": "string"
+                },
+                "LastName": {
+                    "type": "string"
+                },
+                "Role": {
+                    "type": "string"
+                },
+                "Status": {
+                    "type": "string"
+                },
+                "UserID": {
+                    "type": "string"
                 }
             }
         },
@@ -22105,6 +22178,12 @@ const docTemplate = `{
         "errorJournal.settingsResponse": {
             "type": "object",
             "properties": {
+                "EmailRecipients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/errorJournal.emailRecipientResponse"
+                    }
+                },
                 "EmailToSuperAdmins": {
                     "type": "boolean"
                 },

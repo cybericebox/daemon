@@ -62,6 +62,8 @@ const (
 	// NotificationPayloadCodeType keeps the sealed variables of one queued notification (the River job
 	// carries only ids): the row is read when the notification is sent and goes with the job or its expiry.
 	NotificationPayloadCodeType
+	// AuthDeliveryCodeType stores a sealed public auth command pending its River handoff.
+	AuthDeliveryCodeType
 )
 
 // Error-code convention: see internal/model/auth/errors.go. Enforced by

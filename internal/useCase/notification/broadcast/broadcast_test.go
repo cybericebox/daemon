@@ -7,7 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cybericebox/daemon/pkg/worker"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
@@ -47,13 +50,17 @@ type harness struct {
 	notifier *fakeNotifier
 	enqueued []jobsModel.BroadcastSendArgs
 	uc       *broadcastUseCase.NotificationBroadcastUseCase
+	unit     *testUnit
+	queueErr error
 }
 
 func setup(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{repo: postgresMocks.NewMockQuerier(gomock.NewController(t)), notifier: &fakeNotifier{failOn: map[uuid.UUID]bool{}}}
+	h.unit = &testUnit{}
 	h.uc = broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{
 		Repo: h.repo, Notifier: h.notifier, EventDomain: "example.org",
+		UnitOfWorker: &broadcastUnit{repo: h.repo, unit: h.unit}, Enqueuer: &broadcastQueue{IEnqueuer: worker.NewEnqueuer(), h: h},
 		Enqueue: func(_ context.Context, args jobsModel.BroadcastSendArgs) error {
 			h.enqueued = append(h.enqueued, args)
 			return nil
@@ -221,7 +228,7 @@ func TestProcessBroadcast_FailedRecipientsAreRetriedByTheNextRun(t *testing.T) {
 	require.Len(t, h.enqueued, 1, "the broadcast is not closed while a recipient failed to queue")
 }
 
-func TestProcessBroadcast_NothingQueuedMarksItFailed(t *testing.T) {
+func TestProcessBroadcast_NothingQueuedReturnsFailureForRiverRetry(t *testing.T) {
 	h := setup(t)
 	id := uuid.Must(uuid.NewV7())
 	rows := platformRows(2)
@@ -229,9 +236,8 @@ func TestProcessBroadcast_NothingQueuedMarksItFailed(t *testing.T) {
 	h.repo.EXPECT().GetNotificationBroadcast(gomock.Any(), id).Return(storedRow(id, nil, broadcastModel.Audience{Kind: broadcastModel.KindAll}), nil)
 	h.repo.EXPECT().ListPlatformBroadcastAudience(gomock.Any(), gomock.Any()).Return(rows, nil)
 	h.repo.EXPECT().ListBroadcastQueuedUserIDs(gomock.Any(), gomock.Any()).Return(nil, nil)
-	h.repo.EXPECT().FinishNotificationBroadcast(gomock.Any(), postgres.FinishNotificationBroadcastParams{ID: id, Status: "failed", RecipientCount: 2}).Return(nil)
 
-	require.NoError(t, h.uc.ProcessBroadcast(context.Background(), jobsModel.BroadcastSendArgs{BroadcastID: id}))
+	require.Error(t, h.uc.ProcessBroadcast(context.Background(), jobsModel.BroadcastSendArgs{BroadcastID: id}))
 	require.Empty(t, h.enqueued)
 }
 
@@ -293,4 +299,43 @@ func TestSendBroadcast_ChecksTheEmbeddedImages(t *testing.T) {
 	h.repo.EXPECT().ListPlatformBroadcastAudience(gomock.Any(), gomock.Any()).Return(nil, nil)
 	_, _ = h.uc.SendBroadcast(context.Background(), input)
 	require.Equal(t, 1, images.asked)
+}
+
+type testUnit struct{ saved, restored bool }
+
+func (u *testUnit) Save() error    { u.saved = true; return nil }
+func (u *testUnit) Restore() error { u.restored = true; return nil }
+
+type broadcastUnit struct {
+	repo broadcastUseCase.Repository
+	unit *testUnit
+}
+
+func (u *broadcastUnit) UnitOfWork(ctx context.Context) (context.Context, broadcastUseCase.Repository, postgres.UoW, error) {
+	return postgres.ContextWithTransaction(ctx, &transactionStub{}), u.repo, u.unit, nil
+}
+
+type transactionStub struct{ pgx.Tx }
+type broadcastQueue struct {
+	worker.IEnqueuer
+	h *harness
+}
+
+func (q *broadcastQueue) EnqueueTx(_ context.Context, _ pgx.Tx, args river.JobArgs) error {
+	if q.h.queueErr != nil {
+		return q.h.queueErr
+	}
+	q.h.enqueued = append(q.h.enqueued, args.(jobsModel.BroadcastSendArgs))
+	return nil
+}
+func TestBroadcastQueueFailureRollsBackCreate(t *testing.T) {
+	h := setup(t)
+	h.queueErr = errors.New("queue unavailable")
+	h.repo.EXPECT().ListPlatformBroadcastAudience(gomock.Any(), gomock.Any()).Return(platformRows(1), nil)
+	h.repo.EXPECT().CreateNotificationBroadcast(gomock.Any(), gomock.Any()).Return(postgres.NotificationBroadcast{}, nil)
+	_, err := h.uc.SendBroadcast(context.Background(), broadcastUseCase.SendInput{ActorID: uuid.Must(uuid.NewV7()), Content: content(), Audience: broadcastModel.Audience{Kind: broadcastModel.KindAll}})
+	require.Error(t, err)
+	require.False(t, h.unit.saved)
+	require.True(t, h.unit.restored)
+	require.Empty(t, h.enqueued)
 }

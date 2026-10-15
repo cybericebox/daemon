@@ -10,6 +10,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/broadcastRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/dispatchRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/temporalCodeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	"github.com/cybericebox/daemon/internal/model/notification/types"
@@ -28,10 +29,10 @@ const (
 )
 
 type (
-	// repoPort composes the aggregate-repository query slices the dispatcher
+	// Repository composes the aggregate-repository query slices the dispatcher
 	// needs (dispatch rows + recipient lookups); *postgres.Queries satisfies it
 	// structurally.
-	repoPort interface {
+	Repository interface {
 		dispatchRepo.Queries
 		userRepo.Queries
 		broadcastRepo.Queries
@@ -52,9 +53,10 @@ type (
 	}
 
 	Dependencies struct {
-		Repo     repoPort
-		Enqueuer worker.IEnqueuer
-		Handlers []Handler
+		Repo         Repository
+		UnitOfWorker postgres.IUnitOfWorker[Repository]
+		Enqueuer     worker.IEnqueuer
+		Handlers     []Handler
 		// Cipher seals the payload of a queued notification (names, addresses, links) so it stays out of
 		// the job arguments; the platform secrets cipher. Nil: notifications cannot be queued.
 		Cipher     *secret.Cipher
@@ -62,13 +64,14 @@ type (
 	}
 
 	NotificationDispatcher struct {
-		dispatches *dispatchRepo.Repository
-		broadcasts *broadcastRepo.Repository
-		users      *userRepo.Repository
-		payloads   *payloadStore
-		enqueuer   worker.IEnqueuer
-		handlers   map[notificationTypes.NotificationChannel]Handler
-		retryDelay time.Duration
+		dispatches   *dispatchRepo.Repository
+		broadcasts   *broadcastRepo.Repository
+		users        *userRepo.Repository
+		payloads     *payloadStore
+		unitOfWorker postgres.IUnitOfWorker[Repository]
+		enqueuer     worker.IEnqueuer
+		handlers     map[notificationTypes.NotificationChannel]Handler
+		retryDelay   time.Duration
 	}
 )
 
@@ -84,12 +87,13 @@ func NewNotificationDispatcher(deps Dependencies) *NotificationDispatcher {
 		retryDelay = defaultRetryDelay
 	}
 	return &NotificationDispatcher{
-		dispatches: dispatchRepo.New(deps.Repo),
-		broadcasts: broadcastRepo.New(deps.Repo),
-		users:      userRepo.New(deps.Repo),
-		payloads:   &payloadStore{codes: temporalCodeRepo.New(deps.Repo), cipher: deps.Cipher},
-		enqueuer:   deps.Enqueuer,
-		handlers:   hs,
-		retryDelay: retryDelay,
+		dispatches:   dispatchRepo.New(deps.Repo),
+		broadcasts:   broadcastRepo.New(deps.Repo),
+		users:        userRepo.New(deps.Repo),
+		payloads:     &payloadStore{codes: temporalCodeRepo.New(deps.Repo), cipher: deps.Cipher},
+		unitOfWorker: deps.UnitOfWorker,
+		enqueuer:     deps.Enqueuer,
+		handlers:     hs,
+		retryDelay:   retryDelay,
 	}
 }

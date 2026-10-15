@@ -29,7 +29,7 @@ func testCipher(t *testing.T) *secret.Cipher {
 func TestNotify_SealsTheVariablesAndReadsThemBack(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
-	uc := dispatcherUseCase.NewNotificationDispatcher(dispatcherUseCase.Dependencies{Repo: repo, Enqueuer: worker.NewEnqueuer(), Cipher: testCipher(t)})
+	uc := dispatcherUseCase.NewNotificationDispatcher(dispatcherUseCase.Dependencies{Repo: repo, Enqueuer: &transactionalQueue{IEnqueuer: worker.NewEnqueuer()}, Cipher: testCipher(t), UnitOfWorker: dispatcherUnit{repo, &transactionHandle{}}})
 	userID := tools.NewUUIDv7()
 
 	var stored postgres.CreateTemporalCodeParams
@@ -61,8 +61,6 @@ func TestNotify_WithoutACipherQueuesNothing(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
 	uc := dispatcherUseCase.NewNotificationDispatcher(dispatcherUseCase.Dependencies{Repo: repo, Enqueuer: worker.NewEnqueuer()})
-	repo.EXPECT().CreateDispatch(gomock.Any(), gomock.Any()).Return(postgres.NotificationDispatch{}, nil)
-
 	err := uc.Notify(context.Background(), tools.NewUUIDv7(), payloads.PasswordResetPayload{Name: "Ira"})
 	require.Error(t, err)
 }

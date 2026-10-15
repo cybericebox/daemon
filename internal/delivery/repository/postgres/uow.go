@@ -108,6 +108,6 @@ func (w *UnitOfWorker[R]) UnitOfWork(ctx context.Context) (context.Context, R, U
 			WithMessage("Failed to begin unit of work").
 			Err()
 	}
-	txCtx := context.WithValue(ctx, txKey{}, tx)
+	txCtx := ContextWithTransaction(ctx, tx)
 	return txCtx, w.bind(w.db.q.WithTx(tx)), newUoW(txCtx, tx), nil
 }
