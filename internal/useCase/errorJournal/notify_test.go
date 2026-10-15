@@ -20,6 +20,7 @@ import (
 func TestErrorEmail_HasShortSubjectAndFullScrubbedBody(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Environment = "production"
+	cfg.AdminURL = "https://admin.example.test"
 	h := newHarness(cfg)
 	event := fiveXX("database write failed: " + strings.Repeat("operation ", 70) + "tail-marker password=hidden")
 	event.Stack = "handler.go:42\nservice.go:19 token=hidden"
@@ -29,6 +30,7 @@ func TestErrorEmail_HasShortSubjectAndFullScrubbedBody(t *testing.T) {
 	require.Len(t, h.mail.sent, 1)
 	msg := h.mail.sent[0]
 	require.Equal(t, "[production] "+string(errorJournal.KindHTTP5xx), msg.Subject)
+	require.Contains(t, msg.Text, "https://admin.example.test/errors/?group=")
 	msg.HTML, msg.Text = mailUseCase.RenderPlatformFooter("support@example.test", "https://platform.example").Append(msg.HTML, msg.Text)
 	var raw bytes.Buffer
 	_, err = email.BuildMessage(email.Address{Email: "from@example.test"}, email.Address{}, msg).WriteTo(&raw)
