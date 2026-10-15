@@ -86,7 +86,8 @@ RETURNING id, fingerprint, kind, source, title, status, occurrences, first_seen_
 UPDATE error_groups
 SET status = 'resolved', resolved_at = $2
 WHERE fingerprint = $1
-  AND status = 'open';
+  AND status = 'open'
+  AND last_seen_at <= $2;
 
 -- name: MarkErrorGroupNotified :one
 -- Claims the message of a group: only when nobody sent one since the cutoff. Returns the number of occurrences

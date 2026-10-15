@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
+	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/pkg/email"
@@ -82,6 +83,9 @@ func TestPlatformProvider_NewFormJournalsConnectionWithoutSecret(t *testing.T) {
 }
 
 func TestDeliver_FailsOverToNextProviderOnAuthError(t *testing.T) {
+	reporter := &providerErrorReporter{}
+	errorJournal.SetReporter(reporter)
+	t.Cleanup(func() { errorJournal.SetReporter(nil) })
 	uc, repo, smtp := newBareTestUseCase(t, config.SMTPConfig{}, nil)
 	a, b := providerRow("a", "smtp.a", 0), providerRow("b", "smtp.b", 1)
 	repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{b, a}, nil)
@@ -105,7 +109,13 @@ func TestDeliver_FailsOverToNextProviderOnAuthError(t *testing.T) {
 	require.Equal(t, "smtp.b", smtp.sends[1].conn.Host)
 	require.Equal(t, int32(1), note.ExtraAttempts)
 	require.Contains(t, note.FallbackError, "535")
+	require.Len(t, reporter.events, 1, "fallback success must not hide the failed provider from the error journal")
+	require.Equal(t, "smtp-provider:"+a.ID.String(), reporter.events[0].Source)
 }
+
+type providerErrorReporter struct{ events []errorJournal.Event }
+
+func (r *providerErrorReporter) Report(e errorJournal.Event) { r.events = append(r.events, e) }
 
 func TestDeliver_RejectedRecipientDoesNotTryOtherProviders(t *testing.T) {
 	uc, repo, smtp := newBareTestUseCase(t, config.SMTPConfig{}, nil)
@@ -271,4 +281,31 @@ func TestSetPlatformProviderEnabled_UnknownIsNotFound(t *testing.T) {
 	repo.EXPECT().SetPlatformSMTPProviderEnabled(gomock.Any(), gomock.Any()).Return(postgres.MailSmtpConfig{}, pgx.ErrNoRows)
 	_, err := uc.SetPlatformProviderEnabled(context.Background(), uuid.Must(uuid.NewV7()), true, uuid.Must(uuid.NewV7()))
 	require.ErrorIs(t, err, mailModel.ErrProviderNotFound.Err())
+}
+
+func TestPlatformProvider_UnsavedConnectionDoesNotRecoverStoredProvider(t *testing.T) {
+	for _, change := range []string{"host", "password", "clearPassword"} {
+		t.Run(change, func(t *testing.T) {
+			uc, repo, _ := newBareTestUseCase(t, config.SMTPConfig{}, nil)
+			p := providerRow("a", "smtp.a", 0)
+			userID := uuid.Must(uuid.NewV7())
+			repo.EXPECT().GetUserByID(gomock.Any(), userID).Return(postgres.User{ID: userID, Email: "admin@example.org"}, nil)
+			expectPlatformIdentity(repo, &platformIdentityRow)
+			repo.EXPECT().GetPlatformSMTPProvider(gomock.Any(), p.ID).Return(p, nil)
+			expectJournaled(repo)
+			in := mailModel.SMTPInput{Host: p.Host, Port: 587, TLSMode: mailModel.TLSStartTLS}
+			switch change {
+			case "host":
+				in.Host = "smtp.changed"
+			case "password":
+				in.Password = "replacement"
+			case "clearPassword":
+				in.ClearPassword = true
+			}
+			result, err := uc.TestPlatformProvider(context.Background(), &p.ID, &in, userID)
+			require.NoError(t, err)
+			require.True(t, result.Sent)
+			require.Nil(t, result.SMTPProviderID, "unsaved tests must not update stored-provider status")
+		})
+	}
 }

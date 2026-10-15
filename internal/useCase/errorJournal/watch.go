@@ -39,6 +39,7 @@ func (j *Journal) Watch(ctx context.Context) {
 		case <-ticker.C:
 			j.CheckQueue(ctx)
 			j.CheckCertificates(ctx)
+			j.CheckSMTPProviders(ctx)
 		}
 	}
 }

@@ -101,14 +101,14 @@ RETURNING sent_today;
 -- name: ReleasePlatformSMTPSend :exec
 UPDATE mail_smtp_configs
 SET sent_today    = CASE WHEN usage_day = @day::date THEN GREATEST(sent_today - 1, 0) ELSE sent_today END,
-    last_error    = CASE WHEN @error::text = '' THEN last_error ELSE @error::text END,
-    last_error_at = CASE WHEN @error::text = '' THEN last_error_at ELSE @at::timestamptz END
+    last_error    = CASE WHEN @error::text = '' OR last_error_at > @at::timestamptz THEN last_error ELSE @error::text END,
+    last_error_at = CASE WHEN @error::text = '' OR last_error_at > @at::timestamptz THEN last_error_at ELSE @at::timestamptz END
 WHERE id = @id
   AND scope_event_id IS NULL;
 
 -- name: MarkPlatformSMTPUsed :exec
 UPDATE mail_smtp_configs
-SET last_used_at = @at::timestamptz
+SET last_used_at = GREATEST(last_used_at, @at::timestamptz)
 WHERE id = @id
   AND scope_event_id IS NULL;
 

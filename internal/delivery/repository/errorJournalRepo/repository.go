@@ -1,11 +1,12 @@
 // Package errorJournalRepo is the storage of the platform error journal: groups by fingerprint, a few samples per
-// group, daily 404 counters and the notification settings. The job queue statistics are the one raw query: River
-// owns its tables, so they are not part of the sqlc schema.
+// group, daily 404 counters and the notification settings. Raw queries are limited to River-owned queue
+// statistics and transactional SMTP capture locks that serialize duplicate snapshots and recovery.
 package errorJournalRepo
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/cybericebox/daemon/pkg/worker"
 	"strings"
@@ -23,6 +24,7 @@ import (
 
 // Queries is the narrow slice of the sqlc Querier this repository needs.
 type Queries interface {
+	ListPlatformSMTPProviders(context.Context) ([]postgres.MailSmtpConfig, error)
 	GetUserByEmail(context.Context, string) (postgres.User, error)
 	GetErrorNotification(context.Context, uuid.UUID) (postgres.ErrorNotificationDelivery, error)
 	StartErrorNotification(context.Context, postgres.StartErrorNotificationParams) error
@@ -77,11 +79,12 @@ var _ errorJournalUseCase.Repository = (*Repository)(nil)
 func (r *Repository) Record(ctx context.Context, in errorJournalUseCase.RecordInput) (errorJournalUseCase.RecordResult, error) {
 	q := r.q
 	var tx pgx.Tx
-	if in.Notification != nil {
+	smtpStatus := in.Kind == errorJournal.KindMail && strings.HasPrefix(in.Source, "smtp-provider:")
+	if in.Notification != nil || smtpStatus {
 		pool, ok := r.pool.(interface {
 			Begin(context.Context) (pgx.Tx, error)
 		})
-		if !ok || r.enqueuer == nil {
+		if !ok || (in.Notification != nil && r.enqueuer == nil) {
 			return errorJournalUseCase.RecordResult{}, fmt.Errorf("transactional notification enqueue unavailable")
 		}
 		var err error
@@ -91,6 +94,32 @@ func (r *Repository) Record(ctx context.Context, in errorJournalUseCase.RecordIn
 		}
 		defer tx.Rollback(context.WithoutCancel(ctx))
 		q = postgres.New(tx)
+	}
+	// Serialize provider captures across replicas and the backfill watcher.
+	// Locking an existing row also serializes recovery against this decision.
+	if smtpStatus {
+		// PostgreSQL timestamps have microsecond precision; retries must compare the same instant.
+		in.At = in.At.Truncate(time.Microsecond)
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, in.Fingerprint); err != nil {
+			return errorJournalUseCase.RecordResult{}, err
+		}
+		var id uuid.UUID
+		var last time.Time
+		var resolved pgtype.Timestamptz
+		err := tx.QueryRow(ctx, `SELECT id, last_seen_at, resolved_at FROM error_groups WHERE fingerprint=$1 FOR UPDATE`, in.Fingerprint).Scan(&id, &last, &resolved)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return errorJournalUseCase.RecordResult{}, err
+		}
+		if err == nil && (!in.At.After(last) || (resolved.Valid && !in.At.After(resolved.Time))) {
+			row, err := q.GetErrorGroup(ctx, id)
+			if err != nil {
+				return errorJournalUseCase.RecordResult{}, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return errorJournalUseCase.RecordResult{}, err
+			}
+			return errorJournalUseCase.RecordResult{Group: groupOf(row), Skipped: true}, nil
+		}
 	}
 	count := int64(max(in.Count, 1))
 	groupID, err := uuid.NewV7()
@@ -140,6 +169,8 @@ func (r *Repository) Record(ctx context.Context, in errorJournalUseCase.RecordIn
 				return errorJournalUseCase.RecordResult{}, err
 			}
 		}
+	}
+	if tx != nil {
 		if err := tx.Commit(ctx); err != nil {
 			return errorJournalUseCase.RecordResult{}, err
 		}

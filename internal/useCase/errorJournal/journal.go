@@ -124,7 +124,9 @@ type (
 		Notification func(RecordResult) *NotificationPlan
 	}
 	RecordResult struct {
-		Group    errorJournal.Group
+		Group errorJournal.Group
+		// Skipped: a provider capture was already recorded or predates recovery.
+		Skipped  bool
 		Inserted bool
 		// Reopened: the group was resolved and the error came back.
 		Reopened bool
@@ -405,6 +407,9 @@ func (j *Journal) Record(ctx context.Context, e errorJournal.Event) (RecordResul
 	})
 	if err != nil {
 		return RecordResult{}, err
+	}
+	if rec.Skipped {
+		return rec, nil
 	}
 	sample.GroupID = rec.Group.ID
 	j.hub.Publish(StreamEvent{Group: rec.Group, Sample: &sample, New: rec.Inserted || rec.Reopened})

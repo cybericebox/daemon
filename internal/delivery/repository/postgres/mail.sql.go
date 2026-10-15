@@ -530,7 +530,7 @@ func (q *Queries) MarkInvitationExpiredNotified(ctx context.Context, arg MarkInv
 
 const markPlatformSMTPUsed = `-- name: MarkPlatformSMTPUsed :exec
 UPDATE mail_smtp_configs
-SET last_used_at = $1::timestamptz
+SET last_used_at = GREATEST(last_used_at, $1::timestamptz)
 WHERE id = $2
   AND scope_event_id IS NULL
 `
@@ -548,8 +548,8 @@ func (q *Queries) MarkPlatformSMTPUsed(ctx context.Context, arg MarkPlatformSMTP
 const releasePlatformSMTPSend = `-- name: ReleasePlatformSMTPSend :exec
 UPDATE mail_smtp_configs
 SET sent_today    = CASE WHEN usage_day = $1::date THEN GREATEST(sent_today - 1, 0) ELSE sent_today END,
-    last_error    = CASE WHEN $2::text = '' THEN last_error ELSE $2::text END,
-    last_error_at = CASE WHEN $2::text = '' THEN last_error_at ELSE $3::timestamptz END
+    last_error    = CASE WHEN $2::text = '' OR last_error_at > $3::timestamptz THEN last_error ELSE $2::text END,
+    last_error_at = CASE WHEN $2::text = '' OR last_error_at > $3::timestamptz THEN last_error_at ELSE $3::timestamptz END
 WHERE id = $4
   AND scope_event_id IS NULL
 `
