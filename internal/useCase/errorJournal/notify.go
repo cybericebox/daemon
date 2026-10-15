@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"html"
 	"sort"
 	"strings"
 	"sync"
@@ -13,7 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
-	"github.com/cybericebox/daemon/internal/useCase/notification/channels/render"
 	"github.com/cybericebox/daemon/pkg/email"
 	"github.com/cybericebox/daemon/pkg/telegram"
 )
@@ -218,10 +216,10 @@ func (j *Journal) sendEmail(ctx context.Context, to, text string) TestResult {
 	res := TestResult{Channel: ChannelEmail, Target: to}
 	sendCtx, cancel := context.WithTimeout(ctx, deliveryTimeout)
 	defer cancel()
-	// Use the ordinary email shell so MailUseCase inserts the configured HTML footer
-	// in its shared slot. Keep the complete diagnostic text as a plain alternative.
-	body := `<div class="cib-t" style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#202124;white-space:pre-wrap;overflow-wrap:anywhere">` + html.EscapeString(text) + `</div>`
-	err := j.mail.Deliver(sendCtx, nil, email.Message{To: to, Subject: subject(text), Text: text, HTML: render.Shell("uk", subject(text), body)})
+	body, err := j.emailHTML(text)
+	if err == nil {
+		err = j.mail.Deliver(sendCtx, nil, email.Message{To: to, Subject: subject(text), Text: text, HTML: body})
+	}
 	if err != nil {
 		res.Error = errorJournal.Clean(err.Error(), 300)
 		log.Warn().Str("error", res.Error).Msg("Error journal e-mail failed")
