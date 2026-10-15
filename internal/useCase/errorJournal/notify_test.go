@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net/mail"
 	"strings"
@@ -34,15 +35,35 @@ func TestErrorEmail_HasShortSubjectAndFullScrubbedBody(t *testing.T) {
 	require.NoError(t, err)
 	parsed, err := mail.ReadMessage(&raw)
 	require.NoError(t, err)
-	kind, _, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	kind, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
 	require.NoError(t, err)
-	require.Equal(t, "text/plain", kind)
-	body, err := io.ReadAll(quotedprintable.NewReader(parsed.Body))
-	require.NoError(t, err)
-	text := strings.ReplaceAll(string(body), "\r\n", "\n")
+	require.Equal(t, "multipart/alternative", kind)
+	parts := map[string]string{}
+	reader := multipart.NewReader(parsed.Body, params["boundary"])
+	for {
+		part, err := reader.NextRawPart()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+		partKind, _, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+		require.NoError(t, err)
+		body, err := io.ReadAll(quotedprintable.NewReader(part))
+		require.NoError(t, err)
+		parts[partKind] = strings.ReplaceAll(string(body), "\r\n", "\n")
+	}
+	require.Len(t, parts, 2)
+	text := parts["text/plain"]
 	for _, detail := range []string{"database write failed:", "tail-marker", "queue: notifications", "attempt: 2", "handler.go:42", "service.go:19", "Total: 1", "Цей лист надіслано автоматично."} {
 		require.Contains(t, text, detail)
+		require.Contains(t, parts["text/html"], detail)
 	}
+	require.Contains(t, parts["text/html"], `class="cib-card"`)
+	require.Contains(t, parts["text/html"], `class="cib-muted"`)
+	require.Equal(t, 1, strings.Count(parts["text/html"], `href="https://platform.example/privacy"`))
+	require.NotContains(t, parts["text/html"], "<!--cib-footer-->")
+	require.NotContains(t, parts["text/html"], "password=hidden")
+	require.NotContains(t, parts["text/html"], "token=hidden")
 	require.NotContains(t, text, "hidden")
 	require.Contains(t, text, "[redacted]")
 	require.NotContains(t, h.tg.last("100"), "handler.go:42", "Telegram keeps the existing concise notification")
