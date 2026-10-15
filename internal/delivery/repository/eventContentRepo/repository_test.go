@@ -57,7 +57,7 @@ func TestRepositoryDecodesSettingsAndWritesStaticPage(t *testing.T) {
 	if affected, err := repo.SaveLandingDraft(context.Background(), eventID, landing); err != nil || affected != 1 || q.landing.EventID != eventID {
 		t.Fatalf("save landing draft: affected=%d params=%+v err=%v", affected, q.landing, err)
 	}
-	if affected, err := repo.PublishLanding(context.Background(), eventID, landing); err != nil || affected != 1 || q.publishLanding.EventID != eventID || !json.Valid(q.publishLanding.LandingDocument) {
+	if affected, err := repo.PublishLanding(context.Background(), eventID, landing, now); err != nil || affected != 1 || q.publishLanding.EventID != eventID || !json.Valid(q.publishLanding.LandingDocument) {
 		t.Fatalf("publish landing: affected=%d params=%+v err=%v", affected, q.publishLanding, err)
 	}
 	live := eventContentModel.DefaultLiveLayout()
@@ -187,4 +187,11 @@ func (q *fakeQueries) SaveEventLiveLayoutDraft(_ context.Context, arg postgres.S
 
 func (q *fakeQueries) PublishEventLiveLayout(context.Context, uuid.UUID) ([]byte, error) {
 	return q.published, nil
+}
+
+func (*fakeQueries) GetEventRenderMetadata(context.Context, postgres.GetEventRenderMetadataParams) (postgres.GetEventRenderMetadataRow, error) {
+	panic("unexpected render metadata read")
+}
+func (*fakeQueries) GetEventRenderDocument(context.Context, postgres.GetEventRenderDocumentParams) (postgres.GetEventRenderDocumentRow, error) {
+	panic("unexpected render document read")
 }

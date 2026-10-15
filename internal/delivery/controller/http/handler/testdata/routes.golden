@@ -28,6 +28,7 @@ POST   /api/auth/account/email | gate: self | layers: middleware.RateLimitPerUse
 POST   /api/auth/account/email/confirm | gate: - | layers: -
 PATCH  /api/auth/account/profile | gate: self | layers: -
 GET    /api/auth/avatar/:id | gate: - | layers: middleware.PublicMedia
+GET    /api/auth/event-render-key | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
 GET    /api/auth/google | gate: - | layers: -
 GET    /api/auth/google/callback | gate: - | layers: -
 DELETE /api/auth/google/link | gate: self | layers: -
@@ -341,6 +342,9 @@ POST   /api/events/self/participant-form | gate: self | layers: middleware.Resol
 GET    /api/events/self/participant-info | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 PUT    /api/events/self/pseudonym | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/public-info | gate: events.content.read(public) | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
+POST   /api/events/self/render-grant | gate: self | layers: eventself.(*EventRenderHandler).noStore,middleware.ResolveEventTenant.func
+GET    /api/events/self/render-manifest | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
+GET    /api/events/self/render-page | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
 GET    /api/events/self/team-fields | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/upcoming | gate: - | layers: -
 GET    /api/exercises | gate: self | layers: -

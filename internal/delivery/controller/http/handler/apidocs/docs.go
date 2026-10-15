@@ -1402,6 +1402,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/event-render-key": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Read the event common-page grant verification key",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventrender.Key"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/auth/google": {
             "get": {
                 "tags": [
@@ -2659,6 +2690,142 @@ const docTemplate = `{
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/self/render-grant": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Issue a 60-second host-bound common-page staff preview grant",
+                "parameters": [
+                    {
+                        "description": "event server challenge digest",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/eventself.eventRenderGrantRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.eventRenderGrantResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/self/render-manifest": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Check common-page visibility and lightweight publication revision",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "published public page slug, empty for landing",
+                        "name": "page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.eventRenderManifestResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/self/render-page": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-self"
+                ],
+                "summary": "Read the published PUBLIC-only document and values for an exact revision",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "published public page slug, empty for landing",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "manifest revision",
+                        "name": "revision",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.eventRenderPageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -22494,6 +22661,17 @@ const docTemplate = `{
                 }
             }
         },
+        "event.RenderPageInfo": {
+            "type": "object",
+            "properties": {
+                "Slug": {
+                    "type": "string"
+                },
+                "Title": {
+                    "type": "string"
+                }
+            }
+        },
         "event.StandLabQuestionView": {
             "type": "object",
             "properties": {
@@ -28104,6 +28282,17 @@ const docTemplate = `{
                 }
             }
         },
+        "eventrender.Key": {
+            "type": "object",
+            "properties": {
+                "KeyID": {
+                    "type": "string"
+                },
+                "PublicKey": {
+                    "type": "string"
+                }
+            }
+        },
         "eventself.answerFileResponse": {
             "type": "object",
             "properties": {
@@ -28303,6 +28492,77 @@ const docTemplate = `{
                 },
                 "Theme": {
                     "$ref": "#/definitions/eventConfigModel.Theme"
+                }
+            }
+        },
+        "eventself.eventRenderDocumentResponse": {
+            "type": "object",
+            "properties": {
+                "Document": {
+                    "$ref": "#/definitions/eventContentModel.Document"
+                },
+                "Slug": {
+                    "type": "string"
+                },
+                "Title": {
+                    "type": "string"
+                }
+            }
+        },
+        "eventself.eventRenderGrantRequest": {
+            "type": "object",
+            "properties": {
+                "Challenge": {
+                    "type": "string"
+                }
+            }
+        },
+        "eventself.eventRenderGrantResponse": {
+            "type": "object",
+            "properties": {
+                "ExpiresAt": {
+                    "type": "integer"
+                },
+                "Token": {
+                    "type": "string"
+                }
+            }
+        },
+        "eventself.eventRenderManifestResponse": {
+            "type": "object",
+            "properties": {
+                "Audience": {
+                    "type": "string"
+                },
+                "CacheUntil": {
+                    "type": "integer"
+                },
+                "Event": {
+                    "$ref": "#/definitions/eventself.publicEventInfoResponse"
+                },
+                "Page": {
+                    "$ref": "#/definitions/event.RenderPageInfo"
+                },
+                "Revision": {
+                    "type": "string"
+                }
+            }
+        },
+        "eventself.eventRenderPageResponse": {
+            "type": "object",
+            "properties": {
+                "Event": {
+                    "$ref": "#/definitions/eventself.publicEventInfoResponse"
+                },
+                "Page": {
+                    "$ref": "#/definitions/eventself.eventRenderDocumentResponse"
+                },
+                "Revision": {
+                    "type": "string"
+                },
+                "Variables": {
+                    "type": "object",
+                    "additionalProperties": {}
                 }
             }
         },

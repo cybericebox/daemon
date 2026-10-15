@@ -45,6 +45,7 @@ type (
 		exerciseHandler.IUseCase
 		eventHandler.IUseCase
 		eventselfHandler.IUseCase
+		eventselfHandler.EventRenderUseCase
 		eventAnalyticsHandler.IUseCase
 		platformAnalyticsHandler.IUseCase
 		infrastructureHandler.IUseCase
@@ -110,6 +111,7 @@ func (h *Handler) Init(router *gin.Engine) {
 		// already holds both the use case and the apex domain.
 		resolveTenant := middleware.ResolveEventTenant(middleware.NewEventTenantResolver(h.useCase), h.cfg.Hosts)
 		eventselfHandler.NewEventSelfAPIHandler(h.useCase, h.prot).Init(baseAPI, resolveTenant)
+		eventselfHandler.NewEventRenderAPIHandler(h.useCase, h.prot, h.cfg).Init(baseAPI)
 
 		authHandler.NewAuthAPIHandler(h.useCase, h.prot, h.cfg).Init(baseAPI, baseAPI)
 	}
