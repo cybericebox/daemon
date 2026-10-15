@@ -58,10 +58,17 @@ func TestErrorEmail_HasShortSubjectAndFullScrubbedBody(t *testing.T) {
 	text := parts["text/plain"]
 	for _, detail := range []string{"database write failed:", "tail-marker", "queue: notifications", "attempt: 2", "handler.go:42", "service.go:19", "Total: 1", "Цей лист надіслано автоматично."} {
 		require.Contains(t, text, detail)
-		require.Contains(t, parts["text/html"], detail)
+		if detail != "Total: 1" {
+			require.Contains(t, parts["text/html"], detail)
+		}
 	}
 	require.Contains(t, parts["text/html"], `class="cib-card"`)
 	require.Contains(t, parts["text/html"], `class="cib-muted"`)
+	require.Contains(t, parts["text/html"], `class="cib-btn"`)
+	require.Contains(t, parts["text/html"], `>Відкрити помилку</a>`)
+	require.Contains(t, parts["text/html"], `<h1`)
+	require.Contains(t, parts["text/html"], `<pre`)
+	require.NotContains(t, parts["text/html"], `>https://admin.example.test/errors/`)
 	require.Equal(t, 1, strings.Count(parts["text/html"], `href="https://platform.example/privacy"`))
 	require.NotContains(t, parts["text/html"], "<!--cib-footer-->")
 	require.NotContains(t, parts["text/html"], "password=hidden")
