@@ -20,6 +20,10 @@ import (
 
 const renderDenialMinimum = 100 * time.Millisecond
 
+// One fixed replica-local bound shared by all four render pipelines. No queue
+// or attacker-keyed state is allocated when the bound is reached.
+const renderMaxInFlight = 128
+
 var missingRenderEventID = uuid.FromStringOrNil("00000000-0000-4000-8000-000000000000")
 
 func waitForRenderDenial(ctx context.Context, duration time.Duration) error {
@@ -37,13 +41,24 @@ func waitForRenderDenial(ctx context.Context, duration time.Duration) error {
 // process until the monotonic minimum window has elapsed. This is a bounded
 // local defense, not a claim of equal network/DB tail-latency distributions.
 func (h *EventRenderHandler) noStore(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "private, no-store")
+	ctx.Header("Vary", "Origin, Authorization, Cookie")
+	if ctx.Request.Context().Err() != nil {
+		ctx.Abort()
+		return
+	}
+	select {
+	case h.admission <- struct{}{}:
+		defer func() { <-h.admission }()
+	default:
+		response.AbortWithTooManyRequests(ctx, time.Second)
+		return
+	}
 	start := h.now()
 	original := ctx.Writer
 	buffered := &renderResponseBuffer{ResponseWriter: original, headers: original.Header().Clone(), status: http.StatusOK, size: -1}
 	ctx.Writer = buffered
 	defer func() { ctx.Writer = original }()
-	ctx.Header("Cache-Control", "private, no-store")
-	ctx.Header("Vary", "Origin, Authorization, Cookie")
 	ctx.Next()
 	status := response.FinalStatus(ctx)
 	if status == http.StatusNotFound {

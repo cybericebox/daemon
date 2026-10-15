@@ -30,12 +30,13 @@ type EventRenderUseCase interface {
 	GetEventRenderPage(context.Context, uuid.UUID, string, string, bool, time.Time) (eventUC.EventRenderPageView, error)
 }
 type EventRenderHandler struct {
-	uc     EventRenderUseCase
-	prot   IProtection
-	hosts  config.HostsConfig
-	signer *eventrender.Signer
-	now    func() time.Time
-	wait   func(context.Context, time.Duration) error
+	uc        EventRenderUseCase
+	prot      IProtection
+	hosts     config.HostsConfig
+	signer    *eventrender.Signer
+	now       func() time.Time
+	wait      func(context.Context, time.Duration) error
+	admission chan struct{}
 }
 
 func NewEventRenderAPIHandler(uc EventRenderUseCase, prot IProtection, cfg config.AuthConfig) *EventRenderHandler {
@@ -43,7 +44,7 @@ func NewEventRenderAPIHandler(uc EventRenderUseCase, prot IProtection, cfg confi
 	if err != nil {
 		panic(fmt.Errorf("configure event render signer: %w", err))
 	}
-	return &EventRenderHandler{uc: uc, prot: prot, hosts: cfg.Hosts, signer: signer, now: time.Now, wait: waitForRenderDenial}
+	return &EventRenderHandler{uc: uc, prot: prot, hosts: cfg.Hosts, signer: signer, now: time.Now, wait: waitForRenderDenial, admission: make(chan struct{}, renderMaxInFlight)}
 }
 func (h *EventRenderHandler) Init(router *gin.RouterGroup) {
 	router.GET("auth/event-render-key", h.noStore, h.prot.RequirePermission(rbac.PermEventContentRead), h.key)
