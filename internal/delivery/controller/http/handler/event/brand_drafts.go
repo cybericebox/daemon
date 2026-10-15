@@ -149,6 +149,6 @@ func (h *Handler) streamEventFavicon(ctx *gin.Context) {
 	ctx.Header("X-Content-Type-Options", "nosniff")
 	ctx.Header("Content-Disposition", "inline; filename=event-favicon.png")
 	ctx.Header("Content-Security-Policy", "default-src 'none'; sandbox")
-	ctx.Header("Cache-Control", "public, max-age=31536000, immutable")
+	ctx.Header("Cache-Control", "private, no-store")
 	ctx.DataFromReader(http.StatusOK, -1, contentType, reader, nil)
 }

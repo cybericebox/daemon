@@ -653,6 +653,13 @@ definitions:
       userID:
         type: string
     type: object
+  event.RenderPageInfo:
+    properties:
+      Slug:
+        type: string
+      Title:
+        type: string
+    type: object
   event.StandLabQuestionView:
     properties:
       EventChallengeID:
@@ -4441,6 +4448,13 @@ definitions:
       variable:
         type: string
     type: object
+  eventrender.Key:
+    properties:
+      KeyID:
+        type: string
+      PublicKey:
+        type: string
+    type: object
   eventself.answerFileResponse:
     properties:
       contentType:
@@ -4577,6 +4591,52 @@ definitions:
         type: string
       Theme:
         $ref: '#/definitions/eventConfigModel.Theme'
+    type: object
+  eventself.eventRenderDocumentResponse:
+    properties:
+      Document:
+        $ref: '#/definitions/eventContentModel.Document'
+      Slug:
+        type: string
+      Title:
+        type: string
+    type: object
+  eventself.eventRenderGrantRequest:
+    properties:
+      Challenge:
+        type: string
+    type: object
+  eventself.eventRenderGrantResponse:
+    properties:
+      ExpiresAt:
+        type: integer
+      Token:
+        type: string
+    type: object
+  eventself.eventRenderManifestResponse:
+    properties:
+      Audience:
+        type: string
+      CacheUntil:
+        type: integer
+      Event:
+        $ref: '#/definitions/eventself.publicEventInfoResponse'
+      Page:
+        $ref: '#/definitions/event.RenderPageInfo'
+      Revision:
+        type: string
+    type: object
+  eventself.eventRenderPageResponse:
+    properties:
+      Event:
+        $ref: '#/definitions/eventself.publicEventInfoResponse'
+      Page:
+        $ref: '#/definitions/eventself.eventRenderDocumentResponse'
+      Revision:
+        type: string
+      Variables:
+        additionalProperties: {}
+        type: object
     type: object
   eventself.eventScoreTimelineEntryResponse:
     properties:
@@ -10807,6 +10867,23 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Stream a user's avatar from storage (public proxy)
+      tags:
+      - auth
+  /auth/event-render-key:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventrender.Key'
+              type: object
+      summary: Read the event common-page grant verification key
       tags:
       - auth
   /auth/google:
@@ -18687,6 +18764,85 @@ paths:
               type: object
       summary: Read tenant event identity and theme; unpublished events require manager
         access
+      tags:
+      - events-self
+  /events/self/render-grant:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event server challenge digest
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/eventself.eventRenderGrantRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.eventRenderGrantResponse'
+              type: object
+      summary: Issue a 60-second host-bound common-page staff preview grant
+      tags:
+      - events-self
+  /events/self/render-manifest:
+    get:
+      parameters:
+      - description: published public page slug, empty for landing
+        in: query
+        name: page
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.eventRenderManifestResponse'
+              type: object
+      summary: Check common-page visibility and lightweight publication revision
+      tags:
+      - events-self
+  /events/self/render-page:
+    get:
+      parameters:
+      - description: published public page slug, empty for landing
+        in: query
+        name: page
+        type: string
+      - description: manifest revision
+        in: query
+        name: revision
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.eventRenderPageResponse'
+              type: object
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Read the published PUBLIC-only document and values for an exact revision
       tags:
       - events-self
   /events/upcoming:

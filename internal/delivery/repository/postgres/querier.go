@@ -411,6 +411,13 @@ type Querier interface {
 	GetEventParticipantFunnel(ctx context.Context, eventID uuid.UUID) (GetEventParticipantFunnelRow, error)
 	GetEventParticipantProfile(ctx context.Context, arg GetEventParticipantProfileParams) (GetEventParticipantProfileRow, error)
 	GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.UUID) (int64, error)
+	// Revision and document come from the same snapshot, so concurrent publication
+	// can never put the old document under the new key.
+	GetEventRenderDocument(ctx context.Context, arg GetEventRenderDocumentParams) (GetEventRenderDocumentRow, error)
+	// Read-side cache metadata: hash a single MVCC snapshot without transferring
+	// documents/drafts or joining operational statistics. Media references are
+	// included because logo/favicon replacement does not update the event row.
+	GetEventRenderMetadata(ctx context.Context, arg GetEventRenderMetadataParams) (GetEventRenderMetadataRow, error)
 	// The participation funnel below the approved participants: how many of
 	// them and their teams ever opened a task, tried an answer and solved.
 	GetEventReportFunnel(ctx context.Context, eventID uuid.UUID) (GetEventReportFunnelRow, error)

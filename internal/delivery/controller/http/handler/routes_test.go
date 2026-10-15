@@ -26,7 +26,7 @@ func TestInitRegistersEveryRouteOnce(t *testing.T) {
 		}
 	}()
 	router := gin.New()
-	NewAPIHandler(nil, noopProtector{}, config.AuthConfig{Hosts: config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}}).Init(router)
+	NewAPIHandler(nil, noopProtector{}, config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}}).Init(router)
 	if len(router.Routes()) == 0 {
 		t.Fatal("no routes registered")
 	}

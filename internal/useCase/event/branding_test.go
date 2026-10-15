@@ -384,3 +384,27 @@ func TestEventMediaOfAnUnpublishedEventIsForItsStaffOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestWithdrawnEventMediaIsPrivateToStaff(t *testing.T) {
+	for _, kind := range []string{"logo", "favicon", "preview", "content"} {
+		t.Run(kind, func(t *testing.T) {
+			q := newFormGateMock(gomock.NewController(t))
+			eventID, fileID := uuid.Must(uuid.NewV4()), uuid.Must(uuid.NewV4())
+			now := time.Now()
+			q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, LifecycleConfigured: true, PublishAt: now.Add(-3 * time.Hour), StartAt: now.Add(-2 * time.Hour), FinishAt: pgtype.Timestamptz{Time: now.Add(-time.Hour), Valid: true}, WithdrawAt: pgtype.Timestamptz{Time: now.Add(-time.Minute), Valid: true}}, nil)
+			u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: &brandMediaFake{refs: []uuid.UUID{fileID}, faviconRefs: []uuid.UUID{fileID}, previewRefs: []uuid.UUID{fileID}, contentRefs: map[uuid.UUID][]uuid.UUID{eventID: {fileID}}}})
+			var err error
+			switch kind {
+			case "logo":
+				_, _, err = u.StreamEventLogo(context.Background(), eventID, fileID)
+			case "favicon":
+				_, _, err = u.StreamEventFavicon(context.Background(), eventID, fileID)
+			case "preview":
+				_, _, err = u.StreamEventPreviewPicture(context.Background(), eventID, fileID)
+			case "content":
+				_, _, err = u.StreamEventContentImage(context.Background(), eventID, fileID)
+			}
+			require.ErrorIs(t, err, eventModel.ErrEventNotFound.Err())
+		})
+	}
+}

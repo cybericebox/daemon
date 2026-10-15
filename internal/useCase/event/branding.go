@@ -219,7 +219,8 @@ func (u *EventUseCase) requireMediaVisible(ctx context.Context, eventID uuid.UUI
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
-	if e.Lifecycle.Status(time.Now()) != eventModel.LifecycleNotPublished {
+	phase := e.Lifecycle.Status(time.Now())
+	if phase != eventModel.LifecycleNotPublished && phase != eventModel.LifecycleWithdrawn {
 		return nil
 	}
 	claims, ok := rbac.CurrentUserSessionFromContext(ctx)

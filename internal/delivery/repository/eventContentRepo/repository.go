@@ -16,6 +16,8 @@ import (
 )
 
 type Queries interface {
+	GetEventRenderDocument(context.Context, postgres.GetEventRenderDocumentParams) (postgres.GetEventRenderDocumentRow, error)
+	GetEventRenderMetadata(context.Context, postgres.GetEventRenderMetadataParams) (postgres.GetEventRenderMetadataRow, error)
 	GetEventContentSettings(context.Context, uuid.UUID) (postgres.GetEventContentSettingsRow, error)
 	SaveEventLandingDraft(context.Context, postgres.SaveEventLandingDraftParams) (int64, error)
 	PublishEventLandingDraft(context.Context, postgres.PublishEventLandingDraftParams) (int64, error)
@@ -73,12 +75,12 @@ func (r *Repository) SaveLandingDraft(ctx context.Context, eventID uuid.UUID, do
 
 // PublishLanding makes the validated draft document the published landing.
 // A draft saved after it was read stays pending (see the query).
-func (r *Repository) PublishLanding(ctx context.Context, eventID uuid.UUID, document eventContentModel.Document) (int64, error) {
+func (r *Repository) PublishLanding(ctx context.Context, eventID uuid.UUID, document eventContentModel.Document, now time.Time) (int64, error) {
 	encoded, err := json.Marshal(document)
 	if err != nil {
 		return 0, err
 	}
-	return r.q.PublishEventLandingDraft(ctx, postgres.PublishEventLandingDraftParams{EventID: eventID, LandingDocument: encoded})
+	return r.q.PublishEventLandingDraft(ctx, postgres.PublishEventLandingDraftParams{EventID: eventID, LandingDocument: encoded, PublishedAt: now})
 }
 
 func (r *Repository) DiscardLandingDraft(ctx context.Context, eventID uuid.UUID) (int64, error) {
@@ -232,4 +234,28 @@ func timePtr(value pgtype.Timestamptz) *time.Time {
 	}
 	at := value.Time
 	return &at
+}
+
+// RenderMetadata is the narrow query-side cache identity, excluding document payloads.
+type RenderMetadata struct {
+	Revision, Slug, Title string
+	Allowed               bool
+}
+
+func (r *Repository) RenderMetadata(ctx context.Context, eventID uuid.UUID, slug string) (RenderMetadata, error) {
+	row, err := r.q.GetEventRenderMetadata(ctx, postgres.GetEventRenderMetadataParams{EventID: eventID, PageSlug: slug})
+	return RenderMetadata{Revision: row.Revision, Slug: row.Slug, Title: row.Title, Allowed: row.Allowed}, err
+}
+
+// RenderDocument reads only the published common document with its atomic revision.
+func (r *Repository) RenderDocument(ctx context.Context, eventID uuid.UUID, slug string) (RenderMetadata, eventContentModel.Document, error) {
+	row, err := r.q.GetEventRenderDocument(ctx, postgres.GetEventRenderDocumentParams{EventID: eventID, PageSlug: slug})
+	if err != nil {
+		return RenderMetadata{}, eventContentModel.Document{}, err
+	}
+	var doc eventContentModel.Document
+	if row.Allowed {
+		err = json.Unmarshal(row.Document, &doc)
+	}
+	return RenderMetadata{Revision: row.Revision, Slug: row.Slug, Title: row.Title, Allowed: row.Allowed}, doc, err
 }

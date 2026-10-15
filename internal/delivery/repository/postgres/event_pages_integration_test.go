@@ -31,7 +31,7 @@ func TestEventPageDraftsPublishAndNavigationOrderRoundTrip(t *testing.T) {
 	if err != nil || len(settings.Landing.Blocks) != 0 || settings.LandingDraft == nil || len(settings.LandingDraft.Blocks) != 2 {
 		t.Fatalf("landing draft leaked or was lost: settings=%+v err=%v", settings, err)
 	}
-	if affected, err := repo.PublishLanding(ctx, event.ID, *settings.LandingDraft); err != nil || affected != 1 {
+	if affected, err := repo.PublishLanding(ctx, event.ID, *settings.LandingDraft, time.Now().UTC()); err != nil || affected != 1 {
 		t.Fatalf("publish landing: affected=%d err=%v", affected, err)
 	}
 	settings, err = repo.GetSettings(ctx, event.ID)
