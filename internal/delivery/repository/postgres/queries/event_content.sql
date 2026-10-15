@@ -13,6 +13,7 @@ WHERE id = sqlc.arg(event_id);
 -- name: PublishEventLandingDraft :execrows
 UPDATE events
 SET landing_document = sqlc.arg(landing_document),
+    updated_at = GREATEST(sqlc.arg(published_at)::timestamptz, coalesce(updated_at, created_at) + interval '1 microsecond'),
     landing_draft = CASE WHEN landing_draft = sqlc.arg(landing_document)::jsonb THEN NULL ELSE landing_draft END
 WHERE id = sqlc.arg(event_id) AND landing_draft IS NOT NULL;
 
@@ -72,3 +73,37 @@ WHERE id = sqlc.arg(id) AND event_id = sqlc.arg(event_id) AND draft IS NOT NULL 
 -- name: DeleteEventPage :execrows
 DELETE FROM event_pages
 WHERE id = sqlc.arg(id) AND event_id = sqlc.arg(event_id);
+
+-- Read-side cache metadata: hash a single MVCC snapshot without transferring
+-- documents/drafts or joining operational statistics. Media references are
+-- included because logo/favicon replacement does not update the event row.
+-- name: GetEventRenderMetadata :one
+SELECT md5((to_jsonb(e) - ARRAY['landing_draft', 'live_layout_draft'])::text
+    || coalesce(to_jsonb(c)::text, '')
+    || coalesce((to_jsonb(p) - 'draft')::text, '')
+    || coalesce((SELECT string_agg(fr.ref_type || ':' || fr.file_id::text, ',' ORDER BY fr.ref_type, fr.file_id)
+                 FROM file_references fr WHERE fr.ref_id = e.id), ''))::text AS revision,
+    coalesce(p.slug, '')::text AS slug,
+    CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.name ELSE coalesce(p.title, '') END::text AS title,
+    (sqlc.arg(page_slug)::text = '' OR (p.published_at IS NOT NULL AND p.visibility = 0))::boolean AS allowed
+FROM events e
+LEFT JOIN event_configs c ON c.event_id = e.id
+LEFT JOIN event_pages p ON p.event_id = e.id AND p.slug = sqlc.arg(page_slug)
+WHERE e.id = sqlc.arg(event_id);
+
+-- Revision and document come from the same snapshot, so concurrent publication
+-- can never put the old document under the new key.
+-- name: GetEventRenderDocument :one
+SELECT md5((to_jsonb(e) - ARRAY['landing_draft', 'live_layout_draft'])::text
+    || coalesce(to_jsonb(c)::text, '')
+    || coalesce((to_jsonb(p) - 'draft')::text, '')
+    || coalesce((SELECT string_agg(fr.ref_type || ':' || fr.file_id::text, ',' ORDER BY fr.ref_type, fr.file_id)
+                 FROM file_references fr WHERE fr.ref_id = e.id), ''))::text AS revision,
+    coalesce(p.slug, '')::text AS slug,
+    CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.name ELSE coalesce(p.title, '') END::text AS title,
+    (sqlc.arg(page_slug)::text = '' OR (p.published_at IS NOT NULL AND p.visibility = 0))::boolean AS allowed,
+    CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.landing_document ELSE p.document END::jsonb AS document
+FROM events e
+LEFT JOIN event_configs c ON c.event_id = e.id
+LEFT JOIN event_pages p ON p.event_id = e.id AND p.slug = sqlc.arg(page_slug)
+WHERE e.id = sqlc.arg(event_id);

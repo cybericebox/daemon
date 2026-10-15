@@ -197,6 +197,9 @@ func (c *EventTagCache) evict(now time.Time) {
 // set is the routes with no gate or only public gates; a test in the handler package compares it
 // with the mounted router.
 var PublicReadRoutes = map[string]bool{
+	"/api/auth/event-render-key":                   true,
+	"/api/events/self/render-manifest":             true,
+	"/api/events/self/render-page":                 true,
 	"/api/auth/avatar/:id":                         true,
 	"/api/auth/google":                             true,
 	"/api/auth/google/callback":                    true,

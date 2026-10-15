@@ -3700,6 +3700,36 @@ func (mr *MockQuerierMockRecorder) GetEventPlannedMaxUsers(ctx, eventID any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventPlannedMaxUsers", reflect.TypeOf((*MockQuerier)(nil).GetEventPlannedMaxUsers), ctx, eventID)
 }
 
+// GetEventRenderDocument mocks base method.
+func (m *MockQuerier) GetEventRenderDocument(ctx context.Context, arg postgres.GetEventRenderDocumentParams) (postgres.GetEventRenderDocumentRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventRenderDocument", ctx, arg)
+	ret0, _ := ret[0].(postgres.GetEventRenderDocumentRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventRenderDocument indicates an expected call of GetEventRenderDocument.
+func (mr *MockQuerierMockRecorder) GetEventRenderDocument(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventRenderDocument", reflect.TypeOf((*MockQuerier)(nil).GetEventRenderDocument), ctx, arg)
+}
+
+// GetEventRenderMetadata mocks base method.
+func (m *MockQuerier) GetEventRenderMetadata(ctx context.Context, arg postgres.GetEventRenderMetadataParams) (postgres.GetEventRenderMetadataRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventRenderMetadata", ctx, arg)
+	ret0, _ := ret[0].(postgres.GetEventRenderMetadataRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventRenderMetadata indicates an expected call of GetEventRenderMetadata.
+func (mr *MockQuerierMockRecorder) GetEventRenderMetadata(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventRenderMetadata", reflect.TypeOf((*MockQuerier)(nil).GetEventRenderMetadata), ctx, arg)
+}
+
 // GetEventReportFunnel mocks base method.
 func (m *MockQuerier) GetEventReportFunnel(ctx context.Context, eventID uuid.UUID) (postgres.GetEventReportFunnelRow, error) {
 	m.ctrl.T.Helper()

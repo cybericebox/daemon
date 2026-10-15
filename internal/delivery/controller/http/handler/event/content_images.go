@@ -63,7 +63,7 @@ func (h *Handler) streamEventContentImage(ctx *gin.Context) {
 	ctx.Header("X-Content-Type-Options", "nosniff")
 	ctx.Header("Content-Disposition", "inline; filename=event-banner")
 	ctx.Header("Content-Security-Policy", "default-src 'none'; img-src 'self'; sandbox")
-	ctx.Header("Cache-Control", "public, max-age=31536000, immutable")
+	ctx.Header("Cache-Control", "private, no-store")
 	ctx.Header("Content-Type", contentType)
 	ctx.DataFromReader(http.StatusOK, -1, contentType, reader, nil)
 }

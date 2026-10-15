@@ -41,14 +41,20 @@ func OriginGuardWith(policy OriginPolicy) gin.HandlerFunc {
 			return
 		}
 		req := ctx.Request.Context()
+		allowed := func(origin string) (string, bool) {
+			if IsEventRenderRoute(ctx.Request.URL.Path) {
+				return renderOriginAllowed(policy.Hosts, origin)
+			}
+			return policy.Allowed(req, origin)
+		}
 		if origin, present := ctx.Request.Header["Origin"]; present && len(origin) > 0 {
 			// Present (even empty or "null") is a named source.
-			if reason, ok := policy.Allowed(req, origin[0]); !ok {
+			if reason, ok := allowed(origin[0]); !ok {
 				refuse(ctx, "origin: "+reason)
 				return
 			}
 		} else if referer := ctx.GetHeader("Referer"); referer != "" {
-			if reason, ok := policy.Allowed(req, referer); !ok {
+			if reason, ok := allowed(referer); !ok {
 				refuse(ctx, "referer: "+reason)
 				return
 			}

@@ -9,7 +9,9 @@ package secret
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -80,6 +82,20 @@ func New(spec string) (*Cipher, error) {
 		c.keys = append(c.keys, k)
 	}
 	return c, nil
+}
+
+// DeriveKeys returns purpose-separated HMAC-SHA256 keys in keyring order:
+// the first is current, the remainder are verification-only rotation keys.
+// Names do not affect derivation, so naming an existing raw key preserves it.
+// Callers use a fixed versioned purpose; raw AES material is never exposed.
+func (c *Cipher) DeriveKeys(purpose string) [][32]byte {
+	derived := make([][32]byte, len(c.keys))
+	for i, k := range c.keys {
+		mac := hmac.New(sha256.New, k.key[:])
+		mac.Write([]byte(purpose))
+		copy(derived[i][:], mac.Sum(nil))
+	}
+	return derived
 }
 
 // NewFromBytes builds a Cipher from an in-memory AES-256 key. Callers that

@@ -175,6 +175,92 @@ func (q *Queries) GetEventPageBySlug(ctx context.Context, arg GetEventPageBySlug
 	return i, err
 }
 
+const getEventRenderDocument = `-- name: GetEventRenderDocument :one
+SELECT md5((to_jsonb(e) - ARRAY['landing_draft', 'live_layout_draft'])::text
+    || coalesce(to_jsonb(c)::text, '')
+    || coalesce((to_jsonb(p) - 'draft')::text, '')
+    || coalesce((SELECT string_agg(fr.ref_type || ':' || fr.file_id::text, ',' ORDER BY fr.ref_type, fr.file_id)
+                 FROM file_references fr WHERE fr.ref_id = e.id), ''))::text AS revision,
+    coalesce(p.slug, '')::text AS slug,
+    CASE WHEN $1::text = '' THEN e.name ELSE coalesce(p.title, '') END::text AS title,
+    ($1::text = '' OR (p.published_at IS NOT NULL AND p.visibility = 0))::boolean AS allowed,
+    CASE WHEN $1::text = '' THEN e.landing_document ELSE p.document END::jsonb AS document
+FROM events e
+LEFT JOIN event_configs c ON c.event_id = e.id
+LEFT JOIN event_pages p ON p.event_id = e.id AND p.slug = $1
+WHERE e.id = $2
+`
+
+type GetEventRenderDocumentParams struct {
+	PageSlug string    `json:"page_slug"`
+	EventID  uuid.UUID `json:"event_id"`
+}
+
+type GetEventRenderDocumentRow struct {
+	Revision string `json:"revision"`
+	Slug     string `json:"slug"`
+	Title    string `json:"title"`
+	Allowed  bool   `json:"allowed"`
+	Document []byte `json:"document"`
+}
+
+// Revision and document come from the same snapshot, so concurrent publication
+// can never put the old document under the new key.
+func (q *Queries) GetEventRenderDocument(ctx context.Context, arg GetEventRenderDocumentParams) (GetEventRenderDocumentRow, error) {
+	row := q.db.QueryRow(ctx, getEventRenderDocument, arg.PageSlug, arg.EventID)
+	var i GetEventRenderDocumentRow
+	err := row.Scan(
+		&i.Revision,
+		&i.Slug,
+		&i.Title,
+		&i.Allowed,
+		&i.Document,
+	)
+	return i, err
+}
+
+const getEventRenderMetadata = `-- name: GetEventRenderMetadata :one
+SELECT md5((to_jsonb(e) - ARRAY['landing_draft', 'live_layout_draft'])::text
+    || coalesce(to_jsonb(c)::text, '')
+    || coalesce((to_jsonb(p) - 'draft')::text, '')
+    || coalesce((SELECT string_agg(fr.ref_type || ':' || fr.file_id::text, ',' ORDER BY fr.ref_type, fr.file_id)
+                 FROM file_references fr WHERE fr.ref_id = e.id), ''))::text AS revision,
+    coalesce(p.slug, '')::text AS slug,
+    CASE WHEN $1::text = '' THEN e.name ELSE coalesce(p.title, '') END::text AS title,
+    ($1::text = '' OR (p.published_at IS NOT NULL AND p.visibility = 0))::boolean AS allowed
+FROM events e
+LEFT JOIN event_configs c ON c.event_id = e.id
+LEFT JOIN event_pages p ON p.event_id = e.id AND p.slug = $1
+WHERE e.id = $2
+`
+
+type GetEventRenderMetadataParams struct {
+	PageSlug string    `json:"page_slug"`
+	EventID  uuid.UUID `json:"event_id"`
+}
+
+type GetEventRenderMetadataRow struct {
+	Revision string `json:"revision"`
+	Slug     string `json:"slug"`
+	Title    string `json:"title"`
+	Allowed  bool   `json:"allowed"`
+}
+
+// Read-side cache metadata: hash a single MVCC snapshot without transferring
+// documents/drafts or joining operational statistics. Media references are
+// included because logo/favicon replacement does not update the event row.
+func (q *Queries) GetEventRenderMetadata(ctx context.Context, arg GetEventRenderMetadataParams) (GetEventRenderMetadataRow, error) {
+	row := q.db.QueryRow(ctx, getEventRenderMetadata, arg.PageSlug, arg.EventID)
+	var i GetEventRenderMetadataRow
+	err := row.Scan(
+		&i.Revision,
+		&i.Slug,
+		&i.Title,
+		&i.Allowed,
+	)
+	return i, err
+}
+
 const listEventPages = `-- name: ListEventPages :many
 SELECT id, event_id, slug, title, document, visibility, navigation, navigation_order, created_at, updated_at, draft, published_at
 FROM event_pages
@@ -218,19 +304,21 @@ func (q *Queries) ListEventPages(ctx context.Context, eventID uuid.UUID) ([]Even
 const publishEventLandingDraft = `-- name: PublishEventLandingDraft :execrows
 UPDATE events
 SET landing_document = $1,
+    updated_at = GREATEST($2::timestamptz, coalesce(updated_at, created_at) + interval '1 microsecond'),
     landing_draft = CASE WHEN landing_draft = $1::jsonb THEN NULL ELSE landing_draft END
-WHERE id = $2 AND landing_draft IS NOT NULL
+WHERE id = $3 AND landing_draft IS NOT NULL
 `
 
 type PublishEventLandingDraftParams struct {
 	LandingDocument []byte    `json:"landing_document"`
+	PublishedAt     time.Time `json:"published_at"`
 	EventID         uuid.UUID `json:"event_id"`
 }
 
 // Publishes the draft the use case read and validated. A draft saved in the
 // meantime differs from it and stays as the pending draft.
 func (q *Queries) PublishEventLandingDraft(ctx context.Context, arg PublishEventLandingDraftParams) (int64, error) {
-	result, err := q.db.Exec(ctx, publishEventLandingDraft, arg.LandingDocument, arg.EventID)
+	result, err := q.db.Exec(ctx, publishEventLandingDraft, arg.LandingDocument, arg.PublishedAt, arg.EventID)
 	if err != nil {
 		return 0, err
 	}

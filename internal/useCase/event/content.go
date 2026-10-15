@@ -190,7 +190,7 @@ func (u *EventUseCase) PublishLanding(ctx context.Context, eventID uuid.UUID) er
 	if err = u.validateLandingDocument(ctx, eventID, *settings.LandingDraft); err != nil {
 		return err
 	}
-	affected, err := u.content.PublishLanding(ctx, eventID, *settings.LandingDraft)
+	affected, err := u.content.PublishLanding(ctx, eventID, *settings.LandingDraft, time.Now().UTC())
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to publish event landing").Err()
 	}
