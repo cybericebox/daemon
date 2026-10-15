@@ -30,6 +30,12 @@ type Usage struct {
 	LastErrorAt *time.Time
 }
 
+// ErrorActive means the latest known provider attempt failed. A success through
+// a different provider cannot change this provider's usage timestamps.
+func (u Usage) ErrorActive() bool {
+	return u.LastError != "" && u.LastErrorAt != nil && (u.LastUsedAt == nil || u.LastUsedAt.Before(*u.LastErrorAt))
+}
+
 // Today is the UTC date of now, the counter day.
 func Today(now time.Time) time.Time {
 	y, m, d := now.UTC().Date()

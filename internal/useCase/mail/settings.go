@@ -491,8 +491,9 @@ func (u *MailUseCase) testPlatformProvider(ctx context.Context, id *uuid.UUID, i
 		t.identity = mailModel.Overlay(sender.identity, stored.Identity)
 		t.conn = withSender(t.conn, t.identity)
 		t.source = dispatchModel.TransportPlatform
-		if found {
+		if found && normalized.SameConnection(stored) && normalized.Password == "" && !normalized.ClearPassword {
 			t.providerID = &stored.ID
+			t.providerName = stored.Name
 			t.limits = mailModel.Limits{PerSecond: stored.StoredLimits().PerSecond}
 		} else {
 			t.smtpConnectionKey = normalized.ConnectionKey()

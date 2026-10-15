@@ -181,3 +181,20 @@ func TestMigration0140_ExistingPlatformRowBecomesTheFirstProvider(t *testing.T) 
 	require.NoError(t, db.Pool.QueryRow(ctx, `SELECT id FROM mail_smtp_configs WHERE scope_event_id IS NULL`).Scan(&kept))
 	require.NotEqual(t, other.ID, kept, "the first provider is kept")
 }
+
+func TestSMTPProviders_StatusKeepsLatestAttemptWhenWritesArriveOutOfOrder(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	p := insertProvider(t, db, "chronological", "smtp.example", now)
+	newer := now.Add(time.Minute)
+	require.NoError(t, db.Queries.ReleasePlatformSMTPSend(ctx, postgres.ReleasePlatformSMTPSendParams{ID: p.ID, Day: day(2026, 10, 15), At: newer, Error: "latest failure"}))
+	require.NoError(t, db.Queries.ReleasePlatformSMTPSend(ctx, postgres.ReleasePlatformSMTPSendParams{ID: p.ID, Day: day(2026, 10, 15), At: now, Error: "late old failure"}))
+	require.NoError(t, db.Queries.MarkPlatformSMTPUsed(ctx, postgres.MarkPlatformSMTPUsedParams{ID: p.ID, At: newer}))
+	require.NoError(t, db.Queries.MarkPlatformSMTPUsed(ctx, postgres.MarkPlatformSMTPUsedParams{ID: p.ID, At: now}))
+	got, err := db.Queries.GetPlatformSMTPProvider(ctx, p.ID)
+	require.NoError(t, err)
+	require.Equal(t, "latest failure", got.LastError)
+	require.Equal(t, newer, got.LastErrorAt.Time.UTC())
+	require.Equal(t, newer, got.LastUsedAt.Time.UTC())
+}

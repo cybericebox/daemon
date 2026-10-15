@@ -17,17 +17,18 @@ import (
 var errNotFound = errors.New("not found")
 
 type fakeRepo struct {
-	mu          sync.Mutex
-	groups      map[string]*errorJournal.Group // by fingerprint
-	samples     map[uuid.UUID][]errorJournal.Sample
-	notFound    map[string]int64
-	settings    errorJournal.Settings
-	admins      []string
-	queue       QueueStats
-	purgedAt    time.Time
-	deliveries  map[uuid.UUID]Delivery
-	enqueued    map[uuid.UUID]time.Time
-	afterRecord func()
+	mu            sync.Mutex
+	groups        map[string]*errorJournal.Group // by fingerprint
+	samples       map[uuid.UUID][]errorJournal.Sample
+	notFound      map[string]int64
+	settings      errorJournal.Settings
+	admins        []string
+	queue         QueueStats
+	purgedAt      time.Time
+	deliveries    map[uuid.UUID]Delivery
+	enqueued      map[uuid.UUID]time.Time
+	afterRecord   func()
+	smtpProviders []SMTPProviderState
 }
 
 func newFakeRepo() *fakeRepo {
@@ -129,7 +130,7 @@ func (r *fakeRepo) SetGroupStatus(_ context.Context, id uuid.UUID, s errorJourna
 func (r *fakeRepo) ResolveByFingerprint(_ context.Context, fp string, now time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if g := r.groups[fp]; g != nil && g.Status == errorJournal.StatusOpen {
+	if g := r.groups[fp]; g != nil && g.Status == errorJournal.StatusOpen && !g.LastSeenAt.After(now) {
 		g.Status = errorJournal.StatusResolved
 		g.ResolvedAt = &now
 	}

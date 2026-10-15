@@ -457,6 +457,7 @@ UPDATE error_groups
 SET status = 'resolved', resolved_at = $2
 WHERE fingerprint = $1
   AND status = 'open'
+  AND last_seen_at <= $2
 `
 
 type ResolveErrorGroupByFingerprintParams struct {
