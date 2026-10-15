@@ -74,7 +74,7 @@ func RenderPlatformFooter(supportEmail, site string) mailModel.Footer {
 func keepFooterLinkWords(markup string) string {
 	words := strings.NewReplacer(
 		"Звʼязатися з нами", "Звʼязатися&nbsp;з&nbsp;нами",
-		"Зв’язатися з нами", "Зв’язатися&nbsp;з&nbsp;нами",
+		"Зв\u2019язатися з нами", "Зв\u2019язатися&nbsp;з&nbsp;нами",
 		"Зв&#39;язатися з нами", "Зв&#39;язатися&nbsp;з&nbsp;нами",
 		"Політика конфіденційності", "Політика&nbsp;конфіденційності",
 		"Contact us", "Contact&nbsp;us", "Privacy Policy", "Privacy&nbsp;Policy",
