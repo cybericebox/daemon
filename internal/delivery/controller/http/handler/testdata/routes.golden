@@ -342,7 +342,7 @@ POST   /api/events/self/participant-form | gate: self | layers: middleware.Resol
 GET    /api/events/self/participant-info | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 PUT    /api/events/self/pseudonym | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/public-info | gate: events.content.read(public) | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
-POST   /api/events/self/render-grant | gate: self | layers: eventself.(*EventRenderHandler).noStore,middleware.ResolveEventTenant.func
+POST   /api/events/self/render-grant | gate: self | layers: eventself.(*EventRenderHandler).noStore,eventself.(*EventRenderHandler).resolveGrantTenant
 GET    /api/events/self/render-manifest | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
 GET    /api/events/self/render-page | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
 GET    /api/events/self/team-fields | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence

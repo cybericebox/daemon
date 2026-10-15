@@ -42,13 +42,24 @@ func HandleCORSMiddleWare(hosts config.HostsConfig) gin.HandlerFunc {
 func HandleCORS(policy OriginPolicy) gin.HandlerFunc {
 	hosts := policy.Hosts
 	return func(ctx *gin.Context) {
+		render := IsEventRenderRoute(ctx.Request.URL.Path)
+		if render {
+			renderResponseHeaders(ctx)
+		}
 		origin := ctx.GetHeader("Origin")
 		if origin == "" {
 			ctx.Next()
 			return
 		}
 
-		if reason, ok := policy.Allowed(ctx.Request.Context(), origin); !ok {
+		var reason string
+		var ok bool
+		if render {
+			reason, ok = renderOriginAllowed(hosts, origin)
+		} else {
+			reason, ok = policy.Allowed(ctx.Request.Context(), origin)
+		}
+		if !ok {
 			log.Warn().
 				Str("origin", origin).
 				Str("eventDomain", hosts.EventDomain).
@@ -56,7 +67,7 @@ func HandleCORS(policy OriginPolicy) gin.HandlerFunc {
 				Str("method", ctx.Request.Method).
 				Str("path", ctx.Request.URL.Path).
 				Msg("CORS: origin rejected (403) — not on the platform domain allowlist")
-			if policy.UnknownEventSite(ctx.Request.Context(), origin) {
+			if !render && policy.UnknownEventSite(ctx.Request.Context(), origin) {
 				// The event of this site is gone: a missing tenant is 404 everywhere, never a 403 that
 				// tells it apart from an unpublished event. The site is a well-formed subdomain of our own
 				// event domain (served by us), so its origin is echoed: the browser must be able to READ the
@@ -91,6 +102,9 @@ func setCORSHeaders(ctx *gin.Context, origin string) {
 	ctx.Header("Access-Control-Allow-Origin", origin)
 	ctx.Header("Access-Control-Allow-Credentials", "true")
 	ctx.Header("Vary", "Origin")
+	if IsEventRenderRoute(ctx.Request.URL.Path) {
+		renderResponseHeaders(ctx)
+	}
 	// Cross-origin JS may read only the headers listed here: the sign-in
 	// redirect URL, Content-Disposition (export archive filename) and
 	// Retry-After (flag submission rate limit) and X-Request-ID (shown on the error page so an admin can find

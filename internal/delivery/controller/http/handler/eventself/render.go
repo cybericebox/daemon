@@ -3,6 +3,7 @@ package eventself
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -33,27 +34,26 @@ type EventRenderHandler struct {
 	prot   IProtection
 	hosts  config.HostsConfig
 	signer *eventrender.Signer
+	now    func() time.Time
+	wait   func(context.Context, time.Duration) error
 }
 
 func NewEventRenderAPIHandler(uc EventRenderUseCase, prot IProtection, cfg config.AuthConfig) *EventRenderHandler {
-	signer, _ := eventrender.New(cfg.SessionEncryptionKey) // validated by config at boot; nil fails closed in test/partial wiring.
-	return &EventRenderHandler{uc: uc, prot: prot, hosts: cfg.Hosts, signer: signer}
+	signer, err := eventrender.New(cfg.SessionEncryptionKey)
+	if err != nil {
+		panic(fmt.Errorf("configure event render signer: %w", err))
+	}
+	return &EventRenderHandler{uc: uc, prot: prot, hosts: cfg.Hosts, signer: signer, now: time.Now, wait: waitForRenderDenial}
 }
 func (h *EventRenderHandler) Init(router *gin.RouterGroup) {
 	router.GET("auth/event-render-key", h.noStore, h.prot.RequirePermission(rbac.PermEventContentRead), h.key)
 	// Issuance retains the ordinary API session gate and tenant/staff policy.
-	resolve := middleware.ResolveEventTenant(middleware.NewEventTenantResolver(h.uc), h.hosts)
-	router.POST("events/self/render-grant", h.noStore, h.prot.RequirePermission(rbac.PermSelf), resolve, h.grant)
+	router.POST("events/self/render-grant", h.noStore, h.prot.RequirePermission(rbac.PermSelf), h.resolveGrantTenant, h.grant)
 	// Grants are consumed only inside these handlers. They never inject rbac.Claims,
 	// so even a valid render token cannot authenticate any other route or mutation.
 	reads := router.Group("events/self", h.noStore, h.prot.RequirePermission(rbac.PermEventContentRead))
 	reads.GET("render-manifest", h.manifest)
 	reads.GET("render-page", h.page)
-}
-func (h *EventRenderHandler) noStore(ctx *gin.Context) {
-	ctx.Header("Cache-Control", "private, no-store")
-	ctx.Header("Vary", "Origin, Authorization, Cookie")
-	ctx.Next()
 }
 
 // key godoc

@@ -108,3 +108,33 @@ func TestGrantRejectsSignedWrongPurposeAndMalformedClaims(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionKeyringCompatibilityAndRotation(t *testing.T) {
+	const oldKey = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	const newKey = "fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0"
+	raw, err := New(oldKey)
+	require.NoError(t, err)
+	named, err := New("current:" + oldKey)
+	require.NoError(t, err)
+	require.Equal(t, raw.PublicKey(), named.PublicKey())
+	rotated, err := New("current:" + newKey + ",previous:" + oldKey)
+	require.NoError(t, err)
+	primary, err := New(newKey)
+	require.NoError(t, err)
+	require.Equal(t, primary.PublicKey(), rotated.PublicKey())
+	require.NotEqual(t, raw.PublicKey(), rotated.PublicKey())
+	now := time.Unix(1800000000, 0)
+	eventID := uuid.Must(uuid.NewV4())
+	token, _, err := raw.Issue("https://summer.example.test", eventID, uuid.Must(uuid.NewV4()), uuid.Must(uuid.NewV4()), true, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", now)
+	require.NoError(t, err)
+	_, err = rotated.Verify(token, "https://summer.example.test", eventID, now)
+	require.NoError(t, err)
+	_, err = rotated.Verify(token, "https://summer.example.test", eventID, now.Add(time.Minute))
+	require.Error(t, err)
+	_, err = primary.Verify(token, "https://summer.example.test", eventID, now)
+	require.Error(t, err)
+	for _, invalid := range []string{"", "current:bad", "a:" + oldKey + ",a:" + newKey, "INVALID:" + oldKey} {
+		_, err := New(invalid)
+		require.Error(t, err)
+	}
+}

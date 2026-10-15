@@ -4,16 +4,15 @@ package eventrender
 
 import (
 	"crypto/ed25519"
-	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/cybericebox/daemon/pkg/secret"
 	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -65,23 +64,32 @@ type Key struct {
 	PublicKey string `json:"PublicKey"`
 }
 type Signer struct {
-	key    ed25519.PrivateKey
-	public Key
+	key          ed25519.PrivateKey
+	public       Key
+	verification map[string]ed25519.PublicKey
 }
 
 // New purpose-derives a stable Ed25519 seed from the existing AES session key.
 // HMAC's fixed versioned domain ensures this seed cannot be used as the sealing key.
 func New(sessionKey string) (*Signer, error) {
-	raw, err := hex.DecodeString(sessionKey)
-	if err != nil || len(raw) != 32 {
-		return nil, errInvalid
+	ring, err := secret.New(sessionKey)
+	if err != nil {
+		return nil, err
 	}
-	mac := hmac.New(sha256.New, raw)
-	mac.Write([]byte("cybericebox:event-render:ed25519:v1"))
-	key := ed25519.NewKeyFromSeed(mac.Sum(nil))
-	pub := key.Public().(ed25519.PublicKey)
-	id := sha256.Sum256(pub)
-	return &Signer{key: key, public: Key{KeyID: base64.RawURLEncoding.EncodeToString(id[:16]), PublicKey: base64.RawURLEncoding.EncodeToString(pub)}}, nil
+	defer ring.Destroy()
+	s := &Signer{verification: make(map[string]ed25519.PublicKey)}
+	for i, seed := range ring.DeriveKeys("cybericebox:event-render:ed25519:v1") {
+		key := ed25519.NewKeyFromSeed(seed[:])
+		pub := key.Public().(ed25519.PublicKey)
+		id := sha256.Sum256(pub)
+		kid := base64.RawURLEncoding.EncodeToString(id[:16])
+		s.verification[kid] = pub
+		if i == 0 {
+			s.key = key
+			s.public = Key{KeyID: kid, PublicKey: base64.RawURLEncoding.EncodeToString(pub)}
+		}
+	}
+	return s, nil
 }
 func (s *Signer) PublicKey() Key { return s.public }
 func ValidChallenge(value string) bool {
@@ -111,10 +119,18 @@ func (s *Signer) Verify(value, audience string, eventID uuid.UUID, now time.Time
 	}
 	claims := Claims{}
 	token, err := jwt.ParseWithClaims(value, &claims, func(token *jwt.Token) (any, error) {
-		if token.Method != jwt.SigningMethodEdDSA || token.Header["typ"] != Type || token.Header["kid"] != s.public.KeyID {
+		if token.Method != jwt.SigningMethodEdDSA || token.Header["typ"] != Type || token.Header["kid"] == nil {
 			return nil, errInvalid
 		}
-		return s.key.Public(), nil
+		kid, ok := token.Header["kid"].(string)
+		if !ok {
+			return nil, errInvalid
+		}
+		key, ok := s.verification[kid]
+		if !ok {
+			return nil, errInvalid
+		}
+		return key, nil
 	}, jwt.WithValidMethods([]string{"EdDSA"}), jwt.WithIssuer(Issuer), jwt.WithAudience(audience), jwt.WithExpirationRequired(), jwt.WithIssuedAt(), jwt.WithTimeFunc(func() time.Time { return now }))
 	if err != nil || !token.Valid || claims.IssuedAt == nil || claims.ExpiresAt == nil {
 		return Claims{}, errInvalid

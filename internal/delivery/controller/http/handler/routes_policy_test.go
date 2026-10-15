@@ -130,7 +130,7 @@ func buildRoutePolicy(t *testing.T) []routeSummary {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
-	NewAPIHandler(nil, probeProtector{}, config.AuthConfig{Hosts: hosts}).Init(router)
+	NewAPIHandler(nil, probeProtector{}, config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: hosts}).Init(router)
 
 	var out []routeSummary
 	for key, chain := range routeChains(t, router) {
