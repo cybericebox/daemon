@@ -2,6 +2,8 @@ package mailUseCase
 
 import (
 	"encoding/json"
+	"golang.org/x/net/html"
+	"io"
 	"strings"
 
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
@@ -51,7 +53,8 @@ func tryRenderFooter(doc []byte, supportEmail, site string) (mailModel.Footer, b
 	}
 	// The footer is muted text, not body text: drop the body classes (they
 	// carry the dark-mode body colours) and recolour the links.
-	html := strings.ReplaceAll(rendered.HTML, ` class="cib-t"`, "")
+	footerHTML := keepFooterLinkWords(rendered.HTML)
+	html := strings.ReplaceAll(footerHTML, ` class="cib-t"`, "")
 	html = strings.ReplaceAll(html, ` class="cib-a"`, "")
 	html = strings.ReplaceAll(html, `style="color:#3340C4;text-decoration:underline"`, `style="`+footerLinkStyle+`"`)
 	return mailModel.Footer{
@@ -64,4 +67,32 @@ func tryRenderFooter(doc []byte, supportEmail, site string) (mailModel.Footer, b
 // Reply-To and site (previews and tests).
 func RenderPlatformFooter(supportEmail, site string) mailModel.Footer {
 	return renderFooter(nil, supportEmail, site)
+}
+
+// Keep familiar short footer labels together without preventing long custom
+// links or paragraphs from wrapping. Touch text tokens only, never URLs.
+func keepFooterLinkWords(markup string) string {
+	words := strings.NewReplacer(
+		"Звʼязатися з нами", "Звʼязатися&nbsp;з&nbsp;нами",
+		"Зв’язатися з нами", "Зв’язатися&nbsp;з&nbsp;нами",
+		"Зв&#39;язатися з нами", "Зв&#39;язатися&nbsp;з&nbsp;нами",
+		"Політика конфіденційності", "Політика&nbsp;конфіденційності",
+		"Contact us", "Contact&nbsp;us", "Privacy Policy", "Privacy&nbsp;Policy",
+	)
+	tokenizer := html.NewTokenizer(strings.NewReader(markup))
+	var out strings.Builder
+	for {
+		kind := tokenizer.Next()
+		if kind == html.ErrorToken {
+			if tokenizer.Err() != io.EOF {
+				return markup
+			}
+			return out.String()
+		}
+		raw := string(tokenizer.Raw())
+		if kind == html.TextToken {
+			raw = words.Replace(raw)
+		}
+		out.WriteString(raw)
+	}
 }
