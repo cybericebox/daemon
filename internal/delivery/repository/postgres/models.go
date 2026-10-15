@@ -69,7 +69,8 @@ type ErrorGroup struct {
 	ResolvedAt     pgtype.Timestamptz `json:"resolved_at"`
 	LastNotifiedAt pgtype.Timestamptz `json:"last_notified_at"`
 	// Occurrences since the last notification (rate limiting: a storm is one message with a count)
-	SuppressedSince int64 `json:"suppressed_since"`
+	SuppressedSince        int64              `json:"suppressed_since"`
+	NotificationEnqueuedAt pgtype.Timestamptz `json:"notification_enqueued_at"`
 }
 
 // Telegram chat ids (persons or groups) that receive error notifications; failing = the bot got 403 (blocked / removed), kept visible instead of dropped
@@ -87,6 +88,24 @@ type ErrorNotFoundDaily struct {
 	Day   pgtype.Date `json:"day"`
 	Route string      `json:"route"`
 	Hits  int64       `json:"hits"`
+}
+
+type ErrorNotificationDelivery struct {
+	ID            uuid.UUID          `json:"id"`
+	GroupID       uuid.UUID          `json:"group_id"`
+	BatchID       uuid.NullUUID      `json:"batch_id"`
+	Channel       string             `json:"channel"`
+	Target        string             `json:"target"`
+	Label         string             `json:"label"`
+	Body          string             `json:"body"`
+	EmailBody     string             `json:"email_body"`
+	CreatedAt     time.Time          `json:"created_at"`
+	NextAttemptAt time.Time          `json:"next_attempt_at"`
+	Attempts      int32              `json:"attempts"`
+	LastAttemptAt pgtype.Timestamptz `json:"last_attempt_at"`
+	LastError     string             `json:"last_error"`
+	DeliveredAt   pgtype.Timestamptz `json:"delivered_at"`
+	CancelledAt   pgtype.Timestamptz `json:"cancelled_at"`
 }
 
 // A few recent samples per error group (trimmed on insert); messages are scrubbed of secrets, tokens and e-mail addresses; user_id has no foreign key (a deleted user must not break the journal)

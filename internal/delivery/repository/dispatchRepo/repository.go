@@ -15,6 +15,7 @@ import (
 
 // Queries is the narrow slice of the sqlc Querier this repository needs.
 type Queries interface {
+	CreateDispatchIfAbsent(context.Context, postgres.CreateDispatchIfAbsentParams) (int64, error)
 	CreateDispatch(ctx context.Context, arg postgres.CreateDispatchParams) (postgres.NotificationDispatch, error)
 	SetDispatchStatus(ctx context.Context, arg postgres.SetDispatchStatusParams) error
 	UpsertDispatchTarget(ctx context.Context, arg postgres.UpsertDispatchTargetParams) error
@@ -64,6 +65,12 @@ func (r *Repository) CreateForBroadcast(ctx context.Context, id uuid.UUID, notif
 		BroadcastID:      broadcast,
 	})
 	return err
+}
+
+// CreateIfAbsent claims a stable producer id; a conflict means its durable dispatch already exists.
+func (r *Repository) CreateIfAbsent(ctx context.Context, id uuid.UUID, notificationType string, userID uuid.UUID, scopeEventID, broadcastID *uuid.UUID) (bool, error) {
+	n, err := r.q.CreateDispatchIfAbsent(ctx, postgres.CreateDispatchIfAbsentParams{ID: id, NotificationType: notificationType, RecipientUserID: userID, Status: string(dispatchModel.DispatchStatusPending), ScopeEventID: nullableUUID(scopeEventID), BroadcastID: nullableUUID(broadcastID)})
+	return n > 0, err
 }
 
 func (r *Repository) SetStatus(ctx context.Context, id uuid.UUID, status dispatchModel.DispatchStatus) error {

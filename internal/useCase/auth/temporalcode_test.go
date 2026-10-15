@@ -44,6 +44,7 @@ func newUC2(t *testing.T) (*auth.AuthUseCase, *postgresMocks.MockQuerier) {
 
 // fakeNotifier records the last notification.
 type fakeNotifier struct {
+	err                error
 	calls              int
 	lastRecipientEmail string
 	lastPayload        notificationTypes.NotificationPayload
@@ -58,7 +59,7 @@ func (f *fakeNotifier) Notify(_ context.Context, _ uuid.UUID, n notificationType
 	if o.Recipient != nil {
 		f.lastRecipientEmail = o.Recipient.Email
 	}
-	return nil
+	return f.err
 }
 
 func TestConsumeTemporalCode_RoundTrip(t *testing.T) {

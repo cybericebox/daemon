@@ -31,7 +31,7 @@ WHERE group_id = sqlc.arg(gid)::uuid
 
 -- name: ListErrorGroups :many
 SELECT id, fingerprint, kind, source, title, status, occurrences, first_seen_at, last_seen_at, resolved_at,
-       last_notified_at, suppressed_since
+       last_notified_at, suppressed_since, notification_enqueued_at
 FROM error_groups
 WHERE (cardinality(sqlc.arg(kinds)::text[]) = 0 OR kind = ANY (sqlc.arg(kinds)::text[]))
   AND (sqlc.arg(status)::text = '' OR status = sqlc.arg(status)::text)
@@ -62,7 +62,7 @@ WHERE (cardinality(sqlc.arg(kinds)::text[]) = 0 OR kind = ANY (sqlc.arg(kinds)::
 
 -- name: GetErrorGroup :one
 SELECT id, fingerprint, kind, source, title, status, occurrences, first_seen_at, last_seen_at, resolved_at,
-       last_notified_at, suppressed_since
+       last_notified_at, suppressed_since, notification_enqueued_at
 FROM error_groups
 WHERE id = $1;
 
@@ -80,7 +80,7 @@ SET status      = sqlc.arg(status)::text,
     resolved_at = CASE WHEN sqlc.arg(status)::text = 'resolved' THEN sqlc.arg(now)::timestamptz ELSE NULL END
 WHERE id = sqlc.arg(id)
 RETURNING id, fingerprint, kind, source, title, status, occurrences, first_seen_at, last_seen_at, resolved_at,
-    last_notified_at, suppressed_since;
+    last_notified_at, suppressed_since, notification_enqueued_at;
 
 -- name: ResolveErrorGroupByFingerprint :exec
 UPDATE error_groups

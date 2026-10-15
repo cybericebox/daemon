@@ -198,6 +198,7 @@
   "22406": "The Telegram chat id is not valid",
   "22407": "Too many Telegram chats",
   "22408": "The error journal period is invalid",
+  "22409": "Invite the recipient to the platform before adding their address; blocked accounts cannot receive notifications",
   "22501": "The reservation window is invalid",
   "22502": "The reservation is invalid",
   "22507": "The change request is invalid",

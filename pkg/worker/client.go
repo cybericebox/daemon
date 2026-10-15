@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -69,7 +70,8 @@ func (wc *workerClient) Initialize(ctx context.Context, registry iWorkerRegistry
 
 	client, err := river.NewClient[pgx.Tx](
 		driver, &river.Config{
-			Queues:                      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}},
+			// Separate capacity also keeps durable operator/auth commands moving when default work stalls.
+			Queues:                      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}, jobsModel.NotifyDurableQueue: {MaxWorkers: 2}},
 			Workers:                     workers,
 			ErrorHandler:                wc.errorHandler,
 			PeriodicJobs:                registry.PeriodicJobs(),

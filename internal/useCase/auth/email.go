@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
-	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/temporalCodeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
+	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
@@ -77,7 +79,30 @@ func (u *AuthUseCase) RequestEmailChange(ctx context.Context, userID uuid.UUID, 
 }
 
 // ConfirmEmailChange consumes an email-change code and switches the account email.
+
 func (u *AuthUseCase) ConfirmEmailChange(ctx context.Context, bsCode string) error {
+	if u.delivery == nil {
+		return u.confirmEmailChange(ctx, bsCode)
+	}
+	txCtx, repo, unit, err := u.delivery.unit.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	var revocations []sessionRepo.Revoked
+	bound := &AuthUseCase{users: userRepo.New(repo), codes: temporalCodeRepo.New(repo), sessions: sessionRepo.New(repo), notifier: u.notifier, cfg: u.cfg, pendingRevocations: &revocations}
+	if err = bound.confirmEmailChange(txCtx, bsCode); err != nil {
+		return err
+	}
+	if err = unit.Save(); err != nil {
+		return err
+	}
+	// Local session caches follow the same committed source of truth as other replicas.
+	_, err = u.noted(revocations, nil)
+	return err
+}
+
+func (u *AuthUseCase) confirmEmailChange(ctx context.Context, bsCode string) error {
 	code, decErr := base64.StdEncoding.DecodeString(bsDecode(bsCode))
 	if decErr != nil {
 		return temporalCodeModel.ErrTemporalCodeInvalidCode.WithError(fmt.Errorf("email-change: base64 decode: %w", decErr)).Err()
@@ -123,20 +148,17 @@ func (u *AuthUseCase) ConfirmEmailChange(ctx context.Context, bsCode string) err
 	if err = u.revokeSessions(ctx, data.UserID, uuid.Nil); err != nil {
 		return err
 	}
-	u.noticeOldEmail(ctx, data.UserID, oldEmail, name, data.Email)
-	return nil
+	return u.noticeOldEmail(ctx, data.UserID, oldEmail, name, data.Email)
 }
 
 // noticeOldEmail tells the address the account just left what happened (the owner who did not make
-// the change still gets a way back: a password reset). The change is done; a failed mail is logged.
-func (u *AuthUseCase) noticeOldEmail(ctx context.Context, userID uuid.UUID, oldEmail, name, newEmail string) {
+// the change still gets a way back: a password reset). The notice shares the email change transaction.
+func (u *AuthUseCase) noticeOldEmail(ctx context.Context, userID uuid.UUID, oldEmail, name, newEmail string) error {
 	if oldEmail == "" || oldEmail == newEmail {
-		return
+		return nil
 	}
 	override := userModel.User{ID: userID, Email: oldEmail, FirstName: name}
-	if err := u.notifier.Notify(ctx, userID, notificationPayloads.EmailChangedPayload{
+	return u.notifier.Notify(ctx, userID, notificationPayloads.EmailChangedPayload{
 		Name: name, NewEmail: newEmail, ResetURL: u.cfg.Hosts.IDURL("/forgot-password/"),
-	}, dispatchModel.WithRecipient(override)); err != nil {
-		log.Error().Err(err).Str("user_id", userID.String()).Msg("Failed to notify the old address of an email change")
-	}
+	}, dispatchModel.WithRecipient(override))
 }

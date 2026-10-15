@@ -81,7 +81,7 @@ func (q *Queries) DeleteErrorTelegramChatsNotIn(ctx context.Context, keep []stri
 
 const getErrorGroup = `-- name: GetErrorGroup :one
 SELECT id, fingerprint, kind, source, title, status, occurrences, first_seen_at, last_seen_at, resolved_at,
-       last_notified_at, suppressed_since
+       last_notified_at, suppressed_since, notification_enqueued_at
 FROM error_groups
 WHERE id = $1
 `
@@ -102,6 +102,7 @@ func (q *Queries) GetErrorGroup(ctx context.Context, id uuid.UUID) (ErrorGroup, 
 		&i.ResolvedAt,
 		&i.LastNotifiedAt,
 		&i.SuppressedSince,
+		&i.NotificationEnqueuedAt,
 	)
 	return i, err
 }
@@ -170,7 +171,7 @@ func (q *Queries) InsertErrorSample(ctx context.Context, arg InsertErrorSamplePa
 
 const listErrorGroups = `-- name: ListErrorGroups :many
 SELECT id, fingerprint, kind, source, title, status, occurrences, first_seen_at, last_seen_at, resolved_at,
-       last_notified_at, suppressed_since
+       last_notified_at, suppressed_since, notification_enqueued_at
 FROM error_groups
 WHERE (cardinality($1::text[]) = 0 OR kind = ANY ($1::text[]))
   AND ($2::text = '' OR status = $2::text)
@@ -228,6 +229,7 @@ func (q *Queries) ListErrorGroups(ctx context.Context, arg ListErrorGroupsParams
 			&i.ResolvedAt,
 			&i.LastNotifiedAt,
 			&i.SuppressedSince,
+			&i.NotificationEnqueuedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -473,7 +475,7 @@ SET status      = $1::text,
     resolved_at = CASE WHEN $1::text = 'resolved' THEN $2::timestamptz ELSE NULL END
 WHERE id = $3
 RETURNING id, fingerprint, kind, source, title, status, occurrences, first_seen_at, last_seen_at, resolved_at,
-    last_notified_at, suppressed_since
+    last_notified_at, suppressed_since, notification_enqueued_at
 `
 
 type SetErrorGroupStatusParams struct {
@@ -498,6 +500,7 @@ func (q *Queries) SetErrorGroupStatus(ctx context.Context, arg SetErrorGroupStat
 		&i.ResolvedAt,
 		&i.LastNotifiedAt,
 		&i.SuppressedSince,
+		&i.NotificationEnqueuedAt,
 	)
 	return i, err
 }

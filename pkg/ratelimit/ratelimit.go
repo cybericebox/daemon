@@ -46,6 +46,12 @@ func (w *Window) WithClock(now Clock) *Window {
 // When it is not, retryAfter is how long until the oldest counted event leaves
 // the window; a denied event is NOT recorded (hammering does not extend the wait).
 func (w *Window) Allow(key string) (allowed bool, retryAfter time.Duration) {
+	allowed, retryAfter, _ = w.reserve(key)
+	return allowed, retryAfter
+}
+
+// reserve records an event that can be released if the operation did not commit.
+func (w *Window) reserve(key string) (allowed bool, retryAfter time.Duration, release func()) {
 	now := w.now()
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -60,11 +66,23 @@ func (w *Window) Allow(key string) (allowed bool, retryAfter time.Duration) {
 	recent = recent[i:]
 	if len(recent) >= w.limit {
 		w.hits[key] = recent
-		return false, recent[0].Add(w.window).Sub(now)
+		return false, recent[0].Add(w.window).Sub(now), func() {}
 	}
 	w.makeRoom(key)
 	w.hits[key] = append(recent, now)
-	return true, 0
+	var once sync.Once
+	return true, 0, func() {
+		once.Do(func() {
+			w.mu.Lock()
+			defer w.mu.Unlock()
+			for i, hit := range w.hits[key] {
+				if hit.Equal(now) {
+					w.hits[key] = append(w.hits[key][:i], w.hits[key][i+1:]...)
+					break
+				}
+			}
+		})
+	}
 }
 
 func (w *Window) sweep(now time.Time) {
@@ -213,10 +231,21 @@ func (r *Recipient) WithClock(now Clock) *Recipient {
 
 // Allow records a mail of kind to address and reports whether it may be sent.
 func (r *Recipient) Allow(kind, address string) bool {
+	allowed, _ := r.Reserve(kind, address)
+	return allowed
+}
+
+// Reserve counts a pending mail. Release the reservation if durable enqueue fails; it is safe to call once or repeatedly.
+func (r *Recipient) Reserve(kind, address string) (bool, func()) {
 	key := kind + "\x00" + address
-	if ok, _ := r.gap.Allow(key); !ok {
-		return false
+	ok, _, releaseGap := r.gap.reserve(key)
+	if !ok {
+		return false, func() {}
 	}
-	ok, _ := r.hourly.Allow(key)
-	return ok
+	ok, _, releaseHourly := r.hourly.reserve(key)
+	if !ok {
+		releaseGap()
+		return false, func() {}
+	}
+	return true, func() { releaseGap(); releaseHourly() }
 }

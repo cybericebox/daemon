@@ -2,6 +2,7 @@ package dispatcherUseCase
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"time"
 
@@ -88,7 +89,7 @@ func (u *NotificationDispatcher) ProcessNotification(
 
 	// A deferred email is run again later as the whole job: channels that
 	// already finished (the in-app copy) must not be delivered twice.
-	if len(worklist) > 1 {
+	if len(worklist) > 0 {
 		targets, err := u.dispatches.ListTargets(ctx, in.DispatchID)
 		if err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to load dispatch targets").Err()
@@ -114,6 +115,7 @@ func (u *NotificationDispatcher) ProcessNotification(
 	lastErr := make(map[notificationTypes.NotificationChannel]error, len(worklist))
 	notes := make(map[notificationTypes.NotificationChannel]*dispatchModel.DeliveryNote, len(worklist))
 	attempts := make(map[notificationTypes.NotificationChannel]int32, len(worklist))
+	checkpointed := make(map[notificationTypes.NotificationChannel]bool, len(worklist))
 	remaining := worklist
 	for round := 0; round < maxDispatchRounds && len(remaining) > 0; round++ {
 		if ctx.Err() != nil {
@@ -143,6 +145,13 @@ func (u *NotificationDispatcher) ProcessNotification(
 			}
 			attempts[p.ch] += note.ExtraAttempts
 			lastErr[p.ch] = hErr
+			if hErr == nil {
+				if err := u.dispatches.UpsertTarget(ctx, in.DispatchID, p.ch, dispatchRepo.TargetResult{Status: dispatchModel.TargetStatusDone, Attempts: attempts[p.ch], Note: *note}); err != nil {
+					return model.ErrPlatform.WithError(err).WithMessage("Failed to checkpoint notification target").Err()
+				}
+				checkpointed[p.ch] = true
+			}
+
 			if _, deferred := dispatchModel.AsDeferred(hErr); deferred {
 				attempts[p.ch]-- // nothing was sent: not a delivery attempt
 				continue         // waits for its send limit, not for a retry round
@@ -155,8 +164,15 @@ func (u *NotificationDispatcher) ProcessNotification(
 	}
 
 	// Record the final per-channel status.
+	var deliveryErrors []error
 	var deferred *dispatchModel.DeferredError
 	for _, p := range worklist {
+		if checkpointed[p.ch] {
+			continue
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		status, msg := dispatchModel.TargetStatusDone, ""
 		if hErr := lastErr[p.ch]; hErr != nil {
 			if d, ok := dispatchModel.AsDeferred(hErr); ok {
@@ -172,6 +188,7 @@ func (u *NotificationDispatcher) ProcessNotification(
 				log.Debug().Str("dispatch_id", in.DispatchID.String()).Str("type", in.Type).Msg("notification dropped: event no longer exists")
 			} else {
 				status, msg = dispatchModel.TargetStatusError, hErr.Error()
+				deliveryErrors = append(deliveryErrors, hErr)
 				reportMailFailure(p.ch, in, hErr, attempts[p.ch])
 			}
 		}
@@ -179,9 +196,18 @@ func (u *NotificationDispatcher) ProcessNotification(
 		if note := notes[p.ch]; note != nil {
 			result.Note = *note
 		}
-		_ = u.dispatches.UpsertTarget(ctx, in.DispatchID, p.ch, result)
+
+		if err := u.dispatches.UpsertTarget(ctx, in.DispatchID, p.ch, result); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to persist notification target").Err()
+		}
 	}
 
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if len(deliveryErrors) > 0 {
+		return errors.Join(deliveryErrors...)
+	}
 	if deferred != nil {
 		// The job is snoozed; the dispatch stays started until it finishes.
 		return deferred

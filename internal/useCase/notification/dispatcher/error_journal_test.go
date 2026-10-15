@@ -42,6 +42,7 @@ func TestProcess_EmailFailureAfterRetriesIsJournaled(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	repo.EXPECT().ListDispatchTargets(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	mail := mocks.NewMockHandler(ctrl)
 	mail.EXPECT().Channel().Return(notificationTypes.NotificationChannelEmail).AnyTimes()
 	uc := dispatcherUseCase.NewNotificationDispatcher(dispatcherUseCase.Dependencies{
@@ -56,7 +57,7 @@ func TestProcess_EmailFailureAfterRetriesIsJournaled(t *testing.T) {
 		Return(errors.New("smtp: 550 mailbox real@b.test unavailable")).AnyTimes()
 	repo.EXPECT().UpsertDispatchTarget(gomock.Any(), gomock.Any()).Return(nil)
 
-	require.NoError(t, uc.ProcessNotification(context.Background(), dispatchModel.ProcessInput{
+	require.Error(t, uc.ProcessNotification(context.Background(), dispatchModel.ProcessInput{
 		DispatchID: id, UserID: uid, Type: string(notificationTypes.NotificationTypeFlagAccepted),
 	}))
 
@@ -75,6 +76,7 @@ func TestProcess_EmailForDeletedEventIsDroppedQuietly(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	repo.EXPECT().ListDispatchTargets(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	mail := mocks.NewMockHandler(ctrl)
 	mail.EXPECT().Channel().Return(notificationTypes.NotificationChannelEmail).AnyTimes()
 	uc := dispatcherUseCase.NewNotificationDispatcher(dispatcherUseCase.Dependencies{
@@ -105,6 +107,7 @@ func TestProcess_DeletedRecipientIsDroppedQuietly(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
+	repo.EXPECT().ListDispatchTargets(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	uc := dispatcherUseCase.NewNotificationDispatcher(dispatcherUseCase.Dependencies{
 		Repo: repo, Enqueuer: worker.NewEnqueuer(), RetryDelay: time.Millisecond,
 	})

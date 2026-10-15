@@ -276,3 +276,20 @@ func TestNotificationPlanner_ResultsPublishedReachesParticipantsAndManagers(t *t
 		require.Equal(t, occurred, *meta.RaisedAt)
 	}
 }
+
+func TestNotificationPlannerUsesStableDistinctDispatchIDsAcrossRetries(t *testing.T) {
+	eventID, signalID, first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	raw, err := json.Marshal(signalModel.ParticipantPayload{ScopeEventID: eventID, SubjectUserID: first})
+	require.NoError(t, err)
+	dispatch := &plannerDispatch{}
+	planner := NewNotificationPlanner(plannerQueries{rows: []postgres.ListEffectiveEnabledSignalNotificationSubscriptionsRow{{Channel: "in_app", Audience: []byte(`{"kind":"all_participants"}`)}}, recipients: []postgres.ListEventFormRecipientCandidatesRow{{UserID: first}, {UserID: second}}}, signalModel.DefaultRegistry, dispatch)
+	signal := signalModel.Signal{ID: signalID, Type: signalModel.TypeParticipantApprovalRegistrationApproved, Payload: raw}
+	require.NoError(t, planner.Handle(context.Background(), signal))
+	firstID, secondID := dispatch.byUser[first].DispatchID, dispatch.byUser[second].DispatchID
+	require.NotNil(t, firstID)
+	require.NotNil(t, secondID)
+	require.NotEqual(t, *firstID, *secondID)
+	require.NoError(t, planner.Handle(context.Background(), signal))
+	require.Equal(t, *firstID, *dispatch.byUser[first].DispatchID)
+	require.Equal(t, *secondID, *dispatch.byUser[second].DispatchID)
+}

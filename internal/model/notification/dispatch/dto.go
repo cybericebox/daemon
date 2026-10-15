@@ -12,6 +12,8 @@ import (
 
 // NotifyOptions holds optional overrides that callers can pass to Notify.
 type NotifyOptions struct {
+	// DispatchID is a stable idempotency key for a durable producer such as a signal.
+	DispatchID       *uuid.UUID
 	Recipient        *userModel.User
 	OverrideChannels []notificationTypes.NotificationChannel
 	TemplateID       *uuid.UUID
@@ -22,6 +24,9 @@ type NotifyOptions struct {
 
 // NotifyOption is a functional option for NotifyOptions.
 type NotifyOption func(*NotifyOptions)
+
+// WithDispatchID makes retries of the same durable producer reuse the persisted command.
+func WithDispatchID(id uuid.UUID) NotifyOption { return func(o *NotifyOptions) { o.DispatchID = &id } }
 
 // WithRecipient overrides the notification recipient with a full user model.
 // The caller fills only the fields its target channels need (email → Email,

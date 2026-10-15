@@ -28,6 +28,9 @@ func (u *AuthUseCase) BeginEmailRegistration(ctx context.Context, rawEmail, redi
 	if err != nil {
 		return err
 	}
+	if u.delivery != nil {
+		return u.queueAuthDelivery(ctx, authDeliveryCommand{Kind: "signup", Email: emailAddr, Redirect: u.trustedReturnTo(redirect)})
+	}
 	user, dbErr := u.users.GetByEmail(ctx, emailAddr)
 	if dbErr != nil && !repositoryTools.IsObjectNotFoundError(dbErr) {
 		return model.ErrPlatform.WithError(dbErr).WithMessage("Failed to get user by email").Err()
@@ -53,7 +56,7 @@ func (u *AuthUseCase) registerOrNotify(ctx context.Context, emailAddr, returnTo 
 		}
 	case user.Status == userModel.UserStatusActive:
 		// Do not reveal existence. Warn the real owner via a security email.
-		if !u.mailAllowed(mailKindSignUp, emailAddr) {
+		if !authDeliveryAccepted(ctx) && !u.mailAllowed(mailKindSignUp, emailAddr) {
 			return nil
 		}
 		override := userModel.User{ID: user.ID, Email: emailAddr, FirstName: user.FirstName}
@@ -88,7 +91,7 @@ func (u *AuthUseCase) issueSetupLink(ctx context.Context, userID uuid.UUID, ttl 
 func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.UUID, emailAddr, name, returnTo string) error {
 	// Over the per-recipient quota the answer stays the neutral success of the
 	// callers (sign-up and forgot-password never reveal an account).
-	if !u.mailAllowed(mailKindSignUp, emailAddr) {
+	if !authDeliveryAccepted(ctx) && !u.mailAllowed(mailKindSignUp, emailAddr) {
 		return nil
 	}
 	link, err := u.issueSetupLink(ctx, userID, u.cfg.SignupSetupTokenTTL, returnTo)

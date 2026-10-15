@@ -292,10 +292,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 	handlers := buildNotificationHandlers(deps.Repo, mailUC, mediaUC, eventUC)
 	notificationDispatcher := dispatcherUseCase.NewNotificationDispatcher(
 		dispatcherUseCase.Dependencies{
-			Repo:     deps.Repo,
-			Enqueuer: deps.EnqueuerFactory.NewEnqueuer(),
-			Handlers: handlers,
-			Cipher:   deps.PlatformCipher,
+			UnitOfWorker: postgres.NewUnitOfWorker[dispatcherUseCase.Repository](deps.Repo.UoWFactory()),
+			Repo:         deps.Repo,
+			Enqueuer:     deps.EnqueuerFactory.NewEnqueuer(),
+			Handlers:     handlers,
+			Cipher:       deps.PlatformCipher,
 		},
 	)
 	eventUC.SetInvitationNotifier(notificationDispatcher)
@@ -345,6 +346,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			SetupTokens: setupTokens,
 		},
 	)
+	authUC.SetDeliveryQueue(deps.EnqueuerFactory.NewEnqueuer(), deps.PlatformCipher, postgres.NewUnitOfWorker[authUseCase.IRepository](deps.Repo.UoWFactory()))
 	authUC.SetInboxRequests(inboxRequests)
 
 	// Inactive accounts leave through the same cascade as a deletion request.
@@ -357,7 +359,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	})
 
 	journalUC := errorJournalUseCase.New(errorJournalUseCase.Dependencies{
-		Repo:     errorJournalRepo.New(deps.Repo.Queries, deps.Repo.Pool()),
+		Repo:     errorJournalRepo.New(deps.Repo.Queries, deps.Repo.Pool(), deps.EnqueuerFactory.NewEnqueuer()),
 		Telegram: deps.Telegram,
 		Mailer:   mailUC,
 		Agents:   errorJournalUseCase.CertificatesOf(infrastructureAgentRepo.New(deps.Repo)),
@@ -400,6 +402,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		platformAnalyticsUseCase.New(platformAnalyticsUseCase.Dependencies{Store: platformAnalyticsRepo.New(deps.Repo), TestLabResources: testLabsUC.TotalResources}),
 		broadcastUseCase.NewNotificationBroadcastUseCase(broadcastUseCase.Dependencies{
 			Repo: deps.Repo, Notifier: notificationDispatcher, Enqueue: broadcastEnqueue(deps.EnqueuerFactory.NewEnqueuer()),
+			UnitOfWorker: postgres.NewUnitOfWorker[broadcastUseCase.Repository](deps.Repo.UoWFactory()), Enqueuer: deps.EnqueuerFactory.NewEnqueuer(),
 			EventDomain: deps.AuthConfig.Hosts.EventDomain,
 			Images:      emailUseCase.NewBroadcastImages(mediaUC, emailTemplateRepo.New(deps.Repo), emailTemplateRepo.New(deps.Repo)),
 		}),

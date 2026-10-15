@@ -66,31 +66,23 @@ func (j *Journal) wantsMessage(e errorJournal.Event, rec RecordResult, now time.
 	return false, false
 }
 
-func (j *Journal) notify(ctx context.Context, e errorJournal.Event, rec RecordResult, sample errorJournal.Sample) {
+func (j *Journal) notificationPlan(e errorJournal.Event, rec RecordResult, sample errorJournal.Sample) *NotificationPlan {
 	now := j.now()
+	if rec.Group.Status == errorJournal.StatusIgnored {
+		return nil
+	}
 	send, bypass := j.wantsMessage(e, rec, now)
 	if !send {
-		return
+		return nil
 	}
-	// A new fingerprint is always told, so a flood of distinct 403 groups would be a flood of messages: this kind
-	// is told once per cooldown, whichever group it is.
 	if e.Kind == errorJournal.KindHTTP403 && !j.kindMessageDue(e.Kind, now) {
-		return
+		return nil
 	}
 	cutoff := now.Add(-j.cfg.NotifyCooldown)
 	if bypass {
-		cutoff = now.Add(time.Second) // a new fingerprint is always told, whatever the last message was
+		cutoff = now.Add(time.Second)
 	}
-	suppressed, claimed, err := j.repo.MarkNotified(ctx, rec.Group.ID, now, cutoff)
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to claim the error notification")
-		return
-	}
-	if !claimed {
-		return
-	}
-	text := j.message(rec.Group, sample, suppressed)
-	j.dispatch(ctx, rec.Group, text, j.emailMessage(rec.Group, sample, suppressed), false)
+	return &NotificationPlan{Now: now, Cutoff: cutoff, Body: j.message(rec.Group, sample, rec.Group.SuppressedSince), EmailBody: j.emailMessage(rec.Group, sample, rec.Group.SuppressedSince)}
 }
 
 // kindMessageDue claims the one message per cooldown of a noisy kind.
@@ -168,31 +160,37 @@ func subject(text string) string {
 	return line
 }
 
-// dispatch sends the text to every channel. A failure of one chat or address never stops the others. A chat that
-// answers 403 is marked failing in the settings, never dropped. test makes a failed chat count as a result.
-func (j *Journal) dispatch(ctx context.Context, g errorJournal.Group, text, emailText string, test bool) []TestResult {
+// dispatchTest returns actual per-target outcomes for the explicit settings test.
+// Recipient/settings lookup failures are returned instead of appearing as an empty successful test.
+func (j *Journal) dispatchTest(ctx context.Context, text string) ([]TestResult, error) {
 	settings, err := j.repo.GetSettings(ctx)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to read the error journal settings")
-		return nil
+		return nil, err
 	}
-	var results []TestResult
+	recipients, err := j.recipientsEligible(ctx, settings)
+	if err != nil {
+		return nil, err
+	}
+	results := []TestResult{}
 	if j.tg != nil && j.tg.Enabled() {
 		for _, chat := range settings.TelegramChats {
 			results = append(results, j.sendTelegram(ctx, chat, text))
 		}
 	}
 	if j.mail != nil {
-		for _, to := range j.recipients(ctx, settings) {
-			results = append(results, j.sendEmail(ctx, to, emailText))
+		for _, to := range recipients {
+			results = append(results, j.sendEmail(ctx, to, text))
 		}
 	}
-	return results
+	return results, nil
 }
 
 func (j *Journal) sendTelegram(ctx context.Context, chat errorJournal.TelegramChat, text string) TestResult {
 	res := TestResult{Channel: ChannelTelegram, Target: chat.ChatID, Label: chat.Label}
-	err := j.tg.Send(ctx, chat.ChatID, text)
+	sendCtx, cancel := context.WithTimeout(ctx, deliveryTimeout)
+	defer cancel()
+	err := j.tg.Send(sendCtx, chat.ChatID, text)
 	now := j.now()
 	switch {
 	case err == nil:
@@ -216,7 +214,9 @@ func (j *Journal) sendTelegram(ctx context.Context, chat errorJournal.TelegramCh
 
 func (j *Journal) sendEmail(ctx context.Context, to, text string) TestResult {
 	res := TestResult{Channel: ChannelEmail, Target: to}
-	err := j.mail.Deliver(ctx, nil, email.Message{To: to, Subject: subject(text), Text: text})
+	sendCtx, cancel := context.WithTimeout(ctx, deliveryTimeout)
+	defer cancel()
+	err := j.mail.Deliver(sendCtx, nil, email.Message{To: to, Subject: subject(text), Text: text})
 	if err != nil {
 		res.Error = errorJournal.Clean(err.Error(), 300)
 		log.Warn().Str("error", res.Error).Msg("Error journal e-mail failed")
@@ -228,26 +228,9 @@ func (j *Journal) sendEmail(ctx context.Context, to, text string) TestResult {
 
 // recipients is the e-mail list plus, by default, the super admins; each address once.
 func (j *Journal) recipients(ctx context.Context, s errorJournal.Settings) []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(a string) {
-		a = strings.ToLower(strings.TrimSpace(a))
-		if a != "" && !seen[a] {
-			seen[a] = true
-			out = append(out, a)
-		}
-	}
-	for _, a := range s.Emails {
-		add(a)
-	}
-	if s.EmailToSuperAdmins {
-		admins, err := j.repo.SuperAdminEmails(ctx)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to list the super admin addresses")
-		}
-		for _, a := range admins {
-			add(a)
-		}
+	out, err := j.recipientsEligible(ctx, s)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to check error notification recipients")
 	}
 	return out
 }
