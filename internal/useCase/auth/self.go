@@ -16,13 +16,14 @@ func (u *AuthUseCase) GetSelfProfile(ctx context.Context, userID uuid.UUID) (*Us
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user").Err()
 	}
 	return &UserInfo{
-		ID:        user.ID,
-		FirstName: user.FirstName,
-		LastName:  user.LastName,
-		Picture:   user.Picture,
-		Email:     user.Email,
-		Role:      rbac.Role(user.Role),
-		LastSeen:  user.LastSeen,
-		CreatedAt: user.CreatedAt,
+		ID:             user.ID,
+		FirstName:      user.FirstName,
+		LastName:       user.LastName,
+		Picture:        user.Picture,
+		Email:          user.Email,
+		EmailConfirmed: user.EmailConfirmed,
+		Role:           rbac.Role(user.Role),
+		LastSeen:       user.LastSeen,
+		CreatedAt:      user.CreatedAt,
 	}, nil
 }

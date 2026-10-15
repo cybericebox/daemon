@@ -36074,6 +36074,9 @@ const docTemplate = `{
                 "Email": {
                     "type": "string"
                 },
+                "EmailConfirmed": {
+                    "type": "boolean"
+                },
                 "FirstName": {
                     "type": "string"
                 },

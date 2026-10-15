@@ -61,7 +61,7 @@ func TestAdminListUsers_FirstPageNoMore(t *testing.T) {
 			if arg.Search != "alice" {
 				t.Fatalf("want search=alice, got %q", arg.Search)
 			}
-			return []postgres.User{{ID: uid, Email: "alice@test.test", Role: "user"}}, nil
+			return []postgres.User{{ID: uid, Email: "alice@test.test", Role: "user", EmailConfirmed: true}}, nil
 		})
 	repo.EXPECT().CountUsers(gomock.Any(), gomock.AssignableToTypeOf(postgres.CountUsersParams{})).
 		DoAndReturn(func(_ context.Context, arg postgres.CountUsersParams) (int64, error) {
@@ -71,6 +71,9 @@ func TestAdminListUsers_FirstPageNoMore(t *testing.T) {
 			return 7, nil
 		})
 	res, err := uc.ListUsers(ctx, auth.UsersFilter{Search: "alice", PageSize: 10})
+	if err == nil && (len(res.Users) != 1 || !res.Users[0].EmailConfirmed) {
+		t.Fatalf("confirmation metadata lost: %+v", res.Users)
+	}
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
 	}
