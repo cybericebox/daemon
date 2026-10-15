@@ -314,6 +314,7 @@ func (u *MailUseCase) send(ctx context.Context, t transport, msg email.Message) 
 		return err
 	}
 	msg.HTML, msg.Text = footer.Append(msg.HTML, msg.Text)
+	msg.Subject = mailModel.KeepBrandText(msg.Subject)
 	if err = u.throttle(ctx, t); err != nil {
 		return err
 	}
