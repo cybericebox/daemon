@@ -46,7 +46,7 @@ type (
 		GetSiteBanner(ctx context.Context, scope *uuid.UUID, id uuid.UUID) (siteBannerModel.Banner, error)
 		DeleteSiteBanner(ctx context.Context, scope *uuid.UUID, id uuid.UUID) error
 		ListSiteBanners(ctx context.Context, scope *uuid.UUID) ([]siteBannerModel.Banner, error)
-		ListVisibleSiteBanners(ctx context.Context, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error)
+		ListVisibleSiteBanners(ctx context.Context, site string, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error)
 	}
 
 	// scopeFn resolves the scope of a request: nil is the platform.
@@ -119,31 +119,38 @@ type (
 	}
 
 	bannerRequest struct {
-		Text        string     `json:"Text"`
-		LinkURL     string     `json:"LinkURL"`
-		LinkLabel   string     `json:"LinkLabel"`
-		Level       string     `json:"Level"`
-		ActiveFrom  *time.Time `json:"ActiveFrom"`
-		ActiveTo    *time.Time `json:"ActiveTo"`
-		Dismissible bool       `json:"Dismissible"`
-		Audience    string     `json:"Audience"`
-		IsActive    bool       `json:"IsActive"`
+		// TargetMode defaults to all on create. Omission or null preserves targeting on update.
+		TargetMode     *siteBannerModel.TargetMode `json:"TargetMode" enums:"all,selected"`
+		TargetSites    []string                    `json:"TargetSites" enums:"main,id,admin,exercises,event"`
+		TargetEventIDs []uuid.UUID                 `json:"TargetEventIDs"`
+		Text           string                      `json:"Text"`
+		LinkURL        string                      `json:"LinkURL"`
+		LinkLabel      string                      `json:"LinkLabel"`
+		Level          string                      `json:"Level"`
+		ActiveFrom     *time.Time                  `json:"ActiveFrom"`
+		ActiveTo       *time.Time                  `json:"ActiveTo"`
+		Dismissible    bool                        `json:"Dismissible"`
+		Audience       string                      `json:"Audience"`
+		IsActive       bool                        `json:"IsActive"`
 	}
 
 	bannerResponse struct {
-		ID           uuid.UUID  `json:"ID"`
-		ScopeEventID *uuid.UUID `json:"ScopeEventID"`
-		Text         string     `json:"Text"`
-		LinkURL      string     `json:"LinkURL"`
-		LinkLabel    string     `json:"LinkLabel"`
-		Level        string     `json:"Level"`
-		ActiveFrom   *time.Time `json:"ActiveFrom"`
-		ActiveTo     *time.Time `json:"ActiveTo"`
-		Dismissible  bool       `json:"Dismissible"`
-		Audience     string     `json:"Audience"`
-		IsActive     bool       `json:"IsActive"`
-		CreatedAt    time.Time  `json:"CreatedAt"`
-		UpdatedAt    time.Time  `json:"UpdatedAt"`
+		TargetMode     siteBannerModel.TargetMode `json:"TargetMode" enums:"all,selected"`
+		TargetSites    []string                   `json:"TargetSites" enums:"main,id,admin,exercises,event"`
+		TargetEventIDs []uuid.UUID                `json:"TargetEventIDs"`
+		ID             uuid.UUID                  `json:"ID"`
+		ScopeEventID   *uuid.UUID                 `json:"ScopeEventID"`
+		Text           string                     `json:"Text"`
+		LinkURL        string                     `json:"LinkURL"`
+		LinkLabel      string                     `json:"LinkLabel"`
+		Level          string                     `json:"Level"`
+		ActiveFrom     *time.Time                 `json:"ActiveFrom"`
+		ActiveTo       *time.Time                 `json:"ActiveTo"`
+		Dismissible    bool                       `json:"Dismissible"`
+		Audience       string                     `json:"Audience"`
+		IsActive       bool                       `json:"IsActive"`
+		CreatedAt      time.Time                  `json:"CreatedAt"`
+		UpdatedAt      time.Time                  `json:"UpdatedAt"`
 	}
 )
 
@@ -273,7 +280,10 @@ func toBroadcastResponse(b broadcastModel.Broadcast) broadcastResponse {
 }
 
 func toBannerResponse(b siteBannerModel.Banner) bannerResponse {
+	sites := append([]string{}, b.TargetSites...)
+	events := append([]uuid.UUID{}, b.TargetEventIDs...)
 	return bannerResponse{
+		TargetMode: b.TargetMode, TargetSites: sites, TargetEventIDs: events,
 		ID: b.ID, ScopeEventID: b.ScopeEventID, Text: b.Text, LinkURL: b.LinkURL, LinkLabel: b.LinkLabel,
 		Level: string(b.Level), ActiveFrom: b.ActiveFrom, ActiveTo: b.ActiveTo, Dismissible: b.Dismissible,
 		Audience: string(b.Audience), IsActive: b.IsActive, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,

@@ -1090,20 +1090,23 @@ type SignalOutbox struct {
 }
 
 type SiteBanner struct {
-	ID           uuid.UUID          `json:"id"`
-	ScopeEventID uuid.NullUUID      `json:"scope_event_id"`
-	Text         string             `json:"text"`
-	LinkUrl      string             `json:"link_url"`
-	LinkLabel    string             `json:"link_label"`
-	Level        string             `json:"level"`
-	ActiveFrom   pgtype.Timestamptz `json:"active_from"`
-	ActiveTo     pgtype.Timestamptz `json:"active_to"`
-	Dismissible  bool               `json:"dismissible"`
-	Audience     string             `json:"audience"`
-	IsActive     bool               `json:"is_active"`
-	CreatedBy    uuid.NullUUID      `json:"created_by"`
-	CreatedAt    time.Time          `json:"created_at"`
-	UpdatedAt    time.Time          `json:"updated_at"`
+	ID             uuid.UUID          `json:"id"`
+	ScopeEventID   uuid.NullUUID      `json:"scope_event_id"`
+	Text           string             `json:"text"`
+	LinkUrl        string             `json:"link_url"`
+	LinkLabel      string             `json:"link_label"`
+	Level          string             `json:"level"`
+	ActiveFrom     pgtype.Timestamptz `json:"active_from"`
+	ActiveTo       pgtype.Timestamptz `json:"active_to"`
+	Dismissible    bool               `json:"dismissible"`
+	Audience       string             `json:"audience"`
+	IsActive       bool               `json:"is_active"`
+	CreatedBy      uuid.NullUUID      `json:"created_by"`
+	CreatedAt      time.Time          `json:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at"`
+	TargetMode     string             `json:"target_mode"`
+	TargetSites    []string           `json:"target_sites"`
+	TargetEventIds []uuid.UUID        `json:"target_event_ids"`
 }
 
 type TeamChallenge struct {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -38,12 +39,15 @@ func (permProtection) RequirePermission(required rbac.Permission) gin.HandlerFun
 // header: "owner" manages, "viewer" only reads.
 type fakeUseCase struct {
 	IUseCase
-	sent     []broadcastUseCase.SendInput
-	created  []*uuid.UUID
-	counted  []*uuid.UUID
-	visible  []*uuid.UUID
-	visibleE []*uuid.UUID
-	role     string
+	sent          []broadcastUseCase.SendInput
+	created       []*uuid.UUID
+	createdInputs []siteBannerModel.Input
+	updatedInputs []siteBannerModel.Input
+	counted       []*uuid.UUID
+	visible       []*uuid.UUID
+	visibleE      []*uuid.UUID
+	visibleSites  []string
+	role          string
 }
 
 func (f *fakeUseCase) RequireManageEvent(context.Context, uuid.UUID, uuid.UUID) error {
@@ -69,9 +73,15 @@ func (f *fakeUseCase) ListSiteBanners(context.Context, *uuid.UUID) ([]siteBanner
 }
 func (f *fakeUseCase) CreateSiteBanner(_ context.Context, scope *uuid.UUID, _ uuid.UUID, in siteBannerModel.Input) (siteBannerModel.Banner, error) {
 	f.created = append(f.created, scope)
-	return siteBannerModel.Banner{ID: uuid.Must(uuid.NewV7()), ScopeEventID: scope, Text: in.Text}, nil
+	f.createdInputs = append(f.createdInputs, in)
+	return siteBannerModel.New(scope, nil, in, time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)), nil
 }
-func (f *fakeUseCase) ListVisibleSiteBanners(_ context.Context, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
+func (f *fakeUseCase) UpdateSiteBanner(_ context.Context, scope *uuid.UUID, _ uuid.UUID, in siteBannerModel.Input) (siteBannerModel.Banner, error) {
+	f.updatedInputs = append(f.updatedInputs, in)
+	return siteBannerModel.New(scope, nil, in, time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)), nil
+}
+func (f *fakeUseCase) ListVisibleSiteBanners(_ context.Context, site string, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
+	f.visibleSites = append(f.visibleSites, site)
 	f.visibleE, f.visible = append(f.visibleE, eventID), append(f.visible, userID)
 	return []siteBannerModel.Banner{{ID: uuid.Must(uuid.NewV7()), Text: "Maintenance", Level: siteBannerModel.LevelWarning, Dismissible: true}}, nil
 }
