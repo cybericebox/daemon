@@ -1216,6 +1216,7 @@ type Querier interface {
 	// the admin labs page, the dashboard and the infrastructure analytics. A row of
 	// exercise_test_deployments lives while the lab is leased; the row is removed
 	// when the lab is stopped or its expired lease is cleaned up.
+	// A static test (no group, no lab name, no event) is not a laboratory and never appears here.
 	ListPlatformTestLabs(ctx context.Context, arg ListPlatformTestLabsParams) ([]ListPlatformTestLabsRow, error)
 	// Platform analytics, «Користувачі» (docs/EVENT-ANALYTICS.md §8). Extends
 	// the admin user stats (CountUsersByRoleAll, CountUsersByStatus, the new /
