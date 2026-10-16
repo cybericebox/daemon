@@ -522,31 +522,54 @@ func (u *ExerciseUseCase) removeTestLab(ctx context.Context, deploy exerciseMode
 // per-user advisory lock of one transaction, so a deploy, a destroy and an expiry of one author
 // never overlap. The whole run, the laboratory agent's calls included, is bounded by
 // testLabOperationTimeout. fn says whether to commit even when it fails (a lease that is kept so the expiry
-// pass can retry a cleanup that failed).
+// pass can retry a cleanup that failed). A request waits for the lock.
 func (u *ExerciseUseCase) underOwnerLock(ctx context.Context, owner uuid.UUID, fn func(context.Context, *testDeployRepo.Repository) (bool, error)) error {
+	_, err := u.withOwnerLock(ctx, owner, true, fn)
+	return err
+}
+
+// underOwnerLockIfFree is underOwnerLock for background jobs: while a request or another job holds the author's lock it
+// does not wait (a waiting job keeps a pooled connection for up to testLabOperationTimeout) and reports false.
+func (u *ExerciseUseCase) underOwnerLockIfFree(ctx context.Context, owner uuid.UUID, fn func(context.Context, *testDeployRepo.Repository) (bool, error)) (bool, error) {
+	return u.withOwnerLock(ctx, owner, false, fn)
+}
+
+func (u *ExerciseUseCase) withOwnerLock(ctx context.Context, owner uuid.UUID, wait bool, fn func(context.Context, *testDeployRepo.Repository) (bool, error)) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, testLabOperationTimeout)
 	defer cancel()
+	// Follow-up checks are queued once the transaction is over: queuing takes another pooled connection, and
+	// holding one while waiting for a second starved the pool.
+	ctx, queued := withQueuedRemovalChecks(ctx)
+	defer u.flushRemovalChecks(queued)
 	if u.deployUoW == nil {
 		_, err := fn(ctx, u.testDeploys)
-		return err
+		return true, err
 	}
 	txCtx, queries, tx, err := u.deployUoW.UnitOfWork(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = tx.Restore() }()
 	repo := testDeployRepo.New(queries)
-	if err = repo.LockOwner(txCtx, owner); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to lock the test laboratories").Err()
+	if wait {
+		err = repo.LockOwner(txCtx, owner)
+	} else {
+		var locked bool
+		if locked, err = repo.TryLockOwner(txCtx, owner); err == nil && !locked {
+			return false, nil
+		}
+	}
+	if err != nil {
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to lock the test laboratories").Err()
 	}
 	commit, fnErr := fn(txCtx, repo)
 	if fnErr != nil && !commit {
-		return fnErr
+		return true, fnErr
 	}
 	if err = tx.Save(); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to save the test laboratories").Err()
+		return true, model.ErrPlatform.WithError(err).WithMessage("Failed to save the test laboratories").Err()
 	}
-	return fnErr
+	return true, fnErr
 }
 
 // DeployTestStatus returns the current runtime status of a test deploy, keyed by
@@ -771,7 +794,7 @@ func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, d
 	if u.infra == nil {
 		return infraModel.ErrInfrastructureUnavailable.Err()
 	}
-	return u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+	ran, err := u.underOwnerLockIfFree(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
 		if err != nil {
 			if repositoryTools.IsObjectNotFoundError(err) {
@@ -792,6 +815,11 @@ func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, d
 		}
 		return true, u.finishTestLab(ctx, repo, deploy)
 	})
+	if err == nil && !ran {
+		// The author is busy (a request or another job holds the lock): look again later, same attempt.
+		u.scheduleRemovalCheck(ctx, exerciseModel.TestDeploy{ID: deployID, CreatedBy: ownerID}, attempt)
+	}
+	return err
 }
 
 // finishTestLab drops the row of a lab that is gone and frees its resources.
@@ -818,7 +846,8 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 	if u.infra == nil {
 		return infraModel.ErrInfrastructureUnavailable.Err()
 	}
-	return u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+	// A busy author is skipped: the periodic sweep ends the lab on its next pass.
+	_, err := u.underOwnerLockIfFree(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
 		if err != nil {
 			if repositoryTools.IsObjectNotFoundError(err) {
@@ -831,6 +860,7 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 		}
 		return false, u.endTestLab(ctx, repo, deploy, true)
 	})
+	return err
 }
 
 // CleanupExpiredTestDeploys removes the Labs whose persisted lease expired (and, with the last
@@ -1126,7 +1156,8 @@ func (u *ExerciseUseCase) reconcileOrphanEventPreviewHolds(ctx context.Context) 
 			failed = append(failed, errors.New("event preview cleanup identity mismatch"))
 			continue
 		}
-		err = u.underOwnerLock(ctx, hold.OwnerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		// A busy author is skipped: the next sweep looks again.
+		_, err = u.underOwnerLockIfFree(ctx, hold.OwnerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 			_, readErr := repo.GetOwned(ctx, hold.ID, hold.OwnerID)
 			if readErr == nil {
 				return false, nil

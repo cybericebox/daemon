@@ -43,8 +43,9 @@ func TestNotify_SealsTheVariablesAndReadsThemBack(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, temporalCodeModel.NotificationPayloadCodeType, stored.Type)
-	require.NotContains(t, string(stored.Data), "SECRET")
-	require.NotContains(t, string(stored.Data), "Ira")
+	// The sealed text is random base64: look for strings it can never hold (a space, an "=" before the end).
+	require.NotContains(t, string(stored.Data), "token=SECRET")
+	require.NotContains(t, string(stored.Data), "Ira Koval")
 	require.Contains(t, string(stored.Data), userID.String(), "the row names its user so an account deletion removes it")
 
 	dispatchID := strings.TrimPrefix(stored.Code, "notify-payload:")

@@ -11481,6 +11481,21 @@ func (mr *MockQuerierMockRecorder) TryAddEventTeamMember(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryAddEventTeamMember", reflect.TypeOf((*MockQuerier)(nil).TryAddEventTeamMember), ctx, arg)
 }
 
+// TryLockExerciseTestDeploysOf mocks base method.
+func (m *MockQuerier) TryLockExerciseTestDeploysOf(ctx context.Context, owner string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TryLockExerciseTestDeploysOf", ctx, owner)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TryLockExerciseTestDeploysOf indicates an expected call of TryLockExerciseTestDeploysOf.
+func (mr *MockQuerierMockRecorder) TryLockExerciseTestDeploysOf(ctx, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryLockExerciseTestDeploysOf", reflect.TypeOf((*MockQuerier)(nil).TryLockExerciseTestDeploysOf), ctx, owner)
+}
+
 // TryRemoveEventTeamMember mocks base method.
 func (m *MockQuerier) TryRemoveEventTeamMember(ctx context.Context, arg postgres.TryRemoveEventTeamMemberParams) (int64, error) {
 	m.ctrl.T.Helper()

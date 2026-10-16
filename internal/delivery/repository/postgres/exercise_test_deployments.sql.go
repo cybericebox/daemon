@@ -308,3 +308,15 @@ func (q *Queries) MarkExerciseTestDeploySolved(ctx context.Context, arg MarkExer
 	)
 	return i, err
 }
+
+const tryLockExerciseTestDeploysOf = `-- name: TryLockExerciseTestDeploysOf :one
+SELECT pg_try_advisory_xact_lock(hashtextextended('exercise-test-deploy:' || $1::text, 0))::bool AS locked
+`
+
+// The same lock for background jobs: false instead of waiting while a request or another job holds it.
+func (q *Queries) TryLockExerciseTestDeploysOf(ctx context.Context, owner string) (bool, error) {
+	row := q.db.QueryRow(ctx, tryLockExerciseTestDeploysOf, owner)
+	var locked bool
+	err := row.Scan(&locked)
+	return locked, err
+}

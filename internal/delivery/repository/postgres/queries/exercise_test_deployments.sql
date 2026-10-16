@@ -20,6 +20,9 @@ WHERE id = sqlc.arg(id) AND created_by = sqlc.arg(created_by) RETURNING *;
 -- name: LockExerciseTestDeploysOf :exec
 -- Serializes the "one active test lab per user" check and insert of one owner until the transaction ends.
 SELECT pg_advisory_xact_lock(hashtextextended('exercise-test-deploy:' || sqlc.arg(owner)::text, 0));
+-- name: TryLockExerciseTestDeploysOf :one
+-- The same lock for background jobs: false instead of waiting while a request or another job holds it.
+SELECT pg_try_advisory_xact_lock(hashtextextended('exercise-test-deploy:' || sqlc.arg(owner)::text, 0))::bool AS locked;
 -- name: CountActiveExerciseTestDeploys :one
 SELECT count(*) FROM exercise_test_deployments WHERE created_by = sqlc.arg(created_by) AND expires_at > sqlc.arg(now);
 -- name: MarkExerciseTestDeploySolved :one

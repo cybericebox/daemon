@@ -336,7 +336,9 @@ func TestEventPreviewCommitFailureHasDurableOrphanCleanupBeforeLeaseExpiry(t *te
 	infra := &previewRecoveryInfra{eventPreviewInfra: eventPreviewInfra{fakeInfra: fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "preview"}}}, groupExists: true, labExists: true}
 	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}, DeployUoW: previewCommitFailureWorker{q: q, unit: unit}})
 	u.SetTestLabGate(gate)
-	q.EXPECT().LockExerciseTestDeploysOf(gomock.Any(), owner.String()).Return(nil).Times(2)
+	q.EXPECT().LockExerciseTestDeploysOf(gomock.Any(), owner.String()).Return(nil)
+	// The orphan sweep is a job: it takes the author's lock without waiting.
+	q.EXPECT().TryLockExerciseTestDeploysOf(gomock.Any(), owner.String()).Return(true, nil)
 	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
 		return postgres.ExerciseTestDeployment{ID: p.ID, CreatedBy: p.CreatedBy, EventID: p.EventID, GroupName: p.GroupName, ExpiresAt: p.ExpiresAt}, nil
 	})
