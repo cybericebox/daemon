@@ -1,6 +1,7 @@
 package event
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,10 +29,11 @@ type saveGeneralRequest struct {
 }
 
 type saveAppearanceRequest struct {
-	Brand   string             `json:"Brand"`
-	Accent  string             `json:"Accent"`
-	Logo    brandChangeRequest `json:"Logo"`
-	Favicon brandChangeRequest `json:"Favicon"`
+	FooterSignature json.RawMessage    `json:"FooterSignature" swaggertype:"object"`
+	Brand           string             `json:"Brand"`
+	Accent          string             `json:"Accent"`
+	Logo            brandChangeRequest `json:"Logo"`
+	Favicon         brandChangeRequest `json:"Favicon"`
 }
 
 func (h *Handler) uploadEventBrandDraft(ctx *gin.Context) {
@@ -113,7 +115,7 @@ func (h *Handler) saveEventAppearance(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	view, err := h.useCase.SaveEventAppearance(ctx.Request.Context(), id, claims.UserID, eventUseCase.EventAppearanceInput{Brand: req.Brand, Accent: req.Accent, Logo: req.Logo.toInput(), Favicon: req.Favicon.toInput()})
+	view, err := h.useCase.SaveEventAppearance(ctx.Request.Context(), id, claims.UserID, eventUseCase.EventAppearanceInput{FooterSignature: req.FooterSignature, Brand: req.Brand, Accent: req.Accent, Logo: req.Logo.toInput(), Favicon: req.Favicon.toInput()})
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

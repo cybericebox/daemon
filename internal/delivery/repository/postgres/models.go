@@ -249,6 +249,7 @@ type EventConfig struct {
 	MaxFlagAttempts              pgtype.Int4        `json:"max_flag_attempts"`
 	FinishCountdownMode          int16              `json:"finish_countdown_mode"`
 	LabPolicy                    []byte             `json:"lab_policy"`
+	FooterSignature              []byte             `json:"footer_signature"`
 }
 
 type EventExercise struct {

@@ -10,10 +10,11 @@ import (
 // Error-code convention: see internal/model/exercise/errors.go. Enforced by
 // `make lint-errors`. Each var has exactly one non-test call site.
 //
-// EventConfigObjectCode — next free detail code: 23
+// EventConfigObjectCode — next free detail code: 24
 var (
-	ErrParticipationLocked = err.ErrConflict.WithObjectCode(model.EventConfigObjectCode).
-				WithMessage("Participation type cannot be changed after publication").WithDetailCode(1)
+	ErrFooterSignatureInvalid = err.ErrInvalidData.WithObjectCode(model.EventConfigObjectCode).WithMessage("Website footer signature is invalid").WithDetailCode(23)
+	ErrParticipationLocked    = err.ErrConflict.WithObjectCode(model.EventConfigObjectCode).
+					WithMessage("Participation type cannot be changed after publication").WithDetailCode(1)
 	ErrParticipationInvalid = err.ErrInvalidData.WithObjectCode(model.EventConfigObjectCode).
 				WithMessage("Participation type is invalid").WithDetailCode(2)
 	ErrRegistrationInvalid = err.ErrInvalidData.WithObjectCode(model.EventConfigObjectCode).

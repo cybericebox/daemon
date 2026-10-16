@@ -404,6 +404,7 @@ type eventInfoResponse struct {
 	CanViewParticipants bool                   `json:"CanViewParticipants"`
 	PreviewDescription  string                 `json:"PreviewDescription"`
 	PreviewPicture      string                 `json:"PreviewPicture"`
+	FooterSignature     json.RawMessage        `json:"FooterSignature" swaggertype:"object"`
 	LogoURL             string                 `json:"LogoURL"`
 	FaviconURL          string                 `json:"FaviconURL"`
 	Theme               eventConfigModel.Theme `json:"Theme"`
@@ -486,6 +487,7 @@ type publicEventInfoResponse struct {
 	CanViewParticipants bool                   `json:"CanViewParticipants"`
 	PreviewDescription  string                 `json:"PreviewDescription"`
 	PreviewPicture      string                 `json:"PreviewPicture"`
+	FooterSignature     json.RawMessage        `json:"FooterSignature" swaggertype:"object"`
 	LogoURL             string                 `json:"LogoURL"`
 	FaviconURL          string                 `json:"FaviconURL"`
 	Theme               eventConfigModel.Theme `json:"Theme"`
@@ -512,6 +514,7 @@ func toPublicEventInfoResponse(v eventUseCase.EventInfoView) publicEventInfoResp
 		ResultsAvailability: string(v.ResultsAvailability),
 		CanViewParticipants: v.ParticipantsVisibility == eventConfigModel.VisibilityPublic,
 		PreviewDescription:  v.PreviewDescription, PreviewPicture: v.PreviewPicture,
+		FooterSignature:    v.FooterSignature,
 		LogoURL:            v.LogoURL,
 		FaviconURL:         v.FaviconURL,
 		Theme:              v.Theme,
@@ -539,6 +542,7 @@ func toEventInfoResponse(v eventUseCase.EventInfoView) eventInfoResponse {
 		CanViewParticipants: v.ParticipantsVisibility == eventConfigModel.VisibilityPublic,
 		PreviewDescription:  v.PreviewDescription,
 		PreviewPicture:      v.PreviewPicture,
+		FooterSignature:     v.FooterSignature,
 		LogoURL:             v.LogoURL,
 		FaviconURL:          v.FaviconURL,
 		Theme:               v.Theme,

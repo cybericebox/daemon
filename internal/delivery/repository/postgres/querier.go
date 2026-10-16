@@ -414,9 +414,12 @@ type Querier interface {
 	// Revision and document come from the same snapshot, so concurrent publication
 	// can never put the old document under the new key.
 	GetEventRenderDocument(ctx context.Context, arg GetEventRenderDocumentParams) (GetEventRenderDocumentRow, error)
-	// Read-side cache metadata: hash a single MVCC snapshot without transferring
-	// documents/drafts or joining operational statistics. Media references are
-	// included because logo/favicon replacement does not update the event row.
+	// Read-side source identity: hash only the common renderer's published input
+	// from one MVCC snapshot. Audit timestamps, drafts, live layout and operational
+	// settings/statistics do not change source. Lifecycle/schedule and visibility
+	// remain inputs because they control publication, admission and public variables.
+	// Media files are immutable; branding reference changes and removal of images
+	// used by this document/footer matter, while uploads for drafts do not.
 	GetEventRenderMetadata(ctx context.Context, arg GetEventRenderMetadataParams) (GetEventRenderMetadataRow, error)
 	// The participation funnel below the approved participants: how many of
 	// them and their teams ever opened a task, tried an answer and solved.

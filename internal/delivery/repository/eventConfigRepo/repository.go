@@ -102,6 +102,7 @@ func (r *Repository) Create(ctx context.Context, c eventConfigModel.EventConfig)
 	row, err := r.q.CreateEventConfig(ctx, postgres.CreateEventConfigParams{
 		EventID:                   c.EventID,
 		LabPolicy:                 encodeLabPolicy(c),
+		FooterSignature:           c.FooterSignature,
 		Participation:             participationToDB(c.Participation),
 		Registration:              int16(c.Registration),
 		ScoreboardVisibility:      int16(c.ScoreboardVisibility),
@@ -159,6 +160,7 @@ func (r *Repository) Update(ctx context.Context, c eventConfigModel.EventConfig,
 	return r.q.UpdateEventConfig(ctx, postgres.UpdateEventConfigParams{
 		EventID:                   c.EventID,
 		LabPolicy:                 encodeLabPolicy(c),
+		FooterSignature:           c.FooterSignature,
 		Participation:             participationToDB(c.Participation),
 		Registration:              int16(c.Registration),
 		ScoreboardVisibility:      int16(c.ScoreboardVisibility),
@@ -222,6 +224,7 @@ func ToDomain(row postgres.EventConfig) eventConfigModel.EventConfig {
 	}
 	return eventConfigModel.EventConfig{
 		EventID:                row.EventID,
+		FooterSignature:        json.RawMessage(row.FooterSignature),
 		Participation:          participationFromDB(row.Participation),
 		Registration:           eventConfigModel.Registration(row.Registration),
 		ScoreboardVisibility:   eventConfigModel.Visibility(row.ScoreboardVisibility),

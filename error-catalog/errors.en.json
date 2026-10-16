@@ -135,6 +135,7 @@
   "21220": "Finish countdown minutes must be between 1 and 1440",
   "21221": "Task reveal mode must be all_ready or as_ready",
   "21222": "The task reveal mode cannot be changed after the event starts",
+  "21223": "Website footer signature is invalid",
   "21307": "Participant team assignment is invalid",
   "21311": "Invitation email is invalid",
   "21315": "Pseudonym must be 2 to 32 characters without control characters",

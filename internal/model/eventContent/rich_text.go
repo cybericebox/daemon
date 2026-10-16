@@ -10,6 +10,24 @@ import (
 const maxRichTextBytes = 256 * 1024
 const maxRichTextDepth = 32
 
+var errEmptyRichText = errors.New("rich text is required")
+
+// NormalizeOptionalRichText validates standalone editor content without variables.
+// A structurally valid empty document selects the caller's default content.
+func NormalizeOptionalRichText(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, nil
+	}
+	_, err := validateRichText(raw, nil)
+	if errors.Is(err, errEmptyRichText) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return bytes.Clone(raw), nil
+}
+
 // validateRichText checks the small subset of Lexical JSON that the event
 // editor can produce. A variable is content, but an empty element is not.
 func validateRichText(raw json.RawMessage, declared map[string]struct{}) (map[string]struct{}, error) {
@@ -35,7 +53,7 @@ func validateRichText(raw json.RawMessage, declared map[string]struct{}) (map[st
 		return nil, err
 	}
 	if !hasContent {
-		return nil, errors.New("rich text is required")
+		return nil, errEmptyRichText
 	}
 	return names, nil
 }

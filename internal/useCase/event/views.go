@@ -129,6 +129,7 @@ type EventConfigView struct {
 	ParticipantsVisibility eventConfigModel.Visibility
 	PreviewDescription     string
 	PreviewPicture         string
+	FooterSignature        json.RawMessage
 	MaxTeamSize            int32
 	MinTeamSize            *int32
 	MaxTeams               *int32
@@ -279,6 +280,7 @@ func toEventConfigView(c eventConfigModel.EventConfig) EventConfigView {
 		ParticipantsVisibility: c.ParticipantsVisibility,
 		PreviewDescription:     c.PreviewDescription,
 		PreviewPicture:         c.PreviewPicture,
+		FooterSignature:        c.FooterSignature,
 		MaxTeamSize:            c.MaxTeamSize,
 		MinTeamSize:            c.MinTeamSize,
 		MaxTeams:               c.MaxTeams,
@@ -316,6 +318,7 @@ type EventInfoView struct {
 	ParticipantsVisibility eventConfigModel.Visibility
 	PreviewDescription     string
 	PreviewPicture         string
+	FooterSignature        json.RawMessage
 	LogoURL                string
 	FaviconURL             string
 	Infrastructure         EventInfrastructurePlan
@@ -340,6 +343,7 @@ func toEventInfoView(e eventModel.Event, now time.Time, c eventConfigModel.Event
 		ParticipantsVisibility: c.ParticipantsVisibility,
 		PreviewDescription:     c.PreviewDescription,
 		PreviewPicture:         c.PreviewPicture,
+		FooterSignature:        c.FooterSignature,
 		Infrastructure:         infrastructure,
 		Theme:                  c.Theme,
 		Countdown:              c.Countdown,
