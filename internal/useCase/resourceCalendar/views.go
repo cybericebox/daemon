@@ -268,6 +268,8 @@ type TestLabRequest struct {
 	Owner         uuid.UUID
 	Size          Amount
 	LargestDevice Amount
+	// Static is a static test: no laboratory, nothing to reserve.
+	Static bool
 	// Lease is how long it will run; zero takes the default.
 	Lease time.Duration
 }

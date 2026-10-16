@@ -610,7 +610,7 @@ func TestAdmitTestLab_ZeroSizeNeedsNoAgentsAndHoldsNothing(t *testing.T) {
 	h.agents.err = errors.New("agents are down")
 
 	id := uuid.Must(uuid.NewV7())
-	room, err := h.uc.AdmitTestLab(ctx, TestLabRequest{ID: id, Owner: owner})
+	room, err := h.uc.AdmitTestLab(ctx, TestLabRequest{ID: id, Owner: owner, Static: true})
 	require.NoError(t, err)
 	assert.True(t, room.Available)
 	assert.Equal(t, "none", room.Via)
@@ -619,5 +619,9 @@ func TestAdmitTestLab_ZeroSizeNeedsNoAgentsAndHoldsNothing(t *testing.T) {
 
 	_, err = h.uc.AdmitTestLab(ctx, TestLabRequest{ID: uuid.Must(uuid.NewV7()), Owner: owner, Size: Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30}})
 	require.Error(t, err, "a non-zero lab still reads the agents")
+	assert.Empty(t, h.store.holds)
+
+	_, err = h.uc.AdmitTestLab(ctx, TestLabRequest{ID: uuid.Must(uuid.NewV7()), Owner: owner})
+	require.Error(t, err, "zero Size but not Static is a real lab with group overhead: it reads the agents")
 	assert.Empty(t, h.store.holds)
 }
