@@ -90,3 +90,51 @@ func TestInfraKinds_TestLabRunsAreLoggedByTriggersAndCounted(t *testing.T) {
 		t.Fatalf("counts = %+v, %v", counts, err)
 	}
 }
+
+// A static test is not a laboratory: its run adds no lab hours and no concurrency to the test-lab analytics.
+func TestInfraKinds_StaticRunsAreNotLabs(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	exercises := exerciseRepo.New(db.Queries)
+	deploys := testDeployRepo.New(db.Queries)
+	author := seedVPNUser(t, db, "kinds-static@test.test")
+	ex := mustCreateExercise(t, exercises, "IT infra kinds static")
+	variants := itVariants()
+	variants[0].ID = uuid.Must(uuid.NewV7())
+	version, err := exercises.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	create := func(group string) {
+		t.Helper()
+		id := uuid.Must(uuid.NewV7())
+		if _, createErr := deploys.Create(ctx, exerciseModel.TestDeploy{ID: id, GroupName: group, VersionID: version.ID, VariantID: variants[0].ID,
+			CreatedBy: author, CreatedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour)}); createErr != nil {
+			t.Fatal(createErr)
+		}
+	}
+	create("")
+	create("t-lab")
+
+	repo := platformAnalyticsRepo.New(db.Queries)
+	from, to := now.Add(-3*time.Hour), now.Add(time.Hour)
+	rows, err := repo.InfraHoursByKind(ctx, from, to, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if test := rows[2]; test.Labs != 1 || test.Hours < 0.9 || test.Hours > 1.2 {
+		t.Fatalf("test lab hours = %+v, want only the lab: 1 lab, about 1 hour", test)
+	}
+	peaks, err := repo.InfraPeaksByKind(ctx, from, to, now, "hour", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var peak int64
+	for _, p := range peaks {
+		peak = max(peak, p.Peak)
+	}
+	if peak != 1 {
+		t.Fatalf("test lab peak = %d, want 1 (a static test is not a lab)", peak)
+	}
+}
