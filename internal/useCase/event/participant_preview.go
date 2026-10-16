@@ -358,8 +358,8 @@ func (u *EventUseCase) ListPreviewCatalog(ctx context.Context, event, user uuid.
 			ids = append(ids, row.PublishedVersionID)
 		}
 	} else {
-		var cursor time.Time
-		var cursorID uuid.UUID
+		// Keyset pages hold rows strictly before the cursor: start after everything.
+		cursor, cursorID := cursorSentinelTime, maxUUID
 		for {
 			rows, err := u.exercises.ListCursor(ctx, exerciseRepo.ListParams{Search: strings.TrimSpace(search), Archived: "exclude", Visibility: exerciseRepo.Visibility{Scope: "catalog"}, CursorCreatedAt: cursor, CursorID: cursorID, Limit: 100})
 			if err != nil {
