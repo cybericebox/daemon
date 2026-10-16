@@ -19,12 +19,18 @@ type Queries interface {
 	ExtendOwnedExerciseTestDeploy(context.Context, postgres.ExtendOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error)
 	MarkExerciseTestDeploySolved(context.Context, postgres.MarkExerciseTestDeploySolvedParams) (postgres.ExerciseTestDeployment, error)
 	LockExerciseTestDeploysOf(context.Context, string) error
+	TryLockExerciseTestDeploysOf(context.Context, string) (bool, error)
 	CountActiveExerciseTestDeploys(context.Context, postgres.CountActiveExerciseTestDeploysParams) (int64, error)
 }
 
 // LockOwner serializes everything one author does to their test labs until the transaction ends.
 func (r *Repository) LockOwner(ctx context.Context, owner uuid.UUID) error {
 	return r.q.LockExerciseTestDeploysOf(ctx, owner.String())
+}
+
+// TryLockOwner takes the same lock without waiting: false while someone else holds it.
+func (r *Repository) TryLockOwner(ctx context.Context, owner uuid.UUID) (bool, error) {
+	return r.q.TryLockExerciseTestDeploysOf(ctx, owner.String())
 }
 
 func (r *Repository) ListOwned(ctx context.Context, owner uuid.UUID) ([]exerciseModel.TestDeploy, error) {

@@ -38,6 +38,10 @@ func (u *ExerciseUseCase) scheduleRemovalCheck(ctx context.Context, deploy exerc
 	if u.removalCheck == nil || attempt > removalCheckAttempts {
 		return
 	}
+	if queued, ok := ctx.Value(queuedRemovalChecksKey{}).(*queuedRemovalChecks); ok {
+		queued.items = append(queued.items, queuedRemovalCheck{ctx: ctx, deploy: deploy, attempt: attempt})
+		return
+	}
 	if err := u.removalCheck.ScheduleTestDeployRemovalCheck(context.WithoutCancel(ctx), deploy.CreatedBy, deploy.ID, attempt, u.timeNow().Add(removalCheckEvery)); err != nil {
 		log.Warn().Err(err).Str("deploy", deploy.ID.String()).Msg("Failed to schedule the removal check of a test lab; the periodic sweep drops it")
 	}
@@ -63,5 +67,27 @@ func (u *ExerciseUseCase) scheduleTestDeployExpiry(ctx context.Context, deploy e
 	}
 	if err := u.expiry.ScheduleTestDeployExpiry(context.WithoutCancel(ctx), deploy.CreatedBy, deploy.ID, deploy.ExpiresAt); err != nil {
 		log.Warn().Err(err).Str("deploy", deploy.ID.String()).Msg("Failed to schedule the end of a test lab; the periodic sweep removes it")
+	}
+}
+
+// queuedRemovalChecks holds the checks asked for under the author's lock until its transaction is over.
+type (
+	queuedRemovalChecksKey struct{}
+	queuedRemovalCheck     struct {
+		ctx     context.Context
+		deploy  exerciseModel.TestDeploy
+		attempt int
+	}
+	queuedRemovalChecks struct{ items []queuedRemovalCheck }
+)
+
+func withQueuedRemovalChecks(ctx context.Context) (context.Context, *queuedRemovalChecks) {
+	queued := &queuedRemovalChecks{}
+	return context.WithValue(ctx, queuedRemovalChecksKey{}, queued), queued
+}
+
+func (u *ExerciseUseCase) flushRemovalChecks(queued *queuedRemovalChecks) {
+	for _, item := range queued.items {
+		u.scheduleRemovalCheck(context.WithValue(item.ctx, queuedRemovalChecksKey{}, nil), item.deploy, item.attempt)
 	}
 }
