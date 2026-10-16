@@ -203,10 +203,20 @@ func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eve
 	return u.deployVariantTest(ctx, &eventID, ownerID, versionID, variantID)
 }
 func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
+	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
+
+	variant, err := u.loadVariant(ctx, versionID, variantID)
+	if err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	// A variant without devices has no laboratory to run: its test is a row with flags and a lease, which needs
+	// no agent. An event preview always needs a laboratory.
+	if eventID == nil && len(variant.Topology.Devices) == 0 {
+		return u.deployStaticTest(ctx, ownerID, versionID, variant)
+	}
 	if u.infra == nil {
 		return exerciseModel.DeployHandle{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
-	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
 
 	// A user may run a limited number of test laboratories, across all exercises.
 	listed, err := u.ListTestDeploys(ctx, ownerID, uuid.Nil)
@@ -217,10 +227,6 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployActiveExists.Err()
 	}
 
-	variant, err := u.loadVariant(ctx, versionID, variantID)
-	if err != nil {
-		return exerciseModel.DeployHandle{}, err
-	}
 	if err := variant.ValidateTopologyForDeploy(); err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
@@ -364,6 +370,49 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		handle.VPNClient = "tester"
 	}
 	return handle, nil
+}
+
+// deployStaticTest starts the test of a variant without devices: a row with a flag for every task and a lease,
+// no laboratory, group or VPN. It counts toward the author's limit like a laboratory but never touches the agent.
+func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, versionID uuid.UUID, variant exerciseModel.Variant) (exerciseModel.DeployHandle, error) {
+	flags := make([]exerciseModel.DeployFlag, 0, len(variant.Tasks))
+	for _, task := range variant.Tasks {
+		flag, err := flagpattern.Resolve(task.Flag, testFlagRandomBytes, rand.Reader)
+		if err != nil {
+			return exerciseModel.DeployHandle{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve test flag").Err()
+		}
+		flags = append(flags, exerciseModel.DeployFlag{TaskID: task.ID, Flag: flag})
+	}
+	now := u.timeNow()
+	id := uuid.Must(uuid.NewV7())
+	// The request is zero-size, so the calendar admits it without a hold; an empty topology is also zero.
+	if err := u.admitTestLab(ctx, id, ownerID, exerciseModel.Topology{}); err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	deploy := exerciseModel.NewStaticTestDeploy(id, versionID, variant.ID, ownerID, flags, now, u.testDeployTTL())
+	err := u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		existing, err := repo.ListOwned(ctx, ownerID)
+		if err != nil {
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
+		}
+		if u.activeCount(existing, now) >= u.MaxActiveTestDeploys() {
+			return false, exerciseModel.ErrTestDeployActiveExists.Err()
+		}
+		if _, err = repo.Create(ctx, deploy); err != nil {
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
+		}
+		return true, nil
+	})
+	if err != nil {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		defer cancel()
+		if releaseErr := u.releaseScopedTestLab(releaseCtx, deploy); releaseErr != nil {
+			err = errors.Join(err, releaseErr)
+		}
+		return exerciseModel.DeployHandle{}, err
+	}
+	u.scheduleTestDeployExpiry(ctx, deploy)
+	return exerciseModel.DeployHandle{Group: id.String(), Static: true, Flags: flags}, nil
 }
 
 // slowTestLabRequest is the duration over which a deploy or destroy request is logged as slow: the HTTP server
