@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -241,6 +242,24 @@ func (u *EventUseCase) UpdateEventTheme(ctx context.Context, eventID uuid.UUID, 
 	now := time.Now()
 	c, err := u.mutateEventConfig(ctx, eventID, func(cfg *eventConfigModel.EventConfig) error {
 		return cfg.SetTheme(brand, accent, now, by)
+	})
+	if err != nil {
+		return EventConfigView{}, err
+	}
+	return toEventConfigView(c), nil
+}
+
+// updateEventAppearanceConfig changes the theme and website signature in one aggregate write.
+func (u *EventUseCase) updateEventAppearanceConfig(ctx context.Context, eventID uuid.UUID, brand, accent string, signature json.RawMessage, by uuid.UUID) (EventConfigView, error) {
+	now := time.Now()
+	c, err := u.mutateEventConfig(ctx, eventID, func(cfg *eventConfigModel.EventConfig) error {
+		if err := cfg.SetTheme(brand, accent, now, by); err != nil {
+			return err
+		}
+		if len(signature) > 0 {
+			return cfg.SetFooterSignature(signature, now, by)
+		}
+		return nil
 	})
 	if err != nil {
 		return EventConfigView{}, err

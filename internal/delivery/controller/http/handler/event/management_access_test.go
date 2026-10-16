@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -148,5 +149,18 @@ func TestModeratorsTeamActionsRejectReadOnlyViewer(t *testing.T) {
 				t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestWebsiteSignatureSaveRejectsReadOnlyViewer(t *testing.T) {
+	actor, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &accessContractUC{manageErr: eventManagerModel.ErrEventManagementForbidden.Err()}
+	router := testEventCRUDRouter(&eventCRUDContractUC{IUseCase: uc}, actor)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/events/"+eventID.String()+"/manage/appearance", strings.NewReader(`{"FooterSignature":null}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("viewer can change website signature: %d %s", response.Code, response.Body.String())
 	}
 }

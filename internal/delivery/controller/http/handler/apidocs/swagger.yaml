@@ -653,6 +653,13 @@ definitions:
       userID:
         type: string
     type: object
+  event.RenderImageDimensions:
+    properties:
+      Height:
+        type: integer
+      Width:
+        type: integer
+    type: object
   event.RenderPageInfo:
     properties:
       Slug:
@@ -855,6 +862,8 @@ definitions:
           FinishCountdownMode: before_end (the time-left countdown shows during the last FinishCountdownMinutes) |
           from_start (from the start of the current stage, of the event without stages).
         type: string
+      FooterSignature:
+        type: object
       HintChargeMode:
         description: 'HintChargeMode: reward (A, default) | balance (B).'
         type: string
@@ -4564,6 +4573,8 @@ definitions:
         type: string
       FinishTime:
         type: string
+      FooterSignature:
+        type: object
       LogoURL:
         type: string
       Name:
@@ -4630,6 +4641,10 @@ definitions:
     properties:
       Event:
         $ref: '#/definitions/eventself.publicEventInfoResponse'
+      Images:
+        additionalProperties:
+          $ref: '#/definitions/event.RenderImageDimensions'
+        type: object
       Page:
         $ref: '#/definitions/eventself.eventRenderDocumentResponse'
       Revision:
@@ -5134,6 +5149,8 @@ definitions:
         type: string
       FinishTime:
         type: string
+      FooterSignature:
+        type: object
       LogoURL:
         type: string
       Name:

@@ -3,6 +3,7 @@ package event
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +14,16 @@ import (
 	"github.com/gofrs/uuid"
 
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
 
 const brandDraftLifetime = 24 * time.Hour
+
+// PostgreSQL timestamptz stores microseconds; the in-memory mutation can carry nanoseconds.
+func appearanceTimestampMatches(persisted, saved time.Time) bool {
+	return persisted.Truncate(time.Microsecond).Equal(saved.Truncate(time.Microsecond))
+}
 
 type BrandAssetChange struct {
 	Action string // keep, replace, remove
@@ -35,10 +42,12 @@ type EventGeneralView struct {
 }
 
 type EventAppearanceInput struct {
-	Brand   string
-	Accent  string
-	Logo    BrandAssetChange
-	Favicon BrandAssetChange
+	// Omitted keeps the saved signature; JSON null restores the platform credit.
+	FooterSignature json.RawMessage
+	Brand           string
+	Accent          string
+	Logo            BrandAssetChange
+	Favicon         BrandAssetChange
 }
 
 type EventAppearanceView struct {
@@ -265,22 +274,37 @@ func (u *EventUseCase) SaveEventAppearance(ctx context.Context, eventID, userID 
 	}
 	updated := oldConfig
 	themeChanged := !strings.EqualFold(strings.TrimSpace(input.Brand), oldConfig.Theme.Brand) || !strings.EqualFold(strings.TrimSpace(input.Accent), oldConfig.Theme.Accent)
-	if themeChanged {
-		updated, err = u.UpdateEventTheme(ctx, eventID, input.Brand, input.Accent, userID)
+	if themeChanged || len(input.FooterSignature) > 0 {
+		updated, err = u.updateEventAppearanceConfig(ctx, eventID, input.Brand, input.Accent, input.FooterSignature, userID)
 		if err != nil {
 			return EventAppearanceView{}, err
 		}
 	}
-	rollbackTheme := func() error {
-		if !themeChanged {
+	rollbackAppearance := func() error {
+		if !themeChanged && len(input.FooterSignature) == 0 {
 			return nil
 		}
-		_, e := u.UpdateEventTheme(ctx, eventID, oldConfig.Theme.Brand, oldConfig.Theme.Accent, userID)
-		return e
+		now := time.Now()
+		_, rollbackErr := u.mutateEventConfig(ctx, eventID, func(cfg *eventConfigModel.EventConfig) error {
+			// A newer appearance save belongs to its author; never undo it while compensating.
+			if !appearanceTimestampMatches(cfg.UpdatedAt, updated.UpdatedAt) {
+				return errors.New("appearance changed before rollback")
+			}
+			if themeChanged {
+				if err := cfg.SetTheme(oldConfig.Theme.Brand, oldConfig.Theme.Accent, now, userID); err != nil {
+					return err
+				}
+			}
+			if len(input.FooterSignature) > 0 {
+				return cfg.SetFooterSignature(oldConfig.FooterSignature, now, userID)
+			}
+			return nil
+		})
+		return rollbackErr
 	}
 	if input.Logo.Action != "keep" {
 		if err = u.brandMedia.ReplaceReferences(ctx, mediaModel.RefTypeEventLogo, eventID, logoRefs); err != nil {
-			return EventAppearanceView{}, errors.Join(err, rollbackTheme())
+			return EventAppearanceView{}, errors.Join(err, rollbackAppearance())
 		}
 	}
 	if input.Favicon.Action != "keep" {
@@ -288,7 +312,7 @@ func (u *EventUseCase) SaveEventAppearance(ctx context.Context, eventID, userID 
 			if input.Logo.Action != "keep" {
 				err = errors.Join(err, u.brandMedia.ReplaceReferences(ctx, mediaModel.RefTypeEventLogo, eventID, oldLogo))
 			}
-			return EventAppearanceView{}, errors.Join(err, rollbackTheme())
+			return EventAppearanceView{}, errors.Join(err, rollbackAppearance())
 		}
 	}
 	if input.Logo.Action != "keep" {

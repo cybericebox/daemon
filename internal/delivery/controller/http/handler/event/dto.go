@@ -360,19 +360,20 @@ func toResponse(v eventUseCase.EventView) eventResponse {
 }
 
 type configResponse struct {
-	EventID                uuid.UUID `json:"EventID"`
-	Participation          *int32    `json:"Participation"`
-	Registration           int32     `json:"Registration"`
-	ScoreboardVisibility   int32     `json:"ScoreboardVisibility"`
-	ParticipantsVisibility int32     `json:"ParticipantsVisibility"`
-	PreviewDescription     string    `json:"PreviewDescription"`
-	PreviewPicture         string    `json:"PreviewPicture"`
-	MaxTeamSize            int32     `json:"MaxTeamSize"`
-	MinTeamSize            *int32    `json:"MinTeamSize"`
-	MaxTeams               *int32    `json:"MaxTeams"`
-	AllowPseudonyms        bool      `json:"AllowPseudonyms"`
-	ShowDifficulty         bool      `json:"ShowDifficulty"`
-	HintsDisabled          bool      `json:"HintsDisabled"`
+	EventID                uuid.UUID       `json:"EventID"`
+	Participation          *int32          `json:"Participation"`
+	Registration           int32           `json:"Registration"`
+	ScoreboardVisibility   int32           `json:"ScoreboardVisibility"`
+	ParticipantsVisibility int32           `json:"ParticipantsVisibility"`
+	PreviewDescription     string          `json:"PreviewDescription"`
+	PreviewPicture         string          `json:"PreviewPicture"`
+	FooterSignature        json.RawMessage `json:"FooterSignature" swaggertype:"object"`
+	MaxTeamSize            int32           `json:"MaxTeamSize"`
+	MinTeamSize            *int32          `json:"MinTeamSize"`
+	MaxTeams               *int32          `json:"MaxTeams"`
+	AllowPseudonyms        bool            `json:"AllowPseudonyms"`
+	ShowDifficulty         bool            `json:"ShowDifficulty"`
+	HintsDisabled          bool            `json:"HintsDisabled"`
 	// HintChargeMode: reward (A, default) | balance (B).
 	HintChargeMode string `json:"HintChargeMode"`
 	// MaxFlagAttempts: wrong flag submissions allowed per team and task; null = unlimited. A task may override it.
@@ -779,6 +780,7 @@ func toConfigResponse(v eventUseCase.EventConfigView) configResponse {
 		ParticipantsVisibility: int32(v.ParticipantsVisibility),
 		PreviewDescription:     v.PreviewDescription,
 		PreviewPicture:         v.PreviewPicture,
+		FooterSignature:        v.FooterSignature,
 		MaxTeamSize:            v.MaxTeamSize,
 		MinTeamSize:            v.MinTeamSize,
 		MaxTeams:               v.MaxTeams,

@@ -74,15 +74,40 @@ WHERE id = sqlc.arg(id) AND event_id = sqlc.arg(event_id) AND draft IS NOT NULL 
 DELETE FROM event_pages
 WHERE id = sqlc.arg(id) AND event_id = sqlc.arg(event_id);
 
--- Read-side cache metadata: hash a single MVCC snapshot without transferring
--- documents/drafts or joining operational statistics. Media references are
--- included because logo/favicon replacement does not update the event row.
+-- Read-side source identity: hash only the common renderer's published input
+-- from one MVCC snapshot. Audit timestamps, drafts, live layout and operational
+-- settings/statistics do not change source. Lifecycle/schedule and visibility
+-- remain inputs because they control publication, admission and public variables.
+-- Media files are immutable; branding reference changes and removal of images
+-- used by this document/footer matter, while uploads for drafts do not.
 -- name: GetEventRenderMetadata :one
-SELECT md5((to_jsonb(e) - ARRAY['landing_draft', 'live_layout_draft'])::text
-    || coalesce(to_jsonb(c)::text, '')
-    || coalesce((to_jsonb(p) - 'draft')::text, '')
+SELECT md5(jsonb_build_array(
+        e.id, e.tag, e.name, e.available_from, e.archive_at,
+        e.lifecycle_configured, e.join_policy, e.publish_at, e.start_at,
+        e.finish_at, e.withdraw_at, e.manual_finished_at, e.scoring_mode,
+        c.participation, c.registration, c.max_team_size, c.min_team_size, c.max_teams,
+        c.scoreboard_visibility, c.participants_visibility,
+        c.preview_description, c.preview_picture,
+        c.brand_color, c.accent_color, c.accent_light, c.accent_dark, c.accent_live, c.theme_version,
+        c.show_start_countdown, c.show_finish_countdown, c.finish_countdown_minutes, c.finish_countdown_mode,
+        c.footer_signature,
+        p.slug, p.title, p.visibility, p.navigation, p.navigation_order, p.published_at IS NOT NULL,
+        CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.landing_document ELSE p.document END
+    )::text
     || coalesce((SELECT string_agg(fr.ref_type || ':' || fr.file_id::text, ',' ORDER BY fr.ref_type, fr.file_id)
-                 FROM file_references fr WHERE fr.ref_id = e.id), ''))::text AS revision,
+                 FROM file_references fr
+                 WHERE fr.ref_id = e.id AND (
+                     fr.ref_type IN ('event_logo', 'event_favicon', 'event_preview_picture')
+                     OR (fr.ref_type = 'event_content_image' AND (
+                         jsonb_path_exists(
+                             coalesce(CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.landing_document ELSE p.document END, 'null'::jsonb),
+                             '$.** ? (@ == $url)',
+                             jsonb_build_object('url', '/api/events/' || e.id::text || '/content-images/' || fr.file_id::text))
+                         OR jsonb_path_exists(coalesce(c.footer_signature, 'null'::jsonb),
+                             '$.** ? (@ == $url)',
+                             jsonb_build_object('url', '/api/events/' || e.id::text || '/content-images/' || fr.file_id::text))
+                     ))
+                 )), ''))::text AS revision,
     coalesce(p.slug, '')::text AS slug,
     CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.name ELSE coalesce(p.title, '') END::text AS title,
     (sqlc.arg(page_slug)::text = '' OR (p.published_at IS NOT NULL AND p.visibility = 0))::boolean AS allowed
@@ -94,11 +119,33 @@ WHERE e.id = sqlc.arg(event_id);
 -- Revision and document come from the same snapshot, so concurrent publication
 -- can never put the old document under the new key.
 -- name: GetEventRenderDocument :one
-SELECT md5((to_jsonb(e) - ARRAY['landing_draft', 'live_layout_draft'])::text
-    || coalesce(to_jsonb(c)::text, '')
-    || coalesce((to_jsonb(p) - 'draft')::text, '')
+SELECT md5(jsonb_build_array(
+        e.id, e.tag, e.name, e.available_from, e.archive_at,
+        e.lifecycle_configured, e.join_policy, e.publish_at, e.start_at,
+        e.finish_at, e.withdraw_at, e.manual_finished_at, e.scoring_mode,
+        c.participation, c.registration, c.max_team_size, c.min_team_size, c.max_teams,
+        c.scoreboard_visibility, c.participants_visibility,
+        c.preview_description, c.preview_picture,
+        c.brand_color, c.accent_color, c.accent_light, c.accent_dark, c.accent_live, c.theme_version,
+        c.show_start_countdown, c.show_finish_countdown, c.finish_countdown_minutes, c.finish_countdown_mode,
+        c.footer_signature,
+        p.slug, p.title, p.visibility, p.navigation, p.navigation_order, p.published_at IS NOT NULL,
+        CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.landing_document ELSE p.document END
+    )::text
     || coalesce((SELECT string_agg(fr.ref_type || ':' || fr.file_id::text, ',' ORDER BY fr.ref_type, fr.file_id)
-                 FROM file_references fr WHERE fr.ref_id = e.id), ''))::text AS revision,
+                 FROM file_references fr
+                 WHERE fr.ref_id = e.id AND (
+                     fr.ref_type IN ('event_logo', 'event_favicon', 'event_preview_picture')
+                     OR (fr.ref_type = 'event_content_image' AND (
+                         jsonb_path_exists(
+                             coalesce(CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.landing_document ELSE p.document END, 'null'::jsonb),
+                             '$.** ? (@ == $url)',
+                             jsonb_build_object('url', '/api/events/' || e.id::text || '/content-images/' || fr.file_id::text))
+                         OR jsonb_path_exists(coalesce(c.footer_signature, 'null'::jsonb),
+                             '$.** ? (@ == $url)',
+                             jsonb_build_object('url', '/api/events/' || e.id::text || '/content-images/' || fr.file_id::text))
+                     ))
+                 )), ''))::text AS revision,
     coalesce(p.slug, '')::text AS slug,
     CASE WHEN sqlc.arg(page_slug)::text = '' THEN e.name ELSE coalesce(p.title, '') END::text AS title,
     (sqlc.arg(page_slug)::text = '' OR (p.published_at IS NOT NULL AND p.visibility = 0))::boolean AS allowed,

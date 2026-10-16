@@ -6,6 +6,7 @@
 package eventConfigModel
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 	"time"
@@ -86,6 +87,8 @@ type EventConfig struct {
 	// override it.
 	MaxFlagAttempts *int32
 	Theme           Theme
+	// FooterSignature is the website signature; nil uses the platform credit.
+	FooterSignature json.RawMessage
 	// StandTiming schedules team stands; it only matters when the admin
 	// allowed infrastructure challenges on the event.
 	StandTiming eventStandModel.Timing
