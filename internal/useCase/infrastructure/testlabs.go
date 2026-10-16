@@ -138,6 +138,7 @@ func (u *TestLabsUseCase) ListTestLabs(ctx context.Context, search string, page,
 		}
 		if item.Static {
 			out[i].Status = TestLabReady
+			out[i].Resources = ResourcesView{Known: true, Available: true}
 		}
 	}
 	u.fillStatuses(ctx, out)

@@ -286,7 +286,7 @@ func TestListTestLabs_StaticSkipsTheAgent(t *testing.T) {
 	if err != nil || len(page.Items) != 1 {
 		t.Fatalf("page = %+v, err = %v", page, err)
 	}
-	if item := page.Items[0]; item.Status != TestLabReady || !item.Static || item.Resources != (ResourcesView{}) {
+	if item := page.Items[0]; item.Status != TestLabReady || !item.Static || item.Resources != (ResourcesView{Known: true, Available: true}) {
 		t.Fatalf("item = %+v", item)
 	}
 }
