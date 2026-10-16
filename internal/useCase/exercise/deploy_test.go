@@ -356,7 +356,10 @@ func TestDeploy_NilInfra_Unavailable(t *testing.T) {
 	if _, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), versionID, variantID); !errors.Is(err, want) {
 		t.Errorf("deploy: want unavailable, got %v", err)
 	}
-	if err := uc.DestroyDeployTest(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())); !errors.Is(err, want) {
+	// The guard sits after the row is loaded: only a lab row needs the agent.
+	owner, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: owner, GroupName: "tu-x", LabName: "l-1"}, nil)
+	if err := uc.DestroyDeployTest(context.Background(), owner, deployID); !errors.Is(err, want) {
 		t.Errorf("destroy: want unavailable, got %v", err)
 	}
 }

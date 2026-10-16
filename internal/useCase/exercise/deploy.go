@@ -789,9 +789,6 @@ func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deploy
 // DestroyDeployTest tears a test deploy down: its Lab, and the author's whole group with the VPN
 // config when it was their last Lab. The row stays (Removing) until they are really gone; repeating it is harmless.
 func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployID uuid.UUID) error {
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	defer logDuration("destroy test lab", time.Now(), deployID)
 	return u.underOwnerLock(ctx, userID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, userID)
@@ -800,6 +797,13 @@ func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployI
 				return false, exerciseModel.ErrTestDeployNotFound.Err()
 			}
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		}
+		if deploy.IsStatic() {
+			// No lab, no group, no agent: the test is simply gone.
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		if u.infra == nil {
+			return false, infraModel.ErrInfrastructureUnavailable.Err()
 		}
 		// The lease ends now: the lab reads as Removing and the expiry pass keeps retrying if the agent fails.
 		if !testDeployExpired(deploy, u.timeNow()) {
@@ -856,9 +860,6 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 // says the Lab (or, with the author's last one, the group) is gone, never earlier; otherwise the next check is queued,
 // up to the bound. A lab that is gone, or whose lease was extended meanwhile, needs nothing.
 func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, deployID uuid.UUID, attempt int) error {
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	ran, err := u.underOwnerLockIfFree(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
 		if err != nil {
@@ -869,6 +870,12 @@ func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, d
 		}
 		if !testDeployExpired(deploy, u.timeNow()) {
 			return false, nil // extended meanwhile
+		}
+		if deploy.IsStatic() {
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		if u.infra == nil {
+			return false, infraModel.ErrInfrastructureUnavailable.Err()
 		}
 		all, err := repo.ListOwned(ctx, ownerID)
 		if err != nil {
@@ -908,9 +915,6 @@ func (u *ExerciseUseCase) finishTestLab(ctx context.Context, repo *testDeployRep
 // and an extension needs no cancelling of the earlier job. A failed agent deletion keeps the row and returns
 // the error: River retries the job and the periodic sweep tries again.
 func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, deployID uuid.UUID) error {
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	// A busy author is skipped: the periodic sweep ends the lab on its next pass.
 	_, err := u.underOwnerLockIfFree(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
@@ -923,6 +927,12 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 		if deploy.ExpiresAt.After(u.timeNow()) {
 			return false, nil // extended meanwhile
 		}
+		if deploy.IsStatic() {
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		if u.infra == nil {
+			return false, infraModel.ErrInfrastructureUnavailable.Err()
+		}
 		return false, u.endTestLab(ctx, repo, deploy, true)
 	})
 	return err
@@ -934,9 +944,6 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 func (u *ExerciseUseCase) CleanupExpiredTestDeploys(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), testLabOperationTimeout)
 	defer cancel()
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	items, err := u.testDeploys.ListExpired(ctx, u.timeNow())
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list expired test deployments").Err()

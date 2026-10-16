@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/config"
@@ -347,5 +348,115 @@ func TestOpenTestDeployLink_And_DeviceActions_RefuseStatic(t *testing.T) {
 	}
 	if len(infra.deviceCalls) != 0 {
 		t.Fatalf("the agent must not be called: %v", infra.deviceCalls)
+	}
+}
+
+func TestDestroyDeployTest_StaticDeletesTheRowAtOnce(t *testing.T) {
+	for name, withInfra := range map[string]bool{"with agent": true, "no infra": false} {
+		t.Run(name, func(t *testing.T) {
+			q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+			userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			row := postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: userID, ExpiresAt: time.Now().Add(time.Hour)}
+			q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+			q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
+			q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Times(0)
+			q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Times(0)
+			infra := &fakeInfra{}
+			deps := exercise.Dependencies{Repo: q}
+			if withInfra {
+				deps.Infra, deps.VPNStore = infra, &fakeVPNStore{}
+			}
+			uc := exercise.NewExerciseUseCase(deps)
+			if err := uc.DestroyDeployTest(context.Background(), userID, deployID); err != nil {
+				t.Fatal(err)
+			}
+			if infra.destroyed != "" || len(infra.deletedLabs) != 0 || len(infra.policies) != 0 {
+				t.Fatalf("the agent must not be called: %+v", infra)
+			}
+		})
+	}
+}
+
+func TestEndExpiredTestDeploy_StaticRemovedWithoutAgent(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	run := func(t *testing.T, row *postgres.ExerciseTestDeployment, deletes int) error {
+		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+		if row == nil {
+			q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{}, pgx.ErrNoRows)
+		} else {
+			q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(*row, nil)
+		}
+		q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(deletes)
+		q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Times(0)
+		uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+		uc.SetClock(func() time.Time { return now })
+		return uc.EndExpiredTestDeploy(context.Background(), userID, deployID)
+	}
+	t.Run("expired", func(t *testing.T) {
+		if err := run(t, &postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: userID, ExpiresAt: now.Add(-time.Minute)}, 1); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("extended", func(t *testing.T) {
+		if err := run(t, &postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: userID, ExpiresAt: now.Add(time.Hour)}, 0); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("missing", func(t *testing.T) {
+		if err := run(t, nil, 0); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestCleanupExpiredTestDeploys_StaticAndLabWithNilInfra(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	userID := uuid.Must(uuid.NewV7())
+	static := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), CreatedBy: userID, ExpiresAt: time.Now().Add(-time.Hour)}
+	lab := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), CreatedBy: userID, GroupName: "tu-x", LabName: "l-1", ExpiresAt: time.Now().Add(-time.Hour)}
+	q.EXPECT().ListExpiredExerciseTestDeploys(gomock.Any(), gomock.Any()).Return([]postgres.ExerciseTestDeployment{static, lab}, nil)
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a postgres.GetOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+		if a.ID == static.ID {
+			return static, nil
+		}
+		return lab, nil
+	}).Times(2)
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+	err := uc.CleanupExpiredTestDeploys(context.Background())
+	if err == nil || !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
+		t.Fatalf("want the lab item to report unavailable infrastructure, got %v", err)
+	}
+}
+
+func TestEndTestLab_LabRowWhoseVariantHasNoDevicesStillTearsDownTheLab(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	row := postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: userID, GroupName: "tu-x", LabName: "l-1", ExpiresAt: time.Now().Add(-time.Minute)}
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), userID).Return([]postgres.ExerciseTestDeployment{row}, nil)
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+	infra := &fakeInfra{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}})
+	if err := uc.EndExpiredTestDeploy(context.Background(), userID, deployID); err != nil {
+		t.Fatal(err)
+	}
+	if infra.destroyed != "tu-x" {
+		t.Fatalf("the lab must be torn down, destroyed=%q", infra.destroyed)
+	}
+}
+
+func TestCheckTestDeployRemoved_StaticDropsTheRow(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: userID, ExpiresAt: now.Add(-time.Minute)}, nil)
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Times(0)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+	uc.SetClock(func() time.Time { return now })
+	if err := uc.CheckTestDeployRemoved(context.Background(), userID, deployID, 1); err != nil {
+		t.Fatal(err)
 	}
 }
