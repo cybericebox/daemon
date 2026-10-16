@@ -22661,6 +22661,17 @@ const docTemplate = `{
                 }
             }
         },
+        "event.RenderImageDimensions": {
+            "type": "object",
+            "properties": {
+                "Height": {
+                    "type": "integer"
+                },
+                "Width": {
+                    "type": "integer"
+                }
+            }
+        },
         "event.RenderPageInfo": {
             "type": "object",
             "properties": {
@@ -22966,6 +22977,9 @@ const docTemplate = `{
                 "FinishCountdownMode": {
                     "description": "FinishCountdownMode: before_end (the time-left countdown shows during the last FinishCountdownMinutes) |\nfrom_start (from the start of the current stage, of the event without stages).",
                     "type": "string"
+                },
+                "FooterSignature": {
+                    "type": "object"
                 },
                 "HintChargeMode": {
                     "description": "HintChargeMode: reward (A, default) | balance (B).",
@@ -28453,6 +28467,9 @@ const docTemplate = `{
                 "FinishTime": {
                     "type": "string"
                 },
+                "FooterSignature": {
+                    "type": "object"
+                },
                 "LogoURL": {
                     "type": "string"
                 },
@@ -28553,6 +28570,12 @@ const docTemplate = `{
             "properties": {
                 "Event": {
                     "$ref": "#/definitions/eventself.publicEventInfoResponse"
+                },
+                "Images": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/event.RenderImageDimensions"
+                    }
                 },
                 "Page": {
                     "$ref": "#/definitions/eventself.eventRenderDocumentResponse"
@@ -29280,6 +29303,9 @@ const docTemplate = `{
                 },
                 "FinishTime": {
                     "type": "string"
+                },
+                "FooterSignature": {
+                    "type": "object"
                 },
                 "LogoURL": {
                     "type": "string"

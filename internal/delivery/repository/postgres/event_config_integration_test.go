@@ -2,6 +2,8 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
@@ -241,4 +243,26 @@ func TestEventConfig_EventDeleteCascades(t *testing.T) {
 	if _, err = repo.Get(ctx, event.ID); !repositoryTools.IsObjectNotFoundError(err) {
 		t.Fatalf("Get after parent delete must be not-found, got %v", err)
 	}
+}
+
+func TestWebsiteFooterSignaturePersistsAndClears(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	event, actor := mustSeedEventForConfig(t, db, "cfgfooter")
+	repo := eventConfigRepo.New(db.Queries)
+	cfg := eventConfigModel.NewEventConfig(event.ID, ecNow)
+	signature := json.RawMessage(`{"root":{"type":"root","children":[{"type":"paragraph","children":[{"type":"text","text":"Local partner"}]}]}}`)
+	require.NoError(t, cfg.SetFooterSignature(signature, ecNow, actor))
+	created, err := repo.Create(context.Background(), cfg)
+	require.NoError(t, err)
+	require.JSONEq(t, string(signature), string(created.FooterSignature))
+	loaded, err := repo.Get(context.Background(), event.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, string(signature), string(loaded.FooterSignature))
+	require.NoError(t, loaded.SetFooterSignature(json.RawMessage("null"), ecNow.Add(time.Minute), actor))
+	count, err := repo.Update(context.Background(), loaded, created.UpdatedAt)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	loaded, err = repo.Get(context.Background(), event.ID)
+	require.NoError(t, err)
+	require.Empty(t, loaded.FooterSignature)
 }

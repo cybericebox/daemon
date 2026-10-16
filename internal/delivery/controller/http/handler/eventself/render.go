@@ -188,10 +188,11 @@ type eventRenderManifestResponse struct {
 	CacheUntil int64                   `json:"CacheUntil"`
 }
 type eventRenderPageResponse struct {
-	Revision  string                      `json:"Revision"`
-	Event     publicEventInfoResponse     `json:"Event"`
-	Page      eventRenderDocumentResponse `json:"Page"`
-	Variables map[string]any              `json:"Variables"`
+	Images    map[string]eventUC.RenderImageDimensions `json:"Images"`
+	Revision  string                                   `json:"Revision"`
+	Event     publicEventInfoResponse                  `json:"Event"`
+	Page      eventRenderDocumentResponse              `json:"Page"`
+	Variables map[string]any                           `json:"Variables"`
 }
 type eventRenderDocumentResponse struct {
 	Slug     string                     `json:"Slug"`
@@ -251,5 +252,5 @@ func (h *EventRenderHandler) page(ctx *gin.Context) {
 		h.readError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, eventRenderPageResponse{Revision: view.Revision, Event: toPublicEventInfoResponse(view.Event), Page: eventRenderDocumentResponse{Slug: view.Page.Slug, Title: view.Page.Title, Document: view.Document}, Variables: view.Variables})
+	response.AbortWithData(ctx, eventRenderPageResponse{Revision: view.Revision, Event: toPublicEventInfoResponse(view.Event), Page: eventRenderDocumentResponse{Slug: view.Page.Slug, Title: view.Page.Title, Document: view.Document}, Variables: view.Variables, Images: view.Images})
 }

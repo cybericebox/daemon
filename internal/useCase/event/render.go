@@ -30,6 +30,7 @@ type EventRenderManifestView struct {
 	CacheUntil int64
 }
 type EventRenderPageView struct {
+	Images    map[string]RenderImageDimensions
 	Revision  string
 	Event     EventInfoView
 	Page      RenderPageInfo
@@ -128,6 +129,7 @@ func (u *EventUseCase) GetEventRenderPage(ctx context.Context, eventID uuid.UUID
 			values[key] = at.Format(time.RFC3339Nano)
 		}
 	}
+	images := u.renderBannerDimensions(ctx, eventID, document, before.Event.PreviewPicture)
 	after, err := u.GetEventRenderManifest(ctx, eventID, slug, preview, time.Now().UTC())
 	if err != nil {
 		return EventRenderPageView{}, err
@@ -135,5 +137,5 @@ func (u *EventUseCase) GetEventRenderPage(ctx context.Context, eventID uuid.UUID
 	if after.Revision != revision || after.Audience != before.Audience {
 		return EventRenderPageView{}, ErrRenderRevisionChanged
 	}
-	return EventRenderPageView{Revision: revision, Event: after.Event, Page: after.Page, Document: document, Variables: values}, nil
+	return EventRenderPageView{Revision: revision, Event: after.Event, Page: after.Page, Document: document, Variables: values, Images: images}, nil
 }
