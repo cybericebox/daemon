@@ -153,3 +153,73 @@ func TestDeployVariantTest_LabVariantWithNilInfra(t *testing.T) {
 		t.Fatalf("want ErrInfrastructureUnavailable, got %v", err)
 	}
 }
+
+func TestSameTestGroup_IgnoresStaticRows(t *testing.T) {
+	rows := []exerciseModel.TestDeploy{
+		{ID: uuid.Must(uuid.NewV7())},
+		{ID: uuid.Must(uuid.NewV7()), GroupName: "tu-a", LabName: "l-1"},
+		{ID: uuid.Must(uuid.NewV7()), GroupName: "tu-a", LabName: "l-2"},
+	}
+	if !rows[0].IsStatic() {
+		t.Fatal("the first row must be static")
+	}
+	if got := exercise.SameTestGroup(rows, "tu-a"); len(got) != 2 {
+		t.Fatalf("want the 2 labs of the group, got %d", len(got))
+	}
+	if got := exercise.SameTestGroup(rows, ""); len(got) != 0 {
+		t.Fatalf("a static row belongs to no group, got %d", len(got))
+	}
+}
+
+func staticRow(ownerID uuid.UUID, expires time.Time) postgres.ExerciseTestDeployment {
+	return postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), CreatedBy: ownerID, ExpiresAt: expires}
+}
+
+func TestDeployVariantTest_StaticRowsDoNotMakeOrBlockTheGroup(t *testing.T) {
+	for name, expires := range map[string]time.Time{"active": time.Now().Add(time.Hour), "expired": time.Now().Add(-time.Hour)} {
+		t.Run(name, func(t *testing.T) {
+			q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+			variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return([]postgres.ExerciseTestDeployment{staticRow(ownerID, expires)}, nil).AnyTimes()
+			variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
+			q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil).AnyTimes()
+			var created postgres.CreateExerciseTestDeployParams
+			q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+				created = p
+				return postgres.ExerciseTestDeployment{ID: p.ID, GroupName: p.GroupName, LabName: p.LabName, CreatedBy: p.CreatedBy}, nil
+			})
+			infra := &fakeInfra{}
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}, FlagConfig: config.ExerciseConfig{MaxActiveTestDeploys: 2}})
+			if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+				if errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
+					t.Fatal("a static row must not block the group")
+				}
+				t.Fatal(err)
+			}
+			if infra.deployCalls != 1 || infra.ensured != 1 {
+				t.Fatalf("the lab is the first of the group: deploys=%d ensured=%d", infra.deployCalls, infra.ensured)
+			}
+			if len(infra.policies) != 1 || len(infra.policies[0].AllowedLabs) != 1 || infra.policies[0].AllowedLabs[0] != created.LabName || created.LabName == "" {
+				t.Fatalf("the policy lists exactly the new lab: %+v", infra.policies)
+			}
+		})
+	}
+}
+
+func TestDestroyDeployTest_LabNextToStaticDestroysTheGroup(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	row := postgres.ExerciseTestDeployment{ID: deployID, GroupName: "tu-group", LabName: "l-one", CreatedBy: userID}
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), userID).Return([]postgres.ExerciseTestDeployment{row, staticRow(userID, time.Now().Add(time.Hour))}, nil)
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+	infra := &fakeInfra{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}})
+	if err := uc.DestroyDeployTest(context.Background(), userID, deployID); err != nil {
+		t.Fatal(err)
+	}
+	if infra.destroyed != "tu-group" || len(infra.deletedLabs) != 0 {
+		t.Fatalf("the static row is not another lab: destroyed=%q labs=%v", infra.destroyed, infra.deletedLabs)
+	}
+}

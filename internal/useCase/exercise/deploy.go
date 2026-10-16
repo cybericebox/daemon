@@ -74,10 +74,13 @@ func deployVPNRef(deploy exerciseModel.TestDeploy) uuid.NullUUID {
 	}
 	return uuid.NullUUID{UUID: *deploy.EventID, Valid: true}
 }
+
+// sameTestGroup keeps the lab tests of one group. A static test has no group, so it never makes, keeps
+// or blocks the author's group, whatever name is asked for.
 func sameTestGroup(items []exerciseModel.TestDeploy, group string) []exerciseModel.TestDeploy {
 	var out []exerciseModel.TestDeploy
 	for _, d := range items {
-		if d.GroupName == group {
+		if !d.IsStatic() && d.GroupName == group {
 			out = append(out, d)
 		}
 	}
@@ -472,7 +475,8 @@ func labNames(items []exerciseModel.TestDeploy, skip uuid.UUID, extra ...string)
 	return append(names, extra...)
 }
 
-// activeLabs are the deploys whose lease still runs.
+// activeLabs are the deploys whose lease still runs. It keeps static tests too, so it only serves the limit;
+// group decisions go through sameTestGroup first.
 func (u *ExerciseUseCase) activeLabs(items []exerciseModel.TestDeploy, now time.Time) []exerciseModel.TestDeploy {
 	out := make([]exerciseModel.TestDeploy, 0, len(items))
 	for _, item := range items {
