@@ -55,6 +55,8 @@ type DeployHandle struct {
 	// Flags are the values injected into the linked devices of a test deploy,
 	// one per flag-linked task, so the author can compare them.
 	Flags []DeployFlag
+	// Static is true for a test without devices: there is no lab behind the handle.
+	Static bool
 }
 
 // DeployFlag is the resolved test flag of one device-linked task.

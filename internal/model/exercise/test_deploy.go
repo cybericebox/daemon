@@ -23,3 +23,31 @@ type TestDeploy struct {
 	// Removing is true while the lab is being removed: the lease is over and the agent still has it (filled when listed, not stored).
 	Removing bool
 }
+
+// Kinds of a test deploy. The kind follows the row shape, never the live variant: a draft variant may gain or lose
+// devices after the row is made.
+const (
+	DeployKindLab    = "lab"
+	DeployKindStatic = "static"
+)
+
+// IsStatic is true for a test of a variant without devices: no lab, no group, only the lease and the flags.
+func (d TestDeploy) IsStatic() bool {
+	return d.EventID == nil && d.GroupName == "" && d.LabName == ""
+}
+
+// Kind is DeployKindStatic or DeployKindLab.
+func (d TestDeploy) Kind() string {
+	if d.IsStatic() {
+		return DeployKindStatic
+	}
+	return DeployKindLab
+}
+
+// NewStaticTestDeploy makes the row of a device-less test: empty group and lab names, the lease starting at now.
+func NewStaticTestDeploy(id, versionID, variantID, owner uuid.UUID, flags []DeployFlag, now time.Time, lease time.Duration) TestDeploy {
+	return TestDeploy{
+		ID: id, VersionID: versionID, VariantID: variantID, CreatedBy: owner,
+		CreatedAt: now, ExpiresAt: now.Add(lease), Flags: flags,
+	}
+}
