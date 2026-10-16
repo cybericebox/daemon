@@ -31154,6 +31154,10 @@ const docTemplate = `{
                 "ExpiresAt": {
                     "type": "string"
                 },
+                "Kind": {
+                    "description": "Kind is \"lab\" or \"static\" (a test without devices: no lab, only the lease and the flags).",
+                    "type": "string"
+                },
                 "Lab": {
                     "type": "string"
                 },
@@ -31187,6 +31191,10 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "DeployID": {
+                    "type": "string"
+                },
+                "Kind": {
+                    "description": "Kind is \"lab\" or \"static\" (a test without devices: Lab is empty).",
                     "type": "string"
                 },
                 "Lab": {
