@@ -191,3 +191,9 @@ func TestUpsert_RepoError(t *testing.T) {
 		t.Fatal("repo failure must surface")
 	}
 }
+
+func TestGenericSettingsCannotBypassTypedPreviewPublicationValidation(t *testing.T) {
+	_, _, uc := setup(t)
+	_, err := uc.UpsertPlatformSetting(context.Background(), UpsertInput{Key: "participant_preview_exercises", Value: json.RawMessage(`[{"ExerciseVersionID":"private"}]`)})
+	require.Error(t, err)
+}

@@ -43,7 +43,9 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/labBindingRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/liveScreenRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/mailRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/participantPreviewRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/requestIdempotencyRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/scoreboardRepo"
@@ -73,6 +75,8 @@ import (
 // (each now including its list/count shapes), so the use case holds no postgres.*
 // types. The gomock Querier and the real Queries both satisfy it structurally.
 type IRepository interface {
+	participantPreviewRepo.Queries
+	platformSettingsRepo.Queries
 	eventLabAllocationRepo.Queries
 	eventLabRevealRepo.Queries
 	eventLabGroupRepo.Queries
@@ -157,6 +161,7 @@ func (u *EventUseCase) RequireReadEvent(ctx context.Context, eventID, userID uui
 }
 
 type EventUseCase struct {
+	previewLabs                                PreviewTestLabs
 	lifecycleControls                          bool
 	repo                                       IRepository
 	allocationAccounting                       bool
@@ -245,6 +250,7 @@ type EventUseCase struct {
 }
 
 type Dependencies struct {
+	PreviewLabs                                PreviewTestLabs
 	LabLifecycleBatch                          int32
 	LabLifecycleRetryMin, LabLifecycleRetryMax time.Duration
 	Repo                                       IRepository
@@ -340,7 +346,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 	if retryMax < retryMin {
 		retryMax = 5 * time.Minute
 	}
-	return &EventUseCase{repo: deps.Repo, labLifecycleBatch: batch, labLifecycleRetryMin: retryMin, labLifecycleRetryMax: retryMax,
+	return &EventUseCase{previewLabs: deps.PreviewLabs, repo: deps.Repo, labLifecycleBatch: batch, labLifecycleRetryMin: retryMin, labLifecycleRetryMax: retryMax,
 		standDeployBudget:        standDeployBudget,
 		prewarmLead:              deps.StandPrewarmLead,
 		labSweepGrace:            labSweepGrace(deps.LabSweepGrace),

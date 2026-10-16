@@ -22,6 +22,7 @@ import (
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labAccessModel "github.com/cybericebox/daemon/internal/model/labAccess"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
+	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	vpnModel "github.com/cybericebox/daemon/internal/model/vpn"
 	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 	"github.com/cybericebox/daemon/pkg/labaccess"
@@ -67,6 +68,21 @@ const wgPrivateKeyPlaceholder = "__PRIVATE_KEY__"
 // testVPNRef keys the author's VPN config: one per author (no scope ref), shared by every
 // test lab of the author, because they all live in the author's one lab group and one client.
 func testVPNRef() uuid.NullUUID { return uuid.NullUUID{} }
+func deployVPNRef(deploy exerciseModel.TestDeploy) uuid.NullUUID {
+	if deploy.EventID == nil {
+		return testVPNRef()
+	}
+	return uuid.NullUUID{UUID: *deploy.EventID, Valid: true}
+}
+func sameTestGroup(items []exerciseModel.TestDeploy, group string) []exerciseModel.TestDeploy {
+	var out []exerciseModel.TestDeploy
+	for _, d := range items {
+		if d.GroupName == group {
+			out = append(out, d)
+		}
+	}
+	return out
+}
 
 // testGroupName is the author's lab group: every test lab of a user is a Lab in it.
 func testGroupName(userID uuid.UUID) string { return "tu-" + userID.String() }
@@ -79,7 +95,7 @@ func testLabName(deployID uuid.UUID) string {
 
 // keepAuthorConfig stores the author's complete VPN config, encrypted, once, with the group's client.
 // It fails the deploy rather than leave the author with a config they cannot download.
-func (u *ExerciseUseCase) keepAuthorConfig(ctx context.Context, ownerID uuid.UUID, config string) error {
+func (u *ExerciseUseCase) keepAuthorConfig(ctx context.Context, deploy exerciseModel.TestDeploy, config string) error {
 	if config == "" {
 		return nil
 	}
@@ -89,14 +105,14 @@ func (u *ExerciseUseCase) keepAuthorConfig(ctx context.Context, ownerID uuid.UUI
 	if u.vpnStore == nil {
 		return vpnModel.ErrVPNSecretsNotConfigured.Err()
 	}
-	return u.vpnStore.StoreConfig(ctx, ownerID, vpnModel.ScopeTest, testVPNRef(), config)
+	return u.vpnStore.StoreConfig(ctx, deploy.CreatedBy, vpnModel.ScopeTest, deployVPNRef(deploy), config)
 }
 
 // dropAuthorConfig removes the author's stored VPN config; best effort, it belongs to the
 // group that is gone.
-func (u *ExerciseUseCase) dropAuthorConfig(ctx context.Context, ownerID uuid.UUID) {
+func (u *ExerciseUseCase) dropAuthorConfig(ctx context.Context, deploy exerciseModel.TestDeploy) {
 	if u.vpnStore != nil {
-		_ = u.vpnStore.DeleteConfig(ctx, ownerID, vpnModel.ScopeTest, testVPNRef())
+		_ = u.vpnStore.DeleteConfig(ctx, deploy.CreatedBy, vpnModel.ScopeTest, deployVPNRef(deploy))
 	}
 }
 
@@ -181,6 +197,12 @@ func (u *ExerciseUseCase) InfrastructureAvailable() bool {
 // leaving the daemon in plaintext until this deploy path), so the agent receives
 // resolved values for its write-only env Secret.
 func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
+	return u.deployVariantTest(ctx, nil, ownerID, versionID, variantID)
+}
+func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eventID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
+	return u.deployVariantTest(ctx, &eventID, ownerID, versionID, variantID)
+}
+func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
 	if u.infra == nil {
 		return exerciseModel.DeployHandle{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
@@ -232,11 +254,17 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 	id := uuid.Must(uuid.NewV7())
 	// The resource calendar decides whether the laboratory fits: the author's booked window, the guaranteed pool
 	// or unplanned room; otherwise the error names the nearest free window.
-	if err = u.admitTestLab(ctx, id, ownerID, topo); err != nil {
-		return exerciseModel.DeployHandle{}, err
+	if eventID == nil {
+		if err = u.admitTestLab(ctx, id, ownerID, topo); err != nil {
+			return exerciseModel.DeployHandle{}, err
+		}
 	}
-	deploy := exerciseModel.TestDeploy{Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(u.testDeployTTL())}
+	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(u.testDeployTTL())}
 
+	if eventID != nil {
+		deploy.GroupName = eventPreviewTestGroup(*eventID, ownerID)
+	}
+	retained, provisioned := false, false
 	// Everything an author does to their test labs is serialized, so the group is created with the
 	// first lab, grows with the next ones and is deleted with the last one without racing.
 	err = u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
@@ -246,13 +274,38 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 		}
 		// A lab whose lease is over stays as a row until its Lab is really gone: the removal check and the periodic
 		// sweep drop it, never this request (asking the agent per row made the request slow).
-		active := u.activeLabs(existing, now)
-		if len(active) >= u.MaxActiveTestDeploys() {
+		allActive := u.activeLabs(existing, now)
+		if len(allActive) >= u.MaxActiveTestDeploys() {
 			return false, exerciseModel.ErrTestDeployActiveExists.Err()
 		}
+		existing = sameTestGroup(existing, deploy.GroupName)
+		active := u.activeLabs(existing, now)
 		if len(existing) > 0 && len(active) == 0 {
 			// Only labs that are being removed are left: their group is going away, a new group cannot be made yet.
 			return false, exerciseModel.ErrTestDeployGroupBusy.Err()
+		}
+		if eventID != nil {
+			if _, observable := u.infra.(labPresence); !observable {
+				return false, calendarError()
+			}
+			gate, ok := u.testLabGate.(eventTestLabGate)
+			if !ok {
+				return false, calendarError()
+			}
+			overhead, known := u.eventPreviewGroupOverhead()
+			if !known {
+				return false, calendarError()
+			}
+			req := u.eventPreviewLabRequest(*eventID, id, ownerID, deploy.GroupName, topo)
+			req.GroupOverhead = overhead
+			room, admitErr := gate.AdmitEventTestLab(ctx, req)
+			if admitErr != nil {
+				return false, admitErr
+			}
+			if room.ExpiresAt.IsZero() || !room.ExpiresAt.After(now) {
+				return false, calendarError()
+			}
+			deploy.ExpiresAt = room.ExpiresAt
 		}
 		if _, err = repo.Create(ctx, deploy); err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
@@ -264,19 +317,42 @@ func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versio
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 			defer cancel()
 			if cleanupErr := u.removeTestLab(cleanupCtx, deploy, active, first); cleanupErr != nil {
+				retained = true
 				return true, model.ErrPlatform.WithError(errors.Join(err, cleanupErr)).WithMessage("Failed to deploy variant lab").Err()
 			}
-			_, _ = repo.DeleteOwned(cleanupCtx, deploy.ID, ownerID)
-			u.releaseTestLab(cleanupCtx, deploy.ID)
+			if eventID != nil && !u.testLabGone(cleanupCtx, deploy, append(active, deploy)) {
+				deploy.ExpiresAt = now
+				if _, expireErr := repo.ExtendOwned(cleanupCtx, deploy.ID, ownerID, now); expireErr != nil {
+					return true, errors.Join(err, expireErr)
+				}
+				retained = true
+				u.scheduleRemovalCheck(cleanupCtx, deploy, 1)
+				return true, model.ErrPlatform.WithError(err).WithMessage("Failed to deploy variant lab").Err()
+			}
+			if releaseErr := u.releaseScopedTestLab(cleanupCtx, deploy); releaseErr != nil {
+				retained = true
+				return true, errors.Join(err, releaseErr)
+			}
+			if _, deleteErr := repo.DeleteOwned(cleanupCtx, deploy.ID, ownerID); deleteErr != nil {
+				retained = true
+				return true, errors.Join(err, deleteErr)
+			}
 			if errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
 				return false, exerciseModel.ErrTestDeployGroupBusy.Err()
 			}
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to deploy variant lab").Err()
 		}
+		provisioned = true
 		return true, nil
 	})
 	if err != nil {
-		u.releaseTestLab(context.WithoutCancel(ctx), id)
+		if (!retained && !provisioned) || eventID == nil {
+			releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+			defer releaseCancel()
+			if releaseErr := u.releaseScopedTestLab(releaseCtx, deploy); releaseErr != nil {
+				err = errors.Join(err, releaseErr)
+			}
+		}
 		return exerciseModel.DeployHandle{}, err
 	}
 
@@ -306,13 +382,18 @@ func logDuration(what string, started time.Time, deployID uuid.UUID) {
 
 // testLabMeta labels a test lab and its group; test labs are independent for the scheduler.
 func testLabMeta(deploy exerciseModel.TestDeploy) infraModel.LabMeta {
-	return infraModel.LabMeta{
+	meta := infraModel.LabMeta{
 		Labels: map[string]string{
 			infraModel.LabelKind:    infraModel.KindTest,
 			infraModel.LabelVersion: deploy.VersionID.String(),
 		},
 		GroupLabels: map[string]string{infraModel.LabelKind: infraModel.KindTest},
 	}
+	if deploy.EventID != nil {
+		meta.Labels[infraModel.LabelEvent] = deploy.EventID.String()
+		meta.GroupLabels[infraModel.LabelEvent] = deploy.EventID.String()
+	}
+	return meta
 }
 
 // activeCount is how many of the author's test labs still have a running lease.
@@ -359,11 +440,11 @@ func (u *ExerciseUseCase) activeLabs(items []exerciseModel.TestDeploy, now time.
 func (u *ExerciseUseCase) testLabGone(ctx context.Context, deploy exerciseModel.TestDeploy, all []exerciseModel.TestDeploy) bool {
 	presence, ok := u.infra.(labPresence)
 	if !ok {
-		return true
+		return deploy.EventID == nil
 	}
 	var exists bool
 	var err error
-	if len(u.activeLabs(withoutDeploy(all, deploy.ID), u.timeNow())) > 0 {
+	if len(u.activeLabs(withoutDeploy(sameTestGroup(all, deploy.GroupName), deploy.ID), u.timeNow())) > 0 {
 		exists, err = presence.LabExists(ctx, deploy.GroupName, deploy.LabName)
 	} else {
 		exists, err = presence.LabGroupExists(ctx, deploy.GroupName)
@@ -392,10 +473,13 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 	if topo.Internet.Enabled {
 		plan.InternetLabs = 1
 	}
+	if deploy.EventID != nil {
+		plan = u.eventPreviewGroupPlan()
+	}
 	ctx = infraModel.WithPlacementNeed(ctx, infraModel.PlacementNeed{Plan: plan})
 	if first {
 		// The group is created now, so a config stored for an earlier group is stale: never keep it.
-		u.dropAuthorConfig(ctx, deploy.CreatedBy)
+		u.dropAuthorConfig(ctx, deploy)
 	}
 	if err := u.deployLab(ctx, deploy.GroupName, deploy.LabName, testLabMeta(deploy), topo); err != nil {
 		return err
@@ -415,7 +499,7 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 	if err != nil {
 		return err
 	}
-	return u.keepAuthorConfig(ctx, deploy.CreatedBy, config)
+	return u.keepAuthorConfig(ctx, deploy, config)
 }
 
 // removeTestLab takes one Lab down: the whole group with its VPN config when it is the author's
@@ -425,7 +509,7 @@ func (u *ExerciseUseCase) removeTestLab(ctx context.Context, deploy exerciseMode
 		if err := u.infra.DestroyLabGroup(ctx, deploy.GroupName); err != nil {
 			return err
 		}
-		u.dropAuthorConfig(ctx, deploy.CreatedBy)
+		u.dropAuthorConfig(ctx, deploy)
 		return nil
 	}
 	if err := u.infra.DeleteLab(ctx, deploy.GroupName, deploy.LabName); err != nil {
@@ -482,6 +566,11 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 	}
 	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
 	expired := testDeployExpired(deploy, u.timeNow())
+	if !expired {
+		if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
+			return exerciseModel.LabDeployStatus{}, err
+		}
+	}
 	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
 	if err != nil && !expired {
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
@@ -501,7 +590,7 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 		return status, nil // the access ended with the lease: no VPN config, handshake or probe address
 	}
 	if status.Ready && u.vpnStore != nil {
-		config, cfgErr := u.vpnStore.GetConfig(ctx, userID, vpnModel.ScopeTest, testVPNRef())
+		config, cfgErr := u.vpnStore.GetConfig(ctx, userID, vpnModel.ScopeTest, deployVPNRef(deploy))
 		if cfgErr != nil {
 			return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(cfgErr).WithMessage("Failed to read test VPN config").Err()
 		}
@@ -543,6 +632,9 @@ func (u *ExerciseUseCase) CheckTestFlag(ctx context.Context, userID, deployID, t
 		}
 		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
+	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
+		return false, err
+	}
 	if !deploy.ExpiresAt.IsZero() && !deploy.ExpiresAt.After(time.Now()) {
 		return false, exerciseModel.ErrTestDeployNotFound.Err()
 	}
@@ -580,6 +672,9 @@ func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deploy
 			return labaccess.Link{}, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
+		return labaccess.Link{}, err
 	}
 	now := time.Now()
 	if !deploy.ExpiresAt.After(now) {
@@ -639,6 +734,7 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list test deployments").Err()
 	}
 	now := u.timeNow()
+	all = sameTestGroup(all, deploy.GroupName)
 	others := u.activeLabs(withoutDeploy(all, deploy.ID), now)
 	if _, tracked := u.infra.(labPresence); tracked && probe && u.testLabGone(ctx, deploy, all) {
 		return u.finishTestLab(ctx, repo, deploy)
@@ -654,6 +750,9 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 		if _, tracked := u.infra.(labPresence); tracked {
 			u.scheduleRemovalCheck(ctx, deploy, 1)
 			return nil
+		}
+		if deploy.EventID != nil {
+			return errors.New("event preview cleanup presence capability unavailable")
 		}
 		return u.finishTestLab(ctx, repo, deploy)
 	}
@@ -697,10 +796,17 @@ func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, d
 
 // finishTestLab drops the row of a lab that is gone and frees its resources.
 func (u *ExerciseUseCase) finishTestLab(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) error {
+	if deploy.EventID != nil {
+		if err := u.releaseScopedTestLab(ctx, deploy); err != nil {
+			return err
+		}
+	}
 	if _, err := repo.DeleteOwned(ctx, deploy.ID, deploy.CreatedBy); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to remove test deploy").Err()
 	}
-	u.releaseTestLab(ctx, deploy.ID)
+	if deploy.EventID == nil {
+		return u.releaseScopedTestLab(ctx, deploy)
+	}
 	return nil
 }
 
@@ -731,6 +837,8 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 // Lab of an author, the group). It is the safety net behind the job scheduled for each lease's end:
 // a failed agent deletion retains its row, so the next periodic pass retries it.
 func (u *ExerciseUseCase) CleanupExpiredTestDeploys(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), testLabOperationTimeout)
+	defer cancel()
 	if u.infra == nil {
 		return infraModel.ErrInfrastructureUnavailable.Err()
 	}
@@ -743,6 +851,9 @@ func (u *ExerciseUseCase) CleanupExpiredTestDeploys(ctx context.Context) error {
 		if endErr := u.EndExpiredTestDeploy(ctx, item.CreatedBy, item.ID); endErr != nil {
 			failed = append(failed, endErr)
 		}
+	}
+	if orphanErr := u.reconcileOrphanEventPreviewHolds(ctx); orphanErr != nil {
+		failed = append(failed, orphanErr)
 	}
 	if len(failed) > 0 {
 		return model.ErrPlatform.WithError(errors.Join(failed...)).WithMessage("Failed to remove expired test deploys").Err()
@@ -784,6 +895,9 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 			return exerciseModel.TestDeploy{}, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return exerciseModel.TestDeploy{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if current.EventID != nil {
+		return u.extendEventPreviewTestDeploy(ctx, ownerID, deployID)
 	}
 	now := u.timeNow()
 	if testDeployExpired(current, now) {
@@ -946,6 +1060,9 @@ func (u *ExerciseUseCase) testDeviceTarget(ctx context.Context, userID, deployID
 		}
 		return exerciseModel.TestDeploy{}, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
+	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
+		return exerciseModel.TestDeploy{}, nil, err
+	}
 	if !deploy.ExpiresAt.IsZero() && !deploy.ExpiresAt.After(time.Now()) {
 		return exerciseModel.TestDeploy{}, nil, exerciseModel.ErrTestDeployNotFound.Err()
 	}
@@ -954,4 +1071,92 @@ func (u *ExerciseUseCase) testDeviceTarget(ctx context.Context, userID, deployID
 		return exerciseModel.TestDeploy{}, nil, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	return deploy, controller, nil
+}
+
+func (u *ExerciseUseCase) extendEventPreviewTestDeploy(ctx context.Context, owner, id uuid.UUID) (exerciseModel.TestDeploy, error) {
+	var result exerciseModel.TestDeploy
+	err := u.underOwnerLock(ctx, owner, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		current, err := repo.GetOwned(ctx, id, owner)
+		if err != nil {
+			return false, err
+		}
+		now := u.timeNow()
+		if current.EventID == nil || testDeployExpired(current, now) {
+			return false, exerciseModel.ErrTestDeployNotFound.Err()
+		}
+		gate, ok := u.testLabGate.(eventTestLabGate)
+		if !ok {
+			return false, calendarError()
+		}
+		until := now.Add(u.testDeployTTL())
+		if cap := current.CreatedAt.Add(u.maxTestDeployTTL()); !current.CreatedAt.IsZero() && until.After(cap) {
+			until = cap
+		}
+		until, err = gate.ExtendEventTestLab(ctx, *current.EventID, id, owner, until)
+		if err != nil {
+			return false, err
+		}
+		result, err = repo.ExtendOwned(ctx, id, owner, until)
+		return err == nil, err
+	})
+	if err == nil {
+		u.scheduleTestDeployExpiry(ctx, result)
+	}
+	return result, err
+}
+
+// Admission holds commit before native provisioning, so they survive a failed
+// deployment-row commit. The same owner lock excludes in-flight deployments;
+// only a confirmed missing row is orphaned, regardless of its hold's expiry.
+func (u *ExerciseUseCase) reconcileOrphanEventPreviewHolds(ctx context.Context) error {
+	gate, ok := u.testLabGate.(eventTestLabGate)
+	if !ok {
+		return nil
+	}
+	holds, err := gate.EventPreviewCleanupCandidates(ctx)
+	if err != nil {
+		return err
+	}
+	var failed []error
+	for _, hold := range holds {
+		if hold.EventID == nil || hold.Via != calModel.ViaEventPreview {
+			continue
+		}
+		if hold.GroupName != eventPreviewTestGroup(*hold.EventID, hold.OwnerID) {
+			failed = append(failed, errors.New("event preview cleanup identity mismatch"))
+			continue
+		}
+		err = u.underOwnerLock(ctx, hold.OwnerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+			_, readErr := repo.GetOwned(ctx, hold.ID, hold.OwnerID)
+			if readErr == nil {
+				return false, nil
+			}
+			if !repositoryTools.IsObjectNotFoundError(readErr) {
+				return false, readErr
+			}
+			if _, observable := u.infra.(labPresence); !observable {
+				return false, errors.New("event preview cleanup presence capability unavailable")
+			}
+			all, err := repo.ListOwned(ctx, hold.OwnerID)
+			if err != nil {
+				return false, err
+			}
+			all = sameTestGroup(all, hold.GroupName)
+			deploy := exerciseModel.TestDeploy{ID: hold.ID, EventID: hold.EventID, CreatedBy: hold.OwnerID, GroupName: hold.GroupName, LabName: testLabName(hold.ID), ExpiresAt: hold.ExpiresAt}
+			if !u.testLabGone(ctx, deploy, all) {
+				others := u.activeLabs(all, u.timeNow())
+				if err = u.removeTestLab(ctx, deploy, others, len(others) == 0); err != nil {
+					return false, err
+				}
+				if !u.testLabGone(ctx, deploy, all) {
+					return false, errors.New("event preview native cleanup remains pending")
+				}
+			}
+			return false, u.releaseScopedTestLab(ctx, deploy)
+		})
+		if err != nil {
+			failed = append(failed, err)
+		}
+	}
+	return errors.Join(failed...)
 }

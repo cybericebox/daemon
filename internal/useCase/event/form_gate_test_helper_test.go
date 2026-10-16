@@ -16,6 +16,7 @@ import (
 // behavior itself is asserted by the focused internal-package tests.
 func newFormGateMock(ctrl *gomock.Controller) *postgresMocks.MockQuerier {
 	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().ListEventPreviewResourceHolds(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	// Existing unrelated source-change fixtures have no canonical Lab rows;
 	// actual lock/terminal behavior is tested against PostgreSQL.
 	q.EXPECT().LockEventForLabSourceChange(gomock.Any(), gomock.Any()).Return(uuid.Nil, nil).AnyTimes()

@@ -343,7 +343,7 @@ func TestRouteInvariants(t *testing.T) {
 		}
 
 		// 3. The event manage area is only for the event's managers.
-		if strings.Contains(s.path, "/manage/") && !hasLayer(s, "requireManage", "requireRead", "requireSections", "requireSensitive") {
+		if strings.Contains(s.path, "/manage/") && !hasLayer(s, "requireManage", "requireRead", "requireSections", "requireSensitive", "requirePreviewCleanup") {
 			t.Errorf("%s: a /manage/ route without a manager-membership layer (requireManage/requireRead/requireSections)", id)
 		}
 	}

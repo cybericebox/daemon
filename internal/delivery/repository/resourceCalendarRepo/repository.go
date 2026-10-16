@@ -40,6 +40,7 @@ type Queries interface {
 	CreateResourceTestLabHold(context.Context, postgres.CreateResourceTestLabHoldParams) error
 	DeleteResourceTestLabHold(context.Context, uuid.UUID) error
 	ListActiveResourceTestLabHolds(context.Context, time.Time) ([]postgres.ResourceTestLabHold, error)
+	ListEventPreviewResourceHolds(context.Context, uuid.NullUUID) ([]postgres.ResourceTestLabHold, error)
 	DeleteExpiredResourceTestLabHolds(context.Context, time.Time) (int64, error)
 }
 
@@ -407,7 +408,7 @@ func (r *Repository) SetSettings(ctx context.Context, s calModel.Settings) error
 // SaveHold records the room a test laboratory was admitted with (again: the lease may be extended).
 func (r *Repository) SaveHold(ctx context.Context, h calModel.TestLabHold) error {
 	return r.q.CreateResourceTestLabHold(ctx, postgres.CreateResourceTestLabHoldParams{
-		SnapshotQuotaBytes: h.SnapshotQuotaBytes, ID: h.ID, OwnerID: h.OwnerID, Via: h.Via, ReservationID: nullUUID(h.ReservationID),
+		EventID: nullUUID(h.EventID), GroupName: h.GroupName, SnapshotQuotaBytes: h.SnapshotQuotaBytes, ID: h.ID, OwnerID: h.OwnerID, Via: h.Via, ReservationID: nullUUID(h.ReservationID),
 		CpuMillicores: h.Size.CPUMillicores, MemoryBytes: h.Size.MemoryBytes, StartsAt: h.StartsAt, ExpiresAt: h.ExpiresAt,
 	})
 }
@@ -423,14 +424,21 @@ func (r *Repository) ActiveHolds(ctx context.Context, now time.Time) ([]calModel
 	if err != nil {
 		return nil, err
 	}
+	return holdsFromRows(rows), nil
+}
+func holdsFromRows(rows []postgres.ResourceTestLabHold) []calModel.TestLabHold {
 	out := make([]calModel.TestLabHold, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, calModel.TestLabHold{
-			SnapshotQuotaBytes: row.SnapshotQuotaBytes, ID: row.ID, OwnerID: row.OwnerID, Via: row.Via, ReservationID: uuidPtr(row.ReservationID),
+			EventID: uuidPtr(row.EventID), GroupName: row.GroupName, SnapshotQuotaBytes: row.SnapshotQuotaBytes, ID: row.ID, OwnerID: row.OwnerID, Via: row.Via, ReservationID: uuidPtr(row.ReservationID),
 			Size: calModel.Amount{CPUMillicores: row.CpuMillicores, MemoryBytes: row.MemoryBytes}, StartsAt: row.StartsAt.UTC(), ExpiresAt: row.ExpiresAt.UTC(),
 		})
 	}
-	return out, nil
+	return out
+}
+func (r *Repository) EventPreviewHolds(ctx context.Context, eventID uuid.UUID) ([]calModel.TestLabHold, error) {
+	rows, err := r.q.ListEventPreviewResourceHolds(ctx, nullUUID(&eventID))
+	return holdsFromRows(rows), err
 }
 
 // PurgeHolds removes the holds whose lease ended.

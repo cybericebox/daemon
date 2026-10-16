@@ -184,8 +184,8 @@ func (q *Queries) CreateResourceReservation(ctx context.Context, arg CreateResou
 }
 
 const createResourceTestLabHold = `-- name: CreateResourceTestLabHold :exec
-INSERT INTO resource_test_lab_holds (id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, snapshot_quota_bytes, starts_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO resource_test_lab_holds (id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, snapshot_quota_bytes, starts_at, expires_at, event_id, group_name)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at, snapshot_quota_bytes=GREATEST(resource_test_lab_holds.snapshot_quota_bytes,EXCLUDED.snapshot_quota_bytes)
 `
 
@@ -199,6 +199,8 @@ type CreateResourceTestLabHoldParams struct {
 	SnapshotQuotaBytes int64         `json:"snapshot_quota_bytes"`
 	StartsAt           time.Time     `json:"starts_at"`
 	ExpiresAt          time.Time     `json:"expires_at"`
+	EventID            uuid.NullUUID `json:"event_id"`
+	GroupName          string        `json:"group_name"`
 }
 
 func (q *Queries) CreateResourceTestLabHold(ctx context.Context, arg CreateResourceTestLabHoldParams) error {
@@ -212,6 +214,8 @@ func (q *Queries) CreateResourceTestLabHold(ctx context.Context, arg CreateResou
 		arg.SnapshotQuotaBytes,
 		arg.StartsAt,
 		arg.ExpiresAt,
+		arg.EventID,
+		arg.GroupName,
 	)
 	return err
 }
@@ -246,7 +250,7 @@ func (q *Queries) DecideResourceChangeRequest(ctx context.Context, arg DecideRes
 }
 
 const deleteExpiredResourceTestLabHolds = `-- name: DeleteExpiredResourceTestLabHolds :execrows
-DELETE FROM resource_test_lab_holds WHERE expires_at <= $1
+DELETE FROM resource_test_lab_holds WHERE expires_at <= $1 AND event_id IS NULL
 `
 
 func (q *Queries) DeleteExpiredResourceTestLabHolds(ctx context.Context, now time.Time) (int64, error) {
@@ -451,7 +455,7 @@ func (q *Queries) GetResourceReservation(ctx context.Context, id uuid.UUID) (Res
 }
 
 const listActiveResourceTestLabHolds = `-- name: ListActiveResourceTestLabHolds :many
-SELECT id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, starts_at, expires_at, snapshot_quota_bytes FROM resource_test_lab_holds WHERE expires_at > $1 ORDER BY starts_at, id
+SELECT id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, starts_at, expires_at, snapshot_quota_bytes, event_id, group_name FROM resource_test_lab_holds WHERE expires_at > $1 OR event_id IS NOT NULL ORDER BY starts_at, id
 `
 
 func (q *Queries) ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]ResourceTestLabHold, error) {
@@ -473,6 +477,45 @@ func (q *Queries) ListActiveResourceTestLabHolds(ctx context.Context, now time.T
 			&i.StartsAt,
 			&i.ExpiresAt,
 			&i.SnapshotQuotaBytes,
+			&i.EventID,
+			&i.GroupName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventPreviewResourceHolds = `-- name: ListEventPreviewResourceHolds :many
+SELECT id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, starts_at, expires_at, snapshot_quota_bytes, event_id, group_name FROM resource_test_lab_holds WHERE event_id = $1 ORDER BY starts_at, id
+`
+
+// Preview runtime stays charged until cleanup confirms deletion, even beyond its lease.
+func (q *Queries) ListEventPreviewResourceHolds(ctx context.Context, eventID uuid.NullUUID) ([]ResourceTestLabHold, error) {
+	rows, err := q.db.Query(ctx, listEventPreviewResourceHolds, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ResourceTestLabHold{}
+	for rows.Next() {
+		var i ResourceTestLabHold
+		if err := rows.Scan(
+			&i.ID,
+			&i.OwnerID,
+			&i.Via,
+			&i.ReservationID,
+			&i.CpuMillicores,
+			&i.MemoryBytes,
+			&i.StartsAt,
+			&i.ExpiresAt,
+			&i.SnapshotQuotaBytes,
+			&i.EventID,
+			&i.GroupName,
 		); err != nil {
 			return nil, err
 		}

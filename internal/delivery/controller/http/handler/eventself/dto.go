@@ -319,9 +319,11 @@ type labVPNConfigResponse struct {
 }
 
 type standStatusResponse struct {
-	Status string `json:"Status"`
+	VPNReady bool   `json:"VPNReady"`
+	Status   string `json:"Status"`
 }
 type labVPNStatusResponse struct {
+	Connected *bool  `json:"Connected"`
 	GatewayIP string `json:"GatewayIP"`
 	ProbeURL  string `json:"ProbeURL"`
 }

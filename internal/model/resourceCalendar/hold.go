@@ -13,7 +13,9 @@ const (
 	// ViaFree: above the pool, from room no event has reserved.
 	ViaFree = "free"
 	// ViaBooking: inside the author's booked window.
-	ViaBooking = "booking"
+	ViaBooking           = "booking"
+	ViaEventPreview      = "event_preview"
+	ViaEventPreviewGroup = "event_preview_group"
 )
 
 // TestLabHold is the room a running test laboratory was admitted with, until its lease ends.
@@ -22,6 +24,8 @@ type TestLabHold struct {
 	OwnerID            uuid.UUID
 	Via                string
 	ReservationID      *uuid.UUID
+	EventID            *uuid.UUID
+	GroupName          string
 	SnapshotQuotaBytes int64
 	Size               Amount
 	StartsAt           time.Time

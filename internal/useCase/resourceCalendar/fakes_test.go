@@ -202,7 +202,7 @@ func (m *memStore) DeleteHold(_ context.Context, id uuid.UUID) error {
 func (m *memStore) ActiveHolds(_ context.Context, now time.Time) ([]calModel.TestLabHold, error) {
 	var out []calModel.TestLabHold
 	for _, h := range m.holds {
-		if h.ExpiresAt.After(now) {
+		if h.ExpiresAt.After(now) || h.EventID != nil {
 			out = append(out, h)
 		}
 	}
@@ -212,7 +212,7 @@ func (m *memStore) ActiveHolds(_ context.Context, now time.Time) ([]calModel.Tes
 func (m *memStore) PurgeHolds(_ context.Context, now time.Time) (int64, error) {
 	var n int64
 	for id, h := range m.holds {
-		if !h.ExpiresAt.After(now) {
+		if !h.ExpiresAt.After(now) && h.EventID == nil {
 			delete(m.holds, id)
 			n++
 		}
@@ -277,4 +277,14 @@ func (f *fakeNotifier) ResourceAlarmRaised(_ context.Context, a inboxUseCase.Res
 func (f *fakeNotifier) ResourceAlarmClosed(_ context.Context, id uuid.UUID, _ uuid.UUID) error {
 	f.closed = append(f.closed, id)
 	return nil
+}
+
+func (m *memStore) EventPreviewHolds(_ context.Context, eventID uuid.UUID) ([]calModel.TestLabHold, error) {
+	var out []calModel.TestLabHold
+	for _, h := range m.holds {
+		if h.EventID != nil && *h.EventID == eventID {
+			out = append(out, h)
+		}
+	}
+	return out, nil
 }

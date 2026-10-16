@@ -26,6 +26,7 @@ type Queries interface {
 	ListPlatformGroupAllocations(context.Context) ([]postgres.EventTeamGroupAllocation, error)
 	CreateEventGroupAllocation(context.Context, postgres.CreateEventGroupAllocationParams) error
 	GetEventResourceReservation(context.Context, uuid.NullUUID) (postgres.ResourceReservation, error)
+	ListEventPreviewResourceHolds(context.Context, uuid.NullUUID) ([]postgres.ResourceTestLabHold, error)
 	GetEventPlannedMaxUsers(context.Context, uuid.UUID) (int64, error)
 }
 type Repository struct{ q Queries }
@@ -135,4 +136,18 @@ func groupFromRow(row postgres.EventTeamGroupAllocation) eventLabModel.Group {
 // ToGroupDomain is shared with the whole group lifecycle repository.
 func ToGroupDomain(row postgres.EventTeamGroupAllocation) eventLabModel.Group {
 	return groupFromRow(row)
+}
+
+// PreviewHeld remains charged after lease expiry until native cleanup confirms deletion.
+func (r *Repository) PreviewHeld(ctx context.Context, eventID uuid.UUID) (eventLabModel.Compute, error) {
+	rows, err := r.q.ListEventPreviewResourceHolds(ctx, uuid.NullUUID{UUID: eventID, Valid: true})
+	if err != nil {
+		return eventLabModel.Compute{}, err
+	}
+	var held eventLabModel.Compute
+	for _, h := range rows {
+		held.CPUMillicores += h.CpuMillicores
+		held.MemoryBytes += h.MemoryBytes
+	}
+	return held, nil
 }

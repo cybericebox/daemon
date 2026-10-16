@@ -22,6 +22,19 @@ func (u *ResourceCalendarUseCase) requireHeldCoverage(ctx context.Context, s Sto
 	if len(usage.UnaccountedByEvent) > 0 {
 		return calModel.ErrNotEnoughReserved.Err()
 	}
+	// Event previews are durable held resources too, including expired labs
+	// whose native deletion has not yet been confirmed. They cannot move into
+	// unplanned capacity on reservation cancellation or shrink.
+	holds, err := s.ActiveHolds(ctx, now)
+	if err != nil {
+		return err
+	}
+	previewHeld := map[uuid.UUID]Amount{}
+	for _, h := range holds {
+		if h.EventID != nil {
+			previewHeld[*h.EventID] = previewHeld[*h.EventID].Add(h.Size)
+		}
+	}
 	ids := map[uuid.UUID]bool{}
 	for id := range usage.ByEvent {
 		ids[id] = true
@@ -29,8 +42,11 @@ func (u *ResourceCalendarUseCase) requireHeldCoverage(ctx context.Context, s Sto
 	for id := range usage.StorageByEvent {
 		ids[id] = true
 	}
+	for id := range previewHeld {
+		ids[id] = true
+	}
 	for id := range ids {
-		compute := usage.ByEvent[id]
+		compute := usage.ByEvent[id].Add(previewHeld[id])
 		storage := usage.StorageByEvent[id].SnapshotQuotaBytes
 		if compute == (Amount{}) && storage == 0 {
 			continue

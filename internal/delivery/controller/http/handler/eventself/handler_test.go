@@ -622,6 +622,9 @@ func TestLivePollIntervalUsesBoundedOptionalSeconds(t *testing.T) {
 		}
 	}
 }
+func (fakeUseCase) OwnStandVPNReady(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, nil
+}
 func (fakeUseCase) GetOwnStandStatus(context.Context, uuid.UUID, uuid.UUID) (eventStandModel.Status, error) {
 	return eventStandModel.StatusCreating, nil
 }

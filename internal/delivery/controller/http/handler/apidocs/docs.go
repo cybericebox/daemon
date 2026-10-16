@@ -7863,6 +7863,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/labs/moderators/vpn/status": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events-manage"
+                ],
+                "summary": "Get the moderators team's VPN test gateway",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.standVPNProbeResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/labs/settings": {
             "put": {
                 "consumes": [
@@ -10264,6 +10304,614 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/event.eventPageSwaggerResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/board": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Get owned participant preview board",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.previewBoardResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/catalog": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "List published preview exercise variants",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/event.PreviewCatalogItem"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/runs": {
+            "delete": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Reset all owned preview progress and laboratories",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/lab": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Read owned preview laboratory status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exerciseModel.LabDeployStatus"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/proxy": {
+            "post": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Open owned preview web endpoint",
+                "parameters": [
+                    {
+                        "description": "Device endpoint",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.previewProxyRequest"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/labaccess.Link"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/run": {
+            "delete": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "End an owned preview run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/start": {
+            "post": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Start or reuse an owned preview run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.PreviewRunView"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/files/{fileID}": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Download selected preview task attachment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "taskID",
+                        "name": "taskID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "fileID",
+                        "name": "fileID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/hints/{hintID}/unlock": {
+            "post": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Unlock an owned preview hint",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "taskID",
+                        "name": "taskID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "hintID",
+                        "name": "hintID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.OwnHintView"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/solves": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Read own preview solve",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "taskID",
+                        "name": "taskID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.ChallengeSolvesPage"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/submit": {
+            "post": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Check a preview flag without competition attempts",
+                "parameters": [
+                    {
+                        "description": "Flag",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.previewFlagRequest"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "taskID",
+                        "name": "taskID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.SubmitChallengeResult"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/selections/{selectionID}/vpn": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Download owned preview VPN configuration",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "selectionID",
+                        "name": "selectionID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/settings": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Get inherited or replaced event preview exercises",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.PreviewSettings"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Replace or inherit event preview exercises",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Preview selection",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.PreviewSettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.PreviewSettings"
                                         }
                                     }
                                 }
@@ -21166,6 +21814,119 @@ const docTemplate = `{
                 }
             }
         },
+        "/settings/participant-preview": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Get platform default preview exercises",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.PreviewSettings"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "Replace platform default preview exercises",
+                "parameters": [
+                    {
+                        "description": "Published catalog selections",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.PreviewSettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.PreviewSettings"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/participant-preview/catalog": {
+            "get": {
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "List published preview exercise variants",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search",
+                        "name": "search",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/event.PreviewCatalogItem"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/settings/{key}": {
             "get": {
                 "produces": [
@@ -22499,6 +23260,49 @@ const docTemplate = `{
                 }
             }
         },
+        "event.ChallengeSolveView": {
+            "type": "object",
+            "properties": {
+                "firstBlood": {
+                    "description": "FirstBlood marks the earliest solve among the visible teams.",
+                    "type": "boolean"
+                },
+                "nameHidden": {
+                    "description": "NameHidden: the participant's real name was withheld from this viewer (TeamName is empty).",
+                    "type": "boolean"
+                },
+                "own": {
+                    "type": "boolean"
+                },
+                "solvedAt": {
+                    "type": "string"
+                },
+                "teamName": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.ChallengeSolvesPage": {
+            "type": "object",
+            "properties": {
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.ChallengeSolveView"
+                    }
+                },
+                "next": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer",
+                    "format": "int64"
+                }
+            }
+        },
         "event.ComputeView": {
             "type": "object",
             "properties": {
@@ -22639,6 +23443,33 @@ const docTemplate = `{
                 }
             }
         },
+        "event.OwnHintView": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string"
+                },
+                "cost": {
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "string"
+                },
+                "unlocked": {
+                    "type": "boolean"
+                },
+                "unlockedAt": {
+                    "type": "string"
+                },
+                "unlockedByName": {
+                    "type": "string"
+                }
+            }
+        },
         "event.ParticipantInvitationResult": {
             "type": "object",
             "properties": {
@@ -22658,6 +23489,185 @@ const docTemplate = `{
                 },
                 "userID": {
                     "type": "string"
+                }
+            }
+        },
+        "event.ParticipantLabView": {
+            "type": "object",
+            "properties": {
+                "CanRestart": {
+                    "type": "boolean"
+                },
+                "CanStop": {
+                    "type": "boolean"
+                },
+                "CloseReason": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "ClosedAt": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "EventExerciseID": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "LogicalClosed": {
+                    "type": "boolean"
+                },
+                "RetentionUntil": {
+                    "type": "string",
+                    "x-nullable": true
+                },
+                "Revision": {
+                    "type": "string"
+                },
+                "RuntimeState": {
+                    "type": "string"
+                },
+                "SnapshotPolicy": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.PreviewCatalogItem": {
+            "type": "object",
+            "properties": {
+                "ExerciseVersionID": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Infrastructure": {
+                    "type": "boolean"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.PreviewCatalogVariant"
+                    }
+                }
+            }
+        },
+        "event.PreviewCatalogVariant": {
+            "type": "object",
+            "properties": {
+                "ID": {
+                    "type": "string"
+                },
+                "Index": {
+                    "type": "integer"
+                },
+                "Infrastructure": {
+                    "type": "boolean"
+                },
+                "Position": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.PreviewRunView": {
+            "type": "object",
+            "properties": {
+                "Dynamic": {
+                    "type": "boolean"
+                },
+                "ExpiresAt": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Lab": {
+                    "$ref": "#/definitions/event.ParticipantLabView"
+                },
+                "SelectionID": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.PreviewSelection": {
+            "type": "object",
+            "properties": {
+                "ExerciseVersionID": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "VariantID": {
+                    "type": "string"
+                },
+                "VariantIndex": {
+                    "type": "integer"
+                },
+                "VariantPosition": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.PreviewSettings": {
+            "type": "object",
+            "properties": {
+                "DefaultGroupName": {
+                    "type": "string"
+                },
+                "DefaultSelections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.PreviewSelection"
+                    }
+                },
+                "DynamicAllocated": {
+                    "type": "boolean"
+                },
+                "EffectiveSelections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.PreviewSelection"
+                    }
+                },
+                "GroupName": {
+                    "type": "string"
+                },
+                "GroupNameOverride": {
+                    "type": "string"
+                },
+                "Inherit": {
+                    "type": "boolean"
+                },
+                "Selections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.PreviewSelection"
+                    }
+                }
+            }
+        },
+        "event.PreviewSettingsInput": {
+            "type": "object",
+            "properties": {
+                "GroupName": {
+                    "type": "string"
+                },
+                "Inherit": {
+                    "type": "boolean"
+                },
+                "Selections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.PreviewSelection"
+                    }
                 }
             }
         },
@@ -22691,6 +23701,24 @@ const docTemplate = `{
                 },
                 "Name": {
                     "type": "string"
+                }
+            }
+        },
+        "event.SubmitChallengeResult": {
+            "type": "object",
+            "properties": {
+                "correct": {
+                    "type": "boolean"
+                },
+                "firstSolve": {
+                    "type": "boolean"
+                },
+                "lab": {
+                    "$ref": "#/definitions/event.ParticipantLabView"
+                },
+                "practice": {
+                    "description": "Practice: the answer came after a returnable stage closed; it was verified but is not rated.",
+                    "type": "boolean"
                 }
             }
         },
@@ -24704,6 +25732,198 @@ const docTemplate = `{
                 }
             }
         },
+        "event.previewAvailabilityResponse": {
+            "type": "object",
+            "properties": {
+                "Available": {
+                    "type": "integer"
+                },
+                "Failed": {
+                    "type": "integer"
+                },
+                "Preparing": {
+                    "type": "integer"
+                },
+                "Ready": {
+                    "type": "integer"
+                },
+                "Total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.previewBoardItemResponse": {
+            "type": "object",
+            "properties": {
+                "AttemptsLeft": {
+                    "type": "integer"
+                },
+                "AwardedPoints": {
+                    "description": "AwardedPoints, HintPenalty and SolvedBy are null while the task is unsolved (see the participant board).",
+                    "type": "integer"
+                },
+                "BoardPublished": {
+                    "type": "boolean"
+                },
+                "Closed": {
+                    "type": "boolean"
+                },
+                "ContentUpdatedAt": {
+                    "type": "string"
+                },
+                "EventChallengeID": {
+                    "type": "string"
+                },
+                "EventExerciseID": {
+                    "type": "string"
+                },
+                "Files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.boardFileResponse"
+                    }
+                },
+                "GroupID": {
+                    "type": "string"
+                },
+                "GroupName": {
+                    "type": "string"
+                },
+                "GroupOrder": {
+                    "type": "integer"
+                },
+                "HintCostTotal": {
+                    "type": "integer"
+                },
+                "HintPenalty": {
+                    "type": "integer"
+                },
+                "Hints": {
+                    "description": "Hints: every text is revealed on the moderators board.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.boardHintResponse"
+                    }
+                },
+                "HintsEnabled": {
+                    "type": "boolean"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Infrastructure": {
+                    "type": "boolean"
+                },
+                "Lab": {
+                    "$ref": "#/definitions/labview.ParticipantLabResponse"
+                },
+                "Locked": {
+                    "type": "boolean"
+                },
+                "MaxAttempts": {
+                    "type": "integer"
+                },
+                "Order": {
+                    "type": "integer"
+                },
+                "Points": {
+                    "type": "integer"
+                },
+                "Practice": {
+                    "type": "boolean"
+                },
+                "Prerequisites": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.boardPrerequisiteResponse"
+                    }
+                },
+                "PreviewAttempts": {
+                    "type": "integer"
+                },
+                "PreviewCanStart": {
+                    "type": "boolean"
+                },
+                "PreviewCorrectAttempts": {
+                    "type": "integer"
+                },
+                "PreviewDynamic": {
+                    "type": "boolean"
+                },
+                "PreviewExpiresAt": {
+                    "type": "string"
+                },
+                "PreviewRunID": {
+                    "type": "string"
+                },
+                "PreviewSelectionID": {
+                    "type": "string"
+                },
+                "Readiness": {
+                    "type": "integer"
+                },
+                "Snapshot": {
+                    "type": "object"
+                },
+                "SolveCount": {
+                    "type": "integer"
+                },
+                "SolvedAt": {
+                    "type": "string"
+                },
+                "SolvedBy": {
+                    "$ref": "#/definitions/event.boardSolverResponse"
+                },
+                "StageID": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.previewBoardResponse": {
+            "type": "object",
+            "properties": {
+                "Availability": {
+                    "$ref": "#/definitions/event.previewAvailabilityResponse"
+                },
+                "Challenges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.previewBoardItemResponse"
+                    }
+                },
+                "CurrentStage": {
+                    "type": "object"
+                },
+                "ServerNow": {
+                    "type": "string"
+                },
+                "Stages": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    }
+                }
+            }
+        },
+        "event.previewFlagRequest": {
+            "type": "object",
+            "properties": {
+                "Flag": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.previewProxyRequest": {
+            "type": "object",
+            "properties": {
+                "Device": {
+                    "type": "string"
+                },
+                "Port": {
+                    "type": "integer"
+                }
+            }
+        },
         "event.publishedExerciseChoiceResponse": {
             "type": "object",
             "properties": {
@@ -25368,6 +26588,20 @@ const docTemplate = `{
                 }
             }
         },
+        "event.standVPNProbeResponse": {
+            "type": "object",
+            "properties": {
+                "Connected": {
+                    "type": "boolean"
+                },
+                "GatewayIP": {
+                    "type": "string"
+                },
+                "ProbeURL": {
+                    "type": "string"
+                }
+            }
+        },
         "event.standsResponse": {
             "type": "object",
             "properties": {
@@ -25388,6 +26622,9 @@ const docTemplate = `{
                     }
                 },
                 "LaboratoriesAvailable": {
+                    "type": "boolean"
+                },
+                "ModeratorVPNReady": {
                     "type": "boolean"
                 },
                 "Prewarm": {
@@ -29511,6 +30748,9 @@ const docTemplate = `{
             "properties": {
                 "Status": {
                     "type": "string"
+                },
+                "VPNReady": {
+                    "type": "boolean"
                 }
             }
         },
@@ -31212,6 +32452,248 @@ const docTemplate = `{
                 }
             }
         },
+        "exerciseModel.DeviceSnapshot": {
+            "type": "object",
+            "properties": {
+                "lastSnapshotAt": {
+                    "type": "string"
+                },
+                "rescue": {
+                    "description": "Rescue is true while the device runs in rescue mode (a shell instead of the entrypoint).",
+                    "type": "boolean"
+                },
+                "restoredAt": {
+                    "type": "string"
+                },
+                "sizeBytes": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "warning": {
+                    "description": "Warning is set when the quota is exceeded or snapshots fail; the last good one is kept.",
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.LabAccess": {
+            "type": "object",
+            "properties": {
+                "device": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "protocol": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.LabDeployStatus": {
+            "type": "object",
+            "properties": {
+                "access": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.LabAccess"
+                    }
+                },
+                "cpumillicores": {
+                    "description": "CPUMillicores and MemoryBytes are the current use of the whole lab (all its devices summed);\nUsageAvailable is false when the agent could not measure any device.",
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "devices": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exerciseModel.LabDeployedDevice"
+                    }
+                },
+                "expired": {
+                    "type": "boolean"
+                },
+                "expiresAt": {
+                    "description": "ExpiresAt is the end of the lease and Expired says it is over while the lab is not removed yet; filled by the use case.",
+                    "type": "string"
+                },
+                "groupImageWarning": {
+                    "type": "string"
+                },
+                "imageWarning": {
+                    "description": "ImageWarning lists the lab images that could not be pinned to a digest (pulled by tag);\nGroupImageWarning is the same for the group's VPN or gateway image. Empty when fine.",
+                    "type": "string"
+                },
+                "internetCIDR": {
+                    "type": "string"
+                },
+                "labGeneration": {
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "labUID": {
+                    "description": "LabUID and LabGeneration are live metadata, independent of deploy readiness.",
+                    "type": "string"
+                },
+                "memoryBytes": {
+                    "description": "CPUMillicores and MemoryBytes are the current use of the whole lab (all its devices summed);\nUsageAvailable is false when the agent could not measure any device.",
+                    "type": "integer",
+                    "format": "int64"
+                },
+                "phase": {
+                    "type": "string"
+                },
+                "queue": {
+                    "description": "Queue is the place in the operator's scheduler queue; nil for a lab the scheduler does not track.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.LabQueue"
+                        }
+                    ]
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "removing": {
+                    "description": "Removing: the lab is being removed (its lease is over); the row goes once the agent no longer has it.",
+                    "type": "boolean"
+                },
+                "solvedTasks": {
+                    "description": "SolvedTasks are the tasks the author has already checked correctly; filled by the use case.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "usageAvailable": {
+                    "type": "boolean"
+                },
+                "vpncidr": {
+                    "type": "string"
+                },
+                "vpnconfig": {
+                    "description": "VPNConfig is the tester's WireGuard config, present once a VPN-enabled lab\nhas provisioned its client. Empty for labs without VPN or before it is ready.",
+                    "type": "string"
+                },
+                "vpnconnected": {
+                    "description": "VPNConnected says the author's WireGuard client shook hands recently; VPNLastHandshake is\nthat time (zero when it never connected). Filled by the use case, not the agent view.",
+                    "type": "boolean"
+                },
+                "vpnlastHandshake": {
+                    "type": "string"
+                },
+                "vpnprobeURL": {
+                    "description": "VPNProbeURL is the tester page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.",
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.LabDeployedDevice": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "ready": {
+                    "type": "boolean"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "scheduling": {
+                    "description": "Scheduling is the pod's way through the scheduler; nil when the scheduler does not track it.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.PodScheduling"
+                        }
+                    ]
+                },
+                "snapshot": {
+                    "description": "Snapshot is set only for a device with state persistence.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exerciseModel.DeviceSnapshot"
+                        }
+                    ]
+                }
+            }
+        },
+        "exerciseModel.LabQueue": {
+            "type": "object",
+            "properties": {
+                "group": {
+                    "description": "Group is the deploy group of the lab (the task for event labs); empty for an independent lab.",
+                    "type": "string"
+                },
+                "length": {
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "message": {
+                    "description": "Message is the detail of the reason, for example \"waiting for group intro\".",
+                    "type": "string"
+                },
+                "pending": {
+                    "description": "Pods are the pods of the lab and Pending those not dispatched yet.",
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "pods": {
+                    "description": "Pods are the pods of the lab and Pending those not dispatched yet.",
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "position": {
+                    "type": "integer",
+                    "format": "int32"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "exerciseModel.PodFailure": {
+            "type": "object",
+            "properties": {
+                "at": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "restartCount": {
+                    "type": "integer",
+                    "format": "int32"
+                }
+            }
+        },
+        "exerciseModel.PodScheduling": {
+            "type": "object",
+            "properties": {
+                "dispatchedAt": {
+                    "type": "string"
+                },
+                "failure": {
+                    "$ref": "#/definitions/exerciseModel.PodFailure"
+                },
+                "queuedAt": {
+                    "type": "string"
+                },
+                "startedAt": {
+                    "type": "string"
+                },
+                "state": {
+                    "description": "State is one of the PodState* values.",
+                    "type": "string"
+                }
+            }
+        },
         "inbox.countsResponse": {
             "type": "object",
             "properties": {
@@ -32196,6 +33678,29 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Message": {
+                    "type": "string"
+                }
+            }
+        },
+        "labaccess.Link": {
+            "type": "object",
+            "properties": {
+                "expiresAt": {
+                    "description": "ExpiresAt is the end of the session the proxy will grant.",
+                    "type": "string"
+                },
+                "labID": {
+                    "type": "string"
+                },
+                "revision": {
+                    "type": "string"
+                },
+                "token": {
+                    "description": "Token is the signed JWT inside the link.",
+                    "type": "string"
+                },
+                "url": {
+                    "description": "URL is the full link to open in the browser.",
                     "type": "string"
                 }
             }

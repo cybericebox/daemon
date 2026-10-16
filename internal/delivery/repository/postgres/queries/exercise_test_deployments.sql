@@ -1,6 +1,6 @@
 -- name: CreateExerciseTestDeploy :one
-INSERT INTO exercise_test_deployments (id, group_name, lab_name, version_id, variant_id, created_by, created_at, expires_at, flags)
-VALUES (sqlc.arg(id), sqlc.arg(group_name), sqlc.arg(lab_name), sqlc.arg(version_id), sqlc.arg(variant_id), sqlc.arg(created_by), sqlc.arg(created_at), sqlc.arg(expires_at), sqlc.arg(flags)) RETURNING *;
+INSERT INTO exercise_test_deployments (id, group_name, lab_name, version_id, variant_id, created_by, created_at, expires_at, flags, event_id)
+VALUES (sqlc.arg(id), sqlc.arg(group_name), sqlc.arg(lab_name), sqlc.arg(version_id), sqlc.arg(variant_id), sqlc.arg(created_by), sqlc.arg(created_at), sqlc.arg(expires_at), sqlc.arg(flags), sqlc.narg(event_id)) RETURNING *;
 -- name: GetOwnedExerciseTestDeploy :one
 SELECT * FROM exercise_test_deployments WHERE id = sqlc.arg(id) AND created_by = sqlc.arg(created_by);
 -- name: DeleteOwnedExerciseTestDeploy :execrows
