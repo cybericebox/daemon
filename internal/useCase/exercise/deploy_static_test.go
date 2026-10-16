@@ -223,3 +223,129 @@ func TestDestroyDeployTest_LabNextToStaticDestroysTheGroup(t *testing.T) {
 		t.Fatalf("the static row is not another lab: destroyed=%q labs=%v", infra.destroyed, infra.deletedLabs)
 	}
 }
+
+func staticFlagsJSON(t *testing.T, flags ...exerciseModel.DeployFlag) []byte {
+	t.Helper()
+	raw, err := json.Marshal(flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestDeployTestStatus_StaticIsReadyAtOnceWithoutAgent(t *testing.T) {
+	t1 := uuid.Must(uuid.NewV7())
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for name, tc := range map[string]struct {
+		expires time.Time
+		expired bool
+	}{"live": {time.Now().Add(time.Hour), false}, "expired": {time.Now().Add(-time.Hour), true}} {
+		t.Run(name, func(t *testing.T) {
+			q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+			q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{
+				ID: deployID, CreatedBy: userID, ExpiresAt: tc.expires, Solved: []byte(`["` + t1.String() + `"]`),
+			}, nil)
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: nil})
+			st, err := uc.DeployTestStatus(context.Background(), userID, deployID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !st.Ready || st.Phase != "" || st.Removing || st.VPNConfig != "" || len(st.Access) != 0 || st.Expired != tc.expired {
+				t.Fatalf("status = %+v", st)
+			}
+			if len(st.SolvedTasks) != 1 || st.SolvedTasks[0] != t1 || !st.ExpiresAt.Equal(tc.expires) {
+				t.Fatalf("status = %+v", st)
+			}
+		})
+	}
+}
+
+func TestDeployTestStatus_LabRowWithNilInfra_Unavailable(t *testing.T) {
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{
+		ID: deployID, CreatedBy: userID, GroupName: "g", LabName: "l", ExpiresAt: time.Now().Add(time.Hour),
+	}, nil)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: nil})
+	if _, err := uc.DeployTestStatus(context.Background(), userID, deployID); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
+		t.Fatalf("want ErrInfrastructureUnavailable, got %v", err)
+	}
+}
+
+func TestCheckTestFlag_Static(t *testing.T) {
+	t1 := uuid.Must(uuid.NewV7())
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	row := func(expires time.Time) postgres.ExerciseTestDeployment {
+		return postgres.ExerciseTestDeployment{
+			ID: deployID, CreatedBy: userID, ExpiresAt: expires,
+			Flags: staticFlagsJSON(t, exerciseModel.DeployFlag{TaskID: t1, Name: "Login", Flag: "ICE{abc}"}),
+		}
+	}
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row(time.Now().Add(time.Hour)), nil).Times(2)
+	q.EXPECT().MarkExerciseTestDeploySolved(gomock.Any(), gomock.Any()).Return(row(time.Now().Add(time.Hour)), nil).Times(1)
+	if ok, err := uc.CheckTestFlag(context.Background(), userID, deployID, t1, "ICE{abc}"); err != nil || !ok {
+		t.Fatalf("right flag: ok=%v err=%v", ok, err)
+	}
+	if ok, err := uc.CheckTestFlag(context.Background(), userID, deployID, t1, "ice{abc}"); err != nil || ok {
+		t.Fatalf("wrong flag: ok=%v err=%v", ok, err)
+	}
+
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row(time.Now().Add(-time.Minute)), nil)
+	if _, err := uc.CheckTestFlag(context.Background(), userID, deployID, t1, "ICE{abc}"); !errors.Is(err, exerciseModel.ErrTestDeployNotFound.Err()) {
+		t.Fatalf("expired: want not found, got %v", err)
+	}
+}
+
+func TestExtendTestDeploy_StaticCappedAtMax(t *testing.T) {
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Date(2026, 10, 17, 18, 0, 0, 0, time.UTC)
+	createdAt := now.Add(-7*time.Hour - 30*time.Minute)
+	row := postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: userID, CreatedAt: createdAt, ExpiresAt: now.Add(time.Minute)}
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.ExtendOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+			if arg.ExpiresAt.After(createdAt.Add(8 * time.Hour)) {
+				t.Fatalf("lease beyond the maximum: %s", arg.ExpiresAt)
+			}
+			row.ExpiresAt = arg.ExpiresAt
+			return row, nil
+		})
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
+	uc.SetTestLabGate(&fakeGate{})
+	uc.SetClock(func() time.Time { return now })
+	got, err := uc.ExtendTestDeploy(context.Background(), userID, deployID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ExpiresAt.After(createdAt.Add(8 * time.Hour)) {
+		t.Fatalf("expiry = %s", got.ExpiresAt)
+	}
+}
+
+func TestOpenTestDeployLink_And_DeviceActions_RefuseStatic(t *testing.T) {
+	userID, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{
+		ID: deployID, CreatedBy: userID, ExpiresAt: time.Now().Add(time.Hour),
+	}, nil).Times(3)
+	infra := &fakeInfra{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, Sessions: &fakeSessions{}})
+	want := exerciseModel.ErrTestDeployStatic.Err()
+
+	if _, err := uc.OpenTestDeployLink(context.Background(), userID, deployID, "web", 80); !errors.Is(err, want) {
+		t.Fatalf("open link: want ErrTestDeployStatic, got %v", err)
+	}
+	if err := uc.ResetTestDeployDevice(context.Background(), userID, deployID, "web"); !errors.Is(err, want) {
+		t.Fatalf("reset: want ErrTestDeployStatic, got %v", err)
+	}
+	if err := uc.RescueTestDeployDevice(context.Background(), userID, deployID, "web", true); !errors.Is(err, want) {
+		t.Fatalf("rescue: want ErrTestDeployStatic, got %v", err)
+	}
+	if len(infra.deviceCalls) != 0 {
+		t.Fatalf("the agent must not be called: %v", infra.deviceCalls)
+	}
+}

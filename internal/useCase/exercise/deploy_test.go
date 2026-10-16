@@ -356,9 +356,6 @@ func TestDeploy_NilInfra_Unavailable(t *testing.T) {
 	if _, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), versionID, variantID); !errors.Is(err, want) {
 		t.Errorf("deploy: want unavailable, got %v", err)
 	}
-	if _, err := uc.DeployTestStatus(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())); !errors.Is(err, want) {
-		t.Errorf("status: want unavailable, got %v", err)
-	}
 	if err := uc.DestroyDeployTest(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())); !errors.Is(err, want) {
 		t.Errorf("destroy: want unavailable, got %v", err)
 	}
@@ -674,7 +671,9 @@ func TestOpenTestDeployLink_RefusesNotReadyExpiredAndUnknownDevice(t *testing.T)
 
 func TestOpenTestDeployLink_WithoutIssuerIsUnavailable(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: postgresMocks.NewMockQuerier(ctrl), Infra: &fakeInfra{}})
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{GroupName: "g", LabName: "l", ExpiresAt: time.Now().Add(time.Hour)}, nil)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
 	if _, err := uc.OpenTestDeployLink(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "web", 80); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
 		t.Fatalf("got %v", err)
 	}

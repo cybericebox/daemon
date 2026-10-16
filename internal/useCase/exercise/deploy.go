@@ -630,15 +630,24 @@ func (u *ExerciseUseCase) withOwnerLock(ctx context.Context, owner uuid.UUID, wa
 // exists, it is persisted for the caller under the test scope (best-effort: the
 // config is also returned inline, so a store hiccup must not break polling).
 func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
-	if u.infra == nil {
-		return exerciseModel.LabDeployStatus{}, infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return exerciseModel.LabDeployStatus{}, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	// A static test has nothing to provision: it is ready at once and never asks the agent.
+	if deploy.IsStatic() {
+		return exerciseModel.LabDeployStatus{
+			Ready:       true,
+			ExpiresAt:   deploy.ExpiresAt,
+			Expired:     testDeployExpired(deploy, u.timeNow()),
+			SolvedTasks: deploy.Solved,
+		}, nil
+	}
+	if u.infra == nil {
+		return exerciseModel.LabDeployStatus{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
 	expired := testDeployExpired(deploy, u.timeNow())
@@ -739,15 +748,18 @@ func (u *ExerciseUseCase) CheckTestFlag(ctx context.Context, userID, deployID, t
 // an event. The link is short-lived and fetched fresh on every click; the
 // platform sets no cookie on the lab domain.
 func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error) {
-	if u.infra == nil || u.sessions == nil {
-		return labaccess.Link{}, infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return labaccess.Link{}, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if err = requireLab(deploy); err != nil {
+		return labaccess.Link{}, err
+	}
+	if u.infra == nil || u.sessions == nil {
+		return labaccess.Link{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
 		return labaccess.Link{}, err
@@ -1131,17 +1143,28 @@ func (u *ExerciseUseCase) RescueTestDeployDevice(ctx context.Context, userID, de
 	return controller.RescueDevice(ctx, deploy.GroupName, deploy.LabName, device, enable)
 }
 
+// requireLab refuses a static test (no group, no lab) for the operations that need a laboratory.
+func requireLab(d exerciseModel.TestDeploy) error {
+	if d.IsStatic() {
+		return exerciseModel.ErrTestDeployStatic.Err()
+	}
+	return nil
+}
+
 // testDeviceTarget finds a live test lab the user owns and the agent's device capability.
 func (u *ExerciseUseCase) testDeviceTarget(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.TestDeploy, infraModel.DeviceController, error) {
-	if u.infra == nil {
-		return exerciseModel.TestDeploy{}, nil, infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return exerciseModel.TestDeploy{}, nil, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return exerciseModel.TestDeploy{}, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if err = requireLab(deploy); err != nil {
+		return exerciseModel.TestDeploy{}, nil, err
+	}
+	if u.infra == nil {
+		return exerciseModel.TestDeploy{}, nil, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
 		return exerciseModel.TestDeploy{}, nil, err

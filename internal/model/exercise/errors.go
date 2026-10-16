@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 74
+// ExerciseObjectCode — next free detail code: 77
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -39,6 +39,9 @@ var (
 	// finish within the wait. Transient: the author starts the lab again in a moment.
 	ErrTestDeployGroupBusy = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("The previous test laboratory is still being removed, try again in a minute").WithDetailCode(75)
+	// ErrTestDeployStatic: a static test has no laboratory, so lab-only operations refuse it.
+	ErrTestDeployStatic = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("A static test has no laboratory").WithDetailCode(77)
 	// ErrTestDeployNoWebDevice: the requested device port has no web address.
 	ErrTestDeployNoWebDevice = err.ErrObjectNotFound.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("The device has no web address").WithDetailCode(60)
