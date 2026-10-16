@@ -135,6 +135,10 @@ func noRoom(a admission, lease time.Duration) error {
 // ErrNoTestLabRoom ("no free resources now, the nearest window is from HH:MM") when neither a booking, the pool
 // nor free room holds it; the author may then book that window. Release the hold when the laboratory ends.
 func (u *ResourceCalendarUseCase) AdmitTestLab(ctx context.Context, req TestLabRequest) (TestLabRoom, error) {
+	// A test without devices (static) takes no room: no agent read, no hold.
+	if req.Size == (Amount{}) && req.LargestDevice == (Amount{}) {
+		return TestLabRoom{Available: true, Via: "none"}, nil
+	}
 	now := u.now().UTC()
 	lease := u.leaseOf(req.Lease)
 	size := u.sizeWithOverhead(req.Size)

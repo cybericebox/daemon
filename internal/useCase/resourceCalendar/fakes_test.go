@@ -226,9 +226,15 @@ func (p passTx) Do(ctx context.Context, fn func(context.Context, Store) error) e
 	return fn(ctx, p.s)
 }
 
-type fakeAgents struct{ records []infraModel.AgentRecord }
+type fakeAgents struct {
+	records []infraModel.AgentRecord
+	err     error
+}
 
 func (f *fakeAgents) ListRecords(context.Context) ([]infraModel.AgentRecord, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
 	return f.records, nil
 }
 
