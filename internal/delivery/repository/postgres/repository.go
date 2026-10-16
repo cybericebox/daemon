@@ -38,10 +38,28 @@ type (
 	}
 )
 
+// poolMaxConns bounds the pool of one replica. pgx would default to the CPU count (4 on a 4-vCPU node), fewer than the
+// River workers (12) alone: a few jobs holding a transaction left no connection for requests, the session revocation
+// poll and every other job. The server allows 200.
+const poolMaxConns = 32
+
+func newPoolConfig(dsn string) (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MaxConns = poolMaxConns
+	return cfg, nil
+}
+
 func NewRepository(deps Dependencies) *PostgresRepository {
 	ctx := context.Background()
 
-	pool, err := pgxpool.New(ctx, deps.Config.DSN())
+	poolConfig, err := newPoolConfig(deps.Config.DSN())
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse postgres pool config")
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to open postgres pool")
 	}

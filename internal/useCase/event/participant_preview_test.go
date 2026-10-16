@@ -499,3 +499,25 @@ func TestPreviewSettingsExposePlatformDefaultsSeparatelyFromCurrentSelection(t *
 		t.Fatalf("restore preview %+v %v", view, err)
 	}
 }
+
+// The keyset query returns rows strictly before the cursor, so the first page
+// must start from the "after everything" sentinel, not the zero value.
+func TestPreviewGlobalCatalogStartsFromSentinelCursor(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	version, exercise, variant := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	data, _ := json.Marshal([]exerciseModel.Variant{{ID: variant}})
+	published := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error) {
+		if !p.CursorCreatedAt.After(time.Date(9000, 1, 1, 0, 0, 0, 0, time.UTC)) || p.CursorID.String() != "ffffffff-ffff-ffff-ffff-ffffffffffff" {
+			return nil, nil
+		}
+		return []postgres.ListExercisesCursorRow{{Exercise: postgres.Exercise{ID: exercise, Name: "Catalog", PublishedVersionID: uuid.NullUUID{UUID: version, Valid: true}}}}, nil
+	})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), version).Return(postgres.ExerciseVersion{ID: version, ExerciseID: exercise, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: data}, nil).AnyTimes()
+	q.EXPECT().GetExerciseByID(gomock.Any(), exercise).Return(postgres.Exercise{ID: exercise, Name: "Catalog"}, nil).AnyTimes()
+	items, err := uc.ListPreviewCatalog(context.Background(), uuid.Nil, uuid.Must(uuid.NewV7()), "")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("catalog = %v, err = %v", items, err)
+	}
+}

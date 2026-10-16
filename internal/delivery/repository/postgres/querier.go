@@ -1620,6 +1620,8 @@ type Querier interface {
 	TrimErrorSamples(ctx context.Context, arg TrimErrorSamplesParams) error
 	// max_team_size is supplied by the event config inside the same transaction.
 	TryAddEventTeamMember(ctx context.Context, arg TryAddEventTeamMemberParams) (int64, error)
+	// The same lock for background jobs: false instead of waiting while a request or another job holds it.
+	TryLockExerciseTestDeploysOf(ctx context.Context, owner string) (bool, error)
 	TryRemoveEventTeamMember(ctx context.Context, arg TryRemoveEventTeamMemberParams) (int64, error)
 	UnpublishEventExerciseChallenges(ctx context.Context, eventExerciseID uuid.UUID) error
 	UpdateEmailBlockPreset(ctx context.Context, arg UpdateEmailBlockPresetParams) (NotificationEmailBlockPreset, error)
