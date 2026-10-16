@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformStandRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
@@ -76,9 +77,8 @@ func TestPlatformTestLabs_ListsEveryAuthorWithExerciseVariantAndCounts(t *testin
 	}
 }
 
-// A static test (empty group and lab name, no event) never protects a group from the sweep, is marked
-// static in the platform list, and still leaves its run in the lab-hour history.
-func TestPlatformTestLabs_StaticRowIsMarkedAndNeverProtectsAGroup(t *testing.T) {
+// A static test (empty group and lab name, no event) never protects a group from the sweep, is absent from the platform test labs (list, count, get), and still leaves its run in the lab-hour history.
+func TestPlatformTestLabs_StaticRowIsNotListed(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
 	exercises := exerciseRepo.New(db.Queries)
@@ -107,19 +107,18 @@ func TestPlatformTestLabs_StaticRowIsMarkedAndNeverProtectsAGroup(t *testing.T) 
 		t.Fatalf("group names = %v, %v; want only tu-a", names, err)
 	}
 
-	items, _, err := platformStandRepo.New(db.Queries).ListTestLabs(ctx, "", 10, 0)
-	if err != nil || len(items) != 2 {
-		t.Fatalf("items = %v, %v", items, err)
+	items, total, err := platformStandRepo.New(db.Queries).ListTestLabs(ctx, "", 10, 0)
+	if err != nil || len(items) != 1 || items[0].ID != labID || total != 1 {
+		t.Fatalf("items = %v, total = %d, %v; want only the lab", items, total, err)
 	}
-	for _, item := range items {
-		if want := item.ID == staticID; item.Static != want {
-			t.Errorf("lab %v Static = %v, want %v", item.ID, item.Static, want)
-		}
+	counts, err := db.Queries.CountPlatformTestLabs(ctx, now)
+	if err != nil || counts.Active != 1 || counts.Expired != 0 {
+		t.Fatalf("counts = %+v, %v; want only the lab", counts, err)
 	}
-	if ref, refErr := platformStandRepo.New(db.Queries).GetTestLab(ctx, staticID); refErr != nil || !ref.Static {
-		t.Fatalf("static ref = %+v, %v", ref, refErr)
+	if _, refErr := platformStandRepo.New(db.Queries).GetTestLab(ctx, staticID); !repositoryTools.IsObjectNotFoundError(refErr) {
+		t.Fatalf("static ref: want not found, got %v", refErr)
 	}
-	if ref, refErr := platformStandRepo.New(db.Queries).GetTestLab(ctx, labID); refErr != nil || ref.Static {
+	if ref, refErr := platformStandRepo.New(db.Queries).GetTestLab(ctx, labID); refErr != nil || ref.ID != labID {
 		t.Fatalf("lab ref = %+v, %v", ref, refErr)
 	}
 
