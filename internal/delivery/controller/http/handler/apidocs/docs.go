@@ -2131,6 +2131,19 @@ const docTemplate = `{
                 "summary": "Banners the current viewer sees (public, optional session)",
                 "parameters": [
                     {
+                        "enum": [
+                            "main",
+                            "id",
+                            "admin",
+                            "exercises",
+                            "event"
+                        ],
+                        "type": "string",
+                        "description": "Site context (event requires event id)",
+                        "name": "site",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "Event id of an Event site",
                         "name": "event",
@@ -34508,6 +34521,37 @@ const docTemplate = `{
                 "LinkURL": {
                     "type": "string"
                 },
+                "TargetEventIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TargetMode": {
+                    "description": "TargetMode defaults to all on create. Omission or null preserves targeting on update.",
+                    "enum": [
+                        "all",
+                        "selected"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/siteBannerModel.TargetMode"
+                        }
+                    ]
+                },
+                "TargetSites": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "main",
+                            "id",
+                            "admin",
+                            "exercises",
+                            "event"
+                        ]
+                    }
+                },
                 "Text": {
                     "type": "string"
                 }
@@ -34548,6 +34592,36 @@ const docTemplate = `{
                 },
                 "ScopeEventID": {
                     "type": "string"
+                },
+                "TargetEventIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TargetMode": {
+                    "enum": [
+                        "all",
+                        "selected"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/siteBannerModel.TargetMode"
+                        }
+                    ]
+                },
+                "TargetSites": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "main",
+                            "id",
+                            "admin",
+                            "exercises",
+                            "event"
+                        ]
+                    }
                 },
                 "Text": {
                     "type": "string"
@@ -37180,6 +37254,17 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "siteBannerModel.TargetMode": {
+            "type": "string",
+            "enum": [
+                "all",
+                "selected"
+            ],
+            "x-enum-varnames": [
+                "TargetAll",
+                "TargetSelected"
+            ]
         },
         "stats.channelStatusResponse": {
             "type": "object",

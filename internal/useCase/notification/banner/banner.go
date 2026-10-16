@@ -98,12 +98,12 @@ func (u *SiteBannerUseCase) ListSiteBanners(ctx context.Context, scope *uuid.UUI
 // ListVisibleSiteBanners returns the banners a viewer sees now: the platform
 // ones plus those of eventID, filtered by their window and audience. userID is
 // nil for an anonymous viewer.
-func (u *SiteBannerUseCase) ListVisibleSiteBanners(ctx context.Context, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
+func (u *SiteBannerUseCase) ListVisibleSiteBanners(ctx context.Context, site string, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
 	event := ""
 	if eventID != nil {
 		event = eventID.String()
 	}
-	items, err := u.banners.Visible(ctx, event, userID)
+	items, err := u.banners.Visible(ctx, event, userID, site)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list visible banners").Err()
 	}

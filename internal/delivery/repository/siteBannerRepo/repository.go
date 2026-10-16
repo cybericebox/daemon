@@ -31,6 +31,7 @@ func (r *Repository) Create(ctx context.Context, b siteBannerModel.Banner) (site
 		ID: b.ID, ScopeEventID: nullUUID(b.ScopeEventID), Text: b.Text, LinkUrl: b.LinkURL, LinkLabel: b.LinkLabel,
 		Level: string(b.Level), ActiveFrom: ts(b.ActiveFrom), ActiveTo: ts(b.ActiveTo), Dismissible: b.Dismissible,
 		Audience: string(b.Audience), IsActive: b.IsActive, CreatedBy: nullUUID(b.CreatedBy),
+		TargetMode: string(b.TargetMode), TargetSites: append([]string{}, b.TargetSites...), TargetEventIds: append([]uuid.UUID{}, b.TargetEventIDs...),
 	})
 	if err != nil {
 		return siteBannerModel.Banner{}, err
@@ -38,11 +39,18 @@ func (r *Repository) Create(ctx context.Context, b siteBannerModel.Banner) (site
 	return toBanner(row), nil
 }
 
+// Update preserves targeting in SQL when the input omits TargetMode. This
+// protects newer restrictions from an older client editing the banner content.
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, in siteBannerModel.Input) (siteBannerModel.Banner, error) {
+	mode := siteBannerModel.TargetAll
+	if in.TargetMode != nil {
+		mode = *in.TargetMode
+	}
 	row, err := r.q.UpdateSiteBanner(ctx, postgres.UpdateSiteBannerParams{
 		ID: id, Text: in.Text, LinkUrl: in.LinkURL, LinkLabel: in.LinkLabel, Level: string(in.Level),
 		ActiveFrom: ts(in.ActiveFrom), ActiveTo: ts(in.ActiveTo), Dismissible: in.Dismissible,
 		Audience: string(in.Audience), IsActive: in.IsActive,
+		UpdateTargeting: in.TargetMode != nil, TargetMode: string(mode), TargetSites: append([]string{}, in.TargetSites...), TargetEventIds: append([]uuid.UUID{}, in.TargetEventIDs...),
 	})
 	if err != nil {
 		return siteBannerModel.Banner{}, err
@@ -75,9 +83,16 @@ func (r *Repository) List(ctx context.Context, scope string) ([]siteBannerModel.
 
 // Visible returns the banners a viewer sees now. userID is nil for an
 // anonymous viewer, eventID "" outside an Event site.
-func (r *Repository) Visible(ctx context.Context, eventID string, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
+func (r *Repository) Visible(ctx context.Context, eventID string, userID *uuid.UUID, sites ...string) ([]siteBannerModel.Banner, error) {
+	site := ""
+	if eventID != "" {
+		site = "event"
+	}
+	if len(sites) != 0 {
+		site = sites[0]
+	}
 	rows, err := r.q.ListVisibleSiteBanners(ctx, postgres.ListVisibleSiteBannersParams{
-		EventFilter: eventID, UserID: nullUUID(userID),
+		EventFilter: eventID, SiteFilter: site, UserID: nullUUID(userID),
 	})
 	if err != nil {
 		return nil, err
@@ -95,6 +110,7 @@ func toBanners(rows []postgres.SiteBanner) []siteBannerModel.Banner {
 
 func toBanner(row postgres.SiteBanner) siteBannerModel.Banner {
 	b := siteBannerModel.Banner{
+		TargetMode: siteBannerModel.TargetMode(row.TargetMode), TargetSites: row.TargetSites, TargetEventIDs: row.TargetEventIds,
 		ID: row.ID, Text: row.Text, LinkURL: row.LinkUrl, LinkLabel: row.LinkLabel,
 		Level: siteBannerModel.Level(row.Level), Dismissible: row.Dismissible,
 		Audience: siteBannerModel.Audience(row.Audience), IsActive: row.IsActive,
