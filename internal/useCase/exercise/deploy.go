@@ -385,8 +385,8 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 	}
 	now := u.timeNow()
 	id := uuid.Must(uuid.NewV7())
-	// The request is zero-size, so the calendar admits it without a hold; an empty topology is also zero.
-	if err := u.admitTestLab(ctx, id, ownerID, exerciseModel.Topology{}); err != nil {
+	// A static request reserves nothing: the calendar admits it without an agent read or a hold.
+	if err := u.admitStaticTest(ctx, id, ownerID); err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
 	deploy := exerciseModel.NewStaticTestDeploy(id, versionID, variant.ID, ownerID, flags, now, u.testDeployTTL())

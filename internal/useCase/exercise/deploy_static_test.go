@@ -74,7 +74,7 @@ func TestDeployVariantTest_StaticRunsWithoutAgentOrResources(t *testing.T) {
 	if !handle.Static || handle.Lab != "" || handle.VPNClient != "" || len(handle.Flags) != 2 {
 		t.Fatalf("handle = %+v", handle)
 	}
-	if len(gate.admitted) != 1 || gate.admitted[0].Size.CPUMillicores != 0 || gate.admitted[0].Size.MemoryBytes != 0 || gate.admitted[0].LargestDevice.CPUMillicores != 0 || gate.admitted[0].LargestDevice.MemoryBytes != 0 {
+	if len(gate.admitted) != 1 || !gate.admitted[0].Static || gate.admitted[0].Size.CPUMillicores != 0 || gate.admitted[0].Size.MemoryBytes != 0 || gate.admitted[0].LargestDevice.CPUMillicores != 0 || gate.admitted[0].LargestDevice.MemoryBytes != 0 {
 		t.Fatalf("the gate must see one zero-size request: %+v", gate.admitted)
 	}
 	if d := created.ExpiresAt.Sub(now.Add(2 * time.Hour)); d < -time.Second || d > time.Second {
