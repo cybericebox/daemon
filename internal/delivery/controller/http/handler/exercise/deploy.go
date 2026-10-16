@@ -182,7 +182,7 @@ func (h *Handler) deploy(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	if err = h.useCase.AuthorizeTestDeploy(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, exerciseID, versionID); err != nil {
+	if err = h.useCase.AuthorizeTestDeploy(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, exerciseID, versionID, variantID); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
