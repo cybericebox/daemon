@@ -7,6 +7,8 @@ import (
 
 type TestDeploy struct {
 	ID, VersionID, VariantID, CreatedBy uuid.UUID
+	// EventID keeps participant preview authorization and resource scope across requests.
+	EventID *uuid.UUID
 	// GroupName is the author's lab group (shared by all their test labs); LabName is this deploy's Lab in it.
 	GroupName, LabName   string
 	CreatedAt, ExpiresAt time.Time

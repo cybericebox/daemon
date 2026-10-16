@@ -254,6 +254,7 @@ type BookingView struct {
 
 // TestLabRoom answers whether a test laboratory fits now.
 type TestLabRoom struct {
+	ExpiresAt time.Time
 	// Available is true when the laboratory can start now; Via says how (pool, free, booking).
 	Available bool
 	Via       string
@@ -269,4 +270,12 @@ type TestLabRequest struct {
 	LargestDevice Amount
 	// Lease is how long it will run; zero takes the default.
 	Lease time.Duration
+}
+
+// EventTestLabRequest charges only the named event reservation, never author capacity.
+type EventTestLabRequest struct {
+	TestLabRequest
+	EventID       uuid.UUID
+	Group         string
+	GroupOverhead Amount
 }

@@ -17,6 +17,7 @@ import (
 )
 
 type standsResponse struct {
+	ModeratorVPNReady     bool  `json:"ModeratorVPNReady"`
 	InfrastructureAllowed bool  `json:"InfrastructureAllowed"`
 	LaboratoriesAvailable bool  `json:"LaboratoriesAvailable"`
 	TeardownDelayMinutes  int32 `json:"TeardownDelayMinutes"`
@@ -114,7 +115,7 @@ type standVPNConfigResponse struct {
 
 func toStandsResponse(v eventUseCase.StandsView) standsResponse {
 	out := standsResponse{
-		InfrastructureAllowed: v.InfrastructureAllowed, LaboratoriesAvailable: v.LaboratoriesAvailable,
+		InfrastructureAllowed: v.InfrastructureAllowed, ModeratorVPNReady: v.ModeratorVPNReady, LaboratoriesAvailable: v.LaboratoriesAvailable,
 		TeardownDelayMinutes: v.Timing.TeardownDelayMinutes,
 		DeployAt:             v.DeployAt, TeardownAt: v.TeardownAt, ChallengesOpened: v.ChallengesOpened,
 		Summary: standSummaryResponse{Total: v.Summary.Total, NotDeployed: v.Summary.NotDeployed, Creating: v.Summary.Creating,
@@ -382,4 +383,36 @@ func (h *Handler) moderatorsLabLink(ctx *gin.Context) {
 	}
 	ctx.Header("Cache-Control", "private, no-store")
 	response.AbortWithData(ctx, moderatorsLabLinkResponse{URL: link.URL, ExpiresAt: link.ExpiresAt})
+}
+
+type standVPNProbeResponse struct {
+	Connected *bool  `json:"Connected"`
+	GatewayIP string `json:"GatewayIP"`
+	ProbeURL  string `json:"ProbeURL"`
+}
+
+// moderatorsVPNProbeStatus godoc
+// @Summary Get the moderators team's VPN test gateway
+// @Tags events-manage
+// @Produce json
+// @Param id path string true "event ID"
+// @Success 200 {object} response.Response{data=standVPNProbeResponse}
+// @Router /events/{id}/manage/labs/moderators/vpn/status [get]
+func (h *Handler) moderatorsVPNProbeStatus(ctx *gin.Context) {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	claims, authenticated := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !authenticated {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	status, err := h.useCase.GetModeratorsVPNProbeStatus(ctx, eventID, claims.UserID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, standVPNProbeResponse{GatewayIP: status.GatewayIP, ProbeURL: status.ProbeURL, Connected: status.Connected})
 }

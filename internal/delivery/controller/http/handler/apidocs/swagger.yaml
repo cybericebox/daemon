@@ -544,6 +544,36 @@ definitions:
       Used:
         $ref: '#/definitions/event.ComputeView'
     type: object
+  event.ChallengeSolveView:
+    properties:
+      firstBlood:
+        description: FirstBlood marks the earliest solve among the visible teams.
+        type: boolean
+      nameHidden:
+        description: 'NameHidden: the participant''s real name was withheld from this
+          viewer (TeamName is empty).'
+        type: boolean
+      own:
+        type: boolean
+      solvedAt:
+        type: string
+      teamName:
+        type: string
+    type: object
+  event.ChallengeSolvesPage:
+    properties:
+      hasMore:
+        type: boolean
+      items:
+        items:
+          $ref: '#/definitions/event.ChallengeSolveView'
+        type: array
+      next:
+        type: string
+      total:
+        format: int64
+        type: integer
+    type: object
   event.ComputeView:
     properties:
       CPUMillicores:
@@ -638,6 +668,24 @@ definitions:
       TeamID:
         type: string
     type: object
+  event.OwnHintView:
+    properties:
+      content:
+        type: string
+      cost:
+        format: int32
+        type: integer
+      id:
+        type: string
+      level:
+        type: string
+      unlocked:
+        type: boolean
+      unlockedAt:
+        type: string
+      unlockedByName:
+        type: string
+    type: object
   event.ParticipantInvitationResult:
     properties:
       Code:
@@ -652,6 +700,124 @@ definitions:
         type: string
       userID:
         type: string
+    type: object
+  event.ParticipantLabView:
+    properties:
+      CanRestart:
+        type: boolean
+      CanStop:
+        type: boolean
+      CloseReason:
+        type: string
+        x-nullable: true
+      ClosedAt:
+        type: string
+        x-nullable: true
+      EventExerciseID:
+        type: string
+      ID:
+        type: string
+      LogicalClosed:
+        type: boolean
+      RetentionUntil:
+        type: string
+        x-nullable: true
+      Revision:
+        type: string
+      RuntimeState:
+        type: string
+      SnapshotPolicy:
+        type: string
+    type: object
+  event.PreviewCatalogItem:
+    properties:
+      ExerciseVersionID:
+        type: string
+      ID:
+        type: string
+      Infrastructure:
+        type: boolean
+      Name:
+        type: string
+      Variants:
+        items:
+          $ref: '#/definitions/event.PreviewCatalogVariant'
+        type: array
+    type: object
+  event.PreviewCatalogVariant:
+    properties:
+      ID:
+        type: string
+      Index:
+        type: integer
+      Infrastructure:
+        type: boolean
+      Position:
+        type: integer
+    type: object
+  event.PreviewRunView:
+    properties:
+      Dynamic:
+        type: boolean
+      ExpiresAt:
+        type: string
+      ID:
+        type: string
+      Lab:
+        $ref: '#/definitions/event.ParticipantLabView'
+      SelectionID:
+        type: string
+    type: object
+  event.PreviewSelection:
+    properties:
+      ExerciseVersionID:
+        type: string
+      ID:
+        type: string
+      Name:
+        type: string
+      VariantID:
+        type: string
+      VariantIndex:
+        type: integer
+      VariantPosition:
+        type: integer
+    type: object
+  event.PreviewSettings:
+    properties:
+      DefaultGroupName:
+        type: string
+      DefaultSelections:
+        items:
+          $ref: '#/definitions/event.PreviewSelection'
+        type: array
+      DynamicAllocated:
+        type: boolean
+      EffectiveSelections:
+        items:
+          $ref: '#/definitions/event.PreviewSelection'
+        type: array
+      GroupName:
+        type: string
+      GroupNameOverride:
+        type: string
+      Inherit:
+        type: boolean
+      Selections:
+        items:
+          $ref: '#/definitions/event.PreviewSelection'
+        type: array
+    type: object
+  event.PreviewSettingsInput:
+    properties:
+      GroupName:
+        type: string
+      Inherit:
+        type: boolean
+      Selections:
+        items:
+          $ref: '#/definitions/event.PreviewSelection'
+        type: array
     type: object
   event.RenderImageDimensions:
     properties:
@@ -673,6 +839,19 @@ definitions:
         type: string
       Name:
         type: string
+    type: object
+  event.SubmitChallengeResult:
+    properties:
+      correct:
+        type: boolean
+      firstSolve:
+        type: boolean
+      lab:
+        $ref: '#/definitions/event.ParticipantLabView'
+      practice:
+        description: 'Practice: the answer came after a returnable stage closed; it
+          was verified but is not rated.'
+        type: boolean
     type: object
   event.annulSolveRequest:
     properties:
@@ -2036,6 +2215,134 @@ definitions:
       UserID:
         type: string
     type: object
+  event.previewAvailabilityResponse:
+    properties:
+      Available:
+        type: integer
+      Failed:
+        type: integer
+      Preparing:
+        type: integer
+      Ready:
+        type: integer
+      Total:
+        type: integer
+    type: object
+  event.previewBoardItemResponse:
+    properties:
+      AttemptsLeft:
+        type: integer
+      AwardedPoints:
+        description: AwardedPoints, HintPenalty and SolvedBy are null while the task
+          is unsolved (see the participant board).
+        type: integer
+      BoardPublished:
+        type: boolean
+      Closed:
+        type: boolean
+      ContentUpdatedAt:
+        type: string
+      EventChallengeID:
+        type: string
+      EventExerciseID:
+        type: string
+      Files:
+        items:
+          $ref: '#/definitions/event.boardFileResponse'
+        type: array
+      GroupID:
+        type: string
+      GroupName:
+        type: string
+      GroupOrder:
+        type: integer
+      HintCostTotal:
+        type: integer
+      HintPenalty:
+        type: integer
+      Hints:
+        description: 'Hints: every text is revealed on the moderators board.'
+        items:
+          $ref: '#/definitions/event.boardHintResponse'
+        type: array
+      HintsEnabled:
+        type: boolean
+      ID:
+        type: string
+      Infrastructure:
+        type: boolean
+      Lab:
+        $ref: '#/definitions/labview.ParticipantLabResponse'
+      Locked:
+        type: boolean
+      MaxAttempts:
+        type: integer
+      Order:
+        type: integer
+      Points:
+        type: integer
+      Practice:
+        type: boolean
+      Prerequisites:
+        items:
+          $ref: '#/definitions/event.boardPrerequisiteResponse'
+        type: array
+      PreviewAttempts:
+        type: integer
+      PreviewCanStart:
+        type: boolean
+      PreviewCorrectAttempts:
+        type: integer
+      PreviewDynamic:
+        type: boolean
+      PreviewExpiresAt:
+        type: string
+      PreviewRunID:
+        type: string
+      PreviewSelectionID:
+        type: string
+      Readiness:
+        type: integer
+      Snapshot:
+        type: object
+      SolveCount:
+        type: integer
+      SolvedAt:
+        type: string
+      SolvedBy:
+        $ref: '#/definitions/event.boardSolverResponse'
+      StageID:
+        type: string
+    type: object
+  event.previewBoardResponse:
+    properties:
+      Availability:
+        $ref: '#/definitions/event.previewAvailabilityResponse'
+      Challenges:
+        items:
+          $ref: '#/definitions/event.previewBoardItemResponse'
+        type: array
+      CurrentStage:
+        type: object
+      ServerNow:
+        type: string
+      Stages:
+        items:
+          type: object
+        type: array
+    type: object
+  event.previewFlagRequest:
+    properties:
+      Flag:
+        type: string
+    type: object
+  event.previewProxyRequest:
+    properties:
+      Device:
+        type: string
+      Port:
+        type: integer
+    type: object
   event.publishedExerciseChoiceResponse:
     properties:
       Attached:
@@ -2479,6 +2786,15 @@ definitions:
       Config:
         type: string
     type: object
+  event.standVPNProbeResponse:
+    properties:
+      Connected:
+        type: boolean
+      GatewayIP:
+        type: string
+      ProbeURL:
+        type: string
+    type: object
   event.standsResponse:
     properties:
       ChallengesOpened:
@@ -2494,6 +2810,8 @@ definitions:
           $ref: '#/definitions/event.standTeamResponse'
         type: array
       LaboratoriesAvailable:
+        type: boolean
+      ModeratorVPNReady:
         type: boolean
       Prewarm:
         allOf:
@@ -5295,6 +5613,8 @@ definitions:
     properties:
       Status:
         type: string
+      VPNReady:
+        type: boolean
     type: object
   eventself.submitChallengeRequest:
     properties:
@@ -6451,6 +6771,193 @@ definitions:
           $ref: '#/definitions/exercise.variantDTO'
         type: array
     type: object
+  exerciseModel.DeviceSnapshot:
+    properties:
+      lastSnapshotAt:
+        type: string
+      rescue:
+        description: Rescue is true while the device runs in rescue mode (a shell
+          instead of the entrypoint).
+        type: boolean
+      restoredAt:
+        type: string
+      sizeBytes:
+        format: int64
+        type: integer
+      warning:
+        description: Warning is set when the quota is exceeded or snapshots fail;
+          the last good one is kept.
+        type: string
+    type: object
+  exerciseModel.LabAccess:
+    properties:
+      device:
+        type: string
+      port:
+        format: int32
+        type: integer
+      protocol:
+        type: string
+      url:
+        type: string
+    type: object
+  exerciseModel.LabDeployStatus:
+    properties:
+      access:
+        items:
+          $ref: '#/definitions/exerciseModel.LabAccess'
+        type: array
+      cpumillicores:
+        description: |-
+          CPUMillicores and MemoryBytes are the current use of the whole lab (all its devices summed);
+          UsageAvailable is false when the agent could not measure any device.
+        format: int64
+        type: integer
+      devices:
+        items:
+          $ref: '#/definitions/exerciseModel.LabDeployedDevice'
+        type: array
+      expired:
+        type: boolean
+      expiresAt:
+        description: ExpiresAt is the end of the lease and Expired says it is over
+          while the lab is not removed yet; filled by the use case.
+        type: string
+      groupImageWarning:
+        type: string
+      imageWarning:
+        description: |-
+          ImageWarning lists the lab images that could not be pinned to a digest (pulled by tag);
+          GroupImageWarning is the same for the group's VPN or gateway image. Empty when fine.
+        type: string
+      internetCIDR:
+        type: string
+      labGeneration:
+        format: int64
+        type: integer
+      labUID:
+        description: LabUID and LabGeneration are live metadata, independent of deploy
+          readiness.
+        type: string
+      memoryBytes:
+        description: |-
+          CPUMillicores and MemoryBytes are the current use of the whole lab (all its devices summed);
+          UsageAvailable is false when the agent could not measure any device.
+        format: int64
+        type: integer
+      phase:
+        type: string
+      queue:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.LabQueue'
+        description: Queue is the place in the operator's scheduler queue; nil for
+          a lab the scheduler does not track.
+      ready:
+        type: boolean
+      removing:
+        description: 'Removing: the lab is being removed (its lease is over); the
+          row goes once the agent no longer has it.'
+        type: boolean
+      solvedTasks:
+        description: SolvedTasks are the tasks the author has already checked correctly;
+          filled by the use case.
+        items:
+          type: string
+        type: array
+      usageAvailable:
+        type: boolean
+      vpncidr:
+        type: string
+      vpnconfig:
+        description: |-
+          VPNConfig is the tester's WireGuard config, present once a VPN-enabled lab
+          has provisioned its client. Empty for labs without VPN or before it is ready.
+        type: string
+      vpnconnected:
+        description: |-
+          VPNConnected says the author's WireGuard client shook hands recently; VPNLastHandshake is
+          that time (zero when it never connected). Filled by the use case, not the agent view.
+        type: boolean
+      vpnlastHandshake:
+        type: string
+      vpnprobeURL:
+        description: VPNProbeURL is the tester page the group's VPN pod serves inside
+          the tunnel; empty when unknown. Filled by the use case.
+        type: string
+    type: object
+  exerciseModel.LabDeployedDevice:
+    properties:
+      name:
+        type: string
+      ready:
+        type: boolean
+      reason:
+        type: string
+      scheduling:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.PodScheduling'
+        description: Scheduling is the pod's way through the scheduler; nil when the
+          scheduler does not track it.
+      snapshot:
+        allOf:
+        - $ref: '#/definitions/exerciseModel.DeviceSnapshot'
+        description: Snapshot is set only for a device with state persistence.
+    type: object
+  exerciseModel.LabQueue:
+    properties:
+      group:
+        description: Group is the deploy group of the lab (the task for event labs);
+          empty for an independent lab.
+        type: string
+      length:
+        format: int32
+        type: integer
+      message:
+        description: Message is the detail of the reason, for example "waiting for
+          group intro".
+        type: string
+      pending:
+        description: Pods are the pods of the lab and Pending those not dispatched
+          yet.
+        format: int32
+        type: integer
+      pods:
+        description: Pods are the pods of the lab and Pending those not dispatched
+          yet.
+        format: int32
+        type: integer
+      position:
+        format: int32
+        type: integer
+      reason:
+        type: string
+    type: object
+  exerciseModel.PodFailure:
+    properties:
+      at:
+        type: string
+      message:
+        type: string
+      reason:
+        type: string
+      restartCount:
+        format: int32
+        type: integer
+    type: object
+  exerciseModel.PodScheduling:
+    properties:
+      dispatchedAt:
+        type: string
+      failure:
+        $ref: '#/definitions/exerciseModel.PodFailure'
+      queuedAt:
+        type: string
+      startedAt:
+        type: string
+      state:
+        description: State is one of the PodState* values.
+        type: string
+    type: object
   inbox.countsResponse:
     properties:
       Activity:
@@ -7134,6 +7641,22 @@ definitions:
       Code:
         type: string
       Message:
+        type: string
+    type: object
+  labaccess.Link:
+    properties:
+      expiresAt:
+        description: ExpiresAt is the end of the session the proxy will grant.
+        type: string
+      labID:
+        type: string
+      revision:
+        type: string
+      token:
+        description: Token is the signed JWT inside the link.
+        type: string
+      url:
+        description: URL is the full link to open in the browser.
         type: string
     type: object
   labview.DeviceResponse:
@@ -14730,6 +15253,29 @@ paths:
       summary: Issue the caller's VPN config for the moderators team stand
       tags:
       - events
+  /events/{id}/manage/labs/moderators/vpn/status:
+    get:
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.standVPNProbeResponse'
+              type: object
+      summary: Get the moderators team's VPN test gateway
+      tags:
+      - events-manage
   /events/{id}/manage/labs/settings:
     put:
       consumes:
@@ -16097,6 +16643,374 @@ paths:
       summary: Read a configurable static event page by slug
       tags:
       - events
+  /events/{id}/manage/participant-preview/board:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.previewBoardResponse'
+              type: object
+      summary: Get owned participant preview board
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/catalog:
+    get:
+      parameters:
+      - description: Search
+        in: query
+        name: search
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/event.PreviewCatalogItem'
+                  type: array
+              type: object
+      summary: List published preview exercise variants
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/runs:
+    delete:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Reset all owned preview progress and laboratories
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/lab:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exerciseModel.LabDeployStatus'
+              type: object
+      summary: Read owned preview laboratory status
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/proxy:
+    post:
+      parameters:
+      - description: Device endpoint
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.previewProxyRequest'
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/labaccess.Link'
+              type: object
+      summary: Open owned preview web endpoint
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/run:
+    delete:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: End an owned preview run
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/start:
+    post:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.PreviewRunView'
+              type: object
+      summary: Start or reuse an owned preview run
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/files/{fileID}:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      - description: taskID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      - description: fileID
+        in: path
+        name: fileID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: Download selected preview task attachment
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/hints/{hintID}/unlock:
+    post:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      - description: taskID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      - description: hintID
+        in: path
+        name: hintID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.OwnHintView'
+              type: object
+      summary: Unlock an owned preview hint
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/solves:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      - description: taskID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.ChallengeSolvesPage'
+              type: object
+      summary: Read own preview solve
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/tasks/{taskID}/submit:
+    post:
+      parameters:
+      - description: Flag
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.previewFlagRequest'
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      - description: taskID
+        in: path
+        name: taskID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.SubmitChallengeResult'
+              type: object
+      summary: Check a preview flag without competition attempts
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/selections/{selectionID}/vpn:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: selectionID
+        in: path
+        name: selectionID
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      summary: Download owned preview VPN configuration
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/settings:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.PreviewSettings'
+              type: object
+      summary: Get inherited or replaced event preview exercises
+      tags:
+      - participant-preview
+    put:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Preview selection
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.PreviewSettingsInput'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.PreviewSettings'
+              type: object
+      summary: Replace or inherit event preview exercises
+      tags:
+      - participant-preview
   /events/{id}/manage/participants/{userID}:
     get:
       parameters:
@@ -23389,6 +24303,70 @@ paths:
       summary: Get a setting value by key
       tags:
       - settings
+  /settings/participant-preview:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.PreviewSettings'
+              type: object
+      summary: Get platform default preview exercises
+      tags:
+      - participant-preview
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Published catalog selections
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.PreviewSettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.PreviewSettings'
+              type: object
+      summary: Replace platform default preview exercises
+      tags:
+      - participant-preview
+  /settings/participant-preview/catalog:
+    get:
+      parameters:
+      - description: Search
+        in: query
+        name: search
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/event.PreviewCatalogItem'
+                  type: array
+              type: object
+      summary: List published preview exercise variants
+      tags:
+      - participant-preview
   /users:
     get:
       parameters:

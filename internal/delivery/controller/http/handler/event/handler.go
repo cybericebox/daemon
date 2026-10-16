@@ -45,6 +45,7 @@ type (
 	}
 
 	IUseCase interface {
+		previewUseCase
 		GetEventStands(ctx context.Context, eventID uuid.UUID) (eventUseCase.StandsView, error)
 		UpdateEventStandSettings(ctx context.Context, eventID uuid.UUID, timing eventStandModel.Timing, by uuid.UUID) (eventUseCase.StandsView, error)
 		RecreateTeamStand(ctx context.Context, eventID, teamID, by uuid.UUID) (eventUseCase.StandTeamView, error)
@@ -53,6 +54,7 @@ type (
 		RescueStandDevice(ctx context.Context, eventID, teamID, challengeID uuid.UUID, device string, enable bool) error
 		ListModeratorsChallenges(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.ModeratorsChallengeView, error)
 		GetModeratorsChallengeLabStatus(ctx context.Context, eventID, challengeID uuid.UUID) (exerciseModel.LabDeployStatus, error)
+		GetModeratorsVPNProbeStatus(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.VPNProbeStatusView, error)
 		GetModeratorsVPNConfig(ctx context.Context, eventID, userID uuid.UUID) (string, error)
 		OpenModeratorsLabLink(ctx context.Context, eventID, userID, challengeID uuid.UUID, device string, port int32) (labaccess.Link, error)
 		ListModeratorsBoard(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.OwnChallengeView, error)
@@ -229,6 +231,7 @@ func NewEventAPIHandler(useCase IUseCase, prot IProtection) *Handler {
 }
 
 func (h *Handler) Init(router *gin.RouterGroup) {
+	h.initPreviewAPI(router)
 	ev := router.Group("events")
 	{
 		ev.GET("", h.prot.RequirePermission(rbac.PermEventsRead), h.list)
@@ -417,6 +420,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.GET("labs/moderators/challenges", h.requireManage, h.listModeratorsChallenges)
 		manage.GET("labs/moderators/challenges/:challengeID/lab", h.requireManage, h.moderatorsChallengeLab)
 		manage.POST("labs/moderators/challenges/:challengeID/lab/link", h.requireManage, h.moderatorsLabLink)
+		manage.GET("labs/moderators/vpn/status", h.requireManage, h.moderatorsVPNProbeStatus)
 		manage.GET("labs/moderators/vpn", h.requireManage, h.moderatorsVPNConfig)
 		// The moderators board works without infrastructure (the team exists
 		// on every event); owner and moderators only, like the VPN route.

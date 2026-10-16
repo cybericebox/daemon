@@ -249,7 +249,7 @@ func (u *ResourceCalendarUseCase) GetResourceCalendarStats(ctx context.Context) 
 		return StatsView{}, platformErr(err, "Failed to read the test laboratory holds")
 	}
 	for _, h := range holds {
-		if h.Via != calModel.ViaBooking {
+		if h.EventID == nil && h.Via != calModel.ViaBooking {
 			view.TestLabsHeld = view.TestLabsHeld.Add(h.Size)
 		}
 	}

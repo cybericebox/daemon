@@ -2,8 +2,6 @@ package event
 
 import (
 	"context"
-	"errors"
-	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"sort"
 	"time"
 
@@ -27,6 +25,7 @@ import (
 
 // StandsView is the moderator «Стенди» read model.
 type StandsView struct {
+	ModeratorVPNReady     bool
 	InfrastructureAllowed bool
 	LaboratoriesAvailable bool
 	Timing                eventStandModel.Timing
@@ -139,6 +138,13 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 	}
 	for _, team := range teams {
 		item := toStandTeamView(team)
+		if team.Moderators {
+			ready, readinessErr := u.vpnGroupReady(ctx, eventID, team.TeamID)
+			if readinessErr != nil {
+				return StandsView{}, readinessErr
+			}
+			view.ModeratorVPNReady = ready
+		}
 		item.Launch = launchByTeam[team.TeamID]
 		item.Labs = labsByTeam[team.TeamID]
 		if item.Labs == nil {
@@ -449,29 +455,25 @@ func (u *EventUseCase) GetModeratorsVPNConfig(ctx context.Context, eventID, user
 	if u.vpn == nil {
 		return "", model.ErrPlatform.WithMessage("VPN storage is not configured").Err()
 	}
-	teamID, err := u.moderatorsTeam(ctx, eventID)
-	if err != nil {
+	if _, err := u.requireInfrastructureEvent(ctx, eventID); err != nil {
 		return "", err
 	}
-	if u.infra == nil {
-		return "", infraUnavailable()
+	team, err := u.stands.GetModeratorsTeam(ctx, eventID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return "", eventStandModel.ErrStandModeratorsTeamUnavailable.Err()
+		}
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to get moderators team").Err()
+	}
+	teamID := team.ID
+	if err := u.requireReadyVPNGroup(ctx, eventID, teamID); err != nil {
+		return "", err
 	}
 	group, err := labBindingModel.GroupName(eventID, teamID)
 	if err != nil {
 		return "", err
 	}
-	if err = u.admitGroupAllocation(ctx, eventID, teamID); err != nil {
-		return "", err
-	}
-	if err = u.infra.EnsureVPNGroup(u.withPlacementNeed(ctx, eventID), group); err != nil {
-		if errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
-			return "", err
-		}
-		if _, terminating := infraModel.AsTerminating(err); terminating {
-			return "", infraModel.ErrLabAccessRetry.WithError(err).Err()
-		}
-		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to ensure moderators VPN group").Err()
-	}
+
 	config, err := ensureParticipantVPNConfig(ctx, u.vpn, u.infra, group, eventID, userID)
 	if err != nil {
 		return "", err
@@ -521,4 +523,25 @@ func (u *EventUseCase) GetOwnStandStatus(ctx context.Context, eventID, userID uu
 		return eventStandModel.StatusNotDeployed, model.ErrPlatform.WithError(err).WithMessage("Failed to get team stand").Err()
 	}
 	return status, nil
+}
+
+// OwnStandVPNReady uses the same event/team access gate as downloads and probe reads.
+func (u *EventUseCase) OwnStandVPNReady(ctx context.Context, eventID, userID uuid.UUID) (bool, error) {
+	participant, err := u.participants.Get(ctx, eventID, userID)
+	if err != nil {
+		return false, err
+	}
+	if participant.Status != participantModel.StatusApproved || participant.TeamID == nil {
+		return false, participantModel.ErrParticipantNotApproved.Err()
+	}
+	if err := requireTeamAdmitted(ctx, u.teams, eventID, *participant.TeamID); err != nil {
+		return false, err
+	}
+	if err := requireTeamFormed(ctx, u.teams, eventID, *participant.TeamID); err != nil {
+		return false, nil
+	}
+	if _, err := u.requireInfrastructureEvent(ctx, eventID); err != nil {
+		return false, err
+	}
+	return u.vpnGroupReady(ctx, eventID, *participant.TeamID)
 }

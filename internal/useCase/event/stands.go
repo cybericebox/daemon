@@ -103,19 +103,20 @@ func (u *EventUseCase) reconcileEventStands(ctx context.Context, eventID uuid.UU
 	// The deploy lead is computed from the workload (the stand window only brackets it): nothing happens before
 	// the first labs are due. The sets of a later stage wait for their own lead (schedule.NotDue).
 	schedule := u.standSchedule(ctx, e, now)
-	if now.Before(schedule.InitialDeployAt) {
-		return nil
-	}
 	if teardownAt := config.StandTiming.TeardownAt(e.Lifecycle.EffectiveFinishAt()); teardownAt != nil && !now.Before(*teardownAt) {
 		if u.lifecycleControls {
 			return u.ReconcileLabRetention(ctx, now)
 		}
 		return u.tearDownEventStands(ctx, e, now)
 	}
-	// Every event in the window gets the hidden moderators team (the
-	// moderators board); only infrastructure events sync its access.
+	// Initialize the hidden team in this background write path even while
+	// challenge Labs are not due. Its dirty access sync still must pass
+	// reservation admission before any VPN infrastructure is created.
 	if err = u.ensureModeratorsTeam(ctx, eventID, now, e.InfrastructureAllowed); err != nil {
 		return err
+	}
+	if now.Before(schedule.InitialDeployAt) {
+		return nil
 	}
 	var errs []error
 	if e.InfrastructureAllowed && u.laboratoriesUsable(ctx) {

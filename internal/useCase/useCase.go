@@ -234,6 +234,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Infra:                    deps.LabAgent,
 			InfrastructureCapability: infraUC,
 			Topologies:               exerciseUC,
+			PreviewLabs:              exerciseUC,
 			VPN:                      vpnUC,
 			SignalPublishers:         eventUseCase.NewOutboxSignalPublisherFactory(time.Now),
 			FlagRandomBytes:          deps.ExerciseConfig.FlagRandomBytes,

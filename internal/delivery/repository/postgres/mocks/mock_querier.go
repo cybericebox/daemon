@@ -2121,6 +2121,34 @@ func (mr *MockQuerierMockRecorder) DeleteEventParticipantInvitation(ctx, arg any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventParticipantInvitation", reflect.TypeOf((*MockQuerier)(nil).DeleteEventParticipantInvitation), ctx, arg)
 }
 
+// DeleteEventPreviewRun mocks base method.
+func (m *MockQuerier) DeleteEventPreviewRun(ctx context.Context, arg postgres.DeleteEventPreviewRunParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEventPreviewRun", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteEventPreviewRun indicates an expected call of DeleteEventPreviewRun.
+func (mr *MockQuerierMockRecorder) DeleteEventPreviewRun(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventPreviewRun", reflect.TypeOf((*MockQuerier)(nil).DeleteEventPreviewRun), ctx, arg)
+}
+
+// DeleteEventPreviewSettings mocks base method.
+func (m *MockQuerier) DeleteEventPreviewSettings(ctx context.Context, eventID uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEventPreviewSettings", ctx, eventID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteEventPreviewSettings indicates an expected call of DeleteEventPreviewSettings.
+func (mr *MockQuerierMockRecorder) DeleteEventPreviewSettings(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventPreviewSettings", reflect.TypeOf((*MockQuerier)(nil).DeleteEventPreviewSettings), ctx, eventID)
+}
+
 // DeleteEventResultChangesBefore mocks base method.
 func (m *MockQuerier) DeleteEventResultChangesBefore(ctx context.Context, before time.Time) (int64, error) {
 	m.ctrl.T.Helper()
@@ -3698,6 +3726,36 @@ func (m *MockQuerier) GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.
 func (mr *MockQuerierMockRecorder) GetEventPlannedMaxUsers(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventPlannedMaxUsers", reflect.TypeOf((*MockQuerier)(nil).GetEventPlannedMaxUsers), ctx, eventID)
+}
+
+// GetEventPreviewRun mocks base method.
+func (m *MockQuerier) GetEventPreviewRun(ctx context.Context, arg postgres.GetEventPreviewRunParams) (postgres.EventPreviewRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventPreviewRun", ctx, arg)
+	ret0, _ := ret[0].(postgres.EventPreviewRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventPreviewRun indicates an expected call of GetEventPreviewRun.
+func (mr *MockQuerierMockRecorder) GetEventPreviewRun(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventPreviewRun", reflect.TypeOf((*MockQuerier)(nil).GetEventPreviewRun), ctx, arg)
+}
+
+// GetEventPreviewSettings mocks base method.
+func (m *MockQuerier) GetEventPreviewSettings(ctx context.Context, eventID uuid.UUID) (postgres.GetEventPreviewSettingsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventPreviewSettings", ctx, eventID)
+	ret0, _ := ret[0].(postgres.GetEventPreviewSettingsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventPreviewSettings indicates an expected call of GetEventPreviewSettings.
+func (mr *MockQuerierMockRecorder) GetEventPreviewSettings(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventPreviewSettings", reflect.TypeOf((*MockQuerier)(nil).GetEventPreviewSettings), ctx, eventID)
 }
 
 // GetEventRenderDocument mocks base method.
@@ -6725,6 +6783,36 @@ func (mr *MockQuerierMockRecorder) ListEventParticipantsTable(ctx, arg any) *gom
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventParticipantsTable", reflect.TypeOf((*MockQuerier)(nil).ListEventParticipantsTable), ctx, arg)
 }
 
+// ListEventPreviewResourceHolds mocks base method.
+func (m *MockQuerier) ListEventPreviewResourceHolds(ctx context.Context, eventID uuid.NullUUID) ([]postgres.ResourceTestLabHold, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventPreviewResourceHolds", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ResourceTestLabHold)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventPreviewResourceHolds indicates an expected call of ListEventPreviewResourceHolds.
+func (mr *MockQuerierMockRecorder) ListEventPreviewResourceHolds(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventPreviewResourceHolds", reflect.TypeOf((*MockQuerier)(nil).ListEventPreviewResourceHolds), ctx, eventID)
+}
+
+// ListEventPreviewRuns mocks base method.
+func (m *MockQuerier) ListEventPreviewRuns(ctx context.Context, arg postgres.ListEventPreviewRunsParams) ([]postgres.EventPreviewRun, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventPreviewRuns", ctx, arg)
+	ret0, _ := ret[0].([]postgres.EventPreviewRun)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventPreviewRuns indicates an expected call of ListEventPreviewRuns.
+func (mr *MockQuerierMockRecorder) ListEventPreviewRuns(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventPreviewRuns", reflect.TypeOf((*MockQuerier)(nil).ListEventPreviewRuns), ctx, arg)
+}
+
 // ListEventRegistrationAnswers mocks base method.
 func (m *MockQuerier) ListEventRegistrationAnswers(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventRegistrationAnswersRow, error) {
 	m.ctrl.T.Helper()
@@ -9213,6 +9301,20 @@ func (m *MockQuerier) LockEventForTeamChange(ctx context.Context, id uuid.UUID) 
 func (mr *MockQuerierMockRecorder) LockEventForTeamChange(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventForTeamChange", reflect.TypeOf((*MockQuerier)(nil).LockEventForTeamChange), ctx, id)
+}
+
+// LockEventPreviewOwner mocks base method.
+func (m *MockQuerier) LockEventPreviewOwner(ctx context.Context, lockKey string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockEventPreviewOwner", ctx, lockKey)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockEventPreviewOwner indicates an expected call of LockEventPreviewOwner.
+func (mr *MockQuerierMockRecorder) LockEventPreviewOwner(ctx, lockKey any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventPreviewOwner", reflect.TypeOf((*MockQuerier)(nil).LockEventPreviewOwner), ctx, lockKey)
 }
 
 // LockEventStageRuntimeSelection mocks base method.
@@ -12063,6 +12165,34 @@ func (m *MockQuerier) UpsertEventParticipant(ctx context.Context, arg postgres.U
 func (mr *MockQuerierMockRecorder) UpsertEventParticipant(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEventParticipant", reflect.TypeOf((*MockQuerier)(nil).UpsertEventParticipant), ctx, arg)
+}
+
+// UpsertEventPreviewRun mocks base method.
+func (m *MockQuerier) UpsertEventPreviewRun(ctx context.Context, arg postgres.UpsertEventPreviewRunParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertEventPreviewRun", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertEventPreviewRun indicates an expected call of UpsertEventPreviewRun.
+func (mr *MockQuerierMockRecorder) UpsertEventPreviewRun(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEventPreviewRun", reflect.TypeOf((*MockQuerier)(nil).UpsertEventPreviewRun), ctx, arg)
+}
+
+// UpsertEventPreviewSettings mocks base method.
+func (m *MockQuerier) UpsertEventPreviewSettings(ctx context.Context, arg postgres.UpsertEventPreviewSettingsParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertEventPreviewSettings", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertEventPreviewSettings indicates an expected call of UpsertEventPreviewSettings.
+func (mr *MockQuerierMockRecorder) UpsertEventPreviewSettings(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEventPreviewSettings", reflect.TypeOf((*MockQuerier)(nil).UpsertEventPreviewSettings), ctx, arg)
 }
 
 // UpsertEventSMTPConfig mocks base method.

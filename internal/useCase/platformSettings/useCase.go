@@ -8,6 +8,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	preview "github.com/cybericebox/daemon/internal/model/participantPreview"
 	"github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
@@ -84,6 +85,9 @@ func (u *PlatformSettingsUseCase) UpsertPlatformSetting(
 	ctx context.Context,
 	in UpsertInput,
 ) (*platformSettingsModel.PlatformSetting, error) {
+	if in.Key == preview.SettingKey {
+		return nil, preview.ErrTypedSettingsRequired.Err()
+	}
 	saved, err := u.settings.Upsert(
 		ctx,
 		platformSettingsModel.NewPlatformSetting(in.Key, in.Value, in.RequiredPermission, time.Now()),

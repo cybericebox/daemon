@@ -100,6 +100,7 @@ type (
 		GetOwnLabLifecycle(ctx context.Context, eventID, userID, labID uuid.UUID) (eventUseCase.ParticipantLabView, error)
 		GetOwnLabVPNConfig(ctx context.Context, eventID, userID uuid.UUID) (string, error)
 		GetOwnVPNProbeStatus(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.VPNProbeStatusView, error)
+		OwnStandVPNReady(ctx context.Context, eventID, userID uuid.UUID) (bool, error)
 		GetOwnStandStatus(ctx context.Context, eventID, userID uuid.UUID) (eventStandModel.Status, error)
 	}
 )
@@ -699,7 +700,13 @@ func (h *Handler) standStatus(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, standStatusResponse{Status: status.String()})
+	ready, err := h.useCase.OwnStandVPNReady(ctx, eventID, claims.UserID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Header("Cache-Control", "private, no-store")
+	response.AbortWithData(ctx, standStatusResponse{Status: status.String(), VPNReady: ready})
 }
 
 // labStatus godoc
@@ -784,7 +791,7 @@ func (h *Handler) labVPNStatus(ctx *gin.Context) {
 		return
 	}
 	ctx.Header("Cache-Control", "private, no-store")
-	response.AbortWithData(ctx, labVPNStatusResponse{GatewayIP: status.GatewayIP, ProbeURL: status.ProbeURL})
+	response.AbortWithData(ctx, labVPNStatusResponse{GatewayIP: status.GatewayIP, ProbeURL: status.ProbeURL, Connected: status.Connected})
 }
 
 // info godoc

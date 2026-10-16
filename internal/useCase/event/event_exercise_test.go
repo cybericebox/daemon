@@ -577,6 +577,7 @@ func TestGetOwnLabVPNConfig_UsesCallerAndEventScope(t *testing.T) {
 	eventID, userID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: 2, TeamID: uuid.NullUUID{UUID: teamID, Valid: true}, CreatedAt: time.Now()}, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, InfrastructureAllowed: true}, nil)
+	q.EXPECT().GetEventTeamLabGroup(gomock.Any(), teamID).Return(readyVPNGroup(eventID, teamID), nil)
 	config, err := uc.GetOwnLabVPNConfig(context.Background(), eventID, userID)
 	if err != nil || config != "wg-personal" || store.userID != userID || store.scope != vpnModel.ScopeEvent || !store.ref.Valid || store.ref.UUID != eventID {
 		t.Fatalf("config=%q err=%v store=%+v", config, err, store)
