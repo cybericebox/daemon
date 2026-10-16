@@ -24,6 +24,8 @@ type deployListItem struct {
 	VersionID  string `json:"VersionID"`
 	VariantID  string `json:"VariantID"`
 	Lab        string `json:"Lab"`
+	// Kind is "lab" or "static" (a test without devices: no lab, only the lease and the flags).
+	Kind string `json:"Kind"`
 	// Tasks are the flag-linked tasks to find in the lab; values are never returned.
 	Tasks []deployTaskResponse `json:"Tasks"`
 	// SolvedTaskIDs are the tasks the author has already checked correctly.
@@ -35,7 +37,7 @@ func deployListItemOf(d exerciseModel.TestDeploy) deployListItem {
 	for _, f := range d.Flags {
 		tasks = append(tasks, deployTaskResponse{TaskID: f.TaskID.String(), Name: f.Name})
 	}
-	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, Expired: d.Expired, Removing: d.Removing, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Tasks: tasks}
+	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, Expired: d.Expired, Removing: d.Removing, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Kind: d.Kind(), Tasks: tasks}
 }
 
 func solvedIDs(ids []uuid.UUID) []string {
@@ -51,6 +53,8 @@ type (
 		DeployID  string `json:"DeployID"`
 		Lab       string `json:"Lab"`
 		VPNClient string `json:"VPNClient,omitempty"`
+		// Kind is "lab" or "static" (a test without devices: Lab is empty).
+		Kind string `json:"Kind"`
 		// Tasks are the flag-linked tasks to find in the lab; values are never returned.
 		Tasks []deployTaskResponse `json:"Tasks,omitempty"`
 	}
@@ -114,7 +118,11 @@ type (
 )
 
 func deployHandleToResponse(h exerciseModel.DeployHandle) deployResponse {
-	out := deployResponse{DeployID: h.Group, Lab: h.Lab, VPNClient: h.VPNClient}
+	kind := exerciseModel.DeployKindLab
+	if h.Static {
+		kind = exerciseModel.DeployKindStatic
+	}
+	out := deployResponse{DeployID: h.Group, Lab: h.Lab, VPNClient: h.VPNClient, Kind: kind}
 	for _, f := range h.Flags {
 		out.Tasks = append(out.Tasks, deployTaskResponse{TaskID: f.TaskID.String(), Name: f.Name})
 	}
@@ -174,7 +182,7 @@ func (h *Handler) deploy(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	if err = h.useCase.AuthorizeTestDeploy(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, exerciseID, versionID); err != nil {
+	if err = h.useCase.AuthorizeTestDeploy(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, exerciseID, versionID, variantID); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

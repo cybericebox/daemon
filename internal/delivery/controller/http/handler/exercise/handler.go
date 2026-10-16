@@ -97,7 +97,7 @@ type (
 		AuthorizeExercise(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, action exerciseUseCase.Action) (exerciseUseCase.Access, error)
 		AuthorizeFileUpload(ctx context.Context, actor exerciseUseCase.Actor) error
 		AuthorizeFileDownload(ctx context.Context, actor exerciseUseCase.Actor, file mediaModel.File) error
-		AuthorizeTestDeploy(ctx context.Context, actor exerciseUseCase.Actor, exerciseID, versionID uuid.UUID) error
+		AuthorizeTestDeploy(ctx context.Context, actor exerciseUseCase.Actor, exerciseID, versionID, variantID uuid.UUID) error
 		RedactFlags(ctx context.Context, actor exerciseUseCase.Actor, v exerciseUseCase.VersionView) (exerciseUseCase.VersionView, error)
 		GetAccessSummary(ctx context.Context, actor exerciseUseCase.Actor) (exerciseUseCase.AccessSummary, error)
 		CreateExerciseFor(ctx context.Context, actor exerciseUseCase.Actor, in exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error)

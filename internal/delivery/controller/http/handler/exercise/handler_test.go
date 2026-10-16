@@ -1587,7 +1587,7 @@ func (f *fakeUC) AuthorizeFileDownload(_ context.Context, actor exerciseUseCase.
 	}
 	return nil
 }
-func (f *fakeUC) AuthorizeTestDeploy(ctx context.Context, actor exerciseUseCase.Actor, exerciseID, _ uuid.UUID) error {
+func (f *fakeUC) AuthorizeTestDeploy(ctx context.Context, actor exerciseUseCase.Actor, exerciseID, _, _ uuid.UUID) error {
 	_, err := f.AuthorizeExercise(ctx, actor, exerciseID, exerciseUseCase.ActionWrite)
 	return err
 }
