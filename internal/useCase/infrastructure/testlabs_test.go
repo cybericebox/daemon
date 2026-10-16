@@ -121,7 +121,8 @@ func TestTerminateTestLabReportsAGoneLabAndMissingInfrastructure(t *testing.T) {
 	if err := uc.TerminateTestLab(context.Background(), uuid.Must(uuid.NewV7())); !errors.Is(err, infraModel.ErrTestLabNotFound.Err()) {
 		t.Fatalf("err = %v, want not found", err)
 	}
-	none, _ := newTestLabs(t, nil, &recordingDestroyer{})
+	none, noneQ := newTestLabs(t, nil, &recordingDestroyer{})
+	noneQ.EXPECT().GetPlatformTestLab(gomock.Any(), gomock.Any()).Return(postgres.GetPlatformTestLabRow{GroupName: "t-x"}, nil)
 	if err := none.TerminateTestLab(context.Background(), uuid.Must(uuid.NewV7())); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
 		t.Fatalf("err = %v, want unavailable", err)
 	}
@@ -211,11 +212,13 @@ func TestTestLabDeviceActionsGoToTheLabOfTheTestLab(t *testing.T) {
 }
 
 func TestTestLabDeviceActionsNeedAnAgentThatCanDoThem(t *testing.T) {
-	uc, _ := newTestLabs(t, fakeLabAgent{}, nil)
+	uc, q := newTestLabs(t, fakeLabAgent{}, nil)
+	q.EXPECT().GetPlatformTestLab(gomock.Any(), gomock.Any()).Return(postgres.GetPlatformTestLabRow{GroupName: "t-x"}, nil)
 	if err := uc.ResetTestLabDevice(context.Background(), uuid.Must(uuid.NewV7()), "web"); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
 		t.Fatalf("err = %v, want unavailable", err)
 	}
-	none, _ := newTestLabs(t, nil, nil)
+	none, noneQ := newTestLabs(t, nil, nil)
+	noneQ.EXPECT().GetPlatformTestLab(gomock.Any(), gomock.Any()).Return(postgres.GetPlatformTestLabRow{GroupName: "t-x"}, nil)
 	if err := none.RescueTestLabDevice(context.Background(), uuid.Must(uuid.NewV7()), "web", true); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
 		t.Fatalf("err = %v, want unavailable", err)
 	}
@@ -260,5 +263,56 @@ func TestListTestLabsShowsNoQueueOnceEveryPodIsDispatched(t *testing.T) {
 	}
 	if page.Items[1].Queue == nil || page.Items[1].Queue.Position != 2 {
 		t.Fatalf("queued = %+v", page.Items[1])
+	}
+}
+
+// failingLabAgent fails the test on any agent call: a static test has no lab to ask about.
+type failingLabAgent struct {
+	Agent
+	t *testing.T
+}
+
+func (f failingLabAgent) LabStatus(context.Context, string, string) (exerciseModel.LabDeployStatus, error) {
+	f.t.Fatal("a static test must not reach the agent")
+	return exerciseModel.LabDeployStatus{}, nil
+}
+
+func TestListTestLabs_StaticSkipsTheAgent(t *testing.T) {
+	uc, q := newTestLabs(t, failingLabAgent{t: t}, nil)
+	q.EXPECT().ListPlatformTestLabs(gomock.Any(), gomock.Any()).Return([]postgres.ListPlatformTestLabsRow{
+		{ID: uuid.Must(uuid.NewV7()), IsStatic: true, ExpiresAt: fixedNow.Add(time.Hour), Total: 1},
+	}, nil)
+	page, err := uc.ListTestLabs(context.Background(), "", 1, 20)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("page = %+v, err = %v", page, err)
+	}
+	if item := page.Items[0]; item.Status != TestLabReady || !item.Static || item.Resources != (ResourcesView{}) {
+		t.Fatalf("item = %+v", item)
+	}
+}
+
+func TestGetTestLabDetail_Static(t *testing.T) {
+	uc, q := newTestLabs(t, failingLabAgent{t: t}, nil)
+	id := uuid.Must(uuid.NewV7())
+	q.EXPECT().GetPlatformTestLab(gomock.Any(), id).Return(postgres.GetPlatformTestLabRow{ID: id, IsStatic: true}, nil)
+	detail, err := uc.GetTestLabDetail(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Status != TestLabReady || !detail.Static || len(detail.Live.Devices) != 0 {
+		t.Fatalf("detail = %+v", detail)
+	}
+}
+
+func TestResetAndRescueTestLabDevice_StaticIsRefused(t *testing.T) {
+	uc, q := newTestLabs(t, failingLabAgent{t: t}, nil)
+	id := uuid.Must(uuid.NewV7())
+	q.EXPECT().GetPlatformTestLab(gomock.Any(), id).Return(postgres.GetPlatformTestLabRow{ID: id, IsStatic: true}, nil).Times(2)
+	want := infraModel.ErrTestLabStatic.Err()
+	if err := uc.ResetTestLabDevice(context.Background(), id, "web"); !errors.Is(err, want) {
+		t.Fatalf("reset: want ErrTestLabStatic, got %v", err)
+	}
+	if err := uc.RescueTestLabDevice(context.Background(), id, "web", true); !errors.Is(err, want) {
+		t.Fatalf("rescue: want ErrTestLabStatic, got %v", err)
 	}
 }

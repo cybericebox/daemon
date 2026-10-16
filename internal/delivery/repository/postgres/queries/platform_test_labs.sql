@@ -12,6 +12,8 @@ SELECT d.id, d.group_name, d.lab_name, d.variant_id, d.created_by, d.created_at,
                  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) WITH ORDINALITY AS x(value, ord)
                  WHERE x.value ->> 'id' = d.variant_id::text
                  LIMIT 1), 0)::int AS variant_number,
+       -- A static test has no lab: no group, no lab name, no event.
+       (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)::bool AS is_static,
        count(*) OVER ()::bigint AS total
 FROM exercise_test_deployments d
 JOIN exercise_versions v ON v.id = d.version_id
@@ -27,6 +29,7 @@ LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 -- name: GetPlatformTestLab :one
 -- devices: the logical devices (id, name, type, never images or variables) of the topology the lab was deployed from.
 SELECT d.id, d.group_name, d.lab_name, d.created_by,
+       (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)::bool AS is_static,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', device.value -> 'id', 'name', device.value -> 'name', 'type', device.value -> 'type') ORDER BY device.ord)
                  FROM exercise_versions v,
                       jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,

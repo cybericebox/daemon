@@ -183,6 +183,8 @@ type (
 		// Status is queued, creating, ready or failed.
 		Status string                 `json:"Status"`
 		Live   labview.StatusResponse `json:"Live"`
+		// Kind is lab or static (a test without a lab, Live is empty).
+		Kind string `json:"Kind"`
 	}
 
 	// testLabResponse is one catalog test lab (an exercise test deploy).
@@ -205,6 +207,8 @@ type (
 		Queue     *labview.QueueResponse `json:"Queue"`
 		// ImageWarning: an image of the lab or its group is pulled by tag, not pinned to a digest.
 		ImageWarning bool `json:"ImageWarning"`
+		// Kind is lab or static (a test without a lab).
+		Kind string `json:"Kind"`
 	}
 
 	standEventResponse struct {
@@ -638,10 +642,18 @@ func (h *Handler) listTestLabs(ctx *gin.Context) {
 			ID: item.ID, GroupName: item.GroupName, ExerciseID: item.ExerciseID, ExerciseName: item.ExerciseName, VariantNumber: item.VariantNumber,
 			AuthorID: item.AuthorID, AuthorName: item.AuthorName, AuthorEmail: item.AuthorEmail,
 			CreatedAt: item.CreatedAt, ExpiresAt: item.ExpiresAt, Expired: item.Expired, Status: item.Status, Resources: resourcesOf(item.Resources),
-			Queue: labview.Queue(item.Queue), ImageWarning: item.ImageWarning,
+			Queue: labview.Queue(item.Queue), ImageWarning: item.ImageWarning, Kind: testLabKind(item.Static),
 		})
 	}
 	response.AbortWithData(ctx, pagination.NewOffsetPage(items, page.Total, page.Page, page.PageSize))
+}
+
+// testLabKind names the kind of a catalog test lab for the list.
+func testLabKind(static bool) string {
+	if static {
+		return "static"
+	}
+	return "lab"
 }
 
 // terminateTestLab godoc
@@ -901,7 +913,7 @@ func (h *Handler) getTestLabDetail(ctx *gin.Context) {
 		topology[name] = labview.DeviceInfo{Name: d.Name, Type: string(d.Type)}
 	}
 	labview.AnnotateDevices(&live, topology)
-	response.AbortWithData(ctx, testLabDetailResponse{ID: v.ID, GroupName: v.GroupName, Status: v.Status, Live: live})
+	response.AbortWithData(ctx, testLabDetailResponse{ID: v.ID, GroupName: v.GroupName, Status: v.Status, Live: live, Kind: testLabKind(v.Static)})
 }
 
 // resetTestLabDevice godoc

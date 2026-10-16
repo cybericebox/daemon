@@ -7,7 +7,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// next free detail code: 20 (18 was retired with the per-agent publish check)
+// next free detail code: 21 (18 was retired with the per-agent publish check)
 
 var (
 	// ErrInfrastructureUnavailable blocks any operation that needs the lab
@@ -34,6 +34,11 @@ var (
 	ErrTestLabNotFound = err.ErrObjectNotFound.WithObjectCode(model.InfrastructureObjectCode).
 				WithMessage("Test laboratory not found").
 				WithDetailCode(4)
+
+	// ErrTestLabStatic: a static test has no laboratory, so device actions on it are refused.
+	ErrTestLabStatic = err.ErrConflict.WithObjectCode(model.InfrastructureObjectCode).
+				WithMessage("A static test has no laboratory").
+				WithDetailCode(20)
 
 	// ErrDeviceNotPersistent: reset and rescue act on snapshot-backed state, and this device has none
 	// (the lab runs without device state persistence).

@@ -48,6 +48,8 @@ type (
 		AuthorEmail   string
 		CreatedAt     time.Time
 		ExpiresAt     time.Time
+		// Static: a test without a lab (no group, no agent).
+		Static bool
 	}
 
 	// TestLabRef is the handle of one test lab, enough to tear it down.
@@ -56,6 +58,8 @@ type (
 		GroupName string
 		LabName   string
 		OwnerID   uuid.UUID
+		// Static: a test without a lab (no group, no agent).
+		Static bool
 		// Devices are the logical devices (id, name, type only) of the topology the lab was deployed from.
 		Devices []exerciseModel.Device
 	}
@@ -184,7 +188,7 @@ func (r *Repository) ListTestLabs(ctx context.Context, search string, limit, off
 		out = append(out, TestLab{
 			ID: row.ID, GroupName: row.GroupName, LabName: row.LabName, ExerciseID: row.ExerciseID, ExerciseName: row.ExerciseName, VariantNumber: row.VariantNumber,
 			AuthorID: row.CreatedBy, AuthorName: strings.TrimSpace(row.AuthorFirstName + " " + row.AuthorLastName), AuthorEmail: row.AuthorEmail,
-			CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
+			CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt, Static: row.IsStatic,
 		})
 	}
 	return out, total, nil
@@ -196,7 +200,7 @@ func (r *Repository) GetTestLab(ctx context.Context, id uuid.UUID) (TestLabRef, 
 	if err != nil {
 		return TestLabRef{}, err
 	}
-	ref := TestLabRef{ID: row.ID, GroupName: row.GroupName, LabName: row.LabName, OwnerID: row.CreatedBy}
+	ref := TestLabRef{ID: row.ID, GroupName: row.GroupName, LabName: row.LabName, OwnerID: row.CreatedBy, Static: row.IsStatic}
 	// Names and types are a hint for the screen: a topology that cannot be read leaves them out.
 	if json.Unmarshal(row.Devices, &ref.Devices) != nil {
 		ref.Devices = nil

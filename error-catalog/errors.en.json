@@ -243,6 +243,7 @@
   "31404": "Test laboratory not found",
   "31406": "Device not found",
   "31408": "Infrastructure agent not found",
+  "31420": "A static test has no laboratory",
   "31603": "Event manager membership not found",
   "31707": "Event team not found",
   "31804": "Event exercise not found",

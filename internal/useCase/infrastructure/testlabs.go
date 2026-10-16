@@ -81,6 +81,8 @@ type (
 		Queue *exerciseModel.LabQueue
 		// ImageWarning: an image of the lab or its group is pulled by tag, not pinned to a digest.
 		ImageWarning bool
+		// Static: a test without a lab; it is always ready and has no resources.
+		Static bool
 	}
 
 	// TestLabDetail is one test lab with its live state down to the devices and their snapshots.
@@ -90,6 +92,8 @@ type (
 		LabName   string
 		// Status is one of the TestLab* states.
 		Status string
+		// Static: a test without a lab, so Live is empty.
+		Static bool
 		Live   exerciseModel.LabDeployStatus
 		// Topology is the exercise topology device behind every lab device, by the device's name in the lab.
 		Topology map[string]TopologyDevice
@@ -130,7 +134,10 @@ func (u *TestLabsUseCase) ListTestLabs(ctx context.Context, search string, page,
 		out[i] = TestLabView{
 			ID: item.ID, GroupName: item.GroupName, LabName: item.LabName, ExerciseID: item.ExerciseID, ExerciseName: item.ExerciseName, VariantNumber: item.VariantNumber,
 			AuthorID: item.AuthorID, AuthorName: item.AuthorName, AuthorEmail: item.AuthorEmail,
-			CreatedAt: item.CreatedAt, ExpiresAt: item.ExpiresAt, Expired: !item.ExpiresAt.After(now), Status: TestLabUnknown,
+			CreatedAt: item.CreatedAt, ExpiresAt: item.ExpiresAt, Expired: !item.ExpiresAt.After(now), Status: TestLabUnknown, Static: item.Static,
+		}
+		if item.Static {
+			out[i].Status = TestLabReady
 		}
 	}
 	u.fillStatuses(ctx, out)
@@ -145,6 +152,9 @@ func (u *TestLabsUseCase) fillStatuses(ctx context.Context, views []TestLabView)
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, testLabStatusLimit)
 	for i := range views {
+		if views[i].Static {
+			continue
+		}
 		wg.Add(1)
 		slots <- struct{}{}
 		go func() {
@@ -207,15 +217,13 @@ func testLabState(status exerciseModel.LabDeployStatus) string {
 // TerminateTestLab ends a test lab on behalf of an admin: the lab group is
 // destroyed and the lease removed, like when its author stops it.
 func (u *TestLabsUseCase) TerminateTestLab(ctx context.Context, id uuid.UUID) error {
-	if u.agent == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
-	ref, err := u.source.GetTestLab(ctx, id)
+	ref, err := u.testLabRef(ctx, id)
 	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return infraModel.ErrTestLabNotFound.Err()
-		}
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to load test laboratory").Err()
+		return err
+	}
+	// A static test needs no agent: only its row goes.
+	if u.agent == nil && !ref.Static {
+		return infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	return u.destroyer.DestroyDeployTest(ctx, ref.OwnerID, ref.ID)
 }
@@ -223,12 +231,15 @@ func (u *TestLabsUseCase) TerminateTestLab(ctx context.Context, id uuid.UUID) er
 // GetTestLabDetail reads one test lab's live state for an administrator: the launch queue, every device
 // with its snapshot state and the image warnings.
 func (u *TestLabsUseCase) GetTestLabDetail(ctx context.Context, id uuid.UUID) (TestLabDetail, error) {
-	if u.agent == nil {
-		return TestLabDetail{}, infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	ref, err := u.testLabRef(ctx, id)
 	if err != nil {
 		return TestLabDetail{}, err
+	}
+	if ref.Static {
+		return TestLabDetail{ID: ref.ID, Status: TestLabReady, Static: true, Topology: topologyByLabName(ref.Devices)}, nil
+	}
+	if u.agent == nil {
+		return TestLabDetail{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	status, err := u.agent.LabStatus(ctx, ref.GroupName, ref.LabName)
 	if err != nil {
@@ -265,16 +276,19 @@ func (u *TestLabsUseCase) RescueTestLabDevice(ctx context.Context, id uuid.UUID,
 }
 
 func (u *TestLabsUseCase) deviceTarget(ctx context.Context, id uuid.UUID) (platformStandRepo.TestLabRef, infraModel.DeviceController, error) {
+	ref, err := u.testLabRef(ctx, id)
+	if err != nil {
+		return platformStandRepo.TestLabRef{}, nil, err
+	}
+	if ref.Static {
+		return platformStandRepo.TestLabRef{}, nil, infraModel.ErrTestLabStatic.Err()
+	}
 	if u.agent == nil {
 		return platformStandRepo.TestLabRef{}, nil, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	controller, ok := u.agent.(infraModel.DeviceController)
 	if !ok {
 		return platformStandRepo.TestLabRef{}, nil, infraModel.ErrInfrastructureUnavailable.Err()
-	}
-	ref, err := u.testLabRef(ctx, id)
-	if err != nil {
-		return platformStandRepo.TestLabRef{}, nil, err
 	}
 	return ref, controller, nil
 }

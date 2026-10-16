@@ -33,6 +33,7 @@ func (q *Queries) CountPlatformTestLabs(ctx context.Context, now time.Time) (Cou
 
 const getPlatformTestLab = `-- name: GetPlatformTestLab :one
 SELECT d.id, d.group_name, d.lab_name, d.created_by,
+       (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)::bool AS is_static,
        COALESCE((SELECT jsonb_agg(jsonb_build_object('id', device.value -> 'id', 'name', device.value -> 'name', 'type', device.value -> 'type') ORDER BY device.ord)
                  FROM exercise_versions v,
                       jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
@@ -46,6 +47,7 @@ type GetPlatformTestLabRow struct {
 	GroupName string    `json:"group_name"`
 	LabName   string    `json:"lab_name"`
 	CreatedBy uuid.UUID `json:"created_by"`
+	IsStatic  bool      `json:"is_static"`
 	Devices   []byte    `json:"devices"`
 }
 
@@ -58,6 +60,7 @@ func (q *Queries) GetPlatformTestLab(ctx context.Context, id uuid.UUID) (GetPlat
 		&i.GroupName,
 		&i.LabName,
 		&i.CreatedBy,
+		&i.IsStatic,
 		&i.Devices,
 	)
 	return i, err
@@ -73,6 +76,8 @@ SELECT d.id, d.group_name, d.lab_name, d.variant_id, d.created_by, d.created_at,
                  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) WITH ORDINALITY AS x(value, ord)
                  WHERE x.value ->> 'id' = d.variant_id::text
                  LIMIT 1), 0)::int AS variant_number,
+       -- A static test has no lab: no group, no lab name, no event.
+       (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)::bool AS is_static,
        count(*) OVER ()::bigint AS total
 FROM exercise_test_deployments d
 JOIN exercise_versions v ON v.id = d.version_id
@@ -106,6 +111,7 @@ type ListPlatformTestLabsRow struct {
 	ExerciseID      uuid.UUID `json:"exercise_id"`
 	ExerciseName    string    `json:"exercise_name"`
 	VariantNumber   int32     `json:"variant_number"`
+	IsStatic        bool      `json:"is_static"`
 	Total           int64     `json:"total"`
 }
 
@@ -136,6 +142,7 @@ func (q *Queries) ListPlatformTestLabs(ctx context.Context, arg ListPlatformTest
 			&i.ExerciseID,
 			&i.ExerciseName,
 			&i.VariantNumber,
+			&i.IsStatic,
 			&i.Total,
 		); err != nil {
 			return nil, err

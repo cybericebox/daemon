@@ -33604,6 +33604,10 @@
                 "ID": {
                     "type": "string"
                 },
+                "Kind": {
+                    "description": "Kind is lab or static (a test without a lab, Live is empty).",
+                    "type": "string"
+                },
                 "Live": {
                     "$ref": "#/definitions/labview.StatusResponse"
                 },
@@ -33649,6 +33653,10 @@
                 "ImageWarning": {
                     "description": "ImageWarning: an image of the lab or its group is pulled by tag, not pinned to a digest.",
                     "type": "boolean"
+                },
+                "Kind": {
+                    "description": "Kind is lab or static (a test without a lab).",
+                    "type": "string"
                 },
                 "Queue": {
                     "$ref": "#/definitions/labview.QueueResponse"

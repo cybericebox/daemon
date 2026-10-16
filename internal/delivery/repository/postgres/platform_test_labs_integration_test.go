@@ -75,3 +75,68 @@ func TestPlatformTestLabs_ListsEveryAuthorWithExerciseVariantAndCounts(t *testin
 		t.Fatalf("ref = %+v, %v", ref, err)
 	}
 }
+
+// A static test (empty group and lab name, no event) never protects a group from the sweep, is marked
+// static in the platform list, and still leaves its run in the lab-hour history.
+func TestPlatformTestLabs_StaticRowIsMarkedAndNeverProtectsAGroup(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	exercises := exerciseRepo.New(db.Queries)
+	deploys := testDeployRepo.New(db.Queries)
+	owner := seedVPNUser(t, db, "ptl-static@test.test")
+	ex := mustCreateExercise(t, exercises, "IT static test lab")
+	version, err := exercises.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow, uuid.NullUUID{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	create := func(group, lab string) uuid.UUID {
+		t.Helper()
+		id := uuid.Must(uuid.NewV7())
+		if _, createErr := deploys.Create(ctx, exerciseModel.TestDeploy{ID: id, GroupName: group, LabName: lab, VersionID: version.ID, VariantID: uuid.Must(uuid.NewV7()),
+			CreatedBy: owner, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); createErr != nil {
+			t.Fatal(createErr)
+		}
+		return id
+	}
+	staticID := create("", "")
+	labID := create("tu-a", "l-one")
+
+	names, err := db.Queries.ListTestDeployGroupNames(ctx, []string{"", "tu-a"})
+	if err != nil || len(names) != 1 || names[0] != "tu-a" {
+		t.Fatalf("group names = %v, %v; want only tu-a", names, err)
+	}
+
+	items, _, err := platformStandRepo.New(db.Queries).ListTestLabs(ctx, "", 10, 0)
+	if err != nil || len(items) != 2 {
+		t.Fatalf("items = %v, %v", items, err)
+	}
+	for _, item := range items {
+		if want := item.ID == staticID; item.Static != want {
+			t.Errorf("lab %v Static = %v, want %v", item.ID, item.Static, want)
+		}
+	}
+	if ref, refErr := platformStandRepo.New(db.Queries).GetTestLab(ctx, staticID); refErr != nil || !ref.Static {
+		t.Fatalf("static ref = %+v, %v", ref, refErr)
+	}
+	if ref, refErr := platformStandRepo.New(db.Queries).GetTestLab(ctx, labID); refErr != nil || ref.Static {
+		t.Fatalf("lab ref = %+v, %v", ref, refErr)
+	}
+
+	runs := func(id uuid.UUID) (started, ended bool) {
+		t.Helper()
+		if scanErr := db.Pool.QueryRow(ctx, `SELECT true, ended_at IS NOT NULL FROM exercise_test_deploy_runs WHERE deploy_id = $1`, id).Scan(&started, &ended); scanErr != nil {
+			t.Fatalf("run of %v: %v", id, scanErr)
+		}
+		return started, ended
+	}
+	if _, ended := runs(staticID); ended {
+		t.Fatal("the run of a live static test is open")
+	}
+	if _, err = db.Pool.Exec(ctx, `DELETE FROM exercise_test_deployments WHERE id = $1`, staticID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ended := runs(staticID); !ended {
+		t.Fatal("deleting the static test closes its run")
+	}
+}

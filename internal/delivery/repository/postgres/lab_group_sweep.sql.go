@@ -62,11 +62,12 @@ func (q *Queries) ListExistingEventTeamIDs(ctx context.Context, ids []uuid.UUID)
 }
 
 const listTestDeployGroupNames = `-- name: ListTestDeployGroupNames :many
-SELECT DISTINCT group_name FROM exercise_test_deployments WHERE group_name = ANY($1::text[])
+SELECT DISTINCT group_name FROM exercise_test_deployments WHERE group_name <> '' AND group_name = ANY($1::text[])
 `
 
 // Which of the given LabGroup names still hold at least one test deploy row, expired or not
-// (an expired row is cleaned up by the test deploy job, not by the sweep).
+// (an expired row is cleaned up by the test deploy job, not by the sweep). A static test has no lab and
+// an empty group name, which never protects a group.
 func (q *Queries) ListTestDeployGroupNames(ctx context.Context, names []string) ([]string, error) {
 	rows, err := q.db.Query(ctx, listTestDeployGroupNames, names)
 	if err != nil {
