@@ -51,7 +51,7 @@ func flagsByTask(t *testing.T, raw []byte) map[uuid.UUID]string {
 
 func TestDeployVariantTest_StaticRunsWithoutAgentOrResources(t *testing.T) {
 	t1, t2 := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	q, variantID, versionID, ownerID := staticFixture(t, []exerciseModel.Task{{ID: t1, Flag: []string{"ICE{fixed}"}}, {ID: t2}}, nil)
+	q, variantID, versionID, ownerID := staticFixture(t, []exerciseModel.Task{{ID: t1, Name: "Login", Flag: []string{"ICE{fixed}"}}, {ID: t2, Name: "Admin"}}, nil)
 	var created postgres.CreateExerciseTestDeployParams
 	expectStaticCreate(q, &created)
 	gate := &fakeGate{}
@@ -70,6 +70,19 @@ func TestDeployVariantTest_StaticRunsWithoutAgentOrResources(t *testing.T) {
 	flags := flagsByTask(t, created.Flags)
 	if flags[t1] != "ICE{fixed}" || !regexp.MustCompile(`^ICE\{[0-9a-f]{40}\}$`).MatchString(flags[t2]) {
 		t.Fatalf("flags = %v", flags)
+	}
+	names := map[uuid.UUID]string{}
+	for _, f := range handle.Flags {
+		names[f.TaskID] = f.Name
+	}
+	var stored []exerciseModel.DeployFlag
+	if err := json.Unmarshal(created.Flags, &stored); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range stored {
+		if f.Name != names[f.TaskID] || (f.TaskID == t1 && f.Name != "Login") || (f.TaskID == t2 && f.Name != "Admin") {
+			t.Fatalf("flag names must be the task names: %+v", stored)
+		}
 	}
 	if !handle.Static || handle.Lab != "" || handle.VPNClient != "" || len(handle.Flags) != 2 {
 		t.Fatalf("handle = %+v", handle)

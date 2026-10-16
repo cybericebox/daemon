@@ -381,7 +381,7 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 		if err != nil {
 			return exerciseModel.DeployHandle{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve test flag").Err()
 		}
-		flags = append(flags, exerciseModel.DeployFlag{TaskID: task.ID, Flag: flag})
+		flags = append(flags, exerciseModel.DeployFlag{TaskID: task.ID, Name: task.Name, Flag: flag})
 	}
 	now := u.timeNow()
 	id := uuid.Must(uuid.NewV7())
