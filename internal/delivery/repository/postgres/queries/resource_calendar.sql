@@ -132,15 +132,19 @@ SET test_pool_snapshot_quota_bytes=sqlc.arg(test_pool_snapshot_quota_bytes), tes
 WHERE id;
 
 -- name: CreateResourceTestLabHold :exec
-INSERT INTO resource_test_lab_holds (id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, snapshot_quota_bytes, starts_at, expires_at)
-VALUES (sqlc.arg(id), sqlc.arg(owner_id), sqlc.arg(via), sqlc.narg(reservation_id), sqlc.arg(cpu_millicores), sqlc.arg(memory_bytes), sqlc.arg(snapshot_quota_bytes), sqlc.arg(starts_at), sqlc.arg(expires_at))
+INSERT INTO resource_test_lab_holds (id, owner_id, via, reservation_id, cpu_millicores, memory_bytes, snapshot_quota_bytes, starts_at, expires_at, event_id, group_name)
+VALUES (sqlc.arg(id), sqlc.arg(owner_id), sqlc.arg(via), sqlc.narg(reservation_id), sqlc.arg(cpu_millicores), sqlc.arg(memory_bytes), sqlc.arg(snapshot_quota_bytes), sqlc.arg(starts_at), sqlc.arg(expires_at), sqlc.narg(event_id), sqlc.arg(group_name))
 ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at, snapshot_quota_bytes=GREATEST(resource_test_lab_holds.snapshot_quota_bytes,EXCLUDED.snapshot_quota_bytes);
 
 -- name: DeleteResourceTestLabHold :exec
 DELETE FROM resource_test_lab_holds WHERE id = sqlc.arg(id);
 
 -- name: ListActiveResourceTestLabHolds :many
-SELECT * FROM resource_test_lab_holds WHERE expires_at > sqlc.arg(now) ORDER BY starts_at, id;
+SELECT * FROM resource_test_lab_holds WHERE expires_at > sqlc.arg(now) OR event_id IS NOT NULL ORDER BY starts_at, id;
 
 -- name: DeleteExpiredResourceTestLabHolds :execrows
-DELETE FROM resource_test_lab_holds WHERE expires_at <= sqlc.arg(now);
+DELETE FROM resource_test_lab_holds WHERE expires_at <= sqlc.arg(now) AND event_id IS NULL;
+
+-- name: ListEventPreviewResourceHolds :many
+-- Preview runtime stays charged until cleanup confirms deletion, even beyond its lease.
+SELECT * FROM resource_test_lab_holds WHERE event_id = sqlc.narg(event_id) ORDER BY starts_at, id;

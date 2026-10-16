@@ -11,11 +11,13 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventStageRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
+	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	"github.com/gofrs/uuid"
 	"sort"
 	"time"
@@ -224,7 +226,7 @@ func (u *EventUseCase) reconcileGroups(ctx context.Context, now time.Time) error
 				return
 			}
 			g.PendingStarts = pending
-			authorized, err := u.groupRuntimeAuthorized(txCtx, q, g.EventID, children, now)
+			authorized, err := u.groupRuntimeAuthorized(txCtx, q, g, children, now)
 			if err != nil {
 				errs = append(errs, err)
 				return
@@ -299,7 +301,8 @@ func (u *EventUseCase) recoverGroupIdentityForStop(ctx context.Context, q IRepos
 	*g = candidate
 	return nil
 }
-func (u *EventUseCase) groupRuntimeAuthorized(ctx context.Context, q IRepository, eventID uuid.UUID, children []eventLabModel.Lab, now time.Time) (bool, error) {
+func (u *EventUseCase) groupRuntimeAuthorized(ctx context.Context, q IRepository, group eventLabModel.Group, children []eventLabModel.Lab, now time.Time) (bool, error) {
+	eventID := group.EventID
 	e, err := eventRepo.New(q).GetByID(ctx, eventID)
 	if repositoryTools.IsObjectNotFoundError(err) {
 		return false, nil
@@ -309,6 +312,9 @@ func (u *EventUseCase) groupRuntimeAuthorized(ctx context.Context, q IRepository
 	}
 	if !e.Lifecycle.RuntimeOpen(now) && e.Lifecycle.HasStarted(now) {
 		return false, nil
+	}
+	if len(children) == 0 {
+		return u.vpnPreparationAuthorized(ctx, q, e, group, now)
 	}
 	for _, l := range children {
 		if l.CloseReason == "solved" {
@@ -335,4 +341,52 @@ func (u *EventUseCase) groupRuntimeAuthorized(ctx context.Context, q IRepository
 		}
 	}
 	return false, nil
+}
+
+// VPN-only preparation has no child Lab boundary to authorize it. The active,
+// finite reservation supplies that boundary, including before challenges are
+// due; event finish still wins. This exception never authorizes a child Lab.
+func (u *EventUseCase) vpnPreparationAuthorized(ctx context.Context, q IRepository, e eventModel.Event, group eventLabModel.Group, now time.Time) (bool, error) {
+	name, err := labBindingModel.GroupName(e.ID, group.TeamID)
+	if err != nil || !e.InfrastructureAllowed || group.Name != name || group.EventID != e.ID {
+		return false, nil
+	}
+	if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil && !now.Before(*finish) {
+		return false, nil
+	}
+	teams := eventTeamRepo.New(q)
+	team, err := teams.GetByID(ctx, e.ID, group.TeamID)
+	if repositoryTools.IsObjectNotFoundError(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if team.ID != group.TeamID || team.EventID != e.ID {
+		return false, nil
+	}
+	if !team.Moderators {
+		admitted, err := teams.Admitted(ctx, e.ID, group.TeamID)
+		if err != nil {
+			return false, err
+		}
+		if !admitted {
+			return false, nil
+		}
+		formed, err := teams.Formed(ctx, e.ID, group.TeamID)
+		if err != nil {
+			return false, err
+		}
+		if !formed {
+			return false, nil
+		}
+	}
+	reservation, err := eventLabAllocationRepo.New(q).Budget(ctx, e.ID)
+	if repositoryTools.IsObjectNotFoundError(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return reservation.EventID != nil && *reservation.EventID == e.ID && reservation.Kind == "event" && reservation.CanceledAt == nil && !reservation.Window.Start.IsZero() && reservation.Window.End.After(reservation.Window.Start) && !now.Before(reservation.Window.Start) && now.Before(reservation.Window.End), nil
 }

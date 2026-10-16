@@ -54,13 +54,13 @@ type Repository struct{ q Queries }
 
 func New(q Queries) *Repository { return &Repository{q: q} }
 func ToRow(v exerciseModel.TestDeploy) postgres.ExerciseTestDeployment {
-	return postgres.ExerciseTestDeployment{ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags), Solved: marshalSolved(v.Solved)}
+	return postgres.ExerciseTestDeployment{EventID: deployEventRef(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags), Solved: marshalSolved(v.Solved)}
 }
 func toDomain(v postgres.ExerciseTestDeployment) exerciseModel.TestDeploy {
-	return exerciseModel.TestDeploy{ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: unmarshalFlags(v.Flags), Solved: unmarshalSolved(v.Solved)}
+	return exerciseModel.TestDeploy{EventID: deployEventID(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: unmarshalFlags(v.Flags), Solved: unmarshalSolved(v.Solved)}
 }
 func (r *Repository) Create(ctx context.Context, v exerciseModel.TestDeploy) (exerciseModel.TestDeploy, error) {
-	row, e := r.q.CreateExerciseTestDeploy(ctx, postgres.CreateExerciseTestDeployParams{ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags)})
+	row, e := r.q.CreateExerciseTestDeploy(ctx, postgres.CreateExerciseTestDeployParams{EventID: deployEventRef(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags)})
 	return toDomain(row), e
 }
 func (r *Repository) GetOwned(ctx context.Context, id, owner uuid.UUID) (exerciseModel.TestDeploy, error) {
@@ -139,4 +139,17 @@ func (r *Repository) CreateIfUnderLimit(ctx context.Context, v exerciseModel.Tes
 	}
 	created, err := r.Create(ctx, v)
 	return created, err == nil, err
+}
+
+func deployEventRef(id *uuid.UUID) uuid.NullUUID {
+	if id == nil {
+		return uuid.NullUUID{}
+	}
+	return uuid.NullUUID{UUID: *id, Valid: true}
+}
+func deployEventID(id uuid.NullUUID) *uuid.UUID {
+	if !id.Valid {
+		return nil
+	}
+	return &id.UUID
 }

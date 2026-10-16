@@ -249,6 +249,8 @@ type Querier interface {
 	DeleteEventPage(ctx context.Context, arg DeleteEventPageParams) (int64, error)
 	// Revoke/decline: only a still pending invitation disappears.
 	DeleteEventParticipantInvitation(ctx context.Context, arg DeleteEventParticipantInvitationParams) (int64, error)
+	DeleteEventPreviewRun(ctx context.Context, arg DeleteEventPreviewRunParams) error
+	DeleteEventPreviewSettings(ctx context.Context, eventID uuid.UUID) error
 	DeleteEventResultChangesBefore(ctx context.Context, before time.Time) (int64, error)
 	DeleteEventSMTPConfig(ctx context.Context, scopeEventID uuid.NullUUID) error
 	DeleteEventSignalNotificationSubscription(ctx context.Context, arg DeleteEventSignalNotificationSubscriptionParams) (int64, error)
@@ -411,6 +413,8 @@ type Querier interface {
 	GetEventParticipantFunnel(ctx context.Context, eventID uuid.UUID) (GetEventParticipantFunnelRow, error)
 	GetEventParticipantProfile(ctx context.Context, arg GetEventParticipantProfileParams) (GetEventParticipantProfileRow, error)
 	GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.UUID) (int64, error)
+	GetEventPreviewRun(ctx context.Context, arg GetEventPreviewRunParams) (EventPreviewRun, error)
+	GetEventPreviewSettings(ctx context.Context, eventID uuid.UUID) (GetEventPreviewSettingsRow, error)
 	// Revision and document come from the same snapshot, so concurrent publication
 	// can never put the old document under the new key.
 	GetEventRenderDocument(ctx context.Context, arg GetEventRenderDocumentParams) (GetEventRenderDocumentRow, error)
@@ -826,6 +830,9 @@ type Querier interface {
 	// filters is a JSON array for event_answers_match_all and sort_key is a
 	// document key sorted by event_list_sort_value.
 	ListEventParticipantsTable(ctx context.Context, arg ListEventParticipantsTableParams) ([]ListEventParticipantsTableRow, error)
+	// Preview runtime stays charged until cleanup confirms deletion, even beyond its lease.
+	ListEventPreviewResourceHolds(ctx context.Context, eventID uuid.NullUUID) ([]ResourceTestLabHold, error)
+	ListEventPreviewRuns(ctx context.Context, arg ListEventPreviewRunsParams) ([]EventPreviewRun, error)
 	// The latest registration answers of every participant outside the
 	// moderators team.
 	ListEventRegistrationAnswers(ctx context.Context, eventID uuid.UUID) ([]ListEventRegistrationAnswersRow, error)
@@ -1321,6 +1328,7 @@ type Querier interface {
 	LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	// Serializes team creation inside one event while the surrounding UoW is open.
 	LockEventForTeamChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
+	LockEventPreviewOwner(ctx context.Context, lockKey string) error
 	LockEventStageRuntimeSelection(ctx context.Context, arg LockEventStageRuntimeSelectionParams) (EventStageLabRuntimeMembership, error)
 	// Locks one team challenge so an annulment serializes with submission-time
 	// scoring and single decisions (they lock the same row).
@@ -1692,6 +1700,8 @@ type Querier interface {
 	// Join creates the row; a conflicting (event,user) row is left untouched and
 	// returned (the use case decides whether that is ErrAlreadyParticipant).
 	UpsertEventParticipant(ctx context.Context, arg UpsertEventParticipantParams) (EventParticipant, error)
+	UpsertEventPreviewRun(ctx context.Context, arg UpsertEventPreviewRunParams) error
+	UpsertEventPreviewSettings(ctx context.Context, arg UpsertEventPreviewSettingsParams) error
 	UpsertEventSMTPConfig(ctx context.Context, arg UpsertEventSMTPConfigParams) (MailSmtpConfig, error)
 	// A NULL config keeps the stored options (a new row starts from the platform
 	// default), so switching a signal never resets its options.

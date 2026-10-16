@@ -63,7 +63,7 @@ func (u *ResourceCalendarUseCase) decideTestLab(ctx context.Context, s Store, st
 	// 2. The guaranteed pool: always on, never reserved by events.
 	pooled := Amount{}
 	for _, h := range holds {
-		if h.Via != calModel.ViaBooking {
+		if h.EventID == nil && h.Via != calModel.ViaBooking {
 			pooled = pooled.Add(h.Size)
 		}
 	}

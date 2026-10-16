@@ -170,6 +170,7 @@ func (u *EventUseCase) GetOwnLabVPNConfig(ctx context.Context, eventID, userID u
 }
 
 type VPNProbeStatusView struct {
+	Connected *bool
 	GatewayIP string
 	ProbeURL  string
 }
@@ -185,6 +186,14 @@ func (u *EventUseCase) GetOwnVPNProbeStatus(ctx context.Context, eventID, userID
 	if err != nil {
 		return VPNProbeStatusView{}, err
 	}
+	view, err := u.vpnProbeStatus(ctx, group)
+	if err == nil {
+		view.Connected = u.ownVPNConnection(ctx, eventID, userID, group)
+	}
+	return view, err
+}
+
+func (u *EventUseCase) vpnProbeStatus(ctx context.Context, group string) (VPNProbeStatusView, error) {
 	reader, ok := u.infra.(vpnSubnetReader)
 	if !ok {
 		return VPNProbeStatusView{}, infraUnavailable()
@@ -223,6 +232,9 @@ func (u *EventUseCase) requireOwnVPNGroup(ctx context.Context, eventID, userID u
 	}
 	if !e.InfrastructureAllowed {
 		return "", participantModel.ErrParticipantAccessForbidden.Err()
+	}
+	if err := u.requireReadyVPNGroup(ctx, eventID, *p.TeamID); err != nil {
+		return "", err
 	}
 	group, err := labBindingModel.GroupName(eventID, *p.TeamID)
 	if err != nil {

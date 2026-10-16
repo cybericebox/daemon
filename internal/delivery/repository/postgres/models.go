@@ -416,6 +416,17 @@ type EventParticipant struct {
 	FieldsMissing               int32              `json:"fields_missing"`
 }
 
+type EventPreviewRun struct {
+	ID          uuid.UUID     `json:"id"`
+	EventID     uuid.UUID     `json:"event_id"`
+	UserID      uuid.UUID     `json:"user_id"`
+	SelectionID uuid.UUID     `json:"selection_id"`
+	DeployID    uuid.NullUUID `json:"deploy_id"`
+	State       []byte        `json:"state"`
+	CreatedAt   time.Time     `json:"created_at"`
+	ExpiresAt   time.Time     `json:"expires_at"`
+}
+
 type EventResultChange struct {
 	EventID   uuid.UUID `json:"event_id"`
 	Revision  int64     `json:"revision"`
@@ -650,16 +661,17 @@ type ExerciseResourceElevation struct {
 }
 
 type ExerciseTestDeployment struct {
-	ID        uuid.UUID `json:"id"`
-	GroupName string    `json:"group_name"`
-	VersionID uuid.UUID `json:"version_id"`
-	VariantID uuid.UUID `json:"variant_id"`
-	CreatedBy uuid.UUID `json:"created_by"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Flags     []byte    `json:"flags"`
-	Solved    []byte    `json:"solved"`
-	LabName   string    `json:"lab_name"`
+	ID        uuid.UUID     `json:"id"`
+	GroupName string        `json:"group_name"`
+	VersionID uuid.UUID     `json:"version_id"`
+	VariantID uuid.UUID     `json:"variant_id"`
+	CreatedBy uuid.UUID     `json:"created_by"`
+	CreatedAt time.Time     `json:"created_at"`
+	ExpiresAt time.Time     `json:"expires_at"`
+	Flags     []byte        `json:"flags"`
+	Solved    []byte        `json:"solved"`
+	LabName   string        `json:"lab_name"`
+	EventID   uuid.NullUUID `json:"event_id"`
 }
 
 type ExerciseVersion struct {
@@ -1016,6 +1028,8 @@ type ResourceTestLabHold struct {
 	StartsAt           time.Time     `json:"starts_at"`
 	ExpiresAt          time.Time     `json:"expires_at"`
 	SnapshotQuotaBytes int64         `json:"snapshot_quota_bytes"`
+	EventID            uuid.NullUUID `json:"event_id"`
+	GroupName          string        `json:"group_name"`
 }
 
 type SecretEnvelope struct {

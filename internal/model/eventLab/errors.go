@@ -24,16 +24,16 @@ var (
 )
 
 var (
-	ErrManualMode          = err.ErrForbidden.WithObjectCode(model.EventLabObjectCode).WithDetailCode(14).WithMessage("Manual laboratory controls require progressive reveal mode")
-	ErrManualRevision      = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithDetailCode(15).WithMessage("The laboratory revision changed")
-	ErrManualStage         = err.ErrForbidden.WithObjectCode(model.EventLabObjectCode).WithDetailCode(16).WithMessage("The laboratory is outside its available stage")
-	ErrManualOwnership     = err.ErrObjectNotFound.WithObjectCode(model.EventLabObjectCode).WithDetailCode(17).WithMessage("Laboratory not found") // category A: foreign and absent identity are indistinguishable
-	ErrManualInput         = err.ErrInvalidData.WithObjectCode(model.EventLabObjectCode).WithDetailCode(18).WithMessage("Laboratory command data is invalid")
-	ErrManualKeyConflict   = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithDetailCode(19).WithMessage("The idempotency key belongs to another laboratory command")
-	ErrManualKeyInProgress = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithDetailCode(20).WithMessage("The laboratory command is still in progress")
-	ErrManualLimit         = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithDetailCode(21).WithMessage("The active laboratory limit has been reached")
-	ErrManualRetained      = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithDetailCode(22).WithMessage("The retained laboratory state is unavailable")
-	ErrManualUnsupported   = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithDetailCode(23).WithMessage("Laboratory lifecycle controls are unavailable")
-	ErrManualState         = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithDetailCode(24).WithMessage("The laboratory cannot perform this command in its current state")
-	ErrManualSolved        = err.ErrForbidden.WithObjectCode(model.EventLabObjectCode).WithDetailCode(25).WithMessage("A solved laboratory is terminal")
+	ErrManualMode          = err.ErrForbidden.WithObjectCode(model.EventLabObjectCode).WithMessage("Manual laboratory controls require progressive reveal mode").WithDetailCode(14)
+	ErrManualRevision      = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithMessage("The laboratory revision changed").WithDetailCode(15)
+	ErrManualStage         = err.ErrForbidden.WithObjectCode(model.EventLabObjectCode).WithMessage("The laboratory is outside its available stage").WithDetailCode(16)
+	ErrManualOwnership     = err.ErrObjectNotFound.WithObjectCode(model.EventLabObjectCode).WithMessage("Laboratory not found").WithDetailCode(17) // category A: foreign and absent identity are indistinguishable
+	ErrManualInput         = err.ErrInvalidData.WithObjectCode(model.EventLabObjectCode).WithMessage("Laboratory command data is invalid").WithDetailCode(18)
+	ErrManualKeyConflict   = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithMessage("The idempotency key belongs to another laboratory command").WithDetailCode(19)
+	ErrManualKeyInProgress = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithMessage("The laboratory command is still in progress").WithDetailCode(20)
+	ErrManualLimit         = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithMessage("The active laboratory limit has been reached").WithDetailCode(21)
+	ErrManualRetained      = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithMessage("The retained laboratory state is unavailable").WithDetailCode(22)
+	ErrManualUnsupported   = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithMessage("Laboratory lifecycle controls are unavailable").WithDetailCode(23)
+	ErrManualState         = err.ErrConflict.WithObjectCode(model.EventLabObjectCode).WithMessage("The laboratory cannot perform this command in its current state").WithDetailCode(24)
+	ErrManualSolved        = err.ErrForbidden.WithObjectCode(model.EventLabObjectCode).WithMessage("A solved laboratory is terminal").WithDetailCode(25)
 )

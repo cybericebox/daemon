@@ -164,7 +164,11 @@ func (u *EventUseCase) admitEventAllocation(ctx context.Context, eventID, teamID
 	if err != nil {
 		return err
 	}
-	var held, teamHeld eventLabModel.Compute
+	held, err := r.PreviewHeld(txCtx, eventID)
+	if err != nil {
+		return err
+	}
+	var teamHeld eventLabModel.Compute
 	var storage int64
 	config, err := eventConfigRepo.New(q).Get(txCtx, eventID)
 	if err != nil {

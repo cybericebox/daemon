@@ -263,3 +263,51 @@ func TestReconcilePendingLabAccess_ExistingReservationStillRejectsInvalidAdmissi
 		})
 	}
 }
+
+// Existing admission must also reject finite reservations outside their slot;
+// early moderators-team initialization cannot create services on a future hold.
+func TestReconcilePendingLabAccess_NoLabsWaitsForReservationWindow(t *testing.T) {
+	for _, kind := range []string{"before reservation", "after reservation", "unbounded reservation"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newLabAccessReservationFixture(t, true, false)
+			f.gate.reserved = true
+			switch kind {
+			case "before reservation":
+				f.budget.StartsAt = time.Now().Add(time.Hour)
+				f.budget.EndsAt = time.Now().Add(2 * time.Hour)
+			case "after reservation":
+				f.budget.EndsAt = time.Now().Add(-time.Second)
+			case "unbounded reservation":
+				f.budget.EndsAt = time.Time{}
+			}
+			f.expectSync(true, false, 1)
+			require.Error(t, f.uc.ReconcilePendingLabAccess(context.Background()))
+			require.Empty(t, f.infra.operations)
+			require.Empty(t, f.created)
+			require.False(t, f.unit.saved)
+		})
+	}
+}
+
+type eventPreviewHeldRepo struct {
+	event.IRepository
+	rows []postgres.ResourceTestLabHold
+}
+
+func (r eventPreviewHeldRepo) ListEventPreviewResourceHolds(context.Context, uuid.NullUUID) ([]postgres.ResourceTestLabHold, error) {
+	return r.rows, nil
+}
+
+func TestEventGroupAdmissionCountsAlreadyAdmittedParticipantPreviews(t *testing.T) {
+	f := newLabAccessReservationFixture(t, true, false)
+	f.gate.reserved = true
+	f.expectSync(true, true, 1)
+	repo := eventPreviewHeldRepo{IRepository: f.q, rows: []postgres.ResourceTestLabHold{{EventID: uuid.NullUUID{UUID: f.eventID, Valid: true}, CpuMillicores: 1, MemoryBytes: 1}}}
+	f.uc = event.NewEventUseCase(event.Dependencies{Repo: repo, UoW: testUnitOfWorker{repo: repo, unit: f.unit}, Infra: f.infra})
+	f.uc.SetResourceGate(f.gate)
+	f.uc.SetAllocationAccounting(true)
+	err := f.uc.ReconcilePendingLabAccess(context.Background())
+	require.Error(t, err, "the preview and a full team envelope cannot both spend the same reservation")
+	require.Empty(t, f.created)
+	require.Empty(t, f.infra.operations)
+}

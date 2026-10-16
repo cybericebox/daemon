@@ -31,4 +31,5 @@ const (
 	ErrorJournalObjectCode
 	ResourceCalendarObjectCode
 	EventLabObjectCode
+	ParticipantPreviewObjectCode
 )

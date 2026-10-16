@@ -53,6 +53,7 @@ type (
 		SaveHold(ctx context.Context, h calModel.TestLabHold) error
 		DeleteHold(ctx context.Context, id uuid.UUID) error
 		ActiveHolds(ctx context.Context, now time.Time) ([]calModel.TestLabHold, error)
+		EventPreviewHolds(ctx context.Context, eventID uuid.UUID) ([]calModel.TestLabHold, error)
 		PurgeHolds(ctx context.Context, now time.Time) (int64, error)
 	}
 
