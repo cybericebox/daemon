@@ -40,7 +40,8 @@ WITH win AS (
            LEAST(COALESCE(r.ended_at, w.to_at), w.to_at)       AS e
     FROM exercise_test_deploy_runs r
     CROSS JOIN win w
-    WHERE r.started_at < w.to_at
+    WHERE r.group_name <> ''
+      AND r.started_at < w.to_at
       AND COALESCE(r.ended_at, w.to_at) > w.from_at
 ), active AS (
     SELECT kind, lab, s, e FROM stand_active
@@ -73,6 +74,7 @@ type ListPlatformInfraHoursByKindRow struct {
 // test labs (exercise test deploys). A test lab is active from the creation of
 // its deploy to its removal (exercise_test_deploy_runs, written by triggers);
 // a stand is active while creating (1) or ready (2) (event_stand_transitions).
+// A static test (empty group name) is not a laboratory and is left out.
 // Every window is clipped to [from_at, least(to_at, now_at)).
 // One row per kind ('event', 'moderators', 'test'), also when a kind has no
 // time: hours is the summed active time in the period, labs the number of
@@ -123,6 +125,7 @@ WITH win AS (
     FROM exercise_test_deploy_runs r
     CROSS JOIN win w
     WHERE $6::boolean
+      AND r.group_name <> ''
       AND r.started_at < w.to_at
       AND COALESCE(r.ended_at, w.to_at) > w.from_at
 ), buckets AS (

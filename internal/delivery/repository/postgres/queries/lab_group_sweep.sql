@@ -8,5 +8,6 @@ SELECT id FROM event_teams WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 
 -- name: ListTestDeployGroupNames :many
 -- Which of the given LabGroup names still hold at least one test deploy row, expired or not
--- (an expired row is cleaned up by the test deploy job, not by the sweep).
-SELECT DISTINCT group_name FROM exercise_test_deployments WHERE group_name = ANY(sqlc.arg(names)::text[]);
+-- (an expired row is cleaned up by the test deploy job, not by the sweep). A static test has no lab and
+-- an empty group name, which never protects a group.
+SELECT DISTINCT group_name FROM exercise_test_deployments WHERE group_name <> '' AND group_name = ANY(sqlc.arg(names)::text[]);

@@ -42,6 +42,15 @@ func (u *ExerciseUseCase) admitTestLab(ctx context.Context, id, owner uuid.UUID,
 	return err
 }
 
+// admitStaticTest asks the calendar to admit a static test, which reserves nothing.
+func (u *ExerciseUseCase) admitStaticTest(ctx context.Context, id, owner uuid.UUID) error {
+	if u.testLabGate == nil {
+		return nil
+	}
+	_, err := u.testLabGate.AdmitTestLab(ctx, calendarUseCase.TestLabRequest{ID: id, Owner: owner, Static: true, Lease: u.testDeployTTL()})
+	return err
+}
+
 // releaseTestLab frees the calendar room of a test laboratory that ended; a failure only leaves the hold to
 // expire with its lease.
 func (u *ExerciseUseCase) releaseTestLab(ctx context.Context, id uuid.UUID) {

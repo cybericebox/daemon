@@ -16,6 +16,7 @@ const countPlatformTestLabs = `-- name: CountPlatformTestLabs :one
 SELECT count(*) FILTER (WHERE expires_at > $1)::bigint  AS active,
        count(*) FILTER (WHERE expires_at <= $1)::bigint AS expired
 FROM exercise_test_deployments
+WHERE NOT (group_name = '' AND lab_name = '' AND event_id IS NULL)
 `
 
 type CountPlatformTestLabsRow struct {
@@ -38,7 +39,8 @@ SELECT d.id, d.group_name, d.lab_name, d.created_by,
                       jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
                       jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) WITH ORDINALITY AS device(value, ord)
                  WHERE v.id = d.version_id AND variant ->> 'id' = d.variant_id::text), '[]'::jsonb)::jsonb AS devices
-FROM exercise_test_deployments d WHERE d.id = $1
+FROM exercise_test_deployments d
+WHERE d.id = $1 AND NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
 `
 
 type GetPlatformTestLabRow struct {
@@ -78,7 +80,8 @@ FROM exercise_test_deployments d
 JOIN exercise_versions v ON v.id = d.version_id
 JOIN exercises ex ON ex.id = v.exercise_id
 JOIN users u ON u.id = d.created_by
-WHERE ($1::text = ''
+WHERE NOT (d.group_name = '' AND d.lab_name = '' AND d.event_id IS NULL)
+  AND ($1::text = ''
     OR ex.name ILIKE '%' || $1::text || '%'
     OR u.email ILIKE '%' || $1::text || '%'
     OR (u.first_name || ' ' || u.last_name) ILIKE '%' || $1::text || '%')
@@ -113,6 +116,7 @@ type ListPlatformTestLabsRow struct {
 // the admin labs page, the dashboard and the infrastructure analytics. A row of
 // exercise_test_deployments lives while the lab is leased; the row is removed
 // when the lab is stopped or its expired lease is cleaned up.
+// A static test (no group, no lab name, no event) is not a laboratory and never appears here.
 func (q *Queries) ListPlatformTestLabs(ctx context.Context, arg ListPlatformTestLabsParams) ([]ListPlatformTestLabsRow, error) {
 	rows, err := q.db.Query(ctx, listPlatformTestLabs, arg.Search, arg.OffsetVal, arg.LimitVal)
 	if err != nil {

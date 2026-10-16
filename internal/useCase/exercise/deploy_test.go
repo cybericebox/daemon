@@ -350,13 +350,16 @@ func TestDeploy_NilInfra_Unavailable(t *testing.T) {
 		t.Error("infrastructure must report unavailable when no agent is wired")
 	}
 	want := infraModel.ErrInfrastructureUnavailable.Err()
-	if _, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())); !errors.Is(err, want) {
+	variantID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	if _, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), versionID, variantID); !errors.Is(err, want) {
 		t.Errorf("deploy: want unavailable, got %v", err)
 	}
-	if _, err := uc.DeployTestStatus(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())); !errors.Is(err, want) {
-		t.Errorf("status: want unavailable, got %v", err)
-	}
-	if err := uc.DestroyDeployTest(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())); !errors.Is(err, want) {
+	// The guard sits after the row is loaded: only a lab row needs the agent.
+	owner, deployID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{ID: deployID, CreatedBy: owner, GroupName: "tu-x", LabName: "l-1"}, nil)
+	if err := uc.DestroyDeployTest(context.Background(), owner, deployID); !errors.Is(err, want) {
 		t.Errorf("destroy: want unavailable, got %v", err)
 	}
 }
@@ -432,21 +435,6 @@ func TestDeployVariantTest_AllowsTheAuthorInTheGroupPolicy(t *testing.T) {
 	}
 	if len(infra.policies) != 1 || infra.policies[0].Name != labBindingModel.ParticipantClientName(ownerID) || len(infra.policies[0].AllowedLabs) != 1 || !strings.HasPrefix(infra.policies[0].AllowedLabs[0], "l-") || infra.policyGroup == "" {
 		t.Fatalf("the proxy and the VPN both need an allow for the author: %+v", infra)
-	}
-}
-
-func TestDeployVariantTest_StaticVariantHasNoLab(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	variantID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID}})
-	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
-	infra := &fakeInfra{}
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	_, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), versionID, variantID)
-	if !errors.Is(err, exerciseModel.ErrTestDeployNoLab.Err()) {
-		t.Fatalf("want ErrTestDeployNoLab, got %v", err)
 	}
 }
 
@@ -686,7 +674,9 @@ func TestOpenTestDeployLink_RefusesNotReadyExpiredAndUnknownDevice(t *testing.T)
 
 func TestOpenTestDeployLink_WithoutIssuerIsUnavailable(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: postgresMocks.NewMockQuerier(ctrl), Infra: &fakeInfra{}})
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{GroupName: "g", LabName: "l", ExpiresAt: time.Now().Add(time.Hour)}, nil)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
 	if _, err := uc.OpenTestDeployLink(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "web", 80); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
 		t.Fatalf("got %v", err)
 	}
@@ -770,16 +760,24 @@ func TestListTestDeploys_ScopesToTheExerciseAndKeepsExpiredUntilRemoved(t *testi
 	}
 }
 
+// deviceVersion is a version whose only variant has a device, so a deploy takes the laboratory path.
+var deviceVersionID, deviceVariantID = uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+
+func deviceVersion() postgres.ExerciseVersion {
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: deviceVariantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
+	return postgres.ExerciseVersion{ID: deviceVersionID, Variants: variants}
+}
+
 func TestDeployVariantTest_RefusesASecondActiveLabOfTheSameUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	owner := uuid.Must(uuid.NewV7())
 	live := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), ExpiresAt: time.Now().Add(time.Hour)}
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return([]postgres.ExerciseTestDeployment{live}, nil)
-	q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{}, errors.New("gone")).AnyTimes()
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(deviceVersion(), nil).AnyTimes()
 	infra := &fakeInfra{}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	_, err := uc.DeployVariantTest(context.Background(), owner, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+	_, err := uc.DeployVariantTest(context.Background(), owner, deviceVersionID, deviceVariantID)
 	if !errors.Is(err, exerciseModel.ErrTestDeployActiveExists.Err()) {
 		t.Fatalf("a second lab must be refused: %v", err)
 	}
@@ -839,10 +837,14 @@ func TestDeployVariantTest_LimitIsConfigurable(t *testing.T) {
 			for i := range rows {
 				rows[i] = live()
 			}
-			q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return(rows, nil)
-			q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{}, errors.New("gone")).AnyTimes()
+			q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return(rows, nil).AnyTimes()
+			if tc.refused {
+				q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(deviceVersion(), nil).AnyTimes()
+			} else {
+				q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{}, errors.New("gone")).AnyTimes()
+			}
 			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}, FlagConfig: config.ExerciseConfig{MaxActiveTestDeploys: tc.limit}})
-			_, err := uc.DeployVariantTest(context.Background(), owner, uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()))
+			_, err := uc.DeployVariantTest(context.Background(), owner, deviceVersionID, deviceVariantID)
 			if got := errors.Is(err, exerciseModel.ErrTestDeployActiveExists.Err()); got != tc.refused {
 				t.Fatalf("refused=%v, want %v (err %v)", got, tc.refused, err)
 			}

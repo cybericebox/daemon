@@ -1137,6 +1137,7 @@ type Querier interface {
 	// test labs (exercise test deploys). A test lab is active from the creation of
 	// its deploy to its removal (exercise_test_deploy_runs, written by triggers);
 	// a stand is active while creating (1) or ready (2) (event_stand_transitions).
+	// A static test (empty group name) is not a laboratory and is left out.
 	// Every window is clipped to [from_at, least(to_at, now_at)).
 	// One row per kind ('event', 'moderators', 'test'), also when a kind has no
 	// time: hours is the summed active time in the period, labs the number of
@@ -1215,6 +1216,7 @@ type Querier interface {
 	// the admin labs page, the dashboard and the infrastructure analytics. A row of
 	// exercise_test_deployments lives while the lab is leased; the row is removed
 	// when the lab is stopped or its expired lease is cleaned up.
+	// A static test (no group, no lab name, no event) is not a laboratory and never appears here.
 	ListPlatformTestLabs(ctx context.Context, arg ListPlatformTestLabsParams) ([]ListPlatformTestLabsRow, error)
 	// Platform analytics, «Користувачі» (docs/EVENT-ANALYTICS.md §8). Extends
 	// the admin user stats (CountUsersByRoleAll, CountUsersByStatus, the new /
@@ -1295,7 +1297,8 @@ type Querier interface {
 	// solve and the member who submitted the first accepted answer.
 	ListTeamSolveAwards(ctx context.Context, eventTeamID uuid.UUID) ([]ListTeamSolveAwardsRow, error)
 	// Which of the given LabGroup names still hold at least one test deploy row, expired or not
-	// (an expired row is cleaned up by the test deploy job, not by the sweep).
+	// (an expired row is cleaned up by the test deploy job, not by the sweep). A static test has no lab and
+	// an empty group name, which never protects a group.
 	ListTestDeployGroupNames(ctx context.Context, names []string) ([]string, error)
 	// A historical dispatched generation with no persisted requests is unknown,
 	// never a zero-capacity certificate. Unlaunched objective pins do not hold CPU.

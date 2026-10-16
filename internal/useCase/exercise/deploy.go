@@ -74,10 +74,13 @@ func deployVPNRef(deploy exerciseModel.TestDeploy) uuid.NullUUID {
 	}
 	return uuid.NullUUID{UUID: *deploy.EventID, Valid: true}
 }
+
+// sameTestGroup keeps the lab tests of one group. A static test has no group, so it never makes, keeps
+// or blocks the author's group, whatever name is asked for.
 func sameTestGroup(items []exerciseModel.TestDeploy, group string) []exerciseModel.TestDeploy {
 	var out []exerciseModel.TestDeploy
 	for _, d := range items {
-		if d.GroupName == group {
+		if !d.IsStatic() && d.GroupName == group {
 			out = append(out, d)
 		}
 	}
@@ -203,10 +206,20 @@ func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eve
 	return u.deployVariantTest(ctx, &eventID, ownerID, versionID, variantID)
 }
 func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
+	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
+
+	variant, err := u.loadVariant(ctx, versionID, variantID)
+	if err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	// A variant without devices has no laboratory to run: its test is a row with flags and a lease, which needs
+	// no agent. An event preview always needs a laboratory.
+	if eventID == nil && len(variant.Topology.Devices) == 0 {
+		return u.deployStaticTest(ctx, ownerID, versionID, variant)
+	}
 	if u.infra == nil {
 		return exerciseModel.DeployHandle{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
-	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
 
 	// A user may run a limited number of test laboratories, across all exercises.
 	listed, err := u.ListTestDeploys(ctx, ownerID, uuid.Nil)
@@ -217,10 +230,6 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployActiveExists.Err()
 	}
 
-	variant, err := u.loadVariant(ctx, versionID, variantID)
-	if err != nil {
-		return exerciseModel.DeployHandle{}, err
-	}
 	if err := variant.ValidateTopologyForDeploy(); err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
@@ -366,6 +375,49 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	return handle, nil
 }
 
+// deployStaticTest starts the test of a variant without devices: a row with a flag for every task and a lease,
+// no laboratory, group or VPN. It counts toward the author's limit like a laboratory but never touches the agent.
+func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, versionID uuid.UUID, variant exerciseModel.Variant) (exerciseModel.DeployHandle, error) {
+	flags := make([]exerciseModel.DeployFlag, 0, len(variant.Tasks))
+	for _, task := range variant.Tasks {
+		flag, err := flagpattern.Resolve(task.Flag, testFlagRandomBytes, rand.Reader)
+		if err != nil {
+			return exerciseModel.DeployHandle{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve test flag").Err()
+		}
+		flags = append(flags, exerciseModel.DeployFlag{TaskID: task.ID, Name: task.Name, Flag: flag})
+	}
+	now := u.timeNow()
+	id := uuid.Must(uuid.NewV7())
+	// A static request reserves nothing: the calendar admits it without an agent read or a hold.
+	if err := u.admitStaticTest(ctx, id, ownerID); err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	deploy := exerciseModel.NewStaticTestDeploy(id, versionID, variant.ID, ownerID, flags, now, u.testDeployTTL())
+	err := u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		existing, err := repo.ListOwned(ctx, ownerID)
+		if err != nil {
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
+		}
+		if u.activeCount(existing, now) >= u.MaxActiveTestDeploys() {
+			return false, exerciseModel.ErrTestDeployActiveExists.Err()
+		}
+		if _, err = repo.Create(ctx, deploy); err != nil {
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
+		}
+		return true, nil
+	})
+	if err != nil {
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		defer cancel()
+		if releaseErr := u.releaseScopedTestLab(releaseCtx, deploy); releaseErr != nil {
+			err = errors.Join(err, releaseErr)
+		}
+		return exerciseModel.DeployHandle{}, err
+	}
+	u.scheduleTestDeployExpiry(ctx, deploy)
+	return exerciseModel.DeployHandle{Group: id.String(), Static: true, Flags: flags}, nil
+}
+
 // slowTestLabRequest is the duration over which a deploy or destroy request is logged as slow: the HTTP server
 // gives up after a few seconds, so a longer one reaches the user as a gateway error.
 const slowTestLabRequest = 3 * time.Second
@@ -423,7 +475,8 @@ func labNames(items []exerciseModel.TestDeploy, skip uuid.UUID, extra ...string)
 	return append(names, extra...)
 }
 
-// activeLabs are the deploys whose lease still runs.
+// activeLabs are the deploys whose lease still runs. It keeps static tests too, so it only serves the limit;
+// group decisions go through sameTestGroup first.
 func (u *ExerciseUseCase) activeLabs(items []exerciseModel.TestDeploy, now time.Time) []exerciseModel.TestDeploy {
 	out := make([]exerciseModel.TestDeploy, 0, len(items))
 	for _, item := range items {
@@ -577,15 +630,24 @@ func (u *ExerciseUseCase) withOwnerLock(ctx context.Context, owner uuid.UUID, wa
 // exists, it is persisted for the caller under the test scope (best-effort: the
 // config is also returned inline, so a store hiccup must not break polling).
 func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
-	if u.infra == nil {
-		return exerciseModel.LabDeployStatus{}, infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return exerciseModel.LabDeployStatus{}, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	// A static test has nothing to provision: it is ready at once and never asks the agent.
+	if deploy.IsStatic() {
+		return exerciseModel.LabDeployStatus{
+			Ready:       true,
+			ExpiresAt:   deploy.ExpiresAt,
+			Expired:     testDeployExpired(deploy, u.timeNow()),
+			SolvedTasks: deploy.Solved,
+		}, nil
+	}
+	if u.infra == nil {
+		return exerciseModel.LabDeployStatus{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
 	expired := testDeployExpired(deploy, u.timeNow())
@@ -686,15 +748,18 @@ func (u *ExerciseUseCase) CheckTestFlag(ctx context.Context, userID, deployID, t
 // an event. The link is short-lived and fetched fresh on every click; the
 // platform sets no cookie on the lab domain.
 func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error) {
-	if u.infra == nil || u.sessions == nil {
-		return labaccess.Link{}, infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return labaccess.Link{}, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return labaccess.Link{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if err = requireLab(deploy); err != nil {
+		return labaccess.Link{}, err
+	}
+	if u.infra == nil || u.sessions == nil {
+		return labaccess.Link{}, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
 		return labaccess.Link{}, err
@@ -724,9 +789,6 @@ func (u *ExerciseUseCase) OpenTestDeployLink(ctx context.Context, userID, deploy
 // DestroyDeployTest tears a test deploy down: its Lab, and the author's whole group with the VPN
 // config when it was their last Lab. The row stays (Removing) until they are really gone; repeating it is harmless.
 func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployID uuid.UUID) error {
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	defer logDuration("destroy test lab", time.Now(), deployID)
 	return u.underOwnerLock(ctx, userID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, userID)
@@ -735,6 +797,13 @@ func (u *ExerciseUseCase) DestroyDeployTest(ctx context.Context, userID, deployI
 				return false, exerciseModel.ErrTestDeployNotFound.Err()
 			}
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		}
+		if deploy.IsStatic() {
+			// No lab, no group, no agent: the test is simply gone.
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		if u.infra == nil {
+			return false, infraModel.ErrInfrastructureUnavailable.Err()
 		}
 		// The lease ends now: the lab reads as Removing and the expiry pass keeps retrying if the agent fails.
 		if !testDeployExpired(deploy, u.timeNow()) {
@@ -791,9 +860,6 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 // says the Lab (or, with the author's last one, the group) is gone, never earlier; otherwise the next check is queued,
 // up to the bound. A lab that is gone, or whose lease was extended meanwhile, needs nothing.
 func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, deployID uuid.UUID, attempt int) error {
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	ran, err := u.underOwnerLockIfFree(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
 		if err != nil {
@@ -804,6 +870,12 @@ func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, d
 		}
 		if !testDeployExpired(deploy, u.timeNow()) {
 			return false, nil // extended meanwhile
+		}
+		if deploy.IsStatic() {
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		if u.infra == nil {
+			return false, infraModel.ErrInfrastructureUnavailable.Err()
 		}
 		all, err := repo.ListOwned(ctx, ownerID)
 		if err != nil {
@@ -843,9 +915,6 @@ func (u *ExerciseUseCase) finishTestLab(ctx context.Context, repo *testDeployRep
 // and an extension needs no cancelling of the earlier job. A failed agent deletion keeps the row and returns
 // the error: River retries the job and the periodic sweep tries again.
 func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, deployID uuid.UUID) error {
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	// A busy author is skipped: the periodic sweep ends the lab on its next pass.
 	_, err := u.underOwnerLockIfFree(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, ownerID)
@@ -858,6 +927,12 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 		if deploy.ExpiresAt.After(u.timeNow()) {
 			return false, nil // extended meanwhile
 		}
+		if deploy.IsStatic() {
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		if u.infra == nil {
+			return false, infraModel.ErrInfrastructureUnavailable.Err()
+		}
 		return false, u.endTestLab(ctx, repo, deploy, true)
 	})
 	return err
@@ -869,9 +944,6 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 func (u *ExerciseUseCase) CleanupExpiredTestDeploys(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), testLabOperationTimeout)
 	defer cancel()
-	if u.infra == nil {
-		return infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	items, err := u.testDeploys.ListExpired(ctx, u.timeNow())
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list expired test deployments").Err()
@@ -1078,17 +1150,28 @@ func (u *ExerciseUseCase) RescueTestDeployDevice(ctx context.Context, userID, de
 	return controller.RescueDevice(ctx, deploy.GroupName, deploy.LabName, device, enable)
 }
 
+// requireLab refuses a static test (no group, no lab) for the operations that need a laboratory.
+func requireLab(d exerciseModel.TestDeploy) error {
+	if d.IsStatic() {
+		return exerciseModel.ErrTestDeployStatic.Err()
+	}
+	return nil
+}
+
 // testDeviceTarget finds a live test lab the user owns and the agent's device capability.
 func (u *ExerciseUseCase) testDeviceTarget(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.TestDeploy, infraModel.DeviceController, error) {
-	if u.infra == nil {
-		return exerciseModel.TestDeploy{}, nil, infraModel.ErrInfrastructureUnavailable.Err()
-	}
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return exerciseModel.TestDeploy{}, nil, exerciseModel.ErrTestDeployNotFound.Err()
 		}
 		return exerciseModel.TestDeploy{}, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if err = requireLab(deploy); err != nil {
+		return exerciseModel.TestDeploy{}, nil, err
+	}
+	if u.infra == nil {
+		return exerciseModel.TestDeploy{}, nil, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
 		return exerciseModel.TestDeploy{}, nil, err
