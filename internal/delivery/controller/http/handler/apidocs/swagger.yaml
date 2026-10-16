@@ -8204,6 +8204,28 @@ definitions:
         type: string
       LinkURL:
         type: string
+      TargetEventIDs:
+        items:
+          type: string
+        type: array
+      TargetMode:
+        allOf:
+        - $ref: '#/definitions/siteBannerModel.TargetMode'
+        description: TargetMode defaults to all on create. Omission or null preserves
+          targeting on update.
+        enum:
+        - all
+        - selected
+      TargetSites:
+        items:
+          enum:
+          - main
+          - id
+          - admin
+          - exercises
+          - event
+          type: string
+        type: array
       Text:
         type: string
     type: object
@@ -8231,6 +8253,26 @@ definitions:
         type: string
       ScopeEventID:
         type: string
+      TargetEventIDs:
+        items:
+          type: string
+        type: array
+      TargetMode:
+        allOf:
+        - $ref: '#/definitions/siteBannerModel.TargetMode'
+        enum:
+        - all
+        - selected
+      TargetSites:
+        items:
+          enum:
+          - main
+          - id
+          - admin
+          - exercises
+          - event
+          type: string
+        type: array
       Text:
         type: string
       UpdatedAt:
@@ -9995,6 +10037,14 @@ definitions:
       NotificationType:
         type: string
     type: object
+  siteBannerModel.TargetMode:
+    enum:
+    - all
+    - selected
+    type: string
+    x-enum-varnames:
+    - TargetAll
+    - TargetSelected
   stats.channelStatusResponse:
     properties:
       Channel:
@@ -11860,6 +11910,16 @@ paths:
   /banners:
     get:
       parameters:
+      - description: Site context (event requires event id)
+        enum:
+        - main
+        - id
+        - admin
+        - exercises
+        - event
+        in: query
+        name: site
+        type: string
       - description: Event id of an Event site
         in: query
         name: event

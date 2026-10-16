@@ -1,6 +1,8 @@
 package messaging
 
 import (
+	"fmt"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
@@ -11,6 +13,7 @@ import (
 
 func (r bannerRequest) toInput() siteBannerModel.Input {
 	return siteBannerModel.Input{
+		TargetMode: r.TargetMode, TargetSites: r.TargetSites, TargetEventIDs: r.TargetEventIDs,
 		Text: r.Text, LinkURL: r.LinkURL, LinkLabel: r.LinkLabel, Level: siteBannerModel.Level(r.Level),
 		ActiveFrom: r.ActiveFrom, ActiveTo: r.ActiveTo, Dismissible: r.Dismissible,
 		Audience: siteBannerModel.Audience(r.Audience), IsActive: r.IsActive,
@@ -155,24 +158,46 @@ type visibleBannerResponse struct {
 // @Summary  Banners the current viewer sees (public, optional session)
 // @Tags     site-banners
 // @Produce  json
+// @Param    site   query  string  false  "Site context (event requires event id)" Enums(main,id,admin,exercises,event)
 // @Param    event  query  string  false  "Event id of an Event site"
 // @Success  200  {object}  response.Response{data=[]visibleBannerResponse}
 // @Router   /banners [get]
 func (h *Handler) listVisibleBanners(ctx *gin.Context) {
+	site, sitePresent := ctx.GetQuery("site")
+	params := ctx.Request.URL.Query()
+	if values, present := params["site"]; present && (len(values) != 1 || !sitePresent || !siteBannerModel.ValidSite(site)) {
+		response.AbortWithBadRequest(ctx, fmt.Errorf("invalid site context"))
+		return
+	}
 	var eventID *uuid.UUID
+	if values, present := params["event"]; present && (len(values) != 1 || values[0] == "") {
+		response.AbortWithBadRequest(ctx, fmt.Errorf("invalid Event id"))
+		return
+	}
 	if raw := ctx.Query("event"); raw != "" {
 		id, err := uuid.FromString(raw)
 		if err != nil {
 			response.AbortWithBadRequest(ctx, err)
 			return
 		}
+		if id == uuid.Nil {
+			response.AbortWithBadRequest(ctx, fmt.Errorf("invalid Event id"))
+			return
+		}
 		eventID = &id
+		if !sitePresent {
+			site = "event"
+		}
+	}
+	if (eventID != nil && site != "event") || (site == "event" && eventID == nil) {
+		response.AbortWithBadRequest(ctx, fmt.Errorf("site and Event context do not match"))
+		return
 	}
 	var userID *uuid.UUID
 	if claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context()); ok {
 		userID = &claims.UserID
 	}
-	items, err := h.useCase.ListVisibleSiteBanners(ctx.Request.Context(), eventID, userID)
+	items, err := h.useCase.ListVisibleSiteBanners(ctx.Request.Context(), site, eventID, userID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

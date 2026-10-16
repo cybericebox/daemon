@@ -1,9 +1,9 @@
 -- name: CreateSiteBanner :one
 INSERT INTO site_banners (id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible,
-                          audience, is_active, created_by)
+                          audience, is_active, created_by, target_mode, target_sites, target_event_ids)
 VALUES (sqlc.arg(id), sqlc.narg(scope_event_id), sqlc.arg(text), sqlc.arg(link_url), sqlc.arg(link_label),
         sqlc.arg(level), sqlc.narg(active_from), sqlc.narg(active_to), sqlc.arg(dismissible), sqlc.arg(audience),
-        sqlc.arg(is_active), sqlc.narg(created_by))
+        sqlc.arg(is_active), sqlc.narg(created_by), sqlc.arg(target_mode), sqlc.arg(target_sites)::text[], sqlc.arg(target_event_ids)::uuid[])
 RETURNING *;
 
 -- name: UpdateSiteBanner :one
@@ -17,6 +17,9 @@ SET text        = sqlc.arg(text),
     dismissible = sqlc.arg(dismissible),
     audience    = sqlc.arg(audience),
     is_active   = sqlc.arg(is_active),
+    target_mode = CASE WHEN sqlc.arg(update_targeting)::boolean THEN sqlc.arg(target_mode)::text ELSE target_mode END,
+    target_sites = CASE WHEN sqlc.arg(update_targeting)::boolean THEN sqlc.arg(target_sites)::text[] ELSE target_sites END,
+    target_event_ids = CASE WHEN sqlc.arg(update_targeting)::boolean THEN sqlc.arg(target_event_ids)::uuid[] ELSE target_event_ids END,
     updated_at  = now()
 WHERE id = sqlc.arg(id)
 RETURNING *;
@@ -50,6 +53,11 @@ WHERE b.is_active
   AND (b.active_to IS NULL OR b.active_to > now())
   AND (b.scope_event_id IS NULL
     OR (sqlc.arg(event_filter)::text <> '' AND b.scope_event_id::text = sqlc.arg(event_filter)::text))
+  AND (b.scope_event_id IS NOT NULL OR b.target_mode = 'all'
+    OR (b.target_mode = 'selected' AND sqlc.arg(site_filter)::text <> '' AND (
+        sqlc.arg(site_filter)::text = ANY(b.target_sites)
+        OR (sqlc.arg(site_filter)::text = 'event' AND sqlc.arg(event_filter)::text <> ''
+            AND sqlc.arg(event_filter)::text = ANY(SELECT unnest(b.target_event_ids)::text)))))
   AND (b.audience = 'everyone'
     OR (b.audience = 'signed_in' AND sqlc.narg(user_id)::uuid IS NOT NULL)
     OR (b.audience = 'participants' AND sqlc.narg(user_id)::uuid IS NOT NULL AND (
@@ -57,4 +65,4 @@ WHERE b.is_active
                 WHERE p.event_id = b.scope_event_id AND p.user_id = sqlc.narg(user_id)::uuid AND p.status = 2)
         OR EXISTS (SELECT 1 FROM event_managers m
                    WHERE m.event_id = b.scope_event_id AND m.user_id = sqlc.narg(user_id)::uuid))))
-ORDER BY (b.level = 'critical') DESC, (b.level = 'warning') DESC, b.created_at DESC, b.id DESC;
+ORDER BY (b.level = 'critical') DESC, (b.level = 'warning') DESC, (b.scope_event_id IS NULL) DESC, b.created_at DESC, b.id DESC;

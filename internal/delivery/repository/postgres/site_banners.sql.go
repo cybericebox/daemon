@@ -14,26 +14,29 @@ import (
 
 const createSiteBanner = `-- name: CreateSiteBanner :one
 INSERT INTO site_banners (id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible,
-                          audience, is_active, created_by)
+                          audience, is_active, created_by, target_mode, target_sites, target_event_ids)
 VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10,
-        $11, $12)
-RETURNING id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at
+        $11, $12, $13, $14::text[], $15::uuid[])
+RETURNING id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at, target_mode, target_sites, target_event_ids
 `
 
 type CreateSiteBannerParams struct {
-	ID           uuid.UUID          `json:"id"`
-	ScopeEventID uuid.NullUUID      `json:"scope_event_id"`
-	Text         string             `json:"text"`
-	LinkUrl      string             `json:"link_url"`
-	LinkLabel    string             `json:"link_label"`
-	Level        string             `json:"level"`
-	ActiveFrom   pgtype.Timestamptz `json:"active_from"`
-	ActiveTo     pgtype.Timestamptz `json:"active_to"`
-	Dismissible  bool               `json:"dismissible"`
-	Audience     string             `json:"audience"`
-	IsActive     bool               `json:"is_active"`
-	CreatedBy    uuid.NullUUID      `json:"created_by"`
+	ID             uuid.UUID          `json:"id"`
+	ScopeEventID   uuid.NullUUID      `json:"scope_event_id"`
+	Text           string             `json:"text"`
+	LinkUrl        string             `json:"link_url"`
+	LinkLabel      string             `json:"link_label"`
+	Level          string             `json:"level"`
+	ActiveFrom     pgtype.Timestamptz `json:"active_from"`
+	ActiveTo       pgtype.Timestamptz `json:"active_to"`
+	Dismissible    bool               `json:"dismissible"`
+	Audience       string             `json:"audience"`
+	IsActive       bool               `json:"is_active"`
+	CreatedBy      uuid.NullUUID      `json:"created_by"`
+	TargetMode     string             `json:"target_mode"`
+	TargetSites    []string           `json:"target_sites"`
+	TargetEventIds []uuid.UUID        `json:"target_event_ids"`
 }
 
 func (q *Queries) CreateSiteBanner(ctx context.Context, arg CreateSiteBannerParams) (SiteBanner, error) {
@@ -50,6 +53,9 @@ func (q *Queries) CreateSiteBanner(ctx context.Context, arg CreateSiteBannerPara
 		arg.Audience,
 		arg.IsActive,
 		arg.CreatedBy,
+		arg.TargetMode,
+		arg.TargetSites,
+		arg.TargetEventIds,
 	)
 	var i SiteBanner
 	err := row.Scan(
@@ -67,6 +73,9 @@ func (q *Queries) CreateSiteBanner(ctx context.Context, arg CreateSiteBannerPara
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TargetMode,
+		&i.TargetSites,
+		&i.TargetEventIds,
 	)
 	return i, err
 }
@@ -86,7 +95,7 @@ func (q *Queries) DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, er
 }
 
 const getSiteBanner = `-- name: GetSiteBanner :one
-SELECT id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at
+SELECT id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at, target_mode, target_sites, target_event_ids
 FROM site_banners
 WHERE id = $1
 `
@@ -109,12 +118,15 @@ func (q *Queries) GetSiteBanner(ctx context.Context, id uuid.UUID) (SiteBanner, 
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TargetMode,
+		&i.TargetSites,
+		&i.TargetEventIds,
 	)
 	return i, err
 }
 
 const listSiteBanners = `-- name: ListSiteBanners :many
-SELECT id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at
+SELECT id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at, target_mode, target_sites, target_event_ids
 FROM site_banners
 WHERE ($1::text = 'platform' AND scope_event_id IS NULL)
    OR scope_event_id::text = $1::text
@@ -146,6 +158,9 @@ func (q *Queries) ListSiteBanners(ctx context.Context, scopeFilter string) ([]Si
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.TargetMode,
+			&i.TargetSites,
+			&i.TargetEventIds,
 		); err != nil {
 			return nil, err
 		}
@@ -158,25 +173,31 @@ func (q *Queries) ListSiteBanners(ctx context.Context, scopeFilter string) ([]Si
 }
 
 const listVisibleSiteBanners = `-- name: ListVisibleSiteBanners :many
-SELECT b.id, b.scope_event_id, b.text, b.link_url, b.link_label, b.level, b.active_from, b.active_to, b.dismissible, b.audience, b.is_active, b.created_by, b.created_at, b.updated_at
+SELECT b.id, b.scope_event_id, b.text, b.link_url, b.link_label, b.level, b.active_from, b.active_to, b.dismissible, b.audience, b.is_active, b.created_by, b.created_at, b.updated_at, b.target_mode, b.target_sites, b.target_event_ids
 FROM site_banners b
 WHERE b.is_active
   AND (b.active_from IS NULL OR b.active_from <= now())
   AND (b.active_to IS NULL OR b.active_to > now())
   AND (b.scope_event_id IS NULL
     OR ($1::text <> '' AND b.scope_event_id::text = $1::text))
+  AND (b.scope_event_id IS NOT NULL OR b.target_mode = 'all'
+    OR (b.target_mode = 'selected' AND $2::text <> '' AND (
+        $2::text = ANY(b.target_sites)
+        OR ($2::text = 'event' AND $1::text <> ''
+            AND $1::text = ANY(SELECT unnest(b.target_event_ids)::text)))))
   AND (b.audience = 'everyone'
-    OR (b.audience = 'signed_in' AND $2::uuid IS NOT NULL)
-    OR (b.audience = 'participants' AND $2::uuid IS NOT NULL AND (
+    OR (b.audience = 'signed_in' AND $3::uuid IS NOT NULL)
+    OR (b.audience = 'participants' AND $3::uuid IS NOT NULL AND (
         EXISTS (SELECT 1 FROM event_participants p
-                WHERE p.event_id = b.scope_event_id AND p.user_id = $2::uuid AND p.status = 2)
+                WHERE p.event_id = b.scope_event_id AND p.user_id = $3::uuid AND p.status = 2)
         OR EXISTS (SELECT 1 FROM event_managers m
-                   WHERE m.event_id = b.scope_event_id AND m.user_id = $2::uuid))))
-ORDER BY (b.level = 'critical') DESC, (b.level = 'warning') DESC, b.created_at DESC, b.id DESC
+                   WHERE m.event_id = b.scope_event_id AND m.user_id = $3::uuid))))
+ORDER BY (b.level = 'critical') DESC, (b.level = 'warning') DESC, (b.scope_event_id IS NULL) DESC, b.created_at DESC, b.id DESC
 `
 
 type ListVisibleSiteBannersParams struct {
 	EventFilter string        `json:"event_filter"`
+	SiteFilter  string        `json:"site_filter"`
 	UserID      uuid.NullUUID `json:"user_id"`
 }
 
@@ -184,7 +205,7 @@ type ListVisibleSiteBannersParams struct {
 // of event_filter (” = no Event site). user_id is NULL for an anonymous
 // viewer; a participant is an approved participant or a manager of the Event.
 func (q *Queries) ListVisibleSiteBanners(ctx context.Context, arg ListVisibleSiteBannersParams) ([]SiteBanner, error) {
-	rows, err := q.db.Query(ctx, listVisibleSiteBanners, arg.EventFilter, arg.UserID)
+	rows, err := q.db.Query(ctx, listVisibleSiteBanners, arg.EventFilter, arg.SiteFilter, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +228,9 @@ func (q *Queries) ListVisibleSiteBanners(ctx context.Context, arg ListVisibleSit
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.TargetMode,
+			&i.TargetSites,
+			&i.TargetEventIds,
 		); err != nil {
 			return nil, err
 		}
@@ -229,22 +253,29 @@ SET text        = $1,
     dismissible = $7,
     audience    = $8,
     is_active   = $9,
+    target_mode = CASE WHEN $10::boolean THEN $11::text ELSE target_mode END,
+    target_sites = CASE WHEN $10::boolean THEN $12::text[] ELSE target_sites END,
+    target_event_ids = CASE WHEN $10::boolean THEN $13::uuid[] ELSE target_event_ids END,
     updated_at  = now()
-WHERE id = $10
-RETURNING id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at
+WHERE id = $14
+RETURNING id, scope_event_id, text, link_url, link_label, level, active_from, active_to, dismissible, audience, is_active, created_by, created_at, updated_at, target_mode, target_sites, target_event_ids
 `
 
 type UpdateSiteBannerParams struct {
-	Text        string             `json:"text"`
-	LinkUrl     string             `json:"link_url"`
-	LinkLabel   string             `json:"link_label"`
-	Level       string             `json:"level"`
-	ActiveFrom  pgtype.Timestamptz `json:"active_from"`
-	ActiveTo    pgtype.Timestamptz `json:"active_to"`
-	Dismissible bool               `json:"dismissible"`
-	Audience    string             `json:"audience"`
-	IsActive    bool               `json:"is_active"`
-	ID          uuid.UUID          `json:"id"`
+	Text            string             `json:"text"`
+	LinkUrl         string             `json:"link_url"`
+	LinkLabel       string             `json:"link_label"`
+	Level           string             `json:"level"`
+	ActiveFrom      pgtype.Timestamptz `json:"active_from"`
+	ActiveTo        pgtype.Timestamptz `json:"active_to"`
+	Dismissible     bool               `json:"dismissible"`
+	Audience        string             `json:"audience"`
+	IsActive        bool               `json:"is_active"`
+	UpdateTargeting bool               `json:"update_targeting"`
+	TargetMode      string             `json:"target_mode"`
+	TargetSites     []string           `json:"target_sites"`
+	TargetEventIds  []uuid.UUID        `json:"target_event_ids"`
+	ID              uuid.UUID          `json:"id"`
 }
 
 func (q *Queries) UpdateSiteBanner(ctx context.Context, arg UpdateSiteBannerParams) (SiteBanner, error) {
@@ -258,6 +289,10 @@ func (q *Queries) UpdateSiteBanner(ctx context.Context, arg UpdateSiteBannerPara
 		arg.Dismissible,
 		arg.Audience,
 		arg.IsActive,
+		arg.UpdateTargeting,
+		arg.TargetMode,
+		arg.TargetSites,
+		arg.TargetEventIds,
 		arg.ID,
 	)
 	var i SiteBanner
@@ -276,6 +311,9 @@ func (q *Queries) UpdateSiteBanner(ctx context.Context, arg UpdateSiteBannerPara
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TargetMode,
+		&i.TargetSites,
+		&i.TargetEventIds,
 	)
 	return i, err
 }
