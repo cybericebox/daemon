@@ -330,6 +330,10 @@ The `RETENTION_*` periods (all but `RETENTION_BATCH_SIZE`) are defaults: periods
 | `FLAG_RATE_LIMIT_TEAM_ATTEMPTS` / `_WINDOW` | `20` / `1m` | Flag submissions per team overall. |
 | `RATE_LIMIT_USER_PER_MINUTE` / `RATE_LIMIT_USER_BURST` | `1200` / `600` | General request limiter, a token bucket per signed-in user: steady rate per minute and burst. Over it: 429 with `Retry-After`, recorded in the error journal (`http_429`, limiter `user`). Live streams and `/api/health` are exempt. In memory, per replica. |
 | `RATE_LIMIT_ANON_PER_MINUTE` / `RATE_LIMIT_ANON_BURST` | `12000` / `6000` | The same bucket for ALL anonymous requests of the platform together (one global bucket, never per address), so only a real flood trips it (limiter `anonymous`). |
+| `HTTP_INFLIGHT_MAX` | `64` | Requests one replica serves at once (in memory, per replica; the internal listener shares the slots). A request over it waits up to `HTTP_INFLIGHT_WAIT` for a slot, then gets 503 with `Retry-After: 1` (code 70431). `0` turns the cap off. `/api/health` is never limited. Refusals are logged as one `warn` summary at most every 10 s, never per request. |
+| `HTTP_INFLIGHT_WAIT` | `50ms` | How long a general or transfer request waits for a free slot before the 503 (0 to 1s). |
+| `HTTP_INFLIGHT_STREAMS_MAX` | `200` | Live streams (SSE) served at once, on slots of their own; over it the 503 comes at once (no wait). `0` turns the cap off. |
+| `HTTP_INFLIGHT_TRANSFERS_MAX` | `32` | Uploads, file downloads, exports and media streams served at once, on slots of their own (`middleware.TransferRoutes`). `0` turns the cap off. |
 | `LIMIT_SIGN_IN_MAX_FAILURES` | `5` | Wrong passwords for one account (and one signed-in user's password checks) before it is locked. |
 | `LIMIT_SIGN_IN_FAILURE_WINDOW` | `15m` | Window the failures are counted in. |
 | `LIMIT_SIGN_IN_LOCK_BASE` / `LIMIT_SIGN_IN_LOCK_MAX` | `1m` / `15m` | First lock; it doubles up to the maximum. |
