@@ -197,3 +197,34 @@ func TestStandEngine_TransientImageTroubleWaitsUntilTheDeployTimeout(t *testing.
 		}
 	}
 }
+
+// A Lab held for transient image trouble deploys nothing, so it does not use the pass's deploy budget:
+// with a budget of 3 and 3 held Labs among the pending ones (listed before or between them), the 3 Labs
+// of a healthy task still deploy in the same pass.
+func TestStandEngine_HeldLabsDoNotUseTheDeployBudget(t *testing.T) {
+	f := newStandFixture(t)
+	f.standWithImage(t, standPlatformImage)
+	healthy := f.attach(t, true)
+	var versionID uuid.UUID
+	if err := f.db.Pool.QueryRow(context.Background(), `SELECT ee.exercise_version_id FROM event_challenges c
+		JOIN event_exercises ee ON ee.id = c.event_exercise_id WHERE c.id = $1`, healthy).Scan(&versionID); err != nil {
+		t.Fatal(err)
+	}
+	f.sets.topology[versionID] = exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: f.infraDevice, Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1"}}}
+	f.sets.links[versionID] = []exerciseModel.FlagLink{{TaskID: f.infraTaskID, DeviceID: f.infraDevice, Var: "TASK_FLAG"}}
+	f.uc = f.newUseCase(3)
+	images := &fakeEventImages{unavailable: map[string]imageRegistryModel.Reason{standPlatformImage: imageRegistryModel.ReasonUnreachable}}
+	f.uc.SetImageAccess(images)
+	f.pass(t)
+	var nginx int
+	for _, lab := range f.agent.deployed {
+		if f.agent.topos[lab].Devices[0].Image == "nginx:1" {
+			nginx++
+		} else {
+			t.Fatalf("a held Lab was deployed: %s", lab)
+		}
+	}
+	if nginx != 3 {
+		t.Fatalf("deployed %d Labs of the healthy task, want 3: %v", nginx, f.agent.deployed)
+	}
+}

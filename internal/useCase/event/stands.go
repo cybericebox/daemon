@@ -577,8 +577,13 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				continue
 			}
 			budget--
-			if err = u.deployStandLab(ctx, e, lab, topologies, pulls, now); err != nil {
-				errs = append(errs, err)
+			held, deployErr := u.deployStandLab(ctx, e, lab, topologies, pulls, now)
+			if held {
+				// waiting for transient image trouble deploys nothing: the slot goes to the next Lab
+				budget++
+			}
+			if deployErr != nil {
+				errs = append(errs, deployErr)
 			}
 			continue
 		}
@@ -677,9 +682,11 @@ func (u *EventUseCase) failStandLab(ctx context.Context, binding labBindingModel
 	return changed, err
 }
 
-func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, topologies map[topologyKey]exerciseModel.Topology, pulls map[topologyKey]standImages, now time.Time) error {
+// deployStandLab deploys one pending Lab. held is true when the Lab waits for transient image trouble
+// (nothing was tried), so the caller does not count it against the pass's deploy budget.
+func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, topologies map[topologyKey]exerciseModel.Topology, pulls map[topologyKey]standImages, now time.Time) (held bool, err error) {
 	if u.topologies == nil {
-		return model.ErrPlatform.WithMessage("Laboratory deployment is not configured").Err()
+		return false, model.ErrPlatform.WithMessage("Laboratory deployment is not configured").Err()
 	}
 	key := topologyKey{versionID: lab.ExerciseVersionID, variant: lab.VariantIndex}
 	topology, cached := topologies[key]
@@ -687,9 +694,9 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		resolved, err := u.topologies.ResolveDeployedTopology(ctx, lab.ExerciseVersionID, lab.VariantIndex)
 		if err != nil {
 			if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Topology unavailable: "+err.Error())); markErr != nil {
-				return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+				return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 			}
-			return nil
+			return false, nil
 		}
 		topology, topologies[key] = resolved, resolved
 	}
@@ -704,64 +711,64 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 	if pulled.err != nil {
 		if !errors.Is(pulled.err, imageRegistryModel.ErrImagesUnavailable.Err()) || len(pulled.Unavailable) == 0 {
 			// The registry settings or secrets cannot be read: the Lab stays pending for the next pass.
-			return pulled.err
+			return false, pulled.err
 		}
 		image, transient := blockingImage(pulled.Unavailable)
 		// Registry trouble that may clear by itself keeps the Lab pending until the deploy timeout,
 		// counted from the first pass that tried to deploy it.
 		if transient && now.Sub(u.imageWaits.since(waitKey, now)) < eventStandModel.DeployTimeout {
-			return nil
+			return true, nil
 		}
 		u.imageWaits.done(waitKey)
 		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.ImageUnavailableReason(image)); markErr != nil {
-			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+			return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
-		return nil
+		return false, nil
 	}
 	u.imageWaits.done(waitKey)
-	topology, err := u.withTeamFlags(ctx, lab, pulled.Topology)
+	topology, err = u.withTeamFlags(ctx, lab, pulled.Topology)
 	if err != nil {
 		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Flag injection failed: "+err.Error())); markErr != nil {
-			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+			return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
-		return nil
+		return false, nil
 	}
 	if u.lifecycleControls {
 		if err = u.reserveRevealSet(ctx, e.ID, lab.EventExerciseID, now); err != nil {
 			if errors.Is(err, calModel.ErrNotEnoughReserved.Err()) {
-				return nil
+				return false, nil
 			}
-			return err
+			return false, err
 		}
 	}
 	if u.allocationAccounting {
 		if !lab.Binding.LabID.Valid {
-			return nil
+			return false, nil
 		}
 		demand := u.resourcePolicy().Total(topology).Amount
 		storage, known := u.snapshotQuotaFor(topology)
 		if !known {
-			return nil
+			return false, nil
 		}
 		if admitErr := u.AdmitEventLabStart(ctx, e.ID, lab.Binding.EventTeamID, lab.Binding.LabID.UUID, eventLabModel.Compute{CPUMillicores: demand.CPUMillicores, MemoryBytes: demand.MemoryBytes}, storage); admitErr != nil {
 			if errors.Is(admitErr, calModel.ErrNotEnoughReserved.Err()) {
-				return nil
+				return false, nil
 			}
-			return admitErr
+			return false, admitErr
 		}
 	}
 	if u.lifecycleControls && !u.groupAllowsDeployment(ctx, lab.Binding.EventTeamID, now) {
-		return nil
+		return false, nil
 	}
 	meta := standLabMeta(e, lab)
 	meta.PullCredentials = pulled.Credentials
 	if u.allocationAccounting || u.lifecycleControls {
 		canonical, err := u.labs.Get(ctx, lab.Binding.LabID.UUID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if canonical.Ref.Group != lab.Binding.LabGroupName || canonical.Ref.Lab != lab.Binding.LabName || canonical.DesiredState != "Running" || canonical.ClosedAt != nil || canonical.Revision != 1 || canonical.OperationID == uuid.Nil || !canonical.Allocation.ConfiguredRequestsKnown || canonical.Allocation.RuntimeState != "Admitted" {
-			return nil
+			return false, nil
 		}
 		meta.InitialLifecycle = &infraModel.LabInitialLifecycle{OperationID: canonical.OperationID, Revision: canonical.Revision}
 		meta.BeforeCreate = func(ctx context.Context, dispatch infraModel.LabCreateDispatch) error {
@@ -774,17 +781,17 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		// failure. The binding stays pending and the next pass deploys again.
 		if terminating, ok := infraModel.AsTerminating(err); ok {
 			log.Info().Err(terminating).Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Stand lab deploy waits for deletion to finish")
-			return nil
+			return false, nil
 		}
 		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Deploy failed: "+err.Error())); markErr != nil {
-			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+			return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
-		return nil
+		return false, nil
 	}
 	if _, err := u.labBindings.MarkDeployed(ctx, lab.Binding, now); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to record stand lab deploy").Err()
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to record stand lab deploy").Err()
 	}
-	return nil
+	return false, nil
 }
 
 // standLabMeta tells the infrastructure what a team's Lab is: labels to select it by event, team
