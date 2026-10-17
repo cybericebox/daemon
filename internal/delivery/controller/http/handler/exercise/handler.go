@@ -154,6 +154,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks
 		ex.POST("import/uploaded", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
+		// the built-in example archive: same gate as the import it explains
+		ex.GET("import/example", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importExample)
 		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)
 		ex.POST("import", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
 		ex.GET("capabilities", self, h.capabilities)

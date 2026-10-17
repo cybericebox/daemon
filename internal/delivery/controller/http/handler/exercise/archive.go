@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -16,6 +18,7 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	mediaUseCase "github.com/cybericebox/daemon/internal/useCase/media"
 	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
@@ -97,7 +100,7 @@ func (h *Handler) export(ctx *gin.Context) {
 	}
 	chunkSize := h.useCase.UploadChunkBytes()
 	response.AbortWithData(ctx, exportedFileResponse{
-		FileID: stored.ID, Name: stored.Name, Size: stored.SizeBytes, ChunkSize: chunkSize, Chunks: chunkCount(stored.SizeBytes, chunkSize),
+		FileID: stored.ID, Name: stored.Name, Size: stored.SizeBytes, ChunkSize: chunkSize, Chunks: mediaUseCase.ChunkCount(stored.SizeBytes, chunkSize),
 	})
 }
 
@@ -135,6 +138,28 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		return
 	}
 	h.importContents(ctx, claims.UserID, contents, ctx.PostForm("password"))
+}
+
+// importExample godoc
+// @Summary  Download the example import archive (a small built-in ZIP of sample tasks)
+// @Tags     exercises
+// @Produce  application/zip
+// @Success  200  {file}  binary
+// @Failure  500  {object}  response.Response
+// @Router   /exercises/import/example [get]
+func (h *Handler) importExample(ctx *gin.Context) {
+	contents, err := exerciseUseCase.ExampleArchive()
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	serveArchive(ctx, exerciseUseCase.ExampleArchiveFilename, contents)
+}
+
+// serveArchive answers with a small zip held in memory as one attachment.
+func serveArchive(ctx *gin.Context, name string, contents []byte) {
+	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	ctx.Data(http.StatusOK, "application/zip", contents)
 }
 
 type importUploadedRequest struct {

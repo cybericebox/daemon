@@ -15770,6 +15770,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/import/example": {
+            "get": {
+                "produces": [
+                    "application/zip"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Download the example import archive (a small built-in ZIP of sample tasks)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/import/uploaded": {
             "post": {
                 "consumes": [

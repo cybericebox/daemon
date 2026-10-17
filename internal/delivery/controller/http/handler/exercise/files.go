@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	mediaUseCase "github.com/cybericebox/daemon/internal/useCase/media"
 )
 
 // multipartOverheadSlack is added on top of the use case's own upload cap
@@ -205,14 +206,6 @@ type fileMetaResponse struct {
 	SHA256 string `json:"SHA256"`
 }
 
-// chunkCount is how many chunks of chunkSize a file of size bytes takes.
-func chunkCount(size, chunkSize int64) int {
-	if chunkSize <= 0 {
-		return 0
-	}
-	return int((size + chunkSize - 1) / chunkSize)
-}
-
 // authorizedFile reads the file's metadata and checks the caller may download it; a stranger reads a missing file.
 func (h *Handler) authorizedFile(ctx *gin.Context) (mediaModel.File, bool) {
 	fileID, err := uuid.FromString(ctx.Param("fileID"))
@@ -251,7 +244,7 @@ func (h *Handler) fileMeta(ctx *gin.Context) {
 	}
 	chunkSize := h.useCase.UploadChunkBytes()
 	response.AbortWithData(ctx, fileMetaResponse{
-		Name: meta.Name, Size: meta.SizeBytes, ChunkSize: chunkSize, Chunks: chunkCount(meta.SizeBytes, chunkSize), SHA256: meta.ContentHash,
+		Name: meta.Name, Size: meta.SizeBytes, ChunkSize: chunkSize, Chunks: mediaUseCase.ChunkCount(meta.SizeBytes, chunkSize), SHA256: meta.ContentHash,
 	})
 }
 

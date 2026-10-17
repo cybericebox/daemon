@@ -21218,6 +21218,23 @@ paths:
       summary: Import an exercise ZIP archive
       tags:
       - exercises
+  /exercises/import/example:
+    get:
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Download the example import archive (a small built-in ZIP of sample
+        tasks)
+      tags:
+      - exercises
   /exercises/import/uploaded:
     post:
       consumes:

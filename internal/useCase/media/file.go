@@ -118,7 +118,7 @@ func (u *MediaUseCase) StreamFile(ctx context.Context, id uuid.UUID) (io.ReadClo
 	return rc, f, nil
 }
 
-// chunkCount is how many chunks of chunkBytes a file of size bytes takes.
+// ChunkCount is how many chunks of chunkBytes a file of size bytes takes (0 for a non-positive chunk size).
 func ChunkCount(size, chunkBytes int64) int {
 	if chunkBytes <= 0 {
 		return 0
