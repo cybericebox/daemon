@@ -517,3 +517,19 @@ func TestPullTokenWithClearIsRefused(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestRequireImageUploads(t *testing.T) {
+	f := newFixture(t, true)
+	f.empty()
+	if err := f.uc.RequireImageUploads(context.Background()); !errors.Is(err, imageRegistryModel.ErrRegistryNotConfigured.Err()) {
+		t.Fatalf("not configured: %v", err)
+	}
+	g := newFixture(t, true)
+	g.stored(postgres.ImageRegistrySetting{
+		ID: true, Provider: "ghcr", Account: "acme", Repository: "acme/tasks",
+		PushTokenCiphertext: g.seal(t, pushToken, "push"), UpdatedAt: t0,
+	})
+	if err := g.uc.RequireImageUploads(context.Background()); err != nil {
+		t.Fatalf("configured: %v", err)
+	}
+}

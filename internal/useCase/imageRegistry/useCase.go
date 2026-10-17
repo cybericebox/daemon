@@ -148,6 +148,13 @@ func (u *ImageRegistryUseCase) PlatformRegistryClient(ctx context.Context, push 
 	return u.newClient(s.Provider, s.Repository, s.Account, token), s, nil
 }
 
+// RequireImageUploads refuses an image upload before it starts while the platform registry is not configured
+// (ErrRegistryNotConfigured, as PlatformRegistryClient): the blobs would be uploaded for nothing.
+func (u *ImageRegistryUseCase) RequireImageUploads(ctx context.Context) error {
+	_, _, err := u.PlatformRegistryClient(ctx, true)
+	return err
+}
+
 // platformToken returns the stored settings and the opened token (see
 // PlatformRegistryClient); token "" means the registry is not configured.
 // The error is only a failure to read the settings.

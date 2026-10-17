@@ -124,6 +124,7 @@ type (
 		ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (imageRegistryUseCase.Scope, error)
 		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
 		// image upload through the site (the platform registry)
+		RequireImageUploads(ctx context.Context) error
 		MissingBlobs(ctx context.Context, digests []string) ([]string, error)
 		PushStagedBlob(ctx context.Context, in imageRegistryUseCase.PushBlobInput) (imageRegistryUseCase.BlobStatus, error)
 		ImageBlobStatus(ctx context.Context, digest string) (imageRegistryUseCase.BlobStatus, error)

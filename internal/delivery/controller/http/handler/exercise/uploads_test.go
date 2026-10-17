@@ -17,6 +17,7 @@ import (
 
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
 
@@ -33,6 +34,14 @@ type chunkedUC struct {
 	purpose  mediaModel.UploadPurpose
 	aborted  bool
 	complete mediaModel.File
+	// noRegistry is what RequireImageUploads answers (nil: the platform registry is configured).
+	noRegistry error
+	required   int
+}
+
+func (c *chunkedUC) RequireImageUploads(context.Context) error {
+	c.required++
+	return c.noRegistry
 }
 
 func (c *chunkedUC) UploadChunkBytes() int64 { return 4 }
@@ -170,5 +179,25 @@ func TestChunkedUpload_StartPassesThePurpose(t *testing.T) {
 	uc.purpose = "unchanged"
 	if code := start(`{"Name":"a.bin","Size":10,"Purpose":"avatar"}`); code != http.StatusBadRequest || uc.purpose != "unchanged" {
 		t.Fatalf("unknown purpose: %d", code)
+	}
+}
+
+// An image-blob upload is refused before it starts while the platform registry is not configured: the
+// archive would be uploaded for nothing. Ordinary files do not ask.
+func TestChunkedUpload_ImageBlobNeedsTheRegistry(t *testing.T) {
+	uc := &chunkedUC{upload: sampleUpload(), noRegistry: imageRegistryModel.ErrRegistryNotConfigured.Err()}
+	r := newChunkedEngine(uc, uuid.Must(uuid.NewV7()))
+	start := func(body string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/uploads", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := start(`{"Name":"sha256-x","Size":10,"Purpose":"image-blob"}`); code == http.StatusOK || uc.started[0] != nil {
+		t.Fatalf("image blob without a registry: %d started=%v", code, uc.started)
+	}
+	if code := start(`{"Name":"a.bin","Size":10}`); code != http.StatusOK || uc.required != 1 {
+		t.Fatalf("file: %d, registry asked %d times", code, uc.required)
 	}
 }

@@ -85,6 +85,7 @@ func parseUploadID(ctx *gin.Context) (uuid.UUID, bool) {
 // @Param    body  body  startUploadRequest  true  "file name, type and size"
 // @Success  200  {object}  response.Response{data=uploadResponse}
 // @Failure  400  {object}  response.Response
+// @Failure  409  {object}  response.Response  "Purpose image-blob while the platform image registry is not configured"
 // @Router   /exercises/uploads [post]
 func (h *Handler) startUpload(ctx *gin.Context) {
 	actor, ok := h.uploadActor(ctx)
@@ -96,7 +97,15 @@ func (h *Handler) startUpload(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	upload, err := h.useCase.StartUpload(ctx, req.Name, req.ContentType, req.Size, actor.UserID, mediaModel.UploadPurpose(req.Purpose))
+	purpose := mediaModel.UploadPurpose(req.Purpose)
+	if purpose == mediaModel.UploadPurposeImageBlob {
+		// an image blob can only go to the platform registry: do not take up to 10 GiB it cannot push
+		if err := h.useCase.RequireImageUploads(ctx); err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+	}
+	upload, err := h.useCase.StartUpload(ctx, req.Name, req.ContentType, req.Size, actor.UserID, purpose)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
