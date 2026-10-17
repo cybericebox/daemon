@@ -429,3 +429,17 @@ func TestRateLimitExemptRoutesAreMounted(t *testing.T) {
 		}
 	}
 }
+
+// Every transfer route template must be mounted: a renamed upload or download would silently fall back to the
+// general in-flight slots.
+func TestTransferRoutesAreMounted(t *testing.T) {
+	mounted := map[string]bool{}
+	for _, s := range buildRoutePolicy(t) {
+		mounted[s.path] = true
+	}
+	for route := range middleware.TransferRoutes {
+		if !mounted[route] {
+			t.Errorf("%s is a transfer route of the in-flight limiter but not mounted", route)
+		}
+	}
+}
