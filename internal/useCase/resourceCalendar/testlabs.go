@@ -120,7 +120,9 @@ func (u *ResourceCalendarUseCase) fitsAbovePool(agents []calModel.Agent, rs []*c
 
 // SetTestLabLease wires the test lab lease in force (the platform settings) for requests naming none, so a room
 // check answers for the lease the admission will hold.
-func (u *ResourceCalendarUseCase) SetTestLabLease(lease func(context.Context) time.Duration) { u.testLabLease = lease }
+func (u *ResourceCalendarUseCase) SetTestLabLease(lease func(context.Context) time.Duration) {
+	u.testLabLease = lease
+}
 
 func (u *ResourceCalendarUseCase) leaseOf(ctx context.Context, l time.Duration) time.Duration {
 	if l > 0 {

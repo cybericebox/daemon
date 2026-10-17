@@ -22,6 +22,7 @@ import (
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
 const daySeconds = int64(24 * 60 * 60)
@@ -382,4 +383,70 @@ func TestLoadTyped_WarnsOncePerStoredRow(t *testing.T) {
 		require.NoError(t, err)
 	}
 	assert.Equal(t, 2, strings.Count(warnings.String(), `"level":"warn"`))
+}
+
+// One archive entry may not be larger than one stored file (MEDIA_MAX_UPLOAD_BYTES): the form's bound says so and a
+// save over it is refused under EntryBytes, nothing written.
+func TestArchiveLimits_EntryBoundByTheMediaUploadLimit(t *testing.T) {
+	const mib = int64(1 << 20)
+	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	retention, testRuns := typedDefaults()
+	uc := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retention, TestRunDefaults: testRuns, MaxUploadBytes: 256 * mib})
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).Return(postgres.AppSetting{}, pgx.ErrNoRows)
+
+	view, err := uc.GetArchiveLimitSettings(context.Background())
+	require.NoError(t, err)
+	for _, f := range view.Fields {
+		switch f.Key {
+		case "EntryBytes":
+			assert.Equal(t, 256*mib, f.Max, "the media upload limit is tighter than 1 GiB")
+		case "UnpackedBytes", "ArchiveBytes":
+			assert.Equal(t, 1024*mib, f.Max)
+		}
+	}
+
+	_, err = uc.SaveArchiveLimitSettings(context.Background(), platformSettingsModel.Values{
+		"ArchiveBytes": 512 * mib, "EntryBytes": 256*mib + 1, "UnpackedBytes": 512 * mib, "Entries": 1000,
+	})
+	require.ErrorIs(t, err, platformSettingsModel.ErrArchiveEntryOverMediaLimit.Err())
+	var typed appErr.Error
+	require.ErrorAs(t, err, &typed)
+	assert.Equal(t, "EntryBytes", typed.PublicContext()["field"])
+	assert.EqualValues(t, 256*mib, typed.PublicContext()["max"])
+
+	// A media limit above 1 GiB leaves the field's own bound.
+	big := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retention, TestRunDefaults: testRuns, MaxUploadBytes: 4096 * mib})
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).Return(postgres.AppSetting{}, pgx.ErrNoRows)
+	view, err = big.GetArchiveLimitSettings(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1024*mib, view.Fields[1].Max)
+}
+
+// Ignored: a saved row exists (Custom) but does not apply, so the defaults are in force.
+func TestTypedView_IgnoredWhenTheSavedRowDoesNotApply(t *testing.T) {
+	for name, tc := range map[string]struct {
+		stored  string
+		ignored bool
+	}{
+		"valid":        {`{"Lease":3600,"LeaseMax":28800}`, false},
+		"out of range": {`{"Lease":1}`, true},
+		"broken":       {`{"Lease":`, true},
+		"null":         {`null`, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo, uc := setupTyped(t)
+			repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.TestRunsKey).
+				Return(storedRow(platformSettingsModel.TestRunsKey, tc.stored), nil)
+			view, err := uc.GetTestRunSettings(context.Background())
+			require.NoError(t, err)
+			assert.True(t, view.Custom)
+			assert.Equal(t, tc.ignored, view.Ignored)
+		})
+	}
+	repo, uc := setupTyped(t)
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.TestRunsKey).Return(postgres.AppSetting{}, pgx.ErrNoRows)
+	view, err := uc.GetTestRunSettings(context.Background())
+	require.NoError(t, err)
+	assert.False(t, view.Custom)
+	assert.False(t, view.Ignored, "no row: nothing ignored")
 }

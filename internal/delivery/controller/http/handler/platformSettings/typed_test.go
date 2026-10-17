@@ -22,7 +22,7 @@ import (
 var typedUpdatedAt = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 
 func sampleTypedView() platformSettingsUseCase.TypedView {
-	return platformSettingsUseCase.TypedView{Custom: true, UpdatedAt: &typedUpdatedAt, Fields: []platformSettingsUseCase.FieldView{
+	return platformSettingsUseCase.TypedView{Custom: true, Ignored: true, UpdatedAt: &typedUpdatedAt, Fields: []platformSettingsUseCase.FieldView{
 		{Key: "Lease", Kind: "duration", Value: 3600, Default: 7200, Min: 3600, Max: 86400},
 	}}
 }
@@ -125,6 +125,7 @@ func TestTypedGet_ResponseShape(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, true, got.Data["Custom"])
+	assert.Equal(t, true, got.Data["Ignored"])
 	assert.Equal(t, "2026-10-18T12:00:00Z", got.Data["UpdatedAt"])
 	fields := got.Data["Fields"].([]any)
 	require.Len(t, fields, 1)

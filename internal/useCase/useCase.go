@@ -231,6 +231,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Repo:              deps.Repo,
 			RetentionDefaults: deps.RetentionPolicy,
 			TestRunDefaults:   exerciseModel.TestRunLeases{Lease: deps.ExerciseConfig.TestDeployTTL, Max: deps.ExerciseConfig.TestDeployTTLMax},
+			MaxUploadBytes:    deps.MediaConfig.MaxUploadBytes,
 		},
 	)
 

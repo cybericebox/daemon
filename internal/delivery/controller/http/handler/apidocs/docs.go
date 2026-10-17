@@ -38456,6 +38456,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/platformSettings.typedFieldResponse"
                     }
                 },
+                "Ignored": {
+                    "description": "Ignored: a value is saved but does not apply (it no longer validates or does not parse), so the defaults are\nin force; reset or save again.",
+                    "type": "boolean"
+                },
                 "UpdatedAt": {
                     "type": "string"
                 }

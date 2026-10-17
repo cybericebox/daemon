@@ -653,4 +653,7 @@ func TestCheckTestLabRoom_WithoutLeaseTakesTheSavedLease(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, long.Available, "a 4-hour lease runs into the event")
 	require.NotNil(t, long.NearestFrom)
+	want, err = h.uc.CheckTestLabRoom(ctx, owner, lab, Amount{}, 4*time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, want, long, "the proposed window is computed for the saved 4 hours")
 }

@@ -21,6 +21,7 @@ type (
 		settings          *platformSettingsRepo.Repository
 		retentionDefaults retentionModel.Policy
 		testRunDefaults   exerciseModel.TestRunLeases
+		maxUploadBytes    int64
 		// warnedRows is the stored row version last warned about, per key (warnStored).
 		warnedRows sync.Map
 		now        func() time.Time
@@ -32,6 +33,9 @@ type (
 		// (no config) is 2h, its total 8h.
 		RetentionDefaults retentionModel.Policy
 		TestRunDefaults   exerciseModel.TestRunLeases
+		// MaxUploadBytes is the limit of one stored file (MEDIA_MAX_UPLOAD_BYTES): one archive entry may not be larger.
+		// Zero: no such bound.
+		MaxUploadBytes int64
 		// Now is the clock; nil: time.Now.
 		Now func() time.Time
 	}
@@ -53,6 +57,7 @@ func NewPlatformSettingsUseCase(deps Dependencies) *PlatformSettingsUseCase {
 		settings:          platformSettingsRepo.New(deps.Repo),
 		retentionDefaults: deps.RetentionDefaults,
 		testRunDefaults:   testRuns,
+		maxUploadBytes:    deps.MaxUploadBytes,
 		now:               now,
 	}
 	warnDefaultsOutOfRange(u.retentionSetting())

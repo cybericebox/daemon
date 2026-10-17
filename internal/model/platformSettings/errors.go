@@ -11,7 +11,7 @@ import (
 // typed value carries the public context `field` (and `min`/`max` for a range)
 // so the admin form shows the error under that field.
 //
-// SettingObjectCode — next free detail code: 9
+// SettingObjectCode — next free detail code: 10
 var (
 	ErrSettingNotFound = err.ErrObjectNotFound.WithObjectCode(model.SettingObjectCode).
 				WithMessage("Setting not found").
@@ -41,4 +41,8 @@ var (
 	// (that would bypass its validation).
 	ErrTypedSettingNotGeneric = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
 					WithMessage("This setting is saved on its own settings tab").WithDetailCode(8)
+	// ErrArchiveEntryOverMediaLimit: one archive file may not be larger than one stored file
+	// (MEDIA_MAX_UPLOAD_BYTES): an attachment that size could not be stored.
+	ErrArchiveEntryOverMediaLimit = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
+					WithMessage("One archive file may not be larger than the file upload limit").WithDetailCode(9)
 )

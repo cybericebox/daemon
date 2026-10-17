@@ -43,8 +43,11 @@ type (
 	}
 
 	// TypedView is a typed setting for the admin form. Custom: a value is saved (reset brings back the defaults).
+	// Ignored: a value is saved but does not apply (it does not parse or no longer validates), the defaults are in
+	// force.
 	TypedView struct {
 		Custom    bool
+		Ignored   bool
 		UpdatedAt *time.Time
 		Fields    []FieldView
 	}
@@ -59,19 +62,44 @@ type (
 		key      string
 		specs    []platformSettingsModel.FieldSpec
 		defaults T
+		// maxes are bounds tighter than the specs' that the platform sets (shown as the field's Max); check refuses
+		// a value over them on save. Both optional.
+		maxes map[string]int64
+		check func(T) error
 	}
 )
 
 func (u *PlatformSettingsUseCase) retentionSetting() typedSetting[retentionModel.Policy] {
-	return typedSetting[retentionModel.Policy]{platformSettingsModel.RetentionKey, retentionModel.SettingsFields, u.retentionDefaults}
+	return typedSetting[retentionModel.Policy]{key: platformSettingsModel.RetentionKey, specs: retentionModel.SettingsFields, defaults: u.retentionDefaults}
 }
 
 func (u *PlatformSettingsUseCase) archiveLimitSetting() typedSetting[exerciseModel.ArchiveLimits] {
-	return typedSetting[exerciseModel.ArchiveLimits]{platformSettingsModel.ArchiveLimitsKey, exerciseModel.ArchiveLimitFields, exerciseModel.DefaultArchiveLimits()}
+	s := typedSetting[exerciseModel.ArchiveLimits]{key: platformSettingsModel.ArchiveLimitsKey, specs: exerciseModel.ArchiveLimitFields, defaults: exerciseModel.DefaultArchiveLimits()}
+	// One file of an archive becomes one stored file: it may not be larger than the media upload limit.
+	if limit := u.maxUploadBytes; limit > 0 && limit < specMax(s.specs, "EntryBytes") {
+		s.maxes = map[string]int64{"EntryBytes": limit}
+		s.check = func(l exerciseModel.ArchiveLimits) error {
+			if l.EntryBytes > limit {
+				return platformSettingsModel.ErrArchiveEntryOverMediaLimit.WithPublicContext("field", "EntryBytes").WithPublicContext("max", limit).Err()
+			}
+			return nil
+		}
+	}
+	return s
 }
 
 func (u *PlatformSettingsUseCase) testRunSetting() typedSetting[exerciseModel.TestRunLeases] {
-	return typedSetting[exerciseModel.TestRunLeases]{platformSettingsModel.TestRunsKey, exerciseModel.TestRunFields, u.testRunDefaults}
+	return typedSetting[exerciseModel.TestRunLeases]{key: platformSettingsModel.TestRunsKey, specs: exerciseModel.TestRunFields, defaults: u.testRunDefaults}
+}
+
+// specMax is the spec's own upper bound of the field key.
+func specMax(specs []platformSettingsModel.FieldSpec, key string) int64 {
+	for _, spec := range specs {
+		if spec.Key == key {
+			return spec.Max
+		}
+	}
+	return 0
 }
 
 func (u *PlatformSettingsUseCase) GetRetentionSettings(ctx context.Context) (TypedView, error) {
@@ -112,61 +140,61 @@ func (u *PlatformSettingsUseCase) ResetTestRunSettings(ctx context.Context) (Typ
 
 // RetentionPolicy is the retention policy in force: the saved periods over the defaults, BatchSize from the defaults.
 func (u *PlatformSettingsUseCase) RetentionPolicy(ctx context.Context) (retentionModel.Policy, error) {
-	p, _, err := loadTyped(ctx, u, u.retentionSetting())
+	p, _, _, err := loadTyped(ctx, u, u.retentionSetting())
 	return p, err
 }
 
 // ArchiveLimits are the task archive limits in force.
 func (u *PlatformSettingsUseCase) ArchiveLimits(ctx context.Context) (exerciseModel.ArchiveLimits, error) {
-	l, _, err := loadTyped(ctx, u, u.archiveLimitSetting())
+	l, _, _, err := loadTyped(ctx, u, u.archiveLimitSetting())
 	return l, err
 }
 
 // TestRunLeases are the test deployment leases in force.
 func (u *PlatformSettingsUseCase) TestRunLeases(ctx context.Context) (exerciseModel.TestRunLeases, error) {
-	l, _, err := loadTyped(ctx, u, u.testRunSetting())
+	l, _, _, err := loadTyped(ctx, u, u.testRunSetting())
 	return l, err
 }
 
 // loadTyped resolves the value in force and the stored row (nil: none). A stored value that does not parse or no
 // longer validates (bounds tightened, a hand-edited row, a 0 that would purge everything) never takes effect: it is
-// logged and the defaults apply. A database error is returned.
-func loadTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase, s typedSetting[T]) (T, *platformSettingsModel.PlatformSetting, error) {
+// logged and the defaults apply (ignored). A database error is returned.
+func loadTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase, s typedSetting[T]) (value T, stored *platformSettingsModel.PlatformSetting, ignored bool, err error) {
 	row, err := u.settings.GetByKey(ctx, s.key)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			return s.defaults, nil, nil
+			return s.defaults, nil, false, nil
 		}
 		var zero T
-		return zero, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get a typed setting").Err()
+		return zero, nil, false, model.ErrPlatform.WithError(err).WithMessage("Failed to get a typed setting").Err()
 	}
-	var stored platformSettingsModel.Values
-	if err = json.Unmarshal(row.Value, &stored); err != nil {
+	var values platformSettingsModel.Values
+	if err = json.Unmarshal(row.Value, &values); err != nil {
 		u.warnStored(row, log.Warn().Err(err).Str("key", s.key), "Stored setting does not parse, the defaults apply")
-		return s.defaults, &row, nil
+		return s.defaults, &row, true, nil
 	}
-	if stored == nil {
+	if values == nil {
 		u.warnStored(row, log.Warn().Str("key", s.key), "Stored setting is null, the defaults apply")
-		return s.defaults, &row, nil
+		return s.defaults, &row, true, nil
 	}
-	unknown := unknownKeys(stored, s.specs)
-	value, err := s.defaults.WithValues(platformSettingsModel.Overlay(s.defaults.Values(), stored, s.specs))
+	unknown := unknownKeys(values, s.specs)
+	value, err = s.defaults.WithValues(platformSettingsModel.Overlay(s.defaults.Values(), values, s.specs))
 	if err != nil {
 		event := log.Warn().Err(err).Str("key", s.key)
 		if field, ok := failingField(err); ok {
 			event = event.Str("field", field)
-			if _, fromRow := stored[field]; !fromRow {
+			if _, fromRow := values[field]; !fromRow {
 				u.warnStored(row, event, "A default of this setting is out of range (see the startup warning), the defaults apply")
-				return s.defaults, &row, nil
+				return s.defaults, &row, true, nil
 			}
 		}
 		u.warnStored(row, event, "Stored setting is not valid, the defaults apply")
-		return s.defaults, &row, nil
+		return s.defaults, &row, true, nil
 	}
 	if len(unknown) > 0 {
 		u.warnStored(row, log.Warn().Str("key", s.key).Strs("unknown", unknown), "Stored setting has fields no longer known, they are ignored")
 	}
-	return value, &row, nil
+	return value, &row, false, nil
 }
 
 // warnStored logs a warning about a stored row once per row version: the sources are read on every pass and request,
@@ -217,11 +245,11 @@ func warnDefaultsOutOfRange[T typedValue[T]](s typedSetting[T]) {
 }
 
 func getTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase, s typedSetting[T]) (TypedView, error) {
-	value, row, err := loadTyped(ctx, u, s)
+	value, row, ignored, err := loadTyped(ctx, u, s)
 	if err != nil {
 		return TypedView{}, err
 	}
-	return typedView(s, value, row), nil
+	return typedView(s, value, row, ignored), nil
 }
 
 // saveTyped stores every field of in after the domain accepts the whole set; a refused set writes nothing.
@@ -229,6 +257,11 @@ func saveTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase,
 	value, err := s.defaults.WithValues(in)
 	if err != nil {
 		return TypedView{}, err
+	}
+	if s.check != nil {
+		if err = s.check(value); err != nil {
+			return TypedView{}, err
+		}
 	}
 	data, err := json.Marshal(value.Values())
 	if err != nil {
@@ -238,7 +271,7 @@ func saveTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase,
 	if err != nil {
 		return TypedView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save a typed setting").Err()
 	}
-	return typedView(s, value, &saved), nil
+	return typedView(s, value, &saved, false), nil
 }
 
 // resetTyped removes the stored value: the defaults apply again.
@@ -246,20 +279,24 @@ func resetTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase
 	if err := u.settings.Delete(ctx, s.key); err != nil {
 		return TypedView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to reset a typed setting").Err()
 	}
-	return typedView(s, s.defaults, nil), nil
+	return typedView(s, s.defaults, nil, false), nil
 }
 
-func typedView[T typedValue[T]](s typedSetting[T], value T, row *platformSettingsModel.PlatformSetting) TypedView {
+func typedView[T typedValue[T]](s typedSetting[T], value T, row *platformSettingsModel.PlatformSetting, ignored bool) TypedView {
 	values, defaults := value.Values(), s.defaults.Values()
-	v := TypedView{Fields: make([]FieldView, 0, len(s.specs))}
+	v := TypedView{Ignored: ignored, Fields: make([]FieldView, 0, len(s.specs))}
 	if row != nil {
 		updatedAt := row.UpdatedAt
 		v.Custom, v.UpdatedAt = true, &updatedAt
 	}
 	for _, spec := range s.specs {
+		maximum := spec.Max
+		if tighter, ok := s.maxes[spec.Key]; ok {
+			maximum = tighter
+		}
 		v.Fields = append(v.Fields, FieldView{
 			Key: spec.Key, Kind: string(spec.Kind), Value: values[spec.Key], Default: defaults[spec.Key],
-			Min: spec.Min, Max: spec.Max, InPrivacyPolicy: spec.InPrivacyPolicy,
+			Min: spec.Min, Max: maximum, InPrivacyPolicy: spec.InPrivacyPolicy,
 		})
 	}
 	return v

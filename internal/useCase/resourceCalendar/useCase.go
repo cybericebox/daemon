@@ -167,7 +167,7 @@ type (
 		overhead func() Amount
 		// testLabLease is the lease in force for a request naming none (SetTestLabLease); nil: cfg.TestLabLease.
 		testLabLease func(context.Context) time.Duration
-		now      func() time.Time
+		now          func() time.Time
 	}
 )
 

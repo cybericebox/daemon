@@ -34,13 +34,16 @@ type typedFieldResponse struct {
 
 type typedSettingResponse struct {
 	// Custom: a value is saved; false: the defaults apply.
-	Custom    bool                 `json:"Custom"`
+	Custom bool `json:"Custom"`
+	// Ignored: a value is saved but does not apply (it no longer validates or does not parse), so the defaults are
+	// in force; reset or save again.
+	Ignored   bool                 `json:"Ignored"`
 	UpdatedAt *time.Time           `json:"UpdatedAt"`
 	Fields    []typedFieldResponse `json:"Fields"`
 }
 
 func toTypedResponse(v platformSettingsUseCase.TypedView) typedSettingResponse {
-	out := typedSettingResponse{Custom: v.Custom, UpdatedAt: v.UpdatedAt, Fields: make([]typedFieldResponse, 0, len(v.Fields))}
+	out := typedSettingResponse{Custom: v.Custom, Ignored: v.Ignored, UpdatedAt: v.UpdatedAt, Fields: make([]typedFieldResponse, 0, len(v.Fields))}
 	for _, f := range v.Fields {
 		out.Fields = append(out.Fields, typedFieldResponse{
 			Key: f.Key, Kind: f.Kind, Value: f.Value, Default: f.Default, Min: f.Min, Max: f.Max, InPrivacyPolicy: f.InPrivacyPolicy,
