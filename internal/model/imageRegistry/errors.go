@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 20
+// ImageRegistryObjectCode — next free detail code: 24
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -49,18 +49,33 @@ var (
 	// ErrEventSecretTokenRequired: a secret moved to another host must get a new token, never reuse the stored one.
 	ErrEventSecretTokenRequired = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("Enter the token again when the registry host changes").WithDetailCode(15)
-	// ErrBlobDigestMismatch: the staged file's sha256 or size is not the blob the client named; nothing is pushed.
+	// ErrBlobDigestMismatch: the upload's size is not the blob's the client named; nothing is pushed (a wrong
+	// sha256 is found by the background push: state failed, reason digest_mismatch).
 	ErrBlobDigestMismatch = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
-				WithMessage("The uploaded layer does not match its digest").WithDetailCode(16)
+				WithMessage("The uploaded layer does not match its digest or size").WithDetailCode(16)
 	// ErrBlobMissing: an image names a blob the registry does not have (public context "digest"); upload it first.
 	ErrBlobMissing = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 			WithMessage("An image layer is not uploaded yet").WithDetailCode(17)
-	// ErrStagedBlobNotFound (category A, anti-enumeration): the staged file does not exist or belongs to another
-	// user; the client cannot tell the two apart.
+	// ErrStagedBlobNotFound (category A, anti-enumeration): the upload does not exist, expired or belongs to
+	// another user; the client cannot tell them apart.
 	ErrStagedBlobNotFound = err.ErrObjectNotFound.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("The uploaded layer was not found").WithDetailCode(18)
 	ErrInvalidBlobDigest = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Invalid layer digest").WithDetailCode(19)
+	// ErrBlobUploadNotReady: the upload named for a blob push is not an image-layer upload, or not all its chunks
+	// arrived yet.
+	ErrBlobUploadNotReady = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("The layer upload is not complete").WithDetailCode(20)
+	// ErrBlobSizeMismatch: an image names a blob with a size other than the registry's (public context "digest").
+	ErrBlobSizeMismatch = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("An image layer has a different size than stated").WithDetailCode(21)
+	// ErrInvalidImageConfig: the image config is not linux/amd64, does not list one diff id per layer, cannot be
+	// read, or is larger than MaxImageConfigBytes.
+	ErrInvalidImageConfig = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("The image must be a linux/amd64 image with a valid config").WithDetailCode(22)
+	// ErrUploaderUnknown: an image upload call without a signed-in caller.
+	ErrUploaderUnknown = err.ErrUnauthenticated.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("Sign in to upload images").WithDetailCode(23)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming
@@ -74,6 +89,6 @@ const (
 	ContextReason = "reason"
 	ContextToken  = "token"
 	ContextImages = "images"
-	// ContextDigest is the public error context of ErrBlobMissing: the digest of the blob to upload.
+	// ContextDigest is the public error context of ErrBlobMissing and ErrBlobSizeMismatch: the blob's digest.
 	ContextDigest = "digest"
 )

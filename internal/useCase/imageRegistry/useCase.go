@@ -47,25 +47,29 @@ type (
 		Adapter AdapterFactory
 		// Now defaults to time.Now.
 		Now func() time.Time
-		// Media reads the blobs staged through the chunked upload (image upload); nil: pushing a staged blob is
-		// a platform error.
-		Media MediaSource
+		// Media reads and drops the chunked uploads of image blobs; QueueBlobPush queues their background push.
+		// Nil: asking for a blob push is a platform error.
+		Media         MediaSource
+		QueueBlobPush BlobPushQueue
 		// HeadTimeout bounds one registry request of an availability check (default 10 s);
 		// CallTimeout bounds one whole check call (default 30 s).
 		HeadTimeout, CallTimeout time.Duration
 	}
 
 	ImageRegistryUseCase struct {
-		settings  *imageRegistryRepo.Repository
-		secrets   *imageRegistryRepo.EventSecrets
-		images    *imageRegistryRepo.PlatformImages
-		media     MediaSource
-		cipher    secret.Sealer
-		newClient ClientFactory
-		external  ExternalClientFactory
-		adapter   AdapterFactory
-		now       func() time.Time
-		available *availabilityCache
+		settings *imageRegistryRepo.Repository
+		secrets  *imageRegistryRepo.EventSecrets
+		images   *imageRegistryRepo.PlatformImages
+		media    MediaSource
+
+		blobPushes    *imageRegistryRepo.BlobPushes
+		queueBlobPush BlobPushQueue
+		cipher        secret.Sealer
+		newClient     ClientFactory
+		external      ExternalClientFactory
+		adapter       AdapterFactory
+		now           func() time.Time
+		available     *availabilityCache
 
 		headTimeout, callTimeout time.Duration
 	}
@@ -93,18 +97,20 @@ func DefaultAdapter(p imageRegistryModel.Provider) provider.Adapter {
 
 func New(deps Dependencies) *ImageRegistryUseCase {
 	u := &ImageRegistryUseCase{
-		settings:    imageRegistryRepo.New(deps.Repo),
-		secrets:     imageRegistryRepo.NewEventSecrets(deps.Repo),
-		images:      imageRegistryRepo.NewPlatformImages(deps.Repo),
-		media:       deps.Media,
-		cipher:      deps.Cipher,
-		newClient:   deps.NewClient,
-		external:    deps.NewExternalClient,
-		adapter:     deps.Adapter,
-		now:         deps.Now,
-		available:   newAvailabilityCache(),
-		headTimeout: deps.HeadTimeout,
-		callTimeout: deps.CallTimeout,
+		settings:      imageRegistryRepo.New(deps.Repo),
+		secrets:       imageRegistryRepo.NewEventSecrets(deps.Repo),
+		images:        imageRegistryRepo.NewPlatformImages(deps.Repo),
+		media:         deps.Media,
+		blobPushes:    imageRegistryRepo.NewBlobPushes(deps.Repo),
+		queueBlobPush: deps.QueueBlobPush,
+		cipher:        deps.Cipher,
+		newClient:     deps.NewClient,
+		external:      deps.NewExternalClient,
+		adapter:       deps.Adapter,
+		now:           deps.Now,
+		available:     newAvailabilityCache(),
+		headTimeout:   deps.HeadTimeout,
+		callTimeout:   deps.CallTimeout,
 	}
 	if u.newClient == nil {
 		u.newClient = DefaultClient

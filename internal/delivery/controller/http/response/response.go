@@ -55,6 +55,12 @@ func AbortWithData(ctx *gin.Context, data any, statusCode ...err.Error) {
 	)
 }
 
+// AbortWithDataStatus is AbortWithData with another 2xx HTTP status (e.g. 202 Accepted for queued work).
+func AbortWithDataStatus(ctx *gin.Context, httpStatus int, data any) {
+	successStatus := err.StatusCodeSuccess
+	ctx.JSON(httpStatus, Response{Status: Status{Code: successStatus.FullCode(), Message: successStatus.Message()}, Data: data})
+}
+
 func AbortWithStatus(ctx *gin.Context, code err.Error) {
 	if seconds, ok := code.StatusCode().Details()[err.DetailRetryAfterSeconds].(int64); ok {
 		ctx.Header("Retry-After", strconv.FormatInt(seconds, 10))

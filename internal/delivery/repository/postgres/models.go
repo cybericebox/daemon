@@ -722,6 +722,13 @@ type File struct {
 	CreatedBy   uuid.NullUUID `json:"created_by"`
 }
 
+type ImageBlobPush struct {
+	Digest    string    `json:"digest"`
+	State     string    `json:"state"`
+	Reason    string    `json:"reason"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type ImageRegistrySetting struct {
 	ID                  bool      `json:"id"`
 	Provider            string    `json:"provider"`
@@ -842,6 +849,7 @@ type MediaUpload struct {
 	ChunksReceived int32     `json:"chunks_received"`
 	CreatedAt      time.Time `json:"created_at"`
 	ExpiresAt      time.Time `json:"expires_at"`
+	Purpose        string    `json:"purpose"`
 }
 
 type NotificationBroadcast struct {

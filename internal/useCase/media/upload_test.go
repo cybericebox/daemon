@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -73,7 +74,7 @@ func TestStartUpload_ImageBlobPurposeRaisesTheLimit(t *testing.T) {
 	uc, q, _ := uploadUC(t)
 	owner := uuid.Must(uuid.NewV7())
 	q.EXPECT().CreateMediaUpload(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateMediaUploadParams) (postgres.MediaUpload, error) {
-		if p.SizeBytes != imageRegistryModel.MaxImageArchiveBytes {
+		if p.SizeBytes != imageRegistryModel.MaxImageArchiveBytes || p.Purpose != "image-blob" {
 			t.Fatalf("params %+v", p)
 		}
 		return postgres.MediaUpload{ID: p.ID, CreatedBy: owner, SizeBytes: p.SizeBytes, ChunkBytes: p.ChunkBytes, ExpiresAt: p.ExpiresAt}, nil
@@ -243,6 +244,63 @@ func TestCleanupExpiredUploads_RemovesChunksAndRows(t *testing.T) {
 	q.EXPECT().ListExpiredMediaUploads(gomock.Any(), gomock.Any()).Return([]postgres.MediaUpload{row(id, owner, 10, 2)}, nil)
 	q.EXPECT().DeleteMediaUpload(gomock.Any(), id).Return(int64(1), nil)
 	if err := uc.CleanupExpiredUploads(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.objects) != 0 {
+		t.Fatalf("%d chunks left", len(st.objects))
+	}
+}
+
+func blobRow(id, owner uuid.UUID, size int64, received int32) postgres.MediaUpload {
+	r := row(id, owner, size, received)
+	r.Purpose = string(mediaModel.UploadPurposeImageBlob)
+	return r
+}
+
+// An image blob upload never becomes a media file: completing it is refused and nothing is stored.
+func TestCompleteUpload_ImageBlobIsNotAFile(t *testing.T) {
+	uc, q, st := uploadUC(t)
+	id, owner := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	payload := []byte("0123456789")
+	stored(st, id, payload)
+	q.EXPECT().GetMediaUpload(gomock.Any(), id).Return(blobRow(id, owner, 10, 3), nil)
+	sum := sha256.Sum256(payload)
+	if _, err := uc.CompleteUpload(context.Background(), id, owner, hex.EncodeToString(sum[:])); !errors.Is(err, mediaModel.ErrUploadNotAFile.Err()) {
+		t.Fatalf("%v", err)
+	}
+	if len(st.objects) != 3 {
+		t.Fatalf("the chunks stay for the image push, %d objects", len(st.objects))
+	}
+}
+
+// OpenUpload streams the chunks in index order as one reader (no owner: the background push reads it).
+func TestOpenUpload_StreamsTheChunksInOrder(t *testing.T) {
+	uc, q, st := uploadUC(t)
+	id, owner := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	stored(st, id, []byte("0123456789"))
+	q.EXPECT().GetMediaUpload(gomock.Any(), id).Return(blobRow(id, owner, 10, 3), nil)
+	rc, up, err := uc.OpenUpload(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rc.Close()
+	b, err := io.ReadAll(rc)
+	if err != nil || string(b) != "0123456789" || up.Purpose != mediaModel.UploadPurposeImageBlob || up.CreatedBy != owner {
+		t.Fatalf("read %q err %v upload %+v", b, err, up)
+	}
+	q.EXPECT().GetMediaUpload(gomock.Any(), id).Return(postgres.MediaUpload{}, pgx.ErrNoRows)
+	if _, _, err = uc.OpenUpload(context.Background(), id); !errors.Is(err, mediaModel.ErrUploadNotFound.Err()) {
+		t.Fatalf("absent: %v", err)
+	}
+}
+
+func TestDropUpload_RemovesChunksAndRow(t *testing.T) {
+	uc, q, st := uploadUC(t)
+	id, owner := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	stored(st, id, []byte("0123456789"))
+	q.EXPECT().GetMediaUpload(gomock.Any(), id).Return(blobRow(id, owner, 10, 3), nil)
+	q.EXPECT().DeleteMediaUpload(gomock.Any(), id).Return(int64(1), nil)
+	if err := uc.DropUpload(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 	if len(st.objects) != 0 {

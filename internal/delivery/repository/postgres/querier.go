@@ -274,6 +274,7 @@ type Querier interface {
 	DeleteExpiredSessionRevocations(ctx context.Context) (int64, error)
 	DeleteFileReferences(ctx context.Context, arg DeleteFileReferencesParams) (int64, error)
 	DeleteFileReferencesBatch(ctx context.Context, arg DeleteFileReferencesBatchParams) (int64, error)
+	DeleteImageBlobPush(ctx context.Context, digest string) error
 	DeleteImageRegistrySettings(ctx context.Context) error
 	DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error)
@@ -491,6 +492,7 @@ type Querier interface {
 	// deterministic, not incidental, answer. Repositories don't validate on read:
 	// a ref_type/ref_id with no rows simply yields an empty slice, not an error.
 	GetFileReferenceIDs(ctx context.Context, arg GetFileReferenceIDsParams) ([]uuid.UUID, error)
+	GetImageBlobPush(ctx context.Context, digest string) (ImageBlobPush, error)
 	GetImageRegistrySettings(ctx context.Context) (ImageRegistrySetting, error)
 	GetInAppTemplate(ctx context.Context, id uuid.UUID) (NotificationInAppTemplate, error)
 	GetInboxItemForUser(ctx context.Context, arg GetInboxItemForUserParams) (GetInboxItemForUserRow, error)
@@ -1776,6 +1778,8 @@ type Querier interface {
 	// (updated_at & co) are deliberately untouched — the identity optimistic lock
 	// must not be disturbed by content saves.
 	UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error)
+	// The whole push state of one blob in one statement (queued, failed).
+	UpsertImageBlobPush(ctx context.Context, arg UpsertImageBlobPushParams) error
 	// The settings are one row (id is always true): the whole entity is written in
 	// one statement. Timestamps come from the domain.
 	UpsertImageRegistrySettings(ctx context.Context, arg UpsertImageRegistrySettingsParams) error

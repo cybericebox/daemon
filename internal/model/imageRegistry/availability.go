@@ -23,6 +23,10 @@ const (
 	// one registry host, or credentials for more hosts than the agent takes
 	// (MaxDeployCredentials); the deploy is refused before it starts.
 	ReasonCredentialConflict Reason = "credential_conflict"
+	// ReasonDigestMismatch: an uploaded blob's bytes do not hash to its digest (image upload).
+	ReasonDigestMismatch Reason = "digest_mismatch"
+	// ReasonUploadMissing: the chunked upload a blob push reads is gone (expired or dropped); upload it again.
+	ReasonUploadMissing Reason = "upload_missing"
 )
 
 // Transient is true for a reason that may clear without any change to the

@@ -6,7 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// MediaObjectCode — next free detail code: 12
+// MediaObjectCode — next free detail code: 13
 var (
 	// multi-site (category A): the media use case (no such file row) and the
 	// email template image route (a file that is not a template image) — the
@@ -50,4 +50,7 @@ var (
 	// ErrUploadInvalid: a new upload needs a name and a size.
 	ErrUploadInvalid = err.ErrInvalidData.WithObjectCode(model.MediaObjectCode).
 				WithMessage("The upload needs a name and a size").WithDetailCode(11)
+	// ErrUploadNotAFile: an image-blob upload is pushed to the image registry, never completed into a media file.
+	ErrUploadNotAFile = err.ErrConflict.WithObjectCode(model.MediaObjectCode).
+				WithMessage("This upload is an image layer, not a file").WithDetailCode(12)
 )

@@ -383,6 +383,7 @@ POST   /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.fu
 POST   /api/exercises/:id/files/lookup | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/images | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/images/blobs | gate: self | layers: exercise.authorize.func
+GET    /api/exercises/:id/images/blobs/:digest | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/images/blobs/missing | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/images/check | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/proposals | gate: self | layers: exercise.authorize.func

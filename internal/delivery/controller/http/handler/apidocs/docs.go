@@ -17378,7 +17378,7 @@ const docTemplate = `{
         },
         "/exercises/{id}/images/blobs": {
             "post": {
-                "description": "Same access as saving the draft. The file must be the caller's completed chunked upload whose sha256 and size are the blob's.",
+                "description": "Same access as saving the draft. The upload must be the caller's chunked upload with Purpose \"image-blob\", every chunk received and Size bytes. 200 {State:\"present\"} when the registry already has the blob; 202 {State:\"pushing\"} when the push is queued (poll GET …/images/blobs/{digest}).",
                 "consumes": [
                     "application/json"
                 ],
@@ -17388,7 +17388,7 @@ const docTemplate = `{
                 "tags": [
                     "exercises"
                 ],
-                "summary": "Push an uploaded image blob into the platform registry",
+                "summary": "Queue the push of an uploaded image blob into the platform registry",
                 "parameters": [
                     {
                         "type": "string",
@@ -17398,7 +17398,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "staged file and blob",
+                        "description": "upload and blob",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -17411,7 +17411,37 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/response.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.blobStatusResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.blobStatusResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -17485,6 +17515,72 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/exercise.missingBlobsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/blobs/{digest}": {
+            "get": {
+                "description": "Same access as saving the draft. present: the platform registry has it; pushing: a push is queued or running; failed: the last push failed (Reason), ask for the push again or upload again; missing: upload it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Where one image blob stands: present, pushing, failed or missing",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "blob digest, sha256:\u003c64 hex\u003e",
+                        "name": "digest",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.blobStatusResponse"
                                         }
                                     }
                                 }
@@ -31959,6 +32055,17 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.blobStatusResponse": {
+            "type": "object",
+            "properties": {
+                "Reason": {
+                    "type": "string"
+                },
+                "State": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.checkImagesRequest": {
             "type": "object",
             "required": [
@@ -33225,21 +33332,21 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "Digest",
-                "FileID",
-                "Size"
+                "Size",
+                "UploadID"
             ],
             "properties": {
                 "Digest": {
                     "type": "string",
                     "maxLength": 80
                 },
-                "FileID": {
-                    "description": "FileID is the media file of a completed chunked upload of the caller.",
-                    "type": "string"
-                },
                 "Size": {
                     "type": "integer",
                     "minimum": 1
+                },
+                "UploadID": {
+                    "description": "UploadID is a chunked upload of the caller with Purpose \"image-blob\" and every chunk received.",
+                    "type": "string"
                 }
             }
         },

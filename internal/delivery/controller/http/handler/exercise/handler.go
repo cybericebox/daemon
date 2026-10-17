@@ -124,8 +124,9 @@ type (
 		ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (imageRegistryUseCase.Scope, error)
 		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
 		// image upload through the site (the platform registry)
-		MissingBlobs(ctx context.Context, exerciseID uuid.UUID, digests []string) ([]string, error)
-		PushStagedBlob(ctx context.Context, exerciseID uuid.UUID, in imageRegistryUseCase.PushBlobInput) error
+		MissingBlobs(ctx context.Context, digests []string) ([]string, error)
+		PushStagedBlob(ctx context.Context, in imageRegistryUseCase.PushBlobInput) (imageRegistryUseCase.BlobStatus, error)
+		ImageBlobStatus(ctx context.Context, digest string) (imageRegistryUseCase.BlobStatus, error)
 		CreateImage(ctx context.Context, exerciseID uuid.UUID, in imageRegistryUseCase.CreateImageInput) (imageRegistryUseCase.CreateImageResult, error)
 	}
 )
@@ -222,6 +223,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// image upload through the site: the same access as saving the draft
 		ex.POST(":id/images/blobs/missing", self, h.authorize(exerciseUseCase.ActionWrite), h.missingImageBlobs)
 		ex.POST(":id/images/blobs", self, h.authorize(exerciseUseCase.ActionWrite), h.pushImageBlob)
+		ex.GET(":id/images/blobs/:digest", self, h.authorize(exerciseUseCase.ActionWrite), h.imageBlobStatus)
 		ex.POST(":id/images", self, h.authorize(exerciseUseCase.ActionWrite), h.createImage)
 		ex.DELETE(":id/draft", self, h.authorize(exerciseUseCase.ActionPublish), h.discardDraft)
 		ex.POST(":id/publish", self, h.authorize(exerciseUseCase.ActionPublish), h.publish)

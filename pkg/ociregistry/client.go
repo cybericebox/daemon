@@ -242,36 +242,92 @@ func (c *Client) PingPull(ctx context.Context) error {
 }
 
 func (c *Client) head(ctx context.Context, url, accept, scope, op string) (bool, error) {
+	ok, _, err := c.headSize(ctx, url, accept, scope, op)
+	return ok, err
+}
+
+// headSize is a HEAD request: found (200) with its Content-Length, not found (404), or an error.
+func (c *Client) headSize(ctx context.Context, url, accept, scope, op string) (bool, int64, error) {
 	repo, err := c.repo()
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	hc, err := c.http(ctx, repo, scope)
 	if err != nil {
-		return false, c.wrap(op, err)
+		return false, 0, c.wrap(op, err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, nil)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
 	resp, err := c.do(hc, req, op)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	defer drain(resp)
 	if resp.StatusCode == http.StatusOK {
-		return true, nil
+		return true, resp.ContentLength, nil
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		return false, nil
+		return false, 0, nil
 	}
 	if s := classifyStatus(resp.StatusCode); s != nil {
-		return false, fmt.Errorf("%s: %w (status %d)", op, s, resp.StatusCode)
+		return false, 0, fmt.Errorf("%s: %w (status %d)", op, s, resp.StatusCode)
 	}
-	return false, fmt.Errorf("%s: %w (status %d)", op, ErrUnreachable, resp.StatusCode)
+	return false, 0, fmt.Errorf("%s: %w (status %d)", op, ErrUnreachable, resp.StatusCode)
+}
+
+// BlobSize reports whether the repository has the blob and its size as the registry states it (HEAD
+// Content-Length; -1 when the registry sends none).
+func (c *Client) BlobSize(ctx context.Context, digest string) (int64, bool, error) {
+	repo, err := c.repo()
+	if err != nil {
+		return 0, false, err
+	}
+	ok, size, err := c.headSize(ctx, c.base(repo)+"/blobs/"+digest, "", transport.PullScope, "blob size")
+	return size, ok, err
+}
+
+// GetBlob reads a small blob (at most max bytes, else ErrBlobTooLarge) and checks it against its sha256 digest.
+func (c *Client) GetBlob(ctx context.Context, digest string, max int64) ([]byte, error) {
+	repo, err := c.repo()
+	if err != nil {
+		return nil, err
+	}
+	hc, err := c.http(ctx, repo, transport.PullScope)
+	if err != nil {
+		return nil, c.wrap("get blob", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base(repo)+"/blobs/"+digest, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.do(hc, req, "get blob")
+	if err != nil {
+		return nil, err
+	}
+	defer drain(resp)
+	if resp.StatusCode != http.StatusOK {
+		if s := classifyStatus(resp.StatusCode); s != nil {
+			return nil, fmt.Errorf("get blob: %w (status %d)", s, resp.StatusCode)
+		}
+		return nil, fmt.Errorf("get blob: %w (status %d)", ErrUnreachable, resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, c.wrap("get blob", err)
+	}
+	if int64(len(body)) > max {
+		return nil, fmt.Errorf("get blob: %w", ErrBlobTooLarge)
+	}
+	sum := sha256.Sum256(body)
+	if "sha256:"+hex.EncodeToString(sum[:]) != digest {
+		return nil, fmt.Errorf("get blob: %w: content does not match its digest", ErrUnreachable)
+	}
+	return body, nil
 }
 
 // BlobExists reports whether the repository has the blob.

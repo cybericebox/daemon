@@ -2386,6 +2386,20 @@ func (mr *MockQuerierMockRecorder) DeleteFileReferencesBatch(ctx, arg any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFileReferencesBatch", reflect.TypeOf((*MockQuerier)(nil).DeleteFileReferencesBatch), ctx, arg)
 }
 
+// DeleteImageBlobPush mocks base method.
+func (m *MockQuerier) DeleteImageBlobPush(ctx context.Context, digest string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImageBlobPush", ctx, digest)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImageBlobPush indicates an expected call of DeleteImageBlobPush.
+func (mr *MockQuerierMockRecorder) DeleteImageBlobPush(ctx, digest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageBlobPush", reflect.TypeOf((*MockQuerier)(nil).DeleteImageBlobPush), ctx, digest)
+}
+
 // DeleteImageRegistrySettings mocks base method.
 func (m *MockQuerier) DeleteImageRegistrySettings(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -4370,6 +4384,21 @@ func (m *MockQuerier) GetFileReferenceIDs(ctx context.Context, arg postgres.GetF
 func (mr *MockQuerierMockRecorder) GetFileReferenceIDs(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFileReferenceIDs", reflect.TypeOf((*MockQuerier)(nil).GetFileReferenceIDs), ctx, arg)
+}
+
+// GetImageBlobPush mocks base method.
+func (m *MockQuerier) GetImageBlobPush(ctx context.Context, digest string) (postgres.ImageBlobPush, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageBlobPush", ctx, digest)
+	ret0, _ := ret[0].(postgres.ImageBlobPush)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageBlobPush indicates an expected call of GetImageBlobPush.
+func (mr *MockQuerierMockRecorder) GetImageBlobPush(ctx, digest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageBlobPush", reflect.TypeOf((*MockQuerier)(nil).GetImageBlobPush), ctx, digest)
 }
 
 // GetImageRegistrySettings mocks base method.
@@ -12638,6 +12667,20 @@ func (m *MockQuerier) UpsertExerciseDraft(ctx context.Context, arg postgres.Upse
 func (mr *MockQuerierMockRecorder) UpsertExerciseDraft(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).UpsertExerciseDraft), ctx, arg)
+}
+
+// UpsertImageBlobPush mocks base method.
+func (m *MockQuerier) UpsertImageBlobPush(ctx context.Context, arg postgres.UpsertImageBlobPushParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImageBlobPush", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImageBlobPush indicates an expected call of UpsertImageBlobPush.
+func (mr *MockQuerierMockRecorder) UpsertImageBlobPush(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageBlobPush", reflect.TypeOf((*MockQuerier)(nil).UpsertImageBlobPush), ctx, arg)
 }
 
 // UpsertImageRegistrySettings mocks base method.

@@ -12,6 +12,62 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const deleteImageBlobPush = `-- name: DeleteImageBlobPush :exec
+DELETE
+FROM image_blob_pushes
+WHERE digest = $1
+`
+
+func (q *Queries) DeleteImageBlobPush(ctx context.Context, digest string) error {
+	_, err := q.db.Exec(ctx, deleteImageBlobPush, digest)
+	return err
+}
+
+const getImageBlobPush = `-- name: GetImageBlobPush :one
+SELECT digest, state, reason, updated_at
+FROM image_blob_pushes
+WHERE digest = $1
+`
+
+func (q *Queries) GetImageBlobPush(ctx context.Context, digest string) (ImageBlobPush, error) {
+	row := q.db.QueryRow(ctx, getImageBlobPush, digest)
+	var i ImageBlobPush
+	err := row.Scan(
+		&i.Digest,
+		&i.State,
+		&i.Reason,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertImageBlobPush = `-- name: UpsertImageBlobPush :exec
+INSERT INTO image_blob_pushes (digest, state, reason, updated_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (digest) DO UPDATE
+SET state      = EXCLUDED.state,
+    reason     = EXCLUDED.reason,
+    updated_at = EXCLUDED.updated_at
+`
+
+type UpsertImageBlobPushParams struct {
+	Digest    string    `json:"digest"`
+	State     string    `json:"state"`
+	Reason    string    `json:"reason"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// The whole push state of one blob in one statement (queued, failed).
+func (q *Queries) UpsertImageBlobPush(ctx context.Context, arg UpsertImageBlobPushParams) error {
+	_, err := q.db.Exec(ctx, upsertImageBlobPush,
+		arg.Digest,
+		arg.State,
+		arg.Reason,
+		arg.UpdatedAt,
+	)
+	return err
+}
+
 const upsertPlatformImage = `-- name: UpsertPlatformImage :exec
 INSERT INTO platform_images (digest, tag, name, exercise_id, uploaded_by, uploaded_at)
 VALUES ($1, $2, $3, $4, $5, $6)

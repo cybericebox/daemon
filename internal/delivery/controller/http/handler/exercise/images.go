@@ -1,6 +1,8 @@
 package exercise
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
@@ -69,9 +71,11 @@ func (h *Handler) checkImages(ctx *gin.Context) {
 }
 
 // Image upload through the site (a `docker save` archive read in the browser): which blobs the platform registry
-// lacks → each missing blob through the chunked upload (Purpose "image-blob") and pushed → the image created from
-// its blobs. Same access as saving the draft. The registry not configured or failing: 409 with the upload refusal
-// (ErrRegistryNotConfigured / ErrRegistryUnavailable; the latter names the reason in Status.Context for admins).
+// lacks → each missing blob through the chunked upload (Purpose "image-blob", never completed) → a push of the
+// upload queued (202 pushing; the push runs in the background) → its state polled until present or failed → the
+// image created from its blobs. Same access as saving the draft. The registry not configured or failing: 409 with
+// the upload refusal (ErrRegistryNotConfigured / ErrRegistryUnavailable; the latter names the reason in
+// Status.Context for admins).
 
 type (
 	missingBlobsRequest struct {
@@ -85,10 +89,18 @@ type (
 	}
 
 	pushBlobRequest struct {
-		// FileID is the media file of a completed chunked upload of the caller.
-		FileID uuid.UUID `json:"FileID" binding:"required"`
-		Digest string    `json:"Digest" binding:"required,max=80"`
-		Size   int64     `json:"Size" binding:"required,min=1"`
+		// UploadID is a chunked upload of the caller with Purpose "image-blob" and every chunk received.
+		UploadID uuid.UUID `json:"UploadID" binding:"required"`
+		Digest   string    `json:"Digest" binding:"required,max=80"`
+		Size     int64     `json:"Size" binding:"required,min=1"`
+	}
+
+	// blobStatusResponse: State "present" (the registry has it), "pushing" (queued or running), "failed" (Reason:
+	// unauthorized, unreachable, rate_limited, not_found, not_configured, digest_mismatch, upload_missing) or
+	// "missing" (not in the registry, no push known).
+	blobStatusResponse struct {
+		State  string `json:"State"`
+		Reason string `json:"Reason,omitempty"`
 	}
 
 	descriptorRequest struct {
@@ -128,16 +140,12 @@ func (d descriptorRequest) toDescriptor() imageRegistryUseCase.Descriptor {
 // @Failure  409  {object}  response.Response
 // @Router   /exercises/{id}/images/blobs/missing [post]
 func (h *Handler) missingImageBlobs(ctx *gin.Context) {
-	id, ok := parseExerciseID(ctx)
-	if !ok {
-		return
-	}
 	var req missingBlobsRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	missing, err := h.useCase.MissingBlobs(ctx, id, req.Digests)
+	missing, err := h.useCase.MissingBlobs(ctx, req.Digests)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -148,35 +156,62 @@ func (h *Handler) missingImageBlobs(ctx *gin.Context) {
 	response.AbortWithData(ctx, missingBlobsResponse{Missing: missing})
 }
 
+func toBlobStatus(s imageRegistryUseCase.BlobStatus) blobStatusResponse {
+	return blobStatusResponse{State: string(s.State), Reason: string(s.Reason)}
+}
+
 // pushImageBlob godoc
-// @Summary  Push an uploaded image blob into the platform registry
-// @Description  Same access as saving the draft. The file must be the caller's completed chunked upload whose sha256 and size are the blob's.
+// @Summary  Queue the push of an uploaded image blob into the platform registry
+// @Description  Same access as saving the draft. The upload must be the caller's chunked upload with Purpose "image-blob", every chunk received and Size bytes. 200 {State:"present"} when the registry already has the blob; 202 {State:"pushing"} when the push is queued (poll GET …/images/blobs/{digest}).
 // @Tags     exercises
 // @Accept   json
 // @Produce  json
 // @Param    id    path  string           true  "exercise ID"
-// @Param    body  body  pushBlobRequest  true  "staged file and blob"
-// @Success  200  {object}  response.Response
+// @Param    body  body  pushBlobRequest  true  "upload and blob"
+// @Success  200  {object}  response.Response{data=blobStatusResponse}
+// @Success  202  {object}  response.Response{data=blobStatusResponse}
 // @Failure  400  {object}  response.Response
 // @Failure  403  {object}  response.Response
 // @Failure  404  {object}  response.Response
 // @Failure  409  {object}  response.Response
 // @Router   /exercises/{id}/images/blobs [post]
 func (h *Handler) pushImageBlob(ctx *gin.Context) {
-	id, ok := parseExerciseID(ctx)
-	if !ok {
-		return
-	}
 	var req pushBlobRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	if err := h.useCase.PushStagedBlob(ctx, id, imageRegistryUseCase.PushBlobInput{FileID: req.FileID, Digest: req.Digest, Size: req.Size}); err != nil {
+	st, err := h.useCase.PushStagedBlob(ctx, imageRegistryUseCase.PushBlobInput{UploadID: req.UploadID, Digest: req.Digest, Size: req.Size})
+	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithSuccess(ctx)
+	if st.State == imageRegistryModel.BlobPushing {
+		response.AbortWithDataStatus(ctx, http.StatusAccepted, toBlobStatus(st))
+		return
+	}
+	response.AbortWithData(ctx, toBlobStatus(st))
+}
+
+// imageBlobStatus godoc
+// @Summary  Where one image blob stands: present, pushing, failed or missing
+// @Description  Same access as saving the draft. present: the platform registry has it; pushing: a push is queued or running; failed: the last push failed (Reason), ask for the push again or upload again; missing: upload it.
+// @Tags     exercises
+// @Produce  json
+// @Param    id      path  string  true  "exercise ID"
+// @Param    digest  path  string  true  "blob digest, sha256:<64 hex>"
+// @Success  200  {object}  response.Response{data=blobStatusResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Router   /exercises/{id}/images/blobs/{digest} [get]
+func (h *Handler) imageBlobStatus(ctx *gin.Context) {
+	st, err := h.useCase.ImageBlobStatus(ctx, ctx.Param("digest"))
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, toBlobStatus(st))
 }
 
 // createImage godoc

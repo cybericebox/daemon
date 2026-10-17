@@ -36,3 +36,17 @@ CREATE TABLE event_registry_secrets (
     updated_at        timestamptz NOT NULL,
     UNIQUE (event_id, host, repository_prefix)
 );
+
+-- What a chunked upload is for: '' an ordinary file, 'image-blob' one blob of a container image on its way to
+-- the platform registry (it never becomes a media file; a background job streams its chunks into the registry).
+ALTER TABLE media_uploads
+    ADD COLUMN purpose text NOT NULL DEFAULT '';
+
+-- The background push of one image blob from its chunked upload: 'pushing' while queued or running, 'failed'
+-- with a reason (unauthorized, unreachable, digest_mismatch, ...). A successful push removes the row.
+CREATE TABLE image_blob_pushes (
+    digest     text        PRIMARY KEY,
+    state      text        NOT NULL CHECK (state IN ('pushing', 'failed')),
+    reason     text        NOT NULL DEFAULT '',
+    updated_at timestamptz NOT NULL
+);

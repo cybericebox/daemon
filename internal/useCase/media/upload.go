@@ -36,7 +36,7 @@ func (u *MediaUseCase) StartUpload(ctx context.Context, name, contentType string
 	if size > limit {
 		return mediaModel.Upload{}, mediaModel.ErrFileTooLarge.Err()
 	}
-	upload := mediaModel.NewUpload(uuid.Must(uuid.NewV7()), createdBy, name, contentType, size, u.cfg.UploadChunkBytes, u.cfg.UploadTTL, time.Now())
+	upload := mediaModel.NewUpload(uuid.Must(uuid.NewV7()), createdBy, name, contentType, size, u.cfg.UploadChunkBytes, u.cfg.UploadTTL, time.Now(), purpose)
 	created, err := u.files.CreateUpload(ctx, upload)
 	if err != nil {
 		return mediaModel.Upload{}, model.ErrPlatform.WithError(err).WithMessage("Failed to start upload").Err()
@@ -57,12 +57,9 @@ func (u *MediaUseCase) uploadLimit(purpose mediaModel.UploadPurpose) (limit int6
 
 // UploadStatus returns an upload of the caller: where a resumed upload continues.
 func (u *MediaUseCase) UploadStatus(ctx context.Context, id, owner uuid.UUID) (mediaModel.Upload, error) {
-	upload, err := u.files.GetUpload(ctx, id)
+	upload, err := u.getUpload(ctx, id)
 	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return mediaModel.Upload{}, mediaModel.ErrUploadNotFound.Err()
-		}
-		return mediaModel.Upload{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get upload").Err()
+		return mediaModel.Upload{}, err
 	}
 	// Somebody else's and expired uploads are not found: the caller cannot tell them from an absent one.
 	if !upload.OwnedBy(owner) || upload.Expired(time.Now()) {
@@ -122,6 +119,9 @@ func (u *MediaUseCase) CompleteUpload(ctx context.Context, id, owner uuid.UUID, 
 	if err != nil {
 		return mediaModel.File{}, err
 	}
+	if upload.Purpose == mediaModel.UploadPurposeImageBlob {
+		return mediaModel.File{}, mediaModel.ErrUploadNotAFile.Err()
+	}
 	if !upload.Complete() {
 		return mediaModel.File{}, mediaModel.ErrUploadIncomplete.Err()
 	}
@@ -164,6 +164,78 @@ func (u *MediaUseCase) copyChunks(ctx context.Context, upload mediaModel.Upload,
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// OpenUpload streams the chunks of an upload in index order as one reader; the caller closes it. There is no
+// owner check: it serves the background image-blob push, whose request already checked the caller.
+func (u *MediaUseCase) OpenUpload(ctx context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.Upload, error) {
+	upload, err := u.getUpload(ctx, id)
+	if err != nil {
+		return nil, mediaModel.Upload{}, err
+	}
+	return &chunkReader{ctx: ctx, storage: u.storage, upload: upload}, upload, nil
+}
+
+// DropUpload drops an upload with its chunks, whoever started it (the image-blob push once it is done).
+func (u *MediaUseCase) DropUpload(ctx context.Context, id uuid.UUID) error {
+	upload, err := u.getUpload(ctx, id)
+	if err != nil {
+		return err
+	}
+	u.dropUpload(ctx, upload)
+	return nil
+}
+
+// getUpload loads an upload by id only.
+func (u *MediaUseCase) getUpload(ctx context.Context, id uuid.UUID) (mediaModel.Upload, error) {
+	upload, err := u.files.GetUpload(ctx, id)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return mediaModel.Upload{}, mediaModel.ErrUploadNotFound.Err()
+		}
+		return mediaModel.Upload{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get upload").Err()
+	}
+	return upload, nil
+}
+
+// chunkReader reads the chunk objects of an upload one after another, opening each only when the previous one
+// is used up, so a large upload is streamed and never held whole.
+type chunkReader struct {
+	ctx     context.Context
+	storage IStorage
+	upload  mediaModel.Upload
+	next    int
+	cur     io.ReadCloser
+}
+
+func (c *chunkReader) Read(p []byte) (int, error) {
+	for {
+		if c.cur == nil {
+			if c.next >= c.upload.ChunkCount() {
+				return 0, io.EOF
+			}
+			rc, _, err := c.storage.Get(c.ctx, mediaModel.ChunkKey(c.upload.ID, c.next))
+			if err != nil {
+				return 0, err
+			}
+			c.cur, c.next = rc, c.next+1
+		}
+		n, err := c.cur.Read(p)
+		if errors.Is(err, io.EOF) {
+			_ = c.cur.Close()
+			c.cur, err = nil, nil
+		}
+		if n > 0 || err != nil {
+			return n, err
+		}
+	}
+}
+
+func (c *chunkReader) Close() error {
+	if c.cur != nil {
+		return c.cur.Close()
 	}
 	return nil
 }

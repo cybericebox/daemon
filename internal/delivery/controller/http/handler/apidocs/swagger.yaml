@@ -5773,6 +5773,13 @@ definitions:
       Name:
         type: string
     type: object
+  exercise.blobStatusResponse:
+    properties:
+      Reason:
+        type: string
+      State:
+        type: string
+    type: object
   exercise.checkImagesRequest:
     properties:
       Images:
@@ -6651,17 +6658,17 @@ definitions:
       Digest:
         maxLength: 80
         type: string
-      FileID:
-        description: FileID is the media file of a completed chunked upload of the
-          caller.
-        type: string
       Size:
         minimum: 1
         type: integer
+      UploadID:
+        description: UploadID is a chunked upload of the caller with Purpose "image-blob"
+          and every chunk received.
+        type: string
     required:
     - Digest
-    - FileID
     - Size
+    - UploadID
     type: object
   exercise.rejectProposalRequest:
     properties:
@@ -20888,15 +20895,17 @@ paths:
     post:
       consumes:
       - application/json
-      description: Same access as saving the draft. The file must be the caller's
-        completed chunked upload whose sha256 and size are the blob's.
+      description: Same access as saving the draft. The upload must be the caller's
+        chunked upload with Purpose "image-blob", every chunk received and Size bytes.
+        200 {State:"present"} when the registry already has the blob; 202 {State:"pushing"}
+        when the push is queued (poll GET …/images/blobs/{digest}).
       parameters:
       - description: exercise ID
         in: path
         name: id
         required: true
         type: string
-      - description: staged file and blob
+      - description: upload and blob
         in: body
         name: body
         required: true
@@ -20908,7 +20917,21 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/response.Response'
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.blobStatusResponse'
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.blobStatusResponse'
+              type: object
         "400":
           description: Bad Request
           schema:
@@ -20925,7 +20948,50 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/response.Response'
-      summary: Push an uploaded image blob into the platform registry
+      summary: Queue the push of an uploaded image blob into the platform registry
+      tags:
+      - exercises
+  /exercises/{id}/images/blobs/{digest}:
+    get:
+      description: 'Same access as saving the draft. present: the platform registry
+        has it; pushing: a push is queued or running; failed: the last push failed
+        (Reason), ask for the push again or upload again; missing: upload it.'
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: blob digest, sha256:<64 hex>
+        in: path
+        name: digest
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.blobStatusResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 'Where one image blob stands: present, pushing, failed or missing'
       tags:
       - exercises
   /exercises/{id}/images/blobs/missing:

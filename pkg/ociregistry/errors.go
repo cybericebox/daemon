@@ -15,6 +15,8 @@ var (
 	ErrUnreachable = errors.New("registry unreachable")
 	// ErrRateLimited: the registry throttles requests (429).
 	ErrRateLimited = errors.New("registry rate limit reached")
+	// ErrBlobTooLarge: a blob read whole (GetBlob) is larger than the caller allows.
+	ErrBlobTooLarge = errors.New("registry blob too large")
 )
 
 // classifyStatus maps an HTTP status to a sentinel; nil for success statuses.

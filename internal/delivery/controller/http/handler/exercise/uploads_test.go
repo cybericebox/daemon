@@ -62,7 +62,7 @@ func (c *chunkedUC) AbortUpload(_ context.Context, _, owner uuid.UUID) error {
 }
 
 func sampleUpload() mediaModel.Upload {
-	return mediaModel.NewUpload(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "big.bin", "application/octet-stream", 10, 4, time.Hour, time.Now())
+	return mediaModel.NewUpload(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "big.bin", "application/octet-stream", 10, 4, time.Hour, time.Now(), mediaModel.UploadPurposeFile)
 }
 
 func newChunkedEngine(uc *chunkedUC, uid uuid.UUID) *gin.Engine {

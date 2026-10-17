@@ -8,3 +8,22 @@ SET name        = EXCLUDED.name,
     exercise_id = EXCLUDED.exercise_id,
     uploaded_by = EXCLUDED.uploaded_by,
     uploaded_at = EXCLUDED.uploaded_at;
+
+-- name: UpsertImageBlobPush :exec
+-- The whole push state of one blob in one statement (queued, failed).
+INSERT INTO image_blob_pushes (digest, state, reason, updated_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (digest) DO UPDATE
+SET state      = EXCLUDED.state,
+    reason     = EXCLUDED.reason,
+    updated_at = EXCLUDED.updated_at;
+
+-- name: GetImageBlobPush :one
+SELECT *
+FROM image_blob_pushes
+WHERE digest = $1;
+
+-- name: DeleteImageBlobPush :exec
+DELETE
+FROM image_blob_pushes
+WHERE digest = $1;

@@ -90,13 +90,15 @@ type Upload struct {
 	ChunksReceived int
 	CreatedAt      time.Time
 	ExpiresAt      time.Time
+	// Purpose: an ordinary file, or an image blob (never becomes a media file).
+	Purpose UploadPurpose
 }
 
 // NewUpload opens an upload. ttl is how long it waits for the next chunk.
-func NewUpload(id, createdBy uuid.UUID, name, contentType string, size, chunkBytes int64, ttl time.Duration, now time.Time) Upload {
+func NewUpload(id, createdBy uuid.UUID, name, contentType string, size, chunkBytes int64, ttl time.Duration, now time.Time, purpose UploadPurpose) Upload {
 	return Upload{
 		ID: id, CreatedBy: createdBy, Name: name, ContentType: contentType, SizeBytes: size, ChunkBytes: chunkBytes,
-		CreatedAt: now, ExpiresAt: now.Add(ttl),
+		CreatedAt: now, ExpiresAt: now.Add(ttl), Purpose: purpose,
 	}
 }
 

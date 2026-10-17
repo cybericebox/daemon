@@ -163,3 +163,26 @@ func TestNewPlatformImage(t *testing.T) {
 		t.Fatalf("%+v", img)
 	}
 }
+
+func TestCheckImageConfig(t *testing.T) {
+	good := `{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":["sha256:` + hex2 + `","sha256:` + hex3 + `"]}}`
+	if err := CheckImageConfig([]byte(good), 2); err != nil {
+		t.Fatalf("good: %v", err)
+	}
+	bad := map[string]struct {
+		body   string
+		layers int
+	}{
+		"arm64":        {strings.Replace(good, "amd64", "arm64", 1), 2},
+		"windows":      {strings.Replace(good, `"linux"`, `"windows"`, 1), 2},
+		"no os":        {`{"architecture":"amd64","rootfs":{"diff_ids":["a","b"]}}`, 2},
+		"layer count":  {good, 3},
+		"not json":     {`{"architecture":`, 2},
+		"empty object": {`{}`, 0},
+	}
+	for name, c := range bad {
+		if err := CheckImageConfig([]byte(c.body), c.layers); !errors.Is(err, ErrInvalidImageConfig.Err()) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}

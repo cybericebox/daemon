@@ -168,6 +168,14 @@ func broadcastEnqueue(enq worker.IEnqueuer) func(ctx context.Context, args jobsM
 	return func(ctx context.Context, args jobsModel.BroadcastSendArgs) error { return enq.Enqueue(ctx, args) }
 }
 
+// blobPushQueue adapts the River enqueuer to the image upload's blob push port: one push per digest while queued
+// or running.
+func blobPushQueue(enq worker.IEnqueuer) imageRegistryUseCase.BlobPushQueue {
+	return func(ctx context.Context, args jobsModel.ImageBlobPushArgs) error {
+		return enq.EnqueueUniqueAt(ctx, args, time.Now())
+	}
+}
+
 // testDeployExpiry adapts the River enqueuer to the exercise use case's test lab expiry port.
 type testDeployExpiry struct{ enq worker.IEnqueuer }
 
@@ -289,7 +297,9 @@ func NewUseCase(deps Dependencies) *UseCase {
 		agentSealer = deps.PlatformCipher
 		registrySealer = deps.PlatformCipher
 	}
-	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{Repo: deps.Repo, Cipher: registrySealer, Media: mediaUC})
+	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{
+		Repo: deps.Repo, Cipher: registrySealer, Media: mediaUC, QueueBlobPush: blobPushQueue(deps.EnqueuerFactory.NewEnqueuer()),
+	})
 	// Every lab deploy and prewarm checks its images first and sends exactly that lab's pull credentials.
 	exerciseUC.SetImageAccess(imageRegistryUC)
 	eventUC.SetImageAccess(imageRegistryUC)

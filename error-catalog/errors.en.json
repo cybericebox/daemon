@@ -234,8 +234,10 @@
   "22812": "Choose the provider and enter the account name",
   "22813": "Either enter a new pull token or remove it, not both",
   "22815": "Enter the token again when the registry host changes",
-  "22816": "The uploaded layer does not match its digest",
+  "22816": "The uploaded layer does not match its digest or size",
   "22819": "Invalid layer digest",
+  "22821": "An image layer has a different size than stated",
+  "22822": "The image must be a linux/amd64 image with a valid config",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
@@ -310,6 +312,7 @@
   "50403": "Invalid session",
   "50404": "Invalid token",
   "50422": "Session cookie is missing",
+  "52823": "Sign in to upload images",
   "60413": "Insufficient permission",
   "60414": "Cannot assign role",
   "60429": "Sign in again to confirm this action",
@@ -357,6 +360,7 @@
   "71003": "File storage is not configured",
   "71007": "Chunk out of order",
   "71009": "Upload is not complete",
+  "71012": "This upload is an image layer, not a file",
   "71103": "Event was modified concurrently",
   "71108": "Event runtime is not active",
   "71123": "Infrastructure challenges need a connected laboratory",
@@ -459,5 +463,6 @@
   "72803": "Image unavailable",
   "72808": "Secret storage is not configured: registry tokens cannot be saved",
   "72814": "The event already has registry credentials for this host and repository prefix",
-  "72817": "An image layer is not uploaded yet"
+  "72817": "An image layer is not uploaded yet",
+  "72820": "The layer upload is not complete"
 }
