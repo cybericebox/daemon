@@ -70,10 +70,12 @@ func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, 
 	if err != nil {
 		return ParsedExerciseArchive{}, err
 	}
-	if name != "exercise.json" {
-		return ParsedExerciseArchive{}, archiveInvalid("exercise.yaml is not supported yet")
+	if name == "exercise.yaml" {
+		body, err = yamlToJSON(body)
+	} else {
+		body, err = stripJSONComments(body)
 	}
-	if body, err = stripJSONComments(body); err != nil {
+	if err != nil {
 		return ParsedExerciseArchive{}, err
 	}
 	if err = probeArchiveSchema(body); err != nil {
