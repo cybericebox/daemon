@@ -499,10 +499,19 @@ func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUI
 		return nil, err
 	}
 	contents["exercise.json"] = document
-	if opts.IncludeSecrets {
-		return BuildProtectedArchiveV1(contents, opts.Password)
+	if err = checkExportEntries(contents); err != nil {
+		return nil, err
 	}
-	return BuildArchiveV1(contents)
+	var archive []byte
+	if opts.IncludeSecrets {
+		archive, err = BuildProtectedArchiveV1(contents, opts.Password)
+	} else {
+		archive, err = BuildArchiveV1(contents)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return archive, checkArchiveSize(len(archive))
 }
 
 // exportAttachments streams every attached file once and lays the contents out: it returns the archive
@@ -514,6 +523,8 @@ func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exer
 	bodies := map[string][]byte{}
 	mediaNames := map[uuid.UUID]string{}
 	var uses []fileUse
+	// Stops at the first file past the archive limits, before the rest is read into memory.
+	var budget archiveBudget
 	for vi := range versions {
 		for xi := range versions[vi].Variants {
 			for ti := range versions[vi].Variants[xi].Tasks {
@@ -526,6 +537,11 @@ func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exer
 							return nil, nil, err
 						}
 						hashOf[ref.FileID], mediaNames[ref.FileID] = hash, name
+						if _, seen := bodies[hash]; !seen {
+							if err = budget.add(len(body)); err != nil {
+								return nil, nil, err
+							}
+						}
 						bodies[hash] = body
 					}
 					// An attachment saved without a shown name shows its file's name: written as such, a re-import
@@ -607,10 +623,20 @@ func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, erro
 			bundle[folder+"/"+name] = body
 		}
 	}
-	if password != "" {
-		return BuildProtectedArchiveV1(bundle, password)
+	if err := checkExportEntries(bundle); err != nil {
+		return nil, err
 	}
-	return BuildArchiveV1(bundle)
+	var archive []byte
+	var err error
+	if password != "" {
+		archive, err = BuildProtectedArchiveV1(bundle, password)
+	} else {
+		archive, err = BuildArchiveV1(bundle)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return archive, checkArchiveSize(len(archive))
 }
 
 // BuildArchiveV1 creates the portable, checksummed ZIP envelope. Callers own
@@ -666,51 +692,8 @@ func buildArchive(files map[string][]byte, withManifest bool) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// Limits of one archive: the entries, each entry, everything unpacked together, and how far a compressed entry
-// may expand. A small archive of repeated bytes unpacks into gigabytes otherwise.
-const (
-	maxArchiveEntries      = 1000
-	maxArchiveEntryBytes   = 64 << 20
-	maxArchiveTotalBytes   = 256 << 20
-	maxArchiveRatio        = 200
-	archiveRatioFreeBytes  = 1 << 20
-	errArchiveTooLargeText = "archive is too large when unpacked"
-)
-
-// archiveBudget tracks what one archive has unpacked so far.
-type archiveBudget struct{ total int64 }
-
-// check refuses an entry the header already shows to be too large or expanding too far, before it is read.
-func (b *archiveBudget) check(entries int, uncompressed, compressed uint64) error {
-	if entries > maxArchiveEntries {
-		return fmt.Errorf("archive has more than %d entries", maxArchiveEntries)
-	}
-	if uncompressed > maxArchiveEntryBytes {
-		return fmt.Errorf("archive entry exceeds 64 MiB")
-	}
-	if uncompressed > archiveRatioFreeBytes && (compressed == 0 || uncompressed/compressed > maxArchiveRatio) {
-		return fmt.Errorf(errArchiveTooLargeText)
-	}
-	return nil
-}
-
-// read unpacks one entry within the limits; the header's sizes are not trusted, the bytes actually read count.
-func (b *archiveBudget) read(r io.Reader) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(r, maxArchiveEntryBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(body) > maxArchiveEntryBytes {
-		return nil, fmt.Errorf("archive entry exceeds 64 MiB")
-	}
-	if b.total += int64(len(body)); b.total > maxArchiveTotalBytes {
-		return nil, fmt.Errorf(errArchiveTooLargeText)
-	}
-	return body, nil
-}
-
 func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
-	b, e := io.ReadAll(io.LimitReader(r, 128<<20))
+	b, e := ReadArchiveBytes(r)
 	if e != nil {
 		return nil, e
 	}
@@ -777,8 +760,9 @@ func readExerciseArchive(data []byte, password string) (files map[string][]byte,
 	if err == nil {
 		return files, false, nil
 	}
-	// A checksum mismatch means a readable archive edited by hand: a password would not help.
-	if password == "" || errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
+	// A checksum mismatch means a readable archive edited by hand, and a password does not make an archive
+	// smaller: neither is helped by trying the password.
+	if password == "" || errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) || errors.Is(err, exerciseModel.ErrArchiveTooLarge.Err()) {
 		return nil, false, err
 	}
 	files, err = ReadProtectedArchiveV1(data, password)
@@ -792,8 +776,8 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 	if password == "" {
 		return nil, fmt.Errorf("password is required for protected archive")
 	}
-	if len(data) > 128<<20 {
-		return nil, fmt.Errorf("archive exceeds 128 MiB")
+	if err := checkArchiveSize(len(data)); err != nil {
+		return nil, err
 	}
 	zr, err := yzip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {

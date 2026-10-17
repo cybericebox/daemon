@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -135,10 +134,10 @@ func TestReadArchiveV1_LimitsStillApply(t *testing.T) {
 		t.Fatalf("an unsafe path must be refused without a manifest: %v", err)
 	}
 	entries := map[string][]byte{}
-	for i := 0; i <= maxArchiveEntries; i++ {
+	for i := 0; i <= MaxArchiveEntries; i++ {
 		entries[fmt.Sprintf("f%04d.txt", i)] = []byte("x")
 	}
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries))); err == nil || !strings.Contains(err.Error(), "entries") {
+	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries))); !errors.Is(err, exerciseModel.ErrArchiveTooLarge.Err()) {
 		t.Fatalf("1001 entries must be refused without a manifest: %v", err)
 	}
 }

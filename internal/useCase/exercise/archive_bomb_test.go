@@ -3,9 +3,12 @@ package exercise
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"errors"
 	"fmt"
-	"strings"
 	"testing"
+
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 func zipOf(t *testing.T, entries map[string][]byte) []byte {
@@ -27,47 +30,96 @@ func zipOf(t *testing.T, entries map[string][]byte) []byte {
 	return buf.Bytes()
 }
 
+// incompressible is n fixed bytes deflate cannot shrink (a SHA-256 chain).
+func incompressible(n int) []byte {
+	out := make([]byte, 0, n+sha256.Size)
+	seed := sha256.Sum256([]byte("incompressible"))
+	for len(out) < n {
+		out = append(out, seed[:]...)
+		seed = sha256.Sum256(seed[:])
+	}
+	return out[:n]
+}
+
+// withLimits runs a test under small archive limits, so it needs no hundreds of MiB.
+func withLimits(t *testing.T, small archiveLimits) {
+	t.Helper()
+	old := limits
+	limits = small
+	t.Cleanup(func() { limits = old })
+}
+
+func requireTooLarge(t *testing.T, err error, what string) {
+	t.Helper()
+	if !errors.Is(err, exerciseModel.ErrArchiveTooLarge.Err()) {
+		t.Fatalf("%s: want ErrArchiveTooLarge, got %v", what, err)
+	}
+}
+
+// Import and export share one set of limits: the export's, a stored file of the default media cap.
+func TestArchiveLimitsAreTheExportLimits(t *testing.T) {
+	want := archiveLimits{Archive: 512 << 20, Entry: 512 << 20, Unpacked: 512 << 20, Entries: 1000}
+	if limits != want || MaxArchiveBytes != want.Archive || MaxArchiveEntryBytes != want.Entry || MaxArchiveUnpackedBytes != want.Unpacked || MaxArchiveEntries != want.Entries {
+		t.Fatalf("limits = %+v", limits)
+	}
+}
+
 // The reported PoC: a few MB of zip that unpack into gigabytes of memory.
 func TestAnArchiveThatExpandsFarBeyondItsSizeIsRefused(t *testing.T) {
 	bomb := zipOf(t, map[string][]byte{"a.bin": make([]byte, 48<<20)})
 	if len(bomb) > 1<<20 {
 		t.Fatalf("the test archive should be tiny, it is %d bytes", len(bomb))
 	}
-	if _, err := ReadArchiveV1(bytes.NewReader(bomb)); err == nil || !strings.Contains(err.Error(), "too large") {
-		t.Fatalf("a 48 MiB entry in a ~50 KB archive must be refused: %v", err)
-	}
-	// An entry over the entry cap is refused whatever its ratio.
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"a.bin": make([]byte, 65<<20)}))); err == nil {
-		t.Fatal("an entry over 64 MiB must be refused")
-	}
+	_, err := ReadArchiveV1(bytes.NewReader(bomb))
+	requireTooLarge(t, err, "a 48 MiB entry in a ~50 KB archive")
+}
+
+func TestAnEntryOverTheEntryCapIsRefused(t *testing.T) {
+	withLimits(t, archiveLimits{Archive: 8 << 20, Entry: 2 << 20, Unpacked: 8 << 20, Entries: 1000})
+	// Incompressible bytes, so the ratio check does not answer first.
+	_, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"a.bin": incompressible(3 << 20)})))
+	requireTooLarge(t, err, "an entry over the entry cap")
 }
 
 func TestAnArchiveWithTooManyEntriesIsRefused(t *testing.T) {
 	entries := map[string][]byte{}
-	for i := 0; i <= maxArchiveEntries; i++ {
+	for i := 0; i <= MaxArchiveEntries; i++ {
 		entries[fmt.Sprintf("f%04d.txt", i)] = []byte("x")
 	}
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries))); err == nil || !strings.Contains(err.Error(), "entries") {
-		t.Fatalf("err = %v", err)
+	_, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries)))
+	requireTooLarge(t, err, "1001 entries")
+}
+
+func TestAnArchiveOverTheArchiveCapIsRefused(t *testing.T) {
+	withLimits(t, archiveLimits{Archive: 1 << 10, Entry: 1 << 20, Unpacked: 1 << 20, Entries: 1000})
+	_, err := ReadArchiveBytes(bytes.NewReader(make([]byte, 1<<10+1)))
+	requireTooLarge(t, err, "an upload over the archive cap")
+	body, err := ReadArchiveBytes(bytes.NewReader(make([]byte, 1<<10)))
+	if err != nil || len(body) != 1<<10 {
+		t.Fatalf("an upload at the cap reads whole: %d %v", len(body), err)
 	}
+	big := zipOf(t, map[string][]byte{"a.bin": incompressible(2 << 10)})
+	_, err = ReadArchiveV1(bytes.NewReader(big))
+	requireTooLarge(t, err, "a zip over the archive cap is refused, never cut")
+	_, err = ReadProtectedArchiveV1(big, "pw")
+	requireTooLarge(t, err, "a protected zip over the archive cap")
 }
 
 func TestTheUnpackedTotalIsCappedAndTheBytesActuallyReadCount(t *testing.T) {
+	withLimits(t, archiveLimits{Archive: 8 << 20, Entry: 1 << 20, Unpacked: 4 << 20, Entries: 1000})
 	var b archiveBudget
-	chunk := bytes.Repeat([]byte{1}, 60<<20)
-	for i := 0; i < 4; i++ { // 4 x 60 MiB = 240 MiB: within the total
+	chunk := bytes.Repeat([]byte{1}, 1<<20)
+	for i := 0; i < 4; i++ { // 4 x 1 MiB: within the total
 		if _, err := b.read(bytes.NewReader(chunk)); err != nil {
 			t.Fatalf("chunk %d: %v", i, err)
 		}
 	}
-	if _, err := b.read(bytes.NewReader(chunk)); err == nil {
-		t.Fatal("the fifth chunk passes 256 MiB in total")
-	}
+	_, err := b.read(bytes.NewReader(chunk))
+	requireTooLarge(t, err, "the fifth chunk passes the total")
 	// The header can lie: a stream longer than the entry cap is refused, never silently cut.
 	var other archiveBudget
-	if _, err := other.read(bytes.NewReader(make([]byte, 65<<20))); err == nil {
-		t.Fatal("an entry longer than 64 MiB must be an error, not a truncated body")
-	}
+	_, err = other.read(bytes.NewReader(make([]byte, 1<<20+1)))
+	requireTooLarge(t, err, "an entry longer than the entry cap")
 }
 
 func TestAnOrdinaryArchiveStillReads(t *testing.T) {

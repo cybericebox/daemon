@@ -1,6 +1,9 @@
 package exercise
 
-import "time"
+import (
+	"testing"
+	"time"
+)
 
 // EnvSecretContext lets the external tests seal a secret the way the use case does.
 var EnvSecretContext = envSecretContext
@@ -19,3 +22,10 @@ var (
 	ExportName          = exportName
 	NormalizeContentIDs = normalizeContentIDs
 )
+
+// SetArchiveLimits runs one test under small archive limits (archive, one entry, all entries unpacked, entries).
+func SetArchiveLimits(t testing.TB, archive, entry, unpacked int64, entries int) {
+	old := limits
+	limits = archiveLimits{Archive: archive, Entry: entry, Unpacked: unpacked, Entries: entries}
+	t.Cleanup(func() { limits = old })
+}

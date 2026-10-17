@@ -104,6 +104,7 @@
   "20988": "Device images inside the archive are not supported yet",
   "20989": "A link names a file the archive does not hold",
   "20990": "Unsupported archive schema: expected schema: cib-exercise/1",
+  "20991": "The archive is over the size limits",
   "21002": "File exceeds the maximum upload size",
   "21004": "The picture has too many pixels",
   "21005": "The picture cannot be read",

@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 91
+// ExerciseObjectCode — next free detail code: 92
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -244,6 +244,10 @@ var (
 	// `expected` names the schema.
 	ErrArchiveSchemaUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Unsupported archive schema: expected schema: cib-exercise/1").WithDetailCode(90)
+	// ErrArchiveTooLarge: an archive (imported or being exported) is over the archive limits: the zip, one file
+	// or all files unpacked, the number of entries, or how far a file expands; the context `reason` says which.
+	ErrArchiveTooLarge = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The archive is over the size limits").WithDetailCode(91)
 	// ErrArchiveBothDocuments: a task folder holds exercise.json and exercise.yaml at once.
 	ErrArchiveBothDocuments = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("A task folder holds both exercise.json and exercise.yaml").WithDetailCode(81)

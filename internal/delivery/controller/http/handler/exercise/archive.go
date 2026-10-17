@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -120,7 +119,7 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	middleware.LimitBody(ctx, 129<<20)
+	middleware.LimitBody(ctx, exerciseUseCase.MaxArchiveBytes+multipartOverheadSlack)
 	file, err := ctx.FormFile("archive")
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -132,9 +131,9 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		return
 	}
 	defer func() { _ = input.Close() }()
-	contents, err := readArchiveUpload(input)
+	contents, err := exerciseUseCase.ReadArchiveBytes(input)
 	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
+		abortArchiveError(ctx, err)
 		return
 	}
 	h.importContents(ctx, claims.UserID, contents, ctx.PostForm("password"))
@@ -206,9 +205,9 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 		return
 	}
 	defer func() { _ = reader.Close() }()
-	contents, err := readArchiveUpload(reader)
+	contents, err := exerciseUseCase.ReadArchiveBytes(reader)
 	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
+		abortArchiveError(ctx, err)
 		return
 	}
 	h.importContents(ctx, claims.UserID, contents, req.Password)
@@ -244,17 +243,6 @@ func abortArchiveError(ctx *gin.Context, failure error) {
 		return
 	}
 	response.AbortWithBadRequest(ctx, failure)
-}
-
-func readArchiveUpload(file io.Reader) ([]byte, error) {
-	contents, err := io.ReadAll(io.LimitReader(file, (128<<20)+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(contents) > 128<<20 {
-		return nil, fmt.Errorf("archive exceeds 128 MiB")
-	}
-	return contents, nil
 }
 
 func archiveFilename(name string) string {
