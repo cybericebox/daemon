@@ -95,6 +95,7 @@
   "20979": "Linked variants of one base need different flags for the same task",
   "20980": "Exercise archive is invalid",
   "20981": "A task folder holds both exercise.json and exercise.yaml",
+  "20983": "Archive checksum mismatch: delete manifest.json after editing an archive by hand",
   "20988": "Device images inside the archive are not supported yet",
   "20990": "Unsupported archive schema: expected schema: cib-exercise/1",
   "21002": "File exceeds the maximum upload size",

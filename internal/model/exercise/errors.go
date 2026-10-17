@@ -247,4 +247,8 @@ var (
 	// ErrArchiveBothDocuments: a task folder holds exercise.json and exercise.yaml at once.
 	ErrArchiveBothDocuments = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("A task folder holds both exercise.json and exercise.yaml").WithDetailCode(81)
+	// ErrArchiveChecksumMismatch: a file differs from manifest.json; the context `file` names it. Editing an
+	// archive by hand breaks the checksums, so the fix is to delete manifest.json.
+	ErrArchiveChecksumMismatch = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Archive checksum mismatch: delete manifest.json after editing an archive by hand").WithDetailCode(83)
 )

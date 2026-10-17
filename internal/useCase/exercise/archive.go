@@ -434,6 +434,15 @@ func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUI
 // BuildArchiveV1 creates the portable, checksummed ZIP envelope. Callers own
 // the exercise serialization and media streaming; this codec never knows S3.
 func BuildArchiveV1(files map[string][]byte) ([]byte, error) {
+	return buildArchive(files, true)
+}
+
+// BuildArchiveNoManifest builds the same ZIP without manifest.json: what an author writes by hand.
+func BuildArchiveNoManifest(files map[string][]byte) ([]byte, error) {
+	return buildArchive(files, false)
+}
+
+func buildArchive(files map[string][]byte, withManifest bool) ([]byte, error) {
 	var out bytes.Buffer
 	zw := zip.NewWriter(&out)
 	checks := map[string]string{}
@@ -456,18 +465,20 @@ func BuildArchiveV1(files map[string][]byte) ([]byte, error) {
 			return nil, e
 		}
 	}
-	manifest, e := json.Marshal(archiveManifest{Version: 1, Checksums: checks})
-	if e != nil {
-		return nil, e
+	if withManifest {
+		manifest, e := json.Marshal(archiveManifest{Version: 1, Checksums: checks})
+		if e != nil {
+			return nil, e
+		}
+		w, e := zw.Create("manifest.json")
+		if e != nil {
+			return nil, e
+		}
+		if _, e = w.Write(manifest); e != nil {
+			return nil, e
+		}
 	}
-	w, e := zw.Create("manifest.json")
-	if e != nil {
-		return nil, e
-	}
-	if _, e = w.Write(manifest); e != nil {
-		return nil, e
-	}
-	if e = zw.Close(); e != nil {
+	if e := zw.Close(); e != nil {
 		return nil, e
 	}
 	return out.Bytes(), nil
@@ -526,7 +537,6 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 		return nil, e
 	}
 	out := map[string][]byte{}
-	var m archiveManifest
 	var budget archiveBudget
 	for _, f := range zr.File {
 		if !safeArchivePath(f.Name) && f.Name != "manifest.json" {
@@ -544,23 +554,9 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 		if e != nil {
 			return nil, e
 		}
-		if f.Name == "manifest.json" {
-			if e = json.Unmarshal(d, &m); e != nil {
-				return nil, e
-			}
-		} else {
-			out[f.Name] = d
-		}
+		out[f.Name] = d
 	}
-	if m.Version != 1 {
-		return nil, fmt.Errorf("unsupported archive version")
-	}
-	for n, want := range m.Checksums {
-		if got, ok := out[n]; !ok || hashBytes(got) != want {
-			return nil, fmt.Errorf("checksum mismatch: %s", n)
-		}
-	}
-	return out, nil
+	return validateArchiveManifest(out)
 }
 
 // BuildProtectedArchiveV1 emits a regular AES-encrypted ZIP. Every entry,
@@ -594,7 +590,8 @@ func readExerciseArchive(data []byte, password string) (map[string][]byte, error
 	if err == nil {
 		return files, nil
 	}
-	if password == "" {
+	// A checksum mismatch means a readable archive edited by hand: a password would not help.
+	if password == "" || errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
 		return nil, err
 	}
 	return ReadProtectedArchiveV1(data, password)
@@ -658,26 +655,48 @@ func sortedArchiveNames(files map[string][]byte) []string {
 	return names
 }
 
+// validateArchiveManifest verifies every manifest.json in the archive and removes it from the result. No
+// manifest means nothing to verify. A manifest at the root covers every entry by its full path; one inside a
+// task folder (older bundles) covers that folder, its paths relative to it.
 func validateArchiveManifest(files map[string][]byte) (map[string][]byte, error) {
-	manifestBytes, ok := files["manifest.json"]
-	if !ok {
-		return nil, fmt.Errorf("archive is missing manifest")
-	}
-	var manifest archiveManifest
-	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		return nil, err
-	}
-	delete(files, "manifest.json")
-	if manifest.Version != 1 {
-		return nil, fmt.Errorf("unsupported archive version")
-	}
-	for name, want := range manifest.Checksums {
-		if got, ok := files[name]; !ok || hashBytes(got) != want {
-			return nil, fmt.Errorf("checksum mismatch: %s", name)
+	var manifests []string
+	for name := range files {
+		if name == "manifest.json" || strings.HasSuffix(name, "/manifest.json") {
+			manifests = append(manifests, name)
 		}
+	}
+	sort.Strings(manifests)
+	for _, name := range manifests {
+		var manifest archiveManifest
+		if err := json.Unmarshal(files[name], &manifest); err != nil {
+			return nil, err
+		}
+		if manifest.Version != 1 {
+			return nil, fmt.Errorf("unsupported archive version")
+		}
+		prefix := strings.TrimSuffix(name, "manifest.json")
+		checked := make([]string, 0, len(manifest.Checksums))
+		for entry := range manifest.Checksums {
+			checked = append(checked, entry)
+		}
+		sort.Strings(checked)
+		for _, entry := range checked {
+			if got, ok := files[prefix+entry]; !ok || hashBytes(got) != manifest.Checksums[entry] {
+				return nil, archiveChecksumMismatch(prefix + entry)
+			}
+		}
+	}
+	for _, name := range manifests {
+		delete(files, name)
 	}
 	return files, nil
 }
+
+// archiveChecksumMismatch is the one place ErrArchiveChecksumMismatch is raised; file is the entry that differs.
+func archiveChecksumMismatch(file string) error {
+	return exerciseModel.ErrArchiveChecksumMismatch.WithPublicContext("file", file).Err()
+}
+
 func safeArchivePath(n string) bool {
 	return n != "" && n == path.Clean(n) && !strings.HasPrefix(n, "/") && !strings.HasPrefix(n, "../") && !strings.Contains(n, "\\") && n != "manifest.json"
 }
