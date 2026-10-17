@@ -29,6 +29,46 @@ type fileUploadResponse struct {
 	Size   int64     `json:"Size"`
 }
 
+type fileLookupRequest struct {
+	// SHA256 is the hex SHA-256 of the bytes the editor is about to upload.
+	SHA256 string `json:"SHA256" binding:"required,len=64,hexadecimal"`
+}
+
+type fileLookupResponse struct {
+	Found  bool      `json:"Found"`
+	FileID uuid.UUID `json:"FileID"`
+	Name   string    `json:"Name"`
+	Size   int64     `json:"Size"`
+}
+
+// lookupFile godoc
+// @Summary  Whether the task already stores a content (asked before an attachment upload)
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    id    path  string             true  "exercise ID"
+// @Param    body  body  fileLookupRequest  true  "SHA-256 of the bytes"
+// @Success  200  {object}  response.Response{data=fileLookupResponse}
+// @Failure  400  {object}  response.Response
+// @Router   /exercises/{id}/files/lookup [post]
+func (h *Handler) lookupFile(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	var req fileLookupRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	found, err := h.useCase.LookupExerciseFile(ctx, id, req.SHA256)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, fileLookupResponse{Found: found.Found, FileID: found.FileID, Name: found.Name, Size: found.Size})
+}
+
 // uploadFile godoc
 // @Summary  Upload an exercise attachment (multipart)
 // @Tags     exercises

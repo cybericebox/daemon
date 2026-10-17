@@ -14,6 +14,7 @@ import (
 	"github.com/gofrs/uuid"
 	"io"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -174,11 +175,26 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	// the newly-created aggregate; unreferenced media is intentionally left to
 	// the media garbage collector rather than risking deletion of deduplicated
 	// blobs.
+	if err = u.adoptImportedFiles(ctx, created.ID, parsed.Versions); err != nil {
+		_, _ = u.exercises.Delete(ctx, created.ID)
+		return ExerciseView{}, err
+	}
 	if err = u.persistImportedVersions(ctx, created.ID, parsed.Versions, in.CreatedBy); err != nil {
 		_, _ = u.exercises.Delete(ctx, created.ID)
 		return ExerciseView{}, err
 	}
 	return created, nil
+}
+
+// adoptImportedFiles stores the uploaded attachments as the new task's files (each content once), in every
+// version, linked variants included: their attachments are their own.
+func (u *ExerciseUseCase) adoptImportedFiles(ctx context.Context, exerciseID uuid.UUID, versions []exerciseModel.ExerciseVersion) error {
+	for i := range versions {
+		if err := u.adoptFiles(ctx, exerciseID, versions[i].Variants); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // syncImportedLinks rebuilds the linked variants of every version from their bases.
@@ -249,8 +265,16 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 	if !ok {
 		return fmt.Errorf("media storage is not available for attachment import")
 	}
-	mapped := make(map[uuid.UUID]uuid.UUID, len(needed))
+	// Sorted, so the same archive uploads in the same order (and the first name of a content is stable).
+	sources := make([]uuid.UUID, 0, len(needed))
 	for sourceID := range needed {
+		sources = append(sources, sourceID)
+	}
+	slices.SortFunc(sources, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
+	mapped := make(map[uuid.UUID]uuid.UUID, len(needed))
+	// Each distinct content goes up once, however many paths carry it.
+	uploadedByHash := make(map[[sha256.Size]byte]uuid.UUID, len(needed))
+	for _, sourceID := range sources {
 		meta, ok := parsed.FileMeta[sourceID]
 		if !ok {
 			return fmt.Errorf("exercise archive is missing metadata for attachment %s", sourceID)
@@ -258,6 +282,11 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 		body, ok := lookupAttachment(parsed, sourceID)
 		if !ok {
 			return fmt.Errorf("exercise archive is missing attachment %s", sourceID)
+		}
+		hash := sha256.Sum256(body)
+		if stored, done := uploadedByHash[hash]; done {
+			mapped[sourceID] = stored
+			continue
 		}
 		contentType := meta.ContentType
 		if contentType == "" {
@@ -268,6 +297,7 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 			return uploadErr
 		}
 		mapped[sourceID] = file.ID
+		uploadedByHash[hash] = file.ID
 	}
 	for versionIndex := range parsed.Versions {
 		for variantIndex := range parsed.Versions[versionIndex].Variants {

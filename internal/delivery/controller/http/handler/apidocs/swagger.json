@@ -16839,6 +16839,64 @@
                 }
             }
         },
+        "/exercises/{id}/files/lookup": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Whether the task already stores a content (asked before an attachment upload)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "SHA-256 of the bytes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.fileLookupRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.fileLookupResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}/proposals": {
             "post": {
                 "consumes": [
@@ -31810,6 +31868,35 @@
                 },
                 "Protocol": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.fileLookupRequest": {
+            "type": "object",
+            "required": [
+                "SHA256"
+            ],
+            "properties": {
+                "SHA256": {
+                    "description": "SHA256 is the hex SHA-256 of the bytes the editor is about to upload.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.fileLookupResponse": {
+            "type": "object",
+            "properties": {
+                "FileID": {
+                    "type": "string"
+                },
+                "Found": {
+                    "type": "boolean"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "integer"
                 }
             }
         },

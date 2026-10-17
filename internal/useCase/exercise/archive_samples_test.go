@@ -22,6 +22,7 @@ func TestSampleArchive_StaticImports(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectUserNames(q)
+	expectFilesAdoptedAsIs(q)
 	media := newFakeMedia()
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {

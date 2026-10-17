@@ -71,6 +71,9 @@ type fakeUC struct {
 	uploadCreatedBy  uuid.UUID
 	streamedFileID   uuid.UUID
 	maxUploadBytes   int64
+	fileLookup       exerciseUseCase.FileLookup
+	lookupExercise   uuid.UUID
+	lookupHash       string
 
 	// deploy
 	deployHandle exerciseModel.DeployHandle
@@ -1915,5 +1918,77 @@ func TestVersionResponseCarriesResourcesAndNeverNamesALaboratory(t *testing.T) {
 		if strings.Contains(w.Body.String(), banned) {
 			t.Errorf("the version response names a laboratory (%s): %s", banned, w.Body.String())
 		}
+	}
+}
+
+func (f *fakeUC) LookupExerciseFile(_ context.Context, exerciseID uuid.UUID, sha256 string) (exerciseUseCase.FileLookup, error) {
+	f.lookupExercise, f.lookupHash = exerciseID, sha256
+	return f.fileLookup, f.err
+}
+
+func TestLookupFile_Route(t *testing.T) {
+	exID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000d0001")
+	fileID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000d0002")
+	hash := strings.Repeat("ab", 32)
+	do := func(role rbac.Role, uc *fakeUC, body string) *httptest.ResponseRecorder {
+		gin.SetMode(gin.TestMode)
+		r := gin.New()
+		r.Use(response.WithErrorHandler)
+		r.Use(injectIdentity(uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000d0003")))
+		exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: role}).Init(r.Group("api"))
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/"+exID.String()+"/files/lookup", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	t.Run("writer gets the task's file", func(t *testing.T) {
+		uc := &fakeUC{fileLookup: exerciseUseCase.FileLookup{Found: true, FileID: fileID, Name: "notes.txt", Size: 42}}
+		w := do(rbac.RoleAdmin, uc, `{"SHA256":"`+hash+`"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+		}
+		var got struct {
+			Data struct {
+				Found  bool
+				FileID uuid.UUID
+				Name   string
+				Size   int64
+			}
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if !got.Data.Found || got.Data.FileID != fileID || got.Data.Name != "notes.txt" || got.Data.Size != 42 {
+			t.Fatalf("body=%s", w.Body.String())
+		}
+		if uc.lookupExercise != exID || uc.lookupHash != hash {
+			t.Fatalf("called with %s %s", uc.lookupExercise, uc.lookupHash)
+		}
+	})
+	t.Run("not found is a plain answer", func(t *testing.T) {
+		w := do(rbac.RoleAdmin, &fakeUC{}, `{"SHA256":"`+hash+`"}`)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Found":false`) {
+			t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+		}
+	})
+	t.Run("reader without write", func(t *testing.T) {
+		uc := &fakeUC{}
+		w := do(rbac.RoleAdminViewer, uc, `{"SHA256":"`+hash+`"}`)
+		if w.Code != http.StatusForbidden || uc.lookupHash != "" {
+			t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+		}
+	})
+	for name, body := range map[string]string{
+		"short":   `{"SHA256":"abc"}`,
+		"not hex": `{"SHA256":"` + strings.Repeat("zz", 32) + `"}`,
+		"missing": `{}`,
+	} {
+		t.Run("bad hash "+name, func(t *testing.T) {
+			uc := &fakeUC{}
+			if w := do(rbac.RoleAdmin, uc, body); w.Code != http.StatusBadRequest || uc.lookupHash != "" {
+				t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+			}
+		})
 	}
 }

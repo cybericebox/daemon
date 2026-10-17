@@ -6345,6 +6345,26 @@ definitions:
       Protocol:
         type: string
     type: object
+  exercise.fileLookupRequest:
+    properties:
+      SHA256:
+        description: SHA256 is the hex SHA-256 of the bytes the editor is about to
+          upload.
+        type: string
+    required:
+    - SHA256
+    type: object
+  exercise.fileLookupResponse:
+    properties:
+      FileID:
+        type: string
+      Found:
+        type: boolean
+      Name:
+        type: string
+      Size:
+        type: integer
+    type: object
   exercise.fileUploadResponse:
     properties:
       FileID:
@@ -20310,6 +20330,42 @@ paths:
               type: object
       summary: Ask a platform admin to let devices of the task go above the platform
         resource frame
+      tags:
+      - exercises
+  /exercises/{id}/files/lookup:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: SHA-256 of the bytes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.fileLookupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.fileLookupResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Whether the task already stores a content (asked before an attachment
+        upload)
       tags:
       - exercises
   /exercises/{id}/proposals:

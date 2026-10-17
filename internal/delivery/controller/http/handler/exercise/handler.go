@@ -79,6 +79,8 @@ type (
 		UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error)
 		GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error)
 		StreamFile(ctx context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error)
+		// LookupExerciseFile answers whether the task already stores a content (asked before an attachment upload).
+		LookupExerciseFile(ctx context.Context, exerciseID uuid.UUID, sha256 string) (exerciseUseCase.FileLookup, error)
 		// MaxUploadBytes is the same cap UploadFile enforces internally; the
 		// handler uses it to cap the request body at the HTTP boundary too
 		// (see files.go), so an oversized upload is rejected before the
@@ -186,6 +188,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST(":id/proposals", self, h.authorize(exerciseUseCase.ActionPublish), h.propose)
 		ex.GET(":id/elevation", self, h.authorize(exerciseUseCase.ActionRead), h.exerciseElevation)
 		ex.POST(":id/elevation", self, h.authorize(exerciseUseCase.ActionWrite), h.requestElevation)
+		ex.POST(":id/files/lookup", self, h.authorize(exerciseUseCase.ActionWrite), h.lookupFile)
 
 		ex.GET(":id/versions", self, h.authorize(exerciseUseCase.ActionRead), h.listVersions)
 		ex.GET(":id/versions/:versionID", self, h.authorize(exerciseUseCase.ActionReadPublished), h.getVersion)

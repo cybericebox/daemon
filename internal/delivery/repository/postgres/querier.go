@@ -45,6 +45,9 @@ type Querier interface {
 	AttachEventLabAssignmentBindings(ctx context.Context, labID uuid.NullUUID) (int64, error)
 	AvgDailyActiveSince(ctx context.Context, createdAt time.Time) (float64, error)
 	BlobExists(ctx context.Context, contentHash string) (bool, error)
+	// Records the file as the task's copy of its content, unless the task already holds that content: either way it
+	// returns the task's canonical file. The no-op update makes RETURNING yield the existing row on conflict.
+	ClaimExerciseFile(ctx context.Context, arg ClaimExerciseFileParams) (uuid.UUID, error)
 	// Places a group on an agent unless it is placed already; returns the agent that holds it, so two
 	// racing callers agree on the winner.
 	ClaimLabGroupPlacement(ctx context.Context, arg ClaimLabGroupPlacementParams) (uuid.UUID, error)
@@ -321,6 +324,8 @@ type Querier interface {
 	// the domain (Exercise.HasUnpublishedChanges) without asking.
 	// label is deliberately not compared: it names snapshots, never content.
 	ExerciseDraftDiffersFromPublished(ctx context.Context, exerciseID uuid.UUID) (bool, error)
+	// Whether the task stores the file as its copy of a content (a co-author's upload found by the hash lookup).
+	ExerciseHoldsFile(ctx context.Context, arg ExerciseHoldsFileParams) (bool, error)
 	// Grows the latest segment of the same collector boot when the new span joins
 	// it (within the tolerance); zero rows means a new segment is needed.
 	ExtendLabTrafficCoverage(ctx context.Context, arg ExtendLabTrafficCoverageParams) (int64, error)
@@ -466,6 +471,8 @@ type Querier interface {
 	GetEventTeamStand(ctx context.Context, eventTeamID uuid.UUID) (EventTeamStand, error)
 	GetEventTeamVisible(ctx context.Context, arg GetEventTeamVisibleParams) (bool, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
+	// The task's stored file for a content, if any. Scoped to the one task: never reveals another task's files.
+	GetExerciseFileByHash(ctx context.Context, arg GetExerciseFileByHashParams) (GetExerciseFileByHashRow, error)
 	GetExerciseInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error)
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (ExerciseProposal, error)
 	GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (ExerciseResourceElevation, error)
@@ -989,6 +996,8 @@ type Querier interface {
 	ListExpiredMediaUploads(ctx context.Context, arg ListExpiredMediaUploadsParams) ([]MediaUpload, error)
 	// Exercises whose versions reference a file (attachment download policy).
 	ListFileExerciseIDs(ctx context.Context, arg ListFileExerciseIDsParams) ([]uuid.UUID, error)
+	// The content hash of each of the files; a file that does not exist is absent.
+	ListFileHashes(ctx context.Context, ids []uuid.UUID) ([]ListFileHashesRow, error)
 	// Who uploaded each of the files: an exercise draft may attach only files its author uploaded or the exercise
 	// already holds.
 	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]ListFileOwnersRow, error)

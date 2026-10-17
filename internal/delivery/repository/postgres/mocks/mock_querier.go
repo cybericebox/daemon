@@ -264,6 +264,21 @@ func (mr *MockQuerierMockRecorder) BlobExists(ctx, contentHash any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BlobExists", reflect.TypeOf((*MockQuerier)(nil).BlobExists), ctx, contentHash)
 }
 
+// ClaimExerciseFile mocks base method.
+func (m *MockQuerier) ClaimExerciseFile(ctx context.Context, arg postgres.ClaimExerciseFileParams) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimExerciseFile", ctx, arg)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimExerciseFile indicates an expected call of ClaimExerciseFile.
+func (mr *MockQuerierMockRecorder) ClaimExerciseFile(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimExerciseFile", reflect.TypeOf((*MockQuerier)(nil).ClaimExerciseFile), ctx, arg)
+}
+
 // ClaimLabGroupPlacement mocks base method.
 func (m *MockQuerier) ClaimLabGroupPlacement(ctx context.Context, arg postgres.ClaimLabGroupPlacementParams) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -2844,6 +2859,21 @@ func (mr *MockQuerierMockRecorder) ExerciseDraftDiffersFromPublished(ctx, exerci
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExerciseDraftDiffersFromPublished", reflect.TypeOf((*MockQuerier)(nil).ExerciseDraftDiffersFromPublished), ctx, exerciseID)
 }
 
+// ExerciseHoldsFile mocks base method.
+func (m *MockQuerier) ExerciseHoldsFile(ctx context.Context, arg postgres.ExerciseHoldsFileParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ExerciseHoldsFile", ctx, arg)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ExerciseHoldsFile indicates an expected call of ExerciseHoldsFile.
+func (mr *MockQuerierMockRecorder) ExerciseHoldsFile(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExerciseHoldsFile", reflect.TypeOf((*MockQuerier)(nil).ExerciseHoldsFile), ctx, arg)
+}
+
 // ExtendLabTrafficCoverage mocks base method.
 func (m *MockQuerier) ExtendLabTrafficCoverage(ctx context.Context, arg postgres.ExtendLabTrafficCoverageParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -4206,6 +4236,21 @@ func (m *MockQuerier) GetExerciseByID(ctx context.Context, id uuid.UUID) (postgr
 func (mr *MockQuerierMockRecorder) GetExerciseByID(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseByID", reflect.TypeOf((*MockQuerier)(nil).GetExerciseByID), ctx, id)
+}
+
+// GetExerciseFileByHash mocks base method.
+func (m *MockQuerier) GetExerciseFileByHash(ctx context.Context, arg postgres.GetExerciseFileByHashParams) (postgres.GetExerciseFileByHashRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExerciseFileByHash", ctx, arg)
+	ret0, _ := ret[0].(postgres.GetExerciseFileByHashRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExerciseFileByHash indicates an expected call of GetExerciseFileByHash.
+func (mr *MockQuerierMockRecorder) GetExerciseFileByHash(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseFileByHash", reflect.TypeOf((*MockQuerier)(nil).GetExerciseFileByHash), ctx, arg)
 }
 
 // GetExerciseInfrastructure mocks base method.
@@ -7651,6 +7696,21 @@ func (m *MockQuerier) ListFileExerciseIDs(ctx context.Context, arg postgres.List
 func (mr *MockQuerierMockRecorder) ListFileExerciseIDs(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFileExerciseIDs", reflect.TypeOf((*MockQuerier)(nil).ListFileExerciseIDs), ctx, arg)
+}
+
+// ListFileHashes mocks base method.
+func (m *MockQuerier) ListFileHashes(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileHashesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListFileHashes", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListFileHashesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListFileHashes indicates an expected call of ListFileHashes.
+func (mr *MockQuerierMockRecorder) ListFileHashes(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFileHashes", reflect.TypeOf((*MockQuerier)(nil).ListFileHashes), ctx, ids)
 }
 
 // ListFileOwners mocks base method.

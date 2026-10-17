@@ -375,6 +375,7 @@ GET    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 PUT    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/files/lookup | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/proposals | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/publish | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/unarchive | gate: self | layers: exercise.authorize.func

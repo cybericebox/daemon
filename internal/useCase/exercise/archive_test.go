@@ -278,6 +278,7 @@ func TestImportExerciseArchive_V2AttachmentUploaded(t *testing.T) {
 		"shared/copy.bin": []byte("packets"),
 	})
 	require.NoError(t, err)
+	expectFilesAdoptedAsIs(q)
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
 			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil

@@ -46,6 +46,10 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err = u.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
 		return VersionView{}, err
 	}
+	// Each content is stored once per task: a second copy of bytes the task holds is pointed at its file.
+	if err = u.adoptFiles(ctx, exerciseID, version.Variants); err != nil {
+		return VersionView{}, err
+	}
 
 	// Snapshot which secret fields the caller actually submitted BEFORE the
 	// merge fills blanks from the stored draft — merged values are ciphertext

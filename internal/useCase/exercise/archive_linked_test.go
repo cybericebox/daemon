@@ -206,6 +206,7 @@ func TestImportExerciseArchive_LinkedVariantInheritsBase(t *testing.T) {
 	media := newFakeMedia()
 	var written []exerciseModel.Variant
 	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
+	expectFilesAdoptedAsIs(q)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})

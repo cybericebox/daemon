@@ -11,8 +11,9 @@ import (
 )
 
 // requireFilesClaimable refuses an attachment the caller has no claim on. A file may be attached to an
-// exercise draft by its uploader, or when the exercise already holds it (rolling back to a version, restoring
-// one, editing together). A file of someone else, named by its id, reads as not found: its id is not a
+// exercise draft by its uploader, or when the exercise already holds it: stores it as its copy of a content
+// (a co-author's upload the hash lookup found) or references it from a version (rolling back to a version,
+// restoring one, editing together). A file of someone else, named by its id, reads as not found: its id is not a
 // capability, and a draft that references a file makes it downloadable to everyone who may read the draft.
 func (u *ExerciseUseCase) requireFilesClaimable(ctx context.Context, exerciseID, by uuid.UUID, files []uuid.UUID) error {
 	if len(files) == 0 {
@@ -31,6 +32,13 @@ func (u *ExerciseUseCase) requireFilesClaimable(ctx context.Context, exerciseID,
 			return mediaModel.ErrFileNotFound.Err()
 		}
 		if owner.Valid && by != uuid.Nil && owner.UUID == by {
+			continue
+		}
+		held, heldErr := u.exercises.HoldsFile(ctx, exerciseID, id)
+		if heldErr != nil {
+			return model.ErrPlatform.WithError(heldErr).WithMessage("Failed to check attached files").Err()
+		}
+		if held {
 			continue
 		}
 		holders, holdErr := u.exercises.FileExerciseIDs(ctx, id, mediaModel.RefTypeExerciseVersion)
