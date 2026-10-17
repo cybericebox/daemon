@@ -1,19 +1,39 @@
 package teamChallengeModel
 
-import (
-	"crypto/sha256"
-	"encoding/binary"
+// VariantBalance hands the variants of one event exercise to teams in a
+// predictable round robin: a new team gets the variant with the fewest teams
+// already on it, ties go to the lowest index. So teams get 0, 1, …, N-1, then
+// 0, 1, … again. Teams on a variant that no longer exists are not counted.
+type VariantBalance struct{ counts []int }
 
-	"github.com/gofrs/uuid"
-)
-
-// SelectVariant deterministically maps a team and an event-exercise revision
-// to one variant. Persisting the chosen index in TeamChallenge makes the
-// decision durable even if the selection policy later evolves.
-func SelectVariant(teamID, eventExerciseID uuid.UUID, variantCount int) (int32, error) {
-	if teamID == uuid.Nil || eventExerciseID == uuid.Nil || variantCount < 1 {
-		return 0, ErrTeamChallengeInvalid.Err()
+// NewVariantBalance starts from the teams already on each variant.
+func NewVariantBalance(variantCount int, used map[int32]int) (*VariantBalance, error) {
+	if variantCount < 1 {
+		return nil, ErrTeamChallengeInvalid.Err()
 	}
-	sum := sha256.Sum256(append(teamID.Bytes(), eventExerciseID.Bytes()...))
-	return int32(binary.BigEndian.Uint32(sum[:4]) % uint32(variantCount)), nil
+	counts := make([]int, variantCount)
+	for index, teams := range used {
+		if index >= 0 && int(index) < variantCount {
+			counts[index] = teams
+		}
+	}
+	return &VariantBalance{counts: counts}, nil
+}
+
+// Pick returns the least used variant (the lowest index on a tie).
+func (b *VariantBalance) Pick() int32 {
+	best := 0
+	for index, teams := range b.counts {
+		if teams < b.counts[best] {
+			best = index
+		}
+	}
+	return int32(best)
+}
+
+// Use counts one more team on a variant.
+func (b *VariantBalance) Use(index int32) {
+	if index >= 0 && int(index) < len(b.counts) {
+		b.counts[index]++
+	}
 }

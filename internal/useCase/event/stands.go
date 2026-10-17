@@ -362,7 +362,8 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get pinned exercise version").Err()
 	}
-	variantIndex, err := selectTeamVariant(team.ID, attachment, version)
+	teamChallenges := teamChallengeRepo.New(txRepo)
+	variantIndex, err := pickTeamVariant(txCtx, teamChallenges, team.ID, attachment, version)
 	if err != nil {
 		return err
 	}
@@ -389,7 +390,6 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 	for _, task := range variant.Tasks {
 		tasks[task.ID] = task
 	}
-	teamChallenges := teamChallengeRepo.New(txRepo)
 	bindings := labBindingRepo.New(txRepo)
 	for _, challenge := range challenges {
 		value, getErr := teamChallenges.Get(txCtx, team.ID, challenge.ID)

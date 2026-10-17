@@ -10,6 +10,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventChallengeRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
@@ -34,6 +35,9 @@ type Queries interface {
 	CreateHintUnlock(context.Context, postgres.CreateHintUnlockParams) (postgres.CreateHintUnlockRow, error)
 	ListTeamHintUnlocks(context.Context, uuid.UUID) ([]postgres.ListTeamHintUnlocksRow, error)
 	ListEventHintUnlocks(context.Context, uuid.UUID) ([]postgres.ListEventHintUnlocksRow, error)
+	LockEventExerciseVariantPick(context.Context, uuid.UUID) error
+	CountEventExerciseVariantTeams(context.Context, uuid.UUID) ([]postgres.CountEventExerciseVariantTeamsRow, error)
+	GetTeamEventExerciseVariant(context.Context, postgres.GetTeamEventExerciseVariantParams) (int32, error)
 }
 
 type Availability struct {
@@ -337,6 +341,40 @@ type RefreshRow struct {
 	Hints            []teamChallengeModel.Hint
 	ExpectedFlag     string
 	Solved           bool
+	Moderators       bool // the hidden moderators team takes no variant slot
+}
+
+// LockVariantPick serializes the variant pick of one event exercise until the
+// transaction ends, so two teams never count the same snapshot of VariantUse.
+func (r *Repository) LockVariantPick(ctx context.Context, eventExerciseID uuid.UUID) error {
+	return r.q.LockEventExerciseVariantPick(ctx, eventExerciseID)
+}
+
+// VariantUse counts the teams on each variant of an event exercise, the
+// moderators team excluded.
+func (r *Repository) VariantUse(ctx context.Context, eventExerciseID uuid.UUID) (map[int32]int, error) {
+	rows, err := r.q.CountEventExerciseVariantTeams(ctx, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int32]int, len(rows))
+	for _, row := range rows {
+		out[row.VariantIndex] = int(row.Teams)
+	}
+	return out, nil
+}
+
+// TeamVariant is the variant a team already has for an event exercise; false
+// when the team has no assignment of it yet.
+func (r *Repository) TeamVariant(ctx context.Context, teamID, eventExerciseID uuid.UUID) (int32, bool, error) {
+	index, err := r.q.GetTeamEventExerciseVariant(ctx, postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: eventExerciseID})
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return index, true, nil
 }
 
 // ForRefresh locks and returns the team assignments of board challenges.
@@ -351,7 +389,7 @@ func (r *Repository) ForRefresh(ctx context.Context, challengeIDs []uuid.UUID) (
 	out := make([]RefreshRow, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, RefreshRow{ID: row.ID, EventTeamID: row.EventTeamID, EventChallengeID: row.EventChallengeID, VariantIndex: row.VariantIndex,
-			Snapshot: row.Snapshot, Hints: UnmarshalHints(row.Hints), ExpectedFlag: row.ExpectedFlag, Solved: row.Solved})
+			Snapshot: row.Snapshot, Hints: UnmarshalHints(row.Hints), ExpectedFlag: row.ExpectedFlag, Solved: row.Solved, Moderators: row.Moderators})
 	}
 	return out, nil
 }

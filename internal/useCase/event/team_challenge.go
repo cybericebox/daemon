@@ -381,7 +381,13 @@ func (u *EventUseCase) requireChallengeBoardVisible(ctx context.Context, eventID
 	return nil
 }
 
-func selectTeamVariant(teamID uuid.UUID, attachment eventExerciseModel.EventExercise, version exerciseModel.ExerciseVersion) (int32, error) {
+// pickTeamVariant chooses a team's variant of an event exercise. Fixed mode
+// gives every team the pinned variant. Per team, a team keeps the variant it
+// already has (a challenge added later joins the same variant); a new team
+// gets the least used variant, ties to the lowest index. The pick is
+// serialized per event exercise and counted inside the caller's transaction,
+// so two concurrent preparations never take the same free slot.
+func pickTeamVariant(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, teamID uuid.UUID, attachment eventExerciseModel.EventExercise, version exerciseModel.ExerciseVersion) (int32, error) {
 	if len(version.Variants) == 0 {
 		return 0, model.ErrPlatform.WithMessage("Pinned exercise version has no variants").Err()
 	}
@@ -391,7 +397,31 @@ func selectTeamVariant(teamID uuid.UUID, attachment eventExerciseModel.EventExer
 		}
 		return *attachment.FixedVariantIndex, nil
 	}
-	return teamChallengeModel.SelectVariant(teamID, attachment.ID, len(version.Variants))
+	index, found, err := teamChallenges.TeamVariant(ctx, teamID, attachment.ID)
+	if err != nil {
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to get the team variant").Err()
+	}
+	if found && index >= 0 && int(index) < len(version.Variants) {
+		return index, nil
+	}
+	balance, err := lockedVariantBalance(ctx, teamChallenges, attachment.ID, len(version.Variants))
+	if err != nil {
+		return 0, err
+	}
+	return balance.Pick(), nil
+}
+
+// lockedVariantBalance takes the per-exercise pick lock (held until the
+// transaction ends) and then counts the teams on each variant.
+func lockedVariantBalance(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, eventExerciseID uuid.UUID, variantCount int) (*teamChallengeModel.VariantBalance, error) {
+	if err := teamChallenges.LockVariantPick(ctx, eventExerciseID); err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to lock the variant pick").Err()
+	}
+	used, err := teamChallenges.VariantUse(ctx, eventExerciseID)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the variant use").Err()
+	}
+	return teamChallengeModel.NewVariantBalance(variantCount, used)
 }
 
 // stageSubmitGate is the stage rule of a participant submission: a task of an upcoming stage is hidden (not found),

@@ -60,6 +60,44 @@ func (q *Queries) CountEventChallengeSolves(ctx context.Context, arg CountEventC
 	return items, nil
 }
 
+const countEventExerciseVariantTeams = `-- name: CountEventExerciseVariantTeams :many
+SELECT tc.variant_index, count(DISTINCT tc.event_team_id)::bigint AS teams
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+WHERE ec.event_exercise_id = $1
+  AND NOT team.moderators
+GROUP BY tc.variant_index
+`
+
+type CountEventExerciseVariantTeamsRow struct {
+	VariantIndex int32 `json:"variant_index"`
+	Teams        int64 `json:"teams"`
+}
+
+// Teams per variant of one event exercise (every revision: a source switch
+// keeps the event exercise and its challenges). The moderators team takes no
+// variant slot.
+func (q *Queries) CountEventExerciseVariantTeams(ctx context.Context, eventExerciseID uuid.UUID) ([]CountEventExerciseVariantTeamsRow, error) {
+	rows, err := q.db.Query(ctx, countEventExerciseVariantTeams, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountEventExerciseVariantTeamsRow{}
+	for rows.Next() {
+		var i CountEventExerciseVariantTeamsRow
+		if err := rows.Scan(&i.VariantIndex, &i.Teams); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createHintUnlock = `-- name: CreateHintUnlock :one
 WITH inserted AS (
     INSERT INTO team_challenge_hint_unlocks (team_challenge_id, hint_id, event_id, event_team_id, event_challenge_id,
@@ -276,6 +314,29 @@ func (q *Queries) GetTeamChallengeHints(ctx context.Context, arg GetTeamChalleng
 		&i.StagePhase,
 	)
 	return i, err
+}
+
+const getTeamEventExerciseVariant = `-- name: GetTeamEventExerciseVariant :one
+SELECT tc.variant_index
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+WHERE tc.event_team_id = $1
+  AND ec.event_exercise_id = $2
+ORDER BY tc.created_at, tc.id
+LIMIT 1
+`
+
+type GetTeamEventExerciseVariantParams struct {
+	EventTeamID     uuid.UUID `json:"event_team_id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+}
+
+// The variant a team already has for an event exercise (its first assignment).
+func (q *Queries) GetTeamEventExerciseVariant(ctx context.Context, arg GetTeamEventExerciseVariantParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getTeamEventExerciseVariant, arg.EventTeamID, arg.EventExerciseID)
+	var variant_index int32
+	err := row.Scan(&variant_index)
+	return variant_index, err
 }
 
 const listEventChallengeAvailability = `-- name: ListEventChallengeAvailability :many
@@ -753,8 +814,9 @@ func (q *Queries) ListTeamChallenges(ctx context.Context, eventTeamID uuid.UUID)
 
 const listTeamChallengesForRefresh = `-- name: ListTeamChallengesForRefresh :many
 SELECT tc.id, tc.event_team_id, tc.event_challenge_id, tc.variant_index, tc.snapshot, tc.hints,
-       tc.expected_flag, (solved.solved_at IS NOT NULL)::boolean AS solved
+       tc.expected_flag, (solved.solved_at IS NOT NULL)::boolean AS solved, team.moderators
 FROM team_challenges tc
+JOIN event_teams team ON team.id = tc.event_team_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
 WHERE tc.event_challenge_id = ANY ($1::uuid[])
 ORDER BY tc.id
@@ -770,6 +832,7 @@ type ListTeamChallengesForRefreshRow struct {
 	Hints            []byte    `json:"hints"`
 	ExpectedFlag     string    `json:"expected_flag"`
 	Solved           bool      `json:"solved"`
+	Moderators       bool      `json:"moderators"`
 }
 
 // Team assignments of board challenges whose source content is switched.
@@ -791,6 +854,7 @@ func (q *Queries) ListTeamChallengesForRefresh(ctx context.Context, ids []uuid.U
 			&i.Hints,
 			&i.ExpectedFlag,
 			&i.Solved,
+			&i.Moderators,
 		); err != nil {
 			return nil, err
 		}
@@ -914,6 +978,17 @@ func (q *Queries) ListTeamSolveAwards(ctx context.Context, eventTeamID uuid.UUID
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockEventExerciseVariantPick = `-- name: LockEventExerciseVariantPick :exec
+SELECT pg_advisory_xact_lock(hashtextextended('event-exercise-variant:' || $1::uuid, 0))
+`
+
+// Serializes the variant pick of one event exercise: concurrent preparations
+// count the teams per variant one after another, never from the same snapshot.
+func (q *Queries) LockEventExerciseVariantPick(ctx context.Context, eventExerciseID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, lockEventExerciseVariantPick, eventExerciseID)
+	return err
 }
 
 const publishAvailableTeamChallenges = `-- name: PublishAvailableTeamChallenges :many

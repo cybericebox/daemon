@@ -76,6 +76,10 @@ type Querier interface {
 	// caller's own team even when it is hidden or not admitted. A cutoff (freeze)
 	// keeps only other teams' solves before it.
 	CountEventChallengeSolves(ctx context.Context, arg CountEventChallengeSolvesParams) ([]CountEventChallengeSolvesRow, error)
+	// Teams per variant of one event exercise (every revision: a source switch
+	// keeps the event exercise and its challenges). The moderators team takes no
+	// variant slot.
+	CountEventExerciseVariantTeams(ctx context.Context, eventExerciseID uuid.UUID) ([]CountEventExerciseVariantTeamsRow, error)
 	// Active attachments whose pinned set has a lab topology: they block turning
 	// the event's infrastructure off.
 	CountEventInfrastructureExercises(ctx context.Context, eventID uuid.UUID) (int32, error)
@@ -593,6 +597,8 @@ type Querier interface {
 	// One assignment's hint texts plus the board's canonical hints and costs.
 	GetTeamChallengeHints(ctx context.Context, arg GetTeamChallengeHintsParams) (GetTeamChallengeHintsRow, error)
 	GetTeamChallengeScoringContext(ctx context.Context, teamChallengeID uuid.UUID) (GetTeamChallengeScoringContextRow, error)
+	// The variant a team already has for an event exercise (its first assignment).
+	GetTeamEventExerciseVariant(ctx context.Context, arg GetTeamEventExerciseVariantParams) (int32, error)
 	GetTemporalCodeByCode(ctx context.Context, code string) (TemporalCode, error)
 	// The one query per signed-in request: the global role and the status (blocked) of the caller.
 	GetUserAccess(ctx context.Context, id uuid.UUID) (GetUserAccessRow, error)
@@ -1326,6 +1332,9 @@ type Querier interface {
 	LockErrorNotification(ctx context.Context, id uuid.UUID) (ErrorNotificationDelivery, error)
 	// Configured maxima cannot change while an admission validates immutable group sizes.
 	LockEventConfigForLabSizing(ctx context.Context, eventID uuid.UUID) (uuid.UUID, error)
+	// Serializes the variant pick of one event exercise: concurrent preparations
+	// count the teams per variant one after another, never from the same snapshot.
+	LockEventExerciseVariantPick(ctx context.Context, eventExerciseID uuid.UUID) error
 	// Serialize roster creation/change without blocking the KEY SHARE locks of
 	// concurrent answer inserts while we wait for their team admission locks.
 	LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)

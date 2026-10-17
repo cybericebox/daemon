@@ -646,6 +646,11 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list team challenges").Err()
 	}
+	// A variant the new version no longer has is re-picked by least use; a
+	// team keeps one variant across its challenges and the pass counts its
+	// own picks (the moderators team takes no slot).
+	var balance *teamChallengeModel.VariantBalance
+	repicked := map[uuid.UUID]int32{}
 	for _, row := range rows {
 		// Retained solved generations keep their pinned variant/content/flags and
 		// history. An annulled rated solve still belongs to that terminal Lab.
@@ -666,8 +671,19 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		if link.VariantMode == eventExerciseModel.VariantModeFixed && link.FixedVariantIndex != nil {
 			variantIndex = *link.FixedVariantIndex
 		} else if int(variantIndex) >= len(next.Variants) {
-			if variantIndex, err = teamChallengeModel.SelectVariant(row.EventTeamID, link.ID, len(next.Variants)); err != nil {
-				return err
+			if picked, done := repicked[row.EventTeamID]; done {
+				variantIndex = picked
+			} else {
+				if balance == nil {
+					if balance, err = lockedVariantBalance(ctx, teamChallenges, link.ID, len(next.Variants)); err != nil {
+						return err
+					}
+				}
+				variantIndex = balance.Pick()
+				if !row.Moderators {
+					balance.Use(variantIndex)
+				}
+				repicked[row.EventTeamID] = variantIndex
 			}
 		}
 		task, found := findTask(next, variantIndex, taskID)
