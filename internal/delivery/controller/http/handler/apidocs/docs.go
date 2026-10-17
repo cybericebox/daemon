@@ -22082,6 +22082,178 @@ const docTemplate = `{
                 }
             }
         },
+        "/settings/image-registry": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get the platform image registry settings (tokens are never returned)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Save the platform image registry settings after checking the push token can push",
+                "parameters": [
+                    {
+                        "description": "settings; empty tokens keep the stored ones",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/imageRegistry.saveSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "registry unavailable (Context.reason) or secret storage not configured",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Remove the platform image registry settings and tokens",
+                "responses": {
+                    "200": {
+                        "description": "the cleared (not configured) settings",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/image-registry/repositories": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "List the repositories a registry token can see",
+                "parameters": [
+                    {
+                        "description": "provider, account and token (empty: the stored one)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/imageRegistry.listRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.repositoriesResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "registry unavailable (Context.reason)",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/settings/participant-preview": {
             "get": {
                 "produces": [
@@ -33123,6 +33295,80 @@ const docTemplate = `{
                 },
                 "state": {
                     "description": "State is one of the PodState* values.",
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.listRepositoriesRequest": {
+            "type": "object",
+            "properties": {
+                "Account": {
+                    "type": "string"
+                },
+                "Provider": {
+                    "type": "string"
+                },
+                "Token": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.repositoriesResponse": {
+            "type": "object",
+            "properties": {
+                "Repositories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "imageRegistry.saveSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "Account": {
+                    "type": "string"
+                },
+                "ClearPullToken": {
+                    "type": "boolean"
+                },
+                "Provider": {
+                    "type": "string"
+                },
+                "PullToken": {
+                    "type": "string"
+                },
+                "PushToken": {
+                    "type": "string"
+                },
+                "Repository": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.settingsResponse": {
+            "type": "object",
+            "properties": {
+                "Account": {
+                    "type": "string"
+                },
+                "Configured": {
+                    "type": "boolean"
+                },
+                "Provider": {
+                    "type": "string"
+                },
+                "PullTokenSet": {
+                    "type": "boolean"
+                },
+                "PushTokenSet": {
+                    "type": "boolean"
+                },
+                "Repository": {
+                    "type": "string"
+                },
+                "UpdatedAt": {
                     "type": "string"
                 }
             }

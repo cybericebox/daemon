@@ -14,6 +14,7 @@ import (
 	eventAnalyticsHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/eventAnalytics"
 	eventselfHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/eventself"
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
+	imageRegistryHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/imageRegistry"
 	infrastructureHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/infrastructure"
 	mailHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/mail"
 	messagingHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/messaging"
@@ -53,6 +54,7 @@ type (
 		adminAuditHandler.IUseCase
 		errorJournalHandler.IUseCase
 		mailHandler.IUseCase
+		imageRegistryHandler.IUseCase
 
 		// ResolveEventByTag backs the participant-route tenant-resolution
 		// middleware (see Init) — the aggregator builds
@@ -86,6 +88,7 @@ func (h *Handler) Init(router *gin.Engine) {
 	{
 
 		platformSettings.NewSettingAPIHandler(h.useCase, h.prot).Init(baseAPI)
+		imageRegistryHandler.New(h.useCase, h.prot).Init(baseAPI)
 		adminAuditHandler.New(h.useCase, h.prot).Init(baseAPI)
 		errorJournalHandler.New(h.useCase, h.prot).Init(baseAPI)
 

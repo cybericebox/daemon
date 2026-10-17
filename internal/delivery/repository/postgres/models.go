@@ -711,6 +711,16 @@ type File struct {
 	CreatedBy   uuid.NullUUID `json:"created_by"`
 }
 
+type ImageRegistrySetting struct {
+	ID                  bool      `json:"id"`
+	Provider            string    `json:"provider"`
+	Account             string    `json:"account"`
+	Repository          string    `json:"repository"`
+	PushTokenCiphertext string    `json:"push_token_ciphertext"`
+	PullTokenCiphertext string    `json:"pull_token_ciphertext"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
 type InfrastructureAgent struct {
 	ID                         uuid.UUID          `json:"id"`
 	Key                        string             `json:"key"`

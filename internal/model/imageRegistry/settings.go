@@ -54,10 +54,11 @@ type Settings struct {
 func NewSettings(provider, account, repository string, now time.Time) (Settings, error) {
 	p := Provider(strings.TrimSpace(provider))
 	repo := strings.TrimSpace(repository)
-	if !p.Valid() || repo == "" || strings.ContainsAny(repo, " \t\r\n") || strings.Contains(repo, "://") {
+	acct := strings.TrimSpace(account)
+	if !p.Valid() || acct == "" || repo == "" || strings.ContainsAny(repo, " \t\r\n") || strings.Contains(repo, "://") {
 		return Settings{}, ErrInvalidSettings.Err()
 	}
-	return Settings{Provider: p, Account: strings.TrimSpace(account), Repository: repo, UpdatedAt: now}, nil
+	return Settings{Provider: p, Account: acct, Repository: repo, UpdatedAt: now}, nil
 }
 
 // SetTokens stores sealed tokens; an empty value keeps the stored one
@@ -74,4 +75,16 @@ func (s *Settings) SetTokens(push, pull string, now time.Time) {
 
 func (s *Settings) Configured() bool {
 	return s.Provider.Valid() && s.Repository != "" && s.PushTokenCiphertext != ""
+}
+
+// ClearPullToken removes the pull token: pulls then use the push token.
+func (s *Settings) ClearPullToken(now time.Time) {
+	s.PullTokenCiphertext = ""
+	s.UpdatedAt = now
+}
+
+// SameAccount reports whether the settings belong to this provider account, so
+// its stored tokens still apply (account names are case-insensitive).
+func (s *Settings) SameAccount(provider Provider, account string) bool {
+	return s.Provider == provider && strings.EqualFold(s.Account, strings.TrimSpace(account))
 }

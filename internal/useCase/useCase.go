@@ -41,6 +41,7 @@ import (
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	infrastructureUseCase "github.com/cybericebox/daemon/internal/useCase/infrastructure"
 	mailUseCase "github.com/cybericebox/daemon/internal/useCase/mail"
 	mediaUseCase "github.com/cybericebox/daemon/internal/useCase/media"
@@ -93,6 +94,7 @@ type (
 		*bannerUseCase.SiteBannerUseCase
 		*errorJournalUseCase.Journal
 		*calendarUseCase.ResourceCalendarUseCase
+		*imageRegistryUseCase.ImageRegistryUseCase
 	}
 	Dependencies struct {
 		Repo            *repository.Repository
@@ -120,7 +122,7 @@ type (
 		// One cipher per secret family (separate keys); each nil when its key is unset.
 		ExerciseCipher *secret.Cipher // exercise secret env vars
 		VPNCipher      *secret.Cipher // VPN client configs
-		PlatformCipher *secret.Cipher // platform settings secrets (SMTP)
+		PlatformCipher *secret.Cipher // platform settings secrets (SMTP, image registry tokens)
 		// LabAgent is the infrastructure port, the agent fleet; nil in tests without infrastructure.
 		LabAgent infrastructureUseCase.Agent
 		// AgentFleet applies the admin-configured agents to the live fleet and probes them; nil without one.
@@ -280,9 +282,14 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}
 
 	var agentSealer infrastructureUseCase.AgentSealer
+	// The registry settings work without a cipher (saving tokens is refused); a nil *Cipher must not become a
+	// non-nil interface.
+	var registrySealer secret.Sealer
 	if deps.PlatformCipher != nil {
 		agentSealer = deps.PlatformCipher
+		registrySealer = deps.PlatformCipher
 	}
+	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{Repo: deps.Repo, Cipher: registrySealer})
 	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
 		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),
 		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote, Frame: deps.ResourcesPolicy.Frame,
@@ -412,5 +419,6 @@ func NewUseCase(deps Dependencies) *UseCase {
 		bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{Repo: deps.Repo}),
 		journalUC,
 		calendarUC,
+		imageRegistryUC,
 	}
 }

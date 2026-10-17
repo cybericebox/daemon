@@ -36,6 +36,7 @@ func TestNewSettings(t *testing.T) {
 		{"empty repository", "ghcr", "acme", "  ", true, "", ""},
 		{"scheme in repository", "ghcr", "acme", "https://ghcr.io/a", true, "", ""},
 		{"space in repository", "ghcr", "acme", "a b", true, "", ""},
+		{"empty account", "dockerhub", "  ", "acme/p", true, "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -73,5 +74,25 @@ func TestSettingsSetTokensAndConfigured(t *testing.T) {
 	noRepo := Settings{Provider: ProviderGHCR, PushTokenCiphertext: "x"}
 	if noRepo.Configured() {
 		t.Fatal("repository is required")
+	}
+}
+
+func TestSettingsClearPullToken(t *testing.T) {
+	s, _ := NewSettings("dockerhub", "acme", "acme/p", t0)
+	s.SetTokens("push-ct", "pull-ct", t0)
+	later := t0.Add(time.Minute)
+	s.ClearPullToken(later)
+	if s.PullTokenCiphertext != "" || s.PushTokenCiphertext != "push-ct" || !s.UpdatedAt.Equal(later) {
+		t.Fatalf("got %+v", s)
+	}
+}
+
+func TestSameAccount(t *testing.T) {
+	a, _ := NewSettings("dockerhub", "acme", "acme/p", t0)
+	b, _ := NewSettings("dockerhub", "acme", "acme/q", t0)
+	c, _ := NewSettings("ghcr", "acme", "acme/p", t0)
+	d, _ := NewSettings("dockerhub", "other", "other/p", t0)
+	if !a.SameAccount(b.Provider, b.Account) || a.SameAccount(c.Provider, c.Account) || a.SameAccount(d.Provider, d.Account) {
+		t.Fatal("SameAccount compares provider and account only")
 	}
 }

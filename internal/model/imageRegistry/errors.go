@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 11
+// ImageRegistryObjectCode — next free detail code: 13
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -35,4 +35,17 @@ var (
 				WithMessage("Invalid image archive").WithDetailCode(9)
 	ErrImageTooLarge = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("The image archive is too large").WithDetailCode(10)
+	// ErrPushTokenRequired: the first save (or a new provider account) needs a push token.
+	ErrPushTokenRequired = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("Enter the registry token").WithDetailCode(11)
+	ErrInvalidRepositoryListing = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+					WithMessage("Choose the provider and enter the account name").WithDetailCode(12)
+)
+
+// ContextReason is the public error context of ErrRegistryUnavailable naming
+// why the registry failed (a Reason value); shown to platform admins.
+// ContextToken names which token failed ("push" or "pull"), never its value.
+const (
+	ContextReason = "reason"
+	ContextToken  = "token"
 )

@@ -7087,6 +7087,54 @@ definitions:
         description: State is one of the PodState* values.
         type: string
     type: object
+  imageRegistry.listRepositoriesRequest:
+    properties:
+      Account:
+        type: string
+      Provider:
+        type: string
+      Token:
+        type: string
+    type: object
+  imageRegistry.repositoriesResponse:
+    properties:
+      Repositories:
+        items:
+          type: string
+        type: array
+    type: object
+  imageRegistry.saveSettingsRequest:
+    properties:
+      Account:
+        type: string
+      ClearPullToken:
+        type: boolean
+      Provider:
+        type: string
+      PullToken:
+        type: string
+      PushToken:
+        type: string
+      Repository:
+        type: string
+    type: object
+  imageRegistry.settingsResponse:
+    properties:
+      Account:
+        type: string
+      Configured:
+        type: boolean
+      Provider:
+        type: string
+      PullTokenSet:
+        type: boolean
+      PushTokenSet:
+        type: boolean
+      Repository:
+        type: string
+      UpdatedAt:
+        type: string
+    type: object
   inbox.countsResponse:
     properties:
       Activity:
@@ -24650,6 +24698,108 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get a setting value by key
+      tags:
+      - settings
+  /settings/image-registry:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the cleared (not configured) settings
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.settingsResponse'
+              type: object
+      summary: Remove the platform image registry settings and tokens
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.settingsResponse'
+              type: object
+      summary: Get the platform image registry settings (tokens are never returned)
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: settings; empty tokens keep the stored ones
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.saveSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.settingsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: registry unavailable (Context.reason) or secret storage not
+            configured
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save the platform image registry settings after checking the push token
+        can push
+      tags:
+      - settings
+  /settings/image-registry/repositories:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 'provider, account and token (empty: the stored one)'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.listRepositoriesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.repositoriesResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: registry unavailable (Context.reason)
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: List the repositories a registry token can see
       tags:
       - settings
   /settings/participant-preview:

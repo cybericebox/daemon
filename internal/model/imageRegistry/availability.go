@@ -16,6 +16,7 @@ const (
 	ReasonNotFound         Reason = "not_found"
 	ReasonUnauthorized     Reason = "unauthorized"
 	ReasonUnreachable      Reason = "unreachable"
+	ReasonRateLimited      Reason = "rate_limited"
 	ReasonNeedsEventSecret Reason = "needs_event_secret"
 	ReasonInvalidReference Reason = "invalid_reference"
 )

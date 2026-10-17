@@ -530,6 +530,10 @@ GET    /api/settings | gate: platform.settings.read | layers: -
 GET    /api/settings/:key | gate: platform.settings.read | layers: -
 PUT    /api/settings/:key | gate: platform.settings.write | layers: -
 GET    /api/settings/:key/value | gate: platform.settings.read.value(public) | layers: -
+DELETE /api/settings/image-registry | gate: platform.settings.write | layers: -
+GET    /api/settings/image-registry | gate: platform.settings.read | layers: -
+PUT    /api/settings/image-registry | gate: platform.settings.write | layers: -
+POST   /api/settings/image-registry/repositories | gate: platform.settings.write | layers: -
 GET    /api/settings/participant-preview | gate: platform.settings.read | layers: -
 PUT    /api/settings/participant-preview | gate: platform.settings.write | layers: -
 GET    /api/settings/participant-preview/catalog | gate: platform.settings.read | layers: -

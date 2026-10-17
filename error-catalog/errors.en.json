@@ -230,6 +230,8 @@
   "22806": "Invalid registry credentials",
   "22809": "Invalid image archive",
   "22810": "The image archive is too large",
+  "22811": "Enter the registry token",
+  "22812": "Choose the provider and enter the account name",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
