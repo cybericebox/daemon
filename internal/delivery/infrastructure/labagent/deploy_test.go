@@ -477,7 +477,7 @@ func TestPrewarmImagesMapsStates(t *testing.T) {
 		{Image: "d", State: labpb.PrewarmState_PREWARM_STATE_SKIPPED},
 		{Image: "e", State: labpb.PrewarmState_PREWARM_STATE_QUEUED},
 	}}}
-	got, err := newClient(f).PrewarmImages(context.Background(), []string{"a", "b", "c", "d", "e"})
+	got, err := newClient(f).PrewarmImages(context.Background(), []string{"a", "b", "c", "d", "e"}, nil)
 	if err != nil || len(f.prewarm.GetImages()) != 5 {
 		t.Fatalf("err=%v request=%+v", err, f.prewarm)
 	}
@@ -644,5 +644,45 @@ func TestManagedCreateCarriesCanonicalInitialRunningIntent(t *testing.T) {
 	}
 	if spec.Lifecycle.DesiredState != "Running" || spec.Lifecycle.OperationID != op.String() || spec.Lifecycle.Revision != 1 {
 		t.Fatalf("initial canonical Running intent absent: %+v", spec.Lifecycle)
+	}
+}
+
+func TestDeployLabSendsPullCredentialsInTheVariant(t *testing.T) {
+	topo := exerciseModel.Topology{Devices: []exerciseModel.Device{{Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}
+	f := &fakeAgent{groups: readyGroup()}
+	meta := infraModel.LabMeta{PullCredentials: []infraModel.RegistryCredential{
+		{Registry: "index.docker.io", Username: "platform", Password: "pw-1"},
+		{Registry: "registry.local:5000", Username: "org", Password: "pw-2"},
+	}}
+	if err := newClient(f).DeployLab(context.Background(), "event-team", "c-1", meta, topo); err != nil {
+		t.Fatal(err)
+	}
+	got := f.createLabs.GetVariants()[0].GetRegistryCredentials()
+	if len(got) != 2 || got[0].GetRegistry() != "index.docker.io" || got[0].GetUsername() != "platform" || got[0].GetPassword() != "pw-1" ||
+		got[1].GetRegistry() != "registry.local:5000" || got[1].GetPassword() != "pw-2" {
+		t.Fatalf("credentials = %+v", got)
+	}
+
+	f = &fakeAgent{groups: readyGroup()}
+	if err := newClient(f).DeployLab(context.Background(), "event-team", "c-1", infraModel.LabMeta{}, topo); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(f.createLabs.GetVariants()[0].GetRegistryCredentials()); n != 0 {
+		t.Fatalf("no credentials must send none, got %d", n)
+	}
+}
+
+func TestPrewarmImagesForwardsCredentials(t *testing.T) {
+	f := &fakeAgent{prewarmOut: &labpb.PrewarmImagesResult{}}
+	creds := []infraModel.RegistryCredential{{Registry: "ghcr.io", Username: "u", Password: "pw"}}
+	if _, err := newClient(f).PrewarmImages(context.Background(), []string{"a"}, creds); err != nil {
+		t.Fatal(err)
+	}
+	got := f.prewarm.GetRegistryCredentials()
+	if len(got) != 1 || got[0].GetRegistry() != "ghcr.io" || got[0].GetUsername() != "u" || got[0].GetPassword() != "pw" {
+		t.Fatalf("credentials = %+v", got)
+	}
+	if _, err := newClient(f).PrewarmImages(context.Background(), []string{"a"}, nil); err != nil || len(f.prewarm.GetRegistryCredentials()) != 0 {
+		t.Fatalf("nil creds send none: %v %+v", err, f.prewarm)
 	}
 }

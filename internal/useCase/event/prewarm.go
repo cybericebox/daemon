@@ -116,7 +116,7 @@ func (u *EventUseCase) prewarmOneEvent(ctx context.Context, prewarmer infraModel
 	if err != nil || len(images) == 0 {
 		return err
 	}
-	states, err := prewarmer.PrewarmImages(ctx, images)
+	states, err := prewarmer.PrewarmImages(ctx, images, nil)
 	if err != nil {
 		return err
 	}

@@ -62,7 +62,7 @@ type standAgent struct {
 	prewarmErr   error
 }
 
-func (a *standAgent) PrewarmImages(_ context.Context, images []string) ([]infraModel.ImagePrewarm, error) {
+func (a *standAgent) PrewarmImages(_ context.Context, images []string, _ []infraModel.RegistryCredential) ([]infraModel.ImagePrewarm, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.prewarmCalls = append(a.prewarmCalls, append([]string(nil), images...))
