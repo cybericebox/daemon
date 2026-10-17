@@ -50,6 +50,29 @@ type fakeMedia struct {
 	dropped []uuid.UUID
 	// failAfter > 0: the upload's reader fails after that many bytes (a chunk object gone).
 	failAfter int
+	// blockAfter > 0: the upload's reader blocks after that many bytes until the push's context ends.
+	blockAfter int
+}
+
+// blockingReader returns its bytes up to n, then blocks until ctx ends and returns ctx.Err() (a chunk read cut
+// off by the job's timeout).
+type blockingReader struct {
+	ctx context.Context
+	r   io.Reader
+	n   int
+}
+
+func (b *blockingReader) Read(p []byte) (int, error) {
+	if b.n <= 0 {
+		<-b.ctx.Done()
+		return 0, b.ctx.Err()
+	}
+	if len(p) > b.n {
+		p = p[:b.n]
+	}
+	n, err := b.r.Read(p)
+	b.n -= n
+	return n, err
 }
 
 // failingReader returns its bytes up to n, then a storage error.
@@ -94,13 +117,16 @@ func (m *fakeMedia) UploadStatus(_ context.Context, id, owner uuid.UUID) (mediaM
 	return up, nil
 }
 
-func (m *fakeMedia) OpenUpload(_ context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.Upload, error) {
+func (m *fakeMedia) OpenUpload(ctx context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.Upload, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.opened++
 	up, ok := m.uploads[id]
 	if !ok {
 		return nil, mediaModel.Upload{}, mediaModel.ErrUploadNotFound.Err()
+	}
+	if m.blockAfter > 0 {
+		return io.NopCloser(&blockingReader{ctx: ctx, r: bytes.NewReader(m.data[id]), n: m.blockAfter}), up, nil
 	}
 	if m.failAfter > 0 {
 		return io.NopCloser(&failingReader{r: bytes.NewReader(m.data[id]), n: m.failAfter}), up, nil
@@ -614,5 +640,25 @@ func TestPushImageBlobMissingChunkIsUploadMissing(t *testing.T) {
 	}
 	if f.has(t, args.Digest) {
 		t.Fatal("a partial blob was stored")
+	}
+}
+
+// The job times out while a chunk is being read: that is the job's deadline, not a broken upload — unreachable,
+// and the upload is kept.
+func TestPushImageBlobTimeoutMidChunkIsUnreachable(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.media.stage(uploadID, uploader, layerBytes)
+	f.media.blockAfter = 10
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	args := jobsModel.ImageBlobPushArgs{Digest: digestOf(layerBytes), UploadID: uploadID, Size: int64(len(layerBytes))}
+	if err := f.uc.PushImageBlob(ctx, args); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.pushes[args.Digest]; p.State != "failed" || p.Reason != string(imageRegistryModel.ReasonUnreachable) {
+		t.Fatalf("row %+v", p)
+	}
+	if !f.media.has(uploadID) {
+		t.Fatal("the upload must stay for a retry")
 	}
 }

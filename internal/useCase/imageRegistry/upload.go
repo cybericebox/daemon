@@ -241,6 +241,10 @@ func (u *ImageRegistryUseCase) streamBlob(ctx context.Context, args jobsModel.Im
 		if vr.mismatch {
 			return imageRegistryModel.ReasonDigestMismatch, true
 		}
+		// The job's own deadline or cancellation (also seen by a chunk read) is not a broken upload.
+		if ctx.Err() != nil {
+			return imageRegistryModel.ReasonUnreachable, false
+		}
 		if vr.sourceErr != nil {
 			// A chunk object could not be read: the upload is broken, not the registry.
 			log.Warn().Err(vr.sourceErr).Str("digest", args.Digest).Msg("image upload: reading the blob upload failed")
