@@ -136,24 +136,34 @@ func (s *vsSeed) solve(t *testing.T, teamChallengeID uuid.UUID) {
 	}
 }
 
-// vsCounters renders every counter of the exercise as "version/variant issued=N solved=N" and
-// "version/variant/task solved=N" lines, keyed for comparison.
+// counters renders every count of the exercise as "version/variant issued|solved" and "version/variant/task solved"
+// keys. «solved» = teams that solved both subtasks of the variant (every seeded variant has 2), the same rule the
+// use case applies to the solve depths.
 func (s *vsSeed) counters(t *testing.T) map[string]int64 {
 	t.Helper()
 	ctx := context.Background()
-	stats, err := s.db.Queries.ListExerciseVariantStats(ctx, s.exerciseID)
+	issued, err := s.db.Queries.ListExerciseVariantIssues(ctx, s.exerciseID)
 	if err != nil {
-		t.Fatalf("list variant stats: %v", err)
+		t.Fatalf("list variant issues: %v", err)
 	}
-	tasks, err := s.db.Queries.ListExerciseVariantTaskStats(ctx, s.exerciseID)
+	tasks, err := s.db.Queries.ListExerciseVariantTaskSolves(ctx, s.exerciseID)
 	if err != nil {
-		t.Fatalf("list variant task stats: %v", err)
+		t.Fatalf("list variant task solves: %v", err)
+	}
+	depths, err := s.db.Queries.ListExerciseVariantSolveDepths(ctx, s.exerciseID)
+	if err != nil {
+		t.Fatalf("list variant solve depths: %v", err)
 	}
 	out := map[string]int64{}
-	for _, row := range stats {
+	for _, row := range issued {
 		key := vsName(row.ExerciseVersionID) + "/" + vsName(row.VariantID)
 		out[key+" issued"] = row.Issued
-		out[key+" solved"] = row.Solved
+		out[key+" solved"] += 0
+	}
+	for _, row := range depths {
+		if row.SolvedTasks >= 2 {
+			out[vsName(row.ExerciseVersionID)+"/"+vsName(row.VariantID)+" solved"] += row.Teams
+		}
 	}
 	for _, row := range tasks {
 		out[vsName(row.ExerciseVersionID)+"/"+vsName(row.VariantID)+"/"+vsName(row.TaskID)+" solved"] = row.Solved
@@ -308,7 +318,8 @@ func TestVariantStats_BackfillIdempotent(t *testing.T) {
 	}
 }
 
-// Two subtasks of one variant solved in concurrent transactions still count the variant as solved.
+// Two subtasks of one variant solved in concurrent transactions still count the variant as solved (marks only, no
+// lock: the count is aggregated when read).
 func TestVariantStats_ConcurrentLastSubtask(t *testing.T) {
 	s := seedVariantStats(t, "vsconcurrent")
 	ctx := context.Background()
@@ -349,4 +360,46 @@ func TestVariantStats_ConcurrentLastSubtask(t *testing.T) {
 	assertCounters(t, s.counters(t), map[string]int64{
 		"v1/var0 issued": 1, "v1/var0 solved": 1, "v1/var0/task1 solved": 1, "v1/var0/task2 solved": 1,
 	})
+}
+
+// A statistics failure never fails the write it observes: legacy content (a non-uuid variant id, tasks as an object)
+// counts nothing, and a mark insert that errors is only a warning.
+func TestVariantStats_TriggerFailureNeverFailsTheWrite(t *testing.T) {
+	s := seedVariantStats(t, "vsfailure")
+	ctx := context.Background()
+	if _, err := s.db.Pool.Exec(ctx, `UPDATE exercise_versions SET variants = jsonb_build_array(
+		jsonb_build_object('id', 'not-a-uuid', 'tasks', jsonb_build_object('a', 1)),
+		jsonb_build_object('id', 'also-not-a-uuid', 'tasks', '[]'::jsonb)) WHERE id = $1`, vsVersion1); err != nil {
+		t.Fatal(err)
+	}
+	legacy := s.assign(t, s.team(t, "legacy", false), 0)
+	s.solve(t, legacy[0])
+	if got := s.counters(t); len(got) != 0 {
+		t.Fatalf("legacy content must count nothing: %v", got)
+	}
+	// An index past the end (and a negative one would address from the end) resolves no variant.
+	var resolved *string
+	if err := s.db.Pool.QueryRow(ctx, `SELECT exercise_variant_stats_variant_id('[{"id":"0199f000-0000-7000-8000-0000000000a0"}]'::jsonb, -1)::text`).Scan(&resolved); err != nil || resolved != nil {
+		t.Fatalf("a negative index must resolve nothing: %v %v", resolved, err)
+	}
+
+	// Restore valid content, then make every mark insert fail: the writes still succeed.
+	exercises := exerciseRepo.New(s.db.Queries)
+	if _, err := exercises.UpsertDraft(ctx, s.exerciseID, vsVersion2, exerciseModel.ExerciseVersion{Variants: vsVariants()}, itNow, uuid.NullUUID{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Pool.Exec(ctx, `UPDATE exercise_versions SET variants = (SELECT variants FROM exercise_versions WHERE id = $2) WHERE id = $1`, vsVersion1, vsVersion2); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"exercise_variant_issue_marks", "exercise_variant_solve_marks"} {
+		if _, err := s.db.Pool.Exec(ctx, `ALTER TABLE `+table+` ADD CONSTRAINT broken CHECK (false) NOT VALID`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	broken := s.assign(t, s.team(t, "broken", false), 0)
+	s.solve(t, broken[0])
+	s.solve(t, broken[1])
+	if got := s.counters(t); len(got) != 0 {
+		t.Fatalf("failed marks must count nothing: %v", got)
+	}
 }

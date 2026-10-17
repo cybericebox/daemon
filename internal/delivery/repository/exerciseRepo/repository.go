@@ -82,8 +82,9 @@ type Queries interface {
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (postgres.ExerciseProposal, error)
 	DecideExerciseProposal(ctx context.Context, arg postgres.DecideExerciseProposalParams) (int64, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]postgres.ListExerciseProposalsRow, error)
-	ListExerciseVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ExerciseVariantStat, error)
-	ListExerciseVariantTaskStats(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ExerciseVariantTaskStat, error)
+	ListExerciseVariantIssues(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantIssuesRow, error)
+	ListExerciseVariantTaskSolves(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantTaskSolvesRow, error)
+	ListExerciseVariantSolveDepths(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantSolveDepthsRow, error)
 }
 
 // ListParams is the keyset-page query for the catalog list, in domain terms
@@ -232,37 +233,56 @@ func (r *Repository) ListUsage(ctx context.Context, exerciseID uuid.UUID, now ti
 	return out, nil
 }
 
-// VariantCounters is the grow-only issue and solve count of one variant of one version (query-side shape).
-type VariantCounters struct {
+// VariantCounts are the grow-only facts of an exercise's variants, aggregated per version and variant
+// (query-side shapes): Issued counts teams, TaskSolves teams per subtask, Depths how many teams solved how many
+// distinct subtasks of a variant.
+type VariantCounts struct {
+	Issued     []VariantIssued
+	TaskSolves []VariantTaskSolves
+	Depths     []VariantSolveDepth
+}
+
+type VariantIssued struct {
 	VersionID, VariantID uuid.UUID
-	Issued, Solved       int64
+	Teams                int64
 }
 
-// VariantTaskCounters is the grow-only solve count of one subtask of one variant of one version.
-type VariantTaskCounters struct {
+type VariantTaskSolves struct {
 	VersionID, VariantID, TaskID uuid.UUID
-	Solved                       int64
+	Teams                        int64
 }
 
-// VariantStats returns the variant and subtask counters of every version of the exercise.
-func (r *Repository) VariantStats(ctx context.Context, exerciseID uuid.UUID) ([]VariantCounters, []VariantTaskCounters, error) {
-	rows, err := r.q.ListExerciseVariantStats(ctx, exerciseID)
+type VariantSolveDepth struct {
+	VersionID, VariantID uuid.UUID
+	SolvedTasks, Teams   int64
+}
+
+// VariantStats returns the aggregated variant statistics of every version of the exercise.
+func (r *Repository) VariantStats(ctx context.Context, exerciseID uuid.UUID) (VariantCounts, error) {
+	issued, err := r.q.ListExerciseVariantIssues(ctx, exerciseID)
 	if err != nil {
-		return nil, nil, err
+		return VariantCounts{}, err
 	}
-	taskRows, err := r.q.ListExerciseVariantTaskStats(ctx, exerciseID)
+	solves, err := r.q.ListExerciseVariantTaskSolves(ctx, exerciseID)
 	if err != nil {
-		return nil, nil, err
+		return VariantCounts{}, err
 	}
-	variants := make([]VariantCounters, 0, len(rows))
-	for _, row := range rows {
-		variants = append(variants, VariantCounters{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, Issued: row.Issued, Solved: row.Solved})
+	depths, err := r.q.ListExerciseVariantSolveDepths(ctx, exerciseID)
+	if err != nil {
+		return VariantCounts{}, err
 	}
-	tasks := make([]VariantTaskCounters, 0, len(taskRows))
-	for _, row := range taskRows {
-		tasks = append(tasks, VariantTaskCounters{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, TaskID: row.TaskID, Solved: row.Solved})
+	out := VariantCounts{Issued: make([]VariantIssued, 0, len(issued)), TaskSolves: make([]VariantTaskSolves, 0, len(solves)),
+		Depths: make([]VariantSolveDepth, 0, len(depths))}
+	for _, row := range issued {
+		out.Issued = append(out.Issued, VariantIssued{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, Teams: row.Issued})
 	}
-	return variants, tasks, nil
+	for _, row := range solves {
+		out.TaskSolves = append(out.TaskSolves, VariantTaskSolves{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, TaskID: row.TaskID, Teams: row.Solved})
+	}
+	for _, row := range depths {
+		out.Depths = append(out.Depths, VariantSolveDepth{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, SolvedTasks: row.SolvedTasks, Teams: row.Teams})
+	}
+	return out, nil
 }
 
 func (r *Repository) Create(ctx context.Context, e exerciseModel.Exercise) (exerciseModel.Exercise, error) {

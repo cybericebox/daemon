@@ -1732,7 +1732,7 @@ func TestVariantStats_Route(t *testing.T) {
 	newEngine(hidden, uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000005")).ServeHTTP(w,
 		httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/variant-stats", nil))
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("an exercise the user cannot read: want 404, got %d %s", w.Code, w.Body.String())
+		t.Fatalf("missing exercise: want 404, got %d %s", w.Code, w.Body.String())
 	}
 
 	// A role without exercises.read is refused by the same gate as the usage route.

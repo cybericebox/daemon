@@ -976,10 +976,13 @@ type Querier interface {
 	// internal name (falls back to the public one). Archived uses the same rule
 	// as the events list: the archive instant has passed.
 	ListExerciseUsageEvents(ctx context.Context, arg ListExerciseUsageEventsParams) ([]ListExerciseUsageEventsRow, error)
-	// Grow-only issue and solve counters of every version of the exercise.
-	ListExerciseVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]ExerciseVariantStat, error)
-	// Grow-only per-subtask solve counters of every version of the exercise.
-	ListExerciseVariantTaskStats(ctx context.Context, exerciseID uuid.UUID) ([]ExerciseVariantTaskStat, error)
+	// Teams each variant of every version of the exercise was issued to (grow-only marks).
+	ListExerciseVariantIssues(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantIssuesRow, error)
+	// Per variant: how many teams solved how many distinct subtasks of it (the use case compares with the variant's
+	// subtask count to get the teams that solved it fully).
+	ListExerciseVariantSolveDepths(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantSolveDepthsRow, error)
+	// Teams that solved each subtask of each variant of every version of the exercise.
+	ListExerciseVariantTaskSolves(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantTaskSolvesRow, error)
 	ListExerciseVersionIDs(ctx context.Context, exerciseID uuid.UUID) ([]uuid.UUID, error)
 	ListExerciseVersions(ctx context.Context, exerciseID uuid.UUID) ([]ExerciseVersion, error)
 	// Shared list filters (keep the four list/count queries in sync):

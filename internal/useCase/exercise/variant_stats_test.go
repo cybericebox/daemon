@@ -62,13 +62,21 @@ func TestGetVariantStats_ShapesPerVersion(t *testing.T) {
 		statsVersionRow(t, statsUnused, "draft", statsCreated.Add(72*time.Hour), nil),
 		statsVersionRow(t, statsNew, "published", statsCreated.Add(24*time.Hour), &newPublished),
 	}, nil)
-	q.EXPECT().ListExerciseVariantStats(gomock.Any(), statsExercise).Return([]postgres.ExerciseVariantStat{
-		{ExerciseVersionID: statsOld, VariantID: statsVar1, Issued: 5, Solved: 2},
-		{ExerciseVersionID: statsNew, VariantID: statsVar0, Issued: 3, Solved: 1},
+	q.EXPECT().ListExerciseVariantIssues(gomock.Any(), statsExercise).Return([]postgres.ListExerciseVariantIssuesRow{
+		{ExerciseVersionID: statsOld, VariantID: statsVar1, Issued: 5},
+		{ExerciseVersionID: statsNew, VariantID: statsVar0, Issued: 3},
 	}, nil)
-	q.EXPECT().ListExerciseVariantTaskStats(gomock.Any(), statsExercise).Return([]postgres.ExerciseVariantTaskStat{
+	q.EXPECT().ListExerciseVariantTaskSolves(gomock.Any(), statsExercise).Return([]postgres.ListExerciseVariantTaskSolvesRow{
 		{ExerciseVersionID: statsOld, VariantID: statsVar1, TaskID: statsTask2, Solved: 4},
 		{ExerciseVersionID: statsNew, VariantID: statsVar0, TaskID: statsTask1, Solved: 2},
+	}, nil)
+	// Fully solved = teams with at least as many solved subtasks as the variant has (2).
+	q.EXPECT().ListExerciseVariantSolveDepths(gomock.Any(), statsExercise).Return([]postgres.ListExerciseVariantSolveDepthsRow{
+		{ExerciseVersionID: statsOld, VariantID: statsVar1, SolvedTasks: 1, Teams: 2},
+		{ExerciseVersionID: statsOld, VariantID: statsVar1, SolvedTasks: 2, Teams: 1},
+		{ExerciseVersionID: statsOld, VariantID: statsVar1, SolvedTasks: 3, Teams: 1},
+		{ExerciseVersionID: statsNew, VariantID: statsVar0, SolvedTasks: 1, Teams: 1},
+		{ExerciseVersionID: statsNew, VariantID: statsVar0, SolvedTasks: 2, Teams: 1},
 	}, nil)
 
 	got, err := uc.GetVariantStats(context.Background(), statsExercise)
@@ -97,12 +105,15 @@ func TestGetVariantStats_DropsUnknownVariant(t *testing.T) {
 	q.EXPECT().ListExerciseVersions(gomock.Any(), statsExercise).Return([]postgres.ExerciseVersion{
 		statsVersionRow(t, statsNew, "published", statsCreated, &statsCreated),
 	}, nil)
-	q.EXPECT().ListExerciseVariantStats(gomock.Any(), statsExercise).Return([]postgres.ExerciseVariantStat{
-		{ExerciseVersionID: statsNew, VariantID: unknown, Issued: 7, Solved: 7},
+	q.EXPECT().ListExerciseVariantIssues(gomock.Any(), statsExercise).Return([]postgres.ListExerciseVariantIssuesRow{
+		{ExerciseVersionID: statsNew, VariantID: unknown, Issued: 7},
 		{ExerciseVersionID: statsNew, VariantID: statsVar1, Issued: 1},
 	}, nil)
-	q.EXPECT().ListExerciseVariantTaskStats(gomock.Any(), statsExercise).Return([]postgres.ExerciseVariantTaskStat{
+	q.EXPECT().ListExerciseVariantTaskSolves(gomock.Any(), statsExercise).Return([]postgres.ListExerciseVariantTaskSolvesRow{
 		{ExerciseVersionID: statsNew, VariantID: unknown, TaskID: statsTask1, Solved: 7},
+	}, nil)
+	q.EXPECT().ListExerciseVariantSolveDepths(gomock.Any(), statsExercise).Return([]postgres.ListExerciseVariantSolveDepthsRow{
+		{ExerciseVersionID: statsNew, VariantID: unknown, SolvedTasks: 2, Teams: 7},
 	}, nil)
 
 	got, err := uc.GetVariantStats(context.Background(), statsExercise)
@@ -127,8 +138,9 @@ func TestGetVariantStats_EmptyWhenNeverIssued(t *testing.T) {
 	q.EXPECT().ListExerciseVersions(gomock.Any(), statsExercise).Return([]postgres.ExerciseVersion{
 		statsVersionRow(t, statsNew, "published", statsCreated, &statsCreated),
 	}, nil)
-	q.EXPECT().ListExerciseVariantStats(gomock.Any(), statsExercise).Return(nil, nil)
-	q.EXPECT().ListExerciseVariantTaskStats(gomock.Any(), statsExercise).Return(nil, nil)
+	q.EXPECT().ListExerciseVariantIssues(gomock.Any(), statsExercise).Return(nil, nil)
+	q.EXPECT().ListExerciseVariantTaskSolves(gomock.Any(), statsExercise).Return(nil, nil)
+	q.EXPECT().ListExerciseVariantSolveDepths(gomock.Any(), statsExercise).Return(nil, nil)
 
 	got, err := uc.GetVariantStats(context.Background(), statsExercise)
 	if err != nil {
@@ -145,8 +157,7 @@ func TestGetVariantStats_RepositoryFailureIsPlatformError(t *testing.T) {
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	q.EXPECT().ListExerciseVersions(gomock.Any(), statsExercise).Return(nil, nil).AnyTimes()
-	q.EXPECT().ListExerciseVariantStats(gomock.Any(), statsExercise).Return(nil, errors.New("boom"))
-	q.EXPECT().ListExerciseVariantTaskStats(gomock.Any(), statsExercise).Return(nil, nil).AnyTimes()
+	q.EXPECT().ListExerciseVariantIssues(gomock.Any(), statsExercise).Return(nil, errors.New("boom"))
 
 	_, err := uc.GetVariantStats(context.Background(), statsExercise)
 	var ae appErr.Error

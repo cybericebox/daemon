@@ -442,6 +442,7 @@ func (h *Handler) update(ctx *gin.Context) {
 // @Param    id  path  string  true  "exercise ID"
 // @Success  200  {object}  response.Response{data=[]versionVariantStatsResponse}
 // @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
 // @Failure  404  {object}  response.Response
 // @Router   /exercises/{id}/variant-stats [get]
 func (h *Handler) variantStats(ctx *gin.Context) {

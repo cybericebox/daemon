@@ -11,29 +11,76 @@ import (
 	"github.com/gofrs/uuid"
 )
 
-const listExerciseVariantStats = `-- name: ListExerciseVariantStats :many
-SELECT s.exercise_version_id, s.variant_id, s.issued, s.solved
-FROM exercise_variant_stats s
-         JOIN exercise_versions v ON v.id = s.exercise_version_id
+const listExerciseVariantIssues = `-- name: ListExerciseVariantIssues :many
+SELECT m.exercise_version_id, m.variant_id, count(*)::bigint AS issued
+FROM exercise_variant_issue_marks m
+         JOIN exercise_versions v ON v.id = m.exercise_version_id
 WHERE v.exercise_id = $1
-ORDER BY s.exercise_version_id, s.variant_id
+GROUP BY m.exercise_version_id, m.variant_id
+ORDER BY m.exercise_version_id, m.variant_id
 `
 
-// Grow-only issue and solve counters of every version of the exercise.
-func (q *Queries) ListExerciseVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]ExerciseVariantStat, error) {
-	rows, err := q.db.Query(ctx, listExerciseVariantStats, exerciseID)
+type ListExerciseVariantIssuesRow struct {
+	ExerciseVersionID uuid.UUID `json:"exercise_version_id"`
+	VariantID         uuid.UUID `json:"variant_id"`
+	Issued            int64     `json:"issued"`
+}
+
+// Teams each variant of every version of the exercise was issued to (grow-only marks).
+func (q *Queries) ListExerciseVariantIssues(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantIssuesRow, error) {
+	rows, err := q.db.Query(ctx, listExerciseVariantIssues, exerciseID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ExerciseVariantStat{}
+	items := []ListExerciseVariantIssuesRow{}
 	for rows.Next() {
-		var i ExerciseVariantStat
+		var i ListExerciseVariantIssuesRow
+		if err := rows.Scan(&i.ExerciseVersionID, &i.VariantID, &i.Issued); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExerciseVariantSolveDepths = `-- name: ListExerciseVariantSolveDepths :many
+SELECT d.exercise_version_id, d.variant_id, d.solved_tasks, count(*)::bigint AS teams
+FROM (SELECT m.exercise_version_id, m.variant_id, m.event_team_id, count(*)::bigint AS solved_tasks
+      FROM exercise_variant_solve_marks m
+               JOIN exercise_versions v ON v.id = m.exercise_version_id
+      WHERE v.exercise_id = $1
+      GROUP BY m.exercise_version_id, m.variant_id, m.event_team_id) d
+GROUP BY d.exercise_version_id, d.variant_id, d.solved_tasks
+ORDER BY d.exercise_version_id, d.variant_id, d.solved_tasks
+`
+
+type ListExerciseVariantSolveDepthsRow struct {
+	ExerciseVersionID uuid.UUID `json:"exercise_version_id"`
+	VariantID         uuid.UUID `json:"variant_id"`
+	SolvedTasks       int64     `json:"solved_tasks"`
+	Teams             int64     `json:"teams"`
+}
+
+// Per variant: how many teams solved how many distinct subtasks of it (the use case compares with the variant's
+// subtask count to get the teams that solved it fully).
+func (q *Queries) ListExerciseVariantSolveDepths(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantSolveDepthsRow, error) {
+	rows, err := q.db.Query(ctx, listExerciseVariantSolveDepths, exerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListExerciseVariantSolveDepthsRow{}
+	for rows.Next() {
+		var i ListExerciseVariantSolveDepthsRow
 		if err := rows.Scan(
 			&i.ExerciseVersionID,
 			&i.VariantID,
-			&i.Issued,
-			&i.Solved,
+			&i.SolvedTasks,
+			&i.Teams,
 		); err != nil {
 			return nil, err
 		}
@@ -45,24 +92,32 @@ func (q *Queries) ListExerciseVariantStats(ctx context.Context, exerciseID uuid.
 	return items, nil
 }
 
-const listExerciseVariantTaskStats = `-- name: ListExerciseVariantTaskStats :many
-SELECT s.exercise_version_id, s.variant_id, s.task_id, s.solved
-FROM exercise_variant_task_stats s
-         JOIN exercise_versions v ON v.id = s.exercise_version_id
+const listExerciseVariantTaskSolves = `-- name: ListExerciseVariantTaskSolves :many
+SELECT m.exercise_version_id, m.variant_id, m.task_id, count(*)::bigint AS solved
+FROM exercise_variant_solve_marks m
+         JOIN exercise_versions v ON v.id = m.exercise_version_id
 WHERE v.exercise_id = $1
-ORDER BY s.exercise_version_id, s.variant_id, s.task_id
+GROUP BY m.exercise_version_id, m.variant_id, m.task_id
+ORDER BY m.exercise_version_id, m.variant_id, m.task_id
 `
 
-// Grow-only per-subtask solve counters of every version of the exercise.
-func (q *Queries) ListExerciseVariantTaskStats(ctx context.Context, exerciseID uuid.UUID) ([]ExerciseVariantTaskStat, error) {
-	rows, err := q.db.Query(ctx, listExerciseVariantTaskStats, exerciseID)
+type ListExerciseVariantTaskSolvesRow struct {
+	ExerciseVersionID uuid.UUID `json:"exercise_version_id"`
+	VariantID         uuid.UUID `json:"variant_id"`
+	TaskID            uuid.UUID `json:"task_id"`
+	Solved            int64     `json:"solved"`
+}
+
+// Teams that solved each subtask of each variant of every version of the exercise.
+func (q *Queries) ListExerciseVariantTaskSolves(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantTaskSolvesRow, error) {
+	rows, err := q.db.Query(ctx, listExerciseVariantTaskSolves, exerciseID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ExerciseVariantTaskStat{}
+	items := []ListExerciseVariantTaskSolvesRow{}
 	for rows.Next() {
-		var i ExerciseVariantTaskStat
+		var i ListExerciseVariantTaskSolvesRow
 		if err := rows.Scan(
 			&i.ExerciseVersionID,
 			&i.VariantID,

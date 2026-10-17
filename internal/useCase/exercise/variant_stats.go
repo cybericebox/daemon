@@ -7,6 +7,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/model"
 )
 
@@ -19,20 +20,25 @@ func (u *ExerciseUseCase) GetVariantStats(ctx context.Context, exerciseID uuid.U
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list exercise versions").Err()
 	}
-	counters, taskCounters, err := u.exercises.VariantStats(ctx, exerciseID)
+	counts, err := u.exercises.VariantStats(ctx, exerciseID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list variant statistics").Err()
 	}
 
 	type variantKey struct{ version, variant uuid.UUID }
 	type taskKey struct{ version, variant, task uuid.UUID }
-	byVariant := make(map[variantKey][2]int64, len(counters))
-	for _, c := range counters {
-		byVariant[variantKey{c.VersionID, c.VariantID}] = [2]int64{c.Issued, c.Solved}
+	issuedBy := make(map[variantKey]int64, len(counts.Issued))
+	for _, c := range counts.Issued {
+		issuedBy[variantKey{c.VersionID, c.VariantID}] = c.Teams
 	}
-	byTask := make(map[taskKey]int64, len(taskCounters))
-	for _, c := range taskCounters {
-		byTask[taskKey{c.VersionID, c.VariantID, c.TaskID}] = c.Solved
+	taskBy := make(map[taskKey]int64, len(counts.TaskSolves))
+	for _, c := range counts.TaskSolves {
+		taskBy[taskKey{c.VersionID, c.VariantID, c.TaskID}] = c.Teams
+	}
+	depthsBy := make(map[variantKey][]exerciseRepo.VariantSolveDepth)
+	for _, d := range counts.Depths {
+		key := variantKey{d.VersionID, d.VariantID}
+		depthsBy[key] = append(depthsBy[key], d)
 	}
 
 	out := make([]VersionVariantStats, 0)
@@ -41,13 +47,14 @@ func (u *ExerciseUseCase) GetVariantStats(ctx context.Context, exerciseID uuid.U
 			PublishedAt: version.PublishedAt, Variants: make([]VariantStats, 0, len(version.Variants))}
 		var issued int64
 		for i, variant := range version.Variants {
-			counts := byVariant[variantKey{version.ID, variant.ID}]
-			issued += counts[0]
+			key := variantKey{version.ID, variant.ID}
+			issued += issuedBy[key]
 			tasks := make([]TaskSolves, 0, len(variant.Tasks))
 			for _, task := range variant.Tasks {
-				tasks = append(tasks, TaskSolves{TaskID: task.ID, Name: task.Name, Solved: byTask[taskKey{version.ID, variant.ID, task.ID}]})
+				tasks = append(tasks, TaskSolves{TaskID: task.ID, Name: task.Name, Solved: taskBy[taskKey{version.ID, variant.ID, task.ID}]})
 			}
-			stats.Variants = append(stats.Variants, VariantStats{VariantID: variant.ID, Number: i + 1, Issued: counts[0], Solved: counts[1], Tasks: tasks})
+			stats.Variants = append(stats.Variants, VariantStats{VariantID: variant.ID, Number: i + 1, Issued: issuedBy[key],
+				Solved: fullySolved(depthsBy[key], len(variant.Tasks)), Tasks: tasks})
 		}
 		if issued > 0 {
 			out = append(out, stats)
@@ -57,6 +64,21 @@ func (u *ExerciseUseCase) GetVariantStats(ctx context.Context, exerciseID uuid.U
 		return statsTime(b).Compare(statsTime(a))
 	})
 	return out, nil
+}
+
+// fullySolved counts the teams that solved at least as many distinct subtasks as the variant has: «solved» = the
+// team solved every subtask of the variant at that event. A variant without subtasks is never solved.
+func fullySolved(depths []exerciseRepo.VariantSolveDepth, taskCount int) int64 {
+	if taskCount == 0 {
+		return 0
+	}
+	var teams int64
+	for _, d := range depths {
+		if d.SolvedTasks >= int64(taskCount) {
+			teams += d.Teams
+		}
+	}
+	return teams
 }
 
 // statsTime orders versions: published ones by their publication, the others by creation.
