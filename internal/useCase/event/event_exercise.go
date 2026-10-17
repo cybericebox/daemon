@@ -639,7 +639,17 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		taskOf[challenge.ID] = challenge.TaskID
 		ids = append(ids, challenge.ID)
 	}
+	if len(ids) == 0 {
+		return nil
+	}
 	teamChallenges := teamChallengeRepo.New(repo)
+	// The variant pick lock comes before the row locks, in the order the stand
+	// preparation takes them (pick lock, then its team's rows), so the two never
+	// wait on each other.
+	slots := newTeamFlagSlots(teamChallenges, link.ID)
+	if err := slots.lock(ctx); err != nil {
+		return err
+	}
 	rows, err := teamChallenges.ForRefresh(ctx, ids)
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list team challenges").Err()
@@ -648,7 +658,6 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	// team keeps one variant across its challenges and the pass counts its
 	// own picks (the moderators team takes no slot).
 	var balance *teamChallengeModel.VariantBalance
-	slots := newTeamFlagSlots(teamChallenges, link.ID)
 	if refreshNeedsFlagSlots(rows, link, previous, next, taskOf) {
 		if err = slots.takeSnapshot(ctx); err != nil {
 			return err
@@ -679,7 +688,7 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 				variantIndex = picked
 			} else {
 				if balance == nil {
-					if balance, err = lockedVariantBalance(ctx, teamChallenges, link.ID, len(next.Variants)); err != nil {
+					if balance, err = variantBalance(ctx, teamChallenges, link.ID, len(next.Variants)); err != nil {
 						return err
 					}
 				}

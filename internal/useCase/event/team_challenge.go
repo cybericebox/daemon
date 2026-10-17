@@ -419,6 +419,12 @@ func lockedVariantBalance(ctx context.Context, teamChallenges *teamChallengeRepo
 	if err := teamChallenges.LockVariantPick(ctx, eventExerciseID); err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to lock the variant pick").Err()
 	}
+	return variantBalance(ctx, teamChallenges, eventExerciseID, variantCount)
+}
+
+// variantBalance counts the teams on each variant; the caller holds the
+// variant pick lock.
+func variantBalance(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, eventExerciseID uuid.UUID, variantCount int) (*teamChallengeModel.VariantBalance, error) {
 	used, err := teamChallenges.VariantUse(ctx, eventExerciseID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to count the variant use").Err()

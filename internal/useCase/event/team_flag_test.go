@@ -201,8 +201,9 @@ func TestRefreshTeamAssignments_TeamsMovedOntoOneVariantGetDistinctSlots(t *test
 	}
 	snapshotRead := false
 	gomock.InOrder(
-		q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).Return(rows, nil),
+		// The pick lock comes before the row locks (the stand preparation's order).
 		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
+		q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).Return(rows, nil),
 		q.EXPECT().ListEventExerciseTeamVariants(gomock.Any(), link.ID).DoAndReturn(func(context.Context, uuid.UUID) ([]postgres.ListEventExerciseTeamVariantsRow, error) {
 			snapshotRead = true
 			return snapshotOf(rows), nil
@@ -264,10 +265,10 @@ func TestRefreshTeamAssignments_RepickSlotsCountThePass(t *testing.T) {
 		teamE: slotFlag(t, task.Flag, link.ID, task.ID, 1, 1),
 	}
 	gomock.InOrder(
+		// The pick lock comes before the row locks (the stand preparation's order).
+		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
 		q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).Return(rows, nil),
-		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
 		q.EXPECT().ListEventExerciseTeamVariants(gomock.Any(), link.ID).Return(snapshotOf(rows), nil),
-		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
 		q.EXPECT().CountEventExerciseVariantTeams(gomock.Any(), link.ID).Return([]postgres.CountEventExerciseVariantTeamsRow{
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 7, Teams: 1}, {VariantIndex: 8, Teams: 1}, {VariantIndex: 9, Teams: 1}, {VariantIndex: 10, Teams: 1},
 		}, nil),
