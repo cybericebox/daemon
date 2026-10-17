@@ -327,7 +327,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	eventUC.SetResourceGate(calendarUC)
 	eventUC.SetAllocationAccounting(true)
 	eventUC.SetLifecycleControls(true)
-	eventUC.SetNoticeCanceller(jobQueueRepo.New(deps.Repo.Pool()).CancelEventNotifications)
+	eventUC.SetNoticeCanceller(jobQueueRepo.New(deps.Repo.Limited()).CancelEventNotifications)
 	exerciseUC.SetTestLabGate(calendarUC)
 	// A room check naming no lease answers for the lease in force (the platform settings), like the admission.
 	calendarUC.SetTestLabLease(exerciseUC.TestLabLease)
@@ -442,7 +442,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 	})
 
 	journalUC := errorJournalUseCase.New(errorJournalUseCase.Dependencies{
-		Repo:     errorJournalRepo.New(deps.Repo.Queries, deps.Repo.Pool(), deps.EnqueuerFactory.NewEnqueuer()),
+		Repo: errorJournalRepo.New(
+			deps.Repo.Queries,
+			deps.Repo.Limited(),
+			deps.EnqueuerFactory.NewEnqueuer(),
+		),
 		Telegram: deps.Telegram,
 		Mailer:   mailUC,
 		Agents:   errorJournalUseCase.CertificatesOf(infrastructureAgentRepo.New(deps.Repo)),

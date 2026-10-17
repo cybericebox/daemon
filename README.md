@@ -122,6 +122,10 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `POSTGRES_PASSWORD` | required | Password; there is no default and the daemon does not start without it. |
 | `POSTGRES_DB` | `cybericebox` | Database name (the one the deploy creates; a local run sets its own). |
 | `POSTGRES_SSL_MODE` | `verify-full` | pgx `sslmode`. The default encrypts and checks the server certificate and name; set another mode (for example `disable` for a local development database) only for a trusted network. |
+| `POSTGRES_MAX_CONNS` | `32` | Size of the main pool (requests and use cases, job handlers included). |
+| `POSTGRES_ACQUIRE_TIMEOUT` | `3s` | Longest a statement waits for a free connection of the main pool; past it the request is answered 503 with `Retry-After: 1`. A statement that got a connection runs as long as it needs. 100ms to 30s. |
+| `POSTGRES_MAX_CONN_LIFETIME` / `POSTGRES_MAX_CONN_IDLE_TIME` | `30m` / `5m` | A connection of either pool is replaced after this age / closed after this long unused. |
+| `POSTGRES_JOB_MAX_CONNS` | `8` | Size of the separate pool of the job queue (River: fetching, notifications, maintenance) and the session revocation poll, so requests cannot starve them and they cannot starve requests. At least 4, like `POSTGRES_MAX_CONNS`. |
 
 ### Authentication and secrets
 
@@ -276,6 +280,7 @@ The backend owns a calendar of lab resources (`internal/useCase/resourceCalendar
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `JOB_COMPLETED_RETENTION` / `JOB_FAILED_RETENTION` | `1h` / `24h` | How long the job queue keeps finished jobs (succeeded; cancelled or discarded). Notification job arguments hold addresses, names and links. |
+| `JOB_DEFAULT_WORKERS` | `6` | Jobs of the default queue one replica runs at once (1 to 64); the durable notice and image queues run 2 each. |
 | `SMTP_ALLOWED_PORTS` | `25,465,587,2525` | Ports an organizer may use for an event SMTP. |
 | `SSE_MAX_LIFETIME` | `30m` | Longest life of one event stream; the client reconnects. |
 | `LIVE_SCREEN_LINK_MAX_TTL` | `1440h` | Cap of «until the event ends» for a live screen link. |
