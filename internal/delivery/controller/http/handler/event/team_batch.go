@@ -31,6 +31,9 @@ type createManagedTeamsRequest struct {
 	// Import marks a CSV import: team and member fields are checked by type
 	// only, required ones may stay empty.
 	Import bool `json:"Import"`
+	// SendEmails false creates the same invitations without any email (people
+	// accept on the event site). Omitted means send.
+	SendEmails *bool `json:"SendEmails"`
 }
 
 type batchTeamIssueResponse struct {
@@ -86,7 +89,7 @@ func (h *Handler) createManagedTeams(ctx *gin.Context) {
 		}
 		in = append(in, eventUseCase.BatchTeamInput{Name: team.Name, CaptainEmail: team.CaptainEmail, Members: members, Fields: team.Fields, Partial: req.Import})
 	}
-	result, err := h.useCase.CreateManagedTeams(ctx, eventID, claims.UserID, in, req.DryRun)
+	result, err := h.useCase.CreateManagedTeams(ctx, eventID, claims.UserID, in, req.DryRun, req.SendEmails != nil && !*req.SendEmails)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

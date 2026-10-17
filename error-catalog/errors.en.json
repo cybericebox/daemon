@@ -18,6 +18,7 @@
   "20226": "A block preset cannot contain another preset",
   "20302": "User already exists",
   "20304": "The name contains characters that are not allowed",
+  "20305": "First and last name are required",
   "20406": "Setup already complete",
   "20407": "Terms of Service not accepted",
   "20408": "At least one login method is required",

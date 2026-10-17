@@ -64,11 +64,14 @@ type ParticipantInvitationResult struct {
 
 // InviteParticipants handles every address independently, so a bad CSV row
 // cannot roll back invitations that were accepted by the server.
-func (u *EventUseCase) InviteParticipants(ctx context.Context, eventID, by uuid.UUID, entries []ParticipantInvitationInput) ([]ParticipantInvitationResult, error) {
-	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{}, "", by, entries)
+//
+// noEmail creates the very same invitations but sends no email: the person
+// finds the invitation on the event site and accepts it there.
+func (u *EventUseCase) InviteParticipants(ctx context.Context, eventID, by uuid.UUID, entries []ParticipantInvitationInput, noEmail bool) ([]ParticipantInvitationResult, error) {
+	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{}, "", by, entries, noEmail)
 }
 
-func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []ParticipantInvitationInput) ([]ParticipantInvitationResult, error) {
+func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []ParticipantInvitationInput, noEmail bool) ([]ParticipantInvitationResult, error) {
 	config, err := u.configs.Get(ctx, eventID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
@@ -85,7 +88,7 @@ func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, b
 	}
 	// The seats are checked for each invitation in its own transaction, under the event's roster lock
 	// (requireTeamSeat): a count made here would be stale by then.
-	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{UUID: teamID, Valid: true}, team.Name, by, entries)
+	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{UUID: teamID, Valid: true}, team.Name, by, entries, noEmail)
 }
 
 func uniqueInvitationEmails(entries []ParticipantInvitationInput) map[string]struct{} {
@@ -96,7 +99,7 @@ func uniqueInvitationEmails(entries []ParticipantInvitationInput) map[string]str
 	return seen
 }
 
-func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, entries []ParticipantInvitationInput) ([]ParticipantInvitationResult, error) {
+func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, entries []ParticipantInvitationInput, noEmail bool) ([]ParticipantInvitationResult, error) {
 	if len(entries) == 0 || len(entries) > 200 {
 		return nil, participantModel.ErrInvitationEmailInvalid.WithMessage("Provide 1 to 200 email addresses").Err()
 	}
@@ -125,7 +128,7 @@ func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID
 			results = append(results, result)
 			continue
 		}
-		result.UserID, err = u.inviteParticipant(ctx, eventID, targetTeamID, targetTeamName, by, email, strings.TrimSpace(entry.FirstName), strings.TrimSpace(entry.LastName), form, entry.Fields)
+		result.UserID, err = u.inviteParticipant(ctx, eventID, targetTeamID, targetTeamName, by, email, strings.TrimSpace(entry.FirstName), strings.TrimSpace(entry.LastName), form, entry.Fields, noEmail)
 		if err != nil {
 			switch {
 			case errors.Is(err, participantModel.ErrInvitationEmailInvalid.Err()):
@@ -146,7 +149,7 @@ func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID
 	return results, nil
 }
 
-func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, email, firstName, lastName string, form *eventFormRepo.Version, fields map[string]any) (uuid.UUID, error) {
+func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, email, firstName, lastName string, form *eventFormRepo.Version, fields map[string]any, noEmail bool) (uuid.UUID, error) {
 	address, err := mail.ParseAddress(email)
 	if err != nil || address.Address != email || len(email) > 254 {
 		return uuid.Nil, participantModel.ErrInvitationEmailInvalid.Err()
@@ -154,7 +157,7 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 	if err = userModel.ValidName(firstName, lastName); err != nil {
 		return uuid.Nil, err
 	}
-	if u.uow == nil || u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "" {
+	if u.uow == nil || (!noEmail && (u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "")) {
 		return uuid.Nil, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
 	}
 	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
@@ -211,8 +214,18 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 			return uuid.Nil, err
 		}
 	}
+	if noEmail {
+		// No email restarts nothing by itself: the invitation time starts the
+		// 30-day clock of an unconfirmed account here instead.
+		if _, err = users.MarkInvitationSent(txCtx, user.ID, time.Now().UTC()); err != nil {
+			return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to record invitation").Err()
+		}
+	}
 	if err = unit.Save(); err != nil {
 		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to save invitation").Err()
+	}
+	if noEmail {
+		return user.ID, nil
 	}
 	if _, err = u.sendParticipantInvitation(ctx, e, user, targetTeamID.Valid, targetTeamName, by); err != nil {
 		return user.ID, err

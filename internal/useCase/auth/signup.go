@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -93,6 +94,11 @@ func (u *AuthUseCase) sendContinueRegistration(ctx context.Context, userID uuid.
 	// callers (sign-up and forgot-password never reveal an account).
 	if !authDeliveryAccepted(ctx) && !u.mailAllowed(mailKindSignUp, emailAddr) {
 		return nil
+	}
+	if strings.TrimSpace(name) == "" {
+		// An account created by an invitation may have no name; the greeting
+		// "Вітаємо, <Name>!" falls back to the address instead of a blank.
+		name = emailAddr
 	}
 	link, err := u.issueSetupLink(ctx, userID, u.cfg.SignupSetupTokenTTL, returnTo)
 	if err != nil {

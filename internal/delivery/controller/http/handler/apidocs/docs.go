@@ -24197,6 +24197,10 @@ const docTemplate = `{
                     "description": "Import marks a CSV import: team and member fields are checked by type\nonly, required ones may stay empty.",
                     "type": "boolean"
                 },
+                "SendEmails": {
+                    "description": "SendEmails false creates the same invitations without any email (people\naccept on the event site). Omitted means send.",
+                    "type": "boolean"
+                },
                 "Teams": {
                     "type": "array",
                     "items": {
@@ -25060,6 +25064,10 @@ const docTemplate = `{
                             }
                         }
                     }
+                },
+                "SendEmails": {
+                    "description": "SendEmails false creates the same invitations without any email (people\naccept on the event site). Omitted means send (the default).",
+                    "type": "boolean"
                 }
             }
         },
@@ -30419,6 +30427,10 @@ const docTemplate = `{
                 },
                 "TeamFormed": {
                     "description": "TeamFormed: the caller's team roster is closed for good.",
+                    "type": "boolean"
+                },
+                "TeamNeedsConfirmation": {
+                    "description": "TeamNeedsConfirmation: the caller's team waits for its captain to confirm the roster (late-join team events only).",
                     "type": "boolean"
                 }
             }

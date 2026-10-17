@@ -4,12 +4,26 @@ import (
 	"context"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5"
+	"sync"
 
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 )
+
+// userClockMarks records, per mock, the accounts whose 30-day unconfirmed
+// clock was (re)started, so tests can assert it.
+var userClockMarks sync.Map
+
+// userClockNoop lists users the clock write matches no row for (active accounts).
+var userClockNoop sync.Map
+
+func userClockMarksOf(q *postgresMocks.MockQuerier) []uuid.UUID {
+	v, _ := userClockMarks.Load(q)
+	ids, _ := v.([]uuid.UUID)
+	return ids
+}
 
 // newFormGateMock preserves unrelated use-case fixtures: those tests do not
 // describe a pending form, so their default is the non-blocking case. Gate
@@ -46,7 +60,13 @@ func stubParticipationModelReads(q *postgresMocks.MockQuerier) {
 	q.EXPECT().GetEventTeamFormed(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 	q.EXPECT().GetEventMinTeamSize(gomock.Any(), gomock.Any()).Return(int32(1), nil).AnyTimes()
 	q.EXPECT().MarkEventParticipantInvitationSent(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
-	q.EXPECT().MarkUserInvitationSent(gomock.Any(), gomock.Any()).Return(int64(1), nil).AnyTimes()
+	q.EXPECT().MarkUserInvitationSent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.MarkUserInvitationSentParams) (int64, error) {
+		if _, noop := userClockNoop.Load(p.ID); noop {
+			return 0, nil
+		}
+		userClockMarks.Store(q, append(userClockMarksOf(q), p.ID))
+		return 1, nil
+	}).AnyTimes()
 	q.EXPECT().CountPendingTeamInvitations(gomock.Any(), gomock.Any()).Return(int64(0), nil).AnyTimes()
 	q.EXPECT().GetEventParticipantProfile(gomock.Any(), gomock.Any()).Return(postgres.GetEventParticipantProfileRow{FirstName: "Олена", LastName: "Коваль", DisplayName: "Олена Коваль"}, nil).AnyTimes()
 	q.EXPECT().ListEventTeamMembers(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
