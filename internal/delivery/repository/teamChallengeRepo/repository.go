@@ -40,6 +40,7 @@ type Queries interface {
 	CountEventExerciseVariantTeams(context.Context, uuid.UUID) ([]postgres.CountEventExerciseVariantTeamsRow, error)
 	GetTeamEventExerciseVariant(context.Context, postgres.GetTeamEventExerciseVariantParams) (int32, error)
 	CountEarlierEventExerciseVariantTeams(context.Context, postgres.CountEarlierEventExerciseVariantTeamsParams) (int64, error)
+	ListEventExerciseTeamVariants(context.Context, uuid.UUID) ([]postgres.ListEventExerciseTeamVariantsRow, error)
 }
 
 type Availability struct {
@@ -375,6 +376,21 @@ func (r *Repository) EarlierVariantTeams(ctx context.Context, eventExerciseID, t
 		return 0, err
 	}
 	return int(count), nil
+}
+
+// TeamVariantSnapshot reads every (team, variant) of an event exercise with the
+// team's first row, for the flag slots of a source-switch pass. Call it under
+// LockVariantPick before the pass updates any row.
+func (r *Repository) TeamVariantSnapshot(ctx context.Context, eventExerciseID uuid.UUID) ([]teamChallengeModel.TeamVariantEntry, error) {
+	rows, err := r.q.ListEventExerciseTeamVariants(ctx, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]teamChallengeModel.TeamVariantEntry, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, teamChallengeModel.TeamVariantEntry{TeamID: row.EventTeamID, Variant: row.VariantIndex, Moderators: row.Moderators, FirstAt: row.FirstCreatedAt, FirstID: row.FirstID})
+	}
+	return out, nil
 }
 
 // TeamVariant is the variant a team already has for an event exercise among

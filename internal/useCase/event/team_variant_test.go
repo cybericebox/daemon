@@ -118,12 +118,14 @@ func TestRefreshTeamAssignments_RebalancesRemovedVariants(t *testing.T) {
 	want := map[uuid.UUID]int32{teamA: 0, teamB: 1, moderators: 2, teamC: 2}
 	gomock.InOrder(
 		q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).Return(rows, nil),
+		// The flag slot snapshot is read under the lock before any row changes.
+		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
+		q.EXPECT().ListEventExerciseTeamVariants(gomock.Any(), link.ID).Return(nil, nil),
 		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
 		q.EXPECT().CountEventExerciseVariantTeams(gomock.Any(), link.ID).Return([]postgres.CountEventExerciseVariantTeamsRow{
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 6, Teams: 1}, {VariantIndex: 7, Teams: 1},
 		}, nil),
 	)
-	// Re-picked teams take their flag slot from the balance: no further query (strict mock).
 	got := map[uuid.UUID]int32{}
 	byID := map[uuid.UUID]uuid.UUID{}
 	for _, r := range rows {

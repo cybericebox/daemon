@@ -649,6 +649,11 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	// own picks (the moderators team takes no slot).
 	var balance *teamChallengeModel.VariantBalance
 	slots := newTeamFlagSlots(teamChallenges, link.ID)
+	if refreshNeedsFlagSlots(rows, link, previous, next, taskOf) {
+		if err = slots.takeSnapshot(ctx); err != nil {
+			return err
+		}
+	}
 	repicked := map[uuid.UUID]int32{}
 	for _, row := range rows {
 		// Retained solved generations keep their pinned variant/content/flags and
@@ -679,7 +684,6 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 					}
 				}
 				variantIndex = balance.Pick()
-				slots.picked(row.EventTeamID, balance, variantIndex)
 				if !row.Moderators {
 					balance.Use(variantIndex)
 				}
@@ -710,6 +714,33 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		}
 	}
 	return nil
+}
+
+// refreshNeedsFlagSlots reports whether a refresh pass may resolve a flag by
+// slot: a row that moves to another variant, or whose task (with candidates)
+// is new or has a changed flag list. It may say yes needlessly, never no
+// wrongly; the slot snapshot must be read before the pass updates any row.
+func refreshNeedsFlagSlots(rows []teamChallengeRepo.RefreshRow, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, taskOf map[uuid.UUID]uuid.UUID) bool {
+	for _, row := range rows {
+		taskID, known := taskOf[row.EventChallengeID]
+		if !known || row.Solved {
+			continue
+		}
+		if link.VariantMode == eventExerciseModel.VariantModeFixed && link.FixedVariantIndex != nil && *link.FixedVariantIndex != row.VariantIndex {
+			return true
+		}
+		if int(row.VariantIndex) >= len(next.Variants) {
+			return true
+		}
+		task, found := findTask(next, row.VariantIndex, taskID)
+		if !found || len(task.Flag) == 0 {
+			continue
+		}
+		if old, had := findTask(previous, row.VariantIndex, taskID); !had || !slices.Equal(old.Flag, task.Flag) {
+			return true
+		}
+	}
+	return false
 }
 
 func findTask(version exerciseModel.ExerciseVersion, variant int32, taskID uuid.UUID) (exerciseModel.Task, bool) {

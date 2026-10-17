@@ -368,3 +368,24 @@ WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
   AND NOT team.moderators
   AND tc.event_team_id <> sqlc.arg(event_team_id)
   AND (NOT EXISTS (SELECT 1 FROM mine) OR (f.created_at, f.id) < (SELECT m.created_at, m.id FROM mine m));
+
+-- name: ListEventExerciseTeamVariants :many
+-- One snapshot of the teams of an event exercise for a source-switch pass:
+-- every (team, variant) it has a row on, with the team's first row of the
+-- event exercise (created_at, id) and whether it is the moderators team. Read
+-- under LockEventExerciseVariantPick before the pass updates any row.
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+)
+SELECT DISTINCT tc.event_team_id, tc.variant_index, team.moderators,
+       f.created_at::timestamptz AS first_created_at, f.id::uuid AS first_id
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+ORDER BY tc.event_team_id, tc.variant_index;

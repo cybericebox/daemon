@@ -769,6 +769,11 @@ type Querier interface {
 	ListEventExerciseDetails(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseDetailsRow, error)
 	// Every prerequisite edge of one board revision in one query.
 	ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]EventChallengePrerequisite, error)
+	// One snapshot of the teams of an event exercise for a source-switch pass:
+	// every (team, variant) it has a row on, with the team's first row of the
+	// event exercise (created_at, id) and whether it is the moderators team. Read
+	// under LockEventExerciseVariantPick before the pass updates any row.
+	ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]ListEventExerciseTeamVariantsRow, error)
 	ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]EventExercise, error)
 	ListEventFormAnswers(ctx context.Context, arg ListEventFormAnswersParams) ([]ListEventFormAnswersRow, error)
 	ListEventFormAssignmentsByTrigger(ctx context.Context, arg ListEventFormAssignmentsByTriggerParams) ([]EventFormAssignment, error)

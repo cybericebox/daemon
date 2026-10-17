@@ -530,6 +530,62 @@ func (q *Queries) ListEventChallengeSolves(ctx context.Context, arg ListEventCha
 	return items, nil
 }
 
+const listEventExerciseTeamVariants = `-- name: ListEventExerciseTeamVariants :many
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = $1
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+)
+SELECT DISTINCT tc.event_team_id, tc.variant_index, team.moderators,
+       f.created_at::timestamptz AS first_created_at, f.id::uuid AS first_id
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = $1
+ORDER BY tc.event_team_id, tc.variant_index
+`
+
+type ListEventExerciseTeamVariantsRow struct {
+	EventTeamID    uuid.UUID `json:"event_team_id"`
+	VariantIndex   int32     `json:"variant_index"`
+	Moderators     bool      `json:"moderators"`
+	FirstCreatedAt time.Time `json:"first_created_at"`
+	FirstID        uuid.UUID `json:"first_id"`
+}
+
+// One snapshot of the teams of an event exercise for a source-switch pass:
+// every (team, variant) it has a row on, with the team's first row of the
+// event exercise (created_at, id) and whether it is the moderators team. Read
+// under LockEventExerciseVariantPick before the pass updates any row.
+func (q *Queries) ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]ListEventExerciseTeamVariantsRow, error) {
+	rows, err := q.db.Query(ctx, listEventExerciseTeamVariants, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventExerciseTeamVariantsRow{}
+	for rows.Next() {
+		var i ListEventExerciseTeamVariantsRow
+		if err := rows.Scan(
+			&i.EventTeamID,
+			&i.VariantIndex,
+			&i.Moderators,
+			&i.FirstCreatedAt,
+			&i.FirstID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventHintUnlocks = `-- name: ListEventHintUnlocks :many
 SELECT unlock.event_team_id, unlock.event_challenge_id, unlock.hint_id, unlock.unlocked_at, unlock.cost,
        unlock.unlocked_by,

@@ -19,11 +19,15 @@ import (
 //     0, 1, 2, ... in pick order (a pass counts its own earlier picks).
 //   - A team that keeps its variant counts the other teams on it that got the
 //     event exercise before it, which is the slot it had when it was picked.
+//   - A source-switch pass reads one snapshot under the lock before it updates
+//     any row and assigns every slot from it in memory (see FlagSlotSnapshot), so
+//     the pass's own updates never shift a count.
 type teamFlagSlots struct {
 	repo            *teamChallengeRepo.Repository
 	eventExerciseID uuid.UUID
 	locked          bool
 	known           map[uuid.UUID]uint64
+	snapshot        *teamChallengeModel.FlagSlotSnapshot
 }
 
 func newTeamFlagSlots(repo *teamChallengeRepo.Repository, eventExerciseID uuid.UUID) *teamFlagSlots {
@@ -39,15 +43,40 @@ func (s *teamFlagSlots) picked(teamID uuid.UUID, balance *teamChallengeModel.Var
 	s.known[teamID] = uint64(max(balance.Count(index), 0))
 }
 
+// takeSnapshot locks the variant pick and reads the pass snapshot; call it
+// before the pass updates any row.
+func (s *teamFlagSlots) takeSnapshot(ctx context.Context) error {
+	if err := s.lock(ctx); err != nil {
+		return err
+	}
+	entries, err := s.repo.TeamVariantSnapshot(ctx, s.eventExerciseID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the team variant snapshot").Err()
+	}
+	s.snapshot = teamChallengeModel.NewFlagSlotSnapshot(entries)
+	return nil
+}
+
+func (s *teamFlagSlots) lock(ctx context.Context) error {
+	if s.locked {
+		return nil
+	}
+	if err := s.repo.LockVariantPick(ctx, s.eventExerciseID); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to lock the variant pick").Err()
+	}
+	s.locked = true
+	return nil
+}
+
 func (s *teamFlagSlots) slot(ctx context.Context, teamID uuid.UUID, variantIndex int32) (uint64, error) {
+	if s.snapshot != nil {
+		return s.snapshot.Slot(teamID, variantIndex), nil
+	}
 	if slot, ok := s.known[teamID]; ok {
 		return slot, nil
 	}
-	if !s.locked {
-		if err := s.repo.LockVariantPick(ctx, s.eventExerciseID); err != nil {
-			return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to lock the variant pick").Err()
-		}
-		s.locked = true
+	if err := s.lock(ctx); err != nil {
+		return 0, err
 	}
 	count, err := s.repo.EarlierVariantTeams(ctx, s.eventExerciseID, teamID, variantIndex)
 	if err != nil {

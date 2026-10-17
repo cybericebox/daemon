@@ -11,6 +11,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	eventTeamModel "github.com/cybericebox/daemon/internal/model/eventTeam"
+	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
@@ -77,6 +78,23 @@ func TestEarlierVariantTeams_CountsEarlierTeamsOnTheVariant(t *testing.T) {
 		got, getErr := repo.EarlierVariantTeams(ctx, first.EventExerciseID, tc.id, tc.variant)
 		if getErr != nil || got != tc.want {
 			t.Fatalf("%s slot = %d, %v; want %d", tc.name, got, getErr, tc.want)
+		}
+	}
+
+	// The pass snapshot gives the teams that stay on a variant the same slots.
+	entries, err := repo.TeamVariantSnapshot(ctx, first.EventExerciseID)
+	if err != nil || len(entries) != 5 {
+		t.Fatalf("snapshot = %+v, %v; want 5 (team, variant) entries", entries, err)
+	}
+	snapshot := teamChallengeModel.NewFlagSlotSnapshot(entries)
+	for _, tc := range []struct {
+		name    string
+		id      uuid.UUID
+		variant int32
+		want    uint64
+	}{{"red", red, 0, 0}, {"moderators", moderators, 0, 1}, {"green", green, 0, 1}, {"teal", teal, 0, 2}, {"blue", blue, 1, 0}} {
+		if got := snapshot.Slot(tc.id, tc.variant); got != tc.want {
+			t.Fatalf("snapshot %s slot = %d, want %d", tc.name, got, tc.want)
 		}
 	}
 }
