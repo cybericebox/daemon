@@ -7,6 +7,7 @@ package imageRegistryRepo
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -27,6 +28,9 @@ type Queries interface {
 	DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error)
 
 	UpsertPlatformImage(ctx context.Context, arg postgres.UpsertPlatformImageParams) error
+	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]postgres.PlatformImage, error)
+	DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) error
+	DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error)
 	UpsertImageBlobPush(ctx context.Context, arg postgres.UpsertImageBlobPushParams) error
 	GetImageBlobPush(ctx context.Context, digest string) (postgres.ImageBlobPush, error)
 	DeleteImageBlobPush(ctx context.Context, digest string) error

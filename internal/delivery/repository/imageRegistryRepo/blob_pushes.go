@@ -2,6 +2,7 @@ package imageRegistryRepo
 
 import (
 	"context"
+	"time"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -41,4 +42,9 @@ func (r *BlobPushes) Get(ctx context.Context, digest string) (imageRegistryModel
 // Delete removes the push state of a digest (the push succeeded).
 func (r *BlobPushes) Delete(ctx context.Context, digest string) error {
 	return r.q.DeleteImageBlobPush(ctx, digest)
+}
+
+// DeleteStale removes the push states not touched since the cutoff and returns how many went.
+func (r *BlobPushes) DeleteStale(ctx context.Context, before time.Time) (int64, error) {
+	return r.q.DeleteStaleImageBlobPushes(ctx, before)
 }

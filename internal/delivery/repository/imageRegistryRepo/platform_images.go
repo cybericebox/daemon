@@ -2,6 +2,7 @@ package imageRegistryRepo
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -33,4 +34,26 @@ func (r *PlatformImages) Save(ctx context.Context, img imageRegistryModel.Platfo
 
 func nullable(id uuid.UUID) uuid.NullUUID {
 	return uuid.NullUUID{UUID: id, Valid: id != uuid.Nil}
+}
+
+// ListUnreferenced returns every row of the digests no exercise version references and whose rows were all uploaded
+// before the cutoff: the tags the collector may remove.
+func (r *PlatformImages) ListUnreferenced(ctx context.Context, before time.Time) ([]imageRegistryModel.PlatformImage, error) {
+	rows, err := r.q.ListUnreferencedPlatformImages(ctx, before)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]imageRegistryModel.PlatformImage, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, imageRegistryModel.PlatformImage{
+			Digest: row.Digest, Tag: row.Tag, Name: row.Name,
+			ExerciseID: row.ExerciseID.UUID, UploadedBy: row.UploadedBy.UUID, UploadedAt: row.UploadedAt,
+		})
+	}
+	return out, nil
+}
+
+// Delete removes the record of one tag (it is gone from the registry).
+func (r *PlatformImages) Delete(ctx context.Context, digest, tag string) error {
+	return r.q.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: digest, Tag: tag})
 }

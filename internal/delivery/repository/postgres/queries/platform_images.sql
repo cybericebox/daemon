@@ -27,3 +27,34 @@ WHERE digest = $1;
 DELETE
 FROM image_blob_pushes
 WHERE digest = $1;
+
+-- name: ListUnreferencedPlatformImages :many
+-- Every row (tag) of the platform digests the tag collector may remove: no exercise version (draft, published,
+-- any status) has a device image platform:<name>@<digest> (the name may differ), and every row of the digest was
+-- uploaded before $1. Variants that are not an array, or a "devices" that is null or not an array, hold no image.
+SELECT pi.*
+FROM platform_images pi
+WHERE NOT EXISTS (SELECT 1
+                  FROM platform_images fresh
+                  WHERE fresh.digest = pi.digest
+                    AND fresh.uploaded_at >= sqlc.arg(before)::timestamptz)
+  AND NOT EXISTS (SELECT 1
+                  FROM exercise_versions v,
+                       jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+                       jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+                  WHERE jsonb_typeof(device -> 'image') = 'string'
+                    AND (device ->> 'image') LIKE 'platform:%'
+                    AND split_part(device ->> 'image', '@', 2) = pi.digest)
+ORDER BY pi.digest, pi.tag;
+
+-- name: DeletePlatformImage :exec
+DELETE
+FROM platform_images
+WHERE digest = $1
+  AND tag = $2;
+
+-- name: DeleteStaleImageBlobPushes :execrows
+-- Push states nobody came back to: failed ones, and pushing ones whose job is long gone.
+DELETE
+FROM image_blob_pushes
+WHERE updated_at < $1;

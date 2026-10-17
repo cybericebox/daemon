@@ -2532,6 +2532,20 @@ func (mr *MockQuerierMockRecorder) DeleteOwnedExerciseTestDeploy(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOwnedExerciseTestDeploy", reflect.TypeOf((*MockQuerier)(nil).DeleteOwnedExerciseTestDeploy), ctx, arg)
 }
 
+// DeletePlatformImage mocks base method.
+func (m *MockQuerier) DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePlatformImage", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePlatformImage indicates an expected call of DeletePlatformImage.
+func (mr *MockQuerierMockRecorder) DeletePlatformImage(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePlatformImage", reflect.TypeOf((*MockQuerier)(nil).DeletePlatformImage), ctx, arg)
+}
+
 // DeletePlatformSMTPProvider mocks base method.
 func (m *MockQuerier) DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2589,6 +2603,21 @@ func (m *MockQuerier) DeleteSolveIntegrityReview(ctx context.Context, arg postgr
 func (mr *MockQuerierMockRecorder) DeleteSolveIntegrityReview(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSolveIntegrityReview", reflect.TypeOf((*MockQuerier)(nil).DeleteSolveIntegrityReview), ctx, arg)
+}
+
+// DeleteStaleImageBlobPushes mocks base method.
+func (m *MockQuerier) DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteStaleImageBlobPushes", ctx, updatedAt)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteStaleImageBlobPushes indicates an expected call of DeleteStaleImageBlobPushes.
+func (mr *MockQuerierMockRecorder) DeleteStaleImageBlobPushes(ctx, updatedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteStaleImageBlobPushes", reflect.TypeOf((*MockQuerier)(nil).DeleteStaleImageBlobPushes), ctx, updatedAt)
 }
 
 // DeleteStaleLabMonitoringCurrent mocks base method.
@@ -9433,6 +9462,21 @@ func (m *MockQuerier) ListUnaccountedEventLabStarts(ctx context.Context) ([]post
 func (mr *MockQuerierMockRecorder) ListUnaccountedEventLabStarts(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnaccountedEventLabStarts", reflect.TypeOf((*MockQuerier)(nil).ListUnaccountedEventLabStarts), ctx)
+}
+
+// ListUnreferencedPlatformImages mocks base method.
+func (m *MockQuerier) ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]postgres.PlatformImage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnreferencedPlatformImages", ctx, before)
+	ret0, _ := ret[0].([]postgres.PlatformImage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnreferencedPlatformImages indicates an expected call of ListUnreferencedPlatformImages.
+func (mr *MockQuerierMockRecorder) ListUnreferencedPlatformImages(ctx, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnreferencedPlatformImages", reflect.TypeOf((*MockQuerier)(nil).ListUnreferencedPlatformImages), ctx, before)
 }
 
 // ListUserEventMemberships mocks base method.

@@ -284,10 +284,13 @@ type Querier interface {
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteOwnedExerciseTestDeploy(ctx context.Context, arg DeleteOwnedExerciseTestDeployParams) (int64, error)
+	DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) error
 	DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSolveIntegrityReview(ctx context.Context, arg DeleteSolveIntegrityReviewParams) (int64, error)
+	// Push states nobody came back to: failed ones, and pushing ones whose job is long gone.
+	DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error)
 	// A snapshot is the agent's full picture: groups it no longer reports are gone.
 	DeleteStaleLabMonitoringCurrent(ctx context.Context, arg DeleteStaleLabMonitoringCurrentParams) error
 	DeleteTeamChallengeSolve(ctx context.Context, teamChallengeID uuid.UUID) error
@@ -1352,6 +1355,10 @@ type Querier interface {
 	// A historical dispatched generation with no persisted requests is unknown,
 	// never a zero-capacity certificate. Unlaunched objective pins do not hold CPU.
 	ListUnaccountedEventLabStarts(ctx context.Context) ([]ListUnaccountedEventLabStartsRow, error)
+	// Every row (tag) of the platform digests the tag collector may remove: no exercise version (draft, published,
+	// any status) has a device image platform:<name>@<digest> (the name may differ), and every row of the digest was
+	// uploaded before $1. Variants that are not an array, or a "devices" that is null or not an array, hold no image.
+	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
 	// First and last name of the authors an exercise response shows (never the email).

@@ -956,6 +956,15 @@ type NotificationUserSetting struct {
 	Enabled          bool      `json:"enabled"`
 }
 
+type PlatformImage struct {
+	Digest     string        `json:"digest"`
+	Tag        string        `json:"tag"`
+	Name       string        `json:"name"`
+	ExerciseID uuid.NullUUID `json:"exercise_id"`
+	UploadedBy uuid.NullUUID `json:"uploaded_by"`
+	UploadedAt time.Time     `json:"uploaded_at"`
+}
+
 type PlatformLabCapacityObservation struct {
 	ID            uuid.UUID `json:"id"`
 	AgentID       string    `json:"agent_id"`

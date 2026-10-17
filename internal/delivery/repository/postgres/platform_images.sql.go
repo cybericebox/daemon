@@ -23,6 +23,38 @@ func (q *Queries) DeleteImageBlobPush(ctx context.Context, digest string) error 
 	return err
 }
 
+const deletePlatformImage = `-- name: DeletePlatformImage :exec
+DELETE
+FROM platform_images
+WHERE digest = $1
+  AND tag = $2
+`
+
+type DeletePlatformImageParams struct {
+	Digest string `json:"digest"`
+	Tag    string `json:"tag"`
+}
+
+func (q *Queries) DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) error {
+	_, err := q.db.Exec(ctx, deletePlatformImage, arg.Digest, arg.Tag)
+	return err
+}
+
+const deleteStaleImageBlobPushes = `-- name: DeleteStaleImageBlobPushes :execrows
+DELETE
+FROM image_blob_pushes
+WHERE updated_at < $1
+`
+
+// Push states nobody came back to: failed ones, and pushing ones whose job is long gone.
+func (q *Queries) DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteStaleImageBlobPushes, updatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getImageBlobPush = `-- name: GetImageBlobPush :one
 SELECT digest, state, reason, updated_at
 FROM image_blob_pushes
@@ -39,6 +71,53 @@ func (q *Queries) GetImageBlobPush(ctx context.Context, digest string) (ImageBlo
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listUnreferencedPlatformImages = `-- name: ListUnreferencedPlatformImages :many
+SELECT pi.digest, pi.tag, pi.name, pi.exercise_id, pi.uploaded_by, pi.uploaded_at
+FROM platform_images pi
+WHERE NOT EXISTS (SELECT 1
+                  FROM platform_images fresh
+                  WHERE fresh.digest = pi.digest
+                    AND fresh.uploaded_at >= $1::timestamptz)
+  AND NOT EXISTS (SELECT 1
+                  FROM exercise_versions v,
+                       jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+                       jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+                  WHERE jsonb_typeof(device -> 'image') = 'string'
+                    AND (device ->> 'image') LIKE 'platform:%'
+                    AND split_part(device ->> 'image', '@', 2) = pi.digest)
+ORDER BY pi.digest, pi.tag
+`
+
+// Every row (tag) of the platform digests the tag collector may remove: no exercise version (draft, published,
+// any status) has a device image platform:<name>@<digest> (the name may differ), and every row of the digest was
+// uploaded before $1. Variants that are not an array, or a "devices" that is null or not an array, hold no image.
+func (q *Queries) ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error) {
+	rows, err := q.db.Query(ctx, listUnreferencedPlatformImages, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PlatformImage{}
+	for rows.Next() {
+		var i PlatformImage
+		if err := rows.Scan(
+			&i.Digest,
+			&i.Tag,
+			&i.Name,
+			&i.ExerciseID,
+			&i.UploadedBy,
+			&i.UploadedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const upsertImageBlobPush = `-- name: UpsertImageBlobPush :exec
