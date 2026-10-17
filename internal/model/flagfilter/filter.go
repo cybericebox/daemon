@@ -41,7 +41,7 @@ const (
 	// DefaultCapacity is the team capacity of an event without a team limit.
 	DefaultCapacity = 100
 	// MaxFilterCapacity bounds the capacity of every filter (and so its size:
-	// at most 1 Mbit, 128 KiB), whatever the team limit or the growth.
+	// at most 2^19 bits, 64 KiB), whatever the team limit or the growth.
 	MaxFilterCapacity = 100000
 	// MaxRejects is the number of consecutive "maybe issued" draws after which a
 	// bloom filter resets.
@@ -221,6 +221,10 @@ func (f *Filter) Issue(set flagpattern.Set, source io.Reader) (string, error) {
 	}
 }
 
+// issueBitmap draws uniformly over the free indices of the set numbering. With
+// overlapping candidates a value owned by several indices is more likely to be
+// drawn (as in the random mode), but issuing it marks all of its indices, so a
+// value never repeats within a round.
 func (f *Filter) issueBitmap(set flagpattern.Set, source io.Reader) (string, error) {
 	used := uint64(0)
 	for _, b := range f.Bits {
