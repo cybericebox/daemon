@@ -580,6 +580,9 @@ type eventExerciseResponse struct {
 	Resources     eventResourceRangeResponse `json:"Resources"`
 	ResourceHeavy bool                       `json:"ResourceHeavy"`
 	NoAgentFits   bool                       `json:"NoAgentFits"`
+	// FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags
+	// were reused after every value was given, so two teams may get the same flag.
+	FlagsMayRepeat bool `json:"FlagsMayRepeat"`
 }
 
 // eventResourceTotalsResponse: container devices, their blocks, CPU in millicores, memory in bytes.
@@ -956,6 +959,7 @@ func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResp
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
 		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
+	out.FlagsMayRepeat = v.FlagsMayRepeat
 	if out.Scope == "" {
 		out.Scope = "catalog"
 	}

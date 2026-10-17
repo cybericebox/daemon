@@ -489,21 +489,6 @@ func (mr *MockQuerierMockRecorder) CountDispatchesByTypeSince(ctx, createdAt any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDispatchesByTypeSince", reflect.TypeOf((*MockQuerier)(nil).CountDispatchesByTypeSince), ctx, createdAt)
 }
 
-// CountEarlierEventExerciseVariantTeams mocks base method.
-func (m *MockQuerier) CountEarlierEventExerciseVariantTeams(ctx context.Context, arg postgres.CountEarlierEventExerciseVariantTeamsParams) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountEarlierEventExerciseVariantTeams", ctx, arg)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountEarlierEventExerciseVariantTeams indicates an expected call of CountEarlierEventExerciseVariantTeams.
-func (mr *MockQuerierMockRecorder) CountEarlierEventExerciseVariantTeams(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEarlierEventExerciseVariantTeams", reflect.TypeOf((*MockQuerier)(nil).CountEarlierEventExerciseVariantTeams), ctx, arg)
-}
-
 // CountEmailDeliveredSince mocks base method.
 func (m *MockQuerier) CountEmailDeliveredSince(ctx context.Context, arg postgres.CountEmailDeliveredSinceParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -3411,6 +3396,21 @@ func (m *MockQuerier) GetEventExerciseByID(ctx context.Context, arg postgres.Get
 func (mr *MockQuerierMockRecorder) GetEventExerciseByID(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventExerciseByID", reflect.TypeOf((*MockQuerier)(nil).GetEventExerciseByID), ctx, arg)
+}
+
+// GetEventFlagFilter mocks base method.
+func (m *MockQuerier) GetEventFlagFilter(ctx context.Context, arg postgres.GetEventFlagFilterParams) (postgres.EventFlagFilter, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventFlagFilter", ctx, arg)
+	ret0, _ := ret[0].(postgres.EventFlagFilter)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventFlagFilter indicates an expected call of GetEventFlagFilter.
+func (mr *MockQuerierMockRecorder) GetEventFlagFilter(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventFlagFilter", reflect.TypeOf((*MockQuerier)(nil).GetEventFlagFilter), ctx, arg)
 }
 
 // GetEventForm mocks base method.
@@ -6378,21 +6378,6 @@ func (mr *MockQuerierMockRecorder) ListEventExercisePrerequisites(ctx, eventExer
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExercisePrerequisites", reflect.TypeOf((*MockQuerier)(nil).ListEventExercisePrerequisites), ctx, eventExerciseID)
 }
 
-// ListEventExerciseTeamVariants mocks base method.
-func (m *MockQuerier) ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.ListEventExerciseTeamVariantsRow, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListEventExerciseTeamVariants", ctx, eventExerciseID)
-	ret0, _ := ret[0].([]postgres.ListEventExerciseTeamVariantsRow)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListEventExerciseTeamVariants indicates an expected call of ListEventExerciseTeamVariants.
-func (mr *MockQuerierMockRecorder) ListEventExerciseTeamVariants(ctx, eventExerciseID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExerciseTeamVariants", reflect.TypeOf((*MockQuerier)(nil).ListEventExerciseTeamVariants), ctx, eventExerciseID)
-}
-
 // ListEventExercises mocks base method.
 func (m *MockQuerier) ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]postgres.EventExercise, error) {
 	m.ctrl.T.Helper()
@@ -6406,6 +6391,21 @@ func (m *MockQuerier) ListEventExercises(ctx context.Context, eventID uuid.UUID)
 func (mr *MockQuerierMockRecorder) ListEventExercises(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExercises", reflect.TypeOf((*MockQuerier)(nil).ListEventExercises), ctx, eventID)
+}
+
+// ListEventFlagFilters mocks base method.
+func (m *MockQuerier) ListEventFlagFilters(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventFlagFiltersRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventFlagFilters", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListEventFlagFiltersRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventFlagFilters indicates an expected call of ListEventFlagFilters.
+func (mr *MockQuerierMockRecorder) ListEventFlagFilters(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventFlagFilters", reflect.TypeOf((*MockQuerier)(nil).ListEventFlagFilters), ctx, eventID)
 }
 
 // ListEventFormAnswers mocks base method.
@@ -6616,6 +6616,21 @@ func (m *MockQuerier) ListEventIntegritySolves(ctx context.Context, eventID uuid
 func (mr *MockQuerierMockRecorder) ListEventIntegritySolves(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventIntegritySolves", reflect.TypeOf((*MockQuerier)(nil).ListEventIntegritySolves), ctx, eventID)
+}
+
+// ListEventIssuedFlags mocks base method.
+func (m *MockQuerier) ListEventIssuedFlags(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventIssuedFlagsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventIssuedFlags", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListEventIssuedFlagsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventIssuedFlags indicates an expected call of ListEventIssuedFlags.
+func (mr *MockQuerierMockRecorder) ListEventIssuedFlags(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventIssuedFlags", reflect.TypeOf((*MockQuerier)(nil).ListEventIssuedFlags), ctx, eventID)
 }
 
 // ListEventLabAccessClients mocks base method.
@@ -8988,6 +9003,21 @@ func (mr *MockQuerierMockRecorder) ListSuperAdminUserIDs(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSuperAdminUserIDs", reflect.TypeOf((*MockQuerier)(nil).ListSuperAdminUserIDs), ctx)
 }
 
+// ListTaskVariantIssuedFlags mocks base method.
+func (m *MockQuerier) ListTaskVariantIssuedFlags(ctx context.Context, arg postgres.ListTaskVariantIssuedFlagsParams) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListTaskVariantIssuedFlags", ctx, arg)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListTaskVariantIssuedFlags indicates an expected call of ListTaskVariantIssuedFlags.
+func (mr *MockQuerierMockRecorder) ListTaskVariantIssuedFlags(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTaskVariantIssuedFlags", reflect.TypeOf((*MockQuerier)(nil).ListTaskVariantIssuedFlags), ctx, arg)
+}
+
 // ListTeamBoardChallenges mocks base method.
 func (m *MockQuerier) ListTeamBoardChallenges(ctx context.Context, arg postgres.ListTeamBoardChallengesParams) ([]postgres.ListTeamBoardChallengesRow, error) {
 	m.ctrl.T.Helper()
@@ -9256,6 +9286,21 @@ func (m *MockQuerier) ListUsersPage(ctx context.Context, arg postgres.ListUsersP
 func (mr *MockQuerierMockRecorder) ListUsersPage(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUsersPage", reflect.TypeOf((*MockQuerier)(nil).ListUsersPage), ctx, arg)
+}
+
+// ListVersionTaskFlags mocks base method.
+func (m *MockQuerier) ListVersionTaskFlags(ctx context.Context, ids []uuid.UUID) ([]postgres.ListVersionTaskFlagsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVersionTaskFlags", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListVersionTaskFlagsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListVersionTaskFlags indicates an expected call of ListVersionTaskFlags.
+func (mr *MockQuerierMockRecorder) ListVersionTaskFlags(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVersionTaskFlags", reflect.TypeOf((*MockQuerier)(nil).ListVersionTaskFlags), ctx, ids)
 }
 
 // ListVersionVariantDevices mocks base method.
@@ -12179,6 +12224,20 @@ func (m *MockQuerier) UpsertErrorTelegramChat(ctx context.Context, arg postgres.
 func (mr *MockQuerierMockRecorder) UpsertErrorTelegramChat(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertErrorTelegramChat", reflect.TypeOf((*MockQuerier)(nil).UpsertErrorTelegramChat), ctx, arg)
+}
+
+// UpsertEventFlagFilter mocks base method.
+func (m *MockQuerier) UpsertEventFlagFilter(ctx context.Context, arg postgres.UpsertEventFlagFilterParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertEventFlagFilter", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertEventFlagFilter indicates an expected call of UpsertEventFlagFilter.
+func (mr *MockQuerierMockRecorder) UpsertEventFlagFilter(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertEventFlagFilter", reflect.TypeOf((*MockQuerier)(nil).UpsertEventFlagFilter), ctx, arg)
 }
 
 // UpsertEventFormAnswer mocks base method.

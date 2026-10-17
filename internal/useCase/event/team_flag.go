@@ -1,111 +1,263 @@
 package event
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"io"
+	"slices"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/flagFilterRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
+	"github.com/cybericebox/daemon/internal/model/flagfilter"
+	"github.com/cybericebox/daemon/internal/model/flagpattern"
 )
 
-// teamFlagSlots gives each team of one event exercise its flag slot within one
-// transaction: the number of teams already on the same variant (the moderators
-// team excluded), read under the per-event-exercise variant pick lock.
-//   - A new pick (and a re-pick of a source switch) takes the balance count of
-//     the picked variant before the team is counted, so teams on a variant get
-//     0, 1, 2, ... in pick order (a pass counts its own earlier picks).
-//   - A team that keeps its variant counts the other teams on it that got the
-//     event exercise before it, which is the slot it had when it was picked.
-//   - A source-switch pass reads one snapshot under the lock before it updates
-//     any row and assigns every slot from it in memory (see FlagSlotSnapshot), so
-//     the pass's own updates never shift a count.
-type teamFlagSlots struct {
-	repo            *teamChallengeRepo.Repository
+// teamFlags issues the expected flags of event teams for one event exercise in
+// one transaction. A task with candidates gets a crypto-random value of its
+// candidates that its filter (per event exercise, variant and subtask) has not
+// seen; the filter is read and written under the event exercise's variant pick
+// lock, in the transaction that stores the team challenge. The moderators team
+// draws through the filter like any team. A task without candidates keeps the
+// full random mode and touches no filter.
+type teamFlags struct {
+	repo            IRepository
+	eventID         uuid.UUID
 	eventExerciseID uuid.UUID
+	randomBytes     int
+	source          io.Reader
 	locked          bool
-	known           map[teamVariantKey]uint64
-	snapshot        *teamChallengeModel.FlagSlotSnapshot
+	capacity        int
+	filters         map[flagFilterRepo.Key]*flagfilter.Filter
 }
 
-// teamVariantKey caches a slot per team and variant: a team's slot on one
-// variant says nothing about another.
-type teamVariantKey struct {
-	team    uuid.UUID
-	variant int32
+func (u *EventUseCase) newTeamFlags(repo IRepository, eventID, eventExerciseID uuid.UUID) *teamFlags {
+	return &teamFlags{repo: repo, eventID: eventID, eventExerciseID: eventExerciseID, randomBytes: u.flagRandomBytes, source: rand.Reader,
+		filters: map[flagFilterRepo.Key]*flagfilter.Filter{}}
 }
 
-func newTeamFlagSlots(repo *teamChallengeRepo.Repository, eventExerciseID uuid.UUID) *teamFlagSlots {
-	return &teamFlagSlots{repo: repo, eventExerciseID: eventExerciseID, known: map[teamVariantKey]uint64{}}
-}
-
-// picked records the slot of a team picked from a balance read under the lock.
-func (s *teamFlagSlots) picked(teamID uuid.UUID, balance *teamChallengeModel.VariantBalance, index int32) {
-	if s == nil {
-		return
+// heldLock records that the transaction already holds the variant pick lock.
+func (f *teamFlags) heldLock() {
+	if f != nil {
+		f.locked = true
 	}
-	s.locked = true
-	s.known[teamVariantKey{teamID, index}] = uint64(max(balance.Count(index), 0))
 }
 
-// takeSnapshot locks the variant pick and reads the pass snapshot; call it
-// before the pass updates any row.
-func (s *teamFlagSlots) takeSnapshot(ctx context.Context) error {
-	if err := s.lock(ctx); err != nil {
-		return err
-	}
-	entries, err := s.repo.TeamVariantSnapshot(ctx, s.eventExerciseID)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the team variant snapshot").Err()
-	}
-	s.snapshot = teamChallengeModel.NewFlagSlotSnapshot(entries)
-	return nil
-}
-
-func (s *teamFlagSlots) lock(ctx context.Context) error {
-	if s.locked {
+func (f *teamFlags) lock(ctx context.Context) error {
+	if f.locked {
 		return nil
 	}
-	if err := s.repo.LockVariantPick(ctx, s.eventExerciseID); err != nil {
+	if err := teamChallengeRepo.New(f.repo).LockVariantPick(ctx, f.eventExerciseID); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to lock the variant pick").Err()
 	}
-	s.locked = true
+	f.locked = true
 	return nil
 }
 
-func (s *teamFlagSlots) slot(ctx context.Context, teamID uuid.UUID, variantIndex int32) (uint64, error) {
-	if s.snapshot != nil {
-		return s.snapshot.Slot(teamID, variantIndex), nil
+func (f *teamFlags) teamCapacity(ctx context.Context) (int, error) {
+	if f.capacity > 0 {
+		return f.capacity, nil
 	}
-	if slot, ok := s.known[teamVariantKey{teamID, variantIndex}]; ok {
-		return slot, nil
-	}
-	if err := s.lock(ctx); err != nil {
-		return 0, err
-	}
-	count, err := s.repo.EarlierVariantTeams(ctx, s.eventExerciseID, teamID, variantIndex)
+	config, err := eventConfigRepo.New(f.repo).Get(ctx, f.eventID)
 	if err != nil {
-		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to read team flag slot").Err()
+		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to get the event team limit").Err()
 	}
-	slot := uint64(max(count, 0))
-	s.known[teamVariantKey{teamID, variantIndex}] = slot
-	return slot, nil
+	f.capacity = flagfilter.Capacity(config.MaxTeams)
+	return f.capacity, nil
 }
 
-// resolveTeamFlag is a team's expected flag for one task of a variant: with
-// candidates the value of the team's slot under the task's permutation (the
-// first N teams on a variant get distinct values), without candidates the full
-// random flag. The slot is read only when the task has candidates.
-func (u *EventUseCase) resolveTeamFlag(ctx context.Context, slots *teamFlagSlots, teamID uuid.UUID, variantIndex int32, task exerciseModel.Task) (string, error) {
+// issue is a team's expected flag for one task of a variant.
+func (f *teamFlags) issue(ctx context.Context, variantIndex int32, task exerciseModel.Task) (string, error) {
 	if len(task.Flag) == 0 {
-		return teamChallengeModel.ResolveTeamFlag(nil, u.flagRandomBytes, 0, nil)
+		return flagpattern.Resolve(nil, f.randomBytes, f.source)
 	}
-	slot, err := slots.slot(ctx, teamID, variantIndex)
+	set, err := flagpattern.ParseSet(task.Flag)
 	if err != nil {
 		return "", err
 	}
-	key := teamChallengeModel.FlagSlotKey(u.flagSlotSecret, slots.eventExerciseID, task.ID, variantIndex)
-	return teamChallengeModel.ResolveTeamFlag(task.Flag, u.flagRandomBytes, slot, key)
+	if err = f.lock(ctx); err != nil {
+		return "", err
+	}
+	capacity, err := f.teamCapacity(ctx)
+	if err != nil {
+		return "", err
+	}
+	key := flagFilterRepo.Key{EventExerciseID: f.eventExerciseID, VariantIndex: variantIndex, TaskID: task.ID}
+	filter, err := f.filter(ctx, key, set, capacity)
+	if err != nil {
+		return "", err
+	}
+	if filter.Full() {
+		// Grow before the next issue: the flags issued so far in this
+		// transaction are already stored, so the rebuild sees them.
+		if filter, err = f.rebuild(ctx, key, set, filter.Capacity*2, filter.Resets); err != nil {
+			return "", err
+		}
+	}
+	flag, err := filter.Issue(set, f.source)
+	if err != nil {
+		return "", err
+	}
+	if err = flagFilterRepo.New(f.repo).Save(ctx, key, filter); err != nil {
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to save the flag filter").Err()
+	}
+	f.filters[key] = filter
+	return flag, nil
+}
+
+// filter is the key's filter: the stored one while it fits the set and the
+// capacity, else rebuilt from the stored flags of the key.
+func (f *teamFlags) filter(ctx context.Context, key flagFilterRepo.Key, set flagpattern.Set, capacity int) (*flagfilter.Filter, error) {
+	filter, cached := f.filters[key]
+	if !cached {
+		stored, err := flagFilterRepo.New(f.repo).Get(ctx, key)
+		if err != nil && !repositoryTools.IsObjectNotFoundError(err) {
+			return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get the flag filter").Err()
+		}
+		filter = stored
+	}
+	if filter.Fits(set, capacity) {
+		return filter, nil
+	}
+	resets := 0
+	if filter != nil {
+		capacity, resets = max(capacity, filter.Capacity), filter.Resets
+	}
+	return f.rebuild(ctx, key, set, capacity, resets)
+}
+
+func (f *teamFlags) rebuild(ctx context.Context, key flagFilterRepo.Key, set flagpattern.Set, capacity, resets int) (*flagfilter.Filter, error) {
+	issued, err := flagFilterRepo.New(f.repo).Issued(ctx, key)
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to read the issued flags").Err()
+	}
+	filter, err := flagfilter.New(set, capacity, issued, f.source)
+	if err != nil {
+		return nil, err
+	}
+	filter.Resets = resets
+	return filter, nil
+}
+
+// rebuildEventFlagFilters rewrites every flag filter of an event at the team
+// capacity of maxTeams (at least the flags a filter already holds), with new
+// salts, in the caller's transaction: it takes the variant pick lock of every
+// event exercise of the event in id order, reads the stored flags of the event
+// in one pass and writes each filter that exists or has issued flags. It
+// rebuilds from stored state only, so a retry is safe.
+func (u *EventUseCase) rebuildEventFlagFilters(ctx context.Context, repo IRepository, eventID uuid.UUID, maxTeams *int32) error {
+	attachments, err := eventExerciseRepo.New(repo).List(ctx, eventID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to list event exercises").Err()
+	}
+	slices.SortFunc(attachments, func(a, b eventExerciseModel.EventExercise) int { return bytes.Compare(a.ID.Bytes(), b.ID.Bytes()) })
+	teamChallenges := teamChallengeRepo.New(repo)
+	versionIDs := make([]uuid.UUID, 0, len(attachments))
+	for _, attachment := range attachments {
+		if err = teamChallenges.LockVariantPick(ctx, attachment.ID); err != nil {
+			return model.ErrPlatform.WithError(err).WithMessage("Failed to lock the variant pick").Err()
+		}
+		versionIDs = append(versionIDs, attachment.ExerciseVersionID)
+	}
+	filters := flagFilterRepo.New(repo)
+	existing, err := filters.Resets(ctx, eventID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to list the flag filters").Err()
+	}
+	issued, err := filters.EventIssued(ctx, eventID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the issued flags").Err()
+	}
+	candidates, err := filters.VersionTaskFlags(ctx, versionIDs)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the task flags").Err()
+	}
+	capacity := flagfilter.Capacity(maxTeams)
+	for _, attachment := range attachments {
+		for variant, tasks := range candidates[attachment.ExerciseVersionID] {
+			for taskID, flags := range tasks {
+				key := flagFilterRepo.Key{EventExerciseID: attachment.ID, VariantIndex: int32(variant), TaskID: taskID}
+				resets, has := existing[key]
+				if len(flags) == 0 || (!has && len(issued[key]) == 0) {
+					continue
+				}
+				set, parseErr := flagpattern.ParseSet(flags)
+				if parseErr != nil {
+					log.Warn().Err(parseErr).Stringer("eventExerciseID", attachment.ID).Msg("Skipped the flag filter of an invalid candidate list")
+					continue
+				}
+				filter, newErr := flagfilter.New(set, capacity, issued[key], rand.Reader)
+				if newErr != nil {
+					return newErr
+				}
+				filter.Resets = resets
+				if err = filters.Save(ctx, key, filter); err != nil {
+					return model.ErrPlatform.WithError(err).WithMessage("Failed to save the flag filter").Err()
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// decorateFlagWarnings marks the attachments whose flags may repeat: a task
+// variant with candidates has fewer outputs than the team capacity, or its
+// filter was reset. It is advisory: a failed read only logs.
+func (u *EventUseCase) decorateFlagWarnings(ctx context.Context, eventID uuid.UUID, items []EventExerciseView) {
+	if len(items) == 0 || u.repo == nil {
+		return
+	}
+	err := func() error {
+		config, err := u.configs.Get(ctx, eventID)
+		if err != nil {
+			return err
+		}
+		capacity := flagfilter.Capacity(config.MaxTeams)
+		filters := flagFilterRepo.New(u.repo)
+		resets, err := filters.Resets(ctx, eventID)
+		if err != nil {
+			return err
+		}
+		versionIDs := make([]uuid.UUID, 0, len(items))
+		for _, item := range items {
+			versionIDs = append(versionIDs, item.ExerciseVersionID)
+		}
+		candidates, err := filters.VersionTaskFlags(ctx, versionIDs)
+		if err != nil {
+			return err
+		}
+		for i := range items {
+			items[i].FlagsMayRepeat = flagsMayRepeat(items[i].ID, candidates[items[i].ExerciseVersionID], capacity, resets)
+		}
+		return nil
+	}()
+	if err != nil {
+		log.Warn().Err(err).Stringer("eventID", eventID).Msg("Failed to read the flag repeat warnings")
+	}
+}
+
+func flagsMayRepeat(eventExerciseID uuid.UUID, variants []map[uuid.UUID][]string, capacity int, resets map[flagFilterRepo.Key]int) bool {
+	for variant, tasks := range variants {
+		for taskID, flags := range tasks {
+			if len(flags) == 0 {
+				continue
+			}
+			if resets[flagFilterRepo.Key{EventExerciseID: eventExerciseID, VariantIndex: int32(variant), TaskID: taskID}] > 0 {
+				return true
+			}
+			if set, err := flagpattern.ParseSet(flags); err == nil && flagfilter.SmallSet(set, capacity) {
+				return true
+			}
+		}
+	}
+	return false
 }

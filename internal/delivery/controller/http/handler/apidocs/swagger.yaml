@@ -1391,6 +1391,11 @@ definitions:
         type: string
       FixedVariantIndex:
         type: integer
+      FlagsMayRepeat:
+        description: |-
+          FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags
+          were reused after every value was given, so two teams may get the same flag.
+        type: boolean
       Fork:
         $ref: '#/definitions/event.eventExerciseForkResponse'
       HasAttempts:
@@ -1765,8 +1770,8 @@ definitions:
         type: array
       SendEmails:
         description: |-
-          SendEmails false creates the same invitations without any email (people
-          accept on the event site). Omitted means send (the default).
+          SendEmails false creates the same invitations without sending any email
+          (people accept on the event site). Omitted means send (the default).
         type: boolean
     required:
     - Entries

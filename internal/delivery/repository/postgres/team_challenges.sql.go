@@ -13,45 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countEarlierEventExerciseVariantTeams = `-- name: CountEarlierEventExerciseVariantTeams :one
-WITH firsts AS (
-    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
-    FROM team_challenges tc
-    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
-    WHERE ec.event_exercise_id = $1
-    ORDER BY tc.event_team_id, tc.created_at, tc.id
-), mine AS (
-    SELECT f.created_at, f.id FROM firsts f WHERE f.event_team_id = $3
-)
-SELECT count(DISTINCT tc.event_team_id)::bigint
-FROM team_challenges tc
-JOIN event_challenges ec ON ec.id = tc.event_challenge_id
-JOIN event_teams team ON team.id = tc.event_team_id
-JOIN firsts f ON f.event_team_id = tc.event_team_id
-WHERE ec.event_exercise_id = $1
-  AND tc.variant_index = $2
-  AND NOT team.moderators
-  AND tc.event_team_id <> $3
-  AND (NOT EXISTS (SELECT 1 FROM mine) OR (f.created_at, f.id) < (SELECT m.created_at, m.id FROM mine m))
-`
-
-type CountEarlierEventExerciseVariantTeamsParams struct {
-	EventExerciseID uuid.UUID `json:"event_exercise_id"`
-	VariantIndex    int32     `json:"variant_index"`
-	EventTeamID     uuid.UUID `json:"event_team_id"`
-}
-
-// The flag slot of a team that keeps its variant: the other teams on the same
-// variant of the event exercise that got the event exercise before it (first
-// row by created_at, id), the moderators team excluded. For a team without
-// rows it is every team on the variant. Read under LockEventExerciseVariantPick.
-func (q *Queries) CountEarlierEventExerciseVariantTeams(ctx context.Context, arg CountEarlierEventExerciseVariantTeamsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countEarlierEventExerciseVariantTeams, arg.EventExerciseID, arg.VariantIndex, arg.EventTeamID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const countEventChallengeSolves = `-- name: CountEventChallengeSolves :many
 SELECT tc.event_challenge_id, count(*)::bigint AS solves
 FROM team_challenge_solves solved
@@ -519,62 +480,6 @@ func (q *Queries) ListEventChallengeSolves(ctx context.Context, arg ListEventCha
 			&i.SolvedAt,
 			&i.TeamChallengeID,
 			&i.FirstBlood,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listEventExerciseTeamVariants = `-- name: ListEventExerciseTeamVariants :many
-WITH firsts AS (
-    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
-    FROM team_challenges tc
-    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
-    WHERE ec.event_exercise_id = $1
-    ORDER BY tc.event_team_id, tc.created_at, tc.id
-)
-SELECT DISTINCT tc.event_team_id, tc.variant_index, team.moderators,
-       f.created_at::timestamptz AS first_created_at, f.id::uuid AS first_id
-FROM team_challenges tc
-JOIN event_challenges ec ON ec.id = tc.event_challenge_id
-JOIN event_teams team ON team.id = tc.event_team_id
-JOIN firsts f ON f.event_team_id = tc.event_team_id
-WHERE ec.event_exercise_id = $1
-ORDER BY tc.event_team_id, tc.variant_index
-`
-
-type ListEventExerciseTeamVariantsRow struct {
-	EventTeamID    uuid.UUID `json:"event_team_id"`
-	VariantIndex   int32     `json:"variant_index"`
-	Moderators     bool      `json:"moderators"`
-	FirstCreatedAt time.Time `json:"first_created_at"`
-	FirstID        uuid.UUID `json:"first_id"`
-}
-
-// One snapshot of the teams of an event exercise for a source-switch pass:
-// every (team, variant) it has a row on, with the team's first row of the
-// event exercise (created_at, id) and whether it is the moderators team. Read
-// under LockEventExerciseVariantPick before the pass updates any row.
-func (q *Queries) ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]ListEventExerciseTeamVariantsRow, error) {
-	rows, err := q.db.Query(ctx, listEventExerciseTeamVariants, eventExerciseID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListEventExerciseTeamVariantsRow{}
-	for rows.Next() {
-		var i ListEventExerciseTeamVariantsRow
-		if err := rows.Scan(
-			&i.EventTeamID,
-			&i.VariantIndex,
-			&i.Moderators,
-			&i.FirstCreatedAt,
-			&i.FirstID,
 		); err != nil {
 			return nil, err
 		}

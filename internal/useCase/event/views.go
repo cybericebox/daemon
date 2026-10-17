@@ -491,6 +491,9 @@ type EventExerciseView struct {
 	Resources     resourcesModel.Range
 	ResourceHeavy bool
 	NoAgentFits   bool
+	// FlagsMayRepeat: some task variant of the pinned version has fewer possible flags than the event's team
+	// capacity, or its flag filter was reset, so two teams may get the same flag.
+	FlagsMayRepeat bool
 }
 
 // EventExerciseForkView describes the catalog source of an event fork.

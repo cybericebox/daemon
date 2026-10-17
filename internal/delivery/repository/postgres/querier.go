@@ -66,11 +66,6 @@ type Querier interface {
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
 	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByStatusSinceRow, error)
 	CountDispatchesByTypeSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByTypeSinceRow, error)
-	// The flag slot of a team that keeps its variant: the other teams on the same
-	// variant of the event exercise that got the event exercise before it (first
-	// row by created_at, id), the moderators team excluded. For a team without
-	// rows it is every team on the variant. Read under LockEventExerciseVariantPick.
-	CountEarlierEventExerciseVariantTeams(ctx context.Context, arg CountEarlierEventExerciseVariantTeamsParams) (int64, error)
 	// Messages delivered through one SMTP transport since a moment (the rolling
 	// daily quota). event_id narrows the count to one Event's own transport; the
 	// platform and env transports count every dispatch that went through them,
@@ -388,6 +383,7 @@ type Querier interface {
 	// results are frozen, only solves before the freeze (cutoff); a hidden or unpublished one is no public news.
 	GetEventContentStatistics(ctx context.Context, arg GetEventContentStatisticsParams) (GetEventContentStatisticsRow, error)
 	GetEventExerciseByID(ctx context.Context, arg GetEventExerciseByIDParams) (EventExercise, error)
+	GetEventFlagFilter(ctx context.Context, arg GetEventFlagFilterParams) (EventFlagFilter, error)
 	GetEventForm(ctx context.Context, arg GetEventFormParams) (GetEventFormRow, error)
 	GetEventFormAnswer(ctx context.Context, arg GetEventFormAnswerParams) (EventFormAnswer, error)
 	GetEventFormDelivery(ctx context.Context, arg GetEventFormDeliveryParams) (EventFormDelivery, error)
@@ -769,12 +765,10 @@ type Querier interface {
 	ListEventExerciseDetails(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseDetailsRow, error)
 	// Every prerequisite edge of one board revision in one query.
 	ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]EventChallengePrerequisite, error)
-	// One snapshot of the teams of an event exercise for a source-switch pass:
-	// every (team, variant) it has a row on, with the team's first row of the
-	// event exercise (created_at, id) and whether it is the moderators team. Read
-	// under LockEventExerciseVariantPick before the pass updates any row.
-	ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]ListEventExerciseTeamVariantsRow, error)
 	ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]EventExercise, error)
+	// The filter rows of an event with their reset counts (a reset filter may
+	// repeat flags; a rebuild keeps the count).
+	ListEventFlagFilters(ctx context.Context, eventID uuid.UUID) ([]ListEventFlagFiltersRow, error)
 	ListEventFormAnswers(ctx context.Context, arg ListEventFormAnswersParams) ([]ListEventFormAnswersRow, error)
 	ListEventFormAssignmentsByTrigger(ctx context.Context, arg ListEventFormAssignmentsByTriggerParams) ([]EventFormAssignment, error)
 	// Per form: deliveries assigned and completed in the window, and the answers
@@ -810,6 +804,9 @@ type Querier interface {
 	// 0 = every team has its own, -1 = unknown (fewer than two teams). The
 	// expected flag itself never leaves SQL.
 	ListEventIntegritySolves(ctx context.Context, eventID uuid.UUID) ([]ListEventIntegritySolvesRow, error)
+	// Every stored expected flag of an event by (event exercise, variant, task),
+	// one pass for a rebuild of the event's filters.
+	ListEventIssuedFlags(ctx context.Context, eventID uuid.UUID) ([]ListEventIssuedFlagsRow, error)
 	// The hidden moderators team has no participant rows: its VPN clients are the
 	// event owner and moderators (observers are read-only and get no client).
 	ListEventLabAccessClients(ctx context.Context, eventTeamID uuid.UUID) ([]uuid.UUID, error)
@@ -1287,6 +1284,8 @@ type Querier interface {
 	// Active super admins: the only role that sees and decides infrastructure (resource requests and alarms,
 	// elevations).
 	ListSuperAdminUserIDs(ctx context.Context) ([]uuid.UUID, error)
+	// The stored expected flags of one task variant of an event exercise.
+	ListTaskVariantIssuedFlags(ctx context.Context, arg ListTaskVariantIssuedFlagsParams) ([]string, error)
 	// The team's board: every assignment with its current presentation metadata.
 	// published_only keeps the participant board to board-published challenges;
 	// the moderators board passes false to also see unpublished ones.
@@ -1331,6 +1330,8 @@ type Querier interface {
 	// Offset mode is used by the admin table: column sorting and a page count
 	// cannot be expressed by the legacy created_at cursor.
 	ListUsersPage(ctx context.Context, arg ListUsersPageParams) ([]User, error)
+	// The flag candidates of every task of pinned versions, by variant position.
+	ListVersionTaskFlags(ctx context.Context, ids []uuid.UUID) ([]ListVersionTaskFlagsRow, error)
 	// The same reduced variants for specific versions (an event pins versions, not "the published one").
 	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]ListVersionVariantDevicesRow, error)
 	// Banners a viewer sees: active, inside the window, platform ones plus those
@@ -1719,6 +1720,8 @@ type Querier interface {
 	// Reopened is true when the group was resolved and the error came back. A brand-new group has occurrences = n.
 	UpsertErrorGroup(ctx context.Context, arg UpsertErrorGroupParams) (UpsertErrorGroupRow, error)
 	UpsertErrorTelegramChat(ctx context.Context, arg UpsertErrorTelegramChatParams) error
+	// The filter row is created once and then rewritten in place.
+	UpsertEventFlagFilter(ctx context.Context, arg UpsertEventFlagFilterParams) error
 	UpsertEventFormAnswer(ctx context.Context, arg UpsertEventFormAnswerParams) (EventFormAnswer, error)
 	UpsertEventListColumns(ctx context.Context, arg UpsertEventListColumnsParams) (EventListColumn, error)
 	UpsertEventMailIdentity(ctx context.Context, arg UpsertEventMailIdentityParams) (MailIdentity, error)

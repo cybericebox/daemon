@@ -138,6 +138,7 @@ func (u *EventUseCase) ListEventExercises(ctx context.Context, eventID uuid.UUID
 	if err = u.decorateExerciseResources(ctx, items); err != nil {
 		return nil, err
 	}
+	u.decorateFlagWarnings(ctx, eventID, items)
 	return items, nil
 }
 
@@ -646,8 +647,8 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	// The variant pick lock comes before the row locks, in the order the stand
 	// preparation takes them (pick lock, then its team's rows), so the two never
 	// wait on each other.
-	slots := newTeamFlagSlots(teamChallenges, link.ID)
-	if err := slots.lock(ctx); err != nil {
+	flags := u.newTeamFlags(repo, link.EventID, link.ID)
+	if err := flags.lock(ctx); err != nil {
 		return err
 	}
 	rows, err := teamChallenges.ForRefresh(ctx, ids)
@@ -656,13 +657,8 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	}
 	// A variant the new version no longer has is re-picked by least use; a
 	// team keeps one variant across its challenges and the pass counts its
-	// own picks (the moderators team takes no slot).
+	// own picks (the moderators team takes no variant slot).
 	var balance *teamChallengeModel.VariantBalance
-	if refreshNeedsFlagSlots(rows, link, previous, next, taskOf) {
-		if err = slots.takeSnapshot(ctx); err != nil {
-			return err
-		}
-	}
 	repicked := map[uuid.UUID]int32{}
 	for _, row := range rows {
 		// Retained solved generations keep their pinned variant/content/flags and
@@ -712,7 +708,7 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		if !row.Solved && !task.LinkedDeviceID.Valid {
 			oldTask, hadTask := findTask(previous, row.VariantIndex, taskID)
 			if !hadTask || variantIndex != row.VariantIndex || !slices.Equal(oldTask.Flag, task.Flag) {
-				if row.ExpectedFlag, err = u.resolveTeamFlag(ctx, slots, row.EventTeamID, variantIndex, task); err != nil {
+				if row.ExpectedFlag, err = flags.issue(ctx, variantIndex, task); err != nil {
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()
 				}
 			}
@@ -723,33 +719,6 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		}
 	}
 	return nil
-}
-
-// refreshNeedsFlagSlots reports whether a refresh pass may resolve a flag by
-// slot: a row that moves to another variant, or whose task (with candidates)
-// is new or has a changed flag list. It may say yes needlessly, never no
-// wrongly; the slot snapshot must be read before the pass updates any row.
-func refreshNeedsFlagSlots(rows []teamChallengeRepo.RefreshRow, link eventExerciseModel.EventExercise, previous, next exerciseModel.ExerciseVersion, taskOf map[uuid.UUID]uuid.UUID) bool {
-	for _, row := range rows {
-		taskID, known := taskOf[row.EventChallengeID]
-		if !known || row.Solved {
-			continue
-		}
-		if link.VariantMode == eventExerciseModel.VariantModeFixed && link.FixedVariantIndex != nil && *link.FixedVariantIndex != row.VariantIndex {
-			return true
-		}
-		if int(row.VariantIndex) >= len(next.Variants) {
-			return true
-		}
-		task, found := findTask(next, row.VariantIndex, taskID)
-		if !found || len(task.Flag) == 0 {
-			continue
-		}
-		if old, had := findTask(previous, row.VariantIndex, taskID); !had || !slices.Equal(old.Flag, task.Flag) {
-			return true
-		}
-	}
-	return false
 }
 
 func findTask(version exerciseModel.ExerciseVersion, variant int32, taskID uuid.UUID) (exerciseModel.Task, bool) {
