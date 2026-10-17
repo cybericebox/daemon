@@ -13,6 +13,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/imageRegistryRepo"
 	"github.com/cybericebox/daemon/internal/model"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
@@ -339,16 +340,21 @@ func (u *ImageRegistryUseCase) CreateImage(ctx context.Context, exerciseID uuid.
 		return CreateImageResult{}, err
 	}
 	// Tags carry the whole digest, so another digest's row with this tag is a bug: refuse rather than re-point a
-	// tag another image may be served by (the tag collector keeps such tags as well).
+	// tag another image may be served by (the tag collector keeps such tags as well). The pre-check gives the clear
+	// answer; UNIQUE (tag) on the row write closes the race with a concurrent upload (ErrTagTaken).
 	taken, err := u.images.TagTakenByOtherDigest(ctx, ref.Tag(), ref.Digest)
 	if err != nil {
 		return CreateImageResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to check the image tag").Err()
 	}
-	if taken {
-		return CreateImageResult{}, imageRegistryModel.ErrImageTagTaken.Err()
+	if !taken {
+		err = u.images.Save(ctx, imageRegistryModel.NewPlatformImage(ref, exerciseID, user, u.now()))
+		taken = errors.Is(err, imageRegistryRepo.ErrTagTaken)
+		if err != nil && !taken {
+			return CreateImageResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record the uploaded image").Err()
+		}
 	}
-	if err = u.images.Save(ctx, imageRegistryModel.NewPlatformImage(ref, exerciseID, user, u.now())); err != nil {
-		return CreateImageResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record the uploaded image").Err()
+	if taken {
+		return CreateImageResult{}, imageRegistryModel.ErrImageTagTaken.WithError(err).Err()
 	}
 	if _, err = client.PutManifest(ctx, ref.Tag(), manifest.MediaType, manifest.Body); err != nil {
 		return CreateImageResult{}, Unavailable(err, pushTokenName)

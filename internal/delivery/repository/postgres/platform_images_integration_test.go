@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -121,5 +122,26 @@ func TestPlatformImageTagTakenByOtherDigest(t *testing.T) {
 		if err != nil || got != c.want {
 			t.Fatalf("%s %s: taken=%v err=%v, want %v", c.tag, c.digest, got, err, c.want)
 		}
+	}
+}
+
+// A tag determines its digest: the table refuses the same tag for another digest (UNIQUE (tag)) and the repository
+// reports it as ErrTagTaken; the same digest and tag again is still an upsert.
+func TestPlatformImageTagIsUnique(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := imageRegistryRepo.NewPlatformImages(db.Queries)
+	t0 := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+	row := func(c string) imageRegistryModel.PlatformImage {
+		return imageRegistryModel.PlatformImage{Digest: "sha256:" + strings.Repeat(c, 64), Tag: "web-x", Name: "web", UploadedAt: t0}
+	}
+	if err := repo.Save(ctx, row("a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Save(ctx, row("a")); err != nil {
+		t.Fatalf("same digest again: %v", err)
+	}
+	if err := repo.Save(ctx, row("b")); !errors.Is(err, imageRegistryRepo.ErrTagTaken) {
+		t.Fatalf("another digest: %v", err)
 	}
 }

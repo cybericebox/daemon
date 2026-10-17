@@ -2,9 +2,12 @@ package imageRegistryRepo
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
@@ -20,9 +23,16 @@ func NewPlatformImages(q Queries) *PlatformImages {
 	return &PlatformImages{q: q}
 }
 
+// ErrTagTaken: Save hit UNIQUE (tag): a row of another digest already maps the tag. The use case maps it to
+// imageRegistryModel.ErrImageTagTaken (one call site for that code).
+var ErrTagTaken = errors.New("platform image tag taken by another digest")
+
+const tagUniqueConstraint = "platform_images_tag_key"
+
 // Save records an upload in one statement; the same digest and tag again refreshes the row (upload time included).
+// The same tag for another digest fails with ErrTagTaken.
 func (r *PlatformImages) Save(ctx context.Context, img imageRegistryModel.PlatformImage) error {
-	return r.q.UpsertPlatformImage(ctx, postgres.UpsertPlatformImageParams{
+	err := r.q.UpsertPlatformImage(ctx, postgres.UpsertPlatformImageParams{
 		Digest:     img.Digest,
 		Tag:        img.Tag,
 		Name:       img.Name,
@@ -30,6 +40,10 @@ func (r *PlatformImages) Save(ctx context.Context, img imageRegistryModel.Platfo
 		UploadedBy: nullable(img.UploadedBy),
 		UploadedAt: img.UploadedAt,
 	})
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == pgerrcode.UniqueViolation && pgErr.ConstraintName == tagUniqueConstraint {
+		return errors.Join(ErrTagTaken, err)
+	}
+	return err
 }
 
 // TagTakenByOtherDigest reports whether a row of a digest other than this one already maps the tag.

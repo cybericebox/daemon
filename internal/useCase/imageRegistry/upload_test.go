@@ -14,7 +14,9 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -488,6 +490,29 @@ func TestCreateImageRefusesATagOfAnotherDigest(t *testing.T) {
 	f.q.EXPECT().PlatformImageTagTakenByOtherDigest(gomock.Any(), postgres.PlatformImageTagTakenByOtherDigestParams{Tag: ref.Tag(), Digest: m.Digest}).
 		Return(true, nil)
 	// No UpsertPlatformImage expectation: nothing is recorded.
+
+	if _, err = f.uc.CreateImage(as(uploader), exerciseID, in); !errors.Is(err, imageRegistryModel.ErrImageTagTaken.Err()) {
+		t.Fatalf("err %v", err)
+	}
+	if ok, err := f.registry().ManifestExists(context.Background(), ref.Tag()); err != nil || ok {
+		t.Fatalf("tag %s pushed=%v err=%v", ref.Tag(), ok, err)
+	}
+}
+
+// The pre-check races a concurrent upload of another digest under the same tag: the UNIQUE (tag) violation of the
+// row write is the same refusal, and no manifest is pushed.
+func TestCreateImageMapsATagUniqueViolation(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.preload(t, configBytes, layerBytes)
+	in := testImage()
+	m, err := imageRegistryModel.BuildManifest(in.Config, in.Layers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := imageRegistryModel.NewPlatformRef("my-web", m.Digest)
+	f.q.EXPECT().PlatformImageTagTakenByOtherDigest(gomock.Any(), gomock.Any()).Return(false, nil)
+	f.q.EXPECT().UpsertPlatformImage(gomock.Any(), gomock.Any()).
+		Return(&pgconn.PgError{Code: pgerrcode.UniqueViolation, ConstraintName: "platform_images_tag_key"})
 
 	if _, err = f.uc.CreateImage(as(uploader), exerciseID, in); !errors.Is(err, imageRegistryModel.ErrImageTagTaken.Err()) {
 		t.Fatalf("err %v", err)

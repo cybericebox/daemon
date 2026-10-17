@@ -153,10 +153,14 @@ func TestPlatformImageRecheckAndConditionalDelete(t *testing.T) {
 
 // Defense in depth against a tag that two digests map to (only a bug or an old short tag can make one): the collector
 // never removes such a tag. The candidate list skips every digest that has one, the re-check refuses it, and the
-// conditional delete keeps its rows; the digest's records stay until the other digest's row goes.
+// conditional delete keeps its rows; the digest's records stay until the other digest's row goes. UNIQUE (tag) makes
+// such rows impossible, so this per-test database drops it to stage them.
 func TestPlatformImageSharedTagIsNeverCollected(t *testing.T) {
 	db := testhelpers.SetupTestDB(t)
 	ctx := context.Background()
+	if _, err := db.Pool.Exec(ctx, `ALTER TABLE platform_images DROP CONSTRAINT platform_images_tag_key`); err != nil {
+		t.Fatal(err)
+	}
 	t0 := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
 	old := t0.Add(-48 * time.Hour)
 	before := t0.Add(-24 * time.Hour)

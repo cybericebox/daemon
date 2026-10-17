@@ -13,6 +13,8 @@ CREATE TABLE image_registry_settings (
 
 -- Images uploaded to the platform registry: one row per pushed tag, kept for
 -- the tag garbage collector (a tag older than 24 h no exercise version uses).
+-- A tag carries the whole digest, so it determines its digest: UNIQUE (tag)
+-- refuses a row that would re-point another digest's tag.
 CREATE TABLE platform_images (
     digest      text        NOT NULL,
     tag         text        NOT NULL,
@@ -20,7 +22,8 @@ CREATE TABLE platform_images (
     exercise_id uuid        NULL REFERENCES exercises (id) ON DELETE SET NULL,
     uploaded_by uuid        NULL,
     uploaded_at timestamptz NOT NULL,
-    PRIMARY KEY (digest, tag)
+    PRIMARY KEY (digest, tag),
+    CONSTRAINT platform_images_tag_key UNIQUE (tag)
 );
 
 -- Registry credentials an organizer adds for an event's private images,
