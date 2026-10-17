@@ -154,7 +154,13 @@ func TestExportExerciseArchive_IncludesLabel(t *testing.T) {
 	require.NoError(t, err)
 	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
 	require.NoError(t, err)
-	require.Contains(t, string(files["exercise.json"]), `"label":"Before refactor"`)
+	var doc struct {
+		Versions []struct {
+			Label string `json:"label"`
+		} `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(files["exercise.json"], &doc))
+	require.Equal(t, "Before refactor", doc.Versions[0].Label)
 }
 
 func TestImportExerciseArchive_RestoresLabel(t *testing.T) {
@@ -254,7 +260,7 @@ func TestExportExerciseArchive_IsImportableSchema1(t *testing.T) {
 	require.NoError(t, err)
 	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(string(files["exercise.json"]), `{"schema":"cib-exercise/1"`))
+	require.True(t, strings.HasPrefix(string(files["exercise.json"]), "{\n  \"schema\": \"cib-exercise/1\","))
 	parsed, err := exercise.ParseExerciseArchive(data, "")
 	require.NoError(t, err)
 	require.Equal(t, "portable", parsed.Exercise.Name)

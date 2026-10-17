@@ -15502,7 +15502,7 @@ const docTemplate = `{
                 "tags": [
                     "exercises"
                 ],
-                "summary": "Export selected exercises as standard ZIP archives",
+                "summary": "Export selected exercises as one ZIP archive (several: one folder per exercise)",
                 "parameters": [
                     {
                         "description": "selection and secret option",

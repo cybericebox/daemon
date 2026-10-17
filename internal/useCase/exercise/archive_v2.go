@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"reflect"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
@@ -628,4 +631,125 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 		topology.Connections = append(topology.Connections, mapped)
 	}
 	return topology, deviceIDs, nil
+}
+
+// buildV2Document writes the portable document of one task: schema first, then exercise (name, description,
+// tags) and every version. Enums are written by name; variant, task, hint and device ids are written so a
+// re-import is lossless; an editor description stays an object. paths maps each attached file id to the path
+// it is stored at in the archive. The output is indented plain JSON without comments.
+func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, paths map[uuid.UUID]string) ([]byte, error) {
+	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{Name: e.Name, Description: e.Description, Tags: e.Tags}}
+	for _, version := range versions {
+		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{}}
+		for _, variant := range version.Variants {
+			// A linked variant is written whole and without its link until the archive carries links.
+			out.Variants = append(out.Variants, exportVariantV2(variant, paths))
+		}
+		doc.Versions = append(doc.Versions, out)
+	}
+	if doc.Versions == nil {
+		doc.Versions = []archiveVersionV2{}
+	}
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(doc); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+// exportVariantV2 writes one variant in full.
+func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string) archiveVariantV2 {
+	refs := newDeviceRefs(variant.Topology.Devices)
+	topology := archiveTopologyV2{VPN: variant.Topology.VPN, Internet: variant.Topology.Internet, VisualRender: variant.Topology.VisualRender}
+	for _, device := range variant.Topology.Devices {
+		topology.Devices = append(topology.Devices, archiveDeviceV2{
+			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: archiveImageV2{Ref: device.Image},
+			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
+			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence,
+		})
+	}
+	for _, connection := range variant.Topology.Connections {
+		out := archiveConnectionV2{Endpoints: []archiveEndpointV2{}}
+		for _, endpoint := range connection.Endpoints {
+			mapped := archiveEndpointV2{Kind: endpoint.Kind, Interface: endpoint.Interface}
+			mapped.Device, mapped.DeviceID = refs.ref(endpoint.DeviceID)
+			out.Endpoints = append(out.Endpoints, mapped)
+		}
+		topology.Connections = append(topology.Connections, out)
+	}
+	result := archiveVariantV2{ID: optionalID(variant.ID), Index: variant.Index, Note: variant.Note, Topology: topology}
+	for _, task := range variant.Tasks {
+		result.Tasks = append(result.Tasks, exportTaskV2(task, refs, paths))
+	}
+	return result
+}
+
+func exportTaskV2(task exerciseModel.Task, refs deviceRefs, paths map[uuid.UUID]string) archiveTaskV2 {
+	out := archiveTaskV2{
+		ID: optionalID(task.ID), Name: task.Name, Description: task.Description, Difficulty: task.Difficulty, Flag: task.Flag,
+		DeviceFlagVar: task.DeviceFlagVar, Placeholders: task.Placeholders,
+	}
+	if task.LinkedDeviceID.Valid {
+		out.LinkedDevice, out.LinkedDeviceID = refs.ref(task.LinkedDeviceID.UUID)
+	}
+	for _, attachment := range task.Attachments {
+		file := paths[attachment.FileID]
+		mapped := archiveAttachmentV2{File: file}
+		if name := exportShownName(attachment.Name); name != path.Base(file) {
+			mapped.Name = name
+		}
+		out.Attachments = append(out.Attachments, mapped)
+	}
+	for _, hint := range task.Hints {
+		out.Hints = append(out.Hints, archiveHintV2{ID: optionalID(hint.ID), Text: hint.Text, Level: hint.Level})
+	}
+	return out
+}
+
+// exportShownName keeps a shown name the import accepts as it is; "" stays "" (the file name is shown); any
+// other name is made safe with exportName.
+func exportShownName(name string) string {
+	if name == "" || (!strings.ContainsAny(name, "/\\") && !strings.ContainsFunc(name, unicode.IsControl) &&
+		utf8.RuneCountInString(name) <= maxAttachmentNameRunes) {
+		return name
+	}
+	return exportName(name)
+}
+
+func optionalID(id uuid.UUID) string {
+	if id == uuid.Nil {
+		return ""
+	}
+	return id.String()
+}
+
+// deviceRefs names the devices of one variant for references: by name when the name is the device's alone,
+// by id as well when another device shares it or the device is not in the variant.
+type deviceRefs struct {
+	names  map[uuid.UUID]string
+	counts map[string]int
+}
+
+func newDeviceRefs(devices []exerciseModel.Device) deviceRefs {
+	refs := deviceRefs{names: make(map[uuid.UUID]string, len(devices)), counts: make(map[string]int, len(devices))}
+	for _, device := range devices {
+		refs.names[device.ID] = device.Name
+		refs.counts[device.Name]++
+	}
+	return refs
+}
+
+// ref returns the name and, when the name alone does not find the device, the id; nil is neither.
+func (r deviceRefs) ref(id uuid.UUID) (name, rawID string) {
+	if id == uuid.Nil {
+		return "", ""
+	}
+	name, known := r.names[id]
+	if known && name != "" && r.counts[name] == 1 {
+		return name, ""
+	}
+	return name, id.String()
 }

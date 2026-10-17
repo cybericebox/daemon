@@ -10,3 +10,12 @@ func (u *ExerciseUseCase) SetClock(now func() time.Time) { u.clock = now }
 
 // SameTestGroup exposes the group filter to the external tests.
 var SameTestGroup = sameTestGroup
+
+// FileUse, AssignExportPaths and ExportName expose the export layout to the external tests.
+type FileUse = fileUse
+
+var (
+	AssignExportPaths   = assignExportPaths
+	ExportName          = exportName
+	NormalizeContentIDs = normalizeContentIDs
+)

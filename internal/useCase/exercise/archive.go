@@ -350,9 +350,9 @@ type mediaArchiveReader interface {
 	StreamFile(context.Context, uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 }
 
-// ExportExerciseArchive serializes all immutable version snapshots. Attachments
-// are represented by their logical references here; media byte streaming is
-// deliberately a separate layer so this function never sees object storage.
+// ExportExerciseArchive writes one task as an archive: exercise.json (schema cib-exercise/1), every attachment
+// once per content (SHA-256) at the path assignExportPaths gives it under files/, and manifest.json. With
+// secrets the archive is AES-protected and secret values are written in plain text only inside it.
 func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts ExportOptions) ([]byte, error) {
 	e, err := u.exercises.GetByID(ctx, id)
 	if err != nil {
@@ -369,46 +369,123 @@ func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUI
 	} else if err = u.decryptExportedSecrets(versions); err != nil {
 		return nil, err
 	}
-	contents := map[string][]byte{}
-	filePaths := map[uuid.UUID]string{}
-	if reader, ok := u.media.(mediaArchiveReader); ok {
-		seen := map[uuid.UUID]bool{}
-		for _, version := range versions {
-			for _, fileID := range exerciseModel.CollectFileIDs(version.Variants) {
-				seen[fileID] = true
-			}
-		}
-		for fileID := range seen {
-			rc, file, streamErr := reader.StreamFile(ctx, fileID)
-			if streamErr != nil {
-				return nil, streamErr
-			}
-			body, readErr := io.ReadAll(rc)
-			_ = rc.Close()
-			if readErr != nil {
-				return nil, readErr
-			}
-			name := path.Base(file.Name)
-			if name == "." || name == "/" || name == "" {
-				name = "attachment"
-			}
-			filePaths[fileID] = "files/" + fileID.String() + "/" + name
-			contents[filePaths[fileID]] = body
-		}
-	}
-	payload, err := json.Marshal(temporaryExportDocument(e, versions, filePaths))
+	contents, filePaths, err := u.exportAttachments(ctx, versions)
 	if err != nil {
 		return nil, err
 	}
-	contents["exercise.json"] = payload
-	archive, err := BuildArchiveV1(contents)
+	document, err := buildV2Document(e, versions, filePaths)
 	if err != nil {
 		return nil, err
 	}
+	contents["exercise.json"] = document
 	if opts.IncludeSecrets {
 		return BuildProtectedArchiveV1(contents, opts.Password)
 	}
-	return archive, nil
+	return BuildArchiveV1(contents)
+}
+
+// exportAttachments streams every attached file once and lays the contents out: it returns the archive
+// entries and, per file id, the path its attachments link to. Files with equal bytes share one entry.
+func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exerciseModel.ExerciseVersion) (map[string][]byte, map[uuid.UUID]string, error) {
+	contents := map[string][]byte{}
+	hashOf := map[uuid.UUID]string{}
+	bodies := map[string][]byte{}
+	mediaNames := map[uuid.UUID]string{}
+	var uses []fileUse
+	for vi, version := range versions {
+		for xi, variant := range version.Variants {
+			for ti, task := range variant.Tasks {
+				for _, ref := range task.Attachments {
+					if _, done := hashOf[ref.FileID]; !done {
+						hash, body, name, err := u.streamExportedFile(ctx, ref.FileID)
+						if err != nil {
+							return nil, nil, err
+						}
+						hashOf[ref.FileID], mediaNames[ref.FileID] = hash, name
+						bodies[hash] = body
+					}
+					name := ref.Name
+					if name == "" {
+						name = mediaNames[ref.FileID]
+					}
+					uses = append(uses, fileUse{Hash: hashOf[ref.FileID], Name: name, Version: vi + 1, Variant: xi + 1, Task: ti + 1})
+				}
+			}
+		}
+	}
+	byHash := assignExportPaths("files", uses)
+	filePaths := make(map[uuid.UUID]string, len(hashOf))
+	for fileID, hash := range hashOf {
+		filePaths[fileID] = byHash[hash]
+		contents[byHash[hash]] = bodies[hash]
+	}
+	return contents, filePaths, nil
+}
+
+// streamExportedFile reads one stored file: its content hash (the stored one, else computed), bytes and name.
+func (u *ExerciseUseCase) streamExportedFile(ctx context.Context, fileID uuid.UUID) (string, []byte, string, error) {
+	reader, ok := u.media.(mediaArchiveReader)
+	if !ok {
+		return "", nil, "", fmt.Errorf("media storage is not available for attachment export")
+	}
+	rc, file, err := reader.StreamFile(ctx, fileID)
+	if err != nil {
+		return "", nil, "", err
+	}
+	body, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil {
+		return "", nil, "", err
+	}
+	hash := file.ContentHash
+	if hash == "" {
+		hash = hashBytes(body)
+	}
+	return hash, body, file.Name, nil
+}
+
+// NamedArchive is one exported task archive and the task name its bundle folder is named after.
+type NamedArchive struct {
+	Name    string
+	Archive []byte
+}
+
+// bundleReservedFolders are names a task folder at the zip root must not take: the root manifest and what the
+// import drops as macOS litter (compared in lower case).
+var bundleReservedFolders = []string{"manifest.json", "__macosx"}
+
+// BundleExerciseArchives puts several exported tasks into one archive: each in a folder named exportName(task
+// name) (a taken name gets _2, _3), one manifest.json at the root. A single task stays at the zip root. With a
+// password every archive is read and the bundle written protected, so plain secrets never leave encryption.
+func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, error) {
+	if len(items) == 1 {
+		return items[0].Archive, nil
+	}
+	taken := map[string]bool{}
+	for _, name := range bundleReservedFolders {
+		taken[name] = true
+	}
+	bundle := map[string][]byte{}
+	for _, item := range items {
+		var files map[string][]byte
+		var err error
+		if password != "" {
+			files, err = ReadProtectedArchiveV1(item.Archive, password)
+		} else {
+			files, err = ReadArchiveV1(bytes.NewReader(item.Archive))
+		}
+		if err != nil {
+			return nil, err
+		}
+		folder := freeName(exportName(item.Name), taken)
+		for name, body := range files {
+			bundle[folder+"/"+name] = body
+		}
+	}
+	if password != "" {
+		return BuildProtectedArchiveV1(bundle, password)
+	}
+	return BuildArchiveV1(bundle)
 }
 
 // BuildArchiveV1 creates the portable, checksummed ZIP envelope. Callers own
@@ -708,70 +785,3 @@ func safeArchivePath(n string) bool {
 	return n != "" && n != "." && n != ".." && n == path.Clean(n) && !strings.HasPrefix(n, "/") && !strings.HasPrefix(n, "../") && !strings.Contains(n, "\\") && n != "manifest.json"
 }
 func hashBytes(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
-
-// temporaryExportDocument builds the portable document from the stored exercise with the
-// smallest mapping that keeps export importable. The final layout (deterministic file paths,
-// linked variants, manifest options) replaces it with the export rewrite.
-func temporaryExportDocument(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, filePaths map[uuid.UUID]string) archiveDocV2 {
-	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{Name: e.Name, Description: e.Description, Tags: e.Tags}}
-	for _, version := range versions {
-		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
-		for _, variant := range version.Variants {
-			out.Variants = append(out.Variants, temporaryExportVariant(variant, filePaths))
-		}
-		doc.Versions = append(doc.Versions, out)
-	}
-	return doc
-}
-
-func temporaryExportVariant(variant exerciseModel.Variant, filePaths map[uuid.UUID]string) archiveVariantV2 {
-	names := make(map[uuid.UUID]string, len(variant.Topology.Devices))
-	topology := archiveTopologyV2{VPN: variant.Topology.VPN, Internet: variant.Topology.Internet, VisualRender: variant.Topology.VisualRender}
-	for _, device := range variant.Topology.Devices {
-		names[device.ID] = device.Name
-		topology.Devices = append(topology.Devices, archiveDeviceV2{
-			ID: device.ID.String(), Name: device.Name, Type: device.Type, Image: archiveImageV2{Ref: device.Image},
-			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
-			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence,
-		})
-	}
-	for _, connection := range variant.Topology.Connections {
-		out := archiveConnectionV2{}
-		for _, endpoint := range connection.Endpoints {
-			mapped := archiveEndpointV2{Kind: endpoint.Kind, Interface: endpoint.Interface}
-			if endpoint.DeviceID != uuid.Nil {
-				mapped.Device, mapped.DeviceID = names[endpoint.DeviceID], endpoint.DeviceID.String()
-			}
-			out.Endpoints = append(out.Endpoints, mapped)
-		}
-		topology.Connections = append(topology.Connections, out)
-	}
-	result := archiveVariantV2{Index: variant.Index, Note: variant.Note, Topology: topology}
-	if variant.ID != uuid.Nil {
-		result.ID = variant.ID.String()
-	}
-	for _, task := range variant.Tasks {
-		out := archiveTaskV2{
-			Name: task.Name, Description: task.Description, Difficulty: task.Difficulty, Flag: task.Flag,
-			DeviceFlagVar: task.DeviceFlagVar, Placeholders: task.Placeholders,
-		}
-		if task.ID != uuid.Nil {
-			out.ID = task.ID.String()
-		}
-		if task.LinkedDeviceID.Valid {
-			out.LinkedDevice, out.LinkedDeviceID = names[task.LinkedDeviceID.UUID], task.LinkedDeviceID.UUID.String()
-		}
-		for _, attachment := range task.Attachments {
-			out.Attachments = append(out.Attachments, archiveAttachmentV2{File: filePaths[attachment.FileID], Name: attachment.Name})
-		}
-		for _, hint := range task.Hints {
-			mapped := archiveHintV2{Text: hint.Text, Level: hint.Level}
-			if hint.ID != uuid.Nil {
-				mapped.ID = hint.ID.String()
-			}
-			out.Hints = append(out.Hints, mapped)
-		}
-		result.Tasks = append(result.Tasks, out)
-	}
-	return result
-}

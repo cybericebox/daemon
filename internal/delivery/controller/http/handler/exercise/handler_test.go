@@ -666,7 +666,7 @@ func TestExportSeveralExercises_UsesFoldersInsteadOfNestedArchives(t *testing.T)
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}
-	if string(files["web-basics/exercise.json"]) == "" || string(files["web-basics-2/exercise.json"]) == "" {
+	if string(files["web basics/exercise.json"]) == "" || string(files["web basics_2/exercise.json"]) == "" {
 		t.Fatalf("expected exercise folders, got entries: %#v", files)
 	}
 	for name := range files {

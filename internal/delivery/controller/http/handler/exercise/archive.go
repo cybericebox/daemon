@@ -1,7 +1,6 @@
 package exercise
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +28,7 @@ type exportExercisesRequest struct {
 }
 
 // export godoc
-// @Summary  Export selected exercises as standard ZIP archives
+// @Summary  Export selected exercises as one ZIP archive (several: one folder per exercise)
 // @Tags     exercises
 // @Accept   json
 // @Produce  application/zip
@@ -47,8 +46,7 @@ func (h *Handler) export(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, fmt.Errorf("a password is required when exporting secrets"))
 		return
 	}
-	archives := make(map[string][]byte, len(req.IDs))
-	usedNames := map[string]int{}
+	items := make([]exerciseUseCase.NamedArchive, 0, len(req.IDs))
 	for _, id := range req.IDs {
 		exercise, err := h.useCase.GetExercise(ctx, id)
 		if err != nil {
@@ -60,55 +58,23 @@ func (h *Handler) export(ctx *gin.Context) {
 			response.AbortWithError(ctx, err)
 			return
 		}
-		name := archiveFilename(exercise.Name)
-		usedNames[name]++
-		if usedNames[name] > 1 {
-			name = strings.TrimSuffix(name, ".cybericebox.zip") + fmt.Sprintf("-%d.cybericebox.zip", usedNames[name])
-		}
-		archives[name] = archive
+		items = append(items, exerciseUseCase.NamedArchive{Name: exercise.Name, Archive: archive})
 	}
-	if len(archives) == 1 {
-		for name, archive := range archives {
-			serveArchive(ctx, name, archive)
-			return
-		}
+	if len(items) == 1 {
+		serveArchive(ctx, archiveFilename(items[0].Name), items[0].Archive)
+		return
 	}
-	bundleFiles := map[string][]byte{}
-	for name, archive := range archives {
-		folder := strings.TrimSuffix(name, ".cybericebox.zip")
-		if err := addExerciseFolder(bundleFiles, folder, archive, req.IncludeSecrets, req.Password); err != nil {
-			response.AbortWithError(ctx, err)
-			return
-		}
+	password := ""
+	if req.IncludeSecrets {
+		password = req.Password
 	}
-	bundle, err := exerciseUseCase.BuildArchiveV1(bundleFiles)
-	if req.IncludeSecrets && err == nil {
-		bundle, err = exerciseUseCase.BuildProtectedArchiveV1(bundleFiles, req.Password)
-	}
+	// One zip, one folder per task, one root manifest.json.
+	bundle, err := exerciseUseCase.BundleExerciseArchives(items, password)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
 	serveArchive(ctx, "exercises.cybericebox.zip", bundle)
-}
-
-// addExerciseFolder expands an individual archive into a directory in the
-// catalogue bundle. A normal export is copied verbatim. For a protected
-// export, public exercise metadata and attachments remain browseable while the
-// one JSON payload containing secret values becomes a separately password-
-// encrypted file; plaintext secret values never enter the outer ZIP.
-func addExerciseFolder(bundle map[string][]byte, folder string, archive []byte, includesSecrets bool, password string) error {
-	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(archive))
-	if includesSecrets {
-		files, err = exerciseUseCase.ReadProtectedArchiveV1(archive, password)
-	}
-	if err != nil {
-		return err
-	}
-	for path, body := range files {
-		bundle[folder+"/"+path] = body
-	}
-	return nil
 }
 
 // importArchive godoc
