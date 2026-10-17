@@ -28,6 +28,18 @@ func TestStripJSONComments_KeepsStrings(t *testing.T) {
 	}
 }
 
+func TestStripJSONComments_EscapedBackslashBeforeQuote(t *testing.T) {
+	in := []byte("{\"a\":\"x\\\\\" // c\n}")
+	out, err := stripJSONComments(in)
+	if err != nil {
+		t.Fatalf("strip: %v", err)
+	}
+	var got map[string]string
+	if err = json.Unmarshal(out, &got); err != nil || got["a"] != `x\` {
+		t.Fatalf("decoded %v, %v from %q", got, err, out)
+	}
+}
+
 func TestStripJSONComments_Unterminated(t *testing.T) {
 	_, err := stripJSONComments([]byte(`{"x":1 /*`))
 	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {

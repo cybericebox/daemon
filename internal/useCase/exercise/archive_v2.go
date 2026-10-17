@@ -168,7 +168,7 @@ func archiveBothDocuments() error {
 
 // archiveUnsupportedSchema: the document does not declare the one schema this import reads.
 func archiveUnsupportedSchema() error {
-	return archiveInvalid("unsupported schema", "expected", archiveSchema)
+	return exerciseModel.ErrArchiveSchemaUnsupported.WithPublicContext("expected", archiveSchema).Err()
 }
 
 // probeArchiveSchema reads only the schema key of a (comment-free) document and accepts nothing
@@ -321,6 +321,9 @@ func pathAtOffset(payload []byte, offset int64) string {
 			switch delim {
 			case '{', '[':
 				valueStart()
+				if decoder.InputOffset() >= offset {
+					return pathOf() // the container itself has the wrong type
+				}
 				stack = append(stack, frame{array: delim == '[', expectKey: delim == '{'})
 			default:
 				found := decoder.InputOffset() >= offset

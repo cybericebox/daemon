@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 89
+// ExerciseObjectCode — next free detail code: 91
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -240,6 +240,10 @@ var (
 	// names the device.
 	ErrArchiveImageFileUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Device images inside the archive are not supported yet").WithDetailCode(88)
+	// ErrArchiveSchemaUnsupported: the document does not declare schema cib-exercise/1; the context
+	// `expected` names the schema.
+	ErrArchiveSchemaUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Unsupported archive schema: expected schema: cib-exercise/1").WithDetailCode(90)
 	// ErrArchiveBothDocuments: a task folder holds exercise.json and exercise.yaml at once.
 	ErrArchiveBothDocuments = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("A task folder holds both exercise.json and exercise.yaml").WithDetailCode(81)

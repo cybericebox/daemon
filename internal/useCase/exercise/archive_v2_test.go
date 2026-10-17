@@ -268,12 +268,12 @@ func TestParseExerciseArchive_SchemaRequired(t *testing.T) {
 		"old body":  `{"format":"cib-exercise/v1","Exercise":{"Name":"x"},"Versions":[]}`,
 	} {
 		_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": body}), "")
-		if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
-			t.Errorf("%s: err = %v, want ErrArchiveInvalid", name, err)
+		if !errors.Is(err, exerciseModel.ErrArchiveSchemaUnsupported.Err()) {
+			t.Errorf("%s: err = %v, want ErrArchiveSchemaUnsupported", name, err)
 			continue
 		}
 		ctx := publicContext(t, err)
-		if ctx["reason"] != "unsupported schema" || ctx["expected"] != "cib-exercise/1" {
+		if ctx["expected"] != "cib-exercise/1" {
 			t.Errorf("%s: context = %v", name, ctx)
 		}
 	}
@@ -310,6 +310,24 @@ func TestDecodeArchiveV2_TypeErrorsAreIndexedAndFixed(t *testing.T) {
 	}
 	if strings.Contains(reason, "Go ") || strings.Contains(reason, "struct") || strings.Contains(reason, "json:") {
 		t.Fatalf("reason leaks decoder text: %q", reason)
+	}
+}
+
+func TestDecodeArchiveV2_TypeErrorPathOfContainers(t *testing.T) {
+	for name, c := range map[string]struct{ doc, want string }{
+		"object into string": {`"exercise":{"name":{"a":1,"b":2}}`, "exercise.name"},
+		"array into string":  {`"exercise":{"name":["x"]}`, "exercise.name"},
+		"object into list":   {`"exercise":{"name":"x","tags":{"k":"v"}}`, "exercise.tags"},
+		"empty object":       {`"exercise":{"name":{}}`, "exercise.name"},
+	} {
+		_, err := decodeArchiveV2([]byte(v2Header + c.doc + `}`))
+		if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
+			t.Errorf("%s: err = %v", name, err)
+			continue
+		}
+		if reason := publicContext(t, err)["reason"].(string); !strings.HasPrefix(reason, c.want+" must be") {
+			t.Errorf("%s: reason %q, want path %s", name, reason, c.want)
+		}
 	}
 }
 
