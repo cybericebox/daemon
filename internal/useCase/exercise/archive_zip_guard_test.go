@@ -5,10 +5,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	yzip "github.com/yeka/zip"
+
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 const (
@@ -185,4 +189,93 @@ func TestOpenZipAtNoEndRecordRefused(t *testing.T) {
 	require.Error(t, err)
 	_, _, err = openZipAt(bytes.NewReader([]byte("not a zip")), 9, "")
 	require.Error(t, err)
+}
+
+// tailReaderAt is a huge archive that is zeros but for its tail.
+type tailReaderAt struct {
+	size int64
+	tail []byte
+}
+
+func (r tailReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if off >= r.size {
+		return 0, io.EOF
+	}
+	n := len(p)
+	if int64(n) > r.size-off {
+		n = int(r.size - off)
+	}
+	clear(p[:n])
+	if start := r.size - int64(len(r.tail)); off+int64(n) > start {
+		from := max(off, start)
+		copy(p[from-off:n], r.tail[from-start:])
+	}
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+// hugeLyingTail is the tail of a 10 GiB archive: a zip64 record declaring `declared` entries (and a plain end
+// record with the matching sentinels), or only a plain end record declaring `plain` entries.
+func hugeLyingTail(declared uint64, plain uint16, zip64 bool) tailReaderAt {
+	size := int64(10 << 30)
+	var tail []byte
+	rec := make([]byte, zip64EOCDLen)
+	loc := make([]byte, zip64LocatorLen)
+	eocd := make([]byte, zipEOCDLen)
+	binary.LittleEndian.PutUint32(eocd, zipEOCDSig)
+	binary.LittleEndian.PutUint16(eocd[8:], plain)
+	binary.LittleEndian.PutUint16(eocd[10:], plain)
+	if zip64 {
+		binary.LittleEndian.PutUint32(rec, zip64EOCDSig)
+		binary.LittleEndian.PutUint64(rec[4:], zip64EOCDLen-12)
+		binary.LittleEndian.PutUint64(rec[24:], declared)
+		binary.LittleEndian.PutUint64(rec[32:], declared)
+		binary.LittleEndian.PutUint64(rec[40:], 1<<20)
+		binary.LittleEndian.PutUint64(rec[48:], 1<<20)
+		binary.LittleEndian.PutUint32(loc, zip64LocatorSig)
+		binary.LittleEndian.PutUint64(loc[8:], uint64(size)-zipEOCDLen-zip64LocatorLen-zip64EOCDLen)
+		binary.LittleEndian.PutUint32(loc[16:], 1)
+		binary.LittleEndian.PutUint16(eocd[8:], 0xFFFF)
+		binary.LittleEndian.PutUint16(eocd[10:], 0xFFFF)
+		binary.LittleEndian.PutUint32(eocd[12:], 0xFFFFFFFF)
+		binary.LittleEndian.PutUint32(eocd[16:], 0xFFFFFFFF)
+		tail = append(append(append(tail, rec...), loc...), eocd...)
+	} else {
+		binary.LittleEndian.PutUint32(eocd[12:], 1<<20)
+		tail = eocd
+	}
+	return tailReaderAt{size: size, tail: tail}
+}
+
+func allocatedBy(f func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	f()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+func TestOpenZipAtDeclaredHugeCountRefusedBeforeAllocation(t *testing.T) {
+	for name, r := range map[string]tailReaderAt{
+		"zip64 200M":  hugeLyingTail(200_000_000, 0, true),
+		"plain 65535": hugeLyingTail(0, 0xFFFF, false),
+	} {
+		t.Run(name+" plain reader", func(t *testing.T) {
+			var err error
+			got := allocatedBy(func() { _, _, err = openZipAt(r, r.size, "") })
+			requireTooLarge(t, err, name)
+			require.Less(t, got, uint64(8<<20))
+		})
+		t.Run(name+" protected reader", func(t *testing.T) {
+			var err error
+			budget := newOpenBudgetReaderAt(r)
+			got := allocatedBy(func() { _, err = yzip.NewReader(budget, r.size) })
+			require.Error(t, err)
+			require.ErrorIs(t, budget.finish(), exerciseModel.ErrArchiveTooLarge.Err())
+			require.Less(t, got, uint64(8<<20))
+		})
+	}
 }

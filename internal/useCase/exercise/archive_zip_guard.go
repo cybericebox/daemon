@@ -1,6 +1,7 @@
 package exercise
 
 import (
+	"encoding/binary"
 	"errors"
 	"io"
 	"sync/atomic"
@@ -40,11 +41,51 @@ func newOpenBudgetReaderAt(r io.ReaderAt) *openBudgetReaderAt {
 }
 
 func (b *openBudgetReaderAt) ReadAt(p []byte, off int64) (int, error) {
-	if !b.done.Load() && b.left.Add(-int64(len(p))) < 0 {
+	if b.done.Load() {
+		return b.r.ReadAt(p, off)
+	}
+	if b.left.Add(-int64(len(p))) < 0 {
 		b.exceeded.Store(true)
 		return 0, errZipOpenBudget
 	}
-	return b.r.ReadAt(p, off)
+	n, err := b.r.ReadAt(p, off)
+	// The readers size their file list from the DECLARED record count before reading one directory byte (a 10 GiB
+	// archive declaring 200M entries makes them allocate over a GiB). So the bytes about to be parsed are looked at
+	// first, and the read fails when an end record in them declares more entries than the cap.
+	if declaresTooManyEntries(p[:n]) {
+		b.exceeded.Store(true)
+		return 0, errZipOpenBudget
+	}
+	return n, err
+}
+
+const (
+	eocdSignature   = 0x06054b50 // end of central directory: entries on this disk at +8, in total at +10
+	eocd64Signature = 0x06064b50 // zip64 end record: entries on this disk at +24, in total at +32
+	eocdMinLen      = 22
+	eocd64MinLen    = 56
+)
+
+// declaresTooManyEntries scans every position of buf (not only the last candidate: the readers' pick cannot differ
+// from a scan of all of them) for an end record whose entry counts exceed limits.Entries. The 0xFFFF sentinel of a
+// plain record is a count over the cap too, so it is refused as well.
+func declaresTooManyEntries(buf []byte) bool {
+	max := uint64(limits.Entries)
+	for i := 0; i+4 <= len(buf); i++ {
+		switch binary.LittleEndian.Uint32(buf[i:]) {
+		case eocdSignature:
+			if i+eocdMinLen <= len(buf) &&
+				(uint64(binary.LittleEndian.Uint16(buf[i+8:])) > max || uint64(binary.LittleEndian.Uint16(buf[i+10:])) > max) {
+				return true
+			}
+		case eocd64Signature:
+			if i+eocd64MinLen <= len(buf) &&
+				(binary.LittleEndian.Uint64(buf[i+24:]) > max || binary.LittleEndian.Uint64(buf[i+32:]) > max) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // finish ends the opening phase: the wrapper passes every read on from now. It returns the refusal when the
