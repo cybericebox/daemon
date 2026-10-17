@@ -131,7 +131,7 @@ func TestReadProtectedArchive_WithoutManifest(t *testing.T) {
 }
 
 func TestReadArchiveV1_LimitsStillApply(t *testing.T) {
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"../x": []byte("x")}))); err == nil || !strings.Contains(err.Error(), "unsafe archive path") {
+	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"../x": []byte("x")}))); !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
 		t.Fatalf("an unsafe path must be refused without a manifest: %v", err)
 	}
 	entries := map[string][]byte{}

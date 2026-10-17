@@ -430,14 +430,6 @@ func descriptionToRaw(raw json.RawMessage, placeholders []exerciseModel.Placehol
 	return nil, archiveInvalid("description must be text or an editor document")
 }
 
-// archiveAttachments maps task attachments to stored references. Stub until the files are read.
-func archiveAttachments(_ map[string][]byte, attachments []archiveAttachmentV2) ([]exerciseModel.AttachmentRef, error) {
-	if len(attachments) > 0 {
-		return nil, archiveInvalid("attachments are not supported yet")
-	}
-	return nil, nil
-}
-
 // optionalUUID parses an optional id; empty is uuid.Nil.
 func optionalUUID(path, raw string) (uuid.UUID, error) {
 	if raw == "" {
@@ -459,6 +451,7 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 		Exercise: exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
 		Files:    files,
 	}
+	links := newArchiveLinks(files, &parsed)
 	for vi, version := range d.Versions {
 		if version.Status != "" && !version.Status.Valid() {
 			return ParsedExerciseArchive{}, unknownEnum(fmt.Sprintf("versions[%d].status", vi+1), string(version.Status))
@@ -466,7 +459,7 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
 		for xi, variant := range version.Variants {
 			path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
-			value, err := variant.toDomain(path, files)
+			value, err := variant.toDomain(path, links)
 			if err != nil {
 				return ParsedExerciseArchive{}, err
 			}
@@ -474,10 +467,13 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 		}
 		parsed.Versions = append(parsed.Versions, mapped)
 	}
+	if err := links.orphan(); err != nil {
+		return ParsedExerciseArchive{}, err
+	}
 	return parsed, nil
 }
 
-func (v archiveVariantV2) toDomain(path string, files map[string][]byte) (exerciseModel.Variant, error) {
+func (v archiveVariantV2) toDomain(path string, links *archiveLinks) (exerciseModel.Variant, error) {
 	id, err := optionalUUID(path+".id", v.ID)
 	if err != nil {
 		return exerciseModel.Variant{}, err
@@ -491,7 +487,7 @@ func (v archiveVariantV2) toDomain(path string, files map[string][]byte) (exerci
 	}
 	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Topology: topology}
 	for ti, task := range v.Tasks {
-		value, taskErr := task.toDomain(fmt.Sprintf("%s.tasks[%d]", path, ti+1), deviceIDs, files)
+		value, taskErr := task.toDomain(fmt.Sprintf("%s.tasks[%d]", path, ti+1), deviceIDs, links)
 		if taskErr != nil {
 			return exerciseModel.Variant{}, taskErr
 		}
@@ -500,7 +496,7 @@ func (v archiveVariantV2) toDomain(path string, files map[string][]byte) (exerci
 	return variant, nil
 }
 
-func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, files map[string][]byte) (exerciseModel.Task, error) {
+func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, links *archiveLinks) (exerciseModel.Task, error) {
 	id, err := optionalUUID(path+".id", t.ID)
 	if err != nil {
 		return exerciseModel.Task{}, err
@@ -516,8 +512,12 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, fil
 		ID: id, Name: t.Name, Description: description, Difficulty: t.Difficulty, Flag: t.Flag,
 		DeviceFlagVar: t.DeviceFlagVar, Placeholders: t.Placeholders,
 	}
-	if task.Attachments, err = archiveAttachments(files, t.Attachments); err != nil {
-		return exerciseModel.Task{}, err
+	for ai, attachment := range t.Attachments {
+		ref, linkErr := links.attachment(fmt.Sprintf("%s.attachments[%d]", path, ai+1), attachment)
+		if linkErr != nil {
+			return exerciseModel.Task{}, linkErr
+		}
+		task.Attachments = append(task.Attachments, ref)
 	}
 	linked, err := resolveDevice(path+".linked_device", t.LinkedDevice, t.LinkedDeviceID, deviceIDs)
 	if err != nil {

@@ -247,6 +247,18 @@ var (
 	// ErrArchiveBothDocuments: a task folder holds exercise.json and exercise.yaml at once.
 	ErrArchiveBothDocuments = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("A task folder holds both exercise.json and exercise.yaml").WithDetailCode(81)
+	// ErrArchiveFileUnlinked: a file in the archive that no task folder holds, or that nothing in its task
+	// folder's exercise.* links to; the context `file` names it.
+	ErrArchiveFileUnlinked = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The archive holds a file nothing links to").WithDetailCode(82)
+	// ErrArchivePathInvalid: a symlink entry, an unsafe zip path, or a link that leaves its task folder or names
+	// exercise.* / manifest.json; the context `file` names the path and `reason` says why.
+	ErrArchivePathInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("An archive path is not allowed").WithDetailCode(85)
+	// ErrArchiveFileMissing: a link in exercise.* names a file its task folder does not hold; the context `file`
+	// names the link.
+	ErrArchiveFileMissing = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("A link names a file the archive does not hold").WithDetailCode(89)
 	// ErrArchiveDescriptionKeyUnknown: a {{key}} in a plain-text task description names no placeholder of
 	// that task; the context `key` is the name and `task` the task.
 	ErrArchiveDescriptionKeyUnknown = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).

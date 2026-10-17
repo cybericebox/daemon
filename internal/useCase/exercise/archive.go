@@ -38,8 +38,11 @@ type exportedFile struct {
 type ParsedExerciseArchive struct {
 	Exercise exerciseModel.Exercise
 	Versions []exerciseModel.ExerciseVersion
+	// Files are the task folder's entries, paths relative to it.
 	Files    map[string][]byte
 	FileMeta map[uuid.UUID]exportedFile
+	// FilePaths maps each imported file id to the first folder path linking those bytes.
+	FilePaths map[uuid.UUID]string
 }
 
 type ImportExerciseInput struct {
@@ -62,10 +65,18 @@ type mediaArchiveWriter interface {
 }
 
 func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, error) {
-	files, err := readExerciseArchive(data, password)
+	all, err := readExerciseArchive(data, password)
 	if err != nil {
 		return ParsedExerciseArchive{}, err
 	}
+	folders, err := splitTaskFolders(all)
+	if err != nil {
+		return ParsedExerciseArchive{}, err
+	}
+	if len(folders) != 1 {
+		return ParsedExerciseArchive{}, archiveInvalid("the archive holds several task folders: import it as a bundle")
+	}
+	files := folders[0].Files
 	name, body, err := pickExerciseDocument(files)
 	if err != nil {
 		return ParsedExerciseArchive{}, err
@@ -88,43 +99,21 @@ func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, 
 	return doc.toParsed(files)
 }
 
-// ExpandExerciseArchiveBundle turns the folder layout used by bulk export
-// into the single-exercise archives accepted by ImportExerciseArchive. A
-// protected folder combines its public JSON, attachments and encrypted secret
-// JSON back into a fresh password-protected archive in memory.
+// ExpandExerciseArchiveBundle splits an archive into one single-task archive per task folder (any depth,
+// or the zip root) for ImportExerciseArchive. Each folder is repacked with paths relative to it; when a
+// password was given the repacked archive is protected with it.
 func ExpandExerciseArchiveBundle(data []byte, password string) ([]ArchiveImport, error) {
 	files, err := readExerciseArchive(data, password)
 	if err != nil {
 		return nil, err
 	}
-	if _, ok := files["exercise.json"]; ok {
-		return []ArchiveImport{{Archive: data, Password: password}}, nil
+	folders, err := splitTaskFolders(files)
+	if err != nil {
+		return nil, err
 	}
-	folders := map[string]map[string][]byte{}
-	for name, body := range files {
-		parts := strings.SplitN(name, "/", 2)
-		if len(parts) != 2 || parts[0] == "" {
-			return nil, fmt.Errorf("invalid catalogue archive entry: %s", name)
-		}
-		if folders[parts[0]] == nil {
-			folders[parts[0]] = map[string][]byte{}
-		}
-		folders[parts[0]][parts[1]] = body
-	}
-	if len(folders) == 0 {
-		return nil, fmt.Errorf("catalogue archive contains no exercise folders")
-	}
-	names := make([]string, 0, len(folders))
-	for name := range folders {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	imports := make([]ArchiveImport, 0, len(names))
-	for _, folder := range names {
-		contents := folders[folder]
-		if _, ok := contents["exercise.json"]; !ok {
-			return nil, fmt.Errorf("exercise folder %s is missing exercise.json", folder)
-		}
+	imports := make([]ArchiveImport, 0, len(folders))
+	for _, folder := range folders {
+		contents := folder.Files
 		archive, buildErr := BuildArchiveV1(contents)
 		if buildErr != nil {
 			return nil, buildErr
@@ -247,7 +236,7 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 		if !ok {
 			return fmt.Errorf("exercise archive is missing metadata for attachment %s", sourceID)
 		}
-		body, ok := findArchivedFile(parsed.Files, sourceID)
+		body, ok := lookupAttachment(parsed, sourceID)
 		if !ok {
 			return fmt.Errorf("exercise archive is missing attachment %s", sourceID)
 		}
@@ -273,16 +262,6 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 		}
 	}
 	return nil
-}
-
-func findArchivedFile(files map[string][]byte, id uuid.UUID) ([]byte, bool) {
-	prefix := "files/" + id.String() + "/"
-	for name, body := range files {
-		if strings.HasPrefix(name, prefix) {
-			return body, true
-		}
-	}
-	return nil, false
 }
 
 func (u *ExerciseUseCase) createImportedIdentity(ctx context.Context, source exerciseModel.Exercise, createdBy uuid.UUID) (ExerciseView, error) {
@@ -539,8 +518,12 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 	out := map[string][]byte{}
 	var budget archiveBudget
 	for _, f := range zr.File {
-		if !safeArchivePath(f.Name) && f.Name != "manifest.json" {
-			return nil, fmt.Errorf("unsafe archive path")
+		skip, entryErr := checkArchiveEntry(f.Name, f.Mode())
+		if entryErr != nil {
+			return nil, entryErr
+		}
+		if skip {
+			continue
 		}
 		if e = budget.check(len(zr.File), f.UncompressedSize64, f.CompressedSize64); e != nil {
 			return nil, e
@@ -611,8 +594,12 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 	files := map[string][]byte{}
 	var budget archiveBudget
 	for _, file := range zr.File {
-		if !safeArchivePath(file.Name) && file.Name != "manifest.json" {
-			return nil, fmt.Errorf("unsafe archive path")
+		skip, entryErr := checkArchiveEntry(file.Name, file.Mode())
+		if entryErr != nil {
+			return nil, entryErr
+		}
+		if skip {
+			continue
 		}
 		if !file.IsEncrypted() {
 			return nil, fmt.Errorf("protected archive contains an unencrypted entry")
