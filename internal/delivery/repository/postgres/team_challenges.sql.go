@@ -98,6 +98,28 @@ func (q *Queries) CountEventExerciseVariantTeams(ctx context.Context, eventExerc
 	return items, nil
 }
 
+const countEventTeamsBefore = `-- name: CountEventTeamsBefore :one
+SELECT count(*)::bigint
+FROM event_teams team
+WHERE team.event_id = $1
+  AND NOT team.moderators
+  AND team.id < $2::uuid
+`
+
+type CountEventTeamsBeforeParams struct {
+	EventID     uuid.UUID `json:"event_id"`
+	EventTeamID uuid.UUID `json:"event_team_id"`
+}
+
+// The flag slot of a team: the teams of the same event created before it (team
+// ids are UUIDv7, so id order is creation order), the moderators team excluded.
+func (q *Queries) CountEventTeamsBefore(ctx context.Context, arg CountEventTeamsBeforeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countEventTeamsBefore, arg.EventID, arg.EventTeamID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createHintUnlock = `-- name: CreateHintUnlock :one
 WITH inserted AS (
     INSERT INTO team_challenge_hint_unlocks (team_challenge_id, hint_id, event_id, event_team_id, event_challenge_id,

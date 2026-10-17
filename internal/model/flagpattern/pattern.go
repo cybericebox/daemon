@@ -230,8 +230,10 @@ func parseClass(body string, start int) ([]byte, int, error) {
 	return nil, 0, ErrInvalidPattern
 }
 
-// Resolve chooses one candidate with weight equal to its number of outputs.
-// Overlapping candidates deliberately retain their independent probability.
+// Resolve is the random-slot mode: with candidates it takes a uniform random
+// global index g in [0, N) and returns the value at g (so a candidate weighs its
+// number of outputs; overlapping candidates keep their independent weight).
+// Without candidates it is the full random mode: ICE{hex of randomBytes}.
 func Resolve(candidates []string, randomBytes int, source io.Reader) (string, error) {
 	if randomBytes <= 0 {
 		return "", ErrInvalidPattern
@@ -243,25 +245,13 @@ func Resolve(candidates []string, randomBytes int, source io.Reader) (string, er
 		}
 		return "ICE{" + hex.EncodeToString(bytes) + "}", nil
 	}
-	patterns := make([]Pattern, 0, len(candidates))
-	total := big.NewInt(0)
-	for _, candidate := range candidates {
-		p, err := Parse(candidate)
-		if err != nil {
-			return "", err
-		}
-		patterns = append(patterns, p)
-		total.Add(total, p.count)
-	}
-	slot, err := rand.Int(source, total)
+	set, err := ParseSet(candidates)
 	if err != nil {
 		return "", err
 	}
-	for _, p := range patterns {
-		if slot.Cmp(p.count) < 0 {
-			return p.Generate(source)
-		}
-		slot.Sub(slot, p.count)
+	g, err := rand.Int(source, set.total)
+	if err != nil {
+		return "", err
 	}
-	return "", ErrInvalidPattern
+	return set.At(g)
 }

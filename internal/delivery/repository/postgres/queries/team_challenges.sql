@@ -339,3 +339,12 @@ WHERE tc.event_team_id = sqlc.arg(event_team_id)
   AND ec.event_exercise_id = sqlc.arg(event_exercise_id)
 ORDER BY tc.created_at, tc.id
 LIMIT 1;
+
+-- name: CountEventTeamsBefore :one
+-- The flag slot of a team: the teams of the same event created before it (team
+-- ids are UUIDv7, so id order is creation order), the moderators team excluded.
+SELECT count(*)::bigint
+FROM event_teams team
+WHERE team.event_id = sqlc.arg(event_id)
+  AND NOT team.moderators
+  AND team.id < sqlc.arg(event_team_id)::uuid;

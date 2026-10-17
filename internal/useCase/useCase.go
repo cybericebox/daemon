@@ -238,6 +238,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			VPN:                      vpnUC,
 			SignalPublishers:         eventUseCase.NewOutboxSignalPublisherFactory(time.Now),
 			FlagRandomBytes:          deps.ExerciseConfig.FlagRandomBytes,
+			FlagSlotSecret:           []byte(deps.AuthConfig.TokenSignature),
 			StandDeployBudget:        deps.ExerciseConfig.StandDeployBudget,
 			StandPrewarmLead:         deps.ExerciseConfig.StandPrewarmLead,
 			LabSweepGrace:            deps.ExerciseConfig.LabSweepGrace,

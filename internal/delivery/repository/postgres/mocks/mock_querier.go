@@ -669,6 +669,21 @@ func (mr *MockQuerierMockRecorder) CountEventTeams(ctx, eventID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventTeams", reflect.TypeOf((*MockQuerier)(nil).CountEventTeams), ctx, eventID)
 }
 
+// CountEventTeamsBefore mocks base method.
+func (m *MockQuerier) CountEventTeamsBefore(ctx context.Context, arg postgres.CountEventTeamsBeforeParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEventTeamsBefore", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEventTeamsBefore indicates an expected call of CountEventTeamsBefore.
+func (mr *MockQuerierMockRecorder) CountEventTeamsBefore(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventTeamsBefore", reflect.TypeOf((*MockQuerier)(nil).CountEventTeamsBefore), ctx, arg)
+}
+
 // CountEventTeamsFiltered mocks base method.
 func (m *MockQuerier) CountEventTeamsFiltered(ctx context.Context, arg postgres.CountEventTeamsFilteredParams) (int64, error) {
 	m.ctrl.T.Helper()

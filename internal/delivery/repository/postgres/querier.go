@@ -94,6 +94,9 @@ type Querier interface {
 	// Every set that still points at the stage (detached ones too: the foreign key would refuse the delete).
 	CountEventStageSets(ctx context.Context, stageID uuid.NullUUID) (int32, error)
 	CountEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error)
+	// The flag slot of a team: the teams of the same event created before it (team
+	// ids are UUIDv7, so id order is creation order), the moderators team excluded.
+	CountEventTeamsBefore(ctx context.Context, arg CountEventTeamsBeforeParams) (int64, error)
 	// Mirrors ListEventTeams' search, admission and field filters for the management list.
 	CountEventTeamsFiltered(ctx context.Context, arg CountEventTeamsFilteredParams) (int64, error)
 	// Mirrors ListEventTeamsTable's filters.

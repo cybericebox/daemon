@@ -2,7 +2,6 @@ package event
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"time"
 
@@ -29,7 +28,6 @@ import (
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
@@ -391,13 +389,14 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		tasks[task.ID] = task
 	}
 	bindings := labBindingRepo.New(txRepo)
+	slots := newTeamFlagSlots(teamChallenges, e.ID)
 	for _, challenge := range challenges {
 		value, getErr := teamChallenges.Get(txCtx, team.ID, challenge.ID)
 		if getErr != nil {
 			if !repositoryTools.IsObjectNotFoundError(getErr) {
 				return model.ErrPlatform.WithError(getErr).WithMessage("Failed to get team challenge").Err()
 			}
-			if value, err = u.newTeamChallenge(txCtx, teamChallenges, e.ID, team.ID, challenge, tasks, variantIndex, now); err != nil {
+			if value, err = u.newTeamChallenge(txCtx, teamChallenges, slots, e.ID, team.ID, challenge, tasks, variantIndex, now); err != nil {
 				return err
 			}
 		}
@@ -447,8 +446,9 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 }
 
 // newTeamChallenge makes the durable, team-specific copy of one task: the
-// snapshot and the resolved flag are pinned once and never recomputed.
-func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallengeRepo.Repository, eventID, teamID uuid.UUID, challenge eventChallengeModel.EventChallenge, tasks map[uuid.UUID]exerciseModel.Task, variantIndex int32, now time.Time) (teamChallengeModel.TeamChallenge, error) {
+// snapshot and the resolved flag are pinned once and never recomputed. A task
+// with candidates takes the value of the team's flag slot (see resolveTeamFlag).
+func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallengeRepo.Repository, slots *teamFlagSlots, eventID, teamID uuid.UUID, challenge eventChallengeModel.EventChallenge, tasks map[uuid.UUID]exerciseModel.Task, variantIndex int32, now time.Time) (teamChallengeModel.TeamChallenge, error) {
 	task, found := tasks[challenge.TaskID]
 	if !found {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithMessage("Pinned exercise version has no task for event challenge").Err()
@@ -457,7 +457,7 @@ func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallenge
 	if err != nil {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithError(err).WithMessage("Failed to snapshot team challenge").Err()
 	}
-	expectedFlag, err := flagpattern.Resolve(task.Flag, u.flagRandomBytes, rand.Reader)
+	expectedFlag, err := u.resolveTeamFlag(ctx, slots, teamID, challenge.EventExerciseID, variantIndex, task)
 	if err != nil {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()
 	}

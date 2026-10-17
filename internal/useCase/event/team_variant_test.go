@@ -121,6 +121,8 @@ func TestRefreshTeamAssignments_RebalancesRemovedVariants(t *testing.T) {
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 6, Teams: 1}, {VariantIndex: 7, Teams: 1},
 		}, nil),
 	)
+	// Re-resolved flags read each team's slot once (team B has two rows; team A keeps its flag).
+	q.EXPECT().CountEventTeamsBefore(gomock.Any(), gomock.Any()).Return(int64(0), nil).Times(3)
 	got := map[uuid.UUID]int32{}
 	byID := map[uuid.UUID]uuid.UUID{}
 	for _, r := range rows {

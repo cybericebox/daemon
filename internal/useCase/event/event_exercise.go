@@ -3,7 +3,6 @@ package event
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"slices"
 	"strings"
@@ -26,7 +25,6 @@ import (
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
-	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
 )
@@ -650,6 +648,7 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 	// team keeps one variant across its challenges and the pass counts its
 	// own picks (the moderators team takes no slot).
 	var balance *teamChallengeModel.VariantBalance
+	slots := newTeamFlagSlots(teamChallenges, link.EventID)
 	repicked := map[uuid.UUID]int32{}
 	for _, row := range rows {
 		// Retained solved generations keep their pinned variant/content/flags and
@@ -699,7 +698,7 @@ func (u *EventUseCase) refreshTeamAssignments(ctx context.Context, repo IReposit
 		if !row.Solved && !task.LinkedDeviceID.Valid {
 			oldTask, hadTask := findTask(previous, row.VariantIndex, taskID)
 			if !hadTask || variantIndex != row.VariantIndex || !slices.Equal(oldTask.Flag, task.Flag) {
-				if row.ExpectedFlag, err = flagpattern.Resolve(task.Flag, u.flagRandomBytes, rand.Reader); err != nil {
+				if row.ExpectedFlag, err = u.resolveTeamFlag(ctx, slots, row.EventTeamID, link.ID, variantIndex, task); err != nil {
 					return model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()
 				}
 			}
