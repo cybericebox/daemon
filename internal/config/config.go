@@ -41,6 +41,7 @@ type (
 		FlagRateLimit  FlagRateLimitConfig  `                                   envPrefix:"FLAG_RATE_LIMIT_"`
 		Limits         LimitsConfig         `                                   envPrefix:"LIMIT_"`
 		RateLimit      RateLimitConfig      `                                   envPrefix:"RATE_LIMIT_"`
+		Inflight       InflightConfig       `                                   envPrefix:"HTTP_INFLIGHT_"`
 		Retention      RetentionConfig      `                                   envPrefix:"RETENTION_"`
 		LabAccess      LabAccessConfig      `                                   envPrefix:"LAB_ACCESS_"`
 		LabSession     LabSessionConfig     `                                   envPrefix:"LAB_SESSION_"`
@@ -541,6 +542,29 @@ func (c RateLimitConfig) Validate() error {
 	return nil
 }
 
+// InflightConfig bounds the requests one replica serves at once, so a flood is answered with a fast 503
+// instead of piling up on the database. Three separate caps: general requests (a request waits up to Wait
+// for a slot), live streams (refused at once) and uploads/downloads (wait like general ones). 0 turns that
+// cap off. /api/health is never limited. In memory, per replica.
+type InflightConfig struct {
+	Max          int           `env:"MAX"           envDefault:"64"`
+	Wait         time.Duration `env:"WAIT"          envDefault:"50ms"`
+	StreamsMax   int           `env:"STREAMS_MAX"   envDefault:"200"`
+	TransfersMax int           `env:"TRANSFERS_MAX" envDefault:"32"`
+}
+
+func (c InflightConfig) Validate() error {
+	if c.Max < 0 || c.StreamsMax < 0 || c.TransfersMax < 0 {
+		return errors.New(
+			"in-flight limit: HTTP_INFLIGHT_{MAX,STREAMS_MAX,TRANSFERS_MAX} must not be negative",
+		)
+	}
+	if c.Wait < 0 || c.Wait > time.Second {
+		return errors.New("in-flight limit: HTTP_INFLIGHT_WAIT must be between 0 and 1s")
+	}
+	return nil
+}
+
 // RetentionConfig holds the data retention periods of the Privacy Policy. They are
 // defaults: periods saved in the platform panel override them on the next purge pass.
 // The env defaults are the published periods; change them only together with the
@@ -964,6 +988,9 @@ func MustGetConfig() *Config {
 	}
 	if err = instance.RateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid rate limit configuration")
+	}
+	if err = instance.Inflight.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid in-flight limit configuration")
 	}
 	if err = instance.FlagRateLimit.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid flag rate limit configuration")

@@ -37,6 +37,8 @@ type (
 		Config     *config.HTTPControllerConfig
 		AuthConfig config.AuthConfig
 		RateLimit  config.RateLimitConfig
+		// Inflight bounds the requests served at once; the internal listener shares these slots.
+		Inflight config.InflightConfig
 		// ErrorJournal receives 5xx, panics, 403, 429 and the 404 counters; nil captures nothing.
 		ErrorJournal errjournal.Sink
 	}
@@ -129,7 +131,11 @@ func NewController(deps Dependencies) *Controller {
 	// Every frontend calls this API cross-origin (its own subdomain) — CORS
 	// (with credentials) must run before any route handling.
 	originPolicy := newOriginPolicy(deps)
-	router.Use(middleware.HandleCORS(originPolicy), middleware.OriginGuardWith(originPolicy),
+	router.Use(middleware.HandleCORS(originPolicy),
+		// In-flight limiter: after CORS (its 503 stays readable by the page) and before anything that touches
+		// the database.
+		middleware.NewInflightLimiter(deps.Inflight).Handle,
+		middleware.OriginGuardWith(originPolicy),
 		// General request limiter: anonymous requests here (after CORS, so a 429 stays readable by the page),
 		// signed-in ones in the permission gate.
 		limiter.Anonymous, middleware.ContentMiddleware)
