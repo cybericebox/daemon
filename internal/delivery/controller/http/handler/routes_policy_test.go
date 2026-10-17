@@ -437,7 +437,7 @@ func TestTransferRoutesAreMounted(t *testing.T) {
 	for _, s := range buildRoutePolicy(t) {
 		mounted[s.path] = true
 	}
-	for route := range middleware.TransferRoutes {
+	for _, route := range middleware.TransferRoutes() {
 		if !mounted[route] {
 			t.Errorf("%s is a transfer route of the in-flight limiter but not mounted", route)
 		}

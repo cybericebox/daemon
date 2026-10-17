@@ -17,7 +17,10 @@ func TestInflightConfigDefaultsAndValidation(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if c.Max != 64 || c.Wait != 50*time.Millisecond || c.StreamsMax != 200 || c.TransfersMax != 32 {
+	if c.Max != 64 || c.Wait != 50*time.Millisecond || c.StreamsMax != 200 ||
+		c.TransfersMax != 32 ||
+		c.AnonShare != 25 ||
+		c.PerSession != 8 {
 		t.Fatalf("defaults: %+v", c)
 	}
 	if err := c.Validate(); err != nil {
@@ -32,6 +35,9 @@ func TestInflightConfigDefaultsAndValidation(t *testing.T) {
 		"negative transfers": {TransfersMax: -1},
 		"negative wait":      {Wait: -time.Millisecond},
 		"wait over 1s":       {Wait: time.Second + time.Millisecond},
+		"negative share":     {AnonShare: -1},
+		"share over 100":     {AnonShare: 101},
+		"negative session":   {PerSession: -1},
 	} {
 		if bad.Validate() == nil {
 			t.Errorf("%s must be refused", name)
@@ -42,6 +48,8 @@ func TestInflightConfigDefaultsAndValidation(t *testing.T) {
 		"HTTP_INFLIGHT_WAIT":          "1s",
 		"HTTP_INFLIGHT_STREAMS_MAX":   "0",
 		"HTTP_INFLIGHT_TRANSFERS_MAX": "3",
+		"HTTP_INFLIGHT_ANON_SHARE":    "50",
+		"HTTP_INFLIGHT_PER_SESSION":   "0",
 	}
 	if err := env.ParseWithOptions(
 		&c,
@@ -49,7 +57,9 @@ func TestInflightConfigDefaultsAndValidation(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if c.Max != 7 || c.Wait != time.Second || c.StreamsMax != 0 || c.TransfersMax != 3 {
+	if c.Max != 7 || c.Wait != time.Second || c.StreamsMax != 0 || c.TransfersMax != 3 ||
+		c.AnonShare != 50 ||
+		c.PerSession != 0 {
 		t.Fatalf("env keys: %+v", c)
 	}
 }
