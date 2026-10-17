@@ -143,6 +143,13 @@ func AbortWithTooManyRequests(ctx *gin.Context, wait time.Duration) {
 	AbortWithStatus(ctx, authModel.ErrAuthTooManyRequests.WithDetail(err.DetailRetryAfterSeconds, seconds).Err())
 }
 
+// AbortWithServiceOverloaded is the 503 the in-flight limiter answers with: ErrServiceOverloaded in the normal error
+// envelope and Retry-After of one second.
+func AbortWithServiceOverloaded(ctx *gin.Context) {
+	ctx.Set(OverloadCtxKey, true)
+	AbortWithStatus(ctx, authModel.ErrServiceOverloaded.WithDetail(err.DetailRetryAfterSeconds, int64(1)).Err())
+}
+
 func AbortWithError(ctx *gin.Context, err error) {
 	// set errorWrapper to context
 	ctx.Set(ErrorCtxKey, err)

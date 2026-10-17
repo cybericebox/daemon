@@ -353,6 +353,8 @@
   "70219": "Inbox request is already resolved",
   "70303": "User was modified concurrently",
   "70428": "Too many attempts, try again later",
+  "70431": "Server is overloaded, try again in a few seconds",
+  "70432": "Server is busy, try again in a few seconds",
   "70904": "Exercise was modified concurrently",
   "70905": "Exercise has no draft version",
   "70906": "Exercise already has a draft version",

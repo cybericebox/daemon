@@ -18,7 +18,7 @@ import (
 //     ErrObjectNotFound→404, ...), so "the same fact" needing two statuses is
 //     two different error vars by definition.
 //
-// AuthObjectCode — next free detail code: 31
+// AuthObjectCode — next free detail code: 33
 var (
 	// 401
 	// multi-site (category A): sign-in must be timing- and error-
@@ -122,6 +122,15 @@ var (
 	ErrAuthSessionsUnavailable = err.ErrInternal.WithObjectCode(model.AuthObjectCode).
 					WithMessage("Sessions are temporarily unavailable").WithDetailCode(30).
 					WithHTTPCode(http.StatusServiceUnavailable)
+	// ErrServiceOverloaded: the in-flight request limiter refused the request (HTTP 503); Retry-After carries the wait.
+	ErrServiceOverloaded = err.ErrConflict.WithObjectCode(model.AuthObjectCode).
+				WithMessage("Server is overloaded, try again in a few seconds").WithDetailCode(31).
+				WithHTTPCode(http.StatusServiceUnavailable)
+	// ErrDatabaseBusy: no database connection became free within the acquire timeout (HTTP 503); Retry-After
+	// carries the wait.
+	ErrDatabaseBusy = err.ErrConflict.WithObjectCode(model.AuthObjectCode).
+			WithMessage("Server is busy, try again in a few seconds").WithDetailCode(32).
+			WithHTTPCode(http.StatusServiceUnavailable)
 	ErrAuthInvalidEmail = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Invalid email address").WithDetailCode(26)
 )
