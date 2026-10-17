@@ -6466,6 +6466,21 @@ func (mr *MockQuerierMockRecorder) ListEventExerciseDetails(ctx, eventID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExerciseDetails", reflect.TypeOf((*MockQuerier)(nil).ListEventExerciseDetails), ctx, eventID)
 }
 
+// ListEventExerciseImages mocks base method.
+func (m *MockQuerier) ListEventExerciseImages(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventExerciseImagesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventExerciseImages", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListEventExerciseImagesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventExerciseImages indicates an expected call of ListEventExerciseImages.
+func (mr *MockQuerierMockRecorder) ListEventExerciseImages(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExerciseImages", reflect.TypeOf((*MockQuerier)(nil).ListEventExerciseImages), ctx, eventID)
+}
+
 // ListEventExercisePrerequisites mocks base method.
 func (m *MockQuerier) ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.EventChallengePrerequisite, error) {
 	m.ctrl.T.Helper()

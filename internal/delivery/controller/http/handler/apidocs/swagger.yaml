@@ -5769,6 +5769,18 @@ definitions:
       Name:
         type: string
     type: object
+  exercise.checkImagesRequest:
+    properties:
+      Images:
+        description: Images are the device image references of the editor (at most
+          200, each at most 512 characters).
+        items:
+          type: string
+        maxItems: 200
+        type: array
+    required:
+    - Images
+    type: object
   exercise.checkpointRequest:
     properties:
       Note:
@@ -6425,6 +6437,15 @@ definitions:
         description: 'Level: nudge | direction | steps | near_solution.'
         type: string
       Text:
+        type: string
+    type: object
+  exercise.imageAvailabilityResponse:
+    properties:
+      Image:
+        type: string
+      Reason:
+        type: string
+      Status:
         type: string
     type: object
   exercise.importUploadedRequest:
@@ -7087,6 +7108,19 @@ definitions:
         description: State is one of the PodState* values.
         type: string
     type: object
+  imageRegistry.eventExerciseImagesResponse:
+    properties:
+      EventExerciseID:
+        type: string
+      ExerciseID:
+        type: string
+      ExerciseName:
+        type: string
+      Unavailable:
+        items:
+          $ref: '#/definitions/imageRegistry.unavailableImageResponse'
+        type: array
+    type: object
   imageRegistry.eventSecretRequest:
     properties:
       Host:
@@ -7161,6 +7195,15 @@ definitions:
           can be neither opened nor saved.'
         type: boolean
       UpdatedAt:
+        type: string
+    type: object
+  imageRegistry.unavailableImageResponse:
+    properties:
+      Image:
+        type: string
+      Reason:
+        type: string
+      Status:
         type: string
     type: object
   inbox.countsResponse:
@@ -15070,6 +15113,35 @@ paths:
       summary: Who unlocked which hint, when and for how much
       tags:
       - events
+  /events/{id}/manage/images/availability:
+    get:
+      description: Checks the device images of every active task of the event (its
+        pinned version, all variants) with the event's own registry credentials. Lists
+        only the tasks with unavailable images; an empty list means every image can
+        be pulled. Positive results are cached for 60 s.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/imageRegistry.eventExerciseImagesResponse'
+                  type: array
+              type: object
+      summary: The event's tasks whose images cannot be pulled now
+      tags:
+      - event-registry
   /events/{id}/manage/labs:
     get:
       parameters:
@@ -20671,6 +20743,51 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Whether the task already stores a content (asked before an attachment
         upload)
+      tags:
+      - exercises
+  /exercises/{id}/images/check:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. Platform images (platform:<name>@sha256:…)
+        are checked in the platform registry, other images anonymously; an event-owned
+        exercise also uses its event's registry credentials. One result per distinct
+        image, in the order sent. Positive results are cached for 60 s.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: images
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.checkImagesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.imageAvailabilityResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Check that the device images of the exercise can be pulled
       tags:
       - exercises
   /exercises/{id}/proposals:

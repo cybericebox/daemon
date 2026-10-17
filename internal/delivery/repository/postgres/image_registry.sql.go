@@ -8,6 +8,8 @@ package postgres
 import (
 	"context"
 	"time"
+
+	"github.com/gofrs/uuid"
 )
 
 const deleteImageRegistrySettings = `-- name: DeleteImageRegistrySettings :exec
@@ -39,6 +41,58 @@ func (q *Queries) GetImageRegistrySettings(ctx context.Context) (ImageRegistrySe
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listEventExerciseImages = `-- name: ListEventExerciseImages :many
+SELECT ee.id                                            AS event_exercise_id,
+       ee.exercise_id,
+       ex.name::text                                    AS exercise_name,
+       ARRAY(SELECT DISTINCT device ->> 'image'
+             FROM jsonb_array_elements(CASE WHEN jsonb_typeof(pinned.variants) = 'array' THEN pinned.variants ELSE '[]'::jsonb END) AS variant,
+                  jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+             WHERE COALESCE(device ->> 'image', '') <> ''
+             ORDER BY 1)::text[]                        AS images
+FROM event_exercises ee
+JOIN exercises ex ON ex.id = ee.exercise_id
+JOIN exercise_versions pinned ON pinned.id = ee.exercise_version_id
+WHERE ee.event_id = $1
+  AND ee.status = 0
+ORDER BY ee.created_at ASC, ee.id ASC
+`
+
+type ListEventExerciseImagesRow struct {
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	ExerciseID      uuid.UUID `json:"exercise_id"`
+	ExerciseName    string    `json:"exercise_name"`
+	Images          []string  `json:"images"`
+}
+
+// The active attachments of an event with the distinct device images of their
+// pinned version (every variant's topology; forwarding devices carry no
+// image). A read-side shape for the image availability check.
+func (q *Queries) ListEventExerciseImages(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseImagesRow, error) {
+	rows, err := q.db.Query(ctx, listEventExerciseImages, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventExerciseImagesRow{}
+	for rows.Next() {
+		var i ListEventExerciseImagesRow
+		if err := rows.Scan(
+			&i.EventExerciseID,
+			&i.ExerciseID,
+			&i.ExerciseName,
+			&i.Images,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const upsertImageRegistrySettings = `-- name: UpsertImageRegistrySettings :exec

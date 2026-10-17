@@ -17,10 +17,12 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
@@ -118,6 +120,8 @@ type (
 		ListProposals(ctx context.Context, status string) ([]exerciseUseCase.ProposalView, error)
 		ApproveProposal(ctx context.Context, actor exerciseUseCase.Actor, proposalID uuid.UUID, in exerciseUseCase.ApproveProposalInput) (exerciseUseCase.ProposalView, error)
 		RejectProposal(ctx context.Context, actor exerciseUseCase.Actor, proposalID uuid.UUID, note string) (exerciseUseCase.ProposalView, error)
+		// image availability (the editor's check); scope is the owner event of an event-owned exercise
+		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
 	}
 )
 
@@ -208,6 +212,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 		ex.GET(":id/draft", self, h.authorize(exerciseUseCase.ActionRead), h.getDraft)
 		ex.PUT(":id/draft", self, h.authorize(exerciseUseCase.ActionWrite), h.saveDraft)
+		// image availability: the same access as saving the draft
+		ex.POST(":id/images/check", self, h.authorize(exerciseUseCase.ActionWrite), h.checkImages)
 		ex.DELETE(":id/draft", self, h.authorize(exerciseUseCase.ActionPublish), h.discardDraft)
 		ex.POST(":id/publish", self, h.authorize(exerciseUseCase.ActionPublish), h.publish)
 	}

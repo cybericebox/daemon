@@ -7383,6 +7383,50 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/images/availability": {
+            "get": {
+                "description": "Checks the device images of every active task of the event (its pinned version, all variants) with the event's own registry credentials. Lists only the tasks with unavailable images; an empty list means every image can be pulled. Positive results are cached for 60 s.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-registry"
+                ],
+                "summary": "The event's tasks whose images cannot be pulled now",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/imageRegistry.eventExerciseImagesResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/labs": {
             "get": {
                 "produces": [
@@ -17254,6 +17298,74 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/check": {
+            "post": {
+                "description": "Same access as saving the draft. Platform images (platform:\u003cname\u003e@sha256:…) are checked in the platform registry, other images anonymously; an event-owned exercise also uses its event's registry credentials. One result per distinct image, in the order sent. Positive results are cached for 60 s.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Check that the device images of the exercise can be pulled",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "images",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.checkImagesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.imageAvailabilityResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -31636,6 +31748,22 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.checkImagesRequest": {
+            "type": "object",
+            "required": [
+                "Images"
+            ],
+            "properties": {
+                "Images": {
+                    "description": "Images are the device image references of the editor (at most 200, each at most 512 characters).",
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "exercise.checkpointRequest": {
             "type": "object",
             "properties": {
@@ -32584,6 +32712,20 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.imageAvailabilityResponse": {
+            "type": "object",
+            "properties": {
+                "Image": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "Status": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.importUploadedRequest": {
             "type": "object",
             "required": [
@@ -33520,6 +33662,26 @@ const docTemplate = `{
                 }
             }
         },
+        "imageRegistry.eventExerciseImagesResponse": {
+            "type": "object",
+            "properties": {
+                "EventExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseName": {
+                    "type": "string"
+                },
+                "Unavailable": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/imageRegistry.unavailableImageResponse"
+                    }
+                }
+            }
+        },
         "imageRegistry.eventSecretRequest": {
             "type": "object",
             "properties": {
@@ -33631,6 +33793,20 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "UpdatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.unavailableImageResponse": {
+            "type": "object",
+            "properties": {
+                "Image": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "Status": {
                     "type": "string"
                 }
             }

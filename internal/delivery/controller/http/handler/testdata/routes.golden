@@ -167,6 +167,7 @@ GET    /api/events/:id/manage/forms/:formID/deliveries | gate: self | layers: ev
 POST   /api/events/:id/manage/forms/:formID/deliveries | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/general | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/hint-unlocks | gate: self | layers: event.requireRead
+GET    /api/events/:id/manage/images/availability | gate: self | layers: imageRegistry.requireRead
 GET    /api/events/:id/manage/labs | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/labs/:teamID/challenges/:challengeID/devices/:device/rescue | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/labs/:teamID/challenges/:challengeID/devices/:device/reset | gate: self | layers: event.requireManage
@@ -380,6 +381,7 @@ PUT    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/files/lookup | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/images/check | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/proposals | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/publish | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/unarchive | gate: self | layers: exercise.authorize.func

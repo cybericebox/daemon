@@ -20,11 +20,13 @@ import (
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
@@ -56,6 +58,9 @@ type fakeUC struct {
 	testDeploys           []exerciseModel.TestDeploy
 	listDeploysExercise   uuid.UUID
 	checked               string
+	imageScope            imageRegistryUseCase.Scope
+	checkedImages         []string
+	availability          []imageRegistryModel.Availability
 
 	err error
 

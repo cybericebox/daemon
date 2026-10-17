@@ -54,7 +54,12 @@ var (
 // ContextReason is the public error context of ErrRegistryUnavailable naming
 // why the registry failed (a Reason value); shown to platform admins.
 // ContextToken names which token failed ("push" or "pull"), never its value.
+//
+// ContextImages is the public error context of ErrImagesUnavailable: the list
+// of unavailable images ([]Availability, JSON objects {Image, Status, Reason}),
+// so the client can name each image and why. It never carries a token.
 const (
 	ContextReason = "reason"
 	ContextToken  = "token"
+	ContextImages = "images"
 )

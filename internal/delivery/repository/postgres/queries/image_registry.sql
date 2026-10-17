@@ -19,3 +19,22 @@ ON CONFLICT (id) DO UPDATE
 -- name: DeleteImageRegistrySettings :exec
 DELETE
 FROM image_registry_settings;
+
+-- name: ListEventExerciseImages :many
+-- The active attachments of an event with the distinct device images of their
+-- pinned version (every variant's topology; forwarding devices carry no
+-- image). A read-side shape for the image availability check.
+SELECT ee.id                                            AS event_exercise_id,
+       ee.exercise_id,
+       ex.name::text                                    AS exercise_name,
+       ARRAY(SELECT DISTINCT device ->> 'image'
+             FROM jsonb_array_elements(CASE WHEN jsonb_typeof(pinned.variants) = 'array' THEN pinned.variants ELSE '[]'::jsonb END) AS variant,
+                  jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+             WHERE COALESCE(device ->> 'image', '') <> ''
+             ORDER BY 1)::text[]                        AS images
+FROM event_exercises ee
+JOIN exercises ex ON ex.id = ee.exercise_id
+JOIN exercise_versions pinned ON pinned.id = ee.exercise_version_id
+WHERE ee.event_id = sqlc.arg(event_id)
+  AND ee.status = 0
+ORDER BY ee.created_at ASC, ee.id ASC;

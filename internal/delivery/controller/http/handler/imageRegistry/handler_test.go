@@ -27,6 +27,7 @@ type fakeUseCase struct {
 	secretEvent, secretID uuid.UUID
 	secretInput           imageRegistryUseCase.EventSecretInput
 	deletes               int
+	availabilityEvent     uuid.UUID
 }
 
 func (f *fakeUseCase) view() imageRegistryUseCase.SettingsView {

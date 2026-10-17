@@ -35,6 +35,9 @@ type (
 		DeleteEventRegistrySecret(ctx context.Context, eventID, secretID uuid.UUID) error
 		RequireManageEvent(ctx context.Context, eventID, userID uuid.UUID) error
 		RequireReadEvent(ctx context.Context, eventID, userID uuid.UUID) error
+
+		// Image availability of an event's tasks («Панель заходу»).
+		EventImagesAvailability(ctx context.Context, eventID uuid.UUID) ([]imageRegistryUseCase.EventExerciseImages, error)
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.
@@ -101,6 +104,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		api.POST("repositories", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.listRepositories)
 	}
 	h.initEventSecrets(router)
+	h.initEventImages(router)
 }
 
 // GetImageRegistrySettings godoc

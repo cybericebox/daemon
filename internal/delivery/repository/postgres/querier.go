@@ -777,6 +777,10 @@ type Querier interface {
 	// query: names, scope, catalog version numbers (ordinal among published
 	// versions), newer versions, fork source, infrastructure, counts.
 	ListEventExerciseDetails(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseDetailsRow, error)
+	// The active attachments of an event with the distinct device images of their
+	// pinned version (every variant's topology; forwarding devices carry no
+	// image). A read-side shape for the image availability check.
+	ListEventExerciseImages(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseImagesRow, error)
 	// Every prerequisite edge of one board revision in one query.
 	ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]EventChallengePrerequisite, error)
 	ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]EventExercise, error)

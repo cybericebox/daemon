@@ -28,6 +28,9 @@ const (
 type (
 	// ClientFactory builds the OCI client for one repository of a provider's registry.
 	ClientFactory func(p imageRegistryModel.Provider, repository, username, password string) *ociregistry.Client
+	// ExternalClientFactory builds the OCI client for a registry host taken from an image reference (public
+	// and organizer images). The default dials through ociregistry.GuardedTransport.
+	ExternalClientFactory func(host, repository, username, password string) *ociregistry.Client
 	// AdapterFactory returns the provider API adapter (repository listing, tag deletion); nil for an unknown provider.
 	AdapterFactory func(p imageRegistryModel.Provider) provider.Adapter
 
@@ -38,6 +41,8 @@ type (
 		Cipher secret.Sealer
 		// NewClient defaults to the provider's real registry host.
 		NewClient ClientFactory
+		// NewExternalClient defaults to DefaultExternalClient (guarded transport).
+		NewExternalClient ExternalClientFactory
 		// Adapter defaults to provider.Default.
 		Adapter AdapterFactory
 		// Now defaults to time.Now.
@@ -49,14 +54,26 @@ type (
 		secrets   *imageRegistryRepo.EventSecrets
 		cipher    secret.Sealer
 		newClient ClientFactory
+		external  ExternalClientFactory
 		adapter   AdapterFactory
 		now       func() time.Time
+		available *availabilityCache
 	}
 )
 
 // DefaultClient talks to the provider's public registry host.
 func DefaultClient(p imageRegistryModel.Provider, repository, username, password string) *ociregistry.Client {
 	return ociregistry.New(ociregistry.Options{Host: p.RegistryHost(), Repository: repository, Username: username, Password: password})
+}
+
+// DefaultExternalClient talks to a user-supplied registry host through the
+// guarded transport: loopback, private, link-local and unspecified addresses
+// are refused at connect time.
+func DefaultExternalClient(host, repository, username, password string) *ociregistry.Client {
+	return ociregistry.New(ociregistry.Options{
+		Host: host, Repository: repository, Username: username, Password: password,
+		Transport: ociregistry.GuardedTransport(nil),
+	})
 }
 
 // DefaultAdapter is the provider's real API.
@@ -70,11 +87,16 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 		secrets:   imageRegistryRepo.NewEventSecrets(deps.Repo),
 		cipher:    deps.Cipher,
 		newClient: deps.NewClient,
+		external:  deps.NewExternalClient,
 		adapter:   deps.Adapter,
 		now:       deps.Now,
+		available: newAvailabilityCache(),
 	}
 	if u.newClient == nil {
 		u.newClient = DefaultClient
+	}
+	if u.external == nil {
+		u.external = DefaultExternalClient
 	}
 	if u.adapter == nil {
 		u.adapter = DefaultAdapter
@@ -90,30 +112,36 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 // pull token, falling back to the push token. Not configured, or no cipher to
 // open the tokens: ErrRegistryNotConfigured.
 func (u *ImageRegistryUseCase) PlatformRegistryClient(ctx context.Context, push bool) (*ociregistry.Client, imageRegistryModel.Settings, error) {
-	var (
-		s     imageRegistryModel.Settings
-		token string
-	)
-	if u.cipher != nil {
-		var (
-			found bool
-			err   error
-		)
-		if s, found, err = u.load(ctx); err != nil {
-			return nil, imageRegistryModel.Settings{}, err
-		}
-		if found && s.Configured() {
-			ct, kind := s.PushTokenCiphertext, pushContext
-			if !push && s.PullTokenCiphertext != "" {
-				ct, kind = s.PullTokenCiphertext, pullContext
-			}
-			token = u.open(ct, kind)
-		}
+	s, token, err := u.platformToken(ctx, push)
+	if err != nil {
+		return nil, imageRegistryModel.Settings{}, err
 	}
 	if token == "" {
 		return nil, imageRegistryModel.Settings{}, imageRegistryModel.ErrRegistryNotConfigured.Err()
 	}
 	return u.newClient(s.Provider, s.Repository, s.Account, token), s, nil
+}
+
+// platformToken returns the stored settings and the opened token (see
+// PlatformRegistryClient); token "" means the registry is not configured.
+// The error is only a failure to read the settings.
+func (u *ImageRegistryUseCase) platformToken(ctx context.Context, push bool) (imageRegistryModel.Settings, string, error) {
+	if u.cipher == nil {
+		return imageRegistryModel.Settings{}, "", nil
+	}
+	s, found, err := u.load(ctx)
+	if err != nil || !found || !s.Configured() {
+		return imageRegistryModel.Settings{}, "", err
+	}
+	ct, kind := s.PushTokenCiphertext, pushContext
+	if !push && s.PullTokenCiphertext != "" {
+		ct, kind = s.PullTokenCiphertext, pullContext
+	}
+	token := u.open(ct, kind)
+	if token == "" {
+		return imageRegistryModel.Settings{}, "", nil
+	}
+	return s, token, nil
 }
 
 // load reads the settings; found is false when none are saved.
