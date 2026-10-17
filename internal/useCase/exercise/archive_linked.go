@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
@@ -86,6 +87,7 @@ func (v archiveVariantV2) toLinkedDomain(path string, position int, variants []a
 		return exerciseModel.Variant{}, archiveLinkedToInvalid(path, target)
 	}
 	base := variants[target-1]
+	variantsPath := path[:strings.LastIndex(path, "[")] // versions[V].variants
 	variant := exerciseModel.Variant{
 		ID: ids[position], Index: v.Index, Note: v.Note,
 		LinkedTo: uuid.NullUUID{UUID: ids[target-1], Valid: true},
@@ -103,9 +105,15 @@ func (v archiveVariantV2) toLinkedDomain(path string, position int, variants []a
 		if err != nil {
 			return exerciseModel.Variant{}, err
 		}
-		// An invalid base id is reported at the base; here it simply does not match.
-		if id != uuid.Nil && id != uuid.FromStringOrNil(base.Tasks[ti].ID) {
-			return exerciseModel.Variant{}, archiveLinkedVariantField(taskPath + ".id")
+		if id != uuid.Nil {
+			// The base's own id is checked first, so an invalid one is reported at the base.
+			baseID, baseErr := optionalUUID(fmt.Sprintf("%s[%d].tasks[%d].id", variantsPath, target, ti+1), base.Tasks[ti].ID)
+			if baseErr != nil {
+				return exerciseModel.Variant{}, baseErr
+			}
+			if id != baseID {
+				return exerciseModel.Variant{}, archiveLinkedVariantField(taskPath + ".id")
+			}
 		}
 		mapped := exerciseModel.Task{ID: id, Flag: task.Flag}
 		for ai, attachment := range task.Attachments {

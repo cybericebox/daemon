@@ -321,3 +321,42 @@ func TestExportThenImport_LinkedRoundTrip(t *testing.T) {
 	got := contentIDs(t, parsed.Versions, func(id uuid.UUID) []byte { return parsed.Files[parsed.FilePaths[id]] })
 	require.JSONEq(t, string(want), string(got))
 }
+
+// Two variants sharing an id would let linked_to inherit from the wrong one.
+func TestToParsed_RepeatedVariantIDRejected(t *testing.T) {
+	variants := `[{"id":"` + linkedBaseID.String() + `","tasks":[{"name":"a"}]},
+		{"id":"` + linkedBaseID.String() + `","tasks":[{"name":"b"}]},
+		{"linked_to":2}]`
+	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variants, nil), "")
+	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
+	require.Contains(t, errorContext(t, err)["reason"], "versions[1].variants[2].id")
+}
+
+// An invalid task id of the base is reported at the base, not as a mismatch of the linked task.
+func TestToParsed_LinkedTaskIDAgainstInvalidBaseID(t *testing.T) {
+	variants := `[{"linked_to":2,"tasks":[{"id":"` + linkedTaskOne.String() + `"}]},{"tasks":[{"id":"nope","name":"t"}]}]`
+	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variants, nil), "")
+	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
+	require.Contains(t, errorContext(t, err)["reason"], "versions[1].variants[2].tasks[1].id")
+}
+
+// The ids and placeholder keys the import gives the base reach its linked variant (the second sync).
+func TestImportExerciseArchive_LinkedGetsBaseGeneratedIDs(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	variants := `[{"linked_to":2,"tasks":[{"flag":["ICE{own}"]}]},
+		{"tasks":[{"name":"Тест","difficulty":"easy","flag":["ICE{base}"],"placeholders":[{"kind":"vpn.subnet"}],
+		  "hints":[{"text":"підказка"}]}]}]`
+	var written []exerciseModel.Variant
+	expectImport(q, func(variants []exerciseModel.Variant) { written = variants })
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: linkedArchive(t, "draft", variants, nil)})
+	require.NoError(t, err)
+	linked, base := written[0], written[1]
+	require.Equal(t, uuid.NullUUID{UUID: base.ID, Valid: true}, linked.LinkedTo)
+	require.NotEmpty(t, base.Tasks[0].Placeholders[0].Key)
+	require.Equal(t, base.Tasks[0].Placeholders[0].Key, linked.Tasks[0].Placeholders[0].Key)
+	require.NotEqual(t, uuid.Nil, base.Tasks[0].ID)
+	require.Equal(t, base.Tasks[0].ID, linked.Tasks[0].ID)
+	require.Equal(t, base.Tasks[0].Hints[0].ID, linked.Tasks[0].Hints[0].ID)
+	require.Equal(t, []string{"ICE{own}"}, linked.Tasks[0].Flag)
+}

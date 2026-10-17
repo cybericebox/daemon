@@ -466,15 +466,22 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 		}
 		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
 		// Ids first: a linked variant names its base by position, possibly a later one.
+		// A repeated id would make the link name two variants at once.
 		ids := make([]uuid.UUID, len(version.Variants))
+		seen := make(map[uuid.UUID]bool, len(version.Variants))
 		for xi, variant := range version.Variants {
-			id, err := optionalUUID(fmt.Sprintf("versions[%d].variants[%d].id", vi+1, xi+1), variant.ID)
+			idPath := fmt.Sprintf("versions[%d].variants[%d].id", vi+1, xi+1)
+			id, err := optionalUUID(idPath, variant.ID)
 			if err != nil {
 				return ParsedExerciseArchive{}, err
+			}
+			if seen[id] {
+				return ParsedExerciseArchive{}, archiveInvalid(idPath + " repeats the id of another variant of the version")
 			}
 			if id == uuid.Nil {
 				id = freshID()
 			}
+			seen[id] = true
 			ids[xi] = id
 		}
 		for xi, variant := range version.Variants {
