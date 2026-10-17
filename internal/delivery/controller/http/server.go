@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 )
 
 type (
@@ -204,7 +205,13 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 		s.listeners = append(s.listeners, &listener{name: "health", srv: newHTTP(net.JoinHostPort(healthBind, cfg.HealthPort), healthHandler(), nil)})
 	}
 	if cfg.InternalPort != "" {
-		s.listeners = append(s.listeners, &listener{name: "internal", srv: newHTTP(net.JoinHostPort(healthBind, cfg.InternalPort), handler, nil)})
+		internal := newHTTP(net.JoinHostPort(healthBind, cfg.InternalPort), handler, nil)
+		// Its callers are in-cluster (SSR in front of many visitors): the in-flight limiter holds them to the
+		// general cap only.
+		internal.ConnContext = func(ctx context.Context, _ net.Conn) context.Context {
+			return middleware.WithInternalListener(ctx)
+		}
+		s.listeners = append(s.listeners, &listener{name: "internal", srv: internal})
 	}
 	return s
 }

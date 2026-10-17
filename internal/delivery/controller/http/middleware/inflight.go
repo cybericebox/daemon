@@ -1,6 +1,10 @@
 package middleware
 
 import (
+	"bytes"
+	"context"
+	"io"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,13 +15,17 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 )
 
-// inflightReportEvery is the least time between two refusal summaries in the log.
-const inflightReportEvery = 10 * time.Second
+const (
+	// inflightReportEvery is the least time between two refusal summaries in the log.
+	inflightReportEvery = 10 * time.Second
+	// inflightBufferMax is the most of its body a general request reads before it takes a slot.
+	inflightBufferMax = 1 << 20
+	percent           = 100
+)
 
-// TransferRoutes are the route templates of uploads (a per-route LimitBody), downloads, exports and media
-// streams: slow by nature, they take transfer slots of the in-flight limiter, never general ones. A test
-// checks that each one is mounted.
-var TransferRoutes = map[string]bool{
+// transferRoutes are the route templates of uploads (a per-route LimitBody), downloads, exports and media
+// streams: slow by nature, they take transfer slots of the in-flight limiter, never general ones.
+var transferRoutes = map[string]bool{
 	// uploads
 	"/api/auth/account/avatar":                                               true,
 	"/api/events/self/answer-files":                                          true,
@@ -69,6 +77,29 @@ var TransferRoutes = map[string]bool{
 	"/api/events/:id/manage/notification-templates/email/images/:fileID": true,
 }
 
+// TransferRoutes are the route templates that take transfer slots (a test checks each one is mounted).
+func TransferRoutes() []string {
+	routes := make([]string, 0, len(transferRoutes))
+	for route := range transferRoutes {
+		routes = append(routes, route)
+	}
+	return routes
+}
+
+type internalListenerKey struct{}
+
+// WithInternalListener marks the context of a connection to the internal listener (in-cluster SSR): one
+// trusted caller in front of many visitors, held only to the general cap.
+func WithInternalListener(ctx context.Context) context.Context {
+	return context.WithValue(ctx, internalListenerKey{}, true)
+}
+
+// OnInternalListener reports whether ctx belongs to a connection to the internal listener.
+func OnInternalListener(ctx context.Context) bool {
+	internal, _ := ctx.Value(internalListenerKey{}).(bool)
+	return internal
+}
+
 type inflightClass int
 
 const (
@@ -78,34 +109,70 @@ const (
 	inflightClasses
 )
 
-// InflightLimiter bounds the requests a replica serves at once, in three classes with their own slots:
-// live streams, transfers and everything else (unmatched paths included). /api/health is never limited.
-// A request over its cap waits up to the configured wait for a slot (streams never wait) and is then
-// refused with the overload 503. In memory, per replica.
-type InflightLimiter struct {
-	slots [inflightClasses]chan struct{} // nil: that cap is off
-	wait  time.Duration
-	now   func() time.Time
-
-	inflight   atomic.Int64
-	peak       atomic.Int64
-	rejected   [inflightClasses]atomic.Int64
-	lastReport atomic.Int64 // unix nanoseconds of the last summary
+// sessionSlots are the general slots one session may hold at once; users counts the requests that use the
+// entry, so it is dropped with the last one.
+type sessionSlots struct {
+	slots chan struct{}
+	users int
 }
 
-func NewInflightLimiter(cfg config.InflightConfig) *InflightLimiter {
-	l := &InflightLimiter{wait: cfg.Wait, now: time.Now}
-	for class, size := range [inflightClasses]int{inflightGeneral: cfg.Max, inflightStreams: cfg.StreamsMax, inflightTransfers: cfg.TransfersMax} {
+// InflightLimiter bounds the requests a replica serves at once, in three classes with their own slots:
+// live streams, transfers and everything else (unmatched paths included). /api/health is never limited.
+// Inside the general class, anonymous requests share a part of the slots and one session may hold only a
+// few at once, so neither unauthenticated clients nor one account can take them all; the internal listener
+// is held to the general cap only. A request over a cap waits up to the configured wait (streams never wait)
+// and is then refused with the overload 503. In memory, per replica.
+type InflightLimiter struct {
+	slots      [inflightClasses]chan struct{} // nil: that cap is off
+	anon       chan struct{}                  // nil: no anonymous share
+	perSession int                            // 0: no per-session cap
+	sessionKey func(*gin.Context) (string, bool)
+	wait       time.Duration
+	now        func() time.Time
+
+	mu       sync.Mutex
+	sessions map[string]*sessionSlots
+
+	inflight        [inflightClasses]atomic.Int64
+	peak            [inflightClasses]atomic.Int64
+	rejected        [inflightClasses]atomic.Int64
+	rejectedAnon    atomic.Int64
+	rejectedSession atomic.Int64
+	lastReport      atomic.Int64 // unix nanoseconds of the last summary
+}
+
+// NewInflightLimiter builds the limiter. sessionKey names the caller's session when its cookie opens (no
+// database); a request it does not name is anonymous (nil: every request is).
+func NewInflightLimiter(
+	cfg config.InflightConfig,
+	sessionKey func(*gin.Context) (string, bool),
+) *InflightLimiter {
+	l := &InflightLimiter{
+		wait:       cfg.Wait,
+		now:        time.Now,
+		perSession: cfg.PerSession,
+		sessionKey: sessionKey,
+		sessions:   map[string]*sessionSlots{},
+	}
+	sizes := [inflightClasses]int{
+		inflightGeneral:   cfg.Max,
+		inflightStreams:   cfg.StreamsMax,
+		inflightTransfers: cfg.TransfersMax,
+	}
+	for class, size := range sizes {
 		if size > 0 {
 			l.slots[class] = make(chan struct{}, size)
 		}
+	}
+	if cfg.Max > 0 && cfg.AnonShare > 0 && cfg.AnonShare < percent {
+		l.anon = make(chan struct{}, max(1, cfg.Max*cfg.AnonShare/percent))
 	}
 	l.lastReport.Store(l.now().UnixNano())
 	return l
 }
 
-// Handle is the global middleware. It runs after CORS, so the 503 stays readable by the page, and before
-// anything that touches the database.
+// Handle is the global middleware. It runs after CORS (the 503 stays readable by the page) and after the
+// origin guard and the anonymous rate limit (a refused request never takes a slot), before the handlers.
 func (l *InflightLimiter) Handle(ctx *gin.Context) {
 	l.report()
 	path := ctx.FullPath()
@@ -117,7 +184,7 @@ func (l *InflightLimiter) Handle(ctx *gin.Context) {
 	switch {
 	case exemptFromRateLimit[path]:
 		class, wait = inflightStreams, 0
-	case TransferRoutes[path]:
+	case transferRoutes[path]:
 		class = inflightTransfers
 	}
 	slots := l.slots[class]
@@ -125,50 +192,186 @@ func (l *InflightLimiter) Handle(ctx *gin.Context) {
 		ctx.Next()
 		return
 	}
-	if !acquire(ctx, slots, wait) {
-		l.rejected[class].Add(1)
-		response.AbortWithServiceOverloaded(ctx)
+	if class == inflightGeneral {
+		bufferBody(ctx)
+	}
+	w := &waiter{done: ctx.Request.Context().Done(), wait: wait}
+	defer w.stop()
+	if class == inflightGeneral && !OnInternalListener(ctx.Request.Context()) {
+		sub, counter, leave := l.subCap(ctx)
+		if leave != nil {
+			defer leave()
+		}
+		if sub != nil {
+			if !l.admit(ctx, w, sub, class, counter) {
+				return
+			}
+			defer func() { <-sub }()
+		}
+	}
+	if !l.admit(ctx, w, slots, class, nil) {
 		return
 	}
-	// Deferred, so a panicking handler gives its slot back too.
+	// Deferred, so a panicking handler gives its slots back too.
 	defer func() {
-		l.inflight.Add(-1)
+		l.inflight[class].Add(-1)
 		<-slots
 	}()
-	l.raisePeak(l.inflight.Add(1))
+	l.raisePeak(class, l.inflight[class].Add(1))
 	ctx.Next()
 }
 
-func (l *InflightLimiter) raisePeak(n int64) {
+// subCap returns the slots inside the general cap this caller is held to (its session's own, or the anonymous
+// share; nil: none), the counter of its refusals and, for a session, the function that drops its entry.
+func (l *InflightLimiter) subCap(ctx *gin.Context) (chan struct{}, *atomic.Int64, func()) {
+	if l.sessionKey != nil {
+		if key, ok := l.sessionKey(ctx); ok {
+			if l.perSession == 0 {
+				return nil, nil, nil
+			}
+			entry := l.enterSession(key)
+			return entry.slots, &l.rejectedSession, func() { l.leaveSession(key, entry) }
+		}
+	}
+	return l.anon, &l.rejectedAnon, nil
+}
+
+func (l *InflightLimiter) enterSession(key string) *sessionSlots {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entry := l.sessions[key]
+	if entry == nil {
+		entry = &sessionSlots{slots: make(chan struct{}, l.perSession)}
+		l.sessions[key] = entry
+	}
+	entry.users++
+	return entry
+}
+
+func (l *InflightLimiter) leaveSession(key string, entry *sessionSlots) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if entry.users--; entry.users == 0 {
+		delete(l.sessions, key)
+	}
+}
+
+// admit takes a slot or ends the request: the overload 503 when none came free in time, a bare abort (nothing
+// written, nothing counted) when the client went away while waiting.
+func (l *InflightLimiter) admit(
+	ctx *gin.Context, w *waiter, slots chan struct{}, class inflightClass, counter *atomic.Int64,
+) bool {
+	switch w.take(slots) {
+	case admitted:
+		return true
+	case clientGone:
+		ctx.Abort()
+		return false
+	case refused:
+	}
+	l.rejected[class].Add(1)
+	if counter != nil {
+		counter.Add(1)
+	}
+	response.AbortWithServiceOverloaded(ctx)
+	return false
+}
+
+func (l *InflightLimiter) raisePeak(class inflightClass, n int64) {
 	for {
-		peak := l.peak.Load()
-		if n <= peak || l.peak.CompareAndSwap(peak, n) {
+		peak := l.peak[class].Load()
+		if n <= peak || l.peak[class].CompareAndSwap(peak, n) {
 			return
 		}
 	}
 }
 
-// acquire takes a slot, waiting up to wait for one; a client that goes away while waiting gets none.
-func acquire(ctx *gin.Context, slots chan struct{}, wait time.Duration) bool {
+type admission int
+
+const (
+	admitted admission = iota
+	refused
+	clientGone
+)
+
+// waiter is one request's wait budget, shared by every slot it takes.
+type waiter struct {
+	done    <-chan struct{}
+	wait    time.Duration
+	timer   *time.Timer
+	expired bool
+}
+
+func (w *waiter) take(slots chan struct{}) admission {
 	select {
 	case slots <- struct{}{}:
-		return true
+		return admitted
 	default:
 	}
-	if wait <= 0 {
-		return false
+	if w.wait <= 0 || w.expired {
+		return refused
 	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
+	if w.timer == nil {
+		w.timer = time.NewTimer(w.wait)
+	}
 	select {
 	case slots <- struct{}{}:
-		return true
-	case <-timer.C:
-		return false
-	case <-ctx.Request.Context().Done():
-		return false
+		return admitted
+	case <-w.timer.C:
+		w.expired = true
+		return refused
+	case <-w.done:
+		return clientGone
 	}
 }
+
+func (w *waiter) stop() {
+	if w.timer != nil {
+		w.timer.Stop()
+	}
+}
+
+// bufferBody reads a general request's body (up to inflightBufferMax, still under BodyLimit) before the
+// request takes a slot, so a client slow to send its body holds none meanwhile. A body declared larger is not
+// read here: it takes its slot first and streams. A read error reaches the handler after the buffered part,
+// as it would have without the buffer.
+func bufferBody(ctx *gin.Context) {
+	req := ctx.Request
+	if !hasBody(req) || req.ContentLength > inflightBufferMax {
+		return
+	}
+	body := req.Body
+	buf, err := io.ReadAll(io.LimitReader(body, inflightBufferMax))
+	req.Body = bufferedBody{
+		Reader: io.MultiReader(bytes.NewReader(buf), restOf(body, err)),
+		Closer: body,
+	}
+	// LimitBody re-caps the original body: it has to find the buffered part in front of it too.
+	if original, found := ctx.Get(originalBodyKey); found {
+		if rc, ok := original.(io.ReadCloser); ok {
+			ctx.Set(originalBodyKey, bufferedBody{
+				Reader: io.MultiReader(bytes.NewReader(buf), restOf(rc, err)),
+				Closer: rc,
+			})
+		}
+	}
+}
+
+func restOf(body io.Reader, err error) io.Reader {
+	if err != nil {
+		return failedReader{err}
+	}
+	return body
+}
+
+type bufferedBody struct {
+	io.Reader
+	io.Closer
+}
+
+type failedReader struct{ err error }
+
+func (r failedReader) Read([]byte) (int, error) { return 0, r.err }
 
 // report writes one summary of the refusals since the last one, at most every inflightReportEvery and only
 // when there were refusals. It runs on a request: no goroutine of its own.
@@ -179,16 +382,21 @@ func (l *InflightLimiter) report() {
 		!l.lastReport.CompareAndSwap(last, now) {
 		return
 	}
-	var counts [inflightClasses]int64
+	var counts, peaks [inflightClasses]int64
 	for class := range counts {
 		counts[class] = l.rejected[class].Swap(0)
+		peaks[class] = l.peak[class].Swap(l.inflight[class].Load())
 	}
 	log.Warn().
 		Int64("rejected", counts[inflightGeneral]+counts[inflightStreams]+counts[inflightTransfers]).
 		Int64("rejected_general", counts[inflightGeneral]).
+		Int64("rejected_anonymous", l.rejectedAnon.Swap(0)).
+		Int64("rejected_per_session", l.rejectedSession.Swap(0)).
 		Int64("rejected_streams", counts[inflightStreams]).
 		Int64("rejected_transfers", counts[inflightTransfers]).
-		Int64("peak_inflight", l.peak.Swap(l.inflight.Load())).
+		Int64("peak_general", peaks[inflightGeneral]).
+		Int64("peak_streams", peaks[inflightStreams]).
+		Int64("peak_transfers", peaks[inflightTransfers]).
 		Msg("In-flight limit refused requests")
 }
 

@@ -131,14 +131,14 @@ func NewController(deps Dependencies) *Controller {
 	// Every frontend calls this API cross-origin (its own subdomain) — CORS
 	// (with credentials) must run before any route handling.
 	originPolicy := newOriginPolicy(deps)
-	router.Use(middleware.HandleCORS(originPolicy),
-		// In-flight limiter: after CORS (its 503 stays readable by the page) and before anything that touches
-		// the database.
-		middleware.NewInflightLimiter(deps.Inflight).Handle,
-		middleware.OriginGuardWith(originPolicy),
+	router.Use(middleware.HandleCORS(originPolicy), middleware.OriginGuardWith(originPolicy),
 		// General request limiter: anonymous requests here (after CORS, so a 429 stays readable by the page),
 		// signed-in ones in the permission gate.
-		limiter.Anonymous, middleware.ContentMiddleware)
+		limiter.Anonymous,
+		// In-flight limiter: after CORS (its 503 stays readable by the page) and after the origin guard and the
+		// anonymous limit (a refused request never takes a slot); before the handlers and the database.
+		middleware.NewInflightLimiter(deps.Inflight, prot.SessionKey).Handle,
+		middleware.ContentMiddleware)
 
 	RegisterHealth(router)
 
