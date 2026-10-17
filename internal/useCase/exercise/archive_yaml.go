@@ -20,6 +20,9 @@ const maxExerciseDocBytes = 4 << 20
 // maxYAMLDepth bounds nesting so the tree walk cannot be driven deep.
 const maxYAMLDepth = 64
 
+// jsonNumberRE is the JSON number grammar: the only number text that passes through unchanged.
+var jsonNumberRE = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+
 var yamlLineRE = regexp.MustCompile(`line (\d+)`)
 
 // yamlToJSON turns one YAML document into the JSON the strict decoder reads. Comments vanish in
@@ -35,6 +38,9 @@ func yamlToJSON(data []byte) ([]byte, error) {
 	var root yaml.Node
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	if err := decoder.Decode(&root); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, archiveInvalid("the document is empty")
+		}
 		return nil, yamlFailure(err)
 	}
 	var extra yaml.Node
@@ -133,6 +139,15 @@ func joinYAMLPath(path, key string) string {
 func yamlScalarValue(node *yaml.Node, path string) (any, error) {
 	if node.Anchor != "" {
 		return nil, yamlNodeError(node, path, "anchors and aliases are not supported")
+	}
+	if node.Style&yaml.TaggedStyle != 0 {
+		return nil, yamlNodeError(node, path, "explicit tags are not supported; write the value plainly")
+	}
+	if node.Tag == "!!int" || node.Tag == "!!float" {
+		if !jsonNumberRE.MatchString(node.Value) {
+			return nil, yamlNodeError(node, path, "write it as a plain decimal number")
+		}
+		return json.Number(node.Value), nil
 	}
 	var v any
 	if err := node.Decode(&v); err != nil {

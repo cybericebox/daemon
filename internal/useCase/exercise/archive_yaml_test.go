@@ -42,8 +42,9 @@ func TestYAMLToJSON_SpaceHashNeedsQuotes(t *testing.T) {
 func TestParseExerciseArchive_YAMLUnquotedHashBreaksFlag(t *testing.T) {
 	doc := "schema: cib-exercise/1\nexercise: {name: T}\nversions:\n  - status: draft\n    variants:\n      - tasks:\n          - name: A\n            difficulty: easy\n            flag: ICE{a #b}\n"
 	_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "")
-	if err == nil {
-		t.Fatal("want an error: the flag lost its tail")
+	ctx := requireInvalid(t, err)
+	if reason, _ := ctx["reason"].(string); !strings.Contains(reason, "flag") {
+		t.Fatalf("reason = %q, want the flag validation", reason)
 	}
 }
 
@@ -150,5 +151,66 @@ func TestYAMLToJSON_YesNoStayStrings(t *testing.T) {
 	out, err := yamlToJSON([]byte("a: no\nb: yes\nc: on\nd: true\n"))
 	if err != nil || string(out) != `{"a":"no","b":"yes","c":"on","d":true}` {
 		t.Fatalf("out = %s, err = %v", out, err)
+	}
+}
+
+func TestYAMLToJSON_NumbersKeepTheirText(t *testing.T) {
+	cases := map[string]string{
+		"a: 1e3":                  `{"a":1e3}`,
+		"a: 1.0":                  `{"a":1.0}`,
+		"a: 99999999999999999999": `{"a":99999999999999999999}`,
+		"a: 9007199254740993.0":   `{"a":9007199254740993.0}`,
+		"a: -0":                   `{"a":-0}`,
+	}
+	for in, want := range cases {
+		out, err := yamlToJSON([]byte(in + "\n"))
+		if err != nil || string(out) != want {
+			t.Fatalf("%q: out = %s, err = %v", in, out, err)
+		}
+	}
+}
+
+func TestYAMLToJSON_RejectsNumberForms(t *testing.T) {
+	for _, in := range []string{"a: 0755", "a: 0x1F", "a: 0o17", "a: 1_000", "a: +1", "a: .5", "a: .inf", "a: 1."} {
+		_, err := yamlToJSON([]byte(in + "\n"))
+		reason, _ := requireInvalid(t, err)["reason"].(string)
+		if !strings.Contains(reason, "a") || !strings.Contains(reason, "plain decimal number") {
+			t.Fatalf("%q: reason = %q", in, reason)
+		}
+	}
+}
+
+func TestYAMLToJSON_RejectsExplicitTags(t *testing.T) {
+	for _, in := range []string{`a: !!str 5`, `a: !!int "7"`, `a: !foo bar`} {
+		_, err := yamlToJSON([]byte(in + "\n"))
+		reason, _ := requireInvalid(t, err)["reason"].(string)
+		if !strings.Contains(reason, "a at line 1") || !strings.Contains(reason, "tags") {
+			t.Fatalf("%q: reason = %q", in, reason)
+		}
+	}
+}
+
+func TestYAMLToJSON_RejectsNullKey(t *testing.T) {
+	_, err := yamlToJSON([]byte("~: a\n"))
+	requireInvalid(t, err)
+}
+
+func TestYAMLToJSON_EmptyDocument(t *testing.T) {
+	for _, in := range []string{"", "# only a comment\n"} {
+		_, err := yamlToJSON([]byte(in))
+		if reason, _ := requireInvalid(t, err)["reason"].(string); reason != "the document is empty" {
+			t.Fatalf("%q: reason = %q", in, reason)
+		}
+	}
+}
+
+func TestParseExerciseArchive_NumberFormsFailIntFields(t *testing.T) {
+	for _, value := range []string{"1e3", "99999999999999999999", "1.5"} {
+		doc := "schema: cib-exercise/1\nexercise: {name: T}\nversions:\n  - status: draft\n    variants:\n      - index: " + value + "\n        tasks:\n          - name: A\n            difficulty: easy\n"
+		_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "")
+		reason, _ := requireInvalid(t, err)["reason"].(string)
+		if !strings.Contains(reason, "index") || strings.Contains(reason, "unknown") {
+			t.Fatalf("%s: reason = %q", value, reason)
+		}
 	}
 }
