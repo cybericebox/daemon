@@ -9,9 +9,20 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
 const mib = int64(1 << 20)
+
+// publicField is the public context field of an application error.
+func publicField(t *testing.T, e error) any {
+	t.Helper()
+	var ae appErr.Error
+	if !errors.As(e, &ae) {
+		t.Fatalf("not an application error: %v", e)
+	}
+	return ae.PublicContext()["field"]
+}
 
 func TestArchiveLimitFields_MatchTheSpec(t *testing.T) {
 	size := platformSettingsModel.KindSize
@@ -49,8 +60,12 @@ func TestArchiveLimits_WithValues(t *testing.T) {
 	if got != (exerciseModel.ArchiveLimits{ArchiveBytes: 2 * mib, EntryBytes: 3 * mib, UnpackedBytes: 3 * mib, Entries: 10}) {
 		t.Fatalf("applied: %+v", got)
 	}
-	if _, err = l.WithValues(platformSettingsModel.Values{"ArchiveBytes": 2 * mib, "EntryBytes": 4 * mib, "UnpackedBytes": 3 * mib, "Entries": 10}); !errors.Is(err, platformSettingsModel.ErrArchiveEntryOverUnpacked.Err()) {
+	_, err = l.WithValues(platformSettingsModel.Values{"ArchiveBytes": 2 * mib, "EntryBytes": 4 * mib, "UnpackedBytes": 3 * mib, "Entries": 10})
+	if !errors.Is(err, platformSettingsModel.ErrArchiveEntryOverUnpacked.Err()) {
 		t.Fatalf("entry over unpacked: %v", err)
+	}
+	if field := publicField(t, err); field != "EntryBytes" {
+		t.Fatalf("entry error field: %v", field)
 	}
 	if _, err = l.WithValues(platformSettingsModel.Values{"ArchiveBytes": 2 * mib, "EntryBytes": 3 * mib, "UnpackedBytes": 3 * mib, "Entries": 9}); !errors.Is(err, platformSettingsModel.ErrSettingValueOutOfRange.Err()) {
 		t.Fatalf("entries under min: %v", err)
@@ -81,8 +96,12 @@ func TestTestRunLeases_WithValues(t *testing.T) {
 	if err != nil || got != (exerciseModel.TestRunLeases{Lease: time.Hour, Max: time.Hour}) {
 		t.Fatalf("max equal to lease is accepted: %+v %v", got, err)
 	}
-	if _, err = l.WithValues(platformSettingsModel.Values{"Lease": 7200, "LeaseMax": 3600}); !errors.Is(err, platformSettingsModel.ErrTestLeaseOverMax.Err()) {
+	_, err = l.WithValues(platformSettingsModel.Values{"Lease": 7200, "LeaseMax": 3600})
+	if !errors.Is(err, platformSettingsModel.ErrTestLeaseOverMax.Err()) {
 		t.Fatalf("max under lease: %v", err)
+	}
+	if field := publicField(t, err); field != "LeaseMax" {
+		t.Fatalf("lease error field: %v", field)
 	}
 	if _, err = l.WithValues(platformSettingsModel.Values{"Lease": 25 * 3600, "LeaseMax": 100 * 3600}); !errors.Is(err, platformSettingsModel.ErrSettingValueOutOfRange.Err()) {
 		t.Fatalf("lease over a day: %v", err)

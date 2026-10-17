@@ -8,7 +8,18 @@ import (
 
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
+
+// publicField is the public context field of an application error.
+func publicField(t *testing.T, e error) any {
+	t.Helper()
+	var ae appErr.Error
+	if !errors.As(e, &ae) {
+		t.Fatalf("not an application error: %v", e)
+	}
+	return ae.PublicContext()["field"]
+}
 
 const daySeconds = int64(24 * 60 * 60)
 
@@ -78,8 +89,12 @@ func TestPolicy_WithValues_Refuses(t *testing.T) {
 	equal := p.Values()
 	equal["InactiveAccount"] = 180 * daySeconds
 	equal["InactivityGrace"] = 180 * daySeconds
-	if _, err := p.WithValues(equal); !errors.Is(err, platformSettingsModel.ErrRetentionGraceNotShorter.Err()) {
+	_, err := p.WithValues(equal)
+	if !errors.Is(err, platformSettingsModel.ErrRetentionGraceNotShorter.Err()) {
 		t.Fatalf("grace equal to inactivity: %v", err)
+	}
+	if field := publicField(t, err); field != "InactivityGrace" {
+		t.Fatalf("grace error field: %v", field)
 	}
 
 	zero := p.Values()

@@ -1,5 +1,10 @@
 package platformSettingsModel
 
+import (
+	"maps"
+	"slices"
+)
+
 // Typed settings: a stored row whose value is a fixed set of integer fields, each with bounds, edited on its own
 // admin tab instead of the generic key/value list.
 
@@ -44,12 +49,13 @@ func IsTypedKey(key string) bool {
 }
 
 // ValidateValues accepts v only when it holds every field of specs, no other key, and each value within its bounds.
+// Of several unknown keys the first in sorted order is reported, so the answer does not depend on map order.
 func ValidateValues(specs []FieldSpec, v Values) error {
 	known := make(map[string]bool, len(specs))
 	for _, spec := range specs {
 		known[spec.Key] = true
 	}
-	for key := range v {
+	for _, key := range slices.Sorted(maps.Keys(v)) {
 		if !known[key] {
 			return ErrSettingUnknownField.WithPublicContext("field", key).Err()
 		}

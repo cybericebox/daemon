@@ -29,8 +29,9 @@ func period(key string, minimum, maximum time.Duration, inPrivacyPolicy bool) pl
 	}
 }
 
-// periods maps each settings field to its Policy period.
-func (p *Policy) periods() map[string]*time.Duration {
+// periodsOf maps each settings field to its period in p. A free function, not a method: every Policy method has a
+// value receiver.
+func periodsOf(p *Policy) map[string]*time.Duration {
 	return map[string]*time.Duration{
 		"PendingAccount":           &p.PendingAccount,
 		"InactiveAccount":          &p.InactiveAccount,
@@ -48,7 +49,7 @@ func (p *Policy) periods() map[string]*time.Duration {
 
 // Values are the policy's periods in seconds, keyed as SettingsFields.
 func (p Policy) Values() platformSettingsModel.Values {
-	periods := p.periods()
+	periods := periodsOf(&p)
 	v := make(platformSettingsModel.Values, len(periods))
 	for key, d := range periods {
 		v[key] = int64(*d / time.Second)
@@ -62,7 +63,7 @@ func (p Policy) WithValues(v platformSettingsModel.Values) (Policy, error) {
 	if err := platformSettingsModel.ValidateValues(SettingsFields, v); err != nil {
 		return Policy{}, err
 	}
-	for key, d := range p.periods() {
+	for key, d := range periodsOf(&p) {
 		*d = time.Duration(v[key]) * time.Second
 	}
 	if p.InactivityGrace >= p.InactiveAccount {

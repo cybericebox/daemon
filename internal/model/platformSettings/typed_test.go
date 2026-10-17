@@ -50,6 +50,8 @@ func TestValidateValues(t *testing.T) {
 		{"at the upper bounds", platformSettingsModel.Values{"A": 100, "B": 5}, nil, nil},
 		{"missing", platformSettingsModel.Values{"A": 10}, platformSettingsModel.ErrSettingValueMissing.Err(), map[string]any{"field": "B"}},
 		{"unknown", platformSettingsModel.Values{"A": 10, "B": 1, "C": 1}, platformSettingsModel.ErrSettingUnknownField.Err(), map[string]any{"field": "C"}},
+		{"several unknown: the first in order", platformSettingsModel.Values{"Z": 1, "Y": 1, "D": 1, "X": 1, "E": 1},
+			platformSettingsModel.ErrSettingUnknownField.Err(), map[string]any{"field": "D"}},
 		{"below min", platformSettingsModel.Values{"A": 9, "B": 1}, platformSettingsModel.ErrSettingValueOutOfRange.Err(),
 			map[string]any{"field": "A", "min": int64(10), "max": int64(100)}},
 		{"above max", platformSettingsModel.Values{"A": 10, "B": 6}, platformSettingsModel.ErrSettingValueOutOfRange.Err(),
