@@ -91,10 +91,10 @@ type TestRunLeases struct {
 
 // TestRunFields are the test run leases editable in the platform settings; values are seconds.
 var TestRunFields = []platformSettingsModel.FieldSpec{
-	// One lease is at most what the resource calendar can book for a test laboratory (calModel.MaxBooking, 8h; not
-	// imported: resourceCalendar → resources → exercise would cycle).
+	// One lease and the longest run are at most what the resource calendar can book for a test laboratory
+	// (calModel.MaxBooking, 8h; not imported: resourceCalendar → resources → exercise would cycle).
 	{Key: "Lease", Kind: platformSettingsModel.KindDuration, Min: int64(time.Hour / time.Second), Max: int64(8 * time.Hour / time.Second)},
-	{Key: "LeaseMax", Kind: platformSettingsModel.KindDuration, Min: int64(time.Hour / time.Second), Max: int64(168 * time.Hour / time.Second)},
+	{Key: "LeaseMax", Kind: platformSettingsModel.KindDuration, Min: int64(time.Hour / time.Second), Max: int64(8 * time.Hour / time.Second)},
 }
 
 // Values are the leases in seconds, keyed as TestRunFields.

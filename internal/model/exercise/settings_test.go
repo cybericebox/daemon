@@ -81,7 +81,7 @@ func TestTestRunFields_MatchTheSpec(t *testing.T) {
 	hour := int64(3600)
 	want := []platformSettingsModel.FieldSpec{
 		{Key: "Lease", Kind: d, Min: hour, Max: 8 * hour},
-		{Key: "LeaseMax", Kind: d, Min: hour, Max: 168 * hour},
+		{Key: "LeaseMax", Kind: d, Min: hour, Max: 8 * hour},
 	}
 	if !reflect.DeepEqual(exerciseModel.TestRunFields, want) {
 		t.Fatalf("fields:\n got %+v\nwant %+v", exerciseModel.TestRunFields, want)
@@ -103,6 +103,9 @@ func TestTestRunLeases_WithValues(t *testing.T) {
 	// One lease never exceeds what the calendar can book (8h).
 	if _, err = l.WithValues(platformSettingsModel.Values{"Lease": 9 * 3600, "LeaseMax": 10 * 3600}); !errors.Is(err, platformSettingsModel.ErrSettingValueOutOfRange.Err()) {
 		t.Fatalf("a 9h lease: %v", err)
+	}
+	if _, err = l.WithValues(platformSettingsModel.Values{"Lease": 3600, "LeaseMax": 9 * 3600}); !errors.Is(err, platformSettingsModel.ErrSettingValueOutOfRange.Err()) {
+		t.Fatalf("a 9h longest run: %v", err)
 	}
 	_, err = l.WithValues(platformSettingsModel.Values{"Lease": 7200, "LeaseMax": 3600})
 	if !errors.Is(err, platformSettingsModel.ErrTestLeaseOverMax.Err()) {

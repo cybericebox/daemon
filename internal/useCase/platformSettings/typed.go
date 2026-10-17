@@ -75,8 +75,10 @@ func (u *PlatformSettingsUseCase) retentionSetting() typedSetting[retentionModel
 
 func (u *PlatformSettingsUseCase) archiveLimitSetting() typedSetting[exerciseModel.ArchiveLimits] {
 	s := typedSetting[exerciseModel.ArchiveLimits]{key: platformSettingsModel.ArchiveLimitsKey, specs: exerciseModel.ArchiveLimitFields, defaults: exerciseModel.DefaultArchiveLimits()}
-	// One file of an archive becomes one stored file: it may not be larger than the media upload limit.
+	// One file of an archive becomes one stored file: it may not be larger than the media upload limit, and neither
+	// is its default (so the defaults and a reset stay inside the bound).
 	if limit := u.maxUploadBytes; limit > 0 && limit < specMax(s.specs, "EntryBytes") {
+		s.defaults.EntryBytes = min(s.defaults.EntryBytes, limit)
 		s.maxes = map[string]int64{"EntryBytes": limit}
 		s.check = func(l exerciseModel.ArchiveLimits) error {
 			if l.EntryBytes > limit {
@@ -229,14 +231,11 @@ func unknownKeys(stored platformSettingsModel.Values, specs []platformSettingsMo
 	return unknown
 }
 
-// warnDefaultsOutOfRange logs one warning when the defaults of s fail its own field rules (bounds, a cross-field
-// rule or the platform's tighter bound, e.g. EntryBytes over the media upload limit): a value the form would refuse. It names the field and the env value; the defaults still apply.
+// warnDefaultsOutOfRange logs one warning when the defaults of s fail its own field rules (bounds or a cross-field
+// rule): an env value the form would refuse. (The platform's tighter bounds lower the default themselves.) It names the field and the env value; the defaults still apply.
 func warnDefaultsOutOfRange[T typedValue[T]](s typedSetting[T]) {
 	values := s.defaults.Values()
 	_, err := s.defaults.WithValues(values)
-	if err == nil && s.check != nil {
-		err = s.check(s.defaults)
-	}
 	if err == nil {
 		return
 	}

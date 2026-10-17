@@ -452,24 +452,39 @@ func TestTypedView_IgnoredWhenTheSavedRowDoesNotApply(t *testing.T) {
 	assert.False(t, view.Ignored, "no row: nothing ignored")
 }
 
-// The EntryBytes default (512 MiB) over a lower media upload limit is reported at construction like a bound.
-func TestEnvDefaultOverTheMediaLimit_WarnsAtConstruction(t *testing.T) {
+// The EntryBytes default is never above the media upload limit: the defaults (and a reset) stay inside the bound.
+func TestArchiveLimits_EntryDefaultWithinTheMediaLimit(t *testing.T) {
 	warnings := captureWarnings(t)
+	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	retention, testRuns := typedDefaults()
-	NewPlatformSettingsUseCase(Dependencies{Repo: postgresMocks.NewMockQuerier(gomock.NewController(t)), RetentionDefaults: retention, TestRunDefaults: testRuns, MaxUploadBytes: 256 << 20})
+	uc := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retention, TestRunDefaults: testRuns, MaxUploadBytes: 256 << 20})
+	assert.NotContains(t, warnings.String(), `"level":"warn"`, "the defaults are valid")
 
-	assert.Contains(t, warnings.String(), platformSettingsModel.ArchiveLimitsKey)
-	assert.Contains(t, warnings.String(), `"field":"EntryBytes"`)
-	assert.Contains(t, warnings.String(), `"value":536870912`)
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).Return(postgres.AppSetting{}, pgx.ErrNoRows)
+	limits, err := uc.ArchiveLimits(context.Background())
+	require.NoError(t, err)
+	want := exerciseModel.DefaultArchiveLimits()
+	want.EntryBytes = 256 << 20
+	assert.Equal(t, want, limits)
+
+	repo.EXPECT().DeletePlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).Return(nil)
+	view, err := uc.ResetArchiveLimitSettings(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, int64(256<<20), view.Fields[1].Value)
+	assert.Equal(t, int64(256<<20), view.Fields[1].Default)
+	assert.LessOrEqual(t, view.Fields[1].Value, view.Fields[1].Max)
+
+	big := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retention, TestRunDefaults: testRuns, MaxUploadBytes: 4096 << 20})
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).Return(postgres.AppSetting{}, pgx.ErrNoRows)
+	limits, err = big.ArchiveLimits(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, exerciseModel.DefaultArchiveLimits(), limits, "a larger media limit keeps 512 MiB")
 }
 
-// A saved lease never exceeds what the calendar can book.
+// A saved lease and the longest run never exceed what the calendar can book.
 func TestTestRunLeaseMax_IsTheCalendarBookingLimit(t *testing.T) {
+	require.Len(t, exerciseModel.TestRunFields, 2)
 	for _, spec := range exerciseModel.TestRunFields {
-		if spec.Key == "Lease" {
-			assert.Equal(t, int64(calModel.MaxBooking/time.Second), spec.Max)
-			return
-		}
+		assert.Equal(t, int64(calModel.MaxBooking/time.Second), spec.Max, spec.Key)
 	}
-	t.Fatal("no Lease field")
 }
