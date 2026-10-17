@@ -24197,6 +24197,10 @@ const docTemplate = `{
                     "description": "Import marks a CSV import: team and member fields are checked by type\nonly, required ones may stay empty.",
                     "type": "boolean"
                 },
+                "SendEmails": {
+                    "description": "SendEmails false is a silent add: members are approved and placed in\ntheir team at once and no email is sent. Omitted means send.",
+                    "type": "boolean"
+                },
                 "Teams": {
                     "type": "array",
                     "items": {
@@ -25060,6 +25064,10 @@ const docTemplate = `{
                             }
                         }
                     }
+                },
+                "SendEmails": {
+                    "description": "SendEmails false is a silent add: people are approved at once and get\nno email. Omitted means send (the default).",
+                    "type": "boolean"
                 }
             }
         },

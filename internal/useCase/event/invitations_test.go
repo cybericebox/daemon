@@ -69,7 +69,7 @@ func TestInviteParticipantCreatesPendingAccountAndSendsSetupLink(t *testing.T) {
 		require.Equal(t, managerID, p.InvitedBy.UUID)
 		return postgres.EventParticipant{EventID: p.EventID, UserID: p.UserID, Status: 1, InvitedBy: p.InvitedBy, Invited: true, CreatedAt: p.CreatedAt}, nil
 	})
-	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: email}})
+	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: email}}, false)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Empty(t, results[0].Error)
@@ -96,7 +96,7 @@ func TestInviteParticipantResendsExistingPendingInvitation(t *testing.T) {
 	q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{
 		EventID: eventID, UserID: userID, Status: 1, InvitedBy: uuid.NullUUID{UUID: managerID, Valid: true}, Invited: true, CreatedAt: time.Now(),
 	}, nil)
-	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: "old@example.test"}})
+	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: "old@example.test"}}, false)
 	require.NoError(t, err)
 	require.Empty(t, results[0].Error)
 	require.True(t, unit.saved)
@@ -120,7 +120,7 @@ func TestInviteTeamMemberStoresTargetBeforeSending(t *testing.T) {
 		require.True(t, p.InvitedTeamID.Valid)
 		return postgres.EventParticipant{EventID: eventID, UserID: userID, Status: 1, Invited: true, InvitedTeamID: p.InvitedTeamID, InvitedToTeam: true}, nil
 	})
-	results, err := uc.InviteTeamMembers(context.Background(), eventID, teamID, managerID, []event.ParticipantInvitationInput{{Email: "member@example.test"}})
+	results, err := uc.InviteTeamMembers(context.Background(), eventID, teamID, managerID, []event.ParticipantInvitationInput{{Email: "member@example.test"}}, false)
 	require.NoError(t, err)
 	require.Empty(t, results[0].Error)
 	require.True(t, unit.saved)
@@ -183,7 +183,7 @@ func TestAcceptTeamInvitationAssignsMembershipAtomically(t *testing.T) {
 
 func TestInviteParticipantsRejectsInvalidAddressWithoutLeakingDetails(t *testing.T) {
 	uc := event.NewEventUseCase(event.Dependencies{Repo: newFormGateMock(gomock.NewController(t))})
-	results, err := uc.InviteParticipants(context.Background(), uuid.Nil, uuid.Nil, []event.ParticipantInvitationInput{{Email: "bad address"}})
+	results, err := uc.InviteParticipants(context.Background(), uuid.Nil, uuid.Nil, []event.ParticipantInvitationInput{{Email: "bad address"}}, false)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.True(t, strings.Contains(results[0].Error, "Некоректна"))
@@ -265,7 +265,7 @@ func TestInviteParticipantDoesNotRevealAccountState(t *testing.T) {
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil)
 	q.EXPECT().GetUserByEmail(gomock.Any(), "blocked@example.test").Return(postgres.User{ID: userID, Email: "blocked@example.test", Status: "blocked"}, nil)
 
-	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: "blocked@example.test"}})
+	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: "blocked@example.test"}}, false)
 	require.NoError(t, err)
 	require.Equal(t, event.InvitationCodeFailed, results[0].Code, "blocked must look like a plain failure, not account_unavailable")
 }
@@ -283,7 +283,7 @@ func TestInviteParticipantsAreNotRateLimited(t *testing.T) {
 		bad[i] = event.ParticipantInvitationInput{Email: "not-an-address-" + strings.Repeat("x", i)}
 	}
 	for batch := 0; batch < 10; batch++ {
-		results, err := uc.InviteParticipants(context.Background(), eventID, managerID, bad)
+		results, err := uc.InviteParticipants(context.Background(), eventID, managerID, bad, false)
 		require.NoError(t, err)
 		for _, r := range results {
 			require.Equal(t, event.InvitationCodeEmailInvalid, r.Code)
@@ -307,8 +307,108 @@ func TestInviteParticipantMailToOneAddressIsNotThrottled(t *testing.T) {
 	}, nil).Times(5)
 	in := []event.ParticipantInvitationInput{{Email: "old@example.test"}}
 	for i := 0; i < 5; i++ {
-		res, err := uc.InviteParticipants(context.Background(), eventID, managerID, in)
+		res, err := uc.InviteParticipants(context.Background(), eventID, managerID, in, false)
 		require.NoError(t, err)
 		require.Empty(t, res[0].Code, "invitation %d", i)
 	}
+}
+
+// A silent add approves at once, mails nothing and leaves no setup link; only
+// the internal enrolment signal is published.
+func TestInviteParticipantSilentApprovesWithoutAnyEmail(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	unit := &testUoW{}
+	notifier := &invitationNotifier{}
+	publisher := &recordingSignalPublisher{}
+	uc := event.NewEventUseCase(event.Dependencies{
+		Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test",
+		SetupTokens: failingSetupTokens{t: t}, SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
+	})
+	uc.SetInvitationNotifier(notifier)
+	eventID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	email := "silent@example.test"
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil)
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true}}, nil)
+	q.EXPECT().GetUserByEmail(gomock.Any(), email).Return(postgres.User{}, pgx.ErrNoRows)
+	q.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateUserParams) (postgres.User, error) {
+		require.Equal(t, "incomplete", p.Status)
+		require.Equal(t, "Olena", p.FirstName)
+		userID = p.ID
+		return postgres.User{ID: p.ID, Email: p.Email, FirstName: p.FirstName, Status: p.Status}, nil
+	})
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows)
+	q.EXPECT().UpsertEventParticipant(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpsertEventParticipantParams) (postgres.EventParticipant, error) {
+		require.Equal(t, userID, p.UserID)
+		require.Equal(t, int16(participantModel.StatusApproved), p.Status)
+		require.Equal(t, managerID, p.DecidedBy.UUID)
+		return postgres.EventParticipant{EventID: p.EventID, UserID: p.UserID, Status: p.Status, CreatedAt: p.CreatedAt}, nil
+	})
+	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: email, FirstName: "Olena"}}, true)
+	require.NoError(t, err)
+	require.Empty(t, results[0].Error)
+	require.Equal(t, userID, results[0].UserID)
+	require.True(t, unit.saved)
+	require.Equal(t, uuid.Nil, notifier.userID, "no email of any kind")
+	require.Equal(t, []signalModel.Type{signalModel.TypeParticipantEnrolled}, publisher.types)
+}
+
+func TestInviteTeamMemberSilentPlacesMemberInTeamWithoutEmail(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	unit := &testUoW{}
+	notifier := &invitationNotifier{}
+	publisher := &recordingSignalPublisher{}
+	uc := event.NewEventUseCase(event.Dependencies{
+		Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test",
+		SetupTokens: failingSetupTokens{t: t}, SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
+	})
+	uc.SetInvitationNotifier(notifier)
+	eventID, teamID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true}, MaxTeamSize: 5}, nil).AnyTimes()
+	q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{ID: teamID, EventID: eventID}).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Name: "Blue Team"}, nil).AnyTimes()
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "member@example.test").Return(postgres.User{ID: userID, Email: "member@example.test", Status: "active"}, nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows)
+	q.EXPECT().UpsertEventParticipant(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpsertEventParticipantParams) (postgres.EventParticipant, error) {
+		return postgres.EventParticipant{EventID: p.EventID, UserID: p.UserID, Status: p.Status, CreatedAt: p.CreatedAt}, nil
+	})
+	q.EXPECT().TryAddEventTeamMember(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+	q.EXPECT().AssignEventParticipantTeam(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.AssignEventParticipantTeamParams) (int64, error) {
+		require.Equal(t, userID, p.UserID)
+		require.Equal(t, teamID, p.TeamID.UUID)
+		require.Equal(t, int16(participantModel.TeamRoleMember), p.TeamRole.Int16)
+		return 1, nil
+	})
+	results, err := uc.InviteTeamMembers(context.Background(), eventID, teamID, managerID, []event.ParticipantInvitationInput{{Email: "member@example.test"}}, true)
+	require.NoError(t, err)
+	require.Empty(t, results[0].Error)
+	require.True(t, unit.saved)
+	require.Equal(t, uuid.Nil, notifier.userID)
+	require.Equal(t, []signalModel.Type{signalModel.TypeParticipantEnrolled}, publisher.types)
+}
+
+func TestInviteParticipantSilentKeepsAlreadyParticipantRule(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{
+		Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, SignalPublishers: func(event.IRepository) event.SignalPublisher { return &recordingSignalPublisher{} },
+	})
+	eventID, managerID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "old@example.test").Return(postgres.User{ID: userID, Email: "old@example.test", Status: "active"}, nil)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved)}, nil)
+	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{{Email: "old@example.test"}}, true)
+	require.NoError(t, err)
+	require.Equal(t, event.InvitationCodeAlreadyParticipant, results[0].Code)
+	require.False(t, unit.saved)
+}
+
+// failingSetupTokens fails the test if a setup link is requested.
+type failingSetupTokens struct{ t *testing.T }
+
+func (f failingSetupTokens) GenerateSetupToken(context.Context, uuid.UUID, time.Duration) (string, error) {
+	f.t.Fatal("silent add must not issue a setup link")
+	return "", nil
 }

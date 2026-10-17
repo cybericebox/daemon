@@ -17,6 +17,9 @@ type inviteParticipantsRequest struct {
 		// Fields prefill the participant form answers (CSV import).
 		Fields map[string]any `json:"Fields"`
 	} `json:"Entries" binding:"required"`
+	// SendEmails false is a silent add: people are approved at once and get
+	// no email. Omitted means send (the default).
+	SendEmails *bool `json:"SendEmails"`
 }
 
 // @Summary Invite event participants by email
@@ -45,6 +48,7 @@ func (h *Handler) inviteParticipants(ctx *gin.Context) {
 	for _, entry := range req.Entries {
 		entries = append(entries, eventUseCase.ParticipantInvitationInput{Email: entry.Email, FirstName: entry.FirstName, LastName: entry.LastName, Fields: entry.Fields})
 	}
+	silent := req.SendEmails != nil && !*req.SendEmails
 	var results []eventUseCase.ParticipantInvitationResult
 	var err error
 	if rawTeamID := ctx.Param("teamID"); rawTeamID != "" {
@@ -53,9 +57,9 @@ func (h *Handler) inviteParticipants(ctx *gin.Context) {
 			response.AbortWithBadRequest(ctx, parseErr)
 			return
 		}
-		results, err = h.useCase.InviteTeamMembers(ctx, eventID, teamID, claims.UserID, entries)
+		results, err = h.useCase.InviteTeamMembers(ctx, eventID, teamID, claims.UserID, entries, silent)
 	} else {
-		results, err = h.useCase.InviteParticipants(ctx, eventID, claims.UserID, entries)
+		results, err = h.useCase.InviteParticipants(ctx, eventID, claims.UserID, entries, silent)
 	}
 	if err != nil {
 		response.AbortWithError(ctx, err)

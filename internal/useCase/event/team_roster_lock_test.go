@@ -72,7 +72,7 @@ func TestAnInvitationNeedsAFreeSeatCountedUnderTheLock(t *testing.T) {
 	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{EventID: eventID, Participation: pgtype.Int2{Int16: int16(eventConfigModel.ParticipationTeam), Valid: true}, MaxTeamSize: 3}, nil).AnyTimes()
 	q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Name: "Blue", MemberCount: 3}, nil).AnyTimes()
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "ctf", Name: "CTF", LifecycleConfigured: true}, nil).AnyTimes()
-	results, err := uc.InviteTeamMembers(context.Background(), eventID, teamID, managerID, []event.ParticipantInvitationInput{{Email: "member@example.test"}})
+	results, err := uc.InviteTeamMembers(context.Background(), eventID, teamID, managerID, []event.ParticipantInvitationInput{{Email: "member@example.test"}}, false)
 	require.NoError(t, err)
 	require.NotEmpty(t, results[0].Error, "no seat is left")
 	require.False(t, unit.saved, "nothing is written for a full team")

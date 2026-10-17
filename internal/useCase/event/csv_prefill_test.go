@@ -58,7 +58,7 @@ func TestInviteParticipantsPrefillsAnswersAndReportsBadValues(t *testing.T) {
 	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{
 		{Email: "ok@example.test", Fields: map[string]any{"school": "KPI", "size": float64(4)}},
 		{Email: "bad@example.test", Fields: map[string]any{"size": "four"}},
-	})
+	}, false)
 	require.NoError(t, err)
 	require.Len(t, results, 2)
 	require.Empty(t, results[0].Code)
@@ -163,7 +163,7 @@ func importTeamWithFields(t *testing.T, teamFields map[string]any, wantMissing i
 	result, err := uc.CreateManagedTeams(context.Background(), eventID, managerID, []event.BatchTeamInput{{
 		Name: "Blue Team", CaptainEmail: "cap@example.test", Partial: true, Fields: teamFields,
 		Members: []event.BatchTeamMemberInput{{Email: "cap@example.test", Fields: map[string]any{"school": "KPI"}}},
-	}}, false)
+	}}, false, false)
 	require.NoError(t, err)
 	require.Empty(t, result.Issues)
 	require.True(t, unit.saved)
@@ -185,7 +185,7 @@ func TestCreateManagedTeamsImportSavesPartialTeamAndMemberFields(t *testing.T) {
 	result, err := batchUC(q2, unit2, &invitationNotifier{}).CreateManagedTeams(context.Background(), eventID, managerID, []event.BatchTeamInput{{
 		Name: "Red Team", CaptainEmail: "cap2@example.test", Partial: true,
 		Members: []event.BatchTeamMemberInput{{Email: "cap2@example.test", Fields: map[string]any{"size": "big"}}},
-	}}, false)
+	}}, false, false)
 	require.NoError(t, err)
 	require.Equal(t, []event.BatchTeamIssue{{Team: 0, Email: "cap2@example.test", Code: event.BatchIssueMemberFields}}, result.Issues)
 	require.False(t, unit2.saved)
@@ -239,7 +239,7 @@ func TestInviteParticipantsPrefillCountsMissingRequiredFields(t *testing.T) {
 	results, err := uc.InviteParticipants(context.Background(), eventID, managerID, []event.ParticipantInvitationInput{
 		{Email: "gap@example.test", Fields: map[string]any{"school": "KPI"}},
 		{Email: "full@example.test", Fields: map[string]any{"school": "KPI", "city": "Kyiv"}},
-	})
+	}, false)
 	require.NoError(t, err)
 	require.Empty(t, results[0].Code)
 	require.Empty(t, results[1].Code)
