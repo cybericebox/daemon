@@ -99,7 +99,7 @@ func (f *teamFlags) issue(ctx context.Context, variantIndex int32, task exercise
 	if filter.Full() {
 		// Grow before the next issue: the flags issued so far in this
 		// transaction are already stored, so the rebuild sees them.
-		if filter, err = f.rebuild(ctx, key, set, filter.Capacity*2, filter.Resets); err != nil {
+		if filter, err = f.rebuild(ctx, key, set, flagfilter.GrownCapacity(filter.Capacity), filter.Resets); err != nil {
 			return "", err
 		}
 	}

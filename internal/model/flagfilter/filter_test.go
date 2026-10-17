@@ -33,6 +33,56 @@ func TestCapacity_DefaultsToOneHundred(t *testing.T) {
 	if got := flagfilter.Capacity(&limit); got != 42 {
 		t.Fatalf("limit 42 = %d", got)
 	}
+	huge := int32(2_000_000_000)
+	if got := flagfilter.Capacity(&huge); got != flagfilter.MaxFilterCapacity {
+		t.Fatalf("huge limit = %d, want the cap %d", got, flagfilter.MaxFilterCapacity)
+	}
+}
+
+// No caller can make a filter larger than the cap: New and Grow clamp it.
+func TestCapacity_FilterSizeIsBounded(t *testing.T) {
+	set := mustSet(t, `template:ICE{\l\l\l\l\l\l\l\l}`)
+	f, err := flagfilter.New(set, 1<<30, nil, seeded(20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := flagfilter.BloomSize(flagfilter.MaxFilterCapacity)
+	if f.Capacity != flagfilter.MaxFilterCapacity || f.Size != m || len(f.Bits) != int(m/8) {
+		t.Fatalf("capacity %d size %d bytes %d", f.Capacity, f.Size, len(f.Bits))
+	}
+	if got := flagfilter.GrownCapacity(flagfilter.MaxFilterCapacity); got != flagfilter.MaxFilterCapacity {
+		t.Fatalf("grown past the cap: %d", got)
+	}
+	if got := flagfilter.GrownCapacity(100); got != 200 {
+		t.Fatalf("grown 100 = %d", got)
+	}
+	if f.Full() {
+		t.Fatal("an empty filter is not full")
+	}
+	f.Inserted = flagfilter.MaxFilterCapacity
+	if f.Full() {
+		t.Fatal("a filter at the cap never asks to grow")
+	}
+}
+
+// The filter remembers its candidate list: a changed list never fits.
+func TestFits_RequiresTheSameCandidates(t *testing.T) {
+	old := []string{`template:ICE{\l\l\l}`}
+	changed := []string{`template:ICE{\u\u\u}`}
+	set := mustSet(t, old...)
+	f, err := flagfilter.New(set, 100, nil, seeded(21))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f.Fits(set, 100) {
+		t.Fatal("same candidates must fit")
+	}
+	if f.Fits(mustSet(t, changed...), 100) {
+		t.Fatal("other candidates of the same size must not fit")
+	}
+	if a, b := flagfilter.Fingerprint([]string{"ab", "c"}), flagfilter.Fingerprint([]string{"a", "bc"}); string(a) == string(b) {
+		t.Fatal("the fingerprint must not join candidates ambiguously")
+	}
 }
 
 func TestBloomSize_Table(t *testing.T) {

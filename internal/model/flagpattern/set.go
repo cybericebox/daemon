@@ -19,14 +19,15 @@ import (
 
 // Set is a parsed candidate list with the global numbering of its outputs.
 type Set struct {
-	patterns []Pattern
-	total    *big.Int
+	candidates []string
+	patterns   []Pattern
+	total      *big.Int
 }
 
 // ParseSet parses candidates in author order. An empty list is a valid set of
 // size 0 (the full random mode).
 func ParseSet(candidates []string) (Set, error) {
-	set := Set{patterns: make([]Pattern, 0, len(candidates)), total: big.NewInt(0)}
+	set := Set{candidates: append([]string(nil), candidates...), patterns: make([]Pattern, 0, len(candidates)), total: big.NewInt(0)}
 	for _, candidate := range candidates {
 		p, err := Parse(candidate)
 		if err != nil {
@@ -37,6 +38,9 @@ func ParseSet(candidates []string) (Set, error) {
 	}
 	return set, nil
 }
+
+// Candidates are the candidate strings of the set, in author order.
+func (s Set) Candidates() []string { return append([]string(nil), s.candidates...) }
 
 // Size is N, the number of outputs of the set (overlapping candidates count twice).
 func (s Set) Size() *big.Int { return new(big.Int).Set(s.total) }

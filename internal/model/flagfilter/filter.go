@@ -17,6 +17,7 @@
 package flagfilter
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -39,6 +40,9 @@ const (
 const (
 	// DefaultCapacity is the team capacity of an event without a team limit.
 	DefaultCapacity = 100
+	// MaxFilterCapacity bounds the capacity of every filter (and so its size:
+	// at most 1 Mbit, 128 KiB), whatever the team limit or the growth.
+	MaxFilterCapacity = 100000
 	// MaxRejects is the number of consecutive "maybe issued" draws after which a
 	// bloom filter resets.
 	MaxRejects = 64
@@ -56,7 +60,31 @@ func Capacity(maxTeams *int32) int {
 	if maxTeams == nil || *maxTeams <= 0 {
 		return DefaultCapacity
 	}
-	return int(*maxTeams)
+	return clampCapacity(int(*maxTeams))
+}
+
+// GrownCapacity is the capacity a full bloom filter grows to: twice the
+// capacity, never above MaxFilterCapacity.
+func GrownCapacity(capacity int) int {
+	if capacity >= MaxFilterCapacity/2 {
+		return MaxFilterCapacity
+	}
+	return clampCapacity(2 * capacity)
+}
+
+func clampCapacity(capacity int) int {
+	return min(max(capacity, 1), MaxFilterCapacity)
+}
+
+// Fingerprint identifies a candidate list: SHA-256 over each candidate as its
+// length (8 bytes, big-endian) followed by its bytes, in author order.
+func Fingerprint(candidates []string) []byte {
+	h := sha256.New()
+	for _, candidate := range candidates {
+		h.Write(binary.BigEndian.AppendUint64(nil, uint64(len(candidate))))
+		h.Write([]byte(candidate))
+	}
+	return h.Sum(nil)
 }
 
 // BloomSize is the bit count m and hash count k of a bloom filter for n flags.
@@ -89,14 +117,16 @@ func SmallSet(set flagpattern.Set, capacity int) bool {
 
 // Filter is one stored filter.
 type Filter struct {
-	Mode     Mode
-	Salt     []byte
-	Hashes   int
-	Bits     []byte
-	Size     uint64
-	Inserted int
-	Capacity int
-	Resets   int
+	// Fingerprint is the Fingerprint of the candidate list the filter was built for.
+	Fingerprint []byte
+	Mode        Mode
+	Salt        []byte
+	Hashes      int
+	Bits        []byte
+	Size        uint64
+	Inserted    int
+	Capacity    int
+	Resets      int
 }
 
 // New builds a filter for the set at the capacity with a fresh salt and adds
@@ -106,13 +136,13 @@ func New(set flagpattern.Set, capacity int, issued []string, source io.Reader) (
 	if set.Size().Sign() <= 0 {
 		return nil, ErrInvalidFilter
 	}
-	capacity = max(capacity, 1)
+	capacity = clampCapacity(capacity)
 	mode, size, hashes := Plan(set, capacity)
 	if mode == ModeBloom && len(issued) > capacity {
-		capacity = len(issued)
+		capacity = clampCapacity(len(issued))
 		mode, size, hashes = Plan(set, capacity)
 	}
-	f := &Filter{Mode: mode, Size: size, Hashes: hashes, Capacity: capacity, Bits: make([]byte, (size+7)/8)}
+	f := &Filter{Fingerprint: Fingerprint(set.Candidates()), Mode: mode, Size: size, Hashes: hashes, Capacity: capacity, Bits: make([]byte, (size+7)/8)}
 	if err := f.newSalt(source); err != nil {
 		return nil, err
 	}
@@ -123,22 +153,24 @@ func New(set flagpattern.Set, capacity int, issued []string, source io.Reader) (
 }
 
 // Fits reports that the stored filter still matches the set and the capacity:
-// same mode and size, and sized for at least the capacity.
+// built for the same candidate list, same mode and size, and sized for at
+// least the capacity (capped at MaxFilterCapacity).
 func (f *Filter) Fits(set flagpattern.Set, capacity int) bool {
-	if f == nil || len(f.Bits) != int((f.Size+7)/8) || len(f.Salt) != SaltSize {
+	if f == nil || len(f.Bits) != int((f.Size+7)/8) || len(f.Salt) != SaltSize || !bytes.Equal(f.Fingerprint, Fingerprint(set.Candidates())) {
 		return false
 	}
-	if f.Capacity < capacity {
+	if f.Capacity < clampCapacity(capacity) {
 		return false
 	}
 	mode, size, hashes := Plan(set, f.Capacity)
 	return mode == f.Mode && size == f.Size && hashes == f.Hashes
 }
 
-// Full reports that a bloom filter holds as many flags as it is sized for; the
-// caller rebuilds it at twice the capacity before the next issue.
+// Full reports that a bloom filter holds as many flags as it is sized for and
+// may still grow; the caller rebuilds it at GrownCapacity before the next issue.
+// A filter at MaxFilterCapacity never grows (it resets when exhausted).
 func (f *Filter) Full() bool {
-	return f.Mode == ModeBloom && f.Inserted >= f.Capacity
+	return f.Mode == ModeBloom && f.Inserted >= f.Capacity && f.Capacity < MaxFilterCapacity
 }
 
 // Contains reports that the flag may have been issued (bloom) or was issued in

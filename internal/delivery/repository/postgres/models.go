@@ -274,6 +274,7 @@ type EventFlagFilter struct {
 	EventExerciseID uuid.UUID `json:"event_exercise_id"`
 	VariantIndex    int32     `json:"variant_index"`
 	TaskID          uuid.UUID `json:"task_id"`
+	Fingerprint     []byte    `json:"fingerprint"`
 	Mode            int16     `json:"mode"`
 	Salt            []byte    `json:"salt"`
 	Hashes          int16     `json:"hashes"`

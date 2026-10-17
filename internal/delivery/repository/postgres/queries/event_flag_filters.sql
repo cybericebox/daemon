@@ -4,10 +4,10 @@ WHERE event_exercise_id = $1 AND variant_index = $2 AND task_id = $3;
 
 -- name: UpsertEventFlagFilter :exec
 -- The filter row is created once and then rewritten in place.
-INSERT INTO event_flag_filters (event_exercise_id, variant_index, task_id, mode, salt, hashes, size, bits, inserted, capacity, resets)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO event_flag_filters (event_exercise_id, variant_index, task_id, fingerprint, mode, salt, hashes, size, bits, inserted, capacity, resets)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 ON CONFLICT (event_exercise_id, variant_index, task_id) DO UPDATE
-SET mode = excluded.mode, salt = excluded.salt, hashes = excluded.hashes, size = excluded.size, bits = excluded.bits,
+SET fingerprint = excluded.fingerprint, mode = excluded.mode, salt = excluded.salt, hashes = excluded.hashes, size = excluded.size, bits = excluded.bits,
     inserted = excluded.inserted, capacity = excluded.capacity, resets = excluded.resets;
 
 -- name: ListEventFlagFilters :many

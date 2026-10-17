@@ -1,6 +1,7 @@
 package event
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func newFlagStore(t *testing.T, q *postgresMocks.MockQuerier, maxTeams *int32) *
 		s.requireLock()
 		s.writes++
 		s.rows[flagKey{arg.EventExerciseID, arg.VariantIndex, arg.TaskID}] = postgres.EventFlagFilter{EventExerciseID: arg.EventExerciseID, VariantIndex: arg.VariantIndex,
-			TaskID: arg.TaskID, Mode: arg.Mode, Salt: append([]byte(nil), arg.Salt...), Hashes: arg.Hashes, Size: arg.Size, Bits: append([]byte(nil), arg.Bits...),
+			TaskID: arg.TaskID, Fingerprint: append([]byte(nil), arg.Fingerprint...), Mode: arg.Mode, Salt: append([]byte(nil), arg.Salt...), Hashes: arg.Hashes, Size: arg.Size, Bits: append([]byte(nil), arg.Bits...),
 			Inserted: arg.Inserted, Capacity: arg.Capacity, Resets: arg.Resets}
 		return nil
 	}).AnyTimes()
@@ -342,5 +343,60 @@ func TestRefreshTeamAssignments_RepickedRowsDrawThroughTheirVariantFilter(t *tes
 	}
 	if store.writes != 4 {
 		t.Fatalf("filter writes = %d, want 4", store.writes)
+	}
+}
+
+// A new version re-pinned with another candidate list of the same size: the
+// stored filter was built for the old list, so it is rebuilt from the stored
+// flags of the key before it issues, and the new teams never repeat a flag.
+func TestTeamFlags_ChangedCandidatesRebuildTheFilterFromTheStoredFlags(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	link := perTeamLink()
+	link.VariantMode, link.FixedVariantIndex = eventExerciseModel.VariantModeFixed, new(int32)
+	taskID := uuid.Must(uuid.NewV7())
+	before := exerciseModel.Task{ID: taskID, Name: "Task", Flag: []string{`template:ICE{\d}`}}    // 0..9
+	after := exerciseModel.Task{ID: taskID, Name: "Task", Flag: []string{`template:ICE{[1-9a]}`}} // 1..9, a: also ten values
+	challenge := eventChallengeModel.EventChallenge{ID: uuid.Must(uuid.NewV7()), EventExerciseID: link.ID, TaskID: taskID}
+	store := newFlagStore(t, q, nil)
+	key := flagKey{link.ID, 0, taskID}
+	seen := map[string]bool{}
+	q.EXPECT().CreateTeamChallenge(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.CreateTeamChallengeParams) (postgres.TeamChallenge, error) {
+		if seen[arg.ExpectedFlag] {
+			t.Fatalf("repeated %q", arg.ExpectedFlag)
+		}
+		seen[arg.ExpectedFlag] = true
+		store.stored(key, arg.ExpectedFlag)
+		return postgres.TeamChallenge{ID: arg.ID}, nil
+	}).Times(10)
+	u := &EventUseCase{flagRandomBytes: 20}
+	repo := teamChallengeRepo.New(q)
+	issue := func(task exerciseModel.Task) {
+		store.locked = false
+		teamFlags := u.newTeamFlags(q, link.EventID, link.ID)
+		if _, err := u.newTeamChallenge(context.Background(), repo, teamFlags, link.EventID, uuid.Must(uuid.NewV7()), challenge, map[uuid.UUID]exerciseModel.Task{taskID: task}, 0, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 5 {
+		issue(before)
+	}
+	oldPrint := append([]byte(nil), store.rows[key].Fingerprint...)
+	stillValid := 0
+	for flag := range seen {
+		if flag != "ICE{0}" {
+			stillValid++
+		}
+	}
+	issue(after)
+	row := store.rows[key]
+	if bytes.Equal(row.Fingerprint, oldPrint) {
+		t.Fatal("the filter was not rebuilt for the new candidate list")
+	}
+	if int(row.Inserted) != stillValid+1 || row.Resets != 0 {
+		t.Fatalf("rebuilt filter: inserted %d, want %d (the stored flags of the new list and the new one), resets %d", row.Inserted, stillValid+1, row.Resets)
+	}
+	for range 4 {
+		issue(after)
 	}
 }

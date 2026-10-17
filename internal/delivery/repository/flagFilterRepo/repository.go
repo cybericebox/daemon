@@ -40,14 +40,14 @@ func (r *Repository) Get(ctx context.Context, key Key) (*flagfilter.Filter, erro
 	if err != nil {
 		return nil, err
 	}
-	return &flagfilter.Filter{Mode: flagfilter.Mode(row.Mode), Salt: row.Salt, Hashes: int(row.Hashes), Size: uint64(max(row.Size, 0)), Bits: row.Bits,
+	return &flagfilter.Filter{Fingerprint: row.Fingerprint, Mode: flagfilter.Mode(row.Mode), Salt: row.Salt, Hashes: int(row.Hashes), Size: uint64(max(row.Size, 0)), Bits: row.Bits,
 		Inserted: int(row.Inserted), Capacity: int(row.Capacity), Resets: int(row.Resets)}, nil
 }
 
 // Save writes the whole filter of a key (insert once, then in place).
 func (r *Repository) Save(ctx context.Context, key Key, f *flagfilter.Filter) error {
 	return r.q.UpsertEventFlagFilter(ctx, postgres.UpsertEventFlagFilterParams{EventExerciseID: key.EventExerciseID, VariantIndex: key.VariantIndex, TaskID: key.TaskID,
-		Mode: int16(f.Mode), Salt: f.Salt, Hashes: int16(f.Hashes), Size: int64(f.Size), Bits: f.Bits, Inserted: int32(f.Inserted), Capacity: int32(f.Capacity), Resets: int32(f.Resets)})
+		Fingerprint: f.Fingerprint, Mode: int16(f.Mode), Salt: f.Salt, Hashes: int16(f.Hashes), Size: int64(f.Size), Bits: f.Bits, Inserted: int32(f.Inserted), Capacity: int32(f.Capacity), Resets: int32(f.Resets)})
 }
 
 // Resets are the reset counts of the event's filters by key.
