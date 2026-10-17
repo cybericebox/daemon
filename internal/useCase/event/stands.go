@@ -28,6 +28,7 @@ import (
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
@@ -698,6 +699,19 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		}
 		return nil
 	}
+	// Every image must be pullable before anything is reserved or created; the Lab gets exactly the credentials
+	// its images need. A registry that cannot be read (settings, secrets) leaves the Lab pending for the next pass.
+	pulled, err := u.prepareEventLabImages(ctx, e.ID, topology)
+	if err != nil {
+		if errors.Is(err, imageRegistryModel.ErrImagesUnavailable.Err()) && len(pulled.Unavailable) > 0 {
+			if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.ImageUnavailableReason(pulled.Unavailable[0].Image)); markErr != nil {
+				return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+			}
+			return nil
+		}
+		return err
+	}
+	topology = pulled.Topology
 	if u.lifecycleControls {
 		if err = u.reserveRevealSet(ctx, e.ID, lab.EventExerciseID, now); err != nil {
 			if errors.Is(err, calModel.ErrNotEnoughReserved.Err()) {
@@ -726,6 +740,7 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		return nil
 	}
 	meta := standLabMeta(e, lab)
+	meta.PullCredentials = pulled.Credentials
 	if u.allocationAccounting || u.lifecycleControls {
 		canonical, err := u.labs.Get(ctx, lab.Binding.LabID.UUID)
 		if err != nil {

@@ -30,6 +30,7 @@ func TestNewEventSecret(t *testing.T) {
 		{"zero padded port", "ghcr.io:0080", "", "bob", "ghcr.io:80", "", false},
 		{"empty user", "ghcr.io", "", "", "", "", true},
 		{"bad prefix", "ghcr.io", "a b", "bob", "", "", true},
+		{"user with a colon (the laboratory agent refuses it)", "ghcr.io", "", "bo:b", "", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

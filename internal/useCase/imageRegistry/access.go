@@ -81,10 +81,11 @@ func (u *ImageRegistryUseCase) ExerciseImageScope(ctx context.Context, exerciseI
 // CheckImageAvailability checks each distinct non-empty image (results in the
 // order given) with the credentials scope allows.
 func (u *ImageRegistryUseCase) CheckImageAvailability(ctx context.Context, scope Scope, images []string) ([]imageRegistryModel.Availability, error) {
-	results, err := u.checkImages(ctx, scope, images)
+	checked, err := u.checkImages(ctx, scope, images)
 	if err != nil {
 		return nil, err
 	}
+	results := agentCredentialRules(checked, images)
 	out := make([]imageRegistryModel.Availability, 0, len(results))
 	seen := make(map[string]bool, len(results))
 	for _, image := range images {
@@ -111,23 +112,11 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 			images = append(images, d.Image)
 		}
 	}
-	results, err := u.checkImages(ctx, scope, images)
+	checked, err := u.checkImages(ctx, scope, images)
 	if err != nil {
 		return DeployImages{}, err
 	}
-
-	// credential identities per host, among the images that can be pulled
-	hosts := map[string]map[string]bool{}
-	for _, r := range results {
-		if r.credential != nil && r.availability.Status == imageRegistryModel.StatusAvailable {
-			h := imageRegistryModel.CredentialHost(r.credential.Registry)
-			if hosts[h] == nil {
-				hosts[h] = map[string]bool{}
-			}
-			hosts[h][r.identity] = true
-		}
-	}
-	tooMany := len(hosts) > imageRegistryModel.MaxDeployCredentials
+	results := agentCredentialRules(checked, images)
 
 	out := topo
 	out.Devices = slices.Clone(topo.Devices)
@@ -145,9 +134,6 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 		var host string
 		if r.credential != nil {
 			host = imageRegistryModel.CredentialHost(r.credential.Registry)
-		}
-		if r.availability.Status == imageRegistryModel.StatusAvailable && host != "" && (tooMany || len(hosts[host]) > 1) {
-			r = unavailableResult(d.Image, imageRegistryModel.ReasonCredentialConflict)
 		}
 		if r.availability.Status != imageRegistryModel.StatusAvailable {
 			if !imageSeen[d.Image] {
@@ -186,12 +172,14 @@ func (u *ImageRegistryUseCase) EventImagesAvailability(ctx context.Context, even
 	for _, row := range rows {
 		images = append(images, row.Images...)
 	}
-	results, err := u.checkImages(ctx, Scope{EventID: &eventID}, images)
+	checked, err := u.checkImages(ctx, Scope{EventID: &eventID}, images)
 	if err != nil {
 		return nil, err
 	}
 	out := []EventExerciseImages{}
 	for _, row := range rows {
+		// an attachment's images deploy together: the credential rules apply to them as one set
+		results := agentCredentialRules(checked, row.Images)
 		var bad []imageRegistryModel.Availability
 		for _, image := range row.Images {
 			if r, ok := results[image]; ok && r.availability.Status != imageRegistryModel.StatusAvailable {
@@ -206,6 +194,48 @@ func (u *ImageRegistryUseCase) EventImagesAvailability(ctx context.Context, even
 		}
 	}
 	return out, nil
+}
+
+// agentCredentialRules applies the laboratory agent's credential rules to the
+// checked images that are deployed (or shown) together: it takes one credential
+// per registry host (imageRegistryModel.CredentialHost) and at most
+// MaxDeployCredentials of them. Two different credential identities for one
+// host, or more hosts than that, make every available image that needs a
+// credential on them unavailable with credential_conflict. Anonymous images
+// never count. The result holds the given images only; checked is not changed.
+func agentCredentialRules(checked map[string]checkResult, images []string) map[string]checkResult {
+	out := make(map[string]checkResult, len(images))
+	hosts := map[string]map[string]bool{}
+	for _, image := range images {
+		r, ok := checked[image]
+		if !ok {
+			continue
+		}
+		out[image] = r
+		if r.credential != nil && r.availability.Status == imageRegistryModel.StatusAvailable {
+			h := imageRegistryModel.CredentialHost(r.credential.Registry)
+			if hosts[h] == nil {
+				hosts[h] = map[string]bool{}
+			}
+			hosts[h][r.identity] = true
+		}
+	}
+	tooMany := len(hosts) > imageRegistryModel.MaxDeployCredentials
+	for image, r := range out {
+		if r.credential == nil || r.availability.Status != imageRegistryModel.StatusAvailable {
+			continue
+		}
+		if tooMany || len(hosts[imageRegistryModel.CredentialHost(r.credential.Registry)]) > 1 {
+			out[image] = unavailableResult(image, imageRegistryModel.ReasonCredentialConflict)
+		}
+	}
+	return out
+}
+
+// agentRefuses is true for a credential the laboratory agent rejects (it would
+// refuse the whole deploy): an empty password or a username with ':'.
+func agentRefuses(username, password string) bool {
+	return password == "" || strings.Contains(username, ":")
 }
 
 // checkImages checks the distinct non-empty images, at most parallelChecks at
@@ -321,6 +351,9 @@ func (c *imageChecker) check(ctx context.Context, image string) checkResult {
 	}
 	if kind, secret := imageRegistryModel.Classify(image, c.secrets); kind == imageRegistryModel.KindOrganizer && secret != nil {
 		token := c.tokens[secret.ID]
+		if agentRefuses(secret.Username, token) {
+			return unavailableResult(image, imageRegistryModel.ReasonUnauthorized)
+		}
 		identity := "secret:" + secret.ID.String() + "@" + strconv.FormatInt(secret.UpdatedAt.UnixNano(), 10)
 		r := c.manifest(ctx, image, identity, reference, c.u.external(ref.Host, ref.Repository, secret.Username, token), false)
 		r.credential = &infraModel.RegistryCredential{Registry: secret.Host, Username: secret.Username, Password: token}
@@ -336,6 +369,9 @@ func (c *imageChecker) checkPlatform(ctx context.Context, image string, ref imag
 		return unavailableResult(image, imageRegistryModel.ReasonNotConfigured)
 	}
 	s := c.platform
+	if agentRefuses(s.Account, c.platformToken) {
+		return unavailableResult(image, imageRegistryModel.ReasonUnauthorized)
+	}
 	host := s.Provider.RegistryHost()
 	identity := "platform:" + string(s.Provider) + "/" + s.Account + "/" + s.Repository + "@" + strconv.FormatInt(s.UpdatedAt.UnixNano(), 10)
 	r := c.manifest(ctx, image, identity, ref.Digest, c.u.newClient(s.Provider, s.Repository, s.Account, c.platformToken), false)

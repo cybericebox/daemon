@@ -153,3 +153,16 @@ func TestClassifyFailsOnASchedulerFailureButWaitsOutAStartupTimeout(t *testing.T
 		t.Fatalf("a startup timeout may still become ready, outcome = %v", outcome)
 	}
 }
+
+// A stand refused for an unavailable image keeps its reason, prefix and full reference, through Assess.
+func TestImageUnavailableReasonIsKeptByAssess(t *testing.T) {
+	image := "platform:web@sha256:" + strings.Repeat("a", 64)
+	reason := ImageUnavailableReason(image)
+	if reason != "ImageUnavailable: "+image || ReasonImageUnavailable != "ImageUnavailable" {
+		t.Fatalf("reason %q", reason)
+	}
+	status, got := Assess(LabCounters{FailedLabs: 1, FailureReason: reason})
+	if status != StatusFailed || got != reason {
+		t.Fatalf("assess = %v %q", status, got)
+	}
+}

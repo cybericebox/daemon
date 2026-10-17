@@ -61,6 +61,8 @@ type ExerciseUseCase struct {
 	removalCheck ITestDeployRemovalCheck
 	// clock is the time source of the lease checks; nil: time.Now.
 	clock func() time.Time
+	// images checks a lab's images and gives its pull credentials; nil: no checks (narrow constructions).
+	images IImageAccess
 }
 
 // IProposalInbox turns catalog proposals into inbox requests for platform

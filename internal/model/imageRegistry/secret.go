@@ -31,12 +31,13 @@ var (
 	prefixRe = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
 )
 
-// validateSecretFields normalizes the editable fields of an event secret.
+// validateSecretFields normalizes the editable fields of an event secret. A
+// username with ":" is refused: the laboratory agent rejects such a credential.
 func validateSecretFields(host, prefix, username string) (h, pfx, user string, err error) {
 	h, ok := parseSecretHost(host)
 	pfx = strings.ToLower(strings.Trim(strings.TrimSpace(prefix), "/"))
 	user = strings.TrimSpace(username)
-	if !ok || user == "" || (pfx != "" && !prefixRe.MatchString(pfx)) {
+	if !ok || user == "" || strings.Contains(user, ":") || (pfx != "" && !prefixRe.MatchString(pfx)) {
 		return "", "", "", ErrInvalidEventSecret.Err()
 	}
 	return h, pfx, user, nil

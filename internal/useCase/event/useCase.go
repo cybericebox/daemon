@@ -183,6 +183,7 @@ type EventUseCase struct {
 	prewarmLead       time.Duration
 	labSweepGrace     time.Duration
 	prewarm           *prewarmState
+	images            ImageAccess // nil: labs deploy without image checks or pull credentials
 	placement         *placementCache
 	labAccessBackoff  *labAccessBackoff
 	events            *eventRepo.Repository

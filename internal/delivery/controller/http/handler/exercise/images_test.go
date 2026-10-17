@@ -97,3 +97,30 @@ func TestCheckImagesRefusesABadBody(t *testing.T) {
 		t.Fatal("a bad body reaches no check")
 	}
 }
+
+// A test lab refused for an unavailable image reaches the editor as it is: 409 with the images in the
+// public error context, and no registry token anywhere.
+func TestDeployVariantUnavailableImagesIs409WithTheImages(t *testing.T) {
+	unavailable := []imageRegistryModel.Availability{{Image: "platform:web@sha256:" + strings.Repeat("2", 64), Status: imageRegistryModel.StatusUnavailable, Reason: imageRegistryModel.ReasonNotFound}}
+	uc := &fakeUC{err: imageRegistryModel.ErrImagesUnavailable.WithPublicContext(imageRegistryModel.ContextImages, unavailable).Err()}
+	ex, ver, variant := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	req := httptest.NewRequest(http.MethodPost, "/api/exercises/"+ex.String()+"/versions/"+ver.String()+"/variants/"+variant.String()+"/deploy", nil)
+	w := httptest.NewRecorder()
+	newEngine(uc, uuid.Must(uuid.NewV7())).ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Status struct {
+			Context struct {
+				Images []map[string]string `json:"images"`
+			}
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if got := body.Status.Context.Images; len(got) != 1 || got[0]["Image"] != unavailable[0].Image || got[0]["Status"] != "unavailable" || got[0]["Reason"] != "not_found" {
+		t.Fatalf("body %s", w.Body.String())
+	}
+}

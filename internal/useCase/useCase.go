@@ -290,6 +290,9 @@ func NewUseCase(deps Dependencies) *UseCase {
 		registrySealer = deps.PlatformCipher
 	}
 	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{Repo: deps.Repo, Cipher: registrySealer})
+	// Every lab deploy and prewarm checks its images first and sends exactly that lab's pull credentials.
+	exerciseUC.SetImageAccess(imageRegistryUC)
+	eventUC.SetImageAccess(imageRegistryUC)
 	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
 		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),
 		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote, Frame: deps.ResourcesPolicy.Frame,

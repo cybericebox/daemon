@@ -58,14 +58,16 @@ type standAgent struct {
 	deviceCalls  []string
 	deviceErr    error
 	prewarmCalls [][]string
+	prewarmCreds [][]infraModel.RegistryCredential
 	prewarmState string
 	prewarmErr   error
 }
 
-func (a *standAgent) PrewarmImages(_ context.Context, images []string, _ []infraModel.RegistryCredential) ([]infraModel.ImagePrewarm, error) {
+func (a *standAgent) PrewarmImages(_ context.Context, images []string, creds []infraModel.RegistryCredential) ([]infraModel.ImagePrewarm, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.prewarmCalls = append(a.prewarmCalls, append([]string(nil), images...))
+	a.prewarmCreds = append(a.prewarmCreds, append([]infraModel.RegistryCredential(nil), creds...))
 	if a.prewarmErr != nil {
 		return nil, a.prewarmErr
 	}

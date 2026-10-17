@@ -27,3 +27,14 @@ func TestStandsResponseCarriesTheQueueAndImageWarningPerStand(t *testing.T) {
 		}
 	}
 }
+
+// A stand refused for an unavailable image shows the stored reason unchanged, on the stand and its lab.
+func TestStandsResponseKeepsTheImageUnavailableReason(t *testing.T) {
+	reason := eventStandModel.ImageUnavailableReason("platform:web@sha256:" + strings.Repeat("a", 64))
+	failed := eventUseCase.StandTeamView{TeamID: uuid.Must(uuid.NewV7()), TeamName: "Red", Status: eventStandModel.StatusFailed, Reason: reason,
+		Labs: []eventUseCase.StandLabView{{ChallengeName: "Web", Reason: reason}}}
+	out := toStandsResponse(eventUseCase.StandsView{Items: []eventUseCase.StandTeamView{failed}})
+	if got := out.Items[0]; got.Reason != reason || got.Status != "failed" || got.Labs[0].Reason != reason {
+		t.Fatalf("stand response %+v", got)
+	}
+}
