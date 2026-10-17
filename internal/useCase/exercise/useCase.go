@@ -50,10 +50,10 @@ type ExerciseUseCase struct {
 	// resources is the platform's device resources settings (zero: the owner's defaults, see Policy).
 	resources resourcesModel.Policy
 	// testLabGate admits a test laboratory into the resource calendar; nil: no check.
-	testLabGate    TestLabGate
-	elevations     IElevations     // nil in narrow constructions: no approvals exist then
+	testLabGate TestLabGate
+	elevations  IElevations // nil in narrow constructions: no approvals exist then
 	// fileGCGrace is the media GC grace window the per-task file store follows.
-	fileGCGrace time.Duration
+	fileGCGrace    time.Duration
 	elevationInbox IElevationInbox // nil until wired; elevation notifications are then skipped
 	// expiry schedules the end of a test lab's lease; nil: only the periodic sweep removes expired labs.
 	expiry ITestDeployExpiry
