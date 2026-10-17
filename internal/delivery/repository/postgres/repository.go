@@ -76,11 +76,52 @@ func openPool(
 	return pool
 }
 
+// reservedConns is the room left on the server for administration, migrations run by hand and monitoring.
+const reservedConns = 20
+
+// poolBudget states how many connections one replica may open and what the server must allow for N replicas.
+func poolBudget(mainConns, jobConns int) string {
+	perReplica := mainConns + jobConns
+	return fmt.Sprintf(
+		"DB pools: main=%d job=%d per_replica=%d (with N replicas need N×%d+%d ≤ max_connections)",
+		mainConns, jobConns, perReplica, perReplica, reservedConns,
+	)
+}
+
+// poolBudgetExceeded reports whether even one replica does not fit the server's max_connections.
+func poolBudgetExceeded(mainConns, jobConns, maxConnections int) bool {
+	return mainConns+jobConns+reservedConns > maxConnections
+}
+
+// checkPoolBudget logs the connection arithmetic and warns when a single replica already exceeds the server limit.
+func checkPoolBudget(ctx context.Context, pool *pgxpool.Pool, mainConns, jobConns int) {
+	log.Info().Msg(poolBudget(mainConns, jobConns))
+	var raw string
+	if err := pool.QueryRow(ctx, "SHOW max_connections").Scan(&raw); err != nil {
+		log.Warn().Err(err).Msg("Failed to read max_connections")
+		return
+	}
+	maxConnections, err := strconv.Atoi(raw)
+	if err != nil {
+		log.Warn().Err(err).Str("max_connections", raw).Msg("Unexpected max_connections value")
+		return
+	}
+	if poolBudgetExceeded(mainConns, jobConns, maxConnections) {
+		log.Warn().
+			Int("max_connections", maxConnections).
+			Int("main", mainConns).
+			Int("job", jobConns).
+			Int("reserved", reservedConns).
+			Msg("DB pools of one replica exceed max_connections: lower POSTGRES_MAX_CONNS / POSTGRES_JOB_MAX_CONNS")
+	}
+}
+
 func NewRepository(deps Dependencies) *PostgresRepository {
 	ctx := context.Background()
 
 	pool := openPool(ctx, deps.Config.DSN(), deps.Config.MaxConns, deps.Config)
 	jobPool := openPool(ctx, deps.Config.DSN(), deps.Config.JobMaxConns, deps.Config)
+	checkPoolBudget(ctx, jobPool, deps.Config.MaxConns, deps.Config.JobMaxConns)
 	limited := NewAcquireLimited(pool, deps.Config.AcquireTimeout)
 
 	return &PostgresRepository{
