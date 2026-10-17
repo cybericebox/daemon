@@ -2,6 +2,7 @@ package exercise
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -188,5 +189,158 @@ func TestArchiveImageV2_MarshalWritesString(t *testing.T) {
 	out, err := archiveImageV2{Ref: "nginx:1"}.MarshalJSON()
 	if err != nil || string(out) != `"nginx:1"` {
 		t.Fatalf("marshal = %s, %v", out, err)
+	}
+}
+
+const minimalDoc = `{
+  "schema": "cib-exercise/1",
+  "exercise": {"name": "Тест-завдання"},
+  "versions": [{"status": "draft", "variants": [{"tasks": [{"name": "Тест", "difficulty": "easy"}]}]}]
+}`
+
+func schemaArchive(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	contents := map[string][]byte{}
+	for name, body := range files {
+		contents[name] = []byte(body)
+	}
+	data, err := BuildArchiveV1(contents)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	return data
+}
+
+func TestParseExerciseArchive_Schema1JSON(t *testing.T) {
+	parsed, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if parsed.Exercise.Name != "Тест-завдання" || parsed.Versions[0].Status != exerciseModel.VersionStatusDraft {
+		t.Fatalf("parsed = %+v", parsed)
+	}
+	if got := parsed.Versions[0].Variants[0].Tasks[0].Name; got != "Тест" {
+		t.Fatalf("task = %q", got)
+	}
+}
+
+func TestParseExerciseArchive_Schema1JSONWithComments(t *testing.T) {
+	commented := "// header\n{\n  \"schema\": \"cib-exercise/1\", /* brand/version */\n  \"exercise\": {\"name\": \"Тест-завдання\"}, // name\n" +
+		"  \"versions\": [{\"status\": \"draft\", \"variants\": [{\"tasks\": [{\"name\": \"Тест\", \"difficulty\": \"easy\"}]}]}]\n}"
+	plain, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "")
+	if err != nil {
+		t.Fatalf("plain: %v", err)
+	}
+	withComments, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": commented}), "")
+	if err != nil {
+		t.Fatalf("commented: %v", err)
+	}
+	// Generated ids differ run to run; the comparison is on the content.
+	withComments.Versions[0].Variants[0].ID = plain.Versions[0].Variants[0].ID
+	plain.Files, withComments.Files = nil, nil
+	if !reflect.DeepEqual(plain, withComments) {
+		t.Fatalf("commented document differs:\n%+v\n%+v", plain, withComments)
+	}
+}
+
+func TestParseExerciseArchive_BothDocumentsRejected(t *testing.T) {
+	data := schemaArchive(t, map[string]string{"exercise.json": minimalDoc, "exercise.yaml": "schema: cib-exercise/1\n"})
+	_, err := ParseExerciseArchive(data, "")
+	if !errors.Is(err, exerciseModel.ErrArchiveBothDocuments.Err()) {
+		t.Fatalf("err = %v, want ErrArchiveBothDocuments", err)
+	}
+}
+
+func TestPickExerciseDocument_NoneIsInvalid(t *testing.T) {
+	_, _, err := pickExerciseDocument(map[string][]byte{"files/a.txt": nil})
+	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) || publicContext(t, err)["reason"] != "missing exercise.json or exercise.yaml" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseExerciseArchive_SchemaRequired(t *testing.T) {
+	for name, body := range map[string]string{
+		"absent":    `{"exercise":{"name":"x"}}`,
+		"version 2": `{"schema":"cib-exercise/2","exercise":{"name":"x"}}`,
+		"number":    `{"schema":1,"exercise":{"name":"x"}}`,
+		"string 1":  `{"schema":"1","exercise":{"name":"x"}}`,
+		"other":     `{"schema":"other/1","exercise":{"name":"x"}}`,
+		"old body":  `{"format":"cib-exercise/v1","Exercise":{"Name":"x"},"Versions":[]}`,
+	} {
+		_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": body}), "")
+		if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
+			t.Errorf("%s: err = %v, want ErrArchiveInvalid", name, err)
+			continue
+		}
+		ctx := publicContext(t, err)
+		if ctx["reason"] != "unsupported schema" || ctx["expected"] != "cib-exercise/1" {
+			t.Errorf("%s: context = %v", name, ctx)
+		}
+	}
+}
+
+func TestToParsed_ImageObjectFormAlwaysRejected(t *testing.T) {
+	build := func(image string) (archiveDocV2, error) {
+		return decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"topology":{"devices":[{"name":"web","type":"container","image":` + image + `}]}}]}]}`))
+	}
+	doc, err := build(`{"file":""}`)
+	if err == nil {
+		_, err = doc.toParsed(nil)
+	}
+	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) || !strings.Contains(publicContext(t, err)["reason"].(string), "image") {
+		t.Fatalf("empty file err = %v, want ErrArchiveInvalid naming image", err)
+	}
+	doc, err = build(`{"file":"images/web.tar"}`)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if _, err = doc.toParsed(nil); !errors.Is(err, exerciseModel.ErrArchiveImageFileUnsupported.Err()) {
+		t.Fatalf("err = %v, want ErrArchiveImageFileUnsupported", err)
+	}
+}
+
+func TestDecodeArchiveV2_TypeErrorsAreIndexedAndFixed(t *testing.T) {
+	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"tasks":[{"name":"a"},{"name":7}]}]}]}`))
+	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
+		t.Fatalf("err = %v", err)
+	}
+	reason := publicContext(t, err)["reason"].(string)
+	if !strings.Contains(reason, "versions[1].variants[1].tasks[2].name") {
+		t.Fatalf("reason %q lacks the 1-based path", reason)
+	}
+	if strings.Contains(reason, "Go ") || strings.Contains(reason, "struct") || strings.Contains(reason, "json:") {
+		t.Fatalf("reason leaks decoder text: %q", reason)
+	}
+}
+
+func TestDecodeArchiveV2_NeverExposesRawDecoderText(t *testing.T) {
+	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"tasks":[{"name":"a",}]}]}]}`))
+	reason := publicContext(t, err)["reason"].(string)
+	if reason != "invalid JSON at line 1" {
+		t.Fatalf("reason = %q", reason)
+	}
+}
+
+func TestToParsed_UnknownEnumNamesRejected(t *testing.T) {
+	for field, doc := range map[string]string{
+		"status":          `"versions":[{"status":"x","variants":[{}]}]`,
+		"difficulty":      `"versions":[{"variants":[{"tasks":[{"name":"t","difficulty":"bogus"}]}]}]`,
+		"level":           `"versions":[{"variants":[{"tasks":[{"name":"t","hints":[{"text":"h","level":"bogus"}]}]}]}]`,
+		"type":            `"versions":[{"variants":[{"topology":{"devices":[{"name":"d","type":"bogus"}]}}]}]`,
+		"security_preset": `"versions":[{"variants":[{"topology":{"devices":[{"name":"d","type":"container","security_preset":"bogus"}]}}]}]`,
+		"kind":            `"versions":[{"variants":[{"topology":{"connections":[{"endpoints":[{"kind":"bogus"}]}]}}]}]`,
+		"ip.type":         `"versions":[{"variants":[{"topology":{"devices":[{"name":"d","type":"container","interfaces":[{"name":"eth0","ip":{"type":"bogus"}}]}]}}]}]`,
+	} {
+		parsed, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},` + doc + `}`))
+		if err == nil {
+			_, err = parsed.toParsed(nil)
+		}
+		if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
+			t.Errorf("%s: err = %v, want ErrArchiveInvalid", field, err)
+			continue
+		}
+		if reason := publicContext(t, err)["reason"].(string); !strings.Contains(reason, field) || !strings.Contains(reason, "bogus") && field != "status" {
+			t.Errorf("%s: reason %q does not name the field", field, reason)
+		}
 	}
 }

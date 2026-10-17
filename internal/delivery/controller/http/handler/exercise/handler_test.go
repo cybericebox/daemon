@@ -646,7 +646,7 @@ func TestExportSeveralExercises_UsesFoldersInsteadOfNestedArchives(t *testing.T)
 	uid := uuid.Must(uuid.NewV7())
 	first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"format":"cib-exercise/v1"}`),
+		"exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
 		"files/a.txt":   []byte("attachment"),
 	})
 	if err != nil {

@@ -28,7 +28,7 @@ func TestArchiveV1_RoundTripAndChecksum(t *testing.T) {
 
 func TestProtectedZipArchive_RoundTripRejectsWrongPassword(t *testing.T) {
 	protected, err := exercise.BuildProtectedArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"format":"cib-exercise/v1"}`),
+		"exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
 		"files/a.txt":   []byte("private attachment"),
 	}, "strong password")
 	require.NoError(t, err)
@@ -41,9 +41,9 @@ func TestProtectedZipArchive_RoundTripRejectsWrongPassword(t *testing.T) {
 
 func TestExpandExerciseArchiveBundle_RestoresFolderArchives(t *testing.T) {
 	bundle, err := exercise.BuildArchiveV1(map[string][]byte{
-		"first/exercise.json":  []byte(`{"format":"cib-exercise/v1"}`),
+		"first/exercise.json":  []byte(`{"schema":"cib-exercise/1"}`),
 		"first/files/a.txt":    []byte("a"),
-		"second/exercise.json": []byte(`{"format":"cib-exercise/v1"}`),
+		"second/exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
 	})
 	require.NoError(t, err)
 	imports, err := exercise.ExpandExerciseArchiveBundle(bundle, "")
@@ -60,19 +60,10 @@ func TestImportExerciseArchive_ReassignsIdentityAndVersionIDs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectUserNames(q)
-	owner := uuid.Must(uuid.NewV7())
-	sourceExercise := exerciseModel.Exercise{Name: "portable task", Description: "d", Tags: []string{"web"}}
-	sourceVersion := exerciseModel.ExerciseVersion{Status: exerciseModel.VersionStatusDraft, Variants: []exerciseModel.Variant{{
-		ID: uuid.Must(uuid.NewV7()), Tasks: []exerciseModel.Task{{ID: uuid.Must(uuid.NewV7()), Name: "task", Difficulty: exerciseModel.DifficultyEasy}},
-	}}}
-	payload, err := json.Marshal(struct {
-		Format   string                          `json:"format"`
-		Exercise exerciseModel.Exercise          `json:"exercise"`
-		Versions []exerciseModel.ExerciseVersion `json:"versions"`
-	}{Format: "cib-exercise/v1", Exercise: sourceExercise, Versions: []exerciseModel.ExerciseVersion{sourceVersion}})
-	require.NoError(t, err)
-	archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": payload})
-	require.NoError(t, err)
+	owner := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa")
+	sourceID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-000000000001")
+	archive := mustExerciseArchive(t, `{"id":"`+sourceID.String()+`","name":"portable task","description":"d","tags":["web"]}`,
+		`[{"id":"`+sourceID.String()+`","status":"draft","variants":[{"tasks":[{"name":"task","difficulty":"easy"}]}]}]`)
 
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
@@ -80,7 +71,7 @@ func TestImportExerciseArchive_ReassignsIdentityAndVersionIDs(t *testing.T) {
 		})
 	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
-			if arg.ExerciseID == sourceExercise.ID || arg.ID == sourceVersion.ID {
+			if arg.ExerciseID == sourceID || arg.ID == sourceID {
 				t.Fatal("source IDs must not be reused")
 			}
 			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, AdminNote: arg.AdminNote, Variants: arg.Variants, CreatedAt: arg.CreatedAt, CreatedBy: arg.CreatedBy, PublishedAt: arg.PublishedAt}, nil
@@ -89,20 +80,16 @@ func TestImportExerciseArchive_ReassignsIdentityAndVersionIDs(t *testing.T) {
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	imported, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive, CreatedBy: owner})
 	require.NoError(t, err)
-	require.NotEqual(t, sourceExercise.ID, imported.ID)
+	require.NotEqual(t, sourceID, imported.ID)
 	require.Equal(t, "portable task", imported.Name)
 	require.WithinDuration(t, time.Now(), imported.CreatedAt, time.Minute)
 }
 
-func mustExerciseArchive(t *testing.T, source exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion) []byte {
+// mustExerciseArchive wraps schema-1 exercise and versions JSON fragments into a zip.
+func mustExerciseArchive(t *testing.T, exerciseJSON, versionsJSON string) []byte {
 	t.Helper()
-	payload, err := json.Marshal(struct {
-		Format   string                          `json:"format"`
-		Exercise exerciseModel.Exercise          `json:"exercise"`
-		Versions []exerciseModel.ExerciseVersion `json:"versions"`
-	}{Format: "cib-exercise/v1", Exercise: source, Versions: versions})
-	require.NoError(t, err)
-	archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": payload})
+	payload := `{"schema":"cib-exercise/1","exercise":` + exerciseJSON + `,"versions":` + versionsJSON + `}`
+	archive, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(payload)})
 	require.NoError(t, err)
 	return archive
 }
@@ -110,10 +97,7 @@ func mustExerciseArchive(t *testing.T, source exerciseModel.Exercise, versions [
 func TestImportExerciseArchive_AcceptsIncompleteDraft(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, exerciseModel.Exercise{Name: "half done"}, []exerciseModel.ExerciseVersion{{
-		Status:   exerciseModel.VersionStatusDraft,
-		Variants: []exerciseModel.Variant{{Tasks: []exerciseModel.Task{{Name: ""}}}},
-	}})
+	archive := mustExerciseArchive(t, `{"name":"half done"}`, `[{"status":"draft","variants":[{"tasks":[{"name":""}]}]}]`)
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
 			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
@@ -132,9 +116,7 @@ func TestImportExerciseArchive_AcceptsIncompleteDraft(t *testing.T) {
 func TestImportExerciseArchive_RejectsUnpublishablePublishedVersion(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, exerciseModel.Exercise{Name: "broken"}, []exerciseModel.ExerciseVersion{{
-		Status: exerciseModel.VersionStatusPublished,
-	}})
+	archive := mustExerciseArchive(t, `{"name":"broken"}`, `[{"status":"published"}]`)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
@@ -172,15 +154,13 @@ func TestExportExerciseArchive_IncludesLabel(t *testing.T) {
 	require.NoError(t, err)
 	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
 	require.NoError(t, err)
-	require.Contains(t, string(files["exercise.json"]), `"Label":"Before refactor"`)
+	require.Contains(t, string(files["exercise.json"]), `"label":"Before refactor"`)
 }
 
 func TestImportExerciseArchive_RestoresLabel(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
-	archive := mustExerciseArchive(t, exerciseModel.Exercise{Name: "labelled"}, []exerciseModel.ExerciseVersion{{
-		Status: exerciseModel.VersionStatusCheckpoint, Label: "Before refactor",
-	}})
+	archive := mustExerciseArchive(t, `{"name":"labelled"}`, `[{"status":"checkpoint","label":"Before refactor"}]`)
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
 			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
@@ -203,10 +183,8 @@ func TestImportExerciseArchive_EnforcesLabelInvariant(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	longLabel := strings.Repeat("a", 600)
-	archive := mustExerciseArchive(t, exerciseModel.Exercise{Name: "labelled"}, []exerciseModel.ExerciseVersion{
-		{Status: exerciseModel.VersionStatusDraft, Label: "must not survive import"},
-		{Status: exerciseModel.VersionStatusCheckpoint, Label: longLabel},
-	})
+	archive := mustExerciseArchive(t, `{"name":"labelled"}`,
+		`[{"status":"draft","label":"must not survive import"},{"status":"checkpoint","label":"`+longLabel+`"}]`)
 	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
 			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
@@ -232,4 +210,52 @@ func TestImportExerciseArchive_EnforcesLabelInvariant(t *testing.T) {
 
 	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
 	require.NoError(t, err)
+}
+
+func TestImportExerciseArchive_Schema1Published(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	archive := mustExerciseArchive(t, `{"name":"Опублікована"}`, `[{"status":"published","variants":[{"tasks":[{
+		"name":"Тест","difficulty":"easy","flag":["ICE{x}"],
+		"description":{"root":{"type":"text","text":"Опис"}},
+		"hints":[{"text":"підказка"}]}]}]}]`)
+	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
+			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
+		})
+	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(
+		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
+			require.Equal(t, string(exerciseModel.VersionStatusPublished), arg.Status)
+			var variants []exerciseModel.Variant
+			require.NoError(t, json.Unmarshal(arg.Variants, &variants))
+			task := variants[0].Tasks[0]
+			require.NotEqual(t, uuid.Nil, task.ID)
+			require.NotEqual(t, uuid.Nil, task.Hints[0].ID)
+			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
+		})
+	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+
+	_, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{Archive: archive})
+	require.NoError(t, err)
+}
+
+func TestExportExerciseArchive_IsImportableSchema1(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	exID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-000000000001")
+	q.EXPECT().GetExerciseByID(gomock.Any(), exID).Return(postgres.Exercise{ID: exID, Name: "portable"}, nil)
+	q.EXPECT().ListExerciseVersions(gomock.Any(), exID).Return([]postgres.ExerciseVersion{
+		{ID: exID, ExerciseID: exID, Status: "draft", Variants: []byte(`[]`)},
+	}, nil)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+
+	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{})
+	require.NoError(t, err)
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(files["exercise.json"]), `{"schema":"cib-exercise/1"`))
+	parsed, err := exercise.ParseExerciseArchive(data, "")
+	require.NoError(t, err)
+	require.Equal(t, "portable", parsed.Exercise.Name)
 }

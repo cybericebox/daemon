@@ -140,6 +140,9 @@ func (i *archiveImageV2) UnmarshalJSON(data []byte) error {
 	if !ok || json.Unmarshal(rawFile, &file) != nil {
 		return archiveInvalid(archiveImageShape)
 	}
+	if file == "" {
+		return archiveInvalid("image.file must name a file; the object form is reserved")
+	}
 	*i = archiveImageV2{File: file}
 	return nil
 }
@@ -149,8 +152,39 @@ func (i archiveImageV2) MarshalJSON() ([]byte, error) {
 }
 
 // archiveInvalid is the one place ErrArchiveInvalid is raised; reason is shown to the author.
-func archiveInvalid(reason string) error {
-	return exerciseModel.ErrArchiveInvalid.WithPublicContext("reason", reason).Err()
+// extra is key, value pairs of more public context (for example "expected").
+func archiveInvalid(reason string, extra ...string) error {
+	creator := exerciseModel.ErrArchiveInvalid.WithPublicContext("reason", reason)
+	for i := 0; i+1 < len(extra); i += 2 {
+		creator = creator.WithPublicContext(extra[i], extra[i+1])
+	}
+	return creator.Err()
+}
+
+// archiveBothDocuments is the one place ErrArchiveBothDocuments is raised.
+func archiveBothDocuments() error {
+	return exerciseModel.ErrArchiveBothDocuments.Err()
+}
+
+// archiveUnsupportedSchema: the document does not declare the one schema this import reads.
+func archiveUnsupportedSchema() error {
+	return archiveInvalid("unsupported schema", "expected", archiveSchema)
+}
+
+// probeArchiveSchema reads only the schema key of a (comment-free) document and accepts nothing
+// but the JSON string "cib-exercise/1".
+func probeArchiveSchema(payload []byte) error {
+	var probe struct {
+		Schema json.RawMessage `json:"schema"`
+	}
+	if err := json.Unmarshal(payload, &probe); err != nil {
+		return decodeFailure(payload, err)
+	}
+	var schema string
+	if json.Unmarshal(probe.Schema, &schema) != nil || schema != archiveSchema {
+		return archiveUnsupportedSchema()
+	}
+	return nil
 }
 
 // archiveImageFileUnsupported is the one place ErrArchiveImageFileUnsupported is raised.
@@ -164,7 +198,7 @@ func decodeArchiveV2(payload []byte) (archiveDocV2, error) {
 	var generic any
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	if err := decoder.Decode(&generic); err != nil {
-		return archiveDocV2{}, archiveInvalid("the document is not valid JSON")
+		return archiveDocV2{}, decodeFailure(payload, err)
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return archiveDocV2{}, archiveInvalid("the document has data after its end")
@@ -178,7 +212,7 @@ func decodeArchiveV2(payload []byte) (archiveDocV2, error) {
 	strict := json.NewDecoder(bytes.NewReader(payload))
 	strict.DisallowUnknownFields()
 	if err := strict.Decode(&doc); err != nil {
-		return archiveDocV2{}, decodeFailure(err)
+		return archiveDocV2{}, decodeFailure(payload, err)
 	}
 	if doc.Schema != archiveSchema {
 		return archiveDocV2{}, archiveInvalid(fmt.Sprintf("schema must be %q", archiveSchema))
@@ -186,16 +220,130 @@ func decodeArchiveV2(payload []byte) (archiveDocV2, error) {
 	return doc, nil
 }
 
-// decodeFailure turns an encoding/json failure into ErrArchiveInvalid without leaking Go type names.
-func decodeFailure(err error) error {
+// decodeFailure turns an encoding/json failure into ErrArchiveInvalid. The reason is built here
+// and never carries the decoder's own text or Go type names: a type error names the 1-based
+// path and the expected JSON kind; a syntax error names the line.
+func decodeFailure(payload []byte, err error) error {
 	if errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
 		return err
 	}
 	var typeErr *json.UnmarshalTypeError
 	if errors.As(err, &typeErr) {
-		return archiveInvalid(fmt.Sprintf("%s must be a %s, got a %s", typeErr.Field, typeErr.Type.Kind(), typeErr.Value))
+		where := pathAtOffset(payload, typeErr.Offset)
+		if where == "" {
+			where = typeErr.Field
+		}
+		if where == "" {
+			where = "the document"
+		}
+		return archiveInvalid(fmt.Sprintf("%s must be %s, got %s", where, jsonKindName(typeErr.Type), typeErr.Value))
 	}
-	return archiveInvalid(err.Error())
+	var syntaxErr *json.SyntaxError
+	if errors.As(err, &syntaxErr) {
+		return archiveInvalid(fmt.Sprintf("invalid JSON at line %d", lineAt(payload, syntaxErr.Offset)))
+	}
+	if key, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		return archiveInvalid("unknown key " + key)
+	}
+	return archiveInvalid("invalid JSON")
+}
+
+// lineAt is the 1-based line of the byte the decoder stopped at.
+func lineAt(payload []byte, offset int64) int {
+	if offset > int64(len(payload)) {
+		offset = int64(len(payload))
+	}
+	if offset > 0 {
+		offset-- // Offset counts the bytes read, including the offending one
+	}
+	return 1 + bytes.Count(payload[:offset], []byte("\n"))
+}
+
+// jsonKindName names, in JSON terms, what a Go type expects.
+func jsonKindName(t reflect.Type) string {
+	switch t.Kind() {
+	case reflect.String:
+		return "a string"
+	case reflect.Bool:
+		return "a boolean"
+	case reflect.Slice, reflect.Array:
+		return "a list"
+	case reflect.Struct, reflect.Map:
+		return "an object"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+		return "a number"
+	}
+	return "another kind of value"
+}
+
+// pathAtOffset finds the 1-based path ("versions[1].variants[1].tasks[2].name") of the value the
+// decoder had consumed at offset; "" when it cannot be found.
+func pathAtOffset(payload []byte, offset int64) string {
+	type frame struct {
+		array     bool
+		n         int
+		key       string
+		expectKey bool
+	}
+	var stack []frame
+	pathOf := func() string {
+		var b strings.Builder
+		for _, f := range stack {
+			if f.array {
+				fmt.Fprintf(&b, "[%d]", f.n)
+			} else if f.key != "" {
+				if b.Len() > 0 {
+					b.WriteByte('.')
+				}
+				b.WriteString(f.key)
+			}
+		}
+		return b.String()
+	}
+	valueDone := func() {
+		if len(stack) > 0 && !stack[len(stack)-1].array {
+			stack[len(stack)-1].expectKey = true
+		}
+	}
+	valueStart := func() {
+		if len(stack) > 0 && stack[len(stack)-1].array {
+			stack[len(stack)-1].n++
+		}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return ""
+		}
+		if delim, ok := token.(json.Delim); ok {
+			switch delim {
+			case '{', '[':
+				valueStart()
+				stack = append(stack, frame{array: delim == '[', expectKey: delim == '{'})
+			default:
+				found := decoder.InputOffset() >= offset
+				where := pathOf()
+				stack = stack[:len(stack)-1]
+				if found {
+					return where
+				}
+				valueDone()
+			}
+			continue
+		}
+		if len(stack) > 0 && !stack[len(stack)-1].array && stack[len(stack)-1].expectKey {
+			key, _ := token.(string)
+			stack[len(stack)-1].key, stack[len(stack)-1].expectKey = key, false
+			continue
+		}
+		valueStart()
+		if decoder.InputOffset() >= offset {
+			return pathOf()
+		}
+		valueDone()
+	}
 }
 
 var jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
@@ -302,6 +450,9 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 		Files:    files,
 	}
 	for vi, version := range d.Versions {
+		if version.Status != "" && !version.Status.Valid() {
+			return ParsedExerciseArchive{}, unknownEnum(fmt.Sprintf("versions[%d].status", vi+1), string(version.Status))
+		}
 		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
 		for xi, variant := range version.Variants {
 			path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
@@ -344,6 +495,9 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, fil
 	if err != nil {
 		return exerciseModel.Task{}, err
 	}
+	if t.Difficulty != "" && !t.Difficulty.Valid() {
+		return exerciseModel.Task{}, unknownEnum(path+".difficulty", string(t.Difficulty))
+	}
 	description, err := descriptionToRaw(t.Description)
 	if err != nil {
 		return exerciseModel.Task{}, err
@@ -361,13 +515,34 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, fil
 	}
 	task.LinkedDeviceID = uuid.NullUUID{UUID: linked, Valid: linked != uuid.Nil}
 	for hi, hint := range t.Hints {
+		if !hintLevelValid(hint.Level) {
+			return exerciseModel.Task{}, unknownEnum(fmt.Sprintf("%s.hints[%d].level", path, hi+1), string(hint.Level))
+		}
 		hintID, hintErr := optionalUUID(fmt.Sprintf("%s.hints[%d].id", path, hi+1), hint.ID)
 		if hintErr != nil {
 			return exerciseModel.Task{}, hintErr
 		}
-		task.Hints = append(task.Hints, exerciseModel.Hint{ID: hintID, Text: hint.Text, Level: hint.Level})
+		level := hint.Level
+		if level == "" {
+			level = exerciseModel.HintLevelNudge // an omitted level is the lightest, like saved hints without one
+		}
+		task.Hints = append(task.Hints, exerciseModel.Hint{ID: hintID, Text: hint.Text, Level: level})
 	}
 	return task, nil
+}
+
+// unknownEnum names the field and the value an enum name could not be matched for.
+func unknownEnum(path, value string) error {
+	return archiveInvalid(fmt.Sprintf("%s: unknown value %q", path, value))
+}
+
+// hintLevelValid accepts an omitted level (a nudge) or one of the four named levels.
+func hintLevelValid(level exerciseModel.HintLevel) bool {
+	switch level {
+	case "", exerciseModel.HintLevelNudge, exerciseModel.HintLevelDirection, exerciseModel.HintLevelSteps, exerciseModel.HintLevelNearSolution:
+		return true
+	}
+	return false
 }
 
 // ambiguousDevice marks a name two devices share, so a reference by that name cannot be resolved.
@@ -401,6 +576,17 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 		if id == uuid.Nil {
 			id = freshID()
 		}
+		if device.Type != "" && !device.Type.Valid() {
+			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".type", string(device.Type))
+		}
+		if device.SecurityPreset != "" && !device.SecurityPreset.Valid() {
+			return exerciseModel.Topology{}, nil, unknownEnum(devicePath+".security_preset", string(device.SecurityPreset))
+		}
+		for ii, iface := range device.Interfaces {
+			if iface.IP.Type != "" && !iface.IP.Type.Valid() {
+				return exerciseModel.Topology{}, nil, unknownEnum(fmt.Sprintf("%s.interfaces[%d].ip.type", devicePath, ii+1), string(iface.IP.Type))
+			}
+		}
 		if device.Image.File != "" {
 			return exerciseModel.Topology{}, nil, archiveImageFileUnsupported(device.Name)
 		}
@@ -419,6 +605,9 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 	for ci, connection := range t.Connections {
 		mapped := exerciseModel.Connection{}
 		for ei, endpoint := range connection.Endpoints {
+			if endpoint.Kind != "" && !endpoint.Kind.Valid() {
+				return exerciseModel.Topology{}, nil, unknownEnum(fmt.Sprintf("%s.connections[%d].endpoints[%d].kind", path, ci+1, ei+1), string(endpoint.Kind))
+			}
 			endpointPath := fmt.Sprintf("%s.connections[%d].endpoints[%d].device", path, ci+1, ei+1)
 			id, err := resolveDevice(endpointPath, endpoint.Device, endpoint.DeviceID, deviceIDs)
 			if err != nil {

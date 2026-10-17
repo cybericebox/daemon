@@ -240,4 +240,7 @@ var (
 	// names the device.
 	ErrArchiveImageFileUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Device images inside the archive are not supported yet").WithDetailCode(88)
+	// ErrArchiveBothDocuments: a task folder holds exercise.json and exercise.yaml at once.
+	ErrArchiveBothDocuments = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("A task folder holds both exercise.json and exercise.yaml").WithDetailCode(81)
 )

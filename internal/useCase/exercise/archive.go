@@ -31,12 +31,6 @@ type ExportOptions struct {
 	IncludeSecrets bool
 	Password       string
 }
-type exportedExercise struct {
-	Format   string                          `json:"format"`
-	Exercise exerciseModel.Exercise          `json:"exercise"`
-	Versions []exerciseModel.ExerciseVersion `json:"versions"`
-	Files    map[string]exportedFile         `json:"files,omitempty"`
-}
 type exportedFile struct {
 	Name        string `json:"name"`
 	ContentType string `json:"content_type"`
@@ -72,26 +66,24 @@ func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, 
 	if err != nil {
 		return ParsedExerciseArchive{}, err
 	}
-	payload, ok := files["exercise.json"]
-	if !ok {
-		return ParsedExerciseArchive{}, fmt.Errorf("exercise archive is missing exercise.json")
-	}
-	var value exportedExercise
-	if err = json.Unmarshal(payload, &value); err != nil {
+	name, body, err := pickExerciseDocument(files)
+	if err != nil {
 		return ParsedExerciseArchive{}, err
 	}
-	if value.Format != "cib-exercise/v1" {
-		return ParsedExerciseArchive{}, fmt.Errorf("unsupported exercise archive format")
+	if name != "exercise.json" {
+		return ParsedExerciseArchive{}, archiveInvalid("exercise.yaml is not supported yet")
 	}
-	metadata := make(map[uuid.UUID]exportedFile, len(value.Files))
-	for rawID, file := range value.Files {
-		id, parseErr := uuid.FromString(rawID)
-		if parseErr != nil {
-			return ParsedExerciseArchive{}, fmt.Errorf("invalid attachment metadata: %w", parseErr)
-		}
-		metadata[id] = file
+	if body, err = stripJSONComments(body); err != nil {
+		return ParsedExerciseArchive{}, err
 	}
-	return ParsedExerciseArchive{Exercise: value.Exercise, Versions: value.Versions, Files: files, FileMeta: metadata}, nil
+	if err = probeArchiveSchema(body); err != nil {
+		return ParsedExerciseArchive{}, err
+	}
+	doc, err := decodeArchiveV2(body)
+	if err != nil {
+		return ParsedExerciseArchive{}, err
+	}
+	return doc.toParsed(files)
 }
 
 // ExpandExerciseArchiveBundle turns the folder layout used by bulk export
@@ -396,7 +388,7 @@ func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUI
 		return nil, err
 	}
 	contents := map[string][]byte{}
-	fileMetadata := map[string]exportedFile{}
+	filePaths := map[uuid.UUID]string{}
 	if reader, ok := u.media.(mediaArchiveReader); ok {
 		seen := map[uuid.UUID]bool{}
 		for _, version := range versions {
@@ -418,11 +410,11 @@ func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUI
 			if name == "." || name == "/" || name == "" {
 				name = "attachment"
 			}
-			contents["files/"+fileID.String()+"/"+name] = body
-			fileMetadata[fileID.String()] = exportedFile{Name: file.Name, ContentType: file.ContentType}
+			filePaths[fileID] = "files/" + fileID.String() + "/" + name
+			contents[filePaths[fileID]] = body
 		}
 	}
-	payload, err := json.Marshal(exportedExercise{Format: "cib-exercise/v1", Exercise: e, Versions: versions, Files: fileMetadata})
+	payload, err := json.Marshal(temporaryExportDocument(e, versions, filePaths))
 	if err != nil {
 		return nil, err
 	}
@@ -688,3 +680,70 @@ func safeArchivePath(n string) bool {
 	return n != "" && n == path.Clean(n) && !strings.HasPrefix(n, "/") && !strings.HasPrefix(n, "../") && !strings.Contains(n, "\\") && n != "manifest.json"
 }
 func hashBytes(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
+
+// temporaryExportDocument builds the portable document from the stored exercise with the
+// smallest mapping that keeps export importable. The final layout (deterministic file paths,
+// linked variants, manifest options) replaces it with the export rewrite.
+func temporaryExportDocument(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, filePaths map[uuid.UUID]string) archiveDocV2 {
+	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{Name: e.Name, Description: e.Description, Tags: e.Tags}}
+	for _, version := range versions {
+		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
+		for _, variant := range version.Variants {
+			out.Variants = append(out.Variants, temporaryExportVariant(variant, filePaths))
+		}
+		doc.Versions = append(doc.Versions, out)
+	}
+	return doc
+}
+
+func temporaryExportVariant(variant exerciseModel.Variant, filePaths map[uuid.UUID]string) archiveVariantV2 {
+	names := make(map[uuid.UUID]string, len(variant.Topology.Devices))
+	topology := archiveTopologyV2{VPN: variant.Topology.VPN, Internet: variant.Topology.Internet, VisualRender: variant.Topology.VisualRender}
+	for _, device := range variant.Topology.Devices {
+		names[device.ID] = device.Name
+		topology.Devices = append(topology.Devices, archiveDeviceV2{
+			ID: device.ID.String(), Name: device.Name, Type: device.Type, Image: archiveImageV2{Ref: device.Image},
+			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
+			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence,
+		})
+	}
+	for _, connection := range variant.Topology.Connections {
+		out := archiveConnectionV2{}
+		for _, endpoint := range connection.Endpoints {
+			mapped := archiveEndpointV2{Kind: endpoint.Kind, Interface: endpoint.Interface}
+			if endpoint.DeviceID != uuid.Nil {
+				mapped.Device, mapped.DeviceID = names[endpoint.DeviceID], endpoint.DeviceID.String()
+			}
+			out.Endpoints = append(out.Endpoints, mapped)
+		}
+		topology.Connections = append(topology.Connections, out)
+	}
+	result := archiveVariantV2{Index: variant.Index, Note: variant.Note, Topology: topology}
+	if variant.ID != uuid.Nil {
+		result.ID = variant.ID.String()
+	}
+	for _, task := range variant.Tasks {
+		out := archiveTaskV2{
+			Name: task.Name, Description: task.Description, Difficulty: task.Difficulty, Flag: task.Flag,
+			DeviceFlagVar: task.DeviceFlagVar, Placeholders: task.Placeholders,
+		}
+		if task.ID != uuid.Nil {
+			out.ID = task.ID.String()
+		}
+		if task.LinkedDeviceID.Valid {
+			out.LinkedDevice, out.LinkedDeviceID = names[task.LinkedDeviceID.UUID], task.LinkedDeviceID.UUID.String()
+		}
+		for _, attachment := range task.Attachments {
+			out.Attachments = append(out.Attachments, archiveAttachmentV2{File: filePaths[attachment.FileID], Name: attachment.Name})
+		}
+		for _, hint := range task.Hints {
+			mapped := archiveHintV2{Text: hint.Text, Level: hint.Level}
+			if hint.ID != uuid.Nil {
+				mapped.ID = hint.ID.String()
+			}
+			out.Hints = append(out.Hints, mapped)
+		}
+		result.Tasks = append(result.Tasks, out)
+	}
+	return result
+}
