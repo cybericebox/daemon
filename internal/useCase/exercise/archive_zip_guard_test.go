@@ -260,8 +260,8 @@ func allocatedBy(f func()) uint64 {
 
 func TestOpenZipAtDeclaredHugeCountRefusedBeforeAllocation(t *testing.T) {
 	for name, r := range map[string]tailReaderAt{
-		"zip64 200M":  hugeLyingTail(200_000_000, 0, true),
-		"plain 65535": hugeLyingTail(0, 0xFFFF, false),
+		"zip64 200M": hugeLyingTail(200_000_000, 0, true),
+		"plain 5000": hugeLyingTail(0, 5000, false),
 	} {
 		t.Run(name+" plain reader", func(t *testing.T) {
 			var err error
@@ -278,4 +278,44 @@ func TestOpenZipAtDeclaredHugeCountRefusedBeforeAllocation(t *testing.T) {
 			require.Less(t, got, uint64(8<<20))
 		})
 	}
+}
+
+// zip64Wrapped is b with a zip64 end record declaring `count` entries and the plain record saturated, as Info-ZIP
+// and 7z write any zip64 archive.
+func zip64Wrapped(t *testing.T, b []byte, count uint64) []byte {
+	t.Helper()
+	e := eocdOf(t, b)
+	dirSize := binary.LittleEndian.Uint32(b[e+12:])
+	dirOff := binary.LittleEndian.Uint32(b[e+16:])
+	rec := make([]byte, zip64EOCDLen)
+	binary.LittleEndian.PutUint32(rec, zip64EOCDSig)
+	binary.LittleEndian.PutUint64(rec[4:], zip64EOCDLen-12)
+	binary.LittleEndian.PutUint64(rec[24:], count)
+	binary.LittleEndian.PutUint64(rec[32:], count)
+	binary.LittleEndian.PutUint64(rec[40:], uint64(dirSize))
+	binary.LittleEndian.PutUint64(rec[48:], uint64(dirOff))
+	loc := make([]byte, zip64LocatorLen)
+	binary.LittleEndian.PutUint32(loc, zip64LocatorSig)
+	binary.LittleEndian.PutUint64(loc[8:], uint64(e))
+	binary.LittleEndian.PutUint32(loc[16:], 1)
+	out := append(append(append(append([]byte{}, b[:e]...), rec...), loc...), b[e:]...)
+	e += len(rec) + len(loc)
+	binary.LittleEndian.PutUint16(out[e+8:], 0xFFFF)
+	binary.LittleEndian.PutUint16(out[e+10:], 0xFFFF)
+	binary.LittleEndian.PutUint32(out[e+12:], 0xFFFFFFFF)
+	binary.LittleEndian.PutUint32(out[e+16:], 0xFFFFFFFF)
+	return out
+}
+
+func TestOpenZipAtSaturatedPlainRecordWithSmallZip64CountOpens(t *testing.T) {
+	out := zip64Wrapped(t, guardTestZip(t, 3), 3)
+	entries, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "")
+	require.NoError(t, err)
+	require.Len(t, entries, 3)
+}
+
+func TestOpenZipAtSaturatedPlainRecordWithHugeZip64CountRefused(t *testing.T) {
+	out := zip64Wrapped(t, guardTestZip(t, 3), 200_000_000)
+	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "")
+	requireTooLarge(t, err, "zip64 count")
 }

@@ -67,15 +67,16 @@ const (
 )
 
 // declaresTooManyEntries scans every position of buf (not only the last candidate: the readers' pick cannot differ
-// from a scan of all of them) for an end record whose entry counts exceed limits.Entries. The 0xFFFF sentinel of a
-// plain record is a count over the cap too, so it is refused as well.
+// from a scan of all of them) for an end record whose entry counts exceed limits.Entries. The 0xFFFF of a plain
+// record is the zip64 sentinel (Info-ZIP and 7z saturate it for any zip64 archive, e.g. images over 4 GiB), not a
+// count: the real one is in the zip64 record, which the scan checks as well.
 func declaresTooManyEntries(buf []byte) bool {
 	max := uint64(limits.Entries)
 	for i := 0; i+4 <= len(buf); i++ {
 		switch binary.LittleEndian.Uint32(buf[i:]) {
 		case eocdSignature:
 			if i+eocdMinLen <= len(buf) &&
-				(uint64(binary.LittleEndian.Uint16(buf[i+8:])) > max || uint64(binary.LittleEndian.Uint16(buf[i+10:])) > max) {
+				(plainCountOver(binary.LittleEndian.Uint16(buf[i+8:]), max) || plainCountOver(binary.LittleEndian.Uint16(buf[i+10:]), max)) {
 				return true
 			}
 		case eocd64Signature:
@@ -97,3 +98,5 @@ func (b *openBudgetReaderAt) finish() error {
 	}
 	return nil
 }
+
+func plainCountOver(count uint16, max uint64) bool { return count != 0xFFFF && uint64(count) > max }
