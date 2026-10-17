@@ -5,6 +5,7 @@ import (
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	"mime"
 	"net/http"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -30,9 +31,13 @@ type fileUploadResponse struct {
 }
 
 type fileLookupRequest struct {
-	// SHA256 is the hex SHA-256 of the bytes the editor is about to upload.
-	SHA256 string `json:"SHA256" binding:"required,len=64,hexadecimal"`
+	// SHA256 is the SHA-256 of the bytes the editor is about to upload: exactly 64 lowercase hex characters
+	// (checked against sha256Hex after binding).
+	SHA256 string `json:"SHA256" binding:"required"`
 }
+
+// sha256Hex is the only accepted hash form: the media layer stores hashes as lowercase hex, without a prefix.
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type fileLookupResponse struct {
 	Found  bool      `json:"Found"`
@@ -50,6 +55,8 @@ type fileLookupResponse struct {
 // @Param    body  body  fileLookupRequest  true  "SHA-256 of the bytes"
 // @Success  200  {object}  response.Response{data=fileLookupResponse}
 // @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  404  {object}  response.Response
 // @Router   /exercises/{id}/files/lookup [post]
 func (h *Handler) lookupFile(ctx *gin.Context) {
 	id, ok := parseExerciseID(ctx)
@@ -59,6 +66,10 @@ func (h *Handler) lookupFile(ctx *gin.Context) {
 	var req fileLookupRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if !sha256Hex.MatchString(req.SHA256) {
+		response.AbortWithBadRequest(ctx, errors.New("SHA256 must be 64 lowercase hex characters"))
 		return
 	}
 	found, err := h.useCase.LookupExerciseFile(ctx, id, req.SHA256)

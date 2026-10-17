@@ -3,7 +3,9 @@ package exercise_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
@@ -23,6 +25,8 @@ var (
 	filesSecondID = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000f0012")
 	filesHeldID   = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000f0013")
 )
+
+var errFilesStore = errors.New("connection reset")
 
 const filesHash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
@@ -58,19 +62,67 @@ func TestLookupExerciseFile_FoundAndMissing(t *testing.T) {
 	ctx := context.Background()
 	t.Run("found", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-		q.EXPECT().GetExerciseFileByHash(gomock.Any(), postgres.GetExerciseFileByHashParams{ExerciseID: filesTaskID, ContentHash: filesHash}).
-			Return(postgres.GetExerciseFileByHashRow{ID: filesHeldID, Name: "notes.txt", SizeBytes: 42}, nil)
+		q.EXPECT().GetExerciseFileByHash(gomock.Any(), gomock.Any()).DoAndReturn(expectLookupOf(t, postgres.GetExerciseFileByHashRow{ID: filesHeldID, Name: "notes.txt", SizeBytes: 42}, nil))
 		got, err := newUC(q, newFakeMedia()).LookupExerciseFile(ctx, filesTaskID, filesHash)
 		require.NoError(t, err)
 		require.Equal(t, exercise.FileLookup{Found: true, FileID: filesHeldID, Name: "notes.txt", Size: 42}, got)
 	})
 	t.Run("missing", func(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-		q.EXPECT().GetExerciseFileByHash(gomock.Any(), postgres.GetExerciseFileByHashParams{ExerciseID: filesTaskID, ContentHash: filesHash}).
-			Return(postgres.GetExerciseFileByHashRow{}, errNoRows())
+		q.EXPECT().GetExerciseFileByHash(gomock.Any(), gomock.Any()).DoAndReturn(expectLookupOf(t, postgres.GetExerciseFileByHashRow{}, errNoRows()))
 		got, err := newUC(q, newFakeMedia()).LookupExerciseFile(ctx, filesTaskID, filesHash)
 		require.NoError(t, err)
 		require.Equal(t, exercise.FileLookup{}, got)
+	})
+	t.Run("a platform error is an error, not a miss", func(t *testing.T) {
+		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+		q.EXPECT().GetExerciseFileByHash(gomock.Any(), gomock.Any()).Return(postgres.GetExerciseFileByHashRow{}, errFilesStore)
+		got, err := newUC(q, newFakeMedia()).LookupExerciseFile(ctx, filesTaskID, filesHash)
+		require.ErrorIs(t, err, errFilesStore)
+		require.Equal(t, exercise.FileLookup{}, got)
+	})
+}
+
+// expectLookupOf checks the lookup is scoped to the task and asks with the GC grace cutoff (default 24h).
+func expectLookupOf(t *testing.T, row postgres.GetExerciseFileByHashRow, err error) func(context.Context, postgres.GetExerciseFileByHashParams) (postgres.GetExerciseFileByHashRow, error) {
+	return func(_ context.Context, arg postgres.GetExerciseFileByHashParams) (postgres.GetExerciseFileByHashRow, error) {
+		require.Equal(t, filesTaskID, arg.ExerciseID)
+		require.Equal(t, filesHash, arg.ContentHash)
+		age := time.Since(arg.GraceCutoff)
+		require.True(t, age > 23*time.Hour && age < 25*time.Hour, "grace cutoff %s", arg.GraceCutoff)
+		return row, err
+	}
+}
+
+// A failing claim or hash read stops the save: no draft is written with unadopted files.
+func TestSaveDraft_FileStoreErrorStopsSave(t *testing.T) {
+	setup := func(t *testing.T) *postgresMocks.MockQuerier {
+		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+		expectUserNames(q)
+		q.EXPECT().GetDraftVersion(gomock.Any(), filesTaskID).Return(postgres.ExerciseVersion{}, errNoRows()).AnyTimes()
+		q.EXPECT().GetExerciseByID(gomock.Any(), filesTaskID).Return(postgres.Exercise{ID: filesTaskID}, nil).AnyTimes()
+		q.EXPECT().ListFileOwners(gomock.Any(), gomock.Any()).Return([]postgres.ListFileOwnersRow{
+			{ID: filesFirstID, CreatedBy: uuid.NullUUID{UUID: filesAuthorID, Valid: true}},
+		}, nil)
+		// No UpsertExerciseDraft expectation: the strict mock fails the test if the draft is written.
+		return q
+	}
+	save := func(q *postgresMocks.MockQuerier) error {
+		_, err := newUC(q, newFakeMedia()).SaveDraft(context.Background(), filesTaskID, exercise.SaveDraftInput{
+			SavedBy: filesAuthorID, Variants: variantsWithFiles(filesFirstID),
+		})
+		return err
+	}
+	t.Run("hashes", func(t *testing.T) {
+		q := setup(t)
+		q.EXPECT().ListFileHashes(gomock.Any(), gomock.Any()).Return(nil, errFilesStore)
+		require.ErrorIs(t, save(q), errFilesStore)
+	})
+	t.Run("claim", func(t *testing.T) {
+		q := setup(t)
+		q.EXPECT().ListFileHashes(gomock.Any(), gomock.Any()).Return([]postgres.ListFileHashesRow{{ID: filesFirstID, ContentHash: filesHash}}, nil)
+		q.EXPECT().ClaimExerciseFile(gomock.Any(), gomock.Any()).Return(uuid.Nil, errFilesStore)
+		require.ErrorIs(t, save(q), errFilesStore)
 	})
 }
 
@@ -92,7 +144,7 @@ func TestSaveDraft_DedupesSameBytes(t *testing.T) {
 		require.Equal(t, filesTaskID, arg.ExerciseID)
 		require.Equal(t, filesHash, arg.ContentHash)
 		require.Equal(t, filesFirstID, arg.FileID)
-		require.False(t, arg.CreatedAt.IsZero())
+		require.Equal(t, 24*time.Hour, arg.CreatedAt.Sub(arg.GraceCutoff))
 		return filesHeldID, nil
 	}).Times(1)
 	var captured postgres.UpsertExerciseDraftParams
@@ -118,7 +170,8 @@ func TestSaveDraft_AcceptsFileHeldByTask(t *testing.T) {
 	q.EXPECT().ListFileOwners(gomock.Any(), gomock.Any()).Return([]postgres.ListFileOwnersRow{
 		{ID: filesHeldID, CreatedBy: uuid.NullUUID{UUID: filesOtherID, Valid: true}},
 	}, nil)
-	q.EXPECT().ExerciseHoldsFile(gomock.Any(), postgres.ExerciseHoldsFileParams{ExerciseID: filesTaskID, FileID: filesHeldID}).Return(true, nil)
+	q.EXPECT().ListExerciseHeldFiles(gomock.Any(), postgres.ListExerciseHeldFilesParams{ExerciseID: filesTaskID, FileIds: []uuid.UUID{filesHeldID}}).
+		Return([]uuid.UUID{filesHeldID}, nil)
 	q.EXPECT().ListFileExerciseIDs(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	expectFilesAdoptedAsIs(q)
 	var captured postgres.UpsertExerciseDraftParams

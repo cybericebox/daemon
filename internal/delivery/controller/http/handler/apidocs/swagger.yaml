@@ -6348,8 +6348,9 @@ definitions:
   exercise.fileLookupRequest:
     properties:
       SHA256:
-        description: SHA256 is the hex SHA-256 of the bytes the editor is about to
-          upload.
+        description: |-
+          SHA256 is the SHA-256 of the bytes the editor is about to upload: exactly 64 lowercase hex characters
+          (checked against sha256Hex after binding).
         type: string
     required:
     - SHA256
@@ -20362,6 +20363,14 @@ paths:
               type: object
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
           schema:
             $ref: '#/definitions/response.Response'
       summary: Whether the task already stores a content (asked before an attachment

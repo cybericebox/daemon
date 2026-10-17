@@ -73,7 +73,7 @@ type Queries interface {
 	GetExerciseFileByHash(ctx context.Context, arg postgres.GetExerciseFileByHashParams) (postgres.GetExerciseFileByHashRow, error)
 	ClaimExerciseFile(ctx context.Context, arg postgres.ClaimExerciseFileParams) (uuid.UUID, error)
 	ListFileHashes(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileHashesRow, error)
-	ExerciseHoldsFile(ctx context.Context, arg postgres.ExerciseHoldsFileParams) (bool, error)
+	ListExerciseHeldFiles(ctx context.Context, arg postgres.ListExerciseHeldFilesParams) ([]uuid.UUID, error)
 	ListUserNames(ctx context.Context, ids []uuid.UUID) ([]postgres.ListUserNamesRow, error)
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserEventMembershipsRow, error)
 	ListManagedExerciseAttachments(ctx context.Context, arg postgres.ListManagedExerciseAttachmentsParams) ([]postgres.ListManagedExerciseAttachmentsRow, error)

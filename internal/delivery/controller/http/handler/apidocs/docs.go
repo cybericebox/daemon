@@ -16900,6 +16900,18 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
                     }
                 }
             }
@@ -31885,7 +31897,7 @@ const docTemplate = `{
             ],
             "properties": {
                 "SHA256": {
-                    "description": "SHA256 is the hex SHA-256 of the bytes the editor is about to upload.",
+                    "description": "SHA256 is the SHA-256 of the bytes the editor is about to upload: exactly 64 lowercase hex characters\n(checked against sha256Hex after binding).",
                     "type": "string"
                 }
             }

@@ -13,9 +13,25 @@ import (
 )
 
 const claimExerciseFile = `-- name: ClaimExerciseFile :one
-INSERT INTO exercise_files (exercise_id, content_hash, file_id, created_at)
+INSERT INTO exercise_files AS ef (exercise_id, content_hash, file_id, created_at)
 VALUES ($1, $2, $3, $4)
-ON CONFLICT (exercise_id, content_hash) DO UPDATE SET content_hash = EXCLUDED.content_hash
+ON CONFLICT (exercise_id, content_hash) DO UPDATE
+    SET file_id    = CASE
+                         WHEN EXISTS (SELECT 1 FROM file_references r WHERE r.file_id = ef.file_id)
+                             OR EXISTS (SELECT 1
+                                        FROM files f
+                                        WHERE f.id = ef.file_id
+                                          AND f.created_at >= $5::timestamptz)
+                             THEN ef.file_id
+                         ELSE EXCLUDED.file_id END,
+        created_at = CASE
+                         WHEN EXISTS (SELECT 1 FROM file_references r WHERE r.file_id = ef.file_id)
+                             OR EXISTS (SELECT 1
+                                        FROM files f
+                                        WHERE f.id = ef.file_id
+                                          AND f.created_at >= $5::timestamptz)
+                             THEN ef.created_at
+                         ELSE EXCLUDED.created_at END
 RETURNING file_id
 `
 
@@ -24,53 +40,39 @@ type ClaimExerciseFileParams struct {
 	ContentHash string    `json:"content_hash"`
 	FileID      uuid.UUID `json:"file_id"`
 	CreatedAt   time.Time `json:"created_at"`
+	GraceCutoff time.Time `json:"grace_cutoff"`
 }
 
-// Records the file as the task's copy of its content, unless the task already holds that content: either way it
-// returns the task's canonical file. The no-op update makes RETURNING yield the existing row on conflict.
+// Records the file as the task's copy of its content and returns the task's canonical file. On conflict the
+// stored file stays canonical while the GC would keep it; a GC-eligible one is replaced by the given file.
 func (q *Queries) ClaimExerciseFile(ctx context.Context, arg ClaimExerciseFileParams) (uuid.UUID, error) {
 	row := q.db.QueryRow(ctx, claimExerciseFile,
 		arg.ExerciseID,
 		arg.ContentHash,
 		arg.FileID,
 		arg.CreatedAt,
+		arg.GraceCutoff,
 	)
 	var file_id uuid.UUID
 	err := row.Scan(&file_id)
 	return file_id, err
 }
 
-const exerciseHoldsFile = `-- name: ExerciseHoldsFile :one
-SELECT EXISTS(SELECT 1
-              FROM exercise_files
-              WHERE exercise_id = $1
-                AND file_id = $2)::boolean
-`
-
-type ExerciseHoldsFileParams struct {
-	ExerciseID uuid.UUID `json:"exercise_id"`
-	FileID     uuid.UUID `json:"file_id"`
-}
-
-// Whether the task stores the file as its copy of a content (a co-author's upload found by the hash lookup).
-func (q *Queries) ExerciseHoldsFile(ctx context.Context, arg ExerciseHoldsFileParams) (bool, error) {
-	row := q.db.QueryRow(ctx, exerciseHoldsFile, arg.ExerciseID, arg.FileID)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const getExerciseFileByHash = `-- name: GetExerciseFileByHash :one
+
 SELECT f.id, f.name, f.size_bytes
 FROM exercise_files ef
          JOIN files f ON f.id = ef.file_id
 WHERE ef.exercise_id = $1
   AND ef.content_hash = $2
+  AND (f.created_at >= $3::timestamptz
+    OR EXISTS (SELECT 1 FROM file_references r WHERE r.file_id = f.id))
 `
 
 type GetExerciseFileByHashParams struct {
 	ExerciseID  uuid.UUID `json:"exercise_id"`
 	ContentHash string    `json:"content_hash"`
+	GraceCutoff time.Time `json:"grace_cutoff"`
 }
 
 type GetExerciseFileByHashRow struct {
@@ -79,12 +81,48 @@ type GetExerciseFileByHashRow struct {
 	SizeBytes int64     `json:"size_bytes"`
 }
 
+// A stored file still counts as the task's copy only while the media GC would keep it: some reference holds it,
+// or it is younger than the GC grace cutoff (the same rule DeleteUnreferencedFiles applies). A file past that
+// point may vanish at any moment, so it is neither offered by the lookup nor kept by a claim.
 // The task's stored file for a content, if any. Scoped to the one task: never reveals another task's files.
 func (q *Queries) GetExerciseFileByHash(ctx context.Context, arg GetExerciseFileByHashParams) (GetExerciseFileByHashRow, error) {
-	row := q.db.QueryRow(ctx, getExerciseFileByHash, arg.ExerciseID, arg.ContentHash)
+	row := q.db.QueryRow(ctx, getExerciseFileByHash, arg.ExerciseID, arg.ContentHash, arg.GraceCutoff)
 	var i GetExerciseFileByHashRow
 	err := row.Scan(&i.ID, &i.Name, &i.SizeBytes)
 	return i, err
+}
+
+const listExerciseHeldFiles = `-- name: ListExerciseHeldFiles :many
+SELECT file_id
+FROM exercise_files
+WHERE exercise_id = $1
+  AND file_id = ANY ($2::uuid[])
+`
+
+type ListExerciseHeldFilesParams struct {
+	ExerciseID uuid.UUID   `json:"exercise_id"`
+	FileIds    []uuid.UUID `json:"file_ids"`
+}
+
+// Which of the files the task stores as its copy of a content (a co-author's upload found by the hash lookup).
+func (q *Queries) ListExerciseHeldFiles(ctx context.Context, arg ListExerciseHeldFilesParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listExerciseHeldFiles, arg.ExerciseID, arg.FileIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var file_id uuid.UUID
+		if err := rows.Scan(&file_id); err != nil {
+			return nil, err
+		}
+		items = append(items, file_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFileHashes = `-- name: ListFileHashes :many

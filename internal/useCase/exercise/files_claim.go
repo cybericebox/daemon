@@ -26,6 +26,7 @@ func (u *ExerciseUseCase) requireFilesClaimable(ctx context.Context, exerciseID,
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to check attached files").Err()
 	}
+	var others []uuid.UUID
 	for _, id := range unique {
 		owner, exists := owners[id]
 		if !exists {
@@ -34,11 +35,17 @@ func (u *ExerciseUseCase) requireFilesClaimable(ctx context.Context, exerciseID,
 		if owner.Valid && by != uuid.Nil && owner.UUID == by {
 			continue
 		}
-		held, heldErr := u.exercises.HoldsFile(ctx, exerciseID, id)
-		if heldErr != nil {
-			return model.ErrPlatform.WithError(heldErr).WithMessage("Failed to check attached files").Err()
-		}
-		if held {
+		others = append(others, id)
+	}
+	if len(others) == 0 {
+		return nil
+	}
+	held, err := u.exercises.HeldFiles(ctx, exerciseID, others)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to check attached files").Err()
+	}
+	for _, id := range others {
+		if held[id] {
 			continue
 		}
 		holders, holdErr := u.exercises.FileExerciseIDs(ctx, id, mediaModel.RefTypeExerciseVersion)

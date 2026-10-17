@@ -2859,21 +2859,6 @@ func (mr *MockQuerierMockRecorder) ExerciseDraftDiffersFromPublished(ctx, exerci
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExerciseDraftDiffersFromPublished", reflect.TypeOf((*MockQuerier)(nil).ExerciseDraftDiffersFromPublished), ctx, exerciseID)
 }
 
-// ExerciseHoldsFile mocks base method.
-func (m *MockQuerier) ExerciseHoldsFile(ctx context.Context, arg postgres.ExerciseHoldsFileParams) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExerciseHoldsFile", ctx, arg)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ExerciseHoldsFile indicates an expected call of ExerciseHoldsFile.
-func (mr *MockQuerierMockRecorder) ExerciseHoldsFile(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExerciseHoldsFile", reflect.TypeOf((*MockQuerier)(nil).ExerciseHoldsFile), ctx, arg)
-}
-
 // ExtendLabTrafficCoverage mocks base method.
 func (m *MockQuerier) ExtendLabTrafficCoverage(ctx context.Context, arg postgres.ExtendLabTrafficCoverageParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -7486,6 +7471,21 @@ func (m *MockQuerier) ListExerciseCardExtras(ctx context.Context, ids []uuid.UUI
 func (mr *MockQuerierMockRecorder) ListExerciseCardExtras(ctx, ids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseCardExtras", reflect.TypeOf((*MockQuerier)(nil).ListExerciseCardExtras), ctx, ids)
+}
+
+// ListExerciseHeldFiles mocks base method.
+func (m *MockQuerier) ListExerciseHeldFiles(ctx context.Context, arg postgres.ListExerciseHeldFilesParams) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseHeldFiles", ctx, arg)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseHeldFiles indicates an expected call of ListExerciseHeldFiles.
+func (mr *MockQuerierMockRecorder) ListExerciseHeldFiles(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseHeldFiles", reflect.TypeOf((*MockQuerier)(nil).ListExerciseHeldFiles), ctx, arg)
 }
 
 // ListExerciseProposals mocks base method.

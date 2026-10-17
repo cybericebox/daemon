@@ -52,7 +52,7 @@ func TestSaveDraftRefusesAFileThatIsNotTheCallersAndNotTheExercises(t *testing.T
 			return []uuid.UUID{uuid.Must(uuid.NewV7())}, nil // another exercise's
 		}).AnyTimes()
 		// Nothing is stored as the exercise's copy of a content: only versions hold files here.
-		q.EXPECT().ExerciseHoldsFile(gomock.Any(), gomock.Any()).Return(false, nil).AnyTimes()
+		q.EXPECT().ListExerciseHeldFiles(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 		expectFilesAdoptedAsIs(q)
 		return newUC(q, newFakeMedia()), q
 	}

@@ -1983,6 +1983,8 @@ func TestLookupFile_Route(t *testing.T) {
 		"short":   `{"SHA256":"abc"}`,
 		"not hex": `{"SHA256":"` + strings.Repeat("zz", 32) + `"}`,
 		"missing": `{}`,
+		"upper":   `{"SHA256":"` + strings.Repeat("AB", 32) + `"}`,
+		"0x":      `{"SHA256":"0x` + strings.Repeat("ab", 31) + `"}`,
 	} {
 		t.Run("bad hash "+name, func(t *testing.T) {
 			uc := &fakeUC{}

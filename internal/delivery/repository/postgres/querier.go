@@ -45,8 +45,8 @@ type Querier interface {
 	AttachEventLabAssignmentBindings(ctx context.Context, labID uuid.NullUUID) (int64, error)
 	AvgDailyActiveSince(ctx context.Context, createdAt time.Time) (float64, error)
 	BlobExists(ctx context.Context, contentHash string) (bool, error)
-	// Records the file as the task's copy of its content, unless the task already holds that content: either way it
-	// returns the task's canonical file. The no-op update makes RETURNING yield the existing row on conflict.
+	// Records the file as the task's copy of its content and returns the task's canonical file. On conflict the
+	// stored file stays canonical while the GC would keep it; a GC-eligible one is replaced by the given file.
 	ClaimExerciseFile(ctx context.Context, arg ClaimExerciseFileParams) (uuid.UUID, error)
 	// Places a group on an agent unless it is placed already; returns the agent that holds it, so two
 	// racing callers agree on the winner.
@@ -324,8 +324,6 @@ type Querier interface {
 	// the domain (Exercise.HasUnpublishedChanges) without asking.
 	// label is deliberately not compared: it names snapshots, never content.
 	ExerciseDraftDiffersFromPublished(ctx context.Context, exerciseID uuid.UUID) (bool, error)
-	// Whether the task stores the file as its copy of a content (a co-author's upload found by the hash lookup).
-	ExerciseHoldsFile(ctx context.Context, arg ExerciseHoldsFileParams) (bool, error)
 	// Grows the latest segment of the same collector boot when the new span joins
 	// it (within the tolerance); zero rows means a new segment is needed.
 	ExtendLabTrafficCoverage(ctx context.Context, arg ExtendLabTrafficCoverageParams) (int64, error)
@@ -471,6 +469,9 @@ type Querier interface {
 	GetEventTeamStand(ctx context.Context, eventTeamID uuid.UUID) (EventTeamStand, error)
 	GetEventTeamVisible(ctx context.Context, arg GetEventTeamVisibleParams) (bool, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
+	// A stored file still counts as the task's copy only while the media GC would keep it: some reference holds it,
+	// or it is younger than the GC grace cutoff (the same rule DeleteUnreferencedFiles applies). A file past that
+	// point may vanish at any moment, so it is neither offered by the lookup nor kept by a claim.
 	// The task's stored file for a content, if any. Scoped to the one task: never reveals another task's files.
 	GetExerciseFileByHash(ctx context.Context, arg GetExerciseFileByHashParams) (GetExerciseFileByHashRow, error)
 	GetExerciseInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error)
@@ -961,6 +962,8 @@ type Querier interface {
 	// Card decorations for a page of exercises in one query: owner event name,
 	// fork source name, infrastructure and a pending proposal.
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]ListExerciseCardExtrasRow, error)
+	// Which of the files the task stores as its copy of a content (a co-author's upload found by the hash lookup).
+	ListExerciseHeldFiles(ctx context.Context, arg ListExerciseHeldFilesParams) ([]uuid.UUID, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]ListExerciseProposalsRow, error)
 	// Newest first; status and exercise narrow the list (a null argument does not filter).
 	ListExerciseResourceElevations(ctx context.Context, arg ListExerciseResourceElevationsParams) ([]ListExerciseResourceElevationsRow, error)
