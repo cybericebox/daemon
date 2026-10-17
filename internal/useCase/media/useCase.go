@@ -33,6 +33,14 @@ type MediaUseCase struct {
 	storage           IStorage
 	storageConfigured bool
 	cfg               config.MediaConfig
+	// archiveUploadLimit is the largest task archive upload (SetArchiveUploadLimit); nil: the default limits'.
+	archiveUploadLimit func(context.Context) int64
+}
+
+// SetArchiveUploadLimit wires the task archive upload limit in force (the archive limit of the platform settings
+// plus one image archive), read on every upload start.
+func (u *MediaUseCase) SetArchiveUploadLimit(limit func(context.Context) int64) {
+	u.archiveUploadLimit = limit
 }
 
 type Dependencies struct {

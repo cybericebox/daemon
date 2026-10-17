@@ -11,11 +11,9 @@ import (
 // exported task imports again. One entry may be as large as one stored file (MEDIA_MAX_UPLOAD_BYTES, 512 MiB by
 // default), so every attachment fits.
 const (
-	// MaxArchiveBytes is the largest task archive (.zip) without device images.
-	MaxArchiveBytes int64 = 512 << 20
-	// MaxArchiveWithImagesBytes is the largest task archive that carries device images (`image: {file: …}`): the
-	// archive limit plus one image archive's (all its images together are at most MaxImageArchiveBytes).
-	MaxArchiveWithImagesBytes = MaxArchiveBytes + imageRegistryModel.MaxImageArchiveBytes
+	// DefaultArchiveBytes is the largest task archive (.zip) without device images; one that carries them may be
+	// larger by one image archive (ArchiveLimits.WithImagesBytes).
+	DefaultArchiveBytes int64 = 512 << 20
 	// DefaultArchiveEntryBytes is one file unpacked.
 	DefaultArchiveEntryBytes int64 = 512 << 20
 	// DefaultArchiveUnpackedBytes is all files unpacked together.
@@ -49,7 +47,7 @@ var ArchiveLimitFields = []platformSettingsModel.FieldSpec{
 // DefaultArchiveLimits are the limits in force while none are saved.
 func DefaultArchiveLimits() ArchiveLimits {
 	return ArchiveLimits{
-		ArchiveBytes:  MaxArchiveBytes,
+		ArchiveBytes:  DefaultArchiveBytes,
 		EntryBytes:    DefaultArchiveEntryBytes,
 		UnpackedBytes: DefaultArchiveUnpackedBytes,
 		Entries:       DefaultArchiveEntries,

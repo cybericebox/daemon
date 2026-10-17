@@ -76,7 +76,9 @@ type (
 		CheckTestFlag(ctx context.Context, userID, deployID, taskID uuid.UUID, flag string) (bool, error)
 		OpenTestDeployLink(ctx context.Context, userID, deployID uuid.UUID, device string, port int32) (labaccess.Link, error)
 		// archive portability
-		ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts exerciseUseCase.ExportOptions) ([]byte, error)
+		// ArchiveLimits are the archive limits in force: read once per import or export and passed down.
+		ArchiveLimits(ctx context.Context) exerciseModel.ArchiveLimits
+		ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts exerciseUseCase.ExportOptions, lim exerciseModel.ArchiveLimits) ([]byte, error)
 		ImportExerciseArchive(ctx context.Context, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error)
 		// background import of archives naming device image files
 		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)

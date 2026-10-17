@@ -157,24 +157,26 @@ const (
 	defaultTestDeployTTLMax = 8 * time.Hour
 )
 
-// testDeployTTL is the lease of a test lab.
-func (u *ExerciseUseCase) testDeployTTL() time.Duration {
-	if u.flagConfig.TestDeployTTL > 0 {
-		return u.flagConfig.TestDeployTTL
+// testRunLeases are the test lab leases in force: the platform settings, or the config (2h, at most 8h when unset)
+// when they cannot be read (logged). Read once per deploy or extension.
+func (u *ExerciseUseCase) testRunLeases(ctx context.Context) exerciseModel.TestRunLeases {
+	if u.settings != nil {
+		leases, err := u.settings.TestRunLeases(ctx)
+		if err == nil {
+			return leases
+		}
+		log.Warn().Err(err).Msg("Test run leases cannot be read, the config applies")
 	}
-	return defaultTestDeployTTL
+	leases := exerciseModel.TestRunLeases{Lease: u.flagConfig.TestDeployTTL, Max: u.flagConfig.TestDeployTTLMax}
+	if leases.Lease <= 0 {
+		leases.Lease = defaultTestDeployTTL
+	}
+	if leases.Max <= 0 {
+		leases.Max = defaultTestDeployTTLMax
+	}
+	return leases
 }
 
-// maxTestDeployTTL is the longest a test lab lives from its start, however often it is extended.
-func (u *ExerciseUseCase) maxTestDeployTTL() time.Duration {
-	if u.flagConfig.TestDeployTTLMax > 0 {
-		return u.flagConfig.TestDeployTTLMax
-	}
-	return defaultTestDeployTTLMax
-}
-
-// DevicePersistenceAllowed says some agent offers device state persistence to this platform, so the
-// editor offers the option. The agents report it; there is no setting for it here.
 func (u *ExerciseUseCase) DevicePersistenceAllowed() bool {
 	p, ok := u.infra.(interface{ PersistenceAvailable() bool })
 	return ok && p.PersistenceAvailable()
@@ -266,14 +268,16 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		deployFlags = append(deployFlags, exerciseModel.DeployFlag{TaskID: link.TaskID, Name: link.Name, Flag: link.Flag})
 	}
 	id := uuid.Must(uuid.NewV7())
+	// One lease for the calendar hold and the row.
+	lease := u.testRunLeases(ctx).Lease
 	// The resource calendar decides whether the laboratory fits: the author's booked window, the guaranteed pool
 	// or unplanned room; otherwise the error names the nearest free window.
 	if eventID == nil {
-		if err = u.admitTestLab(ctx, id, ownerID, topo); err != nil {
+		if err = u.admitTestLab(ctx, id, ownerID, topo, lease); err != nil {
 			return exerciseModel.DeployHandle{}, err
 		}
 	}
-	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(u.testDeployTTL())}
+	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(lease)}
 
 	if eventID != nil {
 		deploy.GroupName = eventPreviewTestGroup(*eventID, ownerID)
@@ -310,7 +314,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 			if !known {
 				return false, calendarError()
 			}
-			req := u.eventPreviewLabRequest(*eventID, id, ownerID, deploy.GroupName, topo)
+			req := u.eventPreviewLabRequest(*eventID, id, ownerID, deploy.GroupName, topo, lease)
 			req.GroupOverhead = overhead
 			room, admitErr := gate.AdmitEventTestLab(ctx, req)
 			if admitErr != nil {
@@ -393,11 +397,12 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 	}
 	now := u.timeNow()
 	id := uuid.Must(uuid.NewV7())
+	lease := u.testRunLeases(ctx).Lease
 	// A static request reserves nothing: the calendar admits it without an agent read or a hold.
-	if err := u.admitStaticTest(ctx, id, ownerID); err != nil {
+	if err := u.admitStaticTest(ctx, id, ownerID, lease); err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
-	deploy := exerciseModel.NewStaticTestDeploy(id, versionID, variant.ID, ownerID, flags, now, u.testDeployTTL())
+	deploy := exerciseModel.NewStaticTestDeploy(id, versionID, variant.ID, ownerID, flags, now, lease)
 	err := u.underOwnerLock(ctx, ownerID, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		existing, err := repo.ListOwned(ctx, ownerID)
 		if err != nil {
@@ -1012,9 +1017,10 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 	if testDeployExpired(current, now) {
 		return exerciseModel.TestDeploy{}, exerciseModel.ErrTestDeployNotFound.Err()
 	}
-	expiresAt := now.Add(u.testDeployTTL())
+	leases := u.testRunLeases(ctx)
+	expiresAt := now.Add(leases.Lease)
 	if !current.CreatedAt.IsZero() {
-		if absoluteLimit := current.CreatedAt.Add(u.maxTestDeployTTL()); expiresAt.After(absoluteLimit) {
+		if absoluteLimit := current.CreatedAt.Add(leases.Max); expiresAt.After(absoluteLimit) {
 			expiresAt = absoluteLimit
 		}
 	}
@@ -1214,9 +1220,10 @@ func (u *ExerciseUseCase) extendEventPreviewTestDeploy(ctx context.Context, owne
 		if !ok {
 			return false, calendarError()
 		}
-		until := now.Add(u.testDeployTTL())
-		if cap := current.CreatedAt.Add(u.maxTestDeployTTL()); !current.CreatedAt.IsZero() && until.After(cap) {
-			until = cap
+		leases := u.testRunLeases(ctx)
+		until := now.Add(leases.Lease)
+		if limit := current.CreatedAt.Add(leases.Max); !current.CreatedAt.IsZero() && until.After(limit) {
+			until = limit
 		}
 		until, err = gate.ExtendEventTestLab(ctx, *current.EventID, id, owner, until)
 		if err != nil {

@@ -235,3 +235,100 @@ func TestGenericUpsert_TypedKeyRefused(t *testing.T) {
 		assert.True(t, errors.Is(err, platformSettingsModel.ErrTypedSettingNotGeneric.Err()), "%s: got %v", key, err)
 	}
 }
+
+// A use case built without the test run config (zero leases) keeps today's fallback: 2h, at most 8h.
+func TestTestRunLeases_ZeroDefaultsFallBackTo2hAnd8h(t *testing.T) {
+	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retentionModel.DefaultPolicy()})
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.TestRunsKey).Return(postgres.AppSetting{}, pgx.ErrNoRows).Times(2)
+
+	leases, err := uc.TestRunLeases(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, exerciseModel.TestRunLeases{Lease: 2 * time.Hour, Max: 8 * time.Hour}, leases)
+
+	uc = NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retentionModel.DefaultPolicy(), TestRunDefaults: exerciseModel.TestRunLeases{Lease: 3 * time.Hour}})
+	leases, err = uc.TestRunLeases(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 8 * time.Hour}, leases, "each lease falls back on its own")
+}
+
+// An env default outside its field bounds is named once at construction; a stored row that only fails because of
+// it is not blamed.
+func TestEnvDefaultOutOfBounds_WarnsAtConstructionAndDoesNotBlameTheRow(t *testing.T) {
+	warnings := captureWarnings(t)
+	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	retention := retentionModel.DefaultPolicy()
+	retention.UnusedAnswerFile = time.Hour // the field's minimum is 24h
+	uc := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retention, TestRunDefaults: exerciseModel.TestRunLeases{Lease: 2 * time.Hour, Max: 8 * time.Hour}})
+
+	startup := warnings.String()
+	assert.Contains(t, startup, `"level":"warn"`)
+	assert.Contains(t, startup, platformSettingsModel.RetentionKey)
+	assert.Contains(t, startup, `"field":"UnusedAnswerFile"`)
+	assert.Contains(t, startup, `"value":3600`)
+	assert.NotContains(t, startup, platformSettingsModel.TestRunsKey, "valid defaults are not reported")
+	warnings.Reset()
+
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.RetentionKey).
+		Return(storedRow(platformSettingsModel.RetentionKey, `{"DeliveryLog":864000}`), nil)
+	got, err := uc.RetentionPolicy(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, retention, got, "the defaults apply")
+	assert.Contains(t, warnings.String(), "default")
+	assert.NotContains(t, warnings.String(), "Stored setting is not valid")
+}
+
+// Cross-field rules count too: an env grace not shorter than the inactivity period.
+func TestEnvDefaultCrossField_WarnsAtConstruction(t *testing.T) {
+	warnings := captureWarnings(t)
+	retention := retentionModel.DefaultPolicy()
+	retention.InactivityGrace = retention.InactiveAccount
+	NewPlatformSettingsUseCase(Dependencies{Repo: postgresMocks.NewMockQuerier(gomock.NewController(t)), RetentionDefaults: retention})
+
+	assert.Contains(t, warnings.String(), platformSettingsModel.RetentionKey)
+	assert.Contains(t, warnings.String(), `"field":"InactivityGrace"`)
+}
+
+func TestLoadTyped_NullOrForeignKeys_WarnStillSafe(t *testing.T) {
+	t.Run("null", func(t *testing.T) {
+		warnings := captureWarnings(t)
+		repo, uc := setupTyped(t)
+		repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).
+			Return(storedRow(platformSettingsModel.ArchiveLimitsKey, `null`), nil)
+
+		got, err := uc.ArchiveLimits(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, exerciseModel.DefaultArchiveLimits(), got)
+		assert.Contains(t, warnings.String(), `"level":"warn"`)
+		assert.Contains(t, warnings.String(), platformSettingsModel.ArchiveLimitsKey)
+	})
+	t.Run("foreign keys", func(t *testing.T) {
+		warnings := captureWarnings(t)
+		repo, uc := setupTyped(t)
+		repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).
+			Return(storedRow(platformSettingsModel.ArchiveLimitsKey, `{"Entries":50,"Retired":7,"Old":1}`), nil)
+
+		got, err := uc.ArchiveLimits(context.Background())
+		require.NoError(t, err)
+		want := exerciseModel.DefaultArchiveLimits()
+		want.Entries = 50
+		assert.Equal(t, want, got, "the known fields still apply")
+		assert.Contains(t, warnings.String(), `"level":"warn"`)
+		assert.Contains(t, warnings.String(), `"unknown":["Old","Retired"]`)
+	})
+}
+
+// A typed row is gated by platform.settings.read: a caller holding only the value permission (the public role)
+// cannot read it through GET settings/:key/value.
+func TestGetPlatformSettingValue_TypedRowHiddenFromValueOnlyCaller(t *testing.T) {
+	repo, uc := setupTyped(t)
+	for _, key := range []string{platformSettingsModel.RetentionKey, platformSettingsModel.ArchiveLimitsKey, platformSettingsModel.TestRunsKey} {
+		repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), key).Return(storedRow(key, `{"Lease":3600}`), nil)
+		ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RolePublic})
+		require.True(t, rbac.HasPermissionInContext(ctx, rbac.PermPlatformSettingsReadValue), "the public role holds the value permission")
+
+		value, err := uc.GetPlatformSettingValue(ctx, key)
+		assert.Nil(t, value)
+		assert.True(t, errors.Is(err, platformSettingsModel.ErrSettingNotFound.Err()), "%s: got %v", key, err)
+	}
+}

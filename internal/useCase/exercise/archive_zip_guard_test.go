@@ -47,14 +47,14 @@ func eocdOf(t *testing.T, b []byte) int {
 func TestOpenZipAtRefusesHugeEntryCountInEndRecord(t *testing.T) {
 	b := guardTestZip(t, 3)
 	binary.LittleEndian.PutUint16(b[eocdOf(t, b)+10:], 60000)
-	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
+	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "", DefaultLimits())
 	require.Error(t, err, "a lying count is refused")
 }
 
 func TestOpenZipAtRefusesHugeDirectorySize(t *testing.T) {
 	b := guardTestZip(t, 3)
 	binary.LittleEndian.PutUint32(b[eocdOf(t, b)+12:], 0x7FFFFFFF)
-	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
+	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "", DefaultLimits())
 	require.Error(t, err, "a lying size is refused")
 }
 
@@ -75,13 +75,13 @@ func TestOpenZipAtRefusesHugeZip64Record(t *testing.T) {
 	binary.LittleEndian.PutUint16(out[e+10:], 0xFFFF)
 	// the zip64 record sits where the locator says
 	binary.LittleEndian.PutUint64(out[e-zip64LocatorLen+8:], uint64(e-zip64LocatorLen-zip64EOCDLen))
-	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "")
+	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "", DefaultLimits())
 	require.Error(t, err, "a lying zip64 record is refused")
 }
 
 func TestOpenZipAtLegitArchivesStillOpen(t *testing.T) {
 	b := guardTestZip(t, 5)
-	entries, protected, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
+	entries, protected, err := openZipAt(bytes.NewReader(b), int64(len(b)), "", DefaultLimits())
 	require.NoError(t, err)
 	require.False(t, protected)
 	require.Len(t, entries, 5)
@@ -92,26 +92,25 @@ func TestOpenZipAtLegitArchivesStillOpen(t *testing.T) {
 	require.NoError(t, err)
 	_, _ = w.Write([]byte("secret"))
 	require.NoError(t, yw.Close())
-	entries, protected, err = openZipAt(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "pw")
+	entries, protected, err = openZipAt(bytes.NewReader(enc.Bytes()), int64(enc.Len()), "pw", DefaultLimits())
 	require.NoError(t, err)
 	require.True(t, protected)
 	require.Len(t, entries, 1)
 }
 
 func TestOpenZipAtZip64EndRecordStillOpens(t *testing.T) {
-	old := limits
-	limits.Entries = 70000
-	t.Cleanup(func() { limits = old })
+	lim := DefaultLimits()
+	lim.Entries = 70000
 	b := guardTestZip(t, 0xFFFF+5) // the writer then writes the zip64 records
 	require.Contains(t, string(b), "\x50\x4b\x06\x06")
-	entries, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
+	entries, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "", lim)
 	require.NoError(t, err)
 	require.Len(t, entries, 0xFFFF+5)
 }
 
 func TestOpenZipAtZip64OverTheCapRefused(t *testing.T) {
 	b := guardTestZip(t, 0xFFFF+5)
-	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
+	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "", DefaultLimits())
 	requireTooLarge(t, err, "guard")
 }
 
@@ -127,7 +126,7 @@ func TestOpenZipAtFakeEndRecordInCommentDoesNotHideHugeCount(t *testing.T) {
 	out := append(append([]byte{}, b...), fake...)
 	binary.LittleEndian.PutUint16(out[e+10:], 60000)
 	binary.LittleEndian.PutUint16(out[e+20:], uint16(len(fake)))
-	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "")
+	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "", DefaultLimits())
 	require.Error(t, err, "the real record is the one the reader picks")
 }
 
@@ -141,9 +140,8 @@ func longNames(n int) []string {
 
 // The directory is really that large (not a lie): the bytes read are capped, so the reader never holds it.
 func TestOpenZipAtRealOversizeDirectoryPlain(t *testing.T) {
-	old := limits
-	limits.Entries = 2
-	t.Cleanup(func() { limits = old })
+	lim := DefaultLimits()
+	lim.Entries = 2
 	var b bytes.Buffer
 	zw := zip.NewWriter(&b)
 	for _, name := range longNames(60) {
@@ -151,14 +149,13 @@ func TestOpenZipAtRealOversizeDirectoryPlain(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.NoError(t, zw.Close())
-	_, _, err := openZipAt(bytes.NewReader(b.Bytes()), int64(b.Len()), "")
+	_, _, err := openZipAt(bytes.NewReader(b.Bytes()), int64(b.Len()), "", lim)
 	requireTooLarge(t, err, "plain directory")
 }
 
 func TestOpenZipAtRealOversizeDirectoryProtected(t *testing.T) {
-	old := limits
-	limits.Entries = 2
-	t.Cleanup(func() { limits = old })
+	lim := DefaultLimits()
+	lim.Entries = 2
 	var b bytes.Buffer
 	yw := yzip.NewWriter(&b)
 	for _, name := range longNames(60) {
@@ -167,17 +164,16 @@ func TestOpenZipAtRealOversizeDirectoryProtected(t *testing.T) {
 		_, _ = w.Write([]byte("x"))
 	}
 	require.NoError(t, yw.Close())
-	_, _, err := openZipAt(bytes.NewReader(b.Bytes()), int64(b.Len()), "pw")
+	_, _, err := openZipAt(bytes.NewReader(b.Bytes()), int64(b.Len()), "pw", lim)
 	requireTooLarge(t, err, "protected directory")
 }
 
 // More headers than the entry cap within the byte budget is refused by the count.
 func TestOpenZipAtOverEntryCountRefused(t *testing.T) {
-	old := limits
-	limits.Entries = 5
-	t.Cleanup(func() { limits = old })
+	lim := DefaultLimits()
+	lim.Entries = 5
 	b := guardTestZip(t, 20)
-	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
+	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "", lim)
 	requireTooLarge(t, err, "entry count")
 }
 
@@ -185,9 +181,9 @@ func TestOpenZipAtOverEntryCountRefused(t *testing.T) {
 func TestOpenZipAtNoEndRecordRefused(t *testing.T) {
 	b := guardTestZip(t, 3)
 	b = b[:eocdOf(t, b)]
-	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
+	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "", DefaultLimits())
 	require.Error(t, err)
-	_, _, err = openZipAt(bytes.NewReader([]byte("not a zip")), 9, "")
+	_, _, err = openZipAt(bytes.NewReader([]byte("not a zip")), 9, "", DefaultLimits())
 	require.Error(t, err)
 }
 
@@ -267,13 +263,13 @@ func TestOpenZipAtDeclaredHugeCountRefusedBeforeAllocation(t *testing.T) {
 	} {
 		t.Run(name+" plain reader", func(t *testing.T) {
 			var err error
-			got := allocatedBy(func() { _, _, err = openZipAt(r, r.size, "") })
+			got := allocatedBy(func() { _, _, err = openZipAt(r, r.size, "", DefaultLimits()) })
 			requireTooLarge(t, err, name)
 			require.Less(t, got, uint64(8<<20))
 		})
 		t.Run(name+" protected reader", func(t *testing.T) {
 			var err error
-			budget := newOpenBudgetReaderAt(r)
+			budget := newOpenBudgetReaderAt(r, DefaultLimits().Entries)
 			got := allocatedBy(func() { _, err = yzip.NewReader(budget, r.size) })
 			require.Error(t, err)
 			require.ErrorIs(t, budget.finish(), exerciseModel.ErrArchiveTooLarge.Err())
@@ -311,13 +307,13 @@ func zip64Wrapped(t *testing.T, b []byte, count uint64) []byte {
 
 func TestOpenZipAtSaturatedPlainRecordWithSmallZip64CountOpens(t *testing.T) {
 	out := zip64Wrapped(t, guardTestZip(t, 3), 3)
-	entries, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "")
+	entries, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "", DefaultLimits())
 	require.NoError(t, err)
 	require.Len(t, entries, 3)
 }
 
 func TestOpenZipAtSaturatedPlainRecordWithHugeZip64CountRefused(t *testing.T) {
 	out := zip64Wrapped(t, guardTestZip(t, 3), 200_000_000)
-	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "")
+	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "", DefaultLimits())
 	requireTooLarge(t, err, "zip64 count")
 }

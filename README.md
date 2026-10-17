@@ -237,7 +237,7 @@ The variables `AGENT_TLS_*`, `AGENT_ACCESS_PRIVATE_KEY`, `AGENT_ACCESS_KEY_ID` a
 | `EXERCISE_STAND_DEPLOY_BUDGET` | `200` | Lab deploy calls to an agent per event and pass (1 to 5000). Only protects the agent API from a burst; launch pacing is done by the laboratory operator. |
 | `EXERCISE_STAND_PREWARM_LEAD` | `30m` | How long before the stand deploy time the images are prewarmed in the platform image cache; `0` turns it off (max 24h). |
 | `EXERCISE_LAB_SWEEP_INTERVAL` / `_GRACE` | `30s` / `15m` | The sweep that deletes orphan stand and test lab groups (event, team or test deploy gone) runs this often; a group younger than the grace is never judged (interval 10s to 24h, grace 1m to 24h). |
-| `EXERCISE_TEST_DEPLOY_TTL` / `_MAX` | `2h` / `8h` | Lease of a test lab (a catalog author's, and any test laboratory whose caller names none), and the longest it lives from its start however often extended. |
+| `EXERCISE_TEST_DEPLOY_TTL` / `_MAX` | `2h` / `8h` | Lease of a test lab (a catalog author's, and any test laboratory whose caller names none), and the longest it lives from its start however often extended. Defaults: the leases saved in the platform panel override them on the next deploy or extension. |
 | `RESOURCES_PRESETS` | `nano=32Mi,micro=64Mi,small=128Mi,standard=256Mi,medium=512Mi,large=1Gi,xlarge=2Gi,max=4Gi` | The allowed device sizes an author picks (`id=memory`, Kubernetes quantities). The ids are translated by the frontends. Memory is binary and is the packing dimension: every size divides the next larger one, so packing leaves no hole. The CPU of a size follows from its memory, 1000m per 4Gi rounded down (32Mi gets 7m, 64Mi 15m, 1Gi 250m, 4Gi 1000m); it is not configured. A block is the smallest size, and `Blocks` counts in it. There is no custom size. |
 | `RESOURCES_DEFAULT_PRESET` | `micro` | The size of a device that picked none. |
 | `RESOURCES_FRAME_PRESET` | `large` | The largest size a device gets without an approval. A laboratory whose device maximum is below it, or that allows fewer than 32 devices per lab, does not meet the platform requirements and is not used. |
@@ -321,6 +321,8 @@ Every request and response carries an `X-Request-ID` header (a client's own id i
 ### Rate limits and retention
 
 No limit is keyed on a client address (a whole on-site event sits behind one router). Mail sent by organizers and admins (invitations, broadcasts, notifications) is never limited; only mail an account triggers itself is.
+
+The `RETENTION_*` periods (all but `RETENTION_BATCH_SIZE`) are defaults: periods saved in the platform settings of the platform panel override them on the next purge pass, without a restart.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

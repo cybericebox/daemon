@@ -24,14 +24,14 @@ const maxUploadNameBytes = 255
 
 // StartUpload opens a resumable chunked upload of a file of the given size. The chunks go to PutChunk in order;
 // CompleteUpload assembles them. The purpose sets the size limit: the media file limit for a file, an image
-// archive's (imageRegistryModel.MaxImageArchiveBytes) for an image blob, exerciseModel.MaxArchiveWithImagesBytes
-// for a task archive.
+// archive's (imageRegistryModel.MaxImageArchiveBytes) for an image blob, the archive limit in force plus one image
+// archive for a task archive.
 func (u *MediaUseCase) StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID, purpose mediaModel.UploadPurpose) (mediaModel.Upload, error) {
 	if !u.storageConfigured {
 		return mediaModel.Upload{}, mediaModel.ErrMediaStorageNotConfigured.Err()
 	}
 	name = strings.TrimSpace(name)
-	limit, known := u.uploadLimit(purpose)
+	limit, known := u.uploadLimit(ctx, purpose)
 	if name == "" || len(name) > maxUploadNameBytes || size < 1 || !known {
 		return mediaModel.Upload{}, mediaModel.ErrUploadInvalid.Err()
 	}
@@ -47,14 +47,17 @@ func (u *MediaUseCase) StartUpload(ctx context.Context, name, contentType string
 }
 
 // uploadLimit is the largest file an upload of the purpose may carry; known is false for an unknown purpose.
-func (u *MediaUseCase) uploadLimit(purpose mediaModel.UploadPurpose) (limit int64, known bool) {
+func (u *MediaUseCase) uploadLimit(ctx context.Context, purpose mediaModel.UploadPurpose) (limit int64, known bool) {
 	switch purpose {
 	case mediaModel.UploadPurposeFile:
 		return u.cfg.MaxUploadBytes, true
 	case mediaModel.UploadPurposeImageBlob:
 		return imageRegistryModel.MaxImageArchiveBytes, true
 	case mediaModel.UploadPurposeExerciseArchive:
-		return exerciseModel.MaxArchiveWithImagesBytes, true
+		if u.archiveUploadLimit != nil {
+			return u.archiveUploadLimit(ctx), true
+		}
+		return exerciseModel.DefaultArchiveLimits().WithImagesBytes(), true
 	}
 	return 0, false
 }

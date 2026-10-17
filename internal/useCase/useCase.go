@@ -118,7 +118,7 @@ type (
 		ResourcesPolicy resourcesModel.Policy
 		// SMTPAllowedPorts are the ports an organizer may use for an event SMTP server.
 		SMTPAllowedPorts []int
-		// RetentionPolicy is the Privacy Policy's retention periods.
+		// RetentionPolicy is the Privacy Policy's retention periods: the defaults the platform settings override.
 		RetentionPolicy retentionModel.Policy
 		// One cipher per secret family (separate keys); each nil when its key is unset.
 		ExerciseCipher *secret.Cipher // exercise secret env vars
@@ -144,6 +144,13 @@ type (
 // Resolve the promoted-method ambiguity for the controller's exercise port.
 func (u *UseCase) InfrastructureAvailable() bool {
 	return u.ExerciseUseCase.InfrastructureAvailable()
+}
+
+// ArchiveLimits resolves the promoted-method ambiguity: both embedded platform settings and exercise use cases have
+// it, and the controller's exercise port takes the exercise one (the limits in force, the defaults when the settings
+// cannot be read).
+func (u *UseCase) ArchiveLimits(ctx context.Context) exerciseModel.ArchiveLimits {
+	return u.ExerciseUseCase.ArchiveLimits(ctx)
 }
 
 // buildNotificationHandlers assembles the channel handlers the dispatcher routes
@@ -217,6 +224,16 @@ func (t testDeployExpiry) ScheduleTestDeployRemovalCheck(ctx context.Context, ow
 }
 
 func NewUseCase(deps Dependencies) *UseCase {
+	// The platform settings come first: the retention periods, the archive limits and the test run leases saved in
+	// them are read live by the use cases below (the env values are their defaults).
+	platformSettingsUC := platformSettingsUseCase.NewPlatformSettingsUseCase(
+		platformSettingsUseCase.Dependencies{
+			Repo:              deps.Repo,
+			RetentionDefaults: deps.RetentionPolicy,
+			TestRunDefaults:   exerciseModel.TestRunLeases{Lease: deps.ExerciseConfig.TestDeployTTL, Max: deps.ExerciseConfig.TestDeployTTLMax},
+		},
+	)
+
 	// mediaUC is built first: the email handler streams uploaded images from it
 	// (inline CID parts), and the aggregate exposes it for the periodic GC job.
 	mediaUC := mediaUseCase.NewMediaUseCase(
@@ -249,8 +266,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Elevations: exerciseRepo.New(deps.Repo),
 			// The per-task file store follows the media GC: a file past this window with no reference is gone soon.
 			FileGCGrace: deps.MediaConfig.GCGrace,
+			Settings:    platformSettingsUC,
 		},
 	)
+	// A task archive upload may be as large as the archive limit in force plus one image archive.
+	mediaUC.SetArchiveUploadLimit(func(ctx context.Context) int64 { return exerciseUC.ArchiveLimits(ctx).WithImagesBytes() })
 
 	infraUC := infrastructureUseCase.NewInfrastructureUseCase(
 		infrastructureUseCase.Dependencies{Agent: deps.LabAgent, Agents: infrastructureAgentRepo.New(deps.Repo), Observations: eventLabObservationRepo.New(deps.Repo), Stands: platformStandRepo.New(deps.Repo)},
@@ -414,7 +434,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 		Store:     retentionRepo.New(deps.Repo),
 		Notifier:  notificationDispatcher,
 		Accounts:  authUC,
-		Policy:    deps.RetentionPolicy,
+		Policies:  platformSettingsUC,
 		SignInURL: deps.AuthConfig.Hosts.IDURL("/sign-in/"),
 	})
 
@@ -429,13 +449,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	return &UseCase{
 		authUC,
 		adminAuditUseCase.New(deps.Repo),
-		platformSettingsUseCase.NewPlatformSettingsUseCase(
-			platformSettingsUseCase.Dependencies{
-				Repo:              deps.Repo,
-				RetentionDefaults: deps.RetentionPolicy,
-				TestRunDefaults:   exerciseModel.TestRunLeases{Lease: deps.ExerciseConfig.TestDeployTTL, Max: deps.ExerciseConfig.TestDeployTTLMax},
-			},
-		),
+		platformSettingsUC,
 		notificationDispatcher,
 		inboxUseCase.NewNotificationInboxUseCase(
 			inboxUseCase.Dependencies{Repo: deps.Repo},

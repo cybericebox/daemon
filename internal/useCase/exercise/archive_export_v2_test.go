@@ -259,14 +259,14 @@ func exportFixture(t *testing.T) []byte {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectExport(t, q, exportExerciseID, "Експорт", exportFixtureVersions())
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
-	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
 	return data
 }
 
 func exportedDocument(t *testing.T, data []byte) []byte {
 	t.Helper()
-	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 	return files["exercise.json"]
 }
@@ -368,7 +368,7 @@ func TestExportExerciseArchive_EnumsByName(t *testing.T) {
 
 func TestExportExerciseArchive_LayoutAndDedupe(t *testing.T) {
 	data := exportFixture(t)
-	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 	names := make([]string, 0, len(files))
 	for name := range files {
@@ -436,7 +436,7 @@ func contentIDs(t *testing.T, versions []exerciseModel.ExerciseVersion, body fun
 }
 
 func TestExportThenImport_RoundTripV2(t *testing.T) {
-	parsed, err := exercise.ParseExerciseArchive(exportFixture(t), "")
+	parsed, err := exercise.ParseExerciseArchive(exportFixture(t), "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	for i := range parsed.Versions {
 		exercise.NormalizeContentIDs(parsed.Versions[i].Variants)
@@ -463,17 +463,17 @@ func TestExportExerciseArchive_ProtectedV2(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectExport(t, q, exportExerciseID, "Експорт", versions)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: exportFixtureMedia()})
-	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{IncludeSecrets: true, Password: "strong password"})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{IncludeSecrets: true, Password: "strong password"}, exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "plain-secret-value")
-	_, err = exercise.ReadArchiveV1(bytes.NewReader(data))
+	_, err = exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.Error(t, err, "a protected export is not readable without the password")
 
-	files, err := exercise.ReadProtectedArchiveV1(data, "strong password")
+	files, err := exercise.ReadProtectedArchiveV1(data, "strong password", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Contains(t, string(files["exercise.json"]), "plain-secret-value")
 	require.Contains(t, files, "files/v1/shared/common.bin")
-	parsed, err := exercise.ParseExerciseArchive(data, "strong password")
+	parsed, err := exercise.ParseExerciseArchive(data, "strong password", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Equal(t, "plain-secret-value", parsed.Versions[0].Variants[0].Topology.Devices[0].EnvVars[1].Value)
 }
@@ -487,14 +487,14 @@ func TestExportSeveralTasks_FoldersInOneZip(t *testing.T) {
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
 	var items []exercise.NamedArchive
 	for _, id := range []uuid.UUID{exportExerciseID, second} {
-		data, err := uc.ExportExerciseArchive(context.Background(), id, exercise.ExportOptions{})
+		data, err := uc.ExportExerciseArchive(context.Background(), id, exercise.ExportOptions{}, exercise.DefaultLimits())
 		require.NoError(t, err)
 		items = append(items, exercise.NamedArchive{Name: "Веб", Archive: data})
 	}
-	bundle, err := exercise.BundleExerciseArchives(items, "")
+	bundle, err := exercise.BundleExerciseArchives(items, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 
-	raw, err := exercise.ReadArchiveV1(bytes.NewReader(bundle))
+	raw, err := exercise.ReadArchiveV1(bytes.NewReader(bundle), exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Contains(t, raw, "Веб/exercise.json")
 	require.Contains(t, raw, "Веб/files/v1/shared/common.bin")
@@ -504,11 +504,11 @@ func TestExportSeveralTasks_FoldersInOneZip(t *testing.T) {
 	}
 	require.Contains(t, rawEntries(t, bundle), "manifest.json")
 
-	imports, err := exercise.ExpandExerciseArchiveBundle(bundle, "")
+	imports, err := exercise.ExpandExerciseArchiveBundle(bundle, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Len(t, imports, 2)
 	for _, item := range imports {
-		_, parseErr := exercise.ParseExerciseArchive(item.Archive, item.Password)
+		_, parseErr := exercise.ParseExerciseArchive(item.Archive, item.Password, exercise.DefaultLimits())
 		require.NoError(t, parseErr)
 	}
 }
@@ -525,12 +525,12 @@ func TestExportSeveralTasks_ProtectedBundle(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectExport(t, q, exportExerciseID, "Веб", versions)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Cipher: cipher, Media: exportFixtureMedia()})
-	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{IncludeSecrets: true, Password: "pw"})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{IncludeSecrets: true, Password: "pw"}, exercise.DefaultLimits())
 	require.NoError(t, err)
-	bundle, err := exercise.BundleExerciseArchives([]exercise.NamedArchive{{Name: "Веб", Archive: data}, {Name: "manifest.json", Archive: data}}, "pw")
+	bundle, err := exercise.BundleExerciseArchives([]exercise.NamedArchive{{Name: "Веб", Archive: data}, {Name: "manifest.json", Archive: data}}, "pw", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.NotContains(t, string(bundle), "plain-secret-value")
-	files, err := exercise.ReadProtectedArchiveV1(bundle, "pw")
+	files, err := exercise.ReadProtectedArchiveV1(bundle, "pw", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Contains(t, string(files["Веб/exercise.json"]), "plain-secret-value")
 	require.Contains(t, files, "manifest_2.json/exercise.json")
@@ -619,10 +619,10 @@ func TestExportThenImport_RoundTripRich(t *testing.T) {
 	expectExport(t, q, exportExerciseID, "Повний", richVersions())
 	media := richMedia()
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
-	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
 
-	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Contains(t, files, "files/v1/variant-1/1/notes.txt")
 	require.Contains(t, files, "files/v1/variant-1/1/notes_2.txt")
@@ -632,7 +632,7 @@ func TestExportThenImport_RoundTripRich(t *testing.T) {
 	require.Contains(t, doc, `"device_id": "`+exportID(302).String()+`"`, "a shared name is written with the id")
 	require.Contains(t, doc, `"device_id": "`+exportID(399).String()+`"`, "a device outside the variant keeps its id")
 
-	parsed, err := exercise.ParseExerciseArchive(data, "")
+	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	exercise.NormalizeContentIDs(parsed.Versions[0].Variants)
 	// The attachment without a stored name comes back with the stored file's name.
@@ -651,7 +651,7 @@ func exportVersions(t *testing.T, versions []exerciseModel.ExerciseVersion, medi
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectExport(t, q, exportExerciseID, "Повний", versions)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
-	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
 	return data
 }
@@ -678,7 +678,7 @@ func TestExportExerciseArchive_MediaNameFallbackReserved(t *testing.T) {
 	require.NoError(t, json.Unmarshal(exportedDocument(t, data), &doc))
 	require.Equal(t, []map[string]string{{"file": "files/v1/variant-1/1/_exercise.yaml", "name": "exercise.yaml"}},
 		doc.Versions[0].Variants[0].Tasks[0].Attachments)
-	parsed, err := exercise.ParseExerciseArchive(data, "")
+	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	ref := parsed.Versions[0].Variants[0].Tasks[0].Attachments[0]
 	require.Equal(t, "exercise.yaml", ref.Name)
@@ -689,7 +689,7 @@ func TestExportExerciseArchive_MediaNameFallbackReserved(t *testing.T) {
 // shown name exercise.json.
 func TestExportImportExport_Idempotent(t *testing.T) {
 	first := exportVersions(t, richVersions(), richMedia())
-	parsed, err := exercise.ParseExerciseArchive(first, "")
+	parsed, err := exercise.ParseExerciseArchive(first, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	exercise.NormalizeContentIDs(parsed.Versions[0].Variants)
 	media := &exportMedia{fakeMedia: newFakeMedia(), files: map[uuid.UUID]storedFile{}}
@@ -698,9 +698,9 @@ func TestExportImportExport_Idempotent(t *testing.T) {
 	}
 	second := exportVersions(t, parsed.Versions, media)
 
-	firstFiles, err := exercise.ReadArchiveV1(bytes.NewReader(first))
+	firstFiles, err := exercise.ReadArchiveV1(bytes.NewReader(first), exercise.DefaultLimits())
 	require.NoError(t, err)
-	secondFiles, err := exercise.ReadArchiveV1(bytes.NewReader(second))
+	secondFiles, err := exercise.ReadArchiveV1(bytes.NewReader(second), exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Equal(t, firstFiles, secondFiles)
 	require.Contains(t, secondFiles, "files/v1/variant-1/1/_exercise.json")

@@ -74,23 +74,23 @@ func TestExpandExerciseArchiveBundle_PasswordOnlyForProtectedSource(t *testing.T
 	}
 	plain, err := exercise.BuildArchiveV1(files)
 	require.NoError(t, err)
-	imports, err := exercise.ExpandExerciseArchiveBundle(plain, "typed anyway")
+	imports, err := exercise.ExpandExerciseArchiveBundle(plain, "typed anyway", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Len(t, imports, 2)
 	for _, item := range imports {
 		require.Empty(t, item.Password, "an unprotected source gives unprotected payloads")
-		_, readErr := exercise.ReadArchiveV1(bytes.NewReader(item.Archive))
+		_, readErr := exercise.ReadArchiveV1(bytes.NewReader(item.Archive), exercise.DefaultLimits())
 		require.NoError(t, readErr)
 	}
 
 	protected, err := exercise.BuildProtectedArchiveV1(files, "pw")
 	require.NoError(t, err)
-	imports, err = exercise.ExpandExerciseArchiveBundle(protected, "pw")
+	imports, err = exercise.ExpandExerciseArchiveBundle(protected, "pw", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Len(t, imports, 2)
 	for _, item := range imports {
 		require.Equal(t, "pw", item.Password)
-		_, readErr := exercise.ReadProtectedArchiveV1(item.Archive, "pw")
+		_, readErr := exercise.ReadProtectedArchiveV1(item.Archive, "pw", exercise.DefaultLimits())
 		require.NoError(t, readErr)
 	}
 }

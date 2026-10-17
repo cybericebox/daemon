@@ -96,7 +96,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		settingsAPI.GET("", h.prot.RequirePermission(rbac.PermPlatformSettingsRead), h.listSettings)
 		settingsAPI.GET(":key", h.prot.RequirePermission(rbac.PermPlatformSettingsRead), h.getSetting)
 		settingsAPI.PUT(":key", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.upsertSetting)
-		settingsAPI.GET(":key/value", h.prot.RequirePermission(rbac.PermPlatformSettingsReadValue), h.getSetting)
+		settingsAPI.GET(":key/value", h.prot.RequirePermission(rbac.PermPlatformSettingsReadValue), h.getSettingValue)
 	}
 	h.initTyped(settingsAPI)
 }
@@ -133,7 +133,7 @@ func (h *Handler) getSetting(ctx *gin.Context) {
 	response.AbortWithData(ctx, toResponse(s))
 }
 
-// GetSetting godoc
+// GetSettingValue godoc
 // @Summary  Get a setting value by key
 // @Tags     settings
 // @Produce  json

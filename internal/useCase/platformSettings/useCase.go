@@ -20,12 +20,15 @@ type (
 		settings          *platformSettingsRepo.Repository
 		retentionDefaults retentionModel.Policy
 		testRunDefaults   exerciseModel.TestRunLeases
-		now               func() time.Time
+		// badDefaults are the typed settings whose defaults fail their own field rules (an env value out of range).
+		badDefaults map[string]bool
+		now         func() time.Time
 	}
 	Dependencies struct {
 		Repo platformSettingsRepo.Queries
 		// RetentionDefaults and TestRunDefaults are in force while no typed setting is saved (env RETENTION_*,
-		// EXERCISE_TEST_DEPLOY_TTL(_MAX)); the archive limits default to the domain constants.
+		// EXERCISE_TEST_DEPLOY_TTL(_MAX)); the archive limits default to the domain constants. A test run lease of 0
+		// (no config) is 2h, its total 8h.
 		RetentionDefaults retentionModel.Policy
 		TestRunDefaults   exerciseModel.TestRunLeases
 		// Now is the clock; nil: time.Now.
@@ -38,12 +41,25 @@ func NewPlatformSettingsUseCase(deps Dependencies) *PlatformSettingsUseCase {
 	if now == nil {
 		now = time.Now
 	}
-	return &PlatformSettingsUseCase{
+	testRuns := deps.TestRunDefaults
+	if testRuns.Lease <= 0 {
+		testRuns.Lease = defaultTestRunLease
+	}
+	if testRuns.Max <= 0 {
+		testRuns.Max = defaultTestRunLeaseMax
+	}
+	u := &PlatformSettingsUseCase{
 		settings:          platformSettingsRepo.New(deps.Repo),
 		retentionDefaults: deps.RetentionDefaults,
-		testRunDefaults:   deps.TestRunDefaults,
+		testRunDefaults:   testRuns,
 		now:               now,
 	}
+	u.badDefaults = map[string]bool{
+		platformSettingsModel.RetentionKey:     defaultsOutOfRange(u.retentionSetting()),
+		platformSettingsModel.ArchiveLimitsKey: defaultsOutOfRange(u.archiveLimitSetting()),
+		platformSettingsModel.TestRunsKey:      defaultsOutOfRange(u.testRunSetting()),
+	}
+	return u
 }
 
 // ListPlatformSettings returns only settings the caller (from context) may read.

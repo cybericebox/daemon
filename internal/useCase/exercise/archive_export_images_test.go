@@ -281,7 +281,7 @@ func TestExportWithImagesRoundTrip(t *testing.T) {
 	view := f.run(t, exercise.StartExportInput{IDs: []uuid.UUID{exportTaskA}})
 	archive := f.onlyZip(t, view)
 	require.Equal(t, "tasks.cybericebox.zip", view.File.Name)
-	require.Equal(t, exerciseModel.MaxArchiveWithImagesBytes, f.files.maxBytes, "the stored zip may carry 10 GiB of images")
+	require.Equal(t, exerciseModel.DefaultArchiveLimits().WithImagesBytes(), f.files.maxBytes, "the stored zip may carry 10 GiB of images")
 	require.Equal(t, 1, f.web.calls, "an image used by two devices is read once")
 
 	entries := readZip(t, archive)
@@ -490,7 +490,7 @@ func TestExportStartFailures(t *testing.T) {
 // The synchronous export refuses images: only the job streams them.
 func TestExportExerciseArchiveRefusesImages(t *testing.T) {
 	f := newExportFixture(t)
-	_, err := f.uc.ExportExerciseArchive(context.Background(), exportTaskA, exercise.ExportOptions{IncludeImages: true})
+	_, err := f.uc.ExportExerciseArchive(context.Background(), exportTaskA, exercise.ExportOptions{IncludeImages: true}, exercise.DefaultLimits())
 	require.Error(t, err)
 }
 

@@ -203,24 +203,26 @@ func (u *ExerciseUseCase) runArchiveExport(ctx context.Context, job exerciseMode
 		}
 		opts.Password = string(plain)
 	}
+	// One set of limits for the whole export.
+	lim := u.ArchiveLimits(ctx)
 	plans := make([]exportPlan, 0, len(job.ExerciseIDs))
 	for _, id := range job.ExerciseIDs {
-		plan, err := u.planExport(ctx, id, opts)
+		plan, err := u.planExport(ctx, id, opts, lim)
 		if err != nil {
 			return mediaModel.File{}, err
 		}
 		plans = append(plans, plan)
 	}
-	entries, images, err := layoutExport(plans)
+	entries, images, err := layoutExport(plans, lim)
 	if err != nil {
 		return mediaModel.File{}, err
 	}
-	return u.storeExport(ctx, job, entries, images, opts)
+	return u.storeExport(ctx, job, entries, images, opts, lim.WithImagesBytes())
 }
 
 // layoutExport puts the tasks into one archive: a single task at the zip root, several each in a folder named after
 // it. It refuses what the import would refuse: the small files keep the archive limits, the images are counted apart.
-func layoutExport(plans []exportPlan) (map[string][]byte, map[string]ExportedImage, error) {
+func layoutExport(plans []exportPlan, lim exerciseModel.ArchiveLimits) (map[string][]byte, map[string]ExportedImage, error) {
 	prefixes := make([]string, len(plans))
 	if len(plans) > 1 {
 		names := make([]string, len(plans))
@@ -241,7 +243,7 @@ func layoutExport(plans []exportPlan) (map[string][]byte, map[string]ExportedIma
 			images[prefixes[i]+image.Path] = image.Image
 		}
 	}
-	if err := checkExportEntries(entries); err != nil {
+	if err := checkExportEntries(entries, lim); err != nil {
 		return nil, nil, err
 	}
 	// The images of the whole archive, every written copy counted, are at most one image archive's worth.
@@ -251,8 +253,8 @@ func layoutExport(plans []exportPlan) (map[string][]byte, map[string]ExportedIma
 			return nil, nil, archiveTooLarge("the images are over " + gib(imageRegistryModel.MaxImageArchiveBytes) + " together")
 		}
 	}
-	if len(entries)+len(images)+1 > limits.Entries {
-		return nil, nil, archiveTooLarge(fmt.Sprintf("the archive has more than %d entries", limits.Entries))
+	if err := checkEntryCount(len(entries)+len(images)+1, lim); err != nil {
+		return nil, nil, err
 	}
 	return entries, images, nil
 }
@@ -262,8 +264,8 @@ var errUploadAborted = errors.New("the export could not be stored")
 
 // storeExport writes the zip into a pipe that the media use case stores as a file, so the zip is never held whole.
 // A failure of the zip writer (an image the registry no longer has) is returned as it is, not as the store's failure
-// to read the pipe.
-func (u *ExerciseUseCase) storeExport(ctx context.Context, job exerciseModel.ExportJob, entries map[string][]byte, images map[string]ExportedImage, opts ExportOptions) (mediaModel.File, error) {
+// to read the pipe. maxBytes caps the stored zip.
+func (u *ExerciseUseCase) storeExport(ctx context.Context, job exerciseModel.ExportJob, entries map[string][]byte, images map[string]ExportedImage, opts ExportOptions, maxBytes int64) (mediaModel.File, error) {
 	reader, writer := io.Pipe()
 	var writeErr error
 	done := make(chan struct{})
@@ -275,7 +277,7 @@ func (u *ExerciseUseCase) storeExport(ctx context.Context, job exerciseModel.Exp
 		}
 		_ = writer.CloseWithError(err)
 	}()
-	file, err := u.exportFiles.UploadLargeFile(ctx, job.FileName, "application/zip", reader, job.CreatedBy, exerciseModel.MaxArchiveWithImagesBytes)
+	file, err := u.exportFiles.UploadLargeFile(ctx, job.FileName, "application/zip", reader, job.CreatedBy, maxBytes)
 	if err != nil {
 		_ = reader.CloseWithError(errUploadAborted)
 	}

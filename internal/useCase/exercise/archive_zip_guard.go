@@ -12,7 +12,8 @@ import (
 // declares is not trusted, and no record is parsed by hand (a hand parser may pick another record than the reader
 // does). Instead the reader gets a bounded ReaderAt for its opening: the reads of that phase are the end-record
 // search (at most the two tail windows of the readers, 1 KiB then 65 KiB + 1 KiB, plus the zip64 records) and the
-// central directory, so their sum is capped at zipTailBytes + limits.Entries * maxDirectoryBytesPerEntry. Once over,
+// central directory, so their sum is capped at zipTailBytes + entries * maxDirectoryBytesPerEntry (entries: the
+// archive limit of the import). Once over,
 // the read fails and the archive is refused with ErrArchiveTooLarge. After the opening the wrapper is a plain
 // pass-through, because the entries are read through it later. A zip with no valid end record fails the reader's own
 // open and is refused too (nothing is passed through unchecked).
@@ -28,15 +29,17 @@ var errZipOpenBudget = errors.New("the zip's file list is over the budget")
 
 // openBudgetReaderAt limits the bytes read while a zip reader opens the archive.
 type openBudgetReaderAt struct {
-	r        io.ReaderAt
-	left     atomic.Int64
-	done     atomic.Bool
-	exceeded atomic.Bool
+	r io.ReaderAt
+	// maxEntries is the entry cap the end records are checked against.
+	maxEntries int
+	left       atomic.Int64
+	done       atomic.Bool
+	exceeded   atomic.Bool
 }
 
-func newOpenBudgetReaderAt(r io.ReaderAt) *openBudgetReaderAt {
-	b := &openBudgetReaderAt{r: r}
-	b.left.Store(zipTailBytes + int64(limits.Entries)*maxDirectoryBytesPerEntry)
+func newOpenBudgetReaderAt(r io.ReaderAt, maxEntries int) *openBudgetReaderAt {
+	b := &openBudgetReaderAt{r: r, maxEntries: maxEntries}
+	b.left.Store(zipTailBytes + int64(maxEntries)*maxDirectoryBytesPerEntry)
 	return b
 }
 
@@ -52,7 +55,7 @@ func (b *openBudgetReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	// The readers size their file list from the DECLARED record count before reading one directory byte (a 10 GiB
 	// archive declaring 200M entries makes them allocate over a GiB). So the bytes about to be parsed are looked at
 	// first, and the read fails when an end record in them declares more entries than the cap.
-	if declaresTooManyEntries(p[:n]) {
+	if declaresTooManyEntries(p[:n], b.maxEntries) {
 		b.exceeded.Store(true)
 		return 0, errZipOpenBudget
 	}
@@ -67,12 +70,12 @@ const (
 )
 
 // declaresTooManyEntries scans every position of buf (not only the last candidate: the readers' pick cannot differ
-// from a scan of all of them) for an end record whose entry counts exceed limits.Entries. The 0xFFFF of a plain
+// from a scan of all of them) for an end record whose entry counts exceed maxEntries. The 0xFFFF of a plain
 // record is the zip64 sentinel (Info-ZIP and 7z saturate it for any zip64 archive, e.g. images over 4 GiB), not a
 // count: the real one is in the zip64 record, which the scan checks as well. The same goes for the declared
 // directory size against the directory byte cap (0xFFFFFFFF is the plain record's sentinel).
-func declaresTooManyEntries(buf []byte) bool {
-	max := uint64(limits.Entries)
+func declaresTooManyEntries(buf []byte, maxEntries int) bool {
+	max := uint64(maxEntries)
 	maxDir := max * maxDirectoryBytesPerEntry
 	for i := 0; i+4 <= len(buf); i++ {
 		switch binary.LittleEndian.Uint32(buf[i:]) {

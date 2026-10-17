@@ -16187,7 +16187,7 @@
         },
         "/exercises/import/upload": {
             "post": {
-                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits apply: 512 MiB). With image files (`image: {file: …}`)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.",
+                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits of the platform settings apply). With image files (`image: {file: …}`)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.",
                 "consumes": [
                     "application/json"
                 ],
@@ -16282,7 +16282,7 @@
                 "tags": [
                     "exercises"
                 ],
-                "summary": "Import an exercise ZIP archive that went up in chunks (completed into a file, at most 512 MiB)",
+                "summary": "Import an exercise ZIP archive that went up in chunks (completed into a file, at most the archive limit)",
                 "parameters": [
                     {
                         "description": "the uploaded file and the archive password",
@@ -16765,7 +16765,7 @@
                         }
                     },
                     "409": {
-                        "description": "Purpose image-blob, or exercise-archive over 512 MiB, while the platform image registry is not configured (72801) or failing (72802)",
+                        "description": "Purpose image-blob, or exercise-archive over the archive limit (platform settings, 512 MiB by default), while the platform image registry is not configured (72801) or failing (72802)",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -34149,7 +34149,7 @@
                     "maxLength": 255
                 },
                 "Purpose": {
-                    "description": "Purpose \"image-blob\" uploads one blob of a container image (the file limit is then 10 GiB, an image\narchive's); \"exercise-archive\" a task archive to import with POST /exercises/import/upload (up to 512 MiB +\n10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.",
+                    "description": "Purpose \"image-blob\" uploads one blob of a container image (the file limit is then 10 GiB, an image\narchive's); \"exercise-archive\" a task archive to import with POST /exercises/import/upload (up to the archive\nlimit + 10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.",
                     "type": "string",
                     "enum": [
                         "image-blob",

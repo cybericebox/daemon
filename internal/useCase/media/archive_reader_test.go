@@ -29,20 +29,38 @@ func archiveRow(id, owner uuid.UUID, size int64, received int32) postgres.MediaU
 func TestStartUpload_ExerciseArchivePurposeAllowsImages(t *testing.T) {
 	uc, q, _ := uploadUC(t)
 	owner := uuid.Must(uuid.NewV7())
+	limit := exerciseModel.DefaultArchiveLimits().WithImagesBytes()
 	q.EXPECT().CreateMediaUpload(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateMediaUploadParams) (postgres.MediaUpload, error) {
-		if p.SizeBytes != exerciseModel.MaxArchiveWithImagesBytes || p.Purpose != "exercise-archive" {
+		if p.SizeBytes != limit || p.Purpose != "exercise-archive" {
 			t.Fatalf("params %+v", p)
 		}
 		return postgres.MediaUpload{ID: p.ID, CreatedBy: owner, SizeBytes: p.SizeBytes, ChunkBytes: p.ChunkBytes, ExpiresAt: p.ExpiresAt}, nil
 	})
-	if _, err := uc.StartUpload(context.Background(), "tasks.zip", "", exerciseModel.MaxArchiveWithImagesBytes, owner, mediaModel.UploadPurposeExerciseArchive); err != nil {
+	if _, err := uc.StartUpload(context.Background(), "tasks.zip", "", limit, owner, mediaModel.UploadPurposeExerciseArchive); err != nil {
 		t.Fatalf("at the limit: %v", err)
 	}
-	if _, err := uc.StartUpload(context.Background(), "tasks.zip", "", exerciseModel.MaxArchiveWithImagesBytes+1, owner, mediaModel.UploadPurposeExerciseArchive); !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
+	if _, err := uc.StartUpload(context.Background(), "tasks.zip", "", limit+1, owner, mediaModel.UploadPurposeExerciseArchive); !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
 		t.Fatalf("over the limit: %v", err)
 	}
-	if exerciseModel.MaxArchiveWithImagesBytes != 512<<20+10<<30 {
-		t.Fatalf("limit %d", exerciseModel.MaxArchiveWithImagesBytes)
+	if limit != 512<<20+10<<30 {
+		t.Fatalf("limit %d", limit)
+	}
+}
+
+// The archive limit saved in the platform settings sets the task archive upload limit on the next upload.
+func TestStartUpload_ExerciseArchiveFollowsTheSavedLimit(t *testing.T) {
+	uc, q, _ := uploadUC(t)
+	owner := uuid.Must(uuid.NewV7())
+	limit := int64(2 << 30)
+	uc.SetArchiveUploadLimit(func(context.Context) int64 { return limit })
+	q.EXPECT().CreateMediaUpload(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateMediaUploadParams) (postgres.MediaUpload, error) {
+		return postgres.MediaUpload{ID: p.ID, CreatedBy: owner, SizeBytes: p.SizeBytes, ChunkBytes: p.ChunkBytes, ExpiresAt: p.ExpiresAt}, nil
+	})
+	if _, err := uc.StartUpload(context.Background(), "tasks.zip", "", limit, owner, mediaModel.UploadPurposeExerciseArchive); err != nil {
+		t.Fatalf("at the saved limit: %v", err)
+	}
+	if _, err := uc.StartUpload(context.Background(), "tasks.zip", "", limit+1, owner, mediaModel.UploadPurposeExerciseArchive); !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
+		t.Fatalf("over the saved limit: %v", err)
 	}
 }
 

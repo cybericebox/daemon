@@ -116,11 +116,13 @@ func (u *ExerciseUseCase) ImportUploadedArchive(ctx context.Context, in ImportUp
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
-	entries, protected, err := openZipAt(reader, upload.SizeBytes, in.Password)
+	// One set of limits for the whole import.
+	lim := u.ArchiveLimits(ctx)
+	entries, protected, err := openZipAt(reader, upload.SizeBytes, in.Password, lim)
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
-	named, err := namesImageFiles(entries, protected)
+	named, err := namesImageFiles(entries, protected, lim)
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
@@ -134,14 +136,14 @@ func (u *ExerciseUseCase) ImportUploadedArchive(ctx context.Context, in ImportUp
 		return ArchiveImportStart{JobID: jobID}, nil
 	}
 	// Without image files the archive limits are the synchronous import's.
-	if err = checkArchiveSize(int(upload.SizeBytes)); err != nil {
+	if err = checkArchiveSize(upload.SizeBytes, lim.ArchiveBytes); err != nil {
 		return ArchiveImportStart{}, err
 	}
-	contents, err := ReadArchiveBytes(io.NewSectionReader(reader, 0, upload.SizeBytes))
+	contents, err := ReadArchiveBytes(io.NewSectionReader(reader, 0, upload.SizeBytes), lim.ArchiveBytes)
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
-	created, err := u.ImportArchiveBundle(ctx, contents, in.Password, in.CreatedBy)
+	created, err := u.importArchiveBundle(ctx, contents, in.Password, in.CreatedBy, lim)
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
@@ -150,15 +152,19 @@ func (u *ExerciseUseCase) ImportUploadedArchive(ctx context.Context, in ImportUp
 }
 
 // ImportArchiveBundle imports every task of an archive held in memory (one task folder or several), each as its
-// own import: the synchronous path of archives without image files.
+// own import: the synchronous path of archives without image files. The limits in force are read once for all.
 func (u *ExerciseUseCase) ImportArchiveBundle(ctx context.Context, contents []byte, password string, createdBy uuid.UUID) ([]ExerciseView, error) {
-	imports, err := ExpandExerciseArchiveBundle(contents, password)
+	return u.importArchiveBundle(ctx, contents, password, createdBy, u.ArchiveLimits(ctx))
+}
+
+func (u *ExerciseUseCase) importArchiveBundle(ctx context.Context, contents []byte, password string, createdBy uuid.UUID, lim exerciseModel.ArchiveLimits) ([]ExerciseView, error) {
+	imports, err := ExpandExerciseArchiveBundle(contents, password, lim)
 	if err != nil {
 		return nil, err
 	}
 	created := make([]ExerciseView, 0, len(imports))
 	for _, item := range imports {
-		view, importErr := u.ImportExerciseArchive(ctx, ImportExerciseInput{Archive: item.Archive, Password: item.Password, CreatedBy: createdBy})
+		view, importErr := u.ImportExerciseArchive(ctx, ImportExerciseInput{Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, Limits: lim})
 		if importErr != nil {
 			return nil, importErr
 		}
@@ -342,14 +348,16 @@ func (u *ExerciseUseCase) runArchiveImport(ctx context.Context, job exerciseMode
 	if err != nil {
 		return nil, err
 	}
-	if size > exerciseModel.MaxArchiveWithImagesBytes {
-		return nil, archiveTooLarge("the archive is over " + mib(exerciseModel.MaxArchiveWithImagesBytes))
+	// One set of limits for the whole import.
+	lim := u.ArchiveLimits(ctx)
+	if err = checkArchiveSize(size, lim.WithImagesBytes()); err != nil {
+		return nil, err
 	}
-	entries, protected, err := openZipAt(reader, size, password)
+	entries, protected, err := openZipAt(reader, size, password, lim)
 	if err != nil {
 		return nil, err
 	}
-	read, err := readArchiveEntries(entries, protected)
+	read, err := readArchiveEntries(entries, protected, lim)
 	if err != nil {
 		return nil, err
 	}

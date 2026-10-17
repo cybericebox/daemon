@@ -57,6 +57,9 @@ type ImportExerciseInput struct {
 	Archive   []byte
 	Password  string
 	CreatedBy uuid.UUID
+	// Limits are the archive limits the caller read for this import (the archive was already checked against them);
+	// zero: the limits in force.
+	Limits exerciseModel.ArchiveLimits
 }
 
 // ArchiveImport is one normalized exercise payload extracted from either a
@@ -72,14 +75,14 @@ type mediaArchiveWriter interface {
 	UploadFile(context.Context, string, string, io.Reader, uuid.UUID) (mediaModel.File, error)
 }
 
-func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, error) {
-	parsed, _, err := parseExerciseArchive(data, password)
+func ParseExerciseArchive(data []byte, password string, lim exerciseModel.ArchiveLimits) (ParsedExerciseArchive, error) {
+	parsed, _, err := parseExerciseArchive(data, password, lim)
 	return parsed, err
 }
 
 // parseExerciseArchive also tells whether the archive was password-protected (a typed password alone does not count).
-func parseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, bool, error) {
-	all, protected, err := readExerciseArchive(data, password)
+func parseExerciseArchive(data []byte, password string, lim exerciseModel.ArchiveLimits) (ParsedExerciseArchive, bool, error) {
+	all, protected, err := readExerciseArchive(data, password, lim)
 	if err != nil {
 		return ParsedExerciseArchive{}, false, err
 	}
@@ -136,8 +139,8 @@ func decodeDocument(name string, body []byte) (archiveDocV2, error) {
 // or the zip root) for ImportExerciseArchive. Each folder is repacked with paths relative to it; when a
 // password opened the source archive the repacked one is protected with it; a password typed for an
 // unprotected archive is dropped.
-func ExpandExerciseArchiveBundle(data []byte, password string) ([]ArchiveImport, error) {
-	files, protected, err := readExerciseArchive(data, password)
+func ExpandExerciseArchiveBundle(data []byte, password string, lim exerciseModel.ArchiveLimits) ([]ArchiveImport, error) {
+	files, protected, err := readExerciseArchive(data, password, lim)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +170,11 @@ func ExpandExerciseArchiveBundle(data []byte, password string) ([]ArchiveImport,
 // identity. Source ids and owners are never reused. Attachments are copied
 // through the media use case, which is the only route to object storage.
 func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportExerciseInput) (ExerciseView, error) {
-	parsed, protected, err := parseExerciseArchive(in.Archive, in.Password)
+	lim := in.Limits
+	if lim == (exerciseModel.ArchiveLimits{}) {
+		lim = u.ArchiveLimits(ctx)
+	}
+	parsed, protected, err := parseExerciseArchive(in.Archive, in.Password, lim)
 	if err != nil {
 		return ExerciseView{}, err
 	}
@@ -499,16 +506,17 @@ type mediaArchiveReader interface {
 
 // ExportExerciseArchive writes one task as an archive: exercise.json (schema cib-exercise/1), every attachment
 // once per content (SHA-256) at the path assignExportPaths gives it under files/, and manifest.json. With
-// secrets the archive is AES-protected and secret values are written in plain text only inside it.
-func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts ExportOptions) ([]byte, error) {
+// secrets the archive is AES-protected and secret values are written in plain text only inside it. lim are the
+// archive limits of the whole export (several tasks of one request share one set).
+func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts ExportOptions, lim exerciseModel.ArchiveLimits) ([]byte, error) {
 	if opts.IncludeImages {
 		return nil, model.ErrPlatform.WithMessage("An export with images runs as a background job").Err()
 	}
-	plan, err := u.planExport(ctx, id, opts)
+	plan, err := u.planExport(ctx, id, opts, lim)
 	if err != nil {
 		return nil, err
 	}
-	if err = checkExportEntries(plan.Contents); err != nil {
+	if err = checkExportEntries(plan.Contents, lim); err != nil {
 		return nil, err
 	}
 	var archive []byte
@@ -520,7 +528,7 @@ func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	return archive, checkArchiveSize(len(archive))
+	return archive, checkArchiveSize(int64(len(archive)), lim.ArchiveBytes)
 }
 
 // exportPlan is one task laid out for its archive: the small files (exercise.json and the attachments, by path in
@@ -533,7 +541,7 @@ type exportPlan struct {
 
 // planExport reads a task and lays it out: the document, the attachments once per content and, with
 // opts.IncludeImages, its platform images. Without secrets their values are masked; with them they are decrypted.
-func (u *ExerciseUseCase) planExport(ctx context.Context, id uuid.UUID, opts ExportOptions) (exportPlan, error) {
+func (u *ExerciseUseCase) planExport(ctx context.Context, id uuid.UUID, opts ExportOptions, lim exerciseModel.ArchiveLimits) (exportPlan, error) {
 	e, err := u.exercises.GetByID(ctx, id)
 	if err != nil {
 		return exportPlan{}, err
@@ -549,7 +557,7 @@ func (u *ExerciseUseCase) planExport(ctx context.Context, id uuid.UUID, opts Exp
 	} else if err = u.decryptExportedSecrets(versions); err != nil {
 		return exportPlan{}, err
 	}
-	contents, filePaths, err := u.exportAttachments(ctx, versions)
+	contents, filePaths, err := u.exportAttachments(ctx, versions, lim)
 	if err != nil {
 		return exportPlan{}, err
 	}
@@ -573,14 +581,14 @@ func (u *ExerciseUseCase) planExport(ctx context.Context, id uuid.UUID, opts Exp
 // exportAttachments streams every attached file once and lays the contents out: it returns the archive
 // entries and, per file id, the path its attachments link to. Files with equal bytes share one entry. An
 // attachment without a shown name gets its stored file's name in versions (the in-memory export copy).
-func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exerciseModel.ExerciseVersion) (map[string][]byte, map[uuid.UUID]string, error) {
+func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exerciseModel.ExerciseVersion, lim exerciseModel.ArchiveLimits) (map[string][]byte, map[uuid.UUID]string, error) {
 	contents := map[string][]byte{}
 	hashOf := map[uuid.UUID]string{}
 	bodies := map[string][]byte{}
 	mediaNames := map[uuid.UUID]string{}
 	var uses []fileUse
 	// Stops at the first file past the archive limits, before the rest is read into memory.
-	var budget archiveBudget
+	budget := newArchiveBudget(lim)
 	for vi := range versions {
 		for xi := range versions[vi].Variants {
 			for ti := range versions[vi].Variants[xi].Tasks {
@@ -667,7 +675,7 @@ func bundleFolders(names []string) []string {
 // BundleExerciseArchives puts several exported tasks into one archive: each in a folder named exportName(task
 // name) (a taken name gets _2, _3), one manifest.json at the root. A single task stays at the zip root. With a
 // password every archive is read and the bundle written protected, so plain secrets never leave encryption.
-func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, error) {
+func BundleExerciseArchives(items []NamedArchive, password string, lim exerciseModel.ArchiveLimits) ([]byte, error) {
 	if len(items) == 1 {
 		return items[0].Archive, nil
 	}
@@ -681,9 +689,9 @@ func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, erro
 		var files map[string][]byte
 		var err error
 		if password != "" {
-			files, err = ReadProtectedArchiveV1(item.Archive, password)
+			files, err = ReadProtectedArchiveV1(item.Archive, password, lim)
 		} else {
-			files, err = ReadArchiveV1(bytes.NewReader(item.Archive))
+			files, err = ReadArchiveV1(bytes.NewReader(item.Archive), lim)
 		}
 		if err != nil {
 			return nil, err
@@ -693,7 +701,7 @@ func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, erro
 			bundle[folder+"/"+name] = body
 		}
 	}
-	if err := checkExportEntries(bundle); err != nil {
+	if err := checkExportEntries(bundle, lim); err != nil {
 		return nil, err
 	}
 	var archive []byte
@@ -706,7 +714,7 @@ func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	return archive, checkArchiveSize(len(archive))
+	return archive, checkArchiveSize(int64(len(archive)), lim.ArchiveBytes)
 }
 
 // BuildArchiveV1 creates the portable, checksummed ZIP envelope. Callers own
@@ -766,8 +774,9 @@ func buildArchive(files map[string][]byte, withManifest bool) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
-	b, e := ReadArchiveBytes(r)
+// ReadArchiveV1 reads a plain archive within lim.
+func ReadArchiveV1(r io.Reader, lim exerciseModel.ArchiveLimits) (map[string][]byte, error) {
+	b, e := ReadArchiveBytes(r, lim.ArchiveBytes)
 	if e != nil {
 		return nil, e
 	}
@@ -776,7 +785,7 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 		return nil, e
 	}
 	out := map[string][]byte{}
-	var budget archiveBudget
+	budget := newArchiveBudget(lim)
 	for _, f := range zr.File {
 		name, skip, entryErr := checkArchiveEntry(f.Name, f.Mode(), out)
 		if entryErr != nil {
@@ -835,8 +844,8 @@ func BuildProtectedArchiveV1(files map[string][]byte, password string) ([]byte, 
 }
 
 // readExerciseArchive reads a plain archive, or a protected one when a password is given; protected tells which.
-func readExerciseArchive(data []byte, password string) (files map[string][]byte, protected bool, err error) {
-	files, err = ReadArchiveV1(bytes.NewReader(data))
+func readExerciseArchive(data []byte, password string, lim exerciseModel.ArchiveLimits) (files map[string][]byte, protected bool, err error) {
+	files, err = ReadArchiveV1(bytes.NewReader(data), lim)
 	if err == nil {
 		return files, false, nil
 	}
@@ -845,18 +854,19 @@ func readExerciseArchive(data []byte, password string) (files map[string][]byte,
 	if password == "" || errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) || errors.Is(err, exerciseModel.ErrArchiveTooLarge.Err()) {
 		return nil, false, err
 	}
-	files, err = ReadProtectedArchiveV1(data, password)
+	files, err = ReadProtectedArchiveV1(data, password, lim)
 	if err != nil {
 		return nil, false, err
 	}
 	return files, true, nil
 }
 
-func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, error) {
+// ReadProtectedArchiveV1 reads an AES-protected archive within lim.
+func ReadProtectedArchiveV1(data []byte, password string, lim exerciseModel.ArchiveLimits) (map[string][]byte, error) {
 	if password == "" {
 		return nil, errPasswordRequired
 	}
-	if err := checkArchiveSize(len(data)); err != nil {
+	if err := checkArchiveSize(int64(len(data)), lim.ArchiveBytes); err != nil {
 		return nil, err
 	}
 	zr, err := yzip.NewReader(bytes.NewReader(data), int64(len(data)))
@@ -864,7 +874,7 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 		return nil, err
 	}
 	files := map[string][]byte{}
-	var budget archiveBudget
+	budget := newArchiveBudget(lim)
 	for _, file := range zr.File {
 		name, skip, entryErr := checkArchiveEntry(file.Name, file.Mode(), files)
 		if entryErr != nil {

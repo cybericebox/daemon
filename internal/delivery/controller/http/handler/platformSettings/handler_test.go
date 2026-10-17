@@ -22,6 +22,8 @@ import (
 type fakeUseCase struct {
 	getErr error
 	got    *platformSettingsModel.PlatformSetting
+	// calls are the generic read methods called, in order.
+	calls []string
 
 	typedCalls []string
 	typedIn    platformSettingsModel.Values
@@ -32,6 +34,7 @@ func (f *fakeUseCase) GetPlatformSetting(
 	ctx context.Context,
 	key string,
 ) (*platformSettingsModel.PlatformSetting, error) {
+	f.calls = append(f.calls, "setting")
 	return f.got, f.getErr
 }
 
@@ -39,14 +42,14 @@ func (f *fakeUseCase) GetPlatformSettingValue(
 	ctx context.Context,
 	key string,
 ) (json.RawMessage, error) {
-	s, err := f.GetPlatformSetting(ctx, key)
-	if err != nil {
-		return nil, err
+	f.calls = append(f.calls, "value")
+	if f.getErr != nil {
+		return nil, f.getErr
 	}
-	if s == nil {
+	if f.got == nil {
 		return nil, nil
 	}
-	return s.Value, nil
+	return f.got.Value, nil
 }
 
 func (f *fakeUseCase) ListPlatformSettings(
@@ -120,4 +123,24 @@ func TestUpsertSetting_WithPermission_Returns200(t *testing.T) {
 	engine.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// GET settings/:key/value answers the value only: the value permission (held by the public role) never sees the
+// key's metadata (its required permission, timestamps).
+func TestGetSettingValue_AnswersTheValueOnly(t *testing.T) {
+	uc := &fakeUseCase{got: &platformSettingsModel.PlatformSetting{Key: "theme", Value: json.RawMessage(`{"a":1}`), RequiredPermission: "x.y"}}
+	engine := newEngine(uc, &fakeProt{allow: true})
+
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/settings/theme/value", nil))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, []string{"value"}, uc.calls)
+	var body struct {
+		Data json.RawMessage `json:"Data"`
+	}
+	if assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body)) {
+		assert.JSONEq(t, `{"a":1}`, string(body.Data))
+	}
+	assert.NotContains(t, w.Body.String(), "RequiredPermission")
 }

@@ -45,6 +45,7 @@ type ExerciseUseCase struct {
 	infra       IInfrastructure // nil when no infrastructure agent is configured
 	vpnStore    IVPNStore       // nil when secret storage is not configured
 	flagConfig  config.ExerciseConfig
+	settings    ISettings
 	sessions    ITestSessions  // nil when no proxy key is configured
 	proposals   IProposalInbox // nil until wired; proposal inbox requests are then skipped
 	// resources is the platform's device resources settings (zero: the owner's defaults, see Policy).
@@ -108,6 +109,14 @@ type Dependencies struct {
 	// FileGCGrace is the media GC grace window (MEDIA_GC_GRACE): a stored file of a task past it with no
 	// reference is not offered or kept as the task's copy. Zero: the default 24h.
 	FileGCGrace time.Duration
+	// Settings give the archive limits and test run leases in force (the platform settings); nil: the defaults.
+	Settings ISettings
+}
+
+// ISettings is the platform settings source (satisfied by *platformSettingsUseCase.PlatformSettingsUseCase).
+type ISettings interface {
+	ArchiveLimits(ctx context.Context) (exerciseModel.ArchiveLimits, error)
+	TestRunLeases(ctx context.Context) (exerciseModel.TestRunLeases, error)
 }
 
 type FlagPolicy struct {
@@ -140,6 +149,7 @@ func NewExerciseUseCase(deps Dependencies) *ExerciseUseCase {
 		vpnStore:    deps.VPNStore,
 		sessions:    deps.Sessions,
 		flagConfig:  deps.FlagConfig,
+		settings:    deps.Settings,
 		resources:   deps.Resources,
 		elevations:  deps.Elevations,
 		fileGCGrace: deps.FileGCGrace,

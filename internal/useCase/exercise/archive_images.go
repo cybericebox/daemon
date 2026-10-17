@@ -67,8 +67,8 @@ type zipEntry struct {
 
 // openZipAt opens the zip over r: plain, or AES-protected when its entries are encrypted and a password is given
 // (protected tells which). An encrypted archive without a password fails like the plain read of it.
-func openZipAt(r io.ReaderAt, size int64, password string) ([]zipEntry, bool, error) {
-	zbr := newOpenBudgetReaderAt(r)
+func openZipAt(r io.ReaderAt, size int64, password string, lim exerciseModel.ArchiveLimits) ([]zipEntry, bool, error) {
+	zbr := newOpenBudgetReaderAt(r, lim.Entries)
 	zr, err := zip.NewReader(zbr, size)
 	if refused := zbr.finish(); refused != nil {
 		return nil, false, refused
@@ -76,8 +76,8 @@ func openZipAt(r io.ReaderAt, size int64, password string) ([]zipEntry, bool, er
 	if err != nil {
 		return nil, false, err
 	}
-	if len(zr.File) > limits.Entries {
-		return nil, false, archiveTooLarge(fmt.Sprintf("the archive has more than %d entries", limits.Entries))
+	if err = checkEntryCount(len(zr.File), lim); err != nil {
+		return nil, false, err
 	}
 	encrypted := false
 	for _, f := range zr.File {
@@ -98,7 +98,7 @@ func openZipAt(r io.ReaderAt, size int64, password string) ([]zipEntry, bool, er
 	if password == "" {
 		return nil, false, zip.ErrAlgorithm
 	}
-	ybr := newOpenBudgetReaderAt(r)
+	ybr := newOpenBudgetReaderAt(r, lim.Entries)
 	yr, err := yzip.NewReader(ybr, size)
 	if refused := ybr.finish(); refused != nil {
 		return nil, false, refused
@@ -136,9 +136,9 @@ func isDocumentEntry(name string) bool {
 
 // checkedEntries applies the entry rules to every entry (symlinks, unsafe or repeated paths, the entry count) and
 // returns the files by NFC name in archive order.
-func checkedEntries(entries []zipEntry, protected bool) ([]string, map[string]zipEntry, error) {
-	if len(entries) > limits.Entries {
-		return nil, nil, archiveTooLarge(fmt.Sprintf("the archive has more than %d entries", limits.Entries))
+func checkedEntries(entries []zipEntry, protected bool, lim exerciseModel.ArchiveLimits) ([]string, map[string]zipEntry, error) {
+	if err := checkEntryCount(len(entries), lim); err != nil {
+		return nil, nil, err
 	}
 	seen := map[string][]byte{}
 	byName := map[string]zipEntry{}
@@ -224,13 +224,12 @@ func documentImageFiles(documents map[string][]byte) (map[string]bool, bool, err
 }
 
 // namesImageFiles reads only the documents of an opened archive and tells whether any device names an image file.
-func namesImageFiles(entries []zipEntry, protected bool) (bool, error) {
-	names, byName, err := checkedEntries(entries, protected)
+func namesImageFiles(entries []zipEntry, protected bool, lim exerciseModel.ArchiveLimits) (bool, error) {
+	names, byName, err := checkedEntries(entries, protected, lim)
 	if err != nil {
 		return false, err
 	}
-	var budget archiveBudget
-	documents, err := readDocuments(names, byName, len(entries), &budget)
+	documents, err := readDocuments(names, byName, len(entries), newArchiveBudget(lim))
 	if err != nil {
 		return false, err
 	}
@@ -241,23 +240,23 @@ func namesImageFiles(entries []zipEntry, protected bool) (bool, error) {
 // ArchiveNamesImages tells whether a task archive (bytes, the password when it is protected) names any device image
 // file; such an archive is imported in the background. A broken archive answers false: the synchronous import names
 // what is wrong with it.
-func ArchiveNamesImages(contents []byte, password string) bool {
-	entries, protected, err := openZipAt(bytes.NewReader(contents), int64(len(contents)), password)
+func ArchiveNamesImages(contents []byte, password string, lim exerciseModel.ArchiveLimits) bool {
+	entries, protected, err := openZipAt(bytes.NewReader(contents), int64(len(contents)), password, lim)
 	if err != nil {
 		return false
 	}
-	named, err := namesImageFiles(entries, protected)
+	named, err := namesImageFiles(entries, protected, lim)
 	return err == nil && named
 }
 
 // readArchiveEntries reads an opened archive with its image files left in the zip.
-func readArchiveEntries(entries []zipEntry, protected bool) (archiveRead, error) {
-	names, byName, err := checkedEntries(entries, protected)
+func readArchiveEntries(entries []zipEntry, protected bool, lim exerciseModel.ArchiveLimits) (archiveRead, error) {
+	names, byName, err := checkedEntries(entries, protected, lim)
 	if err != nil {
 		return archiveRead{}, err
 	}
-	var budget archiveBudget
-	files, err := readDocuments(names, byName, len(entries), &budget)
+	budget := newArchiveBudget(lim)
+	files, err := readDocuments(names, byName, len(entries), budget)
 	if err != nil {
 		return archiveRead{}, err
 	}
@@ -273,7 +272,7 @@ func readArchiveEntries(entries []zipEntry, protected bool) (archiveRead, error)
 		}
 		e := byName[name]
 		if !imageNames[name] {
-			body, readErr := readEntry(&budget, len(entries), e)
+			body, readErr := readEntry(budget, len(entries), e)
 			if readErr != nil {
 				return archiveRead{}, readErr
 			}

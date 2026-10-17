@@ -3,6 +3,9 @@ package platformSettingsUseCase
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -13,6 +16,13 @@ import (
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
+	appErr "github.com/cybericebox/daemon/pkg/err"
+)
+
+// The test run leases without config: the defaults of EXERCISE_TEST_DEPLOY_TTL and EXERCISE_TEST_DEPLOY_TTL_MAX.
+const (
+	defaultTestRunLease    = 2 * time.Hour
+	defaultTestRunLeaseMax = 8 * time.Hour
 )
 
 // Typed settings: retention periods, archive limits and test run leases. Each is one stored row of integer fields
@@ -134,12 +144,53 @@ func loadTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase,
 		log.Warn().Err(err).Str("key", s.key).Msg("Stored setting does not parse, the defaults apply")
 		return s.defaults, &row, nil
 	}
+	if stored == nil {
+		log.Warn().Str("key", s.key).Msg("Stored setting is null, the defaults apply")
+		return s.defaults, &row, nil
+	}
+	if unknown := unknownKeys(stored, s.specs); len(unknown) > 0 {
+		log.Warn().Str("key", s.key).Strs("unknown", unknown).Msg("Stored setting has fields no longer known, they are ignored")
+	}
 	value, err := s.defaults.WithValues(platformSettingsModel.Overlay(s.defaults.Values(), stored, s.specs))
 	if err != nil {
-		log.Warn().Err(err).Str("key", s.key).Msg("Stored setting is not valid, the defaults apply")
+		if u.badDefaults[s.key] {
+			log.Warn().Err(err).Str("key", s.key).Msg("A default of this setting is out of range (see the startup warning), the defaults apply")
+		} else {
+			log.Warn().Err(err).Str("key", s.key).Msg("Stored setting is not valid, the defaults apply")
+		}
 		return s.defaults, &row, nil
 	}
 	return value, &row, nil
+}
+
+// unknownKeys are the keys of stored outside specs, sorted.
+func unknownKeys(stored platformSettingsModel.Values, specs []platformSettingsModel.FieldSpec) []string {
+	var unknown []string
+	for _, key := range slices.Sorted(maps.Keys(stored)) {
+		if !slices.ContainsFunc(specs, func(spec platformSettingsModel.FieldSpec) bool { return spec.Key == key }) {
+			unknown = append(unknown, key)
+		}
+	}
+	return unknown
+}
+
+// defaultsOutOfRange tells whether the defaults of s fail its own field rules (bounds or a cross-field rule): an env
+// value the form would refuse. It logs one warning naming the field and the env value; the defaults still apply.
+func defaultsOutOfRange[T typedValue[T]](s typedSetting[T]) bool {
+	values := s.defaults.Values()
+	_, err := s.defaults.WithValues(values)
+	if err == nil {
+		return false
+	}
+	event := log.Warn().Err(err).Str("key", s.key)
+	var typed appErr.Error
+	if errors.As(err, &typed) {
+		if field, ok := typed.PublicContext()["field"].(string); ok {
+			event = event.Str("field", field).Int64("value", values[field])
+		}
+	}
+	event.Msg("An env default of this setting is outside the bounds the platform panel allows; it still applies")
+	return true
 }
 
 func getTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase, s typedSetting[T]) (TypedView, error) {

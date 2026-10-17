@@ -448,7 +448,8 @@ type (
 		LabSweepInterval time.Duration `env:"LAB_SWEEP_INTERVAL" envDefault:"30s"`
 		LabSweepGrace    time.Duration `env:"LAB_SWEEP_GRACE"    envDefault:"15m"`
 		// TestDeployTTL is the lease of a catalog author's test lab; extending it never goes past
-		// TestDeployTTLMax counted from the start.
+		// TestDeployTTLMax counted from the start. Both are defaults: leases saved in the platform
+		// panel override them.
 		TestDeployTTL    time.Duration `env:"TEST_DEPLOY_TTL"     envDefault:"2h"`
 		TestDeployTTLMax time.Duration `env:"TEST_DEPLOY_TTL_MAX" envDefault:"8h"`
 	}
@@ -540,8 +541,9 @@ func (c RateLimitConfig) Validate() error {
 	return nil
 }
 
-// RetentionConfig holds the data retention periods of the Privacy Policy.
-// The defaults are the published periods; change them only together with the
+// RetentionConfig holds the data retention periods of the Privacy Policy. They are
+// defaults: periods saved in the platform panel override them on the next purge pass.
+// The env defaults are the published periods; change them only together with the
 // policy text.
 type RetentionConfig struct {
 	SessionAfterExpiry       time.Duration `env:"SESSION_AFTER_EXPIRY"         envDefault:"2160h"`  // 90 days
