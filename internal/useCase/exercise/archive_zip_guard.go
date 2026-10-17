@@ -69,19 +69,23 @@ const (
 // declaresTooManyEntries scans every position of buf (not only the last candidate: the readers' pick cannot differ
 // from a scan of all of them) for an end record whose entry counts exceed limits.Entries. The 0xFFFF of a plain
 // record is the zip64 sentinel (Info-ZIP and 7z saturate it for any zip64 archive, e.g. images over 4 GiB), not a
-// count: the real one is in the zip64 record, which the scan checks as well.
+// count: the real one is in the zip64 record, which the scan checks as well. The same goes for the declared
+// directory size against the directory byte cap (0xFFFFFFFF is the plain record's sentinel).
 func declaresTooManyEntries(buf []byte) bool {
 	max := uint64(limits.Entries)
+	maxDir := max * maxDirectoryBytesPerEntry
 	for i := 0; i+4 <= len(buf); i++ {
 		switch binary.LittleEndian.Uint32(buf[i:]) {
 		case eocdSignature:
 			if i+eocdMinLen <= len(buf) &&
-				(plainCountOver(binary.LittleEndian.Uint16(buf[i+8:]), max) || plainCountOver(binary.LittleEndian.Uint16(buf[i+10:]), max)) {
+				(plainCountOver(binary.LittleEndian.Uint16(buf[i+8:]), max) || plainCountOver(binary.LittleEndian.Uint16(buf[i+10:]), max) ||
+					plainSizeOver(binary.LittleEndian.Uint32(buf[i+12:]), maxDir)) {
 				return true
 			}
 		case eocd64Signature:
 			if i+eocd64MinLen <= len(buf) &&
-				(binary.LittleEndian.Uint64(buf[i+24:]) > max || binary.LittleEndian.Uint64(buf[i+32:]) > max) {
+				(binary.LittleEndian.Uint64(buf[i+24:]) > max || binary.LittleEndian.Uint64(buf[i+32:]) > max ||
+					binary.LittleEndian.Uint64(buf[i+40:]) > maxDir) {
 				return true
 			}
 		}
@@ -100,3 +104,5 @@ func (b *openBudgetReaderAt) finish() error {
 }
 
 func plainCountOver(count uint16, max uint64) bool { return count != 0xFFFF && uint64(count) > max }
+
+func plainSizeOver(size uint32, max uint64) bool { return size != 0xFFFFFFFF && uint64(size) > max }

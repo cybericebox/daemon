@@ -218,7 +218,7 @@ func (r tailReaderAt) ReadAt(p []byte, off int64) (int, error) {
 
 // hugeLyingTail is the tail of a 10 GiB archive: a zip64 record declaring `declared` entries (and a plain end
 // record with the matching sentinels), or only a plain end record declaring `plain` entries.
-func hugeLyingTail(declared uint64, plain uint16, zip64 bool) tailReaderAt {
+func hugeLyingTail(declared uint64, plain uint16, zip64 bool, dirSize uint64) tailReaderAt {
 	size := int64(10 << 30)
 	var tail []byte
 	rec := make([]byte, zip64EOCDLen)
@@ -232,7 +232,7 @@ func hugeLyingTail(declared uint64, plain uint16, zip64 bool) tailReaderAt {
 		binary.LittleEndian.PutUint64(rec[4:], zip64EOCDLen-12)
 		binary.LittleEndian.PutUint64(rec[24:], declared)
 		binary.LittleEndian.PutUint64(rec[32:], declared)
-		binary.LittleEndian.PutUint64(rec[40:], 1<<20)
+		binary.LittleEndian.PutUint64(rec[40:], dirSize)
 		binary.LittleEndian.PutUint64(rec[48:], 1<<20)
 		binary.LittleEndian.PutUint32(loc, zip64LocatorSig)
 		binary.LittleEndian.PutUint64(loc[8:], uint64(size)-zipEOCDLen-zip64LocatorLen-zip64EOCDLen)
@@ -243,7 +243,7 @@ func hugeLyingTail(declared uint64, plain uint16, zip64 bool) tailReaderAt {
 		binary.LittleEndian.PutUint32(eocd[16:], 0xFFFFFFFF)
 		tail = append(append(append(tail, rec...), loc...), eocd...)
 	} else {
-		binary.LittleEndian.PutUint32(eocd[12:], 1<<20)
+		binary.LittleEndian.PutUint32(eocd[12:], uint32(dirSize))
 		tail = eocd
 	}
 	return tailReaderAt{size: size, tail: tail}
@@ -260,8 +260,10 @@ func allocatedBy(f func()) uint64 {
 
 func TestOpenZipAtDeclaredHugeCountRefusedBeforeAllocation(t *testing.T) {
 	for name, r := range map[string]tailReaderAt{
-		"zip64 200M": hugeLyingTail(200_000_000, 0, true),
-		"plain 5000": hugeLyingTail(0, 5000, false),
+		"zip64 200M":    hugeLyingTail(200_000_000, 0, true, 1<<20),
+		"zip64 dirSize": hugeLyingTail(3, 0, true, 1<<40),
+		"plain dirSize": hugeLyingTail(3, 3, false, 1<<30),
+		"plain 5000":    hugeLyingTail(0, 5000, false, 1<<20),
 	} {
 		t.Run(name+" plain reader", func(t *testing.T) {
 			var err error
