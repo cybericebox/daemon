@@ -2,8 +2,8 @@ package exercise
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -12,12 +12,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	mediaUseCase "github.com/cybericebox/daemon/internal/useCase/media"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
 type exportExercisesRequest struct {
@@ -26,16 +27,32 @@ type exportExercisesRequest struct {
 	Password       string      `json:"Password"`
 }
 
+type exportedFileResponse struct {
+	// FileID is the stored zip; its chunks are read with GET /exercises/files/{fileID}/chunks/{index}. The file is
+	// kept for the media grace window (24 h by default), then the cleanup removes it.
+	FileID uuid.UUID `json:"FileID"`
+	Name   string    `json:"Name"`
+	Size   int64     `json:"Size"`
+	// ChunkSize is the size of every chunk but the last.
+	ChunkSize int64 `json:"ChunkSize"`
+	Chunks    int   `json:"Chunks"`
+}
+
 // export godoc
-// @Summary  Export selected exercises as standard ZIP archives
+// @Summary  Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)
 // @Tags     exercises
 // @Accept   json
-// @Produce  application/zip
+// @Produce  json
 // @Param    body  body  exportExercisesRequest  true  "selection and secret option"
-// @Success  200  {file}  binary
+// @Success  200  {object}  response.Response{data=exportedFileResponse}
 // @Failure  400  {object}  response.Response
 // @Router   /exercises/export [post]
 func (h *Handler) export(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
 	var req exportExercisesRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -45,8 +62,7 @@ func (h *Handler) export(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, fmt.Errorf("a password is required when exporting secrets"))
 		return
 	}
-	archives := make(map[string][]byte, len(req.IDs))
-	usedNames := map[string]int{}
+	items := make([]exerciseUseCase.NamedArchive, 0, len(req.IDs))
 	for _, id := range req.IDs {
 		exercise, err := h.useCase.GetExercise(ctx, id)
 		if err != nil {
@@ -58,55 +74,33 @@ func (h *Handler) export(ctx *gin.Context) {
 			response.AbortWithError(ctx, err)
 			return
 		}
-		name := archiveFilename(exercise.Name)
-		usedNames[name]++
-		if usedNames[name] > 1 {
-			name = strings.TrimSuffix(name, ".cybericebox.zip") + fmt.Sprintf("-%d.cybericebox.zip", usedNames[name])
-		}
-		archives[name] = archive
+		items = append(items, exerciseUseCase.NamedArchive{Name: exercise.Name, Archive: archive})
 	}
-	if len(archives) == 1 {
-		for name, archive := range archives {
-			serveArchive(ctx, name, archive)
-			return
+	name, contents := archiveFilename(items[0].Name), items[0].Archive
+	if len(items) > 1 {
+		password := ""
+		if req.IncludeSecrets {
+			password = req.Password
 		}
-	}
-	bundleFiles := map[string][]byte{}
-	for name, archive := range archives {
-		folder := strings.TrimSuffix(name, ".cybericebox.zip")
-		if err := addExerciseFolder(bundleFiles, folder, archive, req.IncludeSecrets, req.Password); err != nil {
+		// One zip, one folder per task, one root manifest.json.
+		bundle, err := exerciseUseCase.BundleExerciseArchives(items, password)
+		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
 		}
+		name, contents = "exercises.cybericebox.zip", bundle
 	}
-	bundle, err := exerciseUseCase.BuildArchiveV1(bundleFiles)
-	if req.IncludeSecrets && err == nil {
-		bundle, err = exerciseUseCase.BuildProtectedArchiveV1(bundleFiles, req.Password)
-	}
+	// The zip becomes a stored file of its creator; nothing references it, so the media cleanup removes it after the
+	// grace window: that is the time to download it.
+	stored, err := h.useCase.UploadFile(ctx, name, "application/zip", bytes.NewReader(contents), claims.UserID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	serveArchive(ctx, "exercises.cybericebox.zip", bundle)
-}
-
-// addExerciseFolder expands an individual archive into a directory in the
-// catalogue bundle. A normal export is copied verbatim. For a protected
-// export, public exercise metadata and attachments remain browseable while the
-// one JSON payload containing secret values becomes a separately password-
-// encrypted file; plaintext secret values never enter the outer ZIP.
-func addExerciseFolder(bundle map[string][]byte, folder string, archive []byte, includesSecrets bool, password string) error {
-	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(archive))
-	if includesSecrets {
-		files, err = exerciseUseCase.ReadProtectedArchiveV1(archive, password)
-	}
-	if err != nil {
-		return err
-	}
-	for path, body := range files {
-		bundle[folder+"/"+path] = body
-	}
-	return nil
+	chunkSize := h.useCase.UploadChunkBytes()
+	response.AbortWithData(ctx, exportedFileResponse{
+		FileID: stored.ID, Name: stored.Name, Size: stored.SizeBytes, ChunkSize: chunkSize, Chunks: mediaUseCase.ChunkCount(stored.SizeBytes, chunkSize),
+	})
 }
 
 // importArchive godoc
@@ -125,7 +119,7 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	middleware.LimitBody(ctx, 129<<20)
+	middleware.LimitBody(ctx, exerciseUseCase.MaxArchiveBytes+multipartOverheadSlack)
 	file, err := ctx.FormFile("archive")
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -137,12 +131,36 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		return
 	}
 	defer func() { _ = input.Close() }()
-	contents, err := readArchiveUpload(input)
+	contents, err := exerciseUseCase.ReadArchiveBytes(input)
 	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
+		abortArchiveError(ctx, err)
 		return
 	}
 	h.importContents(ctx, claims.UserID, contents, ctx.PostForm("password"))
+}
+
+// importExample godoc
+// @Summary  Download the example import archive (a small built-in ZIP of sample tasks)
+// @Tags     exercises
+// @Produce  application/zip
+// @Success  200  {file}  binary
+// @Failure  500  {object}  response.Response
+// @Router   /exercises/import/example [get]
+func (h *Handler) importExample(ctx *gin.Context) {
+	contents, err := exerciseUseCase.ExampleArchive()
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	serveArchive(ctx, exerciseUseCase.ExampleArchiveFilename, contents)
+}
+
+// serveArchive answers with a small zip held in memory as one attachment.
+func serveArchive(ctx *gin.Context, name string, contents []byte) {
+	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	ctx.Header("X-Content-Type-Options", "nosniff")
+	ctx.Header("Cache-Control", "private, no-store")
+	ctx.Data(http.StatusOK, "application/zip", contents)
 }
 
 type importUploadedRequest struct {
@@ -187,9 +205,9 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 		return
 	}
 	defer func() { _ = reader.Close() }()
-	contents, err := readArchiveUpload(reader)
+	contents, err := exerciseUseCase.ReadArchiveBytes(reader)
 	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
+		abortArchiveError(ctx, err)
 		return
 	}
 	h.importContents(ctx, claims.UserID, contents, req.Password)
@@ -199,7 +217,7 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents []byte, password string) {
 	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, password)
 	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
+		abortArchiveError(ctx, err)
 		return
 	}
 	created := make([]exerciseResponse, 0, len(imports))
@@ -216,15 +234,15 @@ func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents
 	response.AbortWithData(ctx, created)
 }
 
-func readArchiveUpload(file io.Reader) ([]byte, error) {
-	contents, err := io.ReadAll(io.LimitReader(file, (128<<20)+1))
-	if err != nil {
-		return nil, err
+// abortArchiveError keeps a typed archive error (its code and public context reach the client); an untyped
+// one (a broken zip, a size limit) stays a plain 400.
+func abortArchiveError(ctx *gin.Context, failure error) {
+	var typed appErr.Error
+	if errors.As(failure, &typed) {
+		response.AbortWithError(ctx, failure)
+		return
 	}
-	if len(contents) > 128<<20 {
-		return nil, fmt.Errorf("archive exceeds 128 MiB")
-	}
-	return contents, nil
+	response.AbortWithBadRequest(ctx, failure)
 }
 
 func archiveFilename(name string) string {
@@ -240,11 +258,4 @@ func archiveFilename(name string) string {
 		name = "exercise"
 	}
 	return filepath.Base(name) + ".cybericebox.zip"
-}
-
-func serveArchive(ctx *gin.Context, filename string, contents []byte) {
-	download.ExtendDeadline(ctx)
-	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-	ctx.Header("X-Content-Type-Options", "nosniff")
-	ctx.Data(http.StatusOK, "application/zip", contents)
 }

@@ -45,6 +45,9 @@ type Querier interface {
 	AttachEventLabAssignmentBindings(ctx context.Context, labID uuid.NullUUID) (int64, error)
 	AvgDailyActiveSince(ctx context.Context, createdAt time.Time) (float64, error)
 	BlobExists(ctx context.Context, contentHash string) (bool, error)
+	// Records the file as the task's copy of its content and returns the task's canonical file. On conflict the
+	// stored file stays canonical while the GC would keep it; a GC-eligible one is replaced by the given file.
+	ClaimExerciseFile(ctx context.Context, arg ClaimExerciseFileParams) (uuid.UUID, error)
 	// Places a group on an agent unless it is placed already; returns the agent that holds it, so two
 	// racing callers agree on the winner.
 	ClaimLabGroupPlacement(ctx context.Context, arg ClaimLabGroupPlacementParams) (uuid.UUID, error)
@@ -466,6 +469,11 @@ type Querier interface {
 	GetEventTeamStand(ctx context.Context, eventTeamID uuid.UUID) (EventTeamStand, error)
 	GetEventTeamVisible(ctx context.Context, arg GetEventTeamVisibleParams) (bool, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
+	// A stored file still counts as the task's copy only while the media GC would keep it: some reference holds it,
+	// or it is younger than the GC grace cutoff (the same rule DeleteUnreferencedFiles applies). A file past that
+	// point may vanish at any moment, so it is neither offered by the lookup nor kept by a claim.
+	// The task's stored file for a content, if any. Scoped to the one task: never reveals another task's files.
+	GetExerciseFileByHash(ctx context.Context, arg GetExerciseFileByHashParams) (GetExerciseFileByHashRow, error)
 	GetExerciseInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error)
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (ExerciseProposal, error)
 	GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (ExerciseResourceElevation, error)
@@ -954,6 +962,8 @@ type Querier interface {
 	// Card decorations for a page of exercises in one query: owner event name,
 	// fork source name, infrastructure and a pending proposal.
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]ListExerciseCardExtrasRow, error)
+	// Which of the files the task stores as its copy of a content (a co-author's upload found by the hash lookup).
+	ListExerciseHeldFiles(ctx context.Context, arg ListExerciseHeldFilesParams) ([]uuid.UUID, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]ListExerciseProposalsRow, error)
 	// Newest first; status and exercise narrow the list (a null argument does not filter).
 	ListExerciseResourceElevations(ctx context.Context, arg ListExerciseResourceElevationsParams) ([]ListExerciseResourceElevationsRow, error)
@@ -966,6 +976,13 @@ type Querier interface {
 	// internal name (falls back to the public one). Archived uses the same rule
 	// as the events list: the archive instant has passed.
 	ListExerciseUsageEvents(ctx context.Context, arg ListExerciseUsageEventsParams) ([]ListExerciseUsageEventsRow, error)
+	// Teams each variant of every version of the exercise was issued to (grow-only marks).
+	ListExerciseVariantIssues(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantIssuesRow, error)
+	// Per variant: how many teams solved how many distinct subtasks of it (the use case compares with the variant's
+	// subtask count to get the teams that solved it fully).
+	ListExerciseVariantSolveDepths(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantSolveDepthsRow, error)
+	// Teams that solved each subtask of each variant of every version of the exercise.
+	ListExerciseVariantTaskSolves(ctx context.Context, exerciseID uuid.UUID) ([]ListExerciseVariantTaskSolvesRow, error)
 	ListExerciseVersionIDs(ctx context.Context, exerciseID uuid.UUID) ([]uuid.UUID, error)
 	ListExerciseVersions(ctx context.Context, exerciseID uuid.UUID) ([]ExerciseVersion, error)
 	// Shared list filters (keep the four list/count queries in sync):
@@ -989,6 +1006,8 @@ type Querier interface {
 	ListExpiredMediaUploads(ctx context.Context, arg ListExpiredMediaUploadsParams) ([]MediaUpload, error)
 	// Exercises whose versions reference a file (attachment download policy).
 	ListFileExerciseIDs(ctx context.Context, arg ListFileExerciseIDsParams) ([]uuid.UUID, error)
+	// The content hash of each of the files; a file that does not exist is absent.
+	ListFileHashes(ctx context.Context, ids []uuid.UUID) ([]ListFileHashesRow, error)
 	// Who uploaded each of the files: an exercise draft may attach only files its author uploaded or the exercise
 	// already holds.
 	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]ListFileOwnersRow, error)

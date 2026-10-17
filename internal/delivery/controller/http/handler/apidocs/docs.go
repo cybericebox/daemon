@@ -15497,12 +15497,12 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "produces": [
-                    "application/zip"
+                    "application/json"
                 ],
                 "tags": [
                     "exercises"
                 ],
-                "summary": "Export selected exercises as standard ZIP archives",
+                "summary": "Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)",
                 "parameters": [
                     {
                         "description": "selection and secret option",
@@ -15518,7 +15518,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "file"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.exportedFileResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -15613,6 +15625,93 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/files/{fileID}/chunks/{index}": {
+            "get": {
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Chunk N (0-based) of a stored file; a failed chunk is asked for again on its own",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "file ID",
+                        "name": "fileID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "chunk index",
+                        "name": "index",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/files/{fileID}/meta": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Size, chunk layout and hash of a stored file (start of a chunked download)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "file ID",
+                        "name": "fileID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.fileMetaResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/import": {
             "post": {
                 "consumes": [
@@ -15664,6 +15763,31 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/import/example": {
+            "get": {
+                "produces": [
+                    "application/zip"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Download the example import archive (a small built-in ZIP of sample tasks)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -16846,6 +16970,76 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/{id}/files/lookup": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Whether the task already stores a content (asked before an attachment upload)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "SHA-256 of the bytes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.fileLookupRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.fileLookupResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}/proposals": {
             "post": {
                 "consumes": [
@@ -17028,6 +17222,67 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/variant-stats": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Grow-only issue and solve counters of the exercise's variants, per version (newest first)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.versionVariantStatsResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -31809,6 +32064,28 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.exportedFileResponse": {
+            "type": "object",
+            "properties": {
+                "ChunkSize": {
+                    "description": "ChunkSize is the size of every chunk but the last.",
+                    "type": "integer"
+                },
+                "Chunks": {
+                    "type": "integer"
+                },
+                "FileID": {
+                    "description": "FileID is the stored zip; its chunks are read with GET /exercises/files/{fileID}/chunks/{index}. The file is\nkept for the media grace window (24 h by default), then the cleanup removes it.",
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.externalDTO": {
             "type": "object",
             "properties": {
@@ -31817,6 +32094,57 @@ const docTemplate = `{
                 },
                 "Protocol": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.fileLookupRequest": {
+            "type": "object",
+            "required": [
+                "SHA256"
+            ],
+            "properties": {
+                "SHA256": {
+                    "description": "SHA256 is the SHA-256 of the bytes the editor is about to upload: exactly 64 lowercase hex characters\n(checked against sha256Hex after binding).",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.fileLookupResponse": {
+            "type": "object",
+            "properties": {
+                "FileID": {
+                    "type": "string"
+                },
+                "Found": {
+                    "type": "boolean"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "exercise.fileMetaResponse": {
+            "type": "object",
+            "properties": {
+                "ChunkSize": {
+                    "description": "ChunkSize is the size of every chunk but the last.",
+                    "type": "integer"
+                },
+                "Chunks": {
+                    "type": "integer"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "SHA256": {
+                    "description": "SHA256 is the hex digest of the whole file, for the client to check the reassembled bytes.",
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "integer"
                 }
             }
         },
@@ -32253,6 +32581,20 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.taskSolvesResponse": {
+            "type": "object",
+            "properties": {
+                "Name": {
+                    "type": "string"
+                },
+                "Solved": {
+                    "type": "integer"
+                },
+                "TaskID": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.topologyDTO": {
             "type": "object",
             "properties": {
@@ -32330,11 +32672,19 @@ const docTemplate = `{
         "exercise.variantDTO": {
             "type": "object",
             "properties": {
+                "CopyOf": {
+                    "description": "CopyOf (request only, never in a response): the variant this new one was copied from, so a secret left\nblank in the copy takes that variant's value.",
+                    "type": "string"
+                },
                 "ID": {
                     "type": "string"
                 },
                 "Index": {
                     "type": "integer"
+                },
+                "LinkedTo": {
+                    "description": "LinkedTo is the base variant (same version) this one inherits its content from; absent = independent.\nThe backend rewrites the inherited parts from the base on every save.",
+                    "type": "string"
                 },
                 "Note": {
                     "type": "string"
@@ -32364,6 +32714,29 @@ const docTemplate = `{
                 },
                 "MemoryBytes": {
                     "type": "integer"
+                },
+                "VariantID": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.variantStatsResponse": {
+            "type": "object",
+            "properties": {
+                "Issued": {
+                    "type": "integer"
+                },
+                "Number": {
+                    "type": "integer"
+                },
+                "Solved": {
+                    "type": "integer"
+                },
+                "Tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.taskSolvesResponse"
+                    }
                 },
                 "VariantID": {
                     "type": "string"
@@ -32486,6 +32859,29 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exercise.variantDTO"
                     }
+                }
+            }
+        },
+        "exercise.versionVariantStatsResponse": {
+            "type": "object",
+            "properties": {
+                "CreatedAt": {
+                    "type": "string"
+                },
+                "PublishedAt": {
+                    "type": "string"
+                },
+                "Status": {
+                    "type": "string"
+                },
+                "Variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.variantStatsResponse"
+                    }
+                },
+                "VersionID": {
+                    "type": "string"
                 }
             }
         },

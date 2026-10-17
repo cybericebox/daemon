@@ -5,6 +5,8 @@ import (
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	"mime"
 	"net/http"
+	"regexp"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -14,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	mediaUseCase "github.com/cybericebox/daemon/internal/useCase/media"
 )
 
 // multipartOverheadSlack is added on top of the use case's own upload cap
@@ -27,6 +30,56 @@ type fileUploadResponse struct {
 	FileID uuid.UUID `json:"FileID"`
 	Name   string    `json:"Name"`
 	Size   int64     `json:"Size"`
+}
+
+type fileLookupRequest struct {
+	// SHA256 is the SHA-256 of the bytes the editor is about to upload: exactly 64 lowercase hex characters
+	// (checked against sha256Hex after binding).
+	SHA256 string `json:"SHA256" binding:"required"`
+}
+
+// sha256Hex is the only accepted hash form: the media layer stores hashes as lowercase hex, without a prefix.
+var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+type fileLookupResponse struct {
+	Found  bool      `json:"Found"`
+	FileID uuid.UUID `json:"FileID"`
+	Name   string    `json:"Name"`
+	Size   int64     `json:"Size"`
+}
+
+// lookupFile godoc
+// @Summary  Whether the task already stores a content (asked before an attachment upload)
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    id    path  string             true  "exercise ID"
+// @Param    body  body  fileLookupRequest  true  "SHA-256 of the bytes"
+// @Success  200  {object}  response.Response{data=fileLookupResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/{id}/files/lookup [post]
+func (h *Handler) lookupFile(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	var req fileLookupRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if !sha256Hex.MatchString(req.SHA256) {
+		response.AbortWithBadRequest(ctx, errors.New("SHA256 must be 64 lowercase hex characters"))
+		return
+	}
+	found, err := h.useCase.LookupExerciseFile(ctx, id, req.SHA256)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, fileLookupResponse{Found: found.Found, FileID: found.FileID, Name: found.Name, Size: found.Size})
 }
 
 // uploadFile godoc
@@ -141,4 +194,87 @@ func (h *Handler) downloadFile(ctx *gin.Context) {
 		contentType = "application/octet-stream"
 	}
 	download.File(ctx, rc, f.SizeBytes, contentType)
+}
+
+type fileMetaResponse struct {
+	Name string `json:"Name"`
+	Size int64  `json:"Size"`
+	// ChunkSize is the size of every chunk but the last.
+	ChunkSize int64 `json:"ChunkSize"`
+	Chunks    int   `json:"Chunks"`
+	// SHA256 is the hex digest of the whole file, for the client to check the reassembled bytes.
+	SHA256 string `json:"SHA256"`
+}
+
+// authorizedFile reads the file's metadata and checks the caller may download it; a stranger reads a missing file.
+func (h *Handler) authorizedFile(ctx *gin.Context) (mediaModel.File, bool) {
+	fileID, err := uuid.FromString(ctx.Param("fileID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return mediaModel.File{}, false
+	}
+	actor, ok := actorFrom(ctx)
+	if !ok {
+		return mediaModel.File{}, false
+	}
+	meta, err := h.useCase.GetFile(ctx, fileID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return mediaModel.File{}, false
+	}
+	if err = h.useCase.AuthorizeFileDownload(ctx, actor, meta); err != nil {
+		response.AbortWithError(ctx, err)
+		return mediaModel.File{}, false
+	}
+	return meta, true
+}
+
+// fileMeta godoc
+// @Summary  Size, chunk layout and hash of a stored file (start of a chunked download)
+// @Tags     exercises
+// @Produce  json
+// @Param    fileID  path  string  true  "file ID"
+// @Success  200  {object}  response.Response{data=fileMetaResponse}
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/files/{fileID}/meta [get]
+func (h *Handler) fileMeta(ctx *gin.Context) {
+	meta, ok := h.authorizedFile(ctx)
+	if !ok {
+		return
+	}
+	chunkSize := h.useCase.UploadChunkBytes()
+	response.AbortWithData(ctx, fileMetaResponse{
+		Name: meta.Name, Size: meta.SizeBytes, ChunkSize: chunkSize, Chunks: mediaUseCase.ChunkCount(meta.SizeBytes, chunkSize), SHA256: meta.ContentHash,
+	})
+}
+
+// fileChunk godoc
+// @Summary  Chunk N (0-based) of a stored file; a failed chunk is asked for again on its own
+// @Tags     exercises
+// @Produce  application/octet-stream
+// @Param    fileID  path  string  true  "file ID"
+// @Param    index   path  int     true  "chunk index"
+// @Success  200  {file}  binary
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/files/{fileID}/chunks/{index} [get]
+func (h *Handler) fileChunk(ctx *gin.Context) {
+	index, err := strconv.Atoi(ctx.Param("index"))
+	if err != nil || index < 0 {
+		response.AbortWithBadRequest(ctx, errors.New("invalid chunk index"))
+		return
+	}
+	meta, ok := h.authorizedFile(ctx)
+	if !ok {
+		return
+	}
+	rc, _, length, err := h.useCase.ReadFileChunk(ctx, meta.ID, index)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	defer func() { _ = rc.Close() }()
+	download.ExtendDeadline(ctx)
+	ctx.Header("X-Content-Type-Options", "nosniff")
+	ctx.Header("Cache-Control", "private, no-store")
+	download.File(ctx, rc, length, "application/octet-stream")
 }

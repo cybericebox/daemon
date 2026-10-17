@@ -16,7 +16,10 @@ import (
 type SaveDraftInput struct {
 	AdminNote string
 	Variants  []exerciseModel.Variant
-	SavedBy   uuid.UUID
+	// CopyOf[i] (aligned with Variants by index, request only, never stored): the variant that Variants[i]
+	// was copied from, so a secret kept blank in the copy takes that variant's value.
+	CopyOf  []uuid.NullUUID
+	SavedBy uuid.UUID
 }
 
 // SaveDraft stores the working copy as-is: it may be incomplete (autosave while
@@ -38,12 +41,22 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	// variant. Tasks at the same position across variants receive one
 	// canonical ID, which is the stable event-board identity.
 	normalizeContentIDs(version.Variants)
+	// The backend is the source of truth for linked variants: their inherited parts are rebuilt from the base
+	// on every save (a link to a removed base is dropped, the content stays). The attachments are each
+	// variant's own, so the file adoption below never needs a second sync.
+	if err = version.SyncLinkedVariants(); err != nil {
+		return VersionView{}, err
+	}
 	if err = u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {
 		return VersionView{}, err
 	}
 	// The client names the attached files by id: it may attach only what it uploaded or what the exercise
 	// already holds, never another user's file (the table of files is shared by every event).
 	if err = u.requireFilesClaimable(ctx, exerciseID, in.SavedBy, exerciseModel.CollectFileIDs(version.Variants)); err != nil {
+		return VersionView{}, err
+	}
+	// Each content is stored once per task: a second copy of bytes the task holds is pointed at its file.
+	if err = u.adoptFiles(ctx, exerciseID, version.Variants); err != nil {
 		return VersionView{}, err
 	}
 
@@ -55,8 +68,14 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err != nil {
 		return VersionView{}, err
 	}
+	copyOf := in.CopyOf
 	if mergeSource != nil {
 		mergeKeptSecrets(version.Variants, mergeSource.Variants)
+		copyOf = newCopiesOnly(version.Variants, mergeSource.Variants, copyOf)
+	}
+	// A linked variant or a copy gets its source's secret under its own id (a ciphertext opens only there).
+	if err = u.inheritSecrets(version.Variants, secretSources(version.Variants, copyOf), submitted); err != nil {
+		return VersionView{}, err
 	}
 	if err := u.encryptSecrets(version.Variants, submitted); err != nil {
 		return VersionView{}, err
@@ -74,6 +93,22 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 		return VersionView{}, err
 	}
 	return u.versionView(ctx, saved), nil
+}
+
+// newCopiesOnly drops the copy source of every variant the stored version already holds: CopyOf fills the
+// secrets of a new copy only, never a stored variant whose secret was left empty on purpose.
+func newCopiesOnly(variants, stored []exerciseModel.Variant, copyOf []uuid.NullUUID) []uuid.NullUUID {
+	storedIDs := make(map[uuid.UUID]bool, len(stored))
+	for _, variant := range stored {
+		storedIDs[variant.ID] = true
+	}
+	out := make([]uuid.NullUUID, len(copyOf))
+	for i, source := range copyOf {
+		if i < len(variants) && !storedIDs[variants[i].ID] {
+			out[i] = source
+		}
+	}
+	return out
 }
 
 // secretMergeSource resolves which stored version's secrets a blank "keep"
@@ -115,13 +150,7 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 		}
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get draft").Err()
 	}
-	if err = draft.ValidateForPublish(); err != nil {
-		return VersionView{}, err
-	}
-	if err = u.requireInfrastructureAllowed(ctx, e, draft.Variants); err != nil {
-		return VersionView{}, err
-	}
-	if err = u.requireResourcesAllowed(ctx, exerciseID, draft.Variants); err != nil {
+	if err = u.requirePublishable(ctx, e, &draft); err != nil {
 		return VersionView{}, err
 	}
 	published, err := u.exercises.Publish(ctx, exerciseID, time.Now())
@@ -133,6 +162,20 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to publish draft").Err()
 	}
 	return u.versionView(ctx, published), nil
+}
+
+// requirePublishable is the publish gate, the one set of checks every way a version becomes published runs
+// (PublishDraft, and the import of a version marked published): the full content validation, the event's
+// infrastructure permission and the resources model (presets, ceiling, approved elevations of e.ID; a task not
+// yet created has none).
+func (u *ExerciseUseCase) requirePublishable(ctx context.Context, e exerciseModel.Exercise, version *exerciseModel.ExerciseVersion) error {
+	if err := version.ValidateForPublish(); err != nil {
+		return err
+	}
+	if err := u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {
+		return err
+	}
+	return u.requireResourcesAllowed(ctx, e.ID, version.Variants)
 }
 
 // DiscardDraft deletes the draft slot; the exercise's draft pointer clears via

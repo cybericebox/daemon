@@ -6338,12 +6338,66 @@ definitions:
     required:
     - IDs
     type: object
+  exercise.exportedFileResponse:
+    properties:
+      ChunkSize:
+        description: ChunkSize is the size of every chunk but the last.
+        type: integer
+      Chunks:
+        type: integer
+      FileID:
+        description: |-
+          FileID is the stored zip; its chunks are read with GET /exercises/files/{fileID}/chunks/{index}. The file is
+          kept for the media grace window (24 h by default), then the cleanup removes it.
+        type: string
+      Name:
+        type: string
+      Size:
+        type: integer
+    type: object
   exercise.externalDTO:
     properties:
       Port:
         type: integer
       Protocol:
         type: string
+    type: object
+  exercise.fileLookupRequest:
+    properties:
+      SHA256:
+        description: |-
+          SHA256 is the SHA-256 of the bytes the editor is about to upload: exactly 64 lowercase hex characters
+          (checked against sha256Hex after binding).
+        type: string
+    required:
+    - SHA256
+    type: object
+  exercise.fileLookupResponse:
+    properties:
+      FileID:
+        type: string
+      Found:
+        type: boolean
+      Name:
+        type: string
+      Size:
+        type: integer
+    type: object
+  exercise.fileMetaResponse:
+    properties:
+      ChunkSize:
+        description: ChunkSize is the size of every chunk but the last.
+        type: integer
+      Chunks:
+        type: integer
+      Name:
+        type: string
+      SHA256:
+        description: SHA256 is the hex digest of the whole file, for the client to
+          check the reassembled bytes.
+        type: string
+      Size:
+        type: integer
     type: object
   exercise.fileUploadResponse:
     properties:
@@ -6636,6 +6690,15 @@ definitions:
           $ref: '#/definitions/exercise.placeholderDTO'
         type: array
     type: object
+  exercise.taskSolvesResponse:
+    properties:
+      Name:
+        type: string
+      Solved:
+        type: integer
+      TaskID:
+        type: string
+    type: object
   exercise.topologyDTO:
     properties:
       Connections:
@@ -6689,10 +6752,20 @@ definitions:
     type: object
   exercise.variantDTO:
     properties:
+      CopyOf:
+        description: |-
+          CopyOf (request only, never in a response): the variant this new one was copied from, so a secret left
+          blank in the copy takes that variant's value.
+        type: string
       ID:
         type: string
       Index:
         type: integer
+      LinkedTo:
+        description: |-
+          LinkedTo is the base variant (same version) this one inherits its content from; absent = independent.
+          The backend rewrites the inherited parts from the base on every save.
+        type: string
       Note:
         type: string
       Tasks:
@@ -6712,6 +6785,21 @@ definitions:
         type: integer
       MemoryBytes:
         type: integer
+      VariantID:
+        type: string
+    type: object
+  exercise.variantStatsResponse:
+    properties:
+      Issued:
+        type: integer
+      Number:
+        type: integer
+      Solved:
+        type: integer
+      Tasks:
+        items:
+          $ref: '#/definitions/exercise.taskSolvesResponse'
+        type: array
       VariantID:
         type: string
     type: object
@@ -6796,6 +6884,21 @@ definitions:
         items:
           $ref: '#/definitions/exercise.variantDTO'
         type: array
+    type: object
+  exercise.versionVariantStatsResponse:
+    properties:
+      CreatedAt:
+        type: string
+      PublishedAt:
+        type: string
+      Status:
+        type: string
+      Variants:
+        items:
+          $ref: '#/definitions/exercise.variantStatsResponse'
+        type: array
+      VersionID:
+        type: string
     type: object
   exerciseModel.DeviceSnapshot:
     properties:
@@ -20312,6 +20415,50 @@ paths:
         resource frame
       tags:
       - exercises
+  /exercises/{id}/files/lookup:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: SHA-256 of the bytes
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.fileLookupRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.fileLookupResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Whether the task already stores a content (asked before an attachment
+        upload)
+      tags:
+      - exercises
   /exercises/{id}/proposals:
     post:
       consumes:
@@ -20421,6 +20568,44 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Events (active or archived) where any version of the exercise is attached
+      tags:
+      - exercises
+  /exercises/{id}/variant-stats:
+    get:
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.versionVariantStatsResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Grow-only issue and solve counters of the exercise's variants, per
+        version (newest first)
       tags:
       - exercises
   /exercises/{id}/versions:
@@ -20960,17 +21145,23 @@ paths:
         schema:
           $ref: '#/definitions/exercise.exportExercisesRequest'
       produces:
-      - application/zip
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            type: file
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.exportedFileResponse'
+              type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
-      summary: Export selected exercises as standard ZIP archives
+      summary: 'Export selected exercises as one ZIP archive stored as a file (several:
+        one folder per exercise)'
       tags:
       - exercises
   /exercises/files:
@@ -21024,6 +21215,61 @@ paths:
       summary: Stream an exercise attachment
       tags:
       - exercises
+  /exercises/files/{fileID}/chunks/{index}:
+    get:
+      parameters:
+      - description: file ID
+        in: path
+        name: fileID
+        required: true
+        type: string
+      - description: chunk index
+        in: path
+        name: index
+        required: true
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Chunk N (0-based) of a stored file; a failed chunk is asked for again
+        on its own
+      tags:
+      - exercises
+  /exercises/files/{fileID}/meta:
+    get:
+      parameters:
+      - description: file ID
+        in: path
+        name: fileID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.fileMetaResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Size, chunk layout and hash of a stored file (start of a chunked download)
+      tags:
+      - exercises
   /exercises/import:
     post:
       consumes:
@@ -21057,6 +21303,23 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Import an exercise ZIP archive
+      tags:
+      - exercises
+  /exercises/import/example:
+    get:
+      produces:
+      - application/zip
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Download the example import archive (a small built-in ZIP of sample
+        tasks)
       tags:
       - exercises
   /exercises/import/uploaded:

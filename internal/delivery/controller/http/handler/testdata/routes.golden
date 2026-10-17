@@ -375,10 +375,12 @@ GET    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 PUT    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/files/lookup | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/proposals | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/publish | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/unarchive | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/usage | gate: self | layers: exercise.authorize.func
+GET    /api/exercises/:id/variant-stats | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/versions | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/versions/:versionID | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/versions/:versionID/restore | gate: self | layers: exercise.authorize.func
@@ -401,8 +403,11 @@ POST   /api/exercises/elevations/:elevationID/reject | gate: exercises.elevation
 POST   /api/exercises/export | gate: exercises.export | layers: -
 POST   /api/exercises/files | gate: self | layers: -
 GET    /api/exercises/files/:fileID | gate: self | layers: -
+GET    /api/exercises/files/:fileID/chunks/:index | gate: self | layers: -
+GET    /api/exercises/files/:fileID/meta | gate: self | layers: -
 GET    /api/exercises/flag-policy | gate: self | layers: -
 POST   /api/exercises/import | gate: exercises.write | layers: -
+GET    /api/exercises/import/example | gate: exercises.write | layers: -
 POST   /api/exercises/import/uploaded | gate: exercises.write | layers: -
 GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -

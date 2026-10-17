@@ -46,6 +46,8 @@ type fakeUC struct {
 	versionView           exerciseUseCase.VersionView
 	versionList           []exerciseUseCase.VersionListItem
 	usage                 exerciseUseCase.ExerciseUsage
+	variantStats          []exerciseUseCase.VersionVariantStats
+	authErr               error
 	checkpointCalled      bool
 	sessionLink           labaccess.Link
 	checkpointLabel       string
@@ -60,6 +62,7 @@ type fakeUC struct {
 	// capture what the handler actually sent, so SaveDraft's "don't reuse the
 	// request DTO afterwards" contract can be asserted.
 	savedVariants []exerciseModel.Variant
+	savedCopyOf   []uuid.NullUUID
 
 	// files
 	uploadedFile     mediaModel.File
@@ -71,6 +74,10 @@ type fakeUC struct {
 	uploadCreatedBy  uuid.UUID
 	streamedFileID   uuid.UUID
 	maxUploadBytes   int64
+	chunkBytes       int64
+	fileLookup       exerciseUseCase.FileLookup
+	lookupExercise   uuid.UUID
+	lookupHash       string
 
 	// deploy
 	deployHandle exerciseModel.DeployHandle
@@ -109,6 +116,9 @@ func (f *fakeUC) UnarchiveExercise(_ context.Context, id, _ uuid.UUID) (exercise
 	f.unarchivedID = id
 	return f.exerciseView, f.err
 }
+func (f *fakeUC) GetVariantStats(_ context.Context, _ uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error) {
+	return f.variantStats, f.err
+}
 func (f *fakeUC) GetExerciseUsage(_ context.Context, _ uuid.UUID) (exerciseUseCase.ExerciseUsage, error) {
 	return f.usage, f.err
 }
@@ -117,6 +127,7 @@ func (f *fakeUC) DeleteExercise(_ context.Context, _ uuid.UUID) error {
 }
 func (f *fakeUC) SaveDraft(_ context.Context, _ uuid.UUID, in exerciseUseCase.SaveDraftInput) (exerciseUseCase.VersionView, error) {
 	f.savedVariants = in.Variants
+	f.savedCopyOf = in.CopyOf
 	return f.versionView, f.err
 }
 func (f *fakeUC) PublishDraft(_ context.Context, _ uuid.UUID) (exerciseUseCase.VersionView, error) {
@@ -152,7 +163,34 @@ func (f *fakeUC) UploadFile(_ context.Context, name, contentType string, r io.Re
 	f.uploadCreatedBy = createdBy
 	b, _ := io.ReadAll(r)
 	f.uploadContent = string(b)
-	return f.uploadedFile, f.err
+	if f.err != nil {
+		return mediaModel.File{}, f.err
+	}
+	if f.uploadedFile.ID == uuid.Nil {
+		// like the real use case: a stored file the caller uploaded, readable chunk by chunk
+		f.uploadedFile = mediaModel.File{
+			ID: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000f1"), Name: name, ContentType: contentType,
+			SizeBytes: int64(len(b)), ContentHash: "feedface", CreatedBy: uuid.NullUUID{UUID: createdBy, Valid: true},
+		}
+		f.streamedFile = f.uploadedFile
+	}
+	return f.uploadedFile, nil
+}
+func (f *fakeUC) ReadFileChunk(_ context.Context, id uuid.UUID, index int) (io.ReadCloser, mediaModel.File, int64, error) {
+	if f.err != nil {
+		return nil, mediaModel.File{}, 0, f.err
+	}
+	content := f.uploadContent
+	if content == "" {
+		content = f.streamedContent
+	}
+	size := f.UploadChunkBytes()
+	from := int64(index) * size
+	if index < 0 || from >= int64(len(content)) {
+		return nil, mediaModel.File{}, 0, mediaModel.ErrFileNotFound.Err()
+	}
+	to := min(from+size, int64(len(content)))
+	return io.NopCloser(strings.NewReader(content[from:to])), f.streamedFile, to - from, nil
 }
 func (f *fakeUC) GetFile(_ context.Context, id uuid.UUID) (mediaModel.File, error) {
 	if f.err != nil {
@@ -169,7 +207,12 @@ func (f *fakeUC) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, med
 }
 func (f *fakeUC) MaxUploadBytes() int64       { return f.maxUploadBytes }
 func (f *fakeUC) MaxSingleUploadBytes() int64 { return f.maxUploadBytes }
-func (f *fakeUC) UploadChunkBytes() int64     { return f.maxUploadBytes }
+func (f *fakeUC) UploadChunkBytes() int64 {
+	if f.chunkBytes > 0 {
+		return f.chunkBytes
+	}
+	return f.maxUploadBytes
+}
 func (f *fakeUC) StartUpload(context.Context, string, string, int64, uuid.UUID) (mediaModel.Upload, error) {
 	return mediaModel.Upload{}, nil
 }
@@ -589,27 +632,77 @@ func TestCreateExercise_Returns200(t *testing.T) {
 	}
 }
 
+// exportedFile is the answer of POST /exercises/export.
+type exportedFile struct {
+	FileID    string
+	Name      string
+	Size      int64
+	ChunkSize int64
+	Chunks    int
+}
+
+// exportAndDownload exports the ids, then reads every chunk through the chunk route and returns the reassembled bytes.
+func exportAndDownload(t *testing.T, r *gin.Engine, body string) (exportedFile, []byte) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("export: want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var env struct{ Data exportedFile }
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var out []byte
+	for index := 0; index < env.Data.Chunks; index++ {
+		chunk := httptest.NewRecorder()
+		r.ServeHTTP(chunk, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+env.Data.FileID+"/chunks/"+strconv.Itoa(index), nil))
+		if chunk.Code != http.StatusOK || chunk.Header().Get("Content-Type") != "application/octet-stream" {
+			t.Fatalf("chunk %d: status %d type %q", index, chunk.Code, chunk.Header().Get("Content-Type"))
+		}
+		out = append(out, chunk.Body.Bytes()...)
+	}
+	if int64(len(out)) != env.Data.Size {
+		t.Fatalf("reassembled %d bytes, answer says %d", len(out), env.Data.Size)
+	}
+	return env.Data, out
+}
+
 func TestExportOneExercise_UsesStandardPlatformZipName(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	id := uuid.Must(uuid.NewV7())
 	uc := &fakeUC{
 		exerciseView:    exerciseUseCase.ExerciseView{ID: id, Name: "SQL injection basics"},
-		exportedArchive: []byte("zip contents"),
+		exportedArchive: []byte("zip contents"), chunkBytes: 5,
 	}
 	r := newEngine(uc, uid)
-	body := strings.NewReader(`{"IDs":["` + id.String() + `"]}`)
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	file, _ := exportAndDownload(t, r, `{"IDs":["`+id.String()+`"]}`)
+	if file.Name != "sql-injection-basics.cybericebox.zip" || uc.uploadContentTyp != "application/zip" {
+		t.Fatalf("unexpected stored file: %+v type %q", file, uc.uploadContentTyp)
 	}
-	if got := w.Header().Get("Content-Disposition"); !strings.Contains(got, "sql-injection-basics.cybericebox.zip") {
-		t.Fatalf("unexpected archive disposition: %q", got)
+	if uc.uploadCreatedBy != uid {
+		t.Fatalf("the export belongs to its creator, got %s", uc.uploadCreatedBy)
 	}
-	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "application/zip") {
-		t.Fatalf("unexpected content type: %q", got)
+}
+
+// The export is a stored file: the answer names it and its chunks, which reassemble to the zip.
+func TestExport_ReturnsStoredFile(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	id := uuid.Must(uuid.NewV7())
+	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1"}`)})
+	if err != nil {
+		t.Fatalf("build archive: %v", err)
+	}
+	uc := &fakeUC{exerciseView: exerciseUseCase.ExerciseView{ID: id, Name: "web"}, exportedArchive: archive, chunkBytes: 64}
+	r := newEngine(uc, uid)
+	file, body := exportAndDownload(t, r, `{"IDs":["`+id.String()+`"]}`)
+	if file.FileID == "" || file.Chunks < 2 || file.ChunkSize != 64 || file.Size != int64(len(archive)) {
+		t.Fatalf("unexpected answer: %+v (zip is %d bytes)", file, len(archive))
+	}
+	if _, err = exerciseUseCase.ReadArchiveV1(bytes.NewReader(body)); err != nil {
+		t.Fatalf("chunks do not reassemble to a valid zip: %v", err)
 	}
 }
 
@@ -628,7 +721,7 @@ func TestExportExercise_RequiresExportPermission(t *testing.T) {
 			r.Use(response.WithErrorHandler)
 			uc := &fakeUC{
 				exerciseView:    exerciseUseCase.ExerciseView{ID: id, Name: "exercise"},
-				exportedArchive: []byte("zip contents"),
+				exportedArchive: []byte("zip contents"), chunkBytes: 5,
 			}
 			exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: tc.role}).Init(r.Group("api"))
 			req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", strings.NewReader(`{"IDs":["`+id.String()+`"]}`))
@@ -646,27 +739,23 @@ func TestExportSeveralExercises_UsesFoldersInsteadOfNestedArchives(t *testing.T)
 	uid := uuid.Must(uuid.NewV7())
 	first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{
-		"exercise.json": []byte(`{"format":"cib-exercise/v1"}`),
+		"exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
 		"files/a.txt":   []byte("attachment"),
 	})
 	if err != nil {
 		t.Fatalf("build archive: %v", err)
 	}
-	uc := &fakeUC{exerciseView: exerciseUseCase.ExerciseView{Name: "web basics"}, exportedArchive: archive}
+	uc := &fakeUC{exerciseView: exerciseUseCase.ExerciseView{Name: "web basics"}, exportedArchive: archive, chunkBytes: 100}
 	r := newEngine(uc, uid)
-	body := strings.NewReader(`{"IDs":["` + first.String() + `","` + second.String() + `"]}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	file, bundle := exportAndDownload(t, r, `{"IDs":["`+first.String()+`","`+second.String()+`"]}`)
+	if file.Name != "exercises.cybericebox.zip" {
+		t.Fatalf("unexpected bundle name %q", file.Name)
 	}
-	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(w.Body.Bytes()))
+	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(bundle))
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}
-	if string(files["web-basics/exercise.json"]) == "" || string(files["web-basics-2/exercise.json"]) == "" {
+	if string(files["web basics/exercise.json"]) == "" || string(files["web basics_2/exercise.json"]) == "" {
 		t.Fatalf("expected exercise folders, got entries: %#v", files)
 	}
 	for name := range files {
@@ -829,6 +918,28 @@ func TestSaveDraft_MapsFlagAsPlainStringSlice(t *testing.T) {
 	gotFlag := uc.savedVariants[0].Tasks[0].Flag
 	if len(gotFlag) != 2 || gotFlag[0] != "FLAG{one}" || gotFlag[1] != "FLAG{two}" {
 		t.Fatalf("Flag not mapped as plain []string: %+v", gotFlag)
+	}
+}
+
+// CopyOf (request only) names the variant a new one was copied from; it reaches the use case by index.
+func TestSaveDraftHandler_PassesCopyOf(t *testing.T) {
+	source := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d001")
+	exID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d000")
+	uc := &fakeUC{versionView: exerciseUseCase.VersionView{ID: exID, ExerciseID: exID}}
+	r := newEngine(uc, uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d0ff"))
+	body := `{"Variants":[{"ID":"` + source.String() + `","Index":1,"Tasks":[],"Topology":{"VPN":{},"Internet":{}}},` +
+		`{"CopyOf":"` + source.String() + `","Index":2,"Tasks":[],"Topology":{"VPN":{},"Internet":{}}}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/exercises/"+exID.String()+"/draft", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	want := []uuid.NullUUID{{}, {UUID: source, Valid: true}}
+	if len(uc.savedCopyOf) != 2 || uc.savedCopyOf[0] != want[0] || uc.savedCopyOf[1] != want[1] {
+		t.Fatalf("CopyOf = %+v, want %+v", uc.savedCopyOf, want)
 	}
 }
 
@@ -1149,6 +1260,68 @@ func TestDownloadFile_Unauthorized_DoesNotOpenBlob(t *testing.T) {
 	}
 	if uc.streamedFileID != (uuid.UUID{}) {
 		t.Fatalf("blob opened for an unauthorized caller")
+	}
+}
+
+// A caller without the download right gets a 404 and the blob is never read.
+func TestFileChunk_RequiresDownloadRight(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	fileID := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{streamedFile: mediaModel.File{ID: fileID, Name: "f", SizeBytes: 5}, streamedContent: "hello", chunkBytes: 4}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	r.Use(func(c *gin.Context) {
+		rc := rbac.ContextWithCurrentUserSession(c.Request.Context(), rbac.Claims{UserID: uid})
+		c.Request = c.Request.WithContext(rc)
+		c.Next()
+	})
+	exerciseHandler.NewExerciseAPIHandler(uc, fakeProt{}).Init(r.Group("api"))
+
+	for _, path := range []string{"/meta", "/chunks/0"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: want 404, got %d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestFileMetaAndChunk_Reader(t *testing.T) {
+	fileID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000f2")
+	uc := &fakeUC{
+		streamedFile:    mediaModel.File{ID: fileID, Name: "a.zip", SizeBytes: 5, ContentHash: "abc"},
+		streamedContent: "hello", chunkBytes: 4,
+	}
+	r := newEngine(uc, uuid.Must(uuid.NewV7()))
+	meta := httptest.NewRecorder()
+	r.ServeHTTP(meta, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+"/meta", nil))
+	var env struct {
+		Data struct {
+			Name      string
+			Size      int64
+			ChunkSize int64
+			Chunks    int
+			SHA256    string
+		}
+	}
+	if err := json.Unmarshal(meta.Body.Bytes(), &env); err != nil || meta.Code != http.StatusOK {
+		t.Fatalf("meta: %d %s %v", meta.Code, meta.Body.String(), err)
+	}
+	if env.Data.Name != "a.zip" || env.Data.Size != 5 || env.Data.ChunkSize != 4 || env.Data.Chunks != 2 || env.Data.SHA256 != "abc" {
+		t.Fatalf("unexpected meta: %+v", env.Data)
+	}
+	last := httptest.NewRecorder()
+	r.ServeHTTP(last, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+"/chunks/1", nil))
+	if last.Code != http.StatusOK || last.Body.String() != "o" || last.Header().Get("Content-Length") != "1" {
+		t.Fatalf("last chunk: %d %q len %q", last.Code, last.Body.String(), last.Header().Get("Content-Length"))
+	}
+	for _, bad := range []string{"2", "-1", "x"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+"/chunks/"+bad, nil))
+		if rec.Code != http.StatusNotFound && rec.Code != http.StatusBadRequest {
+			t.Fatalf("chunk %s: want 404/400, got %d", bad, rec.Code)
+		}
 	}
 }
 
@@ -1535,6 +1708,45 @@ func TestUsage_ReturnsEventsForReaders(t *testing.T) {
 	}
 }
 
+func TestVariantStats_Route(t *testing.T) {
+	exID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000001")
+	versionID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000002")
+	variantID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000003")
+	taskID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000004")
+	created := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	published := created.Add(time.Hour)
+	uc := &fakeUC{variantStats: []exerciseUseCase.VersionVariantStats{{VersionID: versionID, Status: "published", CreatedAt: created, PublishedAt: &published,
+		Variants: []exerciseUseCase.VariantStats{{VariantID: variantID, Number: 1, Issued: 3, Solved: 1,
+			Tasks: []exerciseUseCase.TaskSolves{{TaskID: taskID, Name: "Recon", Solved: 2}}}}}}}
+	r := newEngine(uc, uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000005"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/variant-stats", nil))
+	want := `{"Data":[{"VersionID":"` + versionID.String() + `","Status":"published","CreatedAt":"2026-09-01T10:00:00Z","PublishedAt":"2026-09-01T11:00:00Z",` +
+		`"Variants":[{"VariantID":"` + variantID.String() + `","Number":1,"Issued":3,"Solved":1,"Tasks":[{"TaskID":"` + taskID.String() + `","Name":"Recon","Solved":2}]}]}]}`
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), strings.TrimSuffix(strings.TrimPrefix(want, `{"Data":`), "}")) {
+		t.Fatalf("variant stats: got %d %s\nwant %s", w.Code, w.Body.String(), want)
+	}
+
+	hidden := &fakeUC{authErr: exerciseModel.ErrExerciseNotFound.Err()}
+	w = httptest.NewRecorder()
+	newEngine(hidden, uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000005")).ServeHTTP(w,
+		httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/variant-stats", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("missing exercise: want 404, got %d %s", w.Code, w.Body.String())
+	}
+
+	// A role without exercises.read is refused by the same gate as the usage route.
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(response.WithErrorHandler)
+	exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: rbac.RoleUser}).Init(engine.Group("api"))
+	w = httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/variant-stats", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a non-reader: want 403, got %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestUsage_EmptyIsList(t *testing.T) {
 	r := newEngine(&fakeUC{}, uuid.Must(uuid.NewV7()))
 	w := httptest.NewRecorder()
@@ -1570,6 +1782,9 @@ func fakeActionPermission(action exerciseUseCase.Action) rbac.Permission {
 }
 
 func (f *fakeUC) AuthorizeExercise(_ context.Context, actor exerciseUseCase.Actor, _ uuid.UUID, action exerciseUseCase.Action) (exerciseUseCase.Access, error) {
+	if f.authErr != nil {
+		return exerciseUseCase.Access{}, f.authErr
+	}
 	if !actor.Role.HasPermission(fakeActionPermission(action)) {
 		return exerciseUseCase.Access{}, exerciseModel.ErrExerciseForbidden.Err()
 	}
@@ -1915,5 +2130,79 @@ func TestVersionResponseCarriesResourcesAndNeverNamesALaboratory(t *testing.T) {
 		if strings.Contains(w.Body.String(), banned) {
 			t.Errorf("the version response names a laboratory (%s): %s", banned, w.Body.String())
 		}
+	}
+}
+
+func (f *fakeUC) LookupExerciseFile(_ context.Context, exerciseID uuid.UUID, sha256 string) (exerciseUseCase.FileLookup, error) {
+	f.lookupExercise, f.lookupHash = exerciseID, sha256
+	return f.fileLookup, f.err
+}
+
+func TestLookupFile_Route(t *testing.T) {
+	exID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000d0001")
+	fileID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000d0002")
+	hash := strings.Repeat("ab", 32)
+	do := func(role rbac.Role, uc *fakeUC, body string) *httptest.ResponseRecorder {
+		gin.SetMode(gin.TestMode)
+		r := gin.New()
+		r.Use(response.WithErrorHandler)
+		r.Use(injectIdentity(uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000d0003")))
+		exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: role}).Init(r.Group("api"))
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/"+exID.String()+"/files/lookup", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	t.Run("writer gets the task's file", func(t *testing.T) {
+		uc := &fakeUC{fileLookup: exerciseUseCase.FileLookup{Found: true, FileID: fileID, Name: "notes.txt", Size: 42}}
+		w := do(rbac.RoleAdmin, uc, `{"SHA256":"`+hash+`"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+		}
+		var got struct {
+			Data struct {
+				Found  bool
+				FileID uuid.UUID
+				Name   string
+				Size   int64
+			}
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if !got.Data.Found || got.Data.FileID != fileID || got.Data.Name != "notes.txt" || got.Data.Size != 42 {
+			t.Fatalf("body=%s", w.Body.String())
+		}
+		if uc.lookupExercise != exID || uc.lookupHash != hash {
+			t.Fatalf("called with %s %s", uc.lookupExercise, uc.lookupHash)
+		}
+	})
+	t.Run("not found is a plain answer", func(t *testing.T) {
+		w := do(rbac.RoleAdmin, &fakeUC{}, `{"SHA256":"`+hash+`"}`)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Found":false`) {
+			t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+		}
+	})
+	t.Run("reader without write", func(t *testing.T) {
+		uc := &fakeUC{}
+		w := do(rbac.RoleAdminViewer, uc, `{"SHA256":"`+hash+`"}`)
+		if w.Code != http.StatusForbidden || uc.lookupHash != "" {
+			t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+		}
+	})
+	for name, body := range map[string]string{
+		"short":   `{"SHA256":"abc"}`,
+		"not hex": `{"SHA256":"` + strings.Repeat("zz", 32) + `"}`,
+		"missing": `{}`,
+		"upper":   `{"SHA256":"` + strings.Repeat("AB", 32) + `"}`,
+		"0x":      `{"SHA256":"0x` + strings.Repeat("ab", 31) + `"}`,
+	} {
+		t.Run("bad hash "+name, func(t *testing.T) {
+			uc := &fakeUC{}
+			if w := do(rbac.RoleAdmin, uc, body); w.Code != http.StatusBadRequest || uc.lookupHash != "" {
+				t.Fatalf("got %d body=%s", w.Code, w.Body.String())
+			}
+		})
 	}
 }

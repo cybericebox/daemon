@@ -81,6 +81,28 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, string, er
 	return obj, info.ContentType, nil
 }
 
+// GetRange opens length bytes of an object starting at offset (an HTTP range read). The caller must Close the
+// returned reader. Returns ErrObjectNotFound when the key is absent.
+func (c *Client) GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	opts := minio.GetObjectOptions{}
+	if err := opts.SetRange(offset, offset+length-1); err != nil {
+		return nil, err
+	}
+	obj, err := c.mc.GetObject(ctx, c.bucket, key, opts)
+	if err != nil {
+		return nil, err
+	}
+	// GetObject is lazy; Stat forces the request so a missing key surfaces now.
+	if _, err = obj.Stat(); err != nil {
+		_ = obj.Close()
+		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
+			return nil, ErrObjectNotFound
+		}
+		return nil, err
+	}
+	return obj, nil
+}
+
 // Remove deletes an object. A missing key is not an error.
 func (c *Client) Remove(ctx context.Context, key string) error {
 	return c.mc.RemoveObject(ctx, c.bucket, key, minio.RemoveObjectOptions{ForceDelete: true})

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gofrs/uuid"
+
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
@@ -129,5 +131,25 @@ func TestTopologyDTOCarriesDevicePersistenceBothWays(t *testing.T) {
 	raw, err := json.Marshal(out.Devices[1])
 	if err != nil || strings.Contains(string(raw), "Persistence") {
 		t.Fatalf("an absent persistence is omitted: %s %v", raw, err)
+	}
+}
+
+func TestVariantDTO_LinkedToRoundTrip(t *testing.T) {
+	base := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d101")
+	linked := variantDTO{LinkedTo: &base}.toDomain()
+	if linked.LinkedTo != (uuid.NullUUID{UUID: base, Valid: true}) {
+		t.Fatalf("LinkedTo = %+v", linked.LinkedTo)
+	}
+	if out := variantToDTO(linked); out.LinkedTo == nil || *out.LinkedTo != base || out.CopyOf != nil {
+		t.Fatalf("response LinkedTo = %v, CopyOf = %v", out.LinkedTo, out.CopyOf)
+	}
+
+	independent := variantDTO{}.toDomain()
+	if independent.IsLinked() {
+		t.Fatalf("an absent LinkedTo is not a link: %+v", independent.LinkedTo)
+	}
+	raw, err := json.Marshal(variantToDTO(independent))
+	if err != nil || strings.Contains(string(raw), "LinkedTo") || strings.Contains(string(raw), "CopyOf") {
+		t.Fatalf("an independent variant has no LinkedTo/CopyOf key: %s %v", raw, err)
 	}
 }
