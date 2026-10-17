@@ -43,16 +43,31 @@ func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.T
 	if adapter == nil {
 		return 0, nil
 	}
-	rows, err := u.images.ListUnreferenced(ctx, now.Add(-unusedTagGrace))
+	cutoff := now.Add(-unusedTagGrace)
+	rows, err := u.images.ListUnreferenced(ctx, cutoff)
 	if err != nil {
 		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to list the unused registry tags").Err()
 	}
 
 	deleted := 0
 	var failed error
+	// The list may be old by the time a digest comes up (a draft saved, the image uploaded again): ask again once
+	// per digest right before its first tag goes, and skip it when it is no longer collectable.
+	collectable := map[string]bool{}
 	for _, row := range rows {
 		if err = ctx.Err(); err != nil {
 			return deleted, err
+		}
+		ok, seen := collectable[row.Digest]
+		if !seen {
+			var cerr error
+			if ok, cerr = u.images.IsCollectable(ctx, row.Digest, cutoff); cerr != nil {
+				failed = errors.Join(failed, cerr)
+			}
+			collectable[row.Digest] = ok
+		}
+		if !ok {
+			continue
 		}
 		// A row can exist whose tag was never pushed (the record precedes the manifest push): an absent tag is gone.
 		derr := adapter.DeleteTag(ctx, s.Account, token, s.Repository, row.Tag)
@@ -65,11 +80,14 @@ func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.T
 			log.Warn().Err(derr).Str("tag", row.Tag).Msg("image registry: removing an unused tag failed, kept for the next pass")
 			continue
 		}
-		if derr = u.images.Delete(ctx, row.Digest, row.Tag); derr != nil {
+		removed, derr := u.images.Delete(ctx, row.Digest, row.Tag, cutoff)
+		if derr != nil {
 			failed = errors.Join(failed, derr)
 			continue
 		}
-		deleted++
+		if removed {
+			deleted++
+		}
 	}
 	if failed != nil {
 		return deleted, model.ErrPlatform.WithError(failed).WithMessage("Failed to drop the records of removed registry tags").Err()

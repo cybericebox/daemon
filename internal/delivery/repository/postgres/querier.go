@@ -284,7 +284,8 @@ type Querier interface {
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteOwnedExerciseTestDeploy(ctx context.Context, arg DeleteOwnedExerciseTestDeployParams) (int64, error)
-	DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) error
+	// Removes the record of one tag only while its digest is still collectable (same predicate as IsDigestCollectable).
+	DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) (int64, error)
 	DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
@@ -647,6 +648,9 @@ type Querier interface {
 	// never insert/freeze a cohort before the assignment preparation boundary.
 	InvalidateEventLabRevealBarrier(ctx context.Context, arg InvalidateEventLabRevealBarrierParams) error
 	InviteEventParticipant(ctx context.Context, arg InviteEventParticipantParams) (EventParticipant, error)
+	// The list query's predicate for one digest, asked again right before its tags are removed: nothing references it
+	// now and no row of it was uploaded at/after $2.
+	IsDigestCollectable(ctx context.Context, arg IsDigestCollectableParams) (pgtype.Bool, error)
 	IsEventChallengePublished(ctx context.Context, id uuid.UUID) (bool, error)
 	IsEventLabManualReachable(ctx context.Context, arg IsEventLabManualReachableParams) (bool, error)
 	IsEventTeamLabComplete(ctx context.Context, id uuid.UUID) (pgtype.Bool, error)
@@ -1355,9 +1359,10 @@ type Querier interface {
 	// A historical dispatched generation with no persisted requests is unknown,
 	// never a zero-capacity certificate. Unlaunched objective pins do not hold CPU.
 	ListUnaccountedEventLabStarts(ctx context.Context) ([]ListUnaccountedEventLabStartsRow, error)
-	// Every row (tag) of the platform digests the tag collector may remove: no exercise version (draft, published,
-	// any status) has a device image platform:<name>@<digest> (the name may differ), and every row of the digest was
-	// uploaded before $1. Variants that are not an array, or a "devices" that is null or not an array, hold no image.
+	// Rows (tags) of the platform digests the tag collector may remove: every row of the digest was uploaded before
+	// $1 (the grace filter, applied first), and no exercise version (draft, published, any status) has a device image
+	// platform:<name>@<digest> (the name may differ). Variants that are not an array, or a "devices" that is null or
+	// not an array, hold no image. At most 500 rows a pass; the rest wait for the next one.
 	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)

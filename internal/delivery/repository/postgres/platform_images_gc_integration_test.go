@@ -64,7 +64,7 @@ func TestListUnreferencedPlatformImages(t *testing.T) {
 		t.Fatalf("got %v want %v", got, want)
 	}
 
-	if err = db.Queries.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: gcDigest("d"), Tag: "web-dddddddddddd"}); err != nil {
+	if _, err = db.Queries.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: gcDigest("d"), Tag: "web-dddddddddddd", Before: before}); err != nil {
 		t.Fatal(err)
 	}
 	if rows, err = db.Queries.ListUnreferencedPlatformImages(ctx, before); err != nil || len(rows) != 2 {
@@ -97,5 +97,53 @@ func TestDeleteStaleImageBlobPushes(t *testing.T) {
 	n, err := db.Queries.DeleteStaleImageBlobPushes(ctx, t0.Add(-7*24*time.Hour))
 	if err != nil || n != 2 {
 		t.Fatalf("deleted %d %v", n, err)
+	}
+}
+
+// The re-check and the conditional delete see what changed after the list: a new reference, a fresh upload.
+func TestPlatformImageRecheckAndConditionalDelete(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+	before := t0.Add(-24 * time.Hour)
+	save := repoSaver(t, db)
+	save("a", "web-aaaaaaaaaaaa", t0.Add(-48*time.Hour))
+	save("b", "web-bbbbbbbbbbbb", t0.Add(-48*time.Hour))
+
+	collectable := func(c string) bool {
+		v, err := db.Queries.IsDigestCollectable(ctx, postgres.IsDigestCollectableParams{TargetDigest: gcDigest(c), Before: before})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.Valid && v.Bool
+	}
+	if !collectable("a") || !collectable("b") || collectable("z") {
+		t.Fatal("old unreferenced digests are collectable, an unknown one is not")
+	}
+
+	// a: a draft starts referencing it; b: it is uploaded again.
+	ex := uuid.Must(uuid.FromString("01900000-0000-7000-8000-0000000000c9"))
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercises (id, name, created_at, updated_at) VALUES ($1, 'gc-re', $2, $2)`, ex, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at) VALUES ($1, $2, 'draft', $3::jsonb, $4)`,
+		uuid.Must(uuid.FromString("01900000-0000-7000-8000-0000000000e9")), ex, `[{"topology":{"devices":[{"image":"platform:new@`+gcDigest("a")+`"}]}}]`, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE platform_images SET uploaded_at = $1 WHERE digest = $2`, t0, gcDigest("b")); err != nil {
+		t.Fatal(err)
+	}
+	if collectable("a") || collectable("b") {
+		t.Fatal("re-referenced and refreshed digests are no longer collectable")
+	}
+	for _, c := range []struct{ d, tag string }{{"a", "web-aaaaaaaaaaaa"}, {"b", "web-bbbbbbbbbbbb"}} {
+		n, err := db.Queries.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: gcDigest(c.d), Tag: c.tag, Before: before})
+		if err != nil || n != 0 {
+			t.Fatalf("%s: deleted %d %v", c.d, n, err)
+		}
+	}
+	var rows int
+	if err := db.Pool.QueryRow(ctx, "SELECT count(*) FROM platform_images").Scan(&rows); err != nil || rows != 2 {
+		t.Fatalf("rows=%d %v", rows, err)
 	}
 }

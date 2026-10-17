@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
@@ -29,7 +30,8 @@ type Queries interface {
 
 	UpsertPlatformImage(ctx context.Context, arg postgres.UpsertPlatformImageParams) error
 	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]postgres.PlatformImage, error)
-	DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) error
+	DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) (int64, error)
+	IsDigestCollectable(ctx context.Context, arg postgres.IsDigestCollectableParams) (pgtype.Bool, error)
 	DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error)
 	UpsertImageBlobPush(ctx context.Context, arg postgres.UpsertImageBlobPushParams) error
 	GetImageBlobPush(ctx context.Context, digest string) (postgres.ImageBlobPush, error)

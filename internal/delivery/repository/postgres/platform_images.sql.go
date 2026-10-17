@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteImageBlobPush = `-- name: DeleteImageBlobPush :exec
@@ -23,21 +24,34 @@ func (q *Queries) DeleteImageBlobPush(ctx context.Context, digest string) error 
 	return err
 }
 
-const deletePlatformImage = `-- name: DeletePlatformImage :exec
+const deletePlatformImage = `-- name: DeletePlatformImage :execrows
 DELETE
-FROM platform_images
-WHERE digest = $1
-  AND tag = $2
+FROM platform_images pi
+WHERE pi.digest = $1
+  AND pi.tag = $2
+  AND NOT EXISTS (SELECT 1 FROM platform_images fresh WHERE fresh.digest = pi.digest AND fresh.uploaded_at >= $3::timestamptz)
+  AND NOT EXISTS (SELECT 1
+                  FROM exercise_versions v,
+                       jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+                       jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+                  WHERE jsonb_typeof(device -> 'image') = 'string'
+                    AND (device ->> 'image') LIKE 'platform:%'
+                    AND split_part(device ->> 'image', '@', 2) = pi.digest)
 `
 
 type DeletePlatformImageParams struct {
-	Digest string `json:"digest"`
-	Tag    string `json:"tag"`
+	Digest string    `json:"digest"`
+	Tag    string    `json:"tag"`
+	Before time.Time `json:"before"`
 }
 
-func (q *Queries) DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) error {
-	_, err := q.db.Exec(ctx, deletePlatformImage, arg.Digest, arg.Tag)
-	return err
+// Removes the record of one tag only while its digest is still collectable (same predicate as IsDigestCollectable).
+func (q *Queries) DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePlatformImage, arg.Digest, arg.Tag, arg.Before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteStaleImageBlobPushes = `-- name: DeleteStaleImageBlobPushes :execrows
@@ -73,26 +87,56 @@ func (q *Queries) GetImageBlobPush(ctx context.Context, digest string) (ImageBlo
 	return i, err
 }
 
-const listUnreferencedPlatformImages = `-- name: ListUnreferencedPlatformImages :many
-SELECT pi.digest, pi.tag, pi.name, pi.exercise_id, pi.uploaded_by, pi.uploaded_at
-FROM platform_images pi
-WHERE NOT EXISTS (SELECT 1
-                  FROM platform_images fresh
-                  WHERE fresh.digest = pi.digest
-                    AND fresh.uploaded_at >= $1::timestamptz)
-  AND NOT EXISTS (SELECT 1
-                  FROM exercise_versions v,
-                       jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
-                       jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
-                  WHERE jsonb_typeof(device -> 'image') = 'string'
-                    AND (device ->> 'image') LIKE 'platform:%'
-                    AND split_part(device ->> 'image', '@', 2) = pi.digest)
-ORDER BY pi.digest, pi.tag
+const isDigestCollectable = `-- name: IsDigestCollectable :one
+SELECT EXISTS (SELECT 1 FROM platform_images WHERE digest = $1::text)
+       AND NOT EXISTS (SELECT 1 FROM platform_images WHERE digest = $1::text AND uploaded_at >= $2::timestamptz)
+       AND NOT EXISTS (SELECT 1
+                       FROM exercise_versions v,
+                            jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+                            jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+                       WHERE jsonb_typeof(device -> 'image') = 'string'
+                         AND (device ->> 'image') LIKE 'platform:%'
+                         AND split_part(device ->> 'image', '@', 2) = $1::text)::boolean AS collectable
 `
 
-// Every row (tag) of the platform digests the tag collector may remove: no exercise version (draft, published,
-// any status) has a device image platform:<name>@<digest> (the name may differ), and every row of the digest was
-// uploaded before $1. Variants that are not an array, or a "devices" that is null or not an array, hold no image.
+type IsDigestCollectableParams struct {
+	TargetDigest string    `json:"target_digest"`
+	Before       time.Time `json:"before"`
+}
+
+// The list query's predicate for one digest, asked again right before its tags are removed: nothing references it
+// now and no row of it was uploaded at/after $2.
+func (q *Queries) IsDigestCollectable(ctx context.Context, arg IsDigestCollectableParams) (pgtype.Bool, error) {
+	row := q.db.QueryRow(ctx, isDigestCollectable, arg.TargetDigest, arg.Before)
+	var collectable pgtype.Bool
+	err := row.Scan(&collectable)
+	return collectable, err
+}
+
+const listUnreferencedPlatformImages = `-- name: ListUnreferencedPlatformImages :many
+WITH candidates AS (SELECT digest
+                    FROM platform_images
+                    GROUP BY digest
+                    HAVING max(uploaded_at) < $1::timestamptz),
+     referenced AS (SELECT DISTINCT split_part(device ->> 'image', '@', 2) AS digest
+                    FROM exercise_versions v,
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
+                         jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
+                    WHERE jsonb_typeof(device -> 'image') = 'string'
+                      AND (device ->> 'image') LIKE 'platform:%')
+SELECT pi.digest, pi.tag, pi.name, pi.exercise_id, pi.uploaded_by, pi.uploaded_at
+FROM platform_images pi
+         JOIN candidates c ON c.digest = pi.digest
+         LEFT JOIN referenced r ON r.digest = pi.digest
+WHERE r.digest IS NULL
+ORDER BY pi.digest, pi.tag
+LIMIT 500
+`
+
+// Rows (tags) of the platform digests the tag collector may remove: every row of the digest was uploaded before
+// $1 (the grace filter, applied first), and no exercise version (draft, published, any status) has a device image
+// platform:<name>@<digest> (the name may differ). Variants that are not an array, or a "devices" that is null or
+// not an array, hold no image. At most 500 rows a pass; the rest wait for the next one.
 func (q *Queries) ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error) {
 	rows, err := q.db.Query(ctx, listUnreferencedPlatformImages, before)
 	if err != nil {

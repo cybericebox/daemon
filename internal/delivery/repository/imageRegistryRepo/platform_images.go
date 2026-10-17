@@ -53,7 +53,16 @@ func (r *PlatformImages) ListUnreferenced(ctx context.Context, before time.Time)
 	return out, nil
 }
 
-// Delete removes the record of one tag (it is gone from the registry).
-func (r *PlatformImages) Delete(ctx context.Context, digest, tag string) error {
-	return r.q.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: digest, Tag: tag})
+// IsCollectable asks again whether the digest may still be removed: no exercise version references it and none of
+// its rows was uploaded at/after the cutoff.
+func (r *PlatformImages) IsCollectable(ctx context.Context, digest string, before time.Time) (bool, error) {
+	v, err := r.q.IsDigestCollectable(ctx, postgres.IsDigestCollectableParams{TargetDigest: digest, Before: before})
+	return v.Valid && v.Bool, err
+}
+
+// Delete removes the record of one tag (it is gone from the registry), only while its digest is still
+// collectable; removed is false when the row was kept (or already gone).
+func (r *PlatformImages) Delete(ctx context.Context, digest, tag string, before time.Time) (removed bool, err error) {
+	n, err := r.q.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: digest, Tag: tag, Before: before})
+	return n > 0, err
 }

@@ -2533,11 +2533,12 @@ func (mr *MockQuerierMockRecorder) DeleteOwnedExerciseTestDeploy(ctx, arg any) *
 }
 
 // DeletePlatformImage mocks base method.
-func (m *MockQuerier) DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) error {
+func (m *MockQuerier) DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeletePlatformImage", ctx, arg)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // DeletePlatformImage indicates an expected call of DeletePlatformImage.
@@ -5608,6 +5609,21 @@ func (m *MockQuerier) InviteEventParticipant(ctx context.Context, arg postgres.I
 func (mr *MockQuerierMockRecorder) InviteEventParticipant(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InviteEventParticipant", reflect.TypeOf((*MockQuerier)(nil).InviteEventParticipant), ctx, arg)
+}
+
+// IsDigestCollectable mocks base method.
+func (m *MockQuerier) IsDigestCollectable(ctx context.Context, arg postgres.IsDigestCollectableParams) (pgtype.Bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsDigestCollectable", ctx, arg)
+	ret0, _ := ret[0].(pgtype.Bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsDigestCollectable indicates an expected call of IsDigestCollectable.
+func (mr *MockQuerierMockRecorder) IsDigestCollectable(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsDigestCollectable", reflect.TypeOf((*MockQuerier)(nil).IsDigestCollectable), ctx, arg)
 }
 
 // IsEventChallengePublished mocks base method.

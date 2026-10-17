@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
@@ -52,14 +53,23 @@ func (f *fixture) unreferenced(rows ...postgres.PlatformImage) {
 	f.q.EXPECT().ListUnreferencedPlatformImages(gomock.Any(), t0.Add(-24*time.Hour)).Return(rows, nil)
 }
 
+var gcBefore = t0.Add(-24 * time.Hour)
+
+// expectCollectable: the per-digest re-check right before the digest's first tag is removed.
+func (f *fixture) expectCollectable(digest string, ok bool) {
+	f.q.EXPECT().IsDigestCollectable(gomock.Any(), postgres.IsDigestCollectableParams{TargetDigest: digest, Before: gcBefore}).
+		Return(pgtype.Bool{Bool: ok, Valid: true}, nil)
+}
+
 func (f *fixture) expectRowDeleted(digest, tag string) *gomock.Call {
-	return f.q.EXPECT().DeletePlatformImage(gomock.Any(), postgres.DeletePlatformImageParams{Digest: digest, Tag: tag}).Return(nil)
+	return f.q.EXPECT().DeletePlatformImage(gomock.Any(), postgres.DeletePlatformImageParams{Digest: digest, Tag: tag, Before: gcBefore}).Return(int64(1), nil)
 }
 
 func TestCollectDeletesEveryTagOfAnUnreferencedDigest(t *testing.T) {
 	f, a := gcFixture(t)
 	f.expectSweep()
 	f.unreferenced(img("sha256:aa", "web-aa"), img("sha256:aa", "old-aa"))
+	f.expectCollectable("sha256:aa", true)
 	f.expectRowDeleted("sha256:aa", "web-aa")
 	f.expectRowDeleted("sha256:aa", "old-aa")
 
@@ -90,6 +100,9 @@ func TestCollectFailureKeepsTheRowAndContinues(t *testing.T) {
 	a.errs["gone"] = ociregistry.ErrNotFound
 	f.expectSweep()
 	f.unreferenced(img("sha256:aa", "bad"), img("sha256:bb", "shared"), img("sha256:cc", "gone"), img("sha256:dd", "ok"))
+	for _, d := range []string{"aa", "bb", "cc", "dd"} {
+		f.expectCollectable("sha256:"+d, true)
+	}
 	f.expectRowDeleted("sha256:cc", "gone")
 	f.expectRowDeleted("sha256:dd", "ok")
 
@@ -103,7 +116,9 @@ func TestCollectRowDeleteFailureIsReturned(t *testing.T) {
 	f, _ := gcFixture(t)
 	f.expectSweep()
 	f.unreferenced(img("sha256:aa", "one"), img("sha256:bb", "two"))
-	f.q.EXPECT().DeletePlatformImage(gomock.Any(), gomock.Any()).Return(errors.New("db down")).Times(1)
+	f.expectCollectable("sha256:aa", true)
+	f.expectCollectable("sha256:bb", true)
+	f.q.EXPECT().DeletePlatformImage(gomock.Any(), gomock.Any()).Return(int64(0), errors.New("db down")).Times(1)
 	f.expectRowDeleted("sha256:bb", "two")
 	n, err := f.uc.CollectUnusedTags(context.Background(), t0)
 	if err == nil || n != 1 {
@@ -136,5 +151,32 @@ func TestCollectSweepsStaleBlobPushes(t *testing.T) {
 	f.q.EXPECT().DeleteStaleImageBlobPushes(gomock.Any(), t0.Add(-7*24*time.Hour)).Return(int64(3), nil)
 	if n, err := f.uc.CollectUnusedTags(context.Background(), t0); err != nil || n != 0 {
 		t.Fatalf("n=%d err=%v", n, err)
+	}
+}
+
+// A digest a version references again between the list and the removal is left alone: no registry call.
+func TestCollectSkipsADigestReferencedAgain(t *testing.T) {
+	f, a := gcFixture(t)
+	f.expectSweep()
+	f.unreferenced(img("sha256:aa", "one"), img("sha256:aa", "two"), img("sha256:bb", "three"))
+	f.expectCollectable("sha256:aa", false)
+	f.expectCollectable("sha256:bb", true)
+	f.expectRowDeleted("sha256:bb", "three")
+	n, err := f.uc.CollectUnusedTags(context.Background(), t0)
+	if err != nil || n != 1 || len(a.calls) != 1 || a.calls[0].tag != "three" {
+		t.Fatalf("n=%d err=%v calls=%v", n, err, a.calls)
+	}
+}
+
+// The row delete is conditional too: refused (a fresh upload in between) means the row is kept and not counted.
+func TestCollectKeepsARowTheConditionalDeleteRefused(t *testing.T) {
+	f, a := gcFixture(t)
+	f.expectSweep()
+	f.unreferenced(img("sha256:aa", "one"))
+	f.expectCollectable("sha256:aa", true)
+	f.q.EXPECT().DeletePlatformImage(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	n, err := f.uc.CollectUnusedTags(context.Background(), t0)
+	if err != nil || n != 0 || len(a.calls) != 1 {
+		t.Fatalf("n=%d err=%v calls=%v", n, err, a.calls)
 	}
 }
