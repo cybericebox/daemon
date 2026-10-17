@@ -8,6 +8,7 @@ import (
 	"hash"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
@@ -171,6 +172,10 @@ func (u *ImageRegistryUseCase) PushStagedBlob(ctx context.Context, in PushBlobIn
 		return BlobStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record the blob push").Err()
 	}
 	if err = u.queueBlobPush(ctx, jobsModel.ImageBlobPushArgs{Digest: in.Digest, UploadID: in.UploadID, Size: in.Size}); err != nil {
+		// No job: the "pushing" row must not stay (the blob reads missing again).
+		if derr := u.blobPushes.Delete(context.WithoutCancel(ctx), in.Digest); derr != nil {
+			log.Warn().Err(derr).Str("digest", in.Digest).Msg("image upload: removing the blob push row failed")
+		}
 		return BlobStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to queue the blob push").Err()
 	}
 	return BlobStatus{State: imageRegistryModel.BlobPushing}, nil
@@ -180,22 +185,35 @@ func (u *ImageRegistryUseCase) PushStagedBlob(ctx context.Context, in PushBlobIn
 // registry with the declared size, hashing them on the way. Success removes the push row and the upload. A digest
 // mismatch fails the push and drops the upload (its bytes are wrong); a registry failure or a missing upload fails
 // it with the reason and keeps the upload, so the client may ask for the push again. Only a failure to record the
-// state is returned (River retries the job then).
+// state is returned (River retries the job then). The state is written on a context of its own (not cancelled with
+// the job, bounded by stateWriteTimeout), so a push that times out or is cancelled still ends recorded as failed.
+// The start marks the push "pushing" again: this run is pushing, whatever an earlier attempt recorded.
 func (u *ImageRegistryUseCase) PushImageBlob(ctx context.Context, args jobsModel.ImageBlobPushArgs) error {
 	push := imageRegistryModel.NewBlobPush(args.Digest, u.now())
-	if err := u.blobPushes.Save(ctx, push); err != nil {
+	if err := u.writePushState(ctx, func(c context.Context) error { return u.blobPushes.Save(c, push) }); err != nil {
 		return err
 	}
 	reason, drop := u.streamBlob(ctx, args)
 	if reason == "" {
-		u.dropUpload(ctx, args.UploadID)
-		return u.blobPushes.Delete(ctx, args.Digest)
+		u.dropUpload(context.WithoutCancel(ctx), args.UploadID)
+		return u.writePushState(ctx, func(c context.Context) error { return u.blobPushes.Delete(c, args.Digest) })
 	}
 	if drop {
-		u.dropUpload(ctx, args.UploadID)
+		u.dropUpload(context.WithoutCancel(ctx), args.UploadID)
 	}
 	push.Fail(reason, u.now())
-	return u.blobPushes.Save(ctx, push)
+	return u.writePushState(ctx, func(c context.Context) error { return u.blobPushes.Save(c, push) })
+}
+
+// stateWriteTimeout bounds one write of a blob push state.
+const stateWriteTimeout = 10 * time.Second
+
+// writePushState runs write on a context that outlives the job's (cancellation, timeout) for at most
+// stateWriteTimeout.
+func (u *ImageRegistryUseCase) writePushState(ctx context.Context, write func(context.Context) error) error {
+	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), stateWriteTimeout)
+	defer cancel()
+	return write(c)
 }
 
 // streamBlob pushes the upload; it returns the failure reason ("" on success) and whether the upload is useless.
@@ -223,6 +241,11 @@ func (u *ImageRegistryUseCase) streamBlob(ctx context.Context, args jobsModel.Im
 		if vr.mismatch {
 			return imageRegistryModel.ReasonDigestMismatch, true
 		}
+		if vr.sourceErr != nil {
+			// A chunk object could not be read: the upload is broken, not the registry.
+			log.Warn().Err(vr.sourceErr).Str("digest", args.Digest).Msg("image upload: reading the blob upload failed")
+			return imageRegistryModel.ReasonUploadMissing, false
+		}
 		log.Warn().Err(err).Str("digest", args.Digest).Msg("image upload: blob push failed")
 		return ReasonOf(err), false
 	}
@@ -231,16 +254,22 @@ func (u *ImageRegistryUseCase) streamBlob(ctx context.Context, args jobsModel.Im
 
 // verifyingReader hashes what passes through and, at the end, fails the read instead of returning io.EOF when the
 // bytes are not the digest: the registry never receives the end of a wrong blob.
+// It also remembers a read failure of the upload itself (a chunk object gone), so it is not taken for a registry
+// failure.
 type verifyingReader struct {
-	r        io.Reader
-	h        hash.Hash
-	want     string
-	mismatch bool
+	r         io.Reader
+	h         hash.Hash
+	want      string
+	mismatch  bool
+	sourceErr error
 }
 
 func (v *verifyingReader) Read(p []byte) (int, error) {
 	n, err := v.r.Read(p)
 	v.h.Write(p[:n])
+	if err != nil && !errors.Is(err, io.EOF) {
+		v.sourceErr = err
+	}
 	if errors.Is(err, io.EOF) && "sha256:"+hex.EncodeToString(v.h.Sum(nil)) != v.want {
 		v.mismatch = true
 		return n, errBlobDigestMismatch

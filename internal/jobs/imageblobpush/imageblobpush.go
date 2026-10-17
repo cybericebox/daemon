@@ -6,6 +6,8 @@ import (
 	"context"
 	"time"
 
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
+
 	"github.com/riverqueue/river"
 
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
@@ -22,8 +24,10 @@ type worker struct {
 
 func NewWorker(uc IUseCase) *worker { return &worker{uc: uc} }
 
-// Timeout: a 10 GiB blob at a slow uplink; the push state counts a push silent for longer as failed anyway.
-func (w *worker) Timeout(*river.Job[jobsModel.ImageBlobPushArgs]) time.Duration { return 3 * time.Hour }
+// Timeout: a 10 GiB blob at a slow uplink. A timed-out push still records itself failed (unreachable).
+func (w *worker) Timeout(*river.Job[jobsModel.ImageBlobPushArgs]) time.Duration {
+	return imageRegistryModel.BlobPushTimeout
+}
 
 func (w *worker) Work(ctx context.Context, job *river.Job[jobsModel.ImageBlobPushArgs]) error {
 	return w.uc.PushImageBlob(ctx, job.Args)

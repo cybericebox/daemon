@@ -38,9 +38,14 @@ const (
 	BlobMissing BlobState = "missing"
 )
 
+// BlobPushTimeout bounds one background blob push (the River job's timeout). A 10 GiB push needs about 1 MB/s to
+// finish in time.
+const BlobPushTimeout = 3 * time.Hour
+
 // BlobPushStaleAfter is how long a push may go without a word before it counts as failed (unreachable): a lost
-// job never leaves a blob "pushing" forever. A 10 GiB push needs about 1 MB/s to finish in time.
-const BlobPushStaleAfter = 3 * time.Hour
+// job never leaves a blob "pushing" forever. It is longer than BlobPushTimeout, so a push that is still allowed to
+// run never reads as failed.
+const BlobPushStaleAfter = BlobPushTimeout + 30*time.Minute
 
 // BlobPush is the state of a background push of one blob (table image_blob_pushes, one row per digest).
 // Success removes the row: the registry itself then answers "present".

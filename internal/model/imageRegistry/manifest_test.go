@@ -186,3 +186,15 @@ func TestCheckImageConfig(t *testing.T) {
 		}
 	}
 }
+
+// A push is stale only after the job itself would have timed out.
+func TestBlobPushStaleAfterTheJobTimeout(t *testing.T) {
+	if BlobPushStaleAfter <= BlobPushTimeout {
+		t.Fatalf("stale %s, timeout %s", BlobPushStaleAfter, BlobPushTimeout)
+	}
+	now := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+	p := NewBlobPush("sha256:"+hex1, now)
+	if s, _ := p.Current(now.Add(BlobPushTimeout)); s != BlobPushing {
+		t.Fatalf("at the timeout %s", s)
+	}
+}

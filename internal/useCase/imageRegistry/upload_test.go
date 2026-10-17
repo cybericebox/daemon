@@ -48,6 +48,26 @@ type fakeMedia struct {
 	asked   int
 	opened  int
 	dropped []uuid.UUID
+	// failAfter > 0: the upload's reader fails after that many bytes (a chunk object gone).
+	failAfter int
+}
+
+// failingReader returns its bytes up to n, then a storage error.
+type failingReader struct {
+	r io.Reader
+	n int
+}
+
+func (f *failingReader) Read(p []byte) (int, error) {
+	if f.n <= 0 {
+		return 0, errors.New("chunk object not found")
+	}
+	if len(p) > f.n {
+		p = p[:f.n]
+	}
+	n, err := f.r.Read(p)
+	f.n -= n
+	return n, err
 }
 
 func newFakeMedia() *fakeMedia {
@@ -81,6 +101,9 @@ func (m *fakeMedia) OpenUpload(_ context.Context, id uuid.UUID) (io.ReadCloser, 
 	up, ok := m.uploads[id]
 	if !ok {
 		return nil, mediaModel.Upload{}, mediaModel.ErrUploadNotFound.Err()
+	}
+	if m.failAfter > 0 {
+		return io.NopCloser(&failingReader{r: bytes.NewReader(m.data[id]), n: m.failAfter}), up, nil
 	}
 	return io.NopCloser(bytes.NewReader(m.data[id])), up, nil
 }
@@ -118,7 +141,17 @@ func newUploadFixture(t *testing.T, configured bool) *uploadFixture {
 			return nil
 		}
 	})
-	f.q.EXPECT().UpsertImageBlobPush(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpsertImageBlobPushParams) error {
+	f.expectPushRows()
+	return f
+}
+
+// expectPushRows backs the image_blob_pushes queries with f.pushes.
+func (f *uploadFixture) expectPushRows() {
+	f.q.EXPECT().UpsertImageBlobPush(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, p postgres.UpsertImageBlobPushParams) error {
+		// Like pgx: a finished context writes nothing.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		f.pushes[p.Digest] = postgres.ImageBlobPush(p)
 		return nil
 	}).AnyTimes()
@@ -129,11 +162,13 @@ func newUploadFixture(t *testing.T, configured bool) *uploadFixture {
 		}
 		return p, nil
 	}).AnyTimes()
-	f.q.EXPECT().DeleteImageBlobPush(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, d string) error {
+	f.q.EXPECT().DeleteImageBlobPush(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, d string) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		delete(f.pushes, d)
 		return nil
 	}).AnyTimes()
-	return f
 }
 
 // registry is a direct client of the fixture's platform repository (acme/tasks).
@@ -526,5 +561,58 @@ func TestUploadUnauthorizedNamesTheReason(t *testing.T) {
 	_, err := f.uc.MissingBlobs(as(uploader), []string{digestOf(layerBytes)})
 	if !errors.Is(err, imageRegistryModel.ErrRegistryUnavailable.Err()) || publicReason(t, err)["reason"] != string(imageRegistryModel.ReasonUnauthorized) {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// The job's context ends (timeout, shutdown): the push still ends recorded as failed, never "pushing".
+func TestPushImageBlobCancelledContextRecordsFailed(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.media.stage(uploadID, uploader, layerBytes)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	args := jobsModel.ImageBlobPushArgs{Digest: digestOf(layerBytes), UploadID: uploadID, Size: int64(len(layerBytes))}
+	if err := f.uc.PushImageBlob(ctx, args); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.pushes[args.Digest]; p.State != "failed" || p.Reason != string(imageRegistryModel.ReasonUnreachable) {
+		t.Fatalf("row %+v", p)
+	}
+	if !f.media.has(uploadID) {
+		t.Fatal("the upload must stay for a retry")
+	}
+}
+
+// Queueing fails after the "pushing" row was written: the row is removed, the blob reads missing again.
+func TestPushStagedBlobQueueFailureLeavesNoPushingRow(t *testing.T) {
+	media := newFakeMedia()
+	f := &uploadFixture{media: media, pushes: map[string]postgres.ImageBlobPush{}}
+	f.accessFixture = newAccessFixture(t, true, func(d *Dependencies) {
+		d.Media = media
+		d.QueueBlobPush = func(context.Context, jobsModel.ImageBlobPushArgs) error { return errors.New("queue down") }
+	})
+	f.expectPushRows()
+	media.stage(uploadID, uploader, layerBytes)
+	if _, err := f.uc.PushStagedBlob(as(uploader), layerPush()); err == nil {
+		t.Fatal("queue failure must be an error")
+	}
+	if _, ok := f.pushes[digestOf(layerBytes)]; ok {
+		t.Fatal("a pushing row stayed without a job")
+	}
+}
+
+// A chunk object missing in the middle of the push: upload_missing, not unreachable.
+func TestPushImageBlobMissingChunkIsUploadMissing(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.media.stage(uploadID, uploader, layerBytes)
+	f.media.failAfter = 10
+	args := jobsModel.ImageBlobPushArgs{Digest: digestOf(layerBytes), UploadID: uploadID, Size: int64(len(layerBytes))}
+	if err := f.uc.PushImageBlob(context.Background(), args); err != nil {
+		t.Fatal(err)
+	}
+	if p := f.pushes[args.Digest]; p.State != "failed" || p.Reason != string(imageRegistryModel.ReasonUploadMissing) {
+		t.Fatalf("row %+v", p)
+	}
+	if f.has(t, args.Digest) {
+		t.Fatal("a partial blob was stored")
 	}
 }
