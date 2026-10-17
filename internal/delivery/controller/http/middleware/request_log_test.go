@@ -7,10 +7,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
 // captureLogs points gin's text writers and zerolog at buffers for one test.
@@ -151,6 +156,109 @@ func TestRequestLogNeverRecordsQueryValuesOrTheClientAddress(t *testing.T) {
 		}
 		if mode == gin.ReleaseMode && !strings.Contains(zlOut.String(), `"query_keys":["code","state","token"]`) {
 			t.Errorf("the parameter names are kept: %s", zlOut.String())
+		}
+	}
+}
+
+// logLines decodes the JSON lines zerolog wrote.
+func logLines(t *testing.T, out *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var lines []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if l == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err != nil {
+			t.Fatalf("not JSON: %q", l)
+		}
+		lines = append(lines, m)
+	}
+	return lines
+}
+
+// Every line names the route template (empty for a path no route matches) and whether the caller was anonymous.
+func TestRequestLogRecordsRouteAndAnonymous(t *testing.T) {
+	_, zlOut := captureLogs(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequestLogger())
+	r.GET("/items/:id", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/me/:id", func(c *gin.Context) {
+		claims := rbac.Claims{UserID: uuid.Must(uuid.NewV7())}
+		c.Request = c.Request.WithContext(
+			rbac.ContextWithCurrentUserSession(c.Request.Context(), claims),
+		)
+		c.Status(http.StatusOK)
+	})
+	for _, path := range []string{"/items/5", "/me/5", "/nowhere"} {
+		serve(r, path)
+	}
+	lines := logLines(t, zlOut)
+	if len(lines) != 3 {
+		t.Fatalf("want 3 lines, got %q", zlOut.String())
+	}
+	for i, want := range []struct {
+		route string
+		anon  bool
+	}{{"/items/:id", true}, {"/me/:id", false}, {"", true}} {
+		if lines[i]["route"] != want.route || lines[i]["anon"] != want.anon {
+			t.Errorf("line %d: route %v anon %v, want %q %v",
+				i, lines[i]["route"], lines[i]["anon"], want.route, want.anon)
+		}
+	}
+}
+
+// 401, 429 and the overload 503 are sampled per status: the first line of a second is written at warn, the
+// rest are counted and the count rides on the next written line of that status. Other statuses are not.
+func TestRequestLogSamplesRefusals(t *testing.T) {
+	_, zlOut := captureLogs(t)
+	gin.SetMode(gin.TestMode)
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	r := gin.New()
+	r.Use(requestLogger(func() time.Time { return now }))
+	r.GET("/401", func(c *gin.Context) { c.Status(http.StatusUnauthorized) })
+	r.GET("/429", func(c *gin.Context) { c.Status(http.StatusTooManyRequests) })
+	r.GET("/503", func(c *gin.Context) {
+		c.Set(response.OverloadCtxKey, true)
+		c.Status(http.StatusServiceUnavailable)
+	})
+	r.GET("/503-other", func(c *gin.Context) { c.Status(http.StatusServiceUnavailable) })
+	r.GET("/403", func(c *gin.Context) { c.Status(http.StatusForbidden) })
+	for range 100 {
+		serve(r, "/401")
+	}
+	for range 3 {
+		serve(r, "/429")
+		serve(r, "/503")
+		serve(r, "/503-other")
+		serve(r, "/403")
+	}
+	counts := map[float64]int{}
+	for _, line := range logLines(t, zlOut) {
+		counts[line["status"].(float64)]++
+		if _, ok := line["suppressed"]; ok {
+			t.Errorf("no line of the first second carries suppressed: %v", line)
+		}
+	}
+	// One each of 401, 429 and the overload 503; every 403 and every other 503 (3 each).
+	if counts[401] != 1 || counts[429] != 1 || counts[503] != 1+3 || counts[403] != 3 {
+		t.Fatalf("lines per status in the first second: %v", counts)
+	}
+
+	zlOut.Reset()
+	now = now.Add(time.Second)
+	serve(r, "/401")
+	serve(r, "/503")
+	lines := logLines(t, zlOut)
+	if len(lines) != 2 {
+		t.Fatalf("want one 401 and one 503 line in the next second, got %q", zlOut.String())
+	}
+	for i, want := range []struct{ status, suppressed float64 }{{401, 99}, {503, 2}} {
+		got := lines[i]
+		if got["status"] != want.status || got["suppressed"] != want.suppressed ||
+			got["level"] != "warn" {
+			t.Fatalf("next second's line %d: %v, want %+v", i, got, want)
 		}
 	}
 }

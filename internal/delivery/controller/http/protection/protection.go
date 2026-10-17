@@ -37,9 +37,11 @@ type IUseCase interface {
 	RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error
 }
 
-// Limiter is the general request limiter; the gate asks it once the caller is known.
+// Limiter is the general request limiter; the gate asks it once the caller is known. A request without
+// identity is counted in public when the route serves callers without a session, in closed when it needs one.
 type Limiter interface {
-	Check(ctx *gin.Context, userID uuid.UUID, signedIn bool) bool
+	CheckUser(ctx *gin.Context, userID uuid.UUID) bool
+	CheckAnonymous(ctx *gin.Context, public bool) bool
 }
 
 type Protection struct {
@@ -199,6 +201,9 @@ func (p *Protection) signInURL() string {
 //     expired or revoked: 401, no database); 3. the per-user rate limit; 4. one query for the caller's role and
 //     blocked flag.
 //
+// A request without identity (no cookie, or one that does not open) is counted in the anonymous bucket of
+// the route: public on a silent route, closed (before the 401) on any other.
+//
 // On success it injects the identity into the request context and re-issues the cookie when due. silent controls
 // the failure behavior: false (the permission requires authentication) aborts with the error's own status and the
 // X-Sign-In-URL header so the client can redirect; true (the permission is public-optional) lets the request
@@ -206,16 +211,22 @@ func (p *Protection) signInURL() string {
 func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	cookie := getCookie(ctx, authModel.SessionCookie)
 	if cookie == "" {
+		if !p.countAnonymous(ctx, silent) {
+			return false
+		}
 		if silent {
-			return p.countAnonymous(ctx)
+			return true
 		}
 		return p.refuse(ctx, authModel.ErrAuthMissingSessionCookie.Err())
 	}
 	pass, err := p.useCase.OpenSession(cookie)
 	if err != nil {
+		if !silent && !p.countAnonymous(ctx, false) {
+			return false
+		}
 		return p.failed(ctx, err, silent)
 	}
-	if p.limiter != nil && !p.limiter.Check(ctx, pass.Ticket.UserID, true) {
+	if p.limiter != nil && !p.limiter.CheckUser(ctx, pass.Ticket.UserID) {
 		return false
 	}
 	claims, err := p.useCase.LoadCaller(ctx.Request.Context(), pass)
@@ -247,9 +258,10 @@ func (p *Protection) SessionKey(ctx *gin.Context) (string, bool) {
 	return pass.Ticket.SessionID.String(), true
 }
 
-// countAnonymous counts a request without identity in the anonymous bucket.
-func (p *Protection) countAnonymous(ctx *gin.Context) bool {
-	return p.limiter == nil || p.limiter.Check(ctx, uuid.Nil, false)
+// countAnonymous counts a request without identity in the public (a silent route) or the closed anonymous
+// bucket.
+func (p *Protection) countAnonymous(ctx *gin.Context, public bool) bool {
+	return p.limiter == nil || p.limiter.CheckAnonymous(ctx, public)
 }
 
 // failed handles a cookie that did not pass: a dead cookie is cleared; a silent route goes on anonymous, any
@@ -266,7 +278,7 @@ func (p *Protection) failed(ctx *gin.Context, err error, silent bool) bool {
 
 func (p *Protection) failedSilently(ctx *gin.Context, err error) bool {
 	log.Debug().Err(err).Caller().Msg("Silent auth check failed")
-	return p.countAnonymous(ctx)
+	return p.countAnonymous(ctx, true)
 }
 
 // refuse aborts the request with err, advertising the sign-in URL on a 401 so the client can redirect without

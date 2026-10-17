@@ -538,19 +538,25 @@ func (c LimitsConfig) Validate() error {
 }
 
 // RateLimitConfig is the general request limiter, a token bucket: a steady rate per minute plus a burst.
-// Every signed-in user has a bucket of their own; all anonymous requests of the platform share ONE bucket
-// (never per client address: an on-site event sits behind one router), so its defaults are high and only a
-// real flood trips it. In memory, per replica.
+// Every signed-in user has a bucket of their own. Requests without a session share two buckets (never per
+// client address: an on-site event sits behind one router): ANON for the routes usable without a session
+// (public reads, sign-in) and CLOSED for the routes that need one and for unknown paths, so a flood of
+// cookie-less 401s cannot drain the budget the public readers share. In memory, per replica.
 type RateLimitConfig struct {
-	UserPerMinute int `env:"USER_PER_MINUTE" envDefault:"1200"`
-	UserBurst     int `env:"USER_BURST"      envDefault:"600"`
-	AnonPerMinute int `env:"ANON_PER_MINUTE" envDefault:"12000"`
-	AnonBurst     int `env:"ANON_BURST"      envDefault:"6000"`
+	UserPerMinute   int `env:"USER_PER_MINUTE"   envDefault:"1200"`
+	UserBurst       int `env:"USER_BURST"        envDefault:"600"`
+	AnonPerMinute   int `env:"ANON_PER_MINUTE"   envDefault:"6000"`
+	AnonBurst       int `env:"ANON_BURST"        envDefault:"1500"`
+	ClosedPerMinute int `env:"CLOSED_PER_MINUTE" envDefault:"3000"`
+	ClosedBurst     int `env:"CLOSED_BURST"      envDefault:"600"`
 }
 
 func (c RateLimitConfig) Validate() error {
-	if c.UserPerMinute < 1 || c.UserBurst < 1 || c.AnonPerMinute < 1 || c.AnonBurst < 1 {
-		return errors.New("rate limit: RATE_LIMIT_{USER,ANON}_{PER_MINUTE,BURST} must be at least 1")
+	if c.UserPerMinute < 1 || c.UserBurst < 1 || c.AnonPerMinute < 1 || c.AnonBurst < 1 ||
+		c.ClosedPerMinute < 1 || c.ClosedBurst < 1 {
+		return errors.New(
+			"rate limit: RATE_LIMIT_{USER,ANON,CLOSED}_{PER_MINUTE,BURST} must be at least 1",
+		)
 	}
 	return nil
 }

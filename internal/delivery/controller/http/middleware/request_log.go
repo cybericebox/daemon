@@ -8,11 +8,15 @@ import (
 	"runtime/debug"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
 // ForMode is the logger + recovery pair for a gin mode (set by
@@ -39,8 +43,16 @@ func consoleLine(p gin.LogFormatterParams) string {
 }
 
 // RequestLogger writes one zerolog line per request: info for success, warn
-// for 4xx, error for 5xx, with gin's collected errors when there are any.
+// for 4xx, error for 5xx, with gin's collected errors when there are any. Each
+// line names the route template (empty for a path no route matches) and
+// whether the caller was anonymous. The refusals a flood produces in bulk (401,
+// 429 and the overload 503) are sampled, see refusalSampler.
 func RequestLogger() gin.HandlerFunc {
+	return requestLogger(time.Now)
+}
+
+func requestLogger(now func() time.Time) gin.HandlerFunc {
+	sampler := &refusalSampler{now: now, last: map[int]time.Time{}, suppressed: map[int]int{}}
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
@@ -49,9 +61,21 @@ func RequestLogger() gin.HandlerFunc {
 		c.Next()
 
 		status := c.Writer.Status()
-		event := log.WithLevel(levelForStatus(status)).
+		level := levelForStatus(status)
+		suppressed := 0
+		if sampled(c, status) {
+			var write bool
+			if write, suppressed = sampler.admit(status); !write {
+				return
+			}
+			level = zerolog.WarnLevel
+		}
+		_, signedIn := rbac.CurrentUserSessionFromContext(c.Request.Context())
+		event := log.WithLevel(level).
 			Str("method", c.Request.Method).
 			Str("path", path).
+			Str("route", c.FullPath()).
+			Bool("anon", !signedIn).
 			Int("status", status).
 			Dur("latency", time.Since(start)).
 			Int("size", c.Writer.Size()).
@@ -63,8 +87,47 @@ func RequestLogger() gin.HandlerFunc {
 		if len(c.Errors) > 0 {
 			event = event.Str("errors", c.Errors.String())
 		}
+		if suppressed > 0 {
+			event = event.Int("suppressed", suppressed)
+		}
 		event.Msg("HTTP request")
 	}
+}
+
+// sampled says whether the line of a request is one a flood produces in bulk: a 401, a 429 or an overload
+// 503 (any other 503 is a fault and always logged).
+func sampled(c *gin.Context, status int) bool {
+	switch status {
+	case http.StatusUnauthorized, http.StatusTooManyRequests:
+		return true
+	case http.StatusServiceUnavailable:
+		return response.IsOverload(c)
+	}
+	return false
+}
+
+// refusalSampler writes at most one line per status per second: the first; the rest are counted and the
+// count goes on the next written line of that status.
+type refusalSampler struct {
+	mu         sync.Mutex
+	now        func() time.Time
+	last       map[int]time.Time
+	suppressed map[int]int
+}
+
+// admit says whether the line of status is written, and how many lines of status were dropped before it.
+func (s *refusalSampler) admit(status int) (bool, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	if last, ok := s.last[status]; ok && now.Sub(last) < time.Second {
+		s.suppressed[status]++
+		return false, 0
+	}
+	s.last[status] = now
+	dropped := s.suppressed[status]
+	delete(s.suppressed, status)
+	return true, dropped
 }
 
 // queryKeyNames lists the parameter names of a query, sorted.

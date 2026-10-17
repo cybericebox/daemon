@@ -23,7 +23,8 @@ import (
 
 type (
 	Controller struct {
-		server *Server
+		server  *Server
+		limiter *middleware.RateLimiter
 	}
 
 	IUseCase interface {
@@ -132,8 +133,8 @@ func NewController(deps Dependencies) *Controller {
 	// (with credentials) must run before any route handling.
 	originPolicy := newOriginPolicy(deps)
 	router.Use(middleware.HandleCORS(originPolicy), middleware.OriginGuardWith(originPolicy),
-		// General request limiter: anonymous requests here (after CORS, so a 429 stays readable by the page),
-		// signed-in ones in the permission gate.
+		// General request limiter (after CORS, so a 429 stays readable by the page): cookie-less requests to
+		// unknown paths and ungated routes here, the rest in the permission gate.
 		limiter.Anonymous,
 		// In-flight limiter: after CORS (its 503 stays readable by the page) and after the origin guard and the
 		// anonymous limit (a refused request never takes a slot); before the handlers and the database.
@@ -146,7 +147,8 @@ func NewController(deps Dependencies) *Controller {
 	handler.NewAPIHandler(deps.UseCase, prot, deps.AuthConfig).Init(router)
 
 	return &Controller{
-		server: NewServer(&deps.Config.Server, deps.Config.HealthBind, router),
+		server:  NewServer(&deps.Config.Server, deps.Config.HealthBind, router),
+		limiter: limiter,
 	}
 }
 

@@ -13,7 +13,8 @@ func TestRateLimitConfigDefaultsAndValidation(t *testing.T) {
 	if err := env.ParseWithOptions(&c, env.Options{Prefix: "RATE_LIMIT_", Environment: map[string]string{}}); err != nil {
 		t.Fatal(err)
 	}
-	if c.UserPerMinute != 1200 || c.UserBurst != 600 || c.AnonPerMinute != 12000 || c.AnonBurst != 6000 {
+	if c.UserPerMinute != 1200 || c.UserBurst != 600 || c.AnonPerMinute != 6000 || c.AnonBurst != 1500 ||
+		c.ClosedPerMinute != 3000 || c.ClosedBurst != 600 {
 		t.Fatalf("defaults: %+v", c)
 	}
 	if err := c.Validate(); err != nil {
@@ -22,6 +23,14 @@ func TestRateLimitConfigDefaultsAndValidation(t *testing.T) {
 	c.AnonBurst = 0
 	if c.Validate() == nil {
 		t.Fatal("zero burst must be refused")
+	}
+	c.AnonBurst, c.ClosedBurst = 1500, 0
+	if c.Validate() == nil {
+		t.Fatal("zero closed burst must be refused")
+	}
+	c.ClosedBurst, c.ClosedPerMinute = 600, 0
+	if c.Validate() == nil {
+		t.Fatal("zero closed rate must be refused")
 	}
 	if err := env.ParseWithOptions(&c, env.Options{Prefix: "RATE_LIMIT_", Environment: map[string]string{"RATE_LIMIT_USER_PER_MINUTE": "7"}}); err != nil || c.UserPerMinute != 7 {
 		t.Fatalf("env key RATE_LIMIT_USER_PER_MINUTE: %v %+v", err, c)
