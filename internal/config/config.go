@@ -544,20 +544,27 @@ func (c RateLimitConfig) Validate() error {
 
 // InflightConfig bounds the requests one replica serves at once, so a flood is answered with a fast 503
 // instead of piling up on the database. Three separate caps: general requests (a request waits up to Wait
-// for a slot), live streams (refused at once) and uploads/downloads (wait like general ones). 0 turns that
-// cap off. /api/health is never limited. In memory, per replica.
+// for a slot), live streams (refused at once) and uploads/downloads (wait like general ones). Inside the
+// general cap, anonymous requests hold at most AnonShare percent of it and one session at most PerSession
+// requests at once (the internal listener is exempt from both). 0 turns that cap off. /api/health is never
+// limited. In memory, per replica.
 type InflightConfig struct {
 	Max          int           `env:"MAX"           envDefault:"64"`
 	Wait         time.Duration `env:"WAIT"          envDefault:"50ms"`
 	StreamsMax   int           `env:"STREAMS_MAX"   envDefault:"200"`
 	TransfersMax int           `env:"TRANSFERS_MAX" envDefault:"32"`
+	AnonShare    int           `env:"ANON_SHARE"    envDefault:"25"`
+	PerSession   int           `env:"PER_SESSION"   envDefault:"8"`
 }
 
 func (c InflightConfig) Validate() error {
-	if c.Max < 0 || c.StreamsMax < 0 || c.TransfersMax < 0 {
+	if c.Max < 0 || c.StreamsMax < 0 || c.TransfersMax < 0 || c.PerSession < 0 {
 		return errors.New(
-			"in-flight limit: HTTP_INFLIGHT_{MAX,STREAMS_MAX,TRANSFERS_MAX} must not be negative",
+			"in-flight limit: HTTP_INFLIGHT_{MAX,STREAMS_MAX,TRANSFERS_MAX,PER_SESSION} must not be negative",
 		)
+	}
+	if c.AnonShare < 0 || c.AnonShare > 100 {
+		return errors.New("in-flight limit: HTTP_INFLIGHT_ANON_SHARE must be between 0 and 100")
 	}
 	if c.Wait < 0 || c.Wait > time.Second {
 		return errors.New("in-flight limit: HTTP_INFLIGHT_WAIT must be between 0 and 1s")

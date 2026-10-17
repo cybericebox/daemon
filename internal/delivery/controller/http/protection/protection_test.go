@@ -686,3 +686,33 @@ func TestReissue_SetsCookieOnlyWhenDue(t *testing.T) {
 		t.Fatal("no Set-Cookie on other responses")
 	}
 }
+
+// SessionKey names the session for the in-flight limiter only when the cookie opens, and never loads the caller.
+func TestSessionKeyOnlyForAnOpeningCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	sid := uuid.FromStringOrNil("00000000-0000-7000-8000-0000000000a1")
+	key := func(uc *fakeUseCase, cookie string) (string, bool) {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
+		if cookie != "" {
+			c.Request.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: cookie})
+		}
+		return newProt(uc).SessionKey(c)
+	}
+	valid := &fakeUseCase{
+		sessionResult: &authUseCase.SessionAuthResult{Claims: authModel.AuthClaims{SessionID: sid}},
+	}
+	if got, ok := key(valid, "cookie"); !ok || got != sid.String() {
+		t.Fatalf("an opening cookie: %q %v", got, ok)
+	}
+	if strings.Join(valid.calls, ",") != "open" {
+		t.Fatalf("SessionKey must only open the cookie, calls: %v", valid.calls)
+	}
+	garbage := &fakeUseCase{sessionErr: authModel.ErrAuthInvalidSession.Err()}
+	if _, ok := key(garbage, "garbage"); ok {
+		t.Fatal("a garbage cookie is anonymous")
+	}
+	if _, ok := key(&fakeUseCase{}, ""); ok {
+		t.Fatal("no cookie is anonymous")
+	}
+}

@@ -232,6 +232,21 @@ func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	return true
 }
 
+// SessionKey names the caller's session for the in-flight limiter when the session cookie opens (decrypt,
+// expiry, revocation; never the database). Without a cookie, or with one that does not open, the request is
+// anonymous.
+func (p *Protection) SessionKey(ctx *gin.Context) (string, bool) {
+	cookie := getCookie(ctx, authModel.SessionCookie)
+	if cookie == "" {
+		return "", false
+	}
+	pass, err := p.useCase.OpenSession(cookie)
+	if err != nil {
+		return "", false
+	}
+	return pass.Ticket.SessionID.String(), true
+}
+
 // countAnonymous counts a request without identity in the anonymous bucket.
 func (p *Protection) countAnonymous(ctx *gin.Context) bool {
 	return p.limiter == nil || p.limiter.Check(ctx, uuid.Nil, false)
