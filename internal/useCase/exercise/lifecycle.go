@@ -68,11 +68,13 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 	if err != nil {
 		return VersionView{}, err
 	}
+	copyOf := in.CopyOf
 	if mergeSource != nil {
 		mergeKeptSecrets(version.Variants, mergeSource.Variants)
+		copyOf = newCopiesOnly(version.Variants, mergeSource.Variants, copyOf)
 	}
 	// A linked variant or a copy gets its source's secret under its own id (a ciphertext opens only there).
-	if err = u.inheritSecrets(version.Variants, secretSources(version.Variants, in.CopyOf), submitted); err != nil {
+	if err = u.inheritSecrets(version.Variants, secretSources(version.Variants, copyOf), submitted); err != nil {
 		return VersionView{}, err
 	}
 	if err := u.encryptSecrets(version.Variants, submitted); err != nil {
@@ -91,6 +93,22 @@ func (u *ExerciseUseCase) SaveDraft(ctx context.Context, exerciseID uuid.UUID, i
 		return VersionView{}, err
 	}
 	return u.versionView(ctx, saved), nil
+}
+
+// newCopiesOnly drops the copy source of every variant the stored version already holds: CopyOf fills the
+// secrets of a new copy only, never a stored variant whose secret was left empty on purpose.
+func newCopiesOnly(variants, stored []exerciseModel.Variant, copyOf []uuid.NullUUID) []uuid.NullUUID {
+	storedIDs := make(map[uuid.UUID]bool, len(stored))
+	for _, variant := range stored {
+		storedIDs[variant.ID] = true
+	}
+	out := make([]uuid.NullUUID, len(copyOf))
+	for i, source := range copyOf {
+		if i < len(variants) && !storedIDs[variants[i].ID] {
+			out[i] = source
+		}
+	}
+	return out
 }
 
 // secretMergeSource resolves which stored version's secrets a blank "keep"

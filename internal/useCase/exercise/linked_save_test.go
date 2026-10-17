@@ -290,3 +290,55 @@ func TestImportExerciseArchive_LinkedVariantGetsOwnSecretCiphertext(t *testing.T
 		require.Equal(t, "base-pass", string(plain))
 	}
 }
+
+// Sources resolve before they are used: C links to B, a new copy of A whose secret is blank.
+func TestSaveDraft_LinkedToNewCopyGetsSecret(t *testing.T) {
+	baseSealed := seal(t, saveBaseID, "base-pass")
+	s := newLinkedSave(t, []exerciseModel.Variant{saveVariant(saveBaseID, "Нове", "", "", baseSealed)})
+	a := saveVariant(saveBaseID, "Нове", "", "", "")
+	b := saveVariant(saveLinkedID, "Нове", "", "", "")
+	c := linkTo(exerciseModel.Variant{ID: saveThirdID}, saveLinkedID)
+
+	written := s.save(t, exercise.SaveDraftInput{
+		Variants: []exerciseModel.Variant{a, b, c},
+		CopyOf:   []uuid.NullUUID{{}, {UUID: saveBaseID, Valid: true}, {}},
+	})
+
+	require.Equal(t, "base-pass", s.open(t, saveLinkedID, secretOf(written[1])))
+	require.Equal(t, "base-pass", s.open(t, saveThirdID, secretOf(written[2])))
+}
+
+// A copy of a copy, listed before its source, still gets the secret.
+func TestSaveDraft_CopyOfCopyInReverseOrder(t *testing.T) {
+	baseSealed := seal(t, saveBaseID, "base-pass")
+	s := newLinkedSave(t, []exerciseModel.Variant{saveVariant(saveBaseID, "Нове", "", "", baseSealed)})
+	second := saveVariant(saveThirdID, "Нове", "", "", "")
+	first := saveVariant(saveLinkedID, "Нове", "", "", "")
+	base := saveVariant(saveBaseID, "Нове", "", "", "")
+
+	written := s.save(t, exercise.SaveDraftInput{
+		Variants: []exerciseModel.Variant{second, first, base},
+		CopyOf:   []uuid.NullUUID{{UUID: saveLinkedID, Valid: true}, {UUID: saveBaseID, Valid: true}, {}},
+	})
+
+	require.Equal(t, "base-pass", s.open(t, saveThirdID, secretOf(written[0])))
+	require.Equal(t, "base-pass", s.open(t, saveLinkedID, secretOf(written[1])))
+}
+
+// CopyOf only fills new copies: a stored variant whose secret was left empty on purpose stays empty.
+func TestSaveDraft_CopyOfIgnoredForStoredVariant(t *testing.T) {
+	baseSealed := seal(t, saveBaseID, "base-pass")
+	s := newLinkedSave(t, []exerciseModel.Variant{
+		saveVariant(saveBaseID, "Нове", "", "", baseSealed),
+		saveVariant(saveLinkedID, "Нове", "", "", ""),
+	})
+	base := saveVariant(saveBaseID, "Нове", "", "", "")
+	existing := saveVariant(saveLinkedID, "Нове", "", "", "")
+
+	written := s.save(t, exercise.SaveDraftInput{
+		Variants: []exerciseModel.Variant{base, existing},
+		CopyOf:   []uuid.NullUUID{{}, {UUID: saveBaseID, Valid: true}},
+	})
+
+	require.Empty(t, secretOf(written[1]))
+}

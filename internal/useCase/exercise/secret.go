@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -122,26 +123,39 @@ func secretSources(variants []exerciseModel.Variant, copyOf []uuid.NullUUID) map
 // the same (device, env) as plaintext and is marked submitted, so encryptSecrets seals it under the target's
 // id. A linked variant's topology is the base's, so its secret always equals the base's: a stored value of
 // its own is kept only while it opens to the base's value (no re-encryption churn on every save), else
-// replaced, and it is cleared when the base has none. Linked targets go first, so a copy of a linked variant
-// sees what it inherited. A source that is not in variants is skipped.
+// replaced, and it is cleared when the base has none. Sources resolve depth-first, before the variants that
+// use them (a variant linked to a new copy, a copy of a copy in any order); a copy cycle stops at the
+// variant already being resolved. A source that is not in variants is skipped.
 func (u *ExerciseUseCase) inheritSecrets(variants []exerciseModel.Variant, sources map[int]uuid.UUID, submitted map[string]bool) error {
 	positionByID := make(map[uuid.UUID]int, len(variants))
 	for i := len(variants) - 1; i >= 0; i-- {
 		positionByID[variants[i].ID] = i
 	}
-	for _, linkedPass := range []bool{true, false} {
-		for target := range variants {
-			sourceID, ok := sources[target]
-			if !ok || variants[target].IsLinked() != linkedPass {
-				continue
+	resolved := make(map[int]bool, len(variants))
+	visiting := make(map[int]bool)
+	var resolve func(target int) error
+	resolve = func(target int) error {
+		if resolved[target] || visiting[target] {
+			return nil
+		}
+		visiting[target] = true
+		defer delete(visiting, target)
+		if sourceID, ok := sources[target]; ok {
+			if source, found := positionByID[sourceID]; found && source != target {
+				if err := resolve(source); err != nil {
+					return err
+				}
+				if err := u.inheritVariantSecrets(&variants[target], variants[source], variants[target].IsLinked(), submitted); err != nil {
+					return err
+				}
 			}
-			source, ok := positionByID[sourceID]
-			if !ok || source == target {
-				continue
-			}
-			if err := u.inheritVariantSecrets(&variants[target], variants[source], linkedPass, submitted); err != nil {
-				return err
-			}
+		}
+		resolved[target] = true
+		return nil
+	}
+	for target := range variants {
+		if err := resolve(target); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -171,8 +185,13 @@ func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, s
 				return err
 			}
 			if env.Value != "" && u.cipher != nil {
-				if own, openErr := u.cipher.DecryptWithContext(env.Value, envSecretContext(target.ID, device.Name, env.Name)); openErr == nil && string(own) == plain {
+				own, openErr := u.cipher.DecryptWithContext(env.Value, envSecretContext(target.ID, device.Name, env.Name))
+				if openErr == nil && string(own) == plain {
 					continue
+				}
+				if openErr != nil {
+					log.Debug().Err(openErr).Str("variant", target.ID.String()).Str("device", device.Name).Str("env", env.Name).
+						Msg("Linked variant secret does not open; replaced with the base value")
 				}
 			}
 			env.Value = plain
