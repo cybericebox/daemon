@@ -33,13 +33,15 @@ type standsResponse struct {
 
 // standPrewarmResponse counts the event's images by cache state as the agent last reported them.
 type standPrewarmResponse struct {
-	Total     int       `json:"Total"`
-	Done      int       `json:"Done"`
-	Warming   int       `json:"Warming"`
-	Queued    int       `json:"Queued"`
-	Failed    int       `json:"Failed"`
-	Skipped   int       `json:"Skipped"`
-	UpdatedAt time.Time `json:"UpdatedAt"`
+	Total   int `json:"Total"`
+	Done    int `json:"Done"`
+	Warming int `json:"Warming"`
+	Queued  int `json:"Queued"`
+	Failed  int `json:"Failed"`
+	Skipped int `json:"Skipped"`
+	// Unavailable images cannot be pulled at all; they are not prewarmed and their labs do not start.
+	Unavailable int       `json:"Unavailable"`
+	UpdatedAt   time.Time `json:"UpdatedAt"`
 }
 
 type standSummaryResponse struct {
@@ -123,7 +125,7 @@ func toStandsResponse(v eventUseCase.StandsView) standsResponse {
 		Items: make([]standTeamResponse, 0, len(v.Items)),
 	}
 	if p := v.Prewarm; p != nil {
-		out.Prewarm = &standPrewarmResponse{Total: p.Total, Done: p.Done, Warming: p.Warming, Queued: p.Queued, Failed: p.Failed, Skipped: p.Skipped, UpdatedAt: p.UpdatedAt}
+		out.Prewarm = &standPrewarmResponse{Total: p.Total, Done: p.Done, Warming: p.Warming, Queued: p.Queued, Failed: p.Failed, Skipped: p.Skipped, Unavailable: p.Unavailable, UpdatedAt: p.UpdatedAt}
 	}
 	for _, item := range v.Items {
 		out.Items = append(out.Items, toStandTeamResponse(item))

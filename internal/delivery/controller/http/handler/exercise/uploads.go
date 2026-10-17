@@ -11,6 +11,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
@@ -24,6 +25,10 @@ type startUploadRequest struct {
 	Name        string `json:"Name" binding:"required,max=255"`
 	ContentType string `json:"ContentType" binding:"max=255"`
 	Size        int64  `json:"Size" binding:"required,min=1"`
+	// Purpose "image-blob" uploads one blob of a container image (the file limit is then 10 GiB, an image
+	// archive's); "exercise-archive" a task archive to import with POST /exercises/import/upload (up to 512 MiB +
+	// 10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.
+	Purpose string `json:"Purpose" binding:"omitempty,oneof=image-blob exercise-archive"`
 }
 
 type uploadResponse struct {
@@ -82,6 +87,7 @@ func parseUploadID(ctx *gin.Context) (uuid.UUID, bool) {
 // @Param    body  body  startUploadRequest  true  "file name, type and size"
 // @Success  200  {object}  response.Response{data=uploadResponse}
 // @Failure  400  {object}  response.Response
+// @Failure  409  {object}  response.Response  "Purpose image-blob, or exercise-archive over 512 MiB, while the platform image registry is not configured (72801) or failing (72802)"
 // @Router   /exercises/uploads [post]
 func (h *Handler) startUpload(ctx *gin.Context) {
 	actor, ok := h.uploadActor(ctx)
@@ -93,7 +99,16 @@ func (h *Handler) startUpload(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	upload, err := h.useCase.StartUpload(ctx, req.Name, req.ContentType, req.Size, actor.UserID)
+	purpose := mediaModel.UploadPurpose(req.Purpose)
+	// An image blob can only go to the platform registry; a task archive over the archive limit only carries images
+	// to it: do not take up to 10 GiB that cannot be pushed.
+	if purpose == mediaModel.UploadPurposeImageBlob || (purpose == mediaModel.UploadPurposeExerciseArchive && req.Size > exerciseModel.MaxArchiveBytes) {
+		if err := h.useCase.RequireImageUploads(ctx); err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+	}
+	upload, err := h.useCase.StartUpload(ctx, req.Name, req.ContentType, req.Size, actor.UserID, purpose)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

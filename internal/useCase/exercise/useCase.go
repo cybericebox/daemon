@@ -61,6 +61,18 @@ type ExerciseUseCase struct {
 	removalCheck ITestDeployRemovalCheck
 	// clock is the time source of the lease checks; nil: time.Now.
 	clock func() time.Time
+	// images checks a lab's images and gives its pull credentials; nil: no checks (narrow constructions).
+	images IImageAccess
+	// The background import of archives with image files (SetArchiveImport); nil: such archives are refused.
+	archiveImages  IArchiveImages
+	archiveSources IArchiveSources
+	importQueue    ImportJobQueue
+	importSealer   secret.Sealer
+	// The background export «з образами» (SetArchiveExport, SetImageExporter); nil: such exports are refused.
+	imageExporter IImageExporter
+	exportFiles   IExportFiles
+	exportQueue   ExportJobQueue
+	exportSealer  secret.Sealer
 }
 
 // IProposalInbox turns catalog proposals into inbox requests for platform

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	"github.com/gofrs/uuid"
 )
 
@@ -153,6 +154,9 @@ func (i *archiveImageV2) UnmarshalJSON(data []byte) error {
 }
 
 func (i archiveImageV2) MarshalJSON() ([]byte, error) {
+	if i.File != "" {
+		return json.Marshal(map[string]string{"file": i.File})
+	}
 	return json.Marshal(i.Ref)
 }
 
@@ -192,7 +196,8 @@ func probeArchiveSchema(payload []byte) error {
 	return nil
 }
 
-// archiveImageFileUnsupported is the one place ErrArchiveImageFileUnsupported is raised.
+// archiveImageFileUnsupported is the one place ErrArchiveImageFileUnsupported is raised: an image file reached a
+// path that does not import image files (the synchronous import; archives naming image files run as a job).
 func archiveImageFileUnsupported(device string) error {
 	return exerciseModel.ErrArchiveImageFileUnsupported.WithPublicContext("device", device).Err()
 }
@@ -453,13 +458,21 @@ func optionalUUID(path, raw string) (uuid.UUID, error) {
 func freshID() uuid.UUID { return uuid.Must(uuid.NewV7()) }
 
 // toParsed maps the document to the domain: fresh UUIDv7 for id-less variants and devices,
-// device names to ids, optional ids parsed. Exercise and version ids are ignored.
+// device names to ids, optional ids parsed. Exercise and version ids are ignored. An image file is refused.
 func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, error) {
+	return d.toParsedWithImages(files, nil)
+}
+
+// toParsedWithImages is toParsed for a folder whose device image files were read aside (images, by path relative
+// to the folder): a device naming one gets a marker image (imageFileMarker) the import replaces with the pushed
+// image's platform reference. nil images: an image file is refused (archiveImageFileUnsupported).
+func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[string]*archiveImageFile) (ParsedExerciseArchive, error) {
 	parsed := ParsedExerciseArchive{
 		Exercise: exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
 		Files:    files,
 	}
 	links := newArchiveLinks(files, &parsed)
+	links.images = images
 	for vi, version := range d.Versions {
 		statusPath := fmt.Sprintf("versions[%d].status", vi+1)
 		if version.Status == "" {
@@ -511,7 +524,7 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 }
 
 func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
-	topology, deviceIDs, err := v.Topology.toDomain(path + ".topology")
+	topology, deviceIDs, err := v.Topology.toDomain(path+".topology", links)
 	if err != nil {
 		return exerciseModel.Variant{}, err
 	}
@@ -612,7 +625,7 @@ func resolveDevice(path, name, rawID string, deviceIDs map[string]uuid.UUID) (uu
 	return id, nil
 }
 
-func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[string]uuid.UUID, error) {
+func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseModel.Topology, map[string]uuid.UUID, error) {
 	topology := exerciseModel.Topology{VPN: t.VPN, Internet: t.Internet, VisualRender: absentIfNull(t.VisualRender)}
 	deviceIDs := make(map[string]uuid.UUID, len(t.Devices))
 	for di, device := range t.Devices {
@@ -635,8 +648,19 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 				return exerciseModel.Topology{}, nil, unknownEnum(fmt.Sprintf("%s.interfaces[%d].ip.type", devicePath, ii+1), string(iface.IP.Type))
 			}
 		}
+		image := device.Image.Ref
+		if strings.HasPrefix(image, imageFileMarker) {
+			return exerciseModel.Topology{}, nil, archiveInvalid(devicePath + ".image is not a valid image reference")
+		}
 		if device.Image.File != "" {
-			return exerciseModel.Topology{}, nil, archiveImageFileUnsupported(device.Name)
+			if links.images == nil {
+				return exerciseModel.Topology{}, nil, archiveImageFileUnsupported(device.Name)
+			}
+			marker, linkErr := links.image(device.Name, device.Image.File)
+			if linkErr != nil {
+				return exerciseModel.Topology{}, nil, linkErr
+			}
+			image = marker
 		}
 		if _, seen := deviceIDs[device.Name]; seen {
 			deviceIDs[device.Name] = ambiguousDevice
@@ -644,7 +668,7 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 			deviceIDs[device.Name] = id
 		}
 		topology.Devices = append(topology.Devices, exerciseModel.Device{
-			ID: id, Name: device.Name, Type: device.Type, Image: device.Image.Ref,
+			ID: id, Name: device.Name, Type: device.Type, Image: image,
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
 			Interfaces: device.Interfaces, EnvVars: device.EnvVars,
 			External: device.External, Persistence: device.Persistence,
@@ -673,6 +697,12 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 // re-import is lossless; an editor description stays an object. paths maps each attached file id to the path
 // it is stored at in the archive. The output is indented plain JSON without comments.
 func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, paths map[uuid.UUID]string) ([]byte, error) {
+	return buildV2DocumentWithImages(e, versions, paths, nil)
+}
+
+// buildV2DocumentWithImages is buildV2Document for an export «з образами»: a device whose platform image has a path in
+// imagePaths (by the image's digest) names that file, `image: {file: …}`.
+func buildV2DocumentWithImages(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, paths map[uuid.UUID]string, imagePaths map[string]string) ([]byte, error) {
 	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{Name: e.Name, Description: e.Description, Tags: e.Tags}}
 	for _, version := range versions {
 		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{}}
@@ -681,7 +711,7 @@ func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.Exercise
 				out.Variants = append(out.Variants, linked)
 				continue
 			}
-			out.Variants = append(out.Variants, exportVariantV2(variant, paths))
+			out.Variants = append(out.Variants, exportVariantV2(variant, paths, imagePaths))
 		}
 		doc.Versions = append(doc.Versions, out)
 	}
@@ -699,12 +729,12 @@ func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.Exercise
 }
 
 // exportVariantV2 writes one variant in full.
-func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string) archiveVariantV2 {
+func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, imagePaths map[string]string) archiveVariantV2 {
 	refs := newDeviceRefs(variant.Topology.Devices)
 	topology := archiveTopologyV2{VPN: variant.Topology.VPN, Internet: variant.Topology.Internet, VisualRender: variant.Topology.VisualRender}
 	for _, device := range variant.Topology.Devices {
 		topology.Devices = append(topology.Devices, archiveDeviceV2{
-			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: archiveImageV2{Ref: device.Image},
+			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: exportDeviceImage(device.Image, imagePaths),
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
 			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence,
 		})
@@ -723,6 +753,17 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string) 
 		result.Tasks = append(result.Tasks, exportTaskV2(task, refs, paths))
 	}
 	return result
+}
+
+// exportDeviceImage is the image as the document writes it: the file of its platform image when the export carries
+// the image files, else the reference.
+func exportDeviceImage(image string, imagePaths map[string]string) archiveImageV2 {
+	if ref, ok := imageRegistryModel.ParsePlatformRef(image); ok {
+		if file, shipped := imagePaths[ref.Digest]; shipped {
+			return archiveImageV2{File: file}
+		}
+	}
+	return archiveImageV2{Ref: image}
 }
 
 func exportTaskV2(task exerciseModel.Task, refs deviceRefs, paths map[uuid.UUID]string) archiveTaskV2 {

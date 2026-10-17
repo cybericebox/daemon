@@ -20,16 +20,19 @@ import (
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 )
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	archiveExport         archiveExportCalls
 	elevation             exerciseUseCase.ElevationView
 	elevationReason       string
 	elevationStatus       string
@@ -56,6 +59,14 @@ type fakeUC struct {
 	testDeploys           []exerciseModel.TestDeploy
 	listDeploysExercise   uuid.UUID
 	checked               string
+	imageScope            imageRegistryUseCase.Scope
+	checkedImages         []string
+	availability          []imageRegistryModel.Availability
+	scopeAsked            bool
+	// image upload
+	imageUpload imageUploadCalls
+	// background import of archives with images
+	archiveImport archiveImportCalls
 
 	err error
 
@@ -213,7 +224,7 @@ func (f *fakeUC) UploadChunkBytes() int64 {
 	}
 	return f.maxUploadBytes
 }
-func (f *fakeUC) StartUpload(context.Context, string, string, int64, uuid.UUID) (mediaModel.Upload, error) {
+func (f *fakeUC) StartUpload(context.Context, string, string, int64, uuid.UUID, mediaModel.UploadPurpose) (mediaModel.Upload, error) {
 	return mediaModel.Upload{}, nil
 }
 func (f *fakeUC) UploadStatus(context.Context, uuid.UUID, uuid.UUID) (mediaModel.Upload, error) {

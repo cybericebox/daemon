@@ -44,9 +44,9 @@ func (q *Queries) AdvanceMediaUpload(ctx context.Context, arg AdvanceMediaUpload
 }
 
 const createMediaUpload = `-- name: CreateMediaUpload :one
-INSERT INTO media_uploads (id, created_by, name, content_type, size_bytes, chunk_bytes, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, created_by, name, content_type, size_bytes, chunk_bytes, chunks_received, created_at, expires_at
+INSERT INTO media_uploads (id, created_by, name, content_type, size_bytes, chunk_bytes, created_at, expires_at, purpose)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, created_by, name, content_type, size_bytes, chunk_bytes, chunks_received, created_at, expires_at, purpose
 `
 
 type CreateMediaUploadParams struct {
@@ -58,6 +58,7 @@ type CreateMediaUploadParams struct {
 	ChunkBytes  int64     `json:"chunk_bytes"`
 	CreatedAt   time.Time `json:"created_at"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	Purpose     string    `json:"purpose"`
 }
 
 func (q *Queries) CreateMediaUpload(ctx context.Context, arg CreateMediaUploadParams) (MediaUpload, error) {
@@ -70,6 +71,7 @@ func (q *Queries) CreateMediaUpload(ctx context.Context, arg CreateMediaUploadPa
 		arg.ChunkBytes,
 		arg.CreatedAt,
 		arg.ExpiresAt,
+		arg.Purpose,
 	)
 	var i MediaUpload
 	err := row.Scan(
@@ -82,6 +84,7 @@ func (q *Queries) CreateMediaUpload(ctx context.Context, arg CreateMediaUploadPa
 		&i.ChunksReceived,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.Purpose,
 	)
 	return i, err
 }
@@ -101,7 +104,7 @@ func (q *Queries) DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, e
 }
 
 const getMediaUpload = `-- name: GetMediaUpload :one
-SELECT id, created_by, name, content_type, size_bytes, chunk_bytes, chunks_received, created_at, expires_at
+SELECT id, created_by, name, content_type, size_bytes, chunk_bytes, chunks_received, created_at, expires_at, purpose
 FROM media_uploads
 WHERE id = $1
 `
@@ -119,12 +122,13 @@ func (q *Queries) GetMediaUpload(ctx context.Context, id uuid.UUID) (MediaUpload
 		&i.ChunksReceived,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.Purpose,
 	)
 	return i, err
 }
 
 const listExpiredMediaUploads = `-- name: ListExpiredMediaUploads :many
-SELECT id, created_by, name, content_type, size_bytes, chunk_bytes, chunks_received, created_at, expires_at
+SELECT id, created_by, name, content_type, size_bytes, chunk_bytes, chunks_received, created_at, expires_at, purpose
 FROM media_uploads
 WHERE expires_at < $1
 ORDER BY expires_at
@@ -155,6 +159,7 @@ func (q *Queries) ListExpiredMediaUploads(ctx context.Context, arg ListExpiredMe
 			&i.ChunksReceived,
 			&i.CreatedAt,
 			&i.ExpiresAt,
+			&i.Purpose,
 		); err != nil {
 			return nil, err
 		}

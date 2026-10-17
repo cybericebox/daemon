@@ -175,7 +175,7 @@ func TestMediaUploadAdvancesOnlyInOrderForItsOwner(t *testing.T) {
 	repo := mediaRepo.New(db.Queries)
 	owner, stranger := newUser(t, db), newUser(t, db)
 	now := time.Now().Truncate(time.Microsecond)
-	up, err := repo.CreateUpload(ctx, mediaModel.NewUpload(uuid.Must(uuid.NewV7()), owner, "a.bin", "application/octet-stream", 10, 4, time.Hour, now))
+	up, err := repo.CreateUpload(ctx, mediaModel.NewUpload(uuid.Must(uuid.NewV7()), owner, "a.bin", "application/octet-stream", 10, 4, time.Hour, now, mediaModel.UploadPurposeFile))
 	if err != nil || up.ChunksReceived != 0 || up.ChunkCount() != 3 {
 		t.Fatalf("create: %+v, %v", up, err)
 	}

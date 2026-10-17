@@ -167,6 +167,7 @@ GET    /api/events/:id/manage/forms/:formID/deliveries | gate: self | layers: ev
 POST   /api/events/:id/manage/forms/:formID/deliveries | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/general | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/hint-unlocks | gate: self | layers: event.requireRead
+GET    /api/events/:id/manage/images/availability | gate: self | layers: imageRegistry.requireRead
 GET    /api/events/:id/manage/labs | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/labs/:teamID/challenges/:challengeID/devices/:device/rescue | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/labs/:teamID/challenges/:challengeID/devices/:device/reset | gate: self | layers: event.requireManage
@@ -261,6 +262,10 @@ PUT    /api/events/:id/manage/participants/:userID/visibility | gate: self | lay
 POST   /api/events/:id/manage/participants/invitations | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/preview-picture | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/preview-picture | gate: self | layers: event.requireManage
+GET    /api/events/:id/manage/registry-secrets | gate: self | layers: imageRegistry.requireManageAccess
+POST   /api/events/:id/manage/registry-secrets | gate: self | layers: imageRegistry.requireManage
+DELETE /api/events/:id/manage/registry-secrets/:secretId | gate: self | layers: imageRegistry.requireManage
+PUT    /api/events/:id/manage/registry-secrets/:secretId | gate: self | layers: imageRegistry.requireManage
 GET    /api/events/:id/manage/resource-plan | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/resources | gate: self | layers: resourceCalendar.requireRead
 POST   /api/events/:id/manage/resources/change-requests | gate: self | layers: resourceCalendar.requireManage
@@ -376,6 +381,11 @@ PUT    /api/exercises/:id/draft | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/elevation | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/files/lookup | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/images | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/images/blobs | gate: self | layers: exercise.authorize.func
+GET    /api/exercises/:id/images/blobs/:digest | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/images/blobs/missing | gate: self | layers: exercise.authorize.func
+POST   /api/exercises/:id/images/check | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/proposals | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/publish | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/unarchive | gate: self | layers: exercise.authorize.func
@@ -401,6 +411,7 @@ GET    /api/exercises/elevations/:elevationID | gate: exercises.elevations.read 
 POST   /api/exercises/elevations/:elevationID/approve | gate: exercises.elevations.write | layers: -
 POST   /api/exercises/elevations/:elevationID/reject | gate: exercises.elevations.write | layers: -
 POST   /api/exercises/export | gate: exercises.export | layers: -
+GET    /api/exercises/export/jobs/:jobID | gate: exercises.export | layers: -
 POST   /api/exercises/files | gate: self | layers: -
 GET    /api/exercises/files/:fileID | gate: self | layers: -
 GET    /api/exercises/files/:fileID/chunks/:index | gate: self | layers: -
@@ -408,6 +419,8 @@ GET    /api/exercises/files/:fileID/meta | gate: self | layers: -
 GET    /api/exercises/flag-policy | gate: self | layers: -
 POST   /api/exercises/import | gate: exercises.write | layers: -
 GET    /api/exercises/import/example | gate: exercises.write | layers: -
+GET    /api/exercises/import/jobs/:jobID | gate: exercises.write | layers: -
+POST   /api/exercises/import/upload | gate: exercises.write | layers: -
 POST   /api/exercises/import/uploaded | gate: exercises.write | layers: -
 GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
@@ -530,6 +543,10 @@ GET    /api/settings | gate: platform.settings.read | layers: -
 GET    /api/settings/:key | gate: platform.settings.read | layers: -
 PUT    /api/settings/:key | gate: platform.settings.write | layers: -
 GET    /api/settings/:key/value | gate: platform.settings.read.value(public) | layers: -
+DELETE /api/settings/image-registry | gate: platform.settings.write | layers: -
+GET    /api/settings/image-registry | gate: platform.settings.read | layers: -
+PUT    /api/settings/image-registry | gate: platform.settings.write | layers: -
+POST   /api/settings/image-registry/repositories | gate: platform.settings.write | layers: -
 GET    /api/settings/participant-preview | gate: platform.settings.read | layers: -
 PUT    /api/settings/participant-preview | gate: platform.settings.write | layers: -
 GET    /api/settings/participant-preview/catalog | gate: platform.settings.read | layers: -

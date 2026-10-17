@@ -1503,6 +1503,20 @@ func (mr *MockQuerierMockRecorder) CreateExerciseCheckpoint(ctx, arg any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateExerciseCheckpoint", reflect.TypeOf((*MockQuerier)(nil).CreateExerciseCheckpoint), ctx, arg)
 }
 
+// CreateExerciseExportJob mocks base method.
+func (m *MockQuerier) CreateExerciseExportJob(ctx context.Context, arg postgres.CreateExerciseExportJobParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateExerciseExportJob", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateExerciseExportJob indicates an expected call of CreateExerciseExportJob.
+func (mr *MockQuerierMockRecorder) CreateExerciseExportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateExerciseExportJob", reflect.TypeOf((*MockQuerier)(nil).CreateExerciseExportJob), ctx, arg)
+}
+
 // CreateExerciseProposal mocks base method.
 func (m *MockQuerier) CreateExerciseProposal(ctx context.Context, arg postgres.CreateExerciseProposalParams) (postgres.ExerciseProposal, error) {
 	m.ctrl.T.Helper()
@@ -2179,6 +2193,21 @@ func (mr *MockQuerierMockRecorder) DeleteEventPreviewSettings(ctx, eventID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventPreviewSettings", reflect.TypeOf((*MockQuerier)(nil).DeleteEventPreviewSettings), ctx, eventID)
 }
 
+// DeleteEventRegistrySecret mocks base method.
+func (m *MockQuerier) DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteEventRegistrySecret indicates an expected call of DeleteEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) DeleteEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).DeleteEventRegistrySecret), ctx, arg)
+}
+
 // DeleteEventResultChangesBefore mocks base method.
 func (m *MockQuerier) DeleteEventResultChangesBefore(ctx context.Context, before time.Time) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2371,6 +2400,34 @@ func (mr *MockQuerierMockRecorder) DeleteFileReferencesBatch(ctx, arg any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteFileReferencesBatch", reflect.TypeOf((*MockQuerier)(nil).DeleteFileReferencesBatch), ctx, arg)
 }
 
+// DeleteImageBlobPush mocks base method.
+func (m *MockQuerier) DeleteImageBlobPush(ctx context.Context, digest string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImageBlobPush", ctx, digest)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImageBlobPush indicates an expected call of DeleteImageBlobPush.
+func (mr *MockQuerierMockRecorder) DeleteImageBlobPush(ctx, digest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageBlobPush", reflect.TypeOf((*MockQuerier)(nil).DeleteImageBlobPush), ctx, digest)
+}
+
+// DeleteImageRegistrySettings mocks base method.
+func (m *MockQuerier) DeleteImageRegistrySettings(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteImageRegistrySettings", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteImageRegistrySettings indicates an expected call of DeleteImageRegistrySettings.
+func (mr *MockQuerierMockRecorder) DeleteImageRegistrySettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteImageRegistrySettings", reflect.TypeOf((*MockQuerier)(nil).DeleteImageRegistrySettings), ctx)
+}
+
 // DeleteInAppTemplate mocks base method.
 func (m *MockQuerier) DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2489,6 +2546,21 @@ func (mr *MockQuerierMockRecorder) DeleteOwnedExerciseTestDeploy(ctx, arg any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOwnedExerciseTestDeploy", reflect.TypeOf((*MockQuerier)(nil).DeleteOwnedExerciseTestDeploy), ctx, arg)
 }
 
+// DeletePlatformImage mocks base method.
+func (m *MockQuerier) DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePlatformImage", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeletePlatformImage indicates an expected call of DeletePlatformImage.
+func (mr *MockQuerierMockRecorder) DeletePlatformImage(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePlatformImage", reflect.TypeOf((*MockQuerier)(nil).DeletePlatformImage), ctx, arg)
+}
+
 // DeletePlatformSMTPProvider mocks base method.
 func (m *MockQuerier) DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error) {
 	m.ctrl.T.Helper()
@@ -2546,6 +2618,21 @@ func (m *MockQuerier) DeleteSolveIntegrityReview(ctx context.Context, arg postgr
 func (mr *MockQuerierMockRecorder) DeleteSolveIntegrityReview(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteSolveIntegrityReview", reflect.TypeOf((*MockQuerier)(nil).DeleteSolveIntegrityReview), ctx, arg)
+}
+
+// DeleteStaleImageBlobPushes mocks base method.
+func (m *MockQuerier) DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteStaleImageBlobPushes", ctx, updatedAt)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteStaleImageBlobPushes indicates an expected call of DeleteStaleImageBlobPushes.
+func (mr *MockQuerierMockRecorder) DeleteStaleImageBlobPushes(ctx, updatedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteStaleImageBlobPushes", reflect.TypeOf((*MockQuerier)(nil).DeleteStaleImageBlobPushes), ctx, updatedAt)
 }
 
 // DeleteStaleLabMonitoringCurrent mocks base method.
@@ -3803,6 +3890,21 @@ func (mr *MockQuerierMockRecorder) GetEventPreviewSettings(ctx, eventID any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventPreviewSettings", reflect.TypeOf((*MockQuerier)(nil).GetEventPreviewSettings), ctx, eventID)
 }
 
+// GetEventRegistrySecret mocks base method.
+func (m *MockQuerier) GetEventRegistrySecret(ctx context.Context, arg postgres.GetEventRegistrySecretParams) (postgres.EventRegistrySecret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(postgres.EventRegistrySecret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventRegistrySecret indicates an expected call of GetEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) GetEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).GetEventRegistrySecret), ctx, arg)
+}
+
 // GetEventRenderDocument mocks base method.
 func (m *MockQuerier) GetEventRenderDocument(ctx context.Context, arg postgres.GetEventRenderDocumentParams) (postgres.GetEventRenderDocumentRow, error) {
 	m.ctrl.T.Helper()
@@ -4223,6 +4325,21 @@ func (mr *MockQuerierMockRecorder) GetExerciseByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseByID", reflect.TypeOf((*MockQuerier)(nil).GetExerciseByID), ctx, id)
 }
 
+// GetExerciseExportJob mocks base method.
+func (m *MockQuerier) GetExerciseExportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseExportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExerciseExportJob", ctx, id)
+	ret0, _ := ret[0].(postgres.ExerciseExportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExerciseExportJob indicates an expected call of GetExerciseExportJob.
+func (mr *MockQuerierMockRecorder) GetExerciseExportJob(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseExportJob", reflect.TypeOf((*MockQuerier)(nil).GetExerciseExportJob), ctx, id)
+}
+
 // GetExerciseFileByHash mocks base method.
 func (m *MockQuerier) GetExerciseFileByHash(ctx context.Context, arg postgres.GetExerciseFileByHashParams) (postgres.GetExerciseFileByHashRow, error) {
 	m.ctrl.T.Helper()
@@ -4236,6 +4353,21 @@ func (m *MockQuerier) GetExerciseFileByHash(ctx context.Context, arg postgres.Ge
 func (mr *MockQuerierMockRecorder) GetExerciseFileByHash(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseFileByHash", reflect.TypeOf((*MockQuerier)(nil).GetExerciseFileByHash), ctx, arg)
+}
+
+// GetExerciseImportJob mocks base method.
+func (m *MockQuerier) GetExerciseImportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExerciseImportJob", ctx, id)
+	ret0, _ := ret[0].(postgres.ExerciseImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExerciseImportJob indicates an expected call of GetExerciseImportJob.
+func (mr *MockQuerierMockRecorder) GetExerciseImportJob(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).GetExerciseImportJob), ctx, id)
 }
 
 // GetExerciseInfrastructure mocks base method.
@@ -4326,6 +4458,36 @@ func (m *MockQuerier) GetFileReferenceIDs(ctx context.Context, arg postgres.GetF
 func (mr *MockQuerierMockRecorder) GetFileReferenceIDs(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFileReferenceIDs", reflect.TypeOf((*MockQuerier)(nil).GetFileReferenceIDs), ctx, arg)
+}
+
+// GetImageBlobPush mocks base method.
+func (m *MockQuerier) GetImageBlobPush(ctx context.Context, digest string) (postgres.ImageBlobPush, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageBlobPush", ctx, digest)
+	ret0, _ := ret[0].(postgres.ImageBlobPush)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageBlobPush indicates an expected call of GetImageBlobPush.
+func (mr *MockQuerierMockRecorder) GetImageBlobPush(ctx, digest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageBlobPush", reflect.TypeOf((*MockQuerier)(nil).GetImageBlobPush), ctx, digest)
+}
+
+// GetImageRegistrySettings mocks base method.
+func (m *MockQuerier) GetImageRegistrySettings(ctx context.Context) (postgres.ImageRegistrySetting, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetImageRegistrySettings", ctx)
+	ret0, _ := ret[0].(postgres.ImageRegistrySetting)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetImageRegistrySettings indicates an expected call of GetImageRegistrySettings.
+func (mr *MockQuerierMockRecorder) GetImageRegistrySettings(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetImageRegistrySettings", reflect.TypeOf((*MockQuerier)(nil).GetImageRegistrySettings), ctx)
 }
 
 // GetInAppTemplate mocks base method.
@@ -5377,6 +5539,20 @@ func (mr *MockQuerierMockRecorder) InsertErrorSample(ctx, arg any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertErrorSample", reflect.TypeOf((*MockQuerier)(nil).InsertErrorSample), ctx, arg)
 }
 
+// InsertEventRegistrySecret mocks base method.
+func (m *MockQuerier) InsertEventRegistrySecret(ctx context.Context, arg postgres.InsertEventRegistrySecretParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertEventRegistrySecret indicates an expected call of InsertEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) InsertEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).InsertEventRegistrySecret), ctx, arg)
+}
+
 // InsertEventScoringPopulation mocks base method.
 func (m *MockQuerier) InsertEventScoringPopulation(ctx context.Context, arg postgres.InsertEventScoringPopulationParams) (postgres.EventScoringPopulation, error) {
 	m.ctrl.T.Helper()
@@ -5477,6 +5653,21 @@ func (m *MockQuerier) InviteEventParticipant(ctx context.Context, arg postgres.I
 func (mr *MockQuerierMockRecorder) InviteEventParticipant(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InviteEventParticipant", reflect.TypeOf((*MockQuerier)(nil).InviteEventParticipant), ctx, arg)
+}
+
+// IsDigestCollectable mocks base method.
+func (m *MockQuerier) IsDigestCollectable(ctx context.Context, arg postgres.IsDigestCollectableParams) (pgtype.Bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsDigestCollectable", ctx, arg)
+	ret0, _ := ret[0].(pgtype.Bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsDigestCollectable indicates an expected call of IsDigestCollectable.
+func (mr *MockQuerierMockRecorder) IsDigestCollectable(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsDigestCollectable", reflect.TypeOf((*MockQuerier)(nil).IsDigestCollectable), ctx, arg)
 }
 
 // IsEventChallengePublished mocks base method.
@@ -6393,6 +6584,21 @@ func (mr *MockQuerierMockRecorder) ListEventExerciseDetails(ctx, eventID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExerciseDetails", reflect.TypeOf((*MockQuerier)(nil).ListEventExerciseDetails), ctx, eventID)
 }
 
+// ListEventExerciseImages mocks base method.
+func (m *MockQuerier) ListEventExerciseImages(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventExerciseImagesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventExerciseImages", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.ListEventExerciseImagesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventExerciseImages indicates an expected call of ListEventExerciseImages.
+func (mr *MockQuerierMockRecorder) ListEventExerciseImages(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExerciseImages", reflect.TypeOf((*MockQuerier)(nil).ListEventExerciseImages), ctx, eventID)
+}
+
 // ListEventExercisePrerequisites mocks base method.
 func (m *MockQuerier) ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.EventChallengePrerequisite, error) {
 	m.ctrl.T.Helper()
@@ -6961,6 +7167,21 @@ func (m *MockQuerier) ListEventRegistrationFormVersions(ctx context.Context, eve
 func (mr *MockQuerierMockRecorder) ListEventRegistrationFormVersions(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventRegistrationFormVersions", reflect.TypeOf((*MockQuerier)(nil).ListEventRegistrationFormVersions), ctx, eventID)
+}
+
+// ListEventRegistrySecrets mocks base method.
+func (m *MockQuerier) ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUID) ([]postgres.EventRegistrySecret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventRegistrySecrets", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.EventRegistrySecret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventRegistrySecrets indicates an expected call of ListEventRegistrySecrets.
+func (mr *MockQuerierMockRecorder) ListEventRegistrySecrets(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventRegistrySecrets", reflect.TypeOf((*MockQuerier)(nil).ListEventRegistrySecrets), ctx, eventID)
 }
 
 // ListEventReportRanking mocks base method.
@@ -9303,6 +9524,21 @@ func (mr *MockQuerierMockRecorder) ListUnaccountedEventLabStarts(ctx any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnaccountedEventLabStarts", reflect.TypeOf((*MockQuerier)(nil).ListUnaccountedEventLabStarts), ctx)
 }
 
+// ListUnreferencedPlatformImages mocks base method.
+func (m *MockQuerier) ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]postgres.PlatformImage, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnreferencedPlatformImages", ctx, before)
+	ret0, _ := ret[0].([]postgres.PlatformImage)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnreferencedPlatformImages indicates an expected call of ListUnreferencedPlatformImages.
+func (mr *MockQuerierMockRecorder) ListUnreferencedPlatformImages(ctx, before any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnreferencedPlatformImages", reflect.TypeOf((*MockQuerier)(nil).ListUnreferencedPlatformImages), ctx, before)
+}
+
 // ListUserEventMemberships mocks base method.
 func (m *MockQuerier) ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserEventMembershipsRow, error) {
 	m.ctrl.T.Helper()
@@ -10040,6 +10276,21 @@ func (m *MockQuerier) OpenReadyEventLabRevealBarriers(ctx context.Context, arg p
 func (mr *MockQuerierMockRecorder) OpenReadyEventLabRevealBarriers(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenReadyEventLabRevealBarriers", reflect.TypeOf((*MockQuerier)(nil).OpenReadyEventLabRevealBarriers), ctx, arg)
+}
+
+// PlatformImageTagTakenByOtherDigest mocks base method.
+func (m *MockQuerier) PlatformImageTagTakenByOtherDigest(ctx context.Context, arg postgres.PlatformImageTagTakenByOtherDigestParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlatformImageTagTakenByOtherDigest", ctx, arg)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PlatformImageTagTakenByOtherDigest indicates an expected call of PlatformImageTagTakenByOtherDigest.
+func (mr *MockQuerierMockRecorder) PlatformImageTagTakenByOtherDigest(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlatformImageTagTakenByOtherDigest", reflect.TypeOf((*MockQuerier)(nil).PlatformImageTagTakenByOtherDigest), ctx, arg)
 }
 
 // PublishAvailableTeamChallenges mocks base method.
@@ -11603,6 +11854,21 @@ func (mr *MockQuerierMockRecorder) StartErrorNotification(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartErrorNotification", reflect.TypeOf((*MockQuerier)(nil).StartErrorNotification), ctx, arg)
 }
 
+// StartExerciseImportJob mocks base method.
+func (m *MockQuerier) StartExerciseImportJob(ctx context.Context, arg postgres.StartExerciseImportJobParams) (postgres.ExerciseImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StartExerciseImportJob", ctx, arg)
+	ret0, _ := ret[0].(postgres.ExerciseImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StartExerciseImportJob indicates an expected call of StartExerciseImportJob.
+func (mr *MockQuerierMockRecorder) StartExerciseImportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StartExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).StartExerciseImportJob), ctx, arg)
+}
+
 // SummarizeLabTouches mocks base method.
 func (m *MockQuerier) SummarizeLabTouches(ctx context.Context, arg postgres.SummarizeLabTouchesParams) ([]postgres.SummarizeLabTouchesRow, error) {
 	m.ctrl.T.Helper()
@@ -12003,6 +12269,21 @@ func (mr *MockQuerierMockRecorder) UpdateEventPublicName(ctx, arg any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEventPublicName", reflect.TypeOf((*MockQuerier)(nil).UpdateEventPublicName), ctx, arg)
 }
 
+// UpdateEventRegistrySecret mocks base method.
+func (m *MockQuerier) UpdateEventRegistrySecret(ctx context.Context, arg postgres.UpdateEventRegistrySecretParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateEventRegistrySecret indicates an expected call of UpdateEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) UpdateEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).UpdateEventRegistrySecret), ctx, arg)
+}
+
 // UpdateEventScoringProfile mocks base method.
 func (m *MockQuerier) UpdateEventScoringProfile(ctx context.Context, arg postgres.UpdateEventScoringProfileParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -12121,6 +12402,36 @@ func (m *MockQuerier) UpdateExercise(ctx context.Context, arg postgres.UpdateExe
 func (mr *MockQuerierMockRecorder) UpdateExercise(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExercise", reflect.TypeOf((*MockQuerier)(nil).UpdateExercise), ctx, arg)
+}
+
+// UpdateExerciseExportJob mocks base method.
+func (m *MockQuerier) UpdateExerciseExportJob(ctx context.Context, arg postgres.UpdateExerciseExportJobParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateExerciseExportJob", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateExerciseExportJob indicates an expected call of UpdateExerciseExportJob.
+func (mr *MockQuerierMockRecorder) UpdateExerciseExportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExerciseExportJob", reflect.TypeOf((*MockQuerier)(nil).UpdateExerciseExportJob), ctx, arg)
+}
+
+// UpdateExerciseImportJob mocks base method.
+func (m *MockQuerier) UpdateExerciseImportJob(ctx context.Context, arg postgres.UpdateExerciseImportJobParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateExerciseImportJob", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateExerciseImportJob indicates an expected call of UpdateExerciseImportJob.
+func (mr *MockQuerierMockRecorder) UpdateExerciseImportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).UpdateExerciseImportJob), ctx, arg)
 }
 
 // UpdateInAppTemplate mocks base method.
@@ -12522,6 +12833,34 @@ func (mr *MockQuerierMockRecorder) UpsertExerciseDraft(ctx, arg any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).UpsertExerciseDraft), ctx, arg)
 }
 
+// UpsertImageBlobPush mocks base method.
+func (m *MockQuerier) UpsertImageBlobPush(ctx context.Context, arg postgres.UpsertImageBlobPushParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImageBlobPush", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImageBlobPush indicates an expected call of UpsertImageBlobPush.
+func (mr *MockQuerierMockRecorder) UpsertImageBlobPush(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageBlobPush", reflect.TypeOf((*MockQuerier)(nil).UpsertImageBlobPush), ctx, arg)
+}
+
+// UpsertImageRegistrySettings mocks base method.
+func (m *MockQuerier) UpsertImageRegistrySettings(ctx context.Context, arg postgres.UpsertImageRegistrySettingsParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertImageRegistrySettings", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertImageRegistrySettings indicates an expected call of UpsertImageRegistrySettings.
+func (mr *MockQuerierMockRecorder) UpsertImageRegistrySettings(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertImageRegistrySettings", reflect.TypeOf((*MockQuerier)(nil).UpsertImageRegistrySettings), ctx, arg)
+}
+
 // UpsertLabMonitoringCurrent mocks base method.
 func (m *MockQuerier) UpsertLabMonitoringCurrent(ctx context.Context, arg postgres.UpsertLabMonitoringCurrentParams) error {
 	m.ctrl.T.Helper()
@@ -12549,6 +12888,20 @@ func (m *MockQuerier) UpsertNotificationSetting(ctx context.Context, arg postgre
 func (mr *MockQuerierMockRecorder) UpsertNotificationSetting(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertNotificationSetting", reflect.TypeOf((*MockQuerier)(nil).UpsertNotificationSetting), ctx, arg)
+}
+
+// UpsertPlatformImage mocks base method.
+func (m *MockQuerier) UpsertPlatformImage(ctx context.Context, arg postgres.UpsertPlatformImageParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPlatformImage", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertPlatformImage indicates an expected call of UpsertPlatformImage.
+func (mr *MockQuerierMockRecorder) UpsertPlatformImage(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPlatformImage", reflect.TypeOf((*MockQuerier)(nil).UpsertPlatformImage), ctx, arg)
 }
 
 // UpsertPlatformMailIdentity mocks base method.

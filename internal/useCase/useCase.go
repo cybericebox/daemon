@@ -41,6 +41,7 @@ import (
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	infrastructureUseCase "github.com/cybericebox/daemon/internal/useCase/infrastructure"
 	mailUseCase "github.com/cybericebox/daemon/internal/useCase/mail"
 	mediaUseCase "github.com/cybericebox/daemon/internal/useCase/media"
@@ -93,6 +94,7 @@ type (
 		*bannerUseCase.SiteBannerUseCase
 		*errorJournalUseCase.Journal
 		*calendarUseCase.ResourceCalendarUseCase
+		*imageRegistryUseCase.ImageRegistryUseCase
 	}
 	Dependencies struct {
 		Repo            *repository.Repository
@@ -120,7 +122,7 @@ type (
 		// One cipher per secret family (separate keys); each nil when its key is unset.
 		ExerciseCipher *secret.Cipher // exercise secret env vars
 		VPNCipher      *secret.Cipher // VPN client configs
-		PlatformCipher *secret.Cipher // platform settings secrets (SMTP)
+		PlatformCipher *secret.Cipher // platform settings secrets (SMTP, image registry tokens)
 		// LabAgent is the infrastructure port, the agent fleet; nil in tests without infrastructure.
 		LabAgent infrastructureUseCase.Agent
 		// AgentFleet applies the admin-configured agents to the live fleet and probes them; nil without one.
@@ -164,6 +166,41 @@ func buildNotificationHandlers(
 // broadcastEnqueue adapts the River enqueuer to the broadcast sender's port.
 func broadcastEnqueue(enq worker.IEnqueuer) func(ctx context.Context, args jobsModel.BroadcastSendArgs) error {
 	return func(ctx context.Context, args jobsModel.BroadcastSendArgs) error { return enq.Enqueue(ctx, args) }
+}
+
+// blobPushQueue adapts the River enqueuer to the image upload's blob push port: one push per digest while queued
+// or running.
+func blobPushQueue(enq worker.IEnqueuer) imageRegistryUseCase.BlobPushQueue {
+	return func(ctx context.Context, args jobsModel.ImageBlobPushArgs) error {
+		return enq.EnqueueUniqueAt(ctx, args, time.Now())
+	}
+}
+
+// importQueue adapts the River enqueuer to the background archive import: one run per job while queued or running.
+func importQueue(enq worker.IEnqueuer) exerciseUseCase.ImportJobQueue {
+	return func(ctx context.Context, args jobsModel.ExerciseImportArgs) error {
+		return enq.EnqueueUniqueAt(ctx, args, time.Now())
+	}
+}
+
+// exportQueue adapts the River enqueuer to the background export «з образами»: one run per job while queued or running.
+func exportQueue(enq worker.IEnqueuer) exerciseUseCase.ExportJobQueue {
+	return func(ctx context.Context, args jobsModel.ExerciseExportArgs) error {
+		return enq.EnqueueUniqueAt(ctx, args, time.Now())
+	}
+}
+
+// imageExporter adapts the image registry use case to the export's port.
+type imageExporter struct {
+	uc *imageRegistryUseCase.ImageRegistryUseCase
+}
+
+func (e imageExporter) ExportedImage(ctx context.Context, reference string) (exerciseUseCase.ExportedImage, error) {
+	image, err := e.uc.ResolveImageExport(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	return image, nil
 }
 
 // testDeployExpiry adapts the River enqueuer to the exercise use case's test lab expiry port.
@@ -280,9 +317,28 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}
 
 	var agentSealer infrastructureUseCase.AgentSealer
+	// The registry settings work without a cipher (saving tokens is refused); a nil *Cipher must not become a
+	// non-nil interface.
+	var registrySealer secret.Sealer
 	if deps.PlatformCipher != nil {
 		agentSealer = deps.PlatformCipher
+		registrySealer = deps.PlatformCipher
 	}
+	imageRegistryUC := imageRegistryUseCase.New(imageRegistryUseCase.Dependencies{
+		Repo: deps.Repo, Cipher: registrySealer, Media: mediaUC, QueueBlobPush: blobPushQueue(deps.EnqueuerFactory.NewEnqueuer()),
+	})
+	// Every lab deploy and prewarm checks its images first and sends exactly that lab's pull credentials.
+	exerciseUC.SetImageAccess(imageRegistryUC)
+	// Task archives naming device image files import in the background: images pushed through the registry use
+	// case, the archive read where it lies, the password sealed with the platform cipher.
+	exerciseUC.SetArchiveImport(exerciseUseCase.ArchiveImportDependencies{
+		Images: imageRegistryUC, Sources: mediaUC, Queue: importQueue(deps.EnqueuerFactory.NewEnqueuer()), Sealer: registrySealer,
+	})
+	// Exports «з образами» run in the background too: images read from the registry, the zip stored as a media file.
+	exerciseUC.SetArchiveExport(exerciseUseCase.ArchiveExportDependencies{
+		Images: imageExporter{uc: imageRegistryUC}, Files: mediaUC, Queue: exportQueue(deps.EnqueuerFactory.NewEnqueuer()), Sealer: registrySealer,
+	})
+	eventUC.SetImageAccess(imageRegistryUC)
 	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
 		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),
 		Sealer: agentSealer, Fleet: deps.AgentFleet, Remote: deps.AgentRemote, Frame: deps.ResourcesPolicy.Frame,
@@ -412,5 +468,6 @@ func NewUseCase(deps Dependencies) *UseCase {
 		bannerUseCase.NewSiteBannerUseCase(bannerUseCase.Dependencies{Repo: deps.Repo}),
 		journalUC,
 		calendarUC,
+		imageRegistryUC,
 	}
 }

@@ -58,9 +58,18 @@ func New(cfg Config) (*Client, error) {
 
 // Put streams an object into storage. size may be -1 if unknown.
 func (c *Client) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
-	_, err := c.mc.PutObject(ctx, c.bucket, key, r, size, minio.PutObjectOptions{ContentType: contentType})
+	opts := minio.PutObjectOptions{ContentType: contentType}
+	if size < 0 {
+		// An unknown size would make the client buffer a part of about 550 MiB; a fixed part bounds the memory (10000
+		// parts of 64 MiB are far above the largest stream, 512 MiB + 10 GiB).
+		opts.PartSize = unknownSizePartBytes
+	}
+	_, err := c.mc.PutObject(ctx, c.bucket, key, r, size, opts)
 	return err
 }
+
+// unknownSizePartBytes is the multipart part size of a stream of unknown length.
+const unknownSizePartBytes = 64 << 20
 
 // Get opens an object stream and reports its content type. The caller must Close
 // the returned reader. Returns ErrObjectNotFound when the key is absent.
@@ -120,11 +129,22 @@ func (c *Client) Stat(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-// Copy performs a server-side object copy within the bucket.
+// maxSingleCopyBytes is the largest object one S3 CopyObject request copies.
+const maxSingleCopyBytes = 5 << 30
+
+// Copy performs a server-side object copy within the bucket. An object over 5 GiB is copied in parts (multipart
+// copy), still on the server.
 func (c *Client) Copy(ctx context.Context, src, dst string) error {
-	_, err := c.mc.CopyObject(ctx,
-		minio.CopyDestOptions{Bucket: c.bucket, Object: dst},
-		minio.CopySrcOptions{Bucket: c.bucket, Object: src},
-	)
+	info, err := c.mc.StatObject(ctx, c.bucket, src, minio.StatObjectOptions{})
+	if err != nil {
+		return err
+	}
+	dstOpts := minio.CopyDestOptions{Bucket: c.bucket, Object: dst}
+	srcOpts := minio.CopySrcOptions{Bucket: c.bucket, Object: src}
+	if info.Size > maxSingleCopyBytes {
+		_, err = c.mc.ComposeObject(ctx, dstOpts, srcOpts)
+		return err
+	}
+	_, err = c.mc.CopyObject(ctx, dstOpts, srcOpts)
 	return err
 }

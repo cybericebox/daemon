@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 92
+// ExerciseObjectCode — next free detail code: 100
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -236,10 +236,10 @@ var (
 	// `reason` context says what and where (a key, a 1-based path), so the author can fix the file.
 	ErrArchiveInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("Exercise archive is invalid").WithDetailCode(80)
-	// ErrArchiveImageFileUnsupported: the {file: ...} form of a device image is reserved; the context
-	// names the device.
+	// ErrArchiveImageFileUnsupported: a device image file (the {file: ...} form) reached the synchronous import, which
+	// does not push images (archives naming image files import in the background); the context names the device.
 	ErrArchiveImageFileUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
-					WithMessage("Device images inside the archive are not supported yet").WithDetailCode(88)
+					WithMessage("Device images inside the archive cannot be imported this way").WithDetailCode(88)
 	// ErrArchiveSchemaUnsupported: the document does not declare schema cib-exercise/1; the context
 	// `expected` names the schema.
 	ErrArchiveSchemaUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
@@ -279,4 +279,36 @@ var (
 	// archive by hand breaks the checksums, so the fix is to delete manifest.json.
 	ErrArchiveChecksumMismatch = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Archive checksum mismatch: delete manifest.json after editing an archive by hand").WithDetailCode(83)
+	// ErrImportJobNotFound — category A (anti-enumeration): an absent import job and another user's are one
+	// indistinguishable "not found".
+	ErrImportJobNotFound = err.ErrObjectNotFound.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Import not found").WithDetailCode(92)
+	// ErrArchiveUploadNotReady: the upload named for an import is not a task archive upload, or not all its chunks
+	// arrived yet.
+	ErrArchiveUploadNotReady = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("The archive upload is not complete").WithDetailCode(93)
+	// ErrArchiveImportInterrupted: a background import stopped before it finished (the server restarted or the job ran
+	// out of time); nothing was created, start it again.
+	ErrArchiveImportInterrupted = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("The import stopped before it finished: start it again").WithDetailCode(94)
+	// ErrArchiveImportStopped: a background import was cut off while it ran (its time ran out or the server stopped
+	// it); nothing was created, start it again.
+	ErrArchiveImportStopped = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The import ran out of time or was stopped: start it again").WithDetailCode(95)
+	// ErrExportJobNotFound — category A (anti-enumeration): an absent export job and another user's are one
+	// indistinguishable "not found".
+	ErrExportJobNotFound = err.ErrObjectNotFound.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Export not found").WithDetailCode(96)
+	// ErrArchiveExportInterrupted: a background export stopped before it finished (the server restarted or the job
+	// ran out of time); start it again.
+	ErrArchiveExportInterrupted = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("The export stopped before it finished: start it again").WithDetailCode(97)
+	// ErrArchiveExportStopped: a background export was cut off while it ran (its time ran out or the server stopped
+	// it); start it again.
+	ErrArchiveExportStopped = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The export ran out of time or was stopped: start it again").WithDetailCode(98)
+	// ErrExportFileRemoved: the stored zip of a finished export is gone (the media cleanup removes it after its grace
+	// window); start the export again.
+	ErrExportFileRemoved = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The exported file is no longer stored: start the export again").WithDetailCode(99)
 )

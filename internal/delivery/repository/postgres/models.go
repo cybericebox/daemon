@@ -442,6 +442,17 @@ type EventPreviewRun struct {
 	ExpiresAt   time.Time     `json:"expires_at"`
 }
 
+type EventRegistrySecret struct {
+	ID               uuid.UUID `json:"id"`
+	EventID          uuid.UUID `json:"event_id"`
+	Host             string    `json:"host"`
+	RepositoryPrefix string    `json:"repository_prefix"`
+	Username         string    `json:"username"`
+	TokenCiphertext  string    `json:"token_ciphertext"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
 type EventResultChange struct {
 	EventID   uuid.UUID `json:"event_id"`
 	Revision  int64     `json:"revision"`
@@ -646,6 +657,30 @@ type Exercise struct {
 	ForkedFromVersionID  uuid.NullUUID      `json:"forked_from_version_id"`
 }
 
+type ExerciseExportJob struct {
+	ID          uuid.UUID     `json:"id"`
+	CreatedBy   uuid.UUID     `json:"created_by"`
+	ExerciseIds []uuid.UUID   `json:"exercise_ids"`
+	FileName    string        `json:"file_name"`
+	State       string        `json:"state"`
+	FileID      uuid.NullUUID `json:"file_id"`
+	Error       []byte        `json:"error"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
+}
+
+type ExerciseImportJob struct {
+	ID          uuid.UUID   `json:"id"`
+	CreatedBy   uuid.UUID   `json:"created_by"`
+	Source      string      `json:"source"`
+	SourceID    uuid.UUID   `json:"source_id"`
+	State       string      `json:"state"`
+	ExerciseIds []uuid.UUID `json:"exercise_ids"`
+	Error       []byte      `json:"error"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+}
+
 type ExerciseProposal struct {
 	ID                uuid.UUID          `json:"id"`
 	ExerciseID        uuid.UUID          `json:"exercise_id"`
@@ -709,6 +744,23 @@ type File struct {
 	ContentHash string        `json:"content_hash"`
 	CreatedAt   time.Time     `json:"created_at"`
 	CreatedBy   uuid.NullUUID `json:"created_by"`
+}
+
+type ImageBlobPush struct {
+	Digest    string    `json:"digest"`
+	State     string    `json:"state"`
+	Reason    string    `json:"reason"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type ImageRegistrySetting struct {
+	ID                  bool      `json:"id"`
+	Provider            string    `json:"provider"`
+	Account             string    `json:"account"`
+	Repository          string    `json:"repository"`
+	PushTokenCiphertext string    `json:"push_token_ciphertext"`
+	PullTokenCiphertext string    `json:"pull_token_ciphertext"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type InfrastructureAgent struct {
@@ -821,6 +873,7 @@ type MediaUpload struct {
 	ChunksReceived int32     `json:"chunks_received"`
 	CreatedAt      time.Time `json:"created_at"`
 	ExpiresAt      time.Time `json:"expires_at"`
+	Purpose        string    `json:"purpose"`
 }
 
 type NotificationBroadcast struct {
@@ -925,6 +978,15 @@ type NotificationUserSetting struct {
 	NotificationType string    `json:"notification_type"`
 	Channel          string    `json:"channel"`
 	Enabled          bool      `json:"enabled"`
+}
+
+type PlatformImage struct {
+	Digest     string        `json:"digest"`
+	Tag        string        `json:"tag"`
+	Name       string        `json:"name"`
+	ExerciseID uuid.NullUUID `json:"exercise_id"`
+	UploadedBy uuid.NullUUID `json:"uploaded_by"`
+	UploadedAt time.Time     `json:"uploaded_at"`
 }
 
 type PlatformLabCapacityObservation struct {

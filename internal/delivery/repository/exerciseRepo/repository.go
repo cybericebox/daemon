@@ -50,6 +50,12 @@ type Queries interface {
 	ListExerciseUsageEvents(ctx context.Context, arg postgres.ListExerciseUsageEventsParams) ([]postgres.ListExerciseUsageEventsRow, error)
 	InsertImportedExerciseVersion(ctx context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error)
 	SetImportedExercisePointers(ctx context.Context, arg postgres.SetImportedExercisePointersParams) error
+	StartExerciseImportJob(ctx context.Context, arg postgres.StartExerciseImportJobParams) (postgres.ExerciseImportJob, error)
+	GetExerciseImportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseImportJob, error)
+	UpdateExerciseImportJob(ctx context.Context, arg postgres.UpdateExerciseImportJobParams) (int64, error)
+	CreateExerciseExportJob(ctx context.Context, arg postgres.CreateExerciseExportJobParams) error
+	GetExerciseExportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseExportJob, error)
+	UpdateExerciseExportJob(ctx context.Context, arg postgres.UpdateExerciseExportJobParams) (int64, error)
 	ExerciseDraftDiffersFromPublished(ctx context.Context, exerciseID uuid.UUID) (bool, error)
 	ListExercisesEventAccess(ctx context.Context, exerciseIds []uuid.UUID) ([]postgres.ListExercisesEventAccessRow, error)
 	DeleteExerciseEventAccess(ctx context.Context, exerciseID uuid.UUID) error

@@ -71,7 +71,7 @@ func (wc *workerClient) Initialize(ctx context.Context, registry iWorkerRegistry
 	client, err := river.NewClient[pgx.Tx](
 		driver, &river.Config{
 			// Separate capacity also keeps durable operator/auth commands moving when default work stalls.
-			Queues:                      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}, jobsModel.NotifyDurableQueue: {MaxWorkers: 2}},
+			Queues:                      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}, jobsModel.NotifyDurableQueue: {MaxWorkers: 2}, jobsModel.ImagesQueue: {MaxWorkers: jobsModel.ImagesQueueWorkers}},
 			Workers:                     workers,
 			ErrorHandler:                wc.errorHandler,
 			PeriodicJobs:                registry.PeriodicJobs(),

@@ -17,10 +17,12 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/cybericebox/daemon/pkg/pagination"
 )
@@ -76,6 +78,13 @@ type (
 		// archive portability
 		ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts exerciseUseCase.ExportOptions) ([]byte, error)
 		ImportExerciseArchive(ctx context.Context, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error)
+		// background import of archives naming device image files
+		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
+		ImportUploadedArchive(ctx context.Context, in exerciseUseCase.ImportUploadInput) (exerciseUseCase.ArchiveImportStart, error)
+		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
+		// background export of tasks «з образами»
+		StartArchiveExport(ctx context.Context, in exerciseUseCase.StartExportInput) (uuid.UUID, error)
+		ArchiveExportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ExportJobView, error)
 		// files
 		UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error)
 		GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error)
@@ -93,7 +102,7 @@ type (
 		MaxSingleUploadBytes() int64
 		// resumable chunked upload (a request body is limited at the edge)
 		UploadChunkBytes() int64
-		StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID) (mediaModel.Upload, error)
+		StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID, purpose mediaModel.UploadPurpose) (mediaModel.Upload, error)
 		UploadStatus(ctx context.Context, id, owner uuid.UUID) (mediaModel.Upload, error)
 		PutChunk(ctx context.Context, id, owner uuid.UUID, index int, r io.Reader) (mediaModel.Upload, error)
 		CompleteUpload(ctx context.Context, id, owner uuid.UUID, wantSHA256 string) (mediaModel.File, error)
@@ -118,6 +127,15 @@ type (
 		ListProposals(ctx context.Context, status string) ([]exerciseUseCase.ProposalView, error)
 		ApproveProposal(ctx context.Context, actor exerciseUseCase.Actor, proposalID uuid.UUID, in exerciseUseCase.ApproveProposalInput) (exerciseUseCase.ProposalView, error)
 		RejectProposal(ctx context.Context, actor exerciseUseCase.Actor, proposalID uuid.UUID, note string) (exerciseUseCase.ProposalView, error)
+		// image availability (the editor's check); scope is the owner event of an event-owned exercise
+		ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (imageRegistryUseCase.Scope, error)
+		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
+		// image upload through the site (the platform registry)
+		RequireImageUploads(ctx context.Context) error
+		MissingBlobs(ctx context.Context, digests []string) ([]string, error)
+		PushStagedBlob(ctx context.Context, in imageRegistryUseCase.PushBlobInput) (imageRegistryUseCase.BlobStatus, error)
+		ImageBlobStatus(ctx context.Context, digest string) (imageRegistryUseCase.BlobStatus, error)
+		CreateImage(ctx context.Context, exerciseID uuid.UUID, in imageRegistryUseCase.CreateImageInput) (imageRegistryUseCase.CreateImageResult, error)
 	}
 )
 
@@ -155,9 +173,15 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks
 		ex.POST("import/uploaded", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
+		// a task archive upload (purpose exercise-archive), read where its chunks lie; with images a background job
+		ex.POST("import/upload", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchiveUpload)
+		// the background import's state, for the user who started it (same gate as the import)
+		ex.GET("import/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importJob)
 		// the built-in example archive: same gate as the import it explains
 		ex.GET("import/example", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importExample)
 		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)
+		// the background export's state, for the user who started it (same gate as the export)
+		ex.GET("export/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesExport), h.exportJob)
 		ex.POST("import", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
 		ex.GET("capabilities", self, h.capabilities)
 		ex.GET("flag-policy", self, h.flagPolicy)
@@ -208,6 +232,13 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 		ex.GET(":id/draft", self, h.authorize(exerciseUseCase.ActionRead), h.getDraft)
 		ex.PUT(":id/draft", self, h.authorize(exerciseUseCase.ActionWrite), h.saveDraft)
+		// image availability: the same access as saving the draft
+		ex.POST(":id/images/check", self, h.authorize(exerciseUseCase.ActionWrite), h.checkImages)
+		// image upload through the site: the same access as saving the draft
+		ex.POST(":id/images/blobs/missing", self, h.authorize(exerciseUseCase.ActionWrite), h.missingImageBlobs)
+		ex.POST(":id/images/blobs", self, h.authorize(exerciseUseCase.ActionWrite), h.pushImageBlob)
+		ex.GET(":id/images/blobs/:digest", self, h.authorize(exerciseUseCase.ActionWrite), h.imageBlobStatus)
+		ex.POST(":id/images", self, h.authorize(exerciseUseCase.ActionWrite), h.createImage)
 		ex.DELETE(":id/draft", self, h.authorize(exerciseUseCase.ActionPublish), h.discardDraft)
 		ex.POST(":id/publish", self, h.authorize(exerciseUseCase.ActionPublish), h.publish)
 	}
