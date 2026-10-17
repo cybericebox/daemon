@@ -363,6 +363,7 @@
   "70977": "A static test has no laboratory",
   "70993": "The archive upload is not complete",
   "70994": "The import stopped before it finished: start it again",
+  "70995": "The import ran out of time or was stopped: start it again",
   "71003": "File storage is not configured",
   "71007": "Chunk out of order",
   "71009": "Upload is not complete",

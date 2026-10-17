@@ -195,3 +195,17 @@ func TestStreamReturnsThePushFailure(t *testing.T) {
 type errReader struct{ err error }
 
 func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+// Two descriptors with different digests on one tar entry cannot both be right: refused as a digest mismatch.
+func TestReadImageArchiveTwoDigestsOneEntry(t *testing.T) {
+	img := archivetest.Amd64(layerA, layerB)
+	config := img.Config()
+	configName := archivetest.Digest(config)[len("sha256:"):] + ".json"
+	b := archivetest.Tar(
+		archivetest.Entry{Name: "l/layer.tar", Body: layerA},
+		archivetest.Entry{Name: configName, Body: config},
+		archivetest.Entry{Name: "manifest.json", Body: []byte(`[{"Config":"` + configName + `","Layers":["l/layer.tar","l/layer.tar"]}]`)},
+	)
+	_, err := read(t, b)
+	require.Equal(t, ociregistry.ArchiveDigestMismatch, archiveCode(t, err))
+}

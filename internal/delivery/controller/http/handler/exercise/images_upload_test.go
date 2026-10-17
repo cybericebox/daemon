@@ -33,7 +33,10 @@ type imageUploadCalls struct {
 	reference  string
 }
 
-func (f *fakeUC) RequireImageUploads(context.Context) error { return nil }
+func (f *fakeUC) RequireImageUploads(context.Context) error {
+	f.archiveImport.required++
+	return f.archiveImport.noRegistry
+}
 
 func (f *fakeUC) MissingBlobs(_ context.Context, digests []string) ([]string, error) {
 	f.imageUpload.calls++

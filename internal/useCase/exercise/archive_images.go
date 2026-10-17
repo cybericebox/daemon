@@ -65,8 +65,6 @@ type zipEntry struct {
 	open func(stream bool) (io.ReadCloser, error)
 }
 
-var errUnencryptedEntry = errors.New("protected archive contains an unencrypted entry")
-
 // openZipAt opens the zip over r: plain, or AES-protected when its entries are encrypted and a password is given
 // (protected tells which). An encrypted archive without a password fails like the plain read of it.
 func openZipAt(r io.ReaderAt, size int64, password string) ([]zipEntry, bool, error) {
@@ -278,7 +276,16 @@ func readArchiveEntries(entries []zipEntry, protected bool) (archiveRead, error)
 		if imageTotal += size; imageTotal > imageRegistryModel.MaxImageArchiveBytes {
 			return archiveRead{}, archiveTooLarge("the image files are over " + gib(imageRegistryModel.MaxImageArchiveBytes) + " unpacked together")
 		}
-		images[name] = &archiveImageFile{Name: name, Size: size, open: func() (io.ReadCloser, error) { return e.open(true) }}
+		images[name] = &archiveImageFile{Name: name, Size: size, open: func() (io.ReadCloser, error) {
+			rc, openErr := e.open(true)
+			if openErr != nil {
+				if IsArchiveFormatError(openErr) {
+					return nil, fmt.Errorf("%w: %w", ociregistry.ErrSourceCorrupt, openErr)
+				}
+				return nil, openErr
+			}
+			return &sizedEntryReader{r: rc, size: size}, nil
+		}}
 	}
 	files, err = validateArchiveManifestWith(files, images)
 	if err != nil {

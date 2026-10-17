@@ -39,13 +39,21 @@ func (u *ImageRegistryUseCase) IndexImageArchive(open ociregistry.ArchiveSource,
 		if errors.As(err, &refused) {
 			return nil, imageArchiveUnreadable(refused.Code)
 		}
+		if errors.Is(err, ociregistry.ErrSourceCorrupt) {
+			return nil, imageArchiveUnreadable(reasonCorrupt)
+		}
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to read the image archive").Err()
 	}
 	return archive, nil
 }
 
-// reasonDigestMismatch: a blob's bytes in the archive are not its digest.
-const reasonDigestMismatch = "digest_mismatch"
+const (
+	// reasonDigestMismatch: a blob's bytes in the archive are not its digest.
+	reasonDigestMismatch = "digest_mismatch"
+	// reasonCorrupt: the archive's container (the zip entry) is broken: longer or shorter than declared, a failed
+	// checksum or authentication code.
+	reasonCorrupt = "corrupt"
+)
 
 // imageArchiveUnreadable is the one place ErrImageArchiveUnreadable is raised.
 func imageArchiveUnreadable(reason string) error {
@@ -86,6 +94,9 @@ func (u *ImageRegistryUseCase) PushImageArchive(ctx context.Context, in PushArch
 		if errors.As(err, &typed) {
 			return CreateImageResult{}, err
 		}
+		if errors.Is(err, ociregistry.ErrSourceCorrupt) {
+			return CreateImageResult{}, imageArchiveUnreadable(reasonCorrupt)
+		}
 		return CreateImageResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read the image archive").Err()
 	}
 	return u.publishImage(ctx, client, in.ExerciseID, in.UploadedBy, image)
@@ -100,6 +111,8 @@ func pushArchiveBlob(ctx context.Context, client *ociregistry.Client, blob ocire
 		return nil
 	case vr.mismatch:
 		return imageArchiveUnreadable(reasonDigestMismatch)
+	case errors.Is(vr.sourceErr, ociregistry.ErrSourceCorrupt):
+		return imageArchiveUnreadable(reasonCorrupt)
 	case ctx.Err() == nil && vr.sourceErr != nil:
 		// The archive could not be read (a chunk object gone): not the registry's failure.
 		return model.ErrPlatform.WithError(vr.sourceErr).WithMessage("Failed to read the image archive").Err()

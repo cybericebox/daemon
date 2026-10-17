@@ -29,3 +29,10 @@ func SetArchiveLimits(t testing.TB, archive, entry, unpacked int64, entries int)
 	limits = archiveLimits{Archive: archive, Entry: entry, Unpacked: unpacked, Entries: entries}
 	t.Cleanup(func() { limits = old })
 }
+
+// SetImportStateRetryDelay shortens the wait between writes of an import's outcome.
+func SetImportStateRetryDelay(t testing.TB, d time.Duration) {
+	old := importStateRetryDelay
+	importStateRetryDelay = d
+	t.Cleanup(func() { importStateRetryDelay = old })
+}

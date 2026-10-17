@@ -1,9 +1,12 @@
 package exercise_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +15,9 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
@@ -25,6 +30,12 @@ type archiveImportCalls struct {
 	start    exerciseUseCase.ArchiveImportStart
 	job      exerciseUseCase.ImportJobView
 	jobAsked [2]uuid.UUID
+	jobErr   error
+	// noRegistry is what RequireImageUploads answers; required counts the asks.
+	noRegistry error
+	required   int
+	// uploadErr is what ImportUploadedArchive fails with.
+	uploadErr error
 }
 
 func (f *fakeUC) QueueArchiveImport(_ context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error) {
@@ -34,12 +45,12 @@ func (f *fakeUC) QueueArchiveImport(_ context.Context, in exerciseUseCase.QueueI
 
 func (f *fakeUC) ImportUploadedArchive(_ context.Context, in exerciseUseCase.ImportUploadInput) (exerciseUseCase.ArchiveImportStart, error) {
 	f.archiveImport.uploaded = append(f.archiveImport.uploaded, in)
-	return f.archiveImport.start, f.err
+	return f.archiveImport.start, f.archiveImport.uploadErr
 }
 
 func (f *fakeUC) ArchiveImportJob(_ context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error) {
 	f.archiveImport.jobAsked = [2]uuid.UUID{id, user}
-	return f.archiveImport.job, f.err
+	return f.archiveImport.job, f.archiveImport.jobErr
 }
 
 var (
@@ -182,11 +193,60 @@ func TestImportJobStatus(t *testing.T) {
 		t.Fatalf("running: %d %s", w.Code, w.Body.String())
 	}
 
-	uc.err = exerciseModel.ErrImportJobNotFound.Err()
+	uc.archiveImport.jobErr = exerciseModel.ErrImportJobNotFound.Err()
 	if w = jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs/"+jobID.String(), ""); w.Code != http.StatusNotFound {
 		t.Fatalf("not found: %d", w.Code)
 	}
 	if w = jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs/nope", ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad id: %d", w.Code)
+	}
+}
+
+// A task deleted since the import is left out of the list; any other lookup failure is an error, not a short list.
+func TestImportJobStatus_ExerciseLookup(t *testing.T) {
+	created := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{archiveImport: archiveImportCalls{job: exerciseUseCase.ImportJobView{ID: jobID, State: exerciseModel.ImportJobDone, ExerciseIDs: []uuid.UUID{created}}}}
+	r := newEngine(uc, jobCaller)
+	uc.err = exerciseModel.ErrExerciseNotFound.Err()
+	w := jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs/"+jobID.String(), "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"State":"done"`) || strings.Contains(w.Body.String(), `"Exercises"`) {
+		t.Fatalf("deleted task: %d %s", w.Code, w.Body.String())
+	}
+	uc.err = model.ErrPlatform.WithError(errors.New("db down")).Err()
+	if w = jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs/"+jobID.String(), ""); w.Code != http.StatusInternalServerError {
+		t.Fatalf("lookup failure: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// The multipart import of an archive with images asks for the registry before storing anything.
+func TestImportMultipart_WithImagesNeedsTheRegistryFirst(t *testing.T) {
+	uc := &fakeUC{archiveImport: archiveImportCalls{noRegistry: imageRegistryModel.ErrRegistryNotConfigured.Err()}}
+	var body bytes.Buffer
+	form := multipart.NewWriter(&body)
+	part, _ := form.CreateFormFile("archive", "tasks.zip")
+	_, _ = part.Write(imageArchive(t))
+	_ = form.Close()
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/exercises/import", &body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	newEngine(uc, jobCaller).ServeHTTP(w, req)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "72801") || uc.uploadContent != "" || len(uc.archiveImport.queued) != 0 {
+		t.Fatalf("status %d body %s stored %d bytes", w.Code, w.Body.String(), len(uc.uploadContent))
+	}
+}
+
+// Import errors: an archive's own failure (a broken zip) keeps its text as a 400; anything else (storage, database)
+// is the generic internal error, never its text.
+func TestImportUpload_ErrorsNeverLeakInternals(t *testing.T) {
+	uc := &fakeUC{archiveImport: archiveImportCalls{uploadErr: fmt.Errorf("open: %w", zip.ErrFormat)}}
+	r := newEngine(uc, jobCaller)
+	body := `{"UploadID":"` + uuid.Must(uuid.NewV7()).String() + `"}`
+	if w := jsonRequest(r, http.MethodPost, "/api/exercises/import/upload", body); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "not a valid zip file") {
+		t.Fatalf("broken zip: %d %s", w.Code, w.Body.String())
+	}
+	uc.archiveImport.uploadErr = errors.New("read media/uploads/0192f0a0/3: connection reset by s3.internal:9000")
+	w := jsonRequest(r, http.MethodPost, "/api/exercises/import/upload", body)
+	if w.Code != http.StatusInternalServerError || strings.Contains(w.Body.String(), "media/uploads") || strings.Contains(w.Body.String(), "s3.internal") {
+		t.Fatalf("storage failure: %d %s", w.Code, w.Body.String())
 	}
 }

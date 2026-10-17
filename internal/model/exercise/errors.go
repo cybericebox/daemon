@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 95
+// ExerciseObjectCode — next free detail code: 96
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -291,4 +291,8 @@ var (
 	// out of time); nothing was created, start it again.
 	ErrArchiveImportInterrupted = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("The import stopped before it finished: start it again").WithDetailCode(94)
+	// ErrArchiveImportStopped: a background import was cut off while it ran (its time ran out or the server stopped
+	// it); nothing was created, start it again.
+	ErrArchiveImportStopped = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The import ran out of time or was stopped: start it again").WithDetailCode(95)
 )

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -15,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
 func archiveRow(id, owner uuid.UUID, size int64, received int32) postgres.MediaUpload {
@@ -124,5 +126,26 @@ func TestOpenFileAt_ReadsTheBlob(t *testing.T) {
 	}
 	if got, err := readAt(t, r, 4, 5); got != "bytes" || err != nil {
 		t.Fatalf("%q %v", got, err)
+	}
+}
+
+// A chunk object that cannot be read is a platform failure (typed, internal): its key never reaches a user.
+func TestOpenUploadAt_StorageFailureIsAPlatformError(t *testing.T) {
+	uc, q, st := uploadUC(t)
+	id, owner := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	stored(st, id, []byte("0123456789"))
+	delete(st.objects, mediaModel.ChunkKey(id, 1))
+	q.EXPECT().GetMediaUpload(gomock.Any(), id).Return(archiveRow(id, owner, 10, 3), nil)
+	r, _, err := uc.OpenUploadAt(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = readAt(t, r, 4, 2)
+	var typed appErr.Error
+	if !errors.As(err, &typed) || !typed.StatusCode().IsInternal() {
+		t.Fatalf("err %v, want a typed internal error", err)
+	}
+	if strings.Contains(typed.UnwrapNotInternalError().StatusCode().Message(), "media/uploads") {
+		t.Fatalf("message names the key: %s", typed.StatusCode().Message())
 	}
 }

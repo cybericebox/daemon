@@ -760,7 +760,7 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 // is left alongside an encrypted sidecar.
 func BuildProtectedArchiveV1(files map[string][]byte, password string) ([]byte, error) {
 	if password == "" {
-		return nil, fmt.Errorf("password is required for protected archive")
+		return nil, errPasswordRequired
 	}
 	withManifest := archiveFilesWithManifest(files)
 	var out bytes.Buffer
@@ -807,7 +807,7 @@ func readExerciseArchive(data []byte, password string) (files map[string][]byte,
 
 func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, error) {
 	if password == "" {
-		return nil, fmt.Errorf("password is required for protected archive")
+		return nil, errPasswordRequired
 	}
 	if err := checkArchiveSize(len(data)); err != nil {
 		return nil, err
@@ -827,7 +827,7 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 			continue
 		}
 		if !file.IsEncrypted() {
-			return nil, fmt.Errorf("protected archive contains an unencrypted entry")
+			return nil, errUnencryptedEntry
 		}
 		if err = budget.check(len(zr.File), file.UncompressedSize64, file.CompressedSize64); err != nil {
 			return nil, err
@@ -890,10 +890,10 @@ func validateArchiveManifestWith(files map[string][]byte, images map[string]*arc
 	for _, name := range manifests {
 		var manifest archiveManifest
 		if err := json.Unmarshal(files[name], &manifest); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %s is not JSON", errManifestInvalid, name)
 		}
 		if manifest.Version != 1 {
-			return nil, fmt.Errorf("unsupported archive version")
+			return nil, fmt.Errorf("%w: unsupported archive version", errManifestInvalid)
 		}
 		prefix := strings.TrimSuffix(name, "manifest.json")
 		checked := make([]string, 0, len(manifest.Checksums))

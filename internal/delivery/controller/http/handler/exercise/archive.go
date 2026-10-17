@@ -14,6 +14,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -142,6 +143,11 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 	}
 	password := ctx.PostForm("password")
 	if exerciseUseCase.ArchiveNamesImages(contents, password) {
+		// Images need the platform registry: refuse before anything is stored.
+		if err = h.useCase.RequireImageUploads(ctx); err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
 		// The background import reads a stored archive: the zip becomes a file of the caller (nothing references
 		// it, so the media cleanup removes it after the grace window).
 		stored, storeErr := h.useCase.UploadFile(ctx, archiveFilename(strings.TrimSuffix(file.Filename, ".zip")), "application/zip", bytes.NewReader(contents), claims.UserID)
@@ -352,8 +358,12 @@ func (h *Handler) importJob(ctx *gin.Context) {
 	}
 	for _, exerciseID := range job.ExerciseIDs {
 		view, getErr := h.useCase.GetExercise(ctx, exerciseID)
-		if getErr != nil {
+		if errors.Is(getErr, exerciseModel.ErrExerciseNotFound.Err()) {
 			continue // removed since the import
+		}
+		if getErr != nil {
+			response.AbortWithError(ctx, getErr)
+			return
 		}
 		out.Exercises = append(out.Exercises, exerciseToResponse(view))
 	}
@@ -381,15 +391,19 @@ func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents
 	response.AbortWithData(ctx, created)
 }
 
-// abortArchiveError keeps a typed archive error (its code and public context reach the client); an untyped
-// one (a broken zip, a size limit) stays a plain 400.
+// abortArchiveError keeps a typed error (its code and public context reach the client; an internal one is answered
+// generically); an untyped failure of the archive itself (a broken zip, a wrong password) stays a plain 400 with its
+// text; any other untyped failure (storage, database) is an internal error whose text stays in the server log.
 func abortArchiveError(ctx *gin.Context, failure error) {
 	var typed appErr.Error
-	if errors.As(failure, &typed) {
+	switch {
+	case errors.As(failure, &typed):
 		response.AbortWithError(ctx, failure)
-		return
+	case exerciseUseCase.IsArchiveFormatError(failure):
+		response.AbortWithBadRequest(ctx, failure)
+	default:
+		response.AbortWithError(ctx, model.ErrPlatform.WithError(failure).WithMessage("Failed to import the archive").Err())
 	}
-	response.AbortWithBadRequest(ctx, failure)
 }
 
 func archiveFilename(name string) string {

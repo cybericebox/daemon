@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"hash/crc32"
 	"io"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
+	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
@@ -64,10 +66,15 @@ func (f *fakeImages) IndexImageArchive(open ociregistry.ArchiveSource, size int6
 	f.mu.Unlock()
 	a, err := ociregistry.ReadImageArchive(open, size, imageRegistryModel.MaxImageArchiveBytes)
 	var refused *ociregistry.ArchiveError
-	if errors.As(err, &refused) {
+	switch {
+	case errors.As(err, &refused):
 		return nil, imageRegistryModel.ErrImageArchiveUnreadable.WithPublicContext("reason", refused.Code).Err()
+	case errors.Is(err, ociregistry.ErrSourceCorrupt):
+		return nil, imageRegistryModel.ErrImageArchiveUnreadable.WithPublicContext("reason", "corrupt").Err()
+	case err != nil:
+		return nil, model.ErrPlatform.WithError(err).Err()
 	}
-	return a, err
+	return a, nil
 }
 
 func (f *fakeImages) PushImageArchive(_ context.Context, in imageRegistryUseCase.PushArchiveInput) (imageRegistryUseCase.CreateImageResult, error) {
@@ -87,6 +94,21 @@ type fakeSources struct {
 	// pads are zero bytes read before an upload's data (a large upload without holding it).
 	pads    map[uuid.UUID]int64
 	dropped []uuid.UUID
+	// failFrom..failTo: reads of these offsets fail like a storage outage naming the object key.
+	failFrom, failTo int64
+}
+
+// failingAt fails reads that touch [from, to) with a storage error naming the object key.
+type failingAt struct {
+	io.ReaderAt
+	from, to int64
+}
+
+func (f failingAt) ReadAt(p []byte, off int64) (int, error) {
+	if off < f.to && off+int64(len(p)) > f.from {
+		return 0, errors.New("read media/uploads/0192f0a0/3: connection reset by s3.internal:9000")
+	}
+	return f.ReaderAt.ReadAt(p, off)
 }
 
 // paddedReader is pad zero bytes followed by b.
@@ -140,7 +162,11 @@ func (s *fakeSources) OpenUploadAt(_ context.Context, id uuid.UUID) (io.ReaderAt
 	if !ok {
 		return nil, mediaModel.Upload{}, mediaModel.ErrUploadNotFound.Err()
 	}
-	return paddedReader{pad: s.pads[id], b: s.data[id]}, up, nil
+	var r io.ReaderAt = paddedReader{pad: s.pads[id], b: s.data[id]}
+	if s.failTo > 0 {
+		r = failingAt{ReaderAt: r, from: s.failFrom, to: s.failTo}
+	}
+	return r, up, nil
 }
 
 func (s *fakeSources) OpenFileAt(context.Context, uuid.UUID) (io.ReaderAt, mediaModel.File, error) {
@@ -167,6 +193,9 @@ type importFixture struct {
 	deleted []uuid.UUID
 	cipher  *secret.Cipher
 	now     time.Time
+	// failUpdates > 0: that many job writes fail first.
+	failUpdates int
+	updates     int
 }
 
 func newImportFixture(t *testing.T) *importFixture {
@@ -204,6 +233,11 @@ func newImportFixture(t *testing.T) *importFixture {
 	q.EXPECT().UpdateExerciseImportJob(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, p postgres.UpdateExerciseImportJobParams) (int64, error) {
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
+		}
+		f.updates++
+		if f.failUpdates > 0 {
+			f.failUpdates--
+			return 0, errors.New("database unavailable")
 		}
 		j := f.jobs[p.ID]
 		j.State, j.ExerciseIds, j.Error, j.UpdatedAt = p.State, p.ExerciseIds, p.Error, p.UpdatedAt
@@ -364,10 +398,16 @@ func TestImportArchivePushFailureCreatesNothing(t *testing.T) {
 	require.Empty(t, f.sources.dropped, "a failed import keeps its upload for another try")
 }
 
-func failedImport(t *testing.T, files map[string][]byte) *exerciseModel.ImportJobError {
+func failedImport(t *testing.T, files map[string][]byte, raw ...[]byte) *exerciseModel.ImportJobError {
 	t.Helper()
 	f := newImportFixture(t)
-	f.sources.stage(archiveUpID, importer, zipOf(t, files), mediaModel.UploadPurposeExerciseArchive)
+	b := []byte(nil)
+	if len(raw) > 0 {
+		b = raw[0]
+	} else {
+		b = zipOf(t, files)
+	}
+	f.sources.stage(archiveUpID, importer, b, mediaModel.UploadPurposeExerciseArchive)
 	view := f.startAndRun(t)
 	require.Equal(t, exerciseModel.ImportJobFailed, view.State)
 	require.Empty(t, f.images.pushes, "nothing is pushed")
@@ -593,6 +633,99 @@ func TestRunArchiveImportCancelledRecordsFailed(t *testing.T) {
 	view, err := f.uc.ArchiveImportJob(context.Background(), start.JobID, importer)
 	require.NoError(t, err)
 	require.Equal(t, exerciseModel.ImportJobFailed, view.State)
+	require.Equal(t, exerciseModel.ErrArchiveImportStopped.Err().StatusCode().FullCode(), view.Error.Code, "a cut-off import is told as stopped")
+}
+
+// dataOffset is where an entry's data starts in a zip.
+func dataOffset(t *testing.T, b []byte, name string) (int64, int64) {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	require.NoError(t, err)
+	for _, f := range zr.File {
+		if f.Name == name {
+			off, offErr := f.DataOffset()
+			require.NoError(t, offErr)
+			return off, off + int64(f.CompressedSize64)
+		}
+	}
+	t.Fatalf("no %s", name)
+	return 0, 0
+}
+
+// A storage failure while the job reads the archive is a platform failure: the user sees the generic internal
+// message, never the object key or the storage host.
+func TestRunArchiveImportStorageFailureIsGeneric(t *testing.T) {
+	for _, entry := range []string{"exercise.json", "images/web.tar"} {
+		t.Run(entry, func(t *testing.T) {
+			f := newImportFixture(t)
+			b := zipOf(t, map[string][]byte{
+				"exercise.json":  imageTask("Images", [2]string{"web", "images/web.tar"}),
+				"images/web.tar": webImageTar,
+			})
+			f.sources.stage(archiveUpID, importer, b, mediaModel.UploadPurposeExerciseArchive)
+			start, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
+			require.NoError(t, err)
+			f.sources.failFrom, f.sources.failTo = dataOffset(t, b, entry)
+			require.NoError(t, f.uc.RunArchiveImport(context.Background(), f.queued[0]))
+			view, err := f.uc.ArchiveImportJob(context.Background(), start.JobID, importer)
+			require.NoError(t, err)
+			require.Equal(t, exerciseModel.ImportJobFailed, view.State)
+			require.Equal(t, model.ErrPlatform.Err().StatusCode().FullCode(), view.Error.Code)
+			require.Equal(t, "Internal server error", view.Error.Message)
+			raw, _ := json.Marshal(view.Error)
+			require.NotContains(t, string(raw), "media/uploads")
+			require.NotContains(t, string(raw), "s3.internal")
+		})
+	}
+}
+
+// An image entry whose bytes run past its declared size is the author's broken archive (22829, corrupt), not an
+// internal failure.
+func TestRunArchiveImportImageEntryOverItsSize(t *testing.T) {
+	doc := imageTask("Images", [2]string{"web", "images/web.tar"})
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	w, err := zw.Create("exercise.json")
+	require.NoError(t, err)
+	_, _ = w.Write(doc)
+	raw, err := zw.CreateRaw(&zip.FileHeader{
+		Name: "images/web.tar", Method: zip.Store, CRC32: crc32.ChecksumIEEE(webImageTar),
+		CompressedSize64: uint64(len(webImageTar)), UncompressedSize64: uint64(len(webImageTar) - 600),
+	})
+	require.NoError(t, err)
+	_, _ = raw.Write(webImageTar)
+	require.NoError(t, zw.Close())
+	failure := failedImport(t, nil, out.Bytes())
+	require.Equal(t, imageRegistryModel.ErrImageArchiveUnreadable.Err().StatusCode().FullCode(), failure.Code)
+	require.Equal(t, "corrupt", failure.Context["reason"])
+	require.Equal(t, "images/web.tar", failure.Context["file"])
+}
+
+// The outcome of a finished import is written again until it sticks; the job never answers River with an error
+// after it created tasks (a retry would import them twice).
+func TestRunArchiveImportDoneWriteIsRetriedNotTheImport(t *testing.T) {
+	exercise.SetImportStateRetryDelay(t, time.Millisecond)
+	for name, failures := range map[string]int{"second write sticks": 1, "every write fails": 100} {
+		t.Run(name, func(t *testing.T) {
+			f := newImportFixture(t)
+			f.expectCreation(t)
+			f.sources.stage(archiveUpID, importer, zipOf(t, map[string][]byte{
+				"exercise.json":  imageTask("Images", [2]string{"web", "images/web.tar"}),
+				"images/web.tar": webImageTar,
+			}), mediaModel.UploadPurposeExerciseArchive)
+			start, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
+			require.NoError(t, err)
+			f.failUpdates = failures
+			require.NoError(t, f.uc.RunArchiveImport(context.Background(), f.queued[0]))
+			require.Len(t, f.created, 1)
+			if failures == 1 {
+				view, viewErr := f.uc.ArchiveImportJob(context.Background(), start.JobID, importer)
+				require.NoError(t, viewErr)
+				require.Equal(t, exerciseModel.ImportJobDone, view.State)
+				require.Equal(t, 2, f.updates)
+			}
+		})
+	}
 }
 
 // The synchronous import (an archive in memory) still refuses an image file: such archives go to the job.

@@ -17,4 +17,14 @@ func (ImageBlobPushArgs) Kind() string { return "image_blob_push" }
 
 // InsertOpts: a few attempts at most. The push records its own failures; only a failure to write that state is
 // returned to River, and a retry of a multi-GiB push should not run for long.
-func (ImageBlobPushArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 3} }
+// It runs on ImagesQueue.
+func (ImageBlobPushArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{MaxAttempts: 3, Queue: ImagesQueue}
+}
+
+// ImagesQueue runs the long image work (blob pushes, archive imports with images) with a few workers of its own,
+// so it never holds the default queue.
+const ImagesQueue = "images"
+
+// ImagesQueueWorkers is how many image jobs run at once on one replica.
+const ImagesQueueWorkers = 2

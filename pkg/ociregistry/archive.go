@@ -32,6 +32,8 @@ const (
 	ArchiveMultiImage = "multi_image"
 	ArchiveNoAmd64    = "no_amd64"
 	ArchiveTooLarge   = "too_large"
+	// ArchiveDigestMismatch: a blob's bytes are not its digest (one tar entry named by two different digests).
+	ArchiveDigestMismatch = "digest_mismatch"
 )
 
 // ArchiveError is an archive that is not one linux/amd64 image in an uncompressed docker save tar.
@@ -73,6 +75,13 @@ const (
 	ociConfigType   = "application/vnd.oci.image.config.v1+json"
 )
 
+// The index of pass 1 is bounded: at most maxIndexEntries tar entries and maxIndexNameBytes of names and link
+// targets kept (a docker save has a few hundred entries); past either the archive is too large. Variables for tests.
+var (
+	maxIndexEntries         = 100_000
+	maxIndexNameBytes int64 = 64 << 20
+)
+
 var (
 	indexTypes = map[string]bool{
 		"application/vnd.oci.image.index.v1+json":                   true,
@@ -112,6 +121,14 @@ func ReadImageArchive(open ArchiveSource, size, max int64) (*ImageArchive, error
 	}
 	if err != nil {
 		return nil, err
+	}
+	// One entry holds one content: two different digests on it mean one of them does not match.
+	digestOf := map[int]string{}
+	for _, b := range append([]ArchiveBlob{image.Config}, image.Layers...) {
+		if d, seen := digestOf[b.entry]; seen && d != b.Digest {
+			return nil, archiveErr(ArchiveDigestMismatch)
+		}
+		digestOf[b.entry] = b.Digest
 	}
 	image.SHA256, image.open = sum, open
 	return image, nil
@@ -212,7 +229,7 @@ func (x *archiveIndex) scan() (string, error) {
 		return "", fmt.Errorf("read image archive: %w", src.err)
 	}
 	tr := tar.NewReader(br)
-	cached := int64(0)
+	cached, nameBytes := int64(0), int64(0)
 	for ordinal := 0; ; ordinal++ {
 		hdr, nextErr := tr.Next()
 		if errors.Is(nextErr, io.EOF) && src.err == nil {
@@ -227,11 +244,18 @@ func (x *archiveIndex) scan() (string, error) {
 			}
 			return "", archiveErr(ArchiveNotTar)
 		}
-		if hdr.Typeflag == tar.TypeXGlobalHeader {
-			continue
+		if ordinal >= maxIndexEntries {
+			return "", archiveErr(ArchiveTooLarge)
+		}
+		if hdr.Typeflag == tar.TypeXGlobalHeader || hdr.Typeflag == tar.TypeDir {
+			continue // nothing in them matters
+		}
+		name := normalizeName(hdr.Name)
+		if nameBytes += int64(len(name) + len(hdr.Linkname)); nameBytes > maxIndexNameBytes {
+			return "", archiveErr(ArchiveTooLarge)
 		}
 		entry := tarEntry{ordinal: ordinal, size: hdr.Size, typeflag: hdr.Typeflag, linkname: hdr.Linkname}
-		x.entries[normalizeName(hdr.Name)] = entry
+		x.entries[name] = entry
 		if isRegular(entry.typeflag) && hdr.Size <= cacheEntryBytes && cached+hdr.Size <= cacheTotalBytes {
 			body, readErr := io.ReadAll(tr)
 			if readErr != nil {

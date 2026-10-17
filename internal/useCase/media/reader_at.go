@@ -107,13 +107,19 @@ func (r *objectReaderAt) fill(off, want int64) error {
 	length := min(max(want, readAheadBytes), r.parts[i].size-within)
 	rc, err := r.storage.GetRange(r.ctx, r.parts[i].key, within, length)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", r.parts[i].key, err)
+		return storedReadFailure(r.parts[i].key, err)
 	}
 	defer func() { _ = rc.Close() }()
 	buf := make([]byte, length)
 	if _, err = io.ReadFull(rc, buf); err != nil {
-		return fmt.Errorf("read %s: %w", r.parts[i].key, err)
+		return storedReadFailure(r.parts[i].key, err)
 	}
 	r.window, r.from = buf, off
 	return nil
+}
+
+// storedReadFailure is a stored object that could not be read: a platform failure (the key and the storage error
+// stay in the server log, never with a user).
+func storedReadFailure(key string, err error) error {
+	return model.ErrPlatform.WithError(fmt.Errorf("read %s: %w", key, err)).WithMessage("Failed to read a stored object").Err()
 }

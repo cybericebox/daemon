@@ -20,6 +20,10 @@ var (
 	ErrInvalidReference = errors.New("invalid registry reference")
 	// ErrBlobTooLarge: a blob read whole (GetBlob) is larger than the caller allows.
 	ErrBlobTooLarge = errors.New("registry blob too large")
+	// ErrSourceCorrupt: the archive's own bytes are broken as its container reads them (a zip entry longer or
+	// shorter than declared, a failed checksum or authentication code). The reader of the source wraps such failures
+	// with it, so they are told as the author's archive, not as a platform failure.
+	ErrSourceCorrupt = errors.New("image archive is corrupt")
 )
 
 // classifyStatus maps an HTTP status to a sentinel; nil for success statuses.

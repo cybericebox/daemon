@@ -256,8 +256,14 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 	created, runErr := u.runArchiveImport(ctx, job, args.SealedPassword)
 	if runErr != nil {
 		log.Warn().Err(runErr).Str("job", job.ID.String()).Msg("archive import failed")
-		job.Fail(importJobFailure(runErr), u.timeNow())
-		return u.writeImportJob(ctx, job)
+		failure := importJobFailure(runErr)
+		if ctx.Err() != nil {
+			// Cut off (timeout, shutdown): whatever the last call failed with, the import was stopped.
+			failure = importJobFailure(exerciseModel.ErrArchiveImportStopped.WithError(runErr).Err())
+		}
+		job.Fail(failure, u.timeNow())
+		// Nothing was created: if the failure cannot be recorded, River may run the import again.
+		return u.writeImportJobRetrying(ctx, job)
 	}
 	ids := make([]uuid.UUID, len(created))
 	for i, view := range created {
@@ -267,7 +273,29 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 	if job.Source == exerciseModel.ImportSourceUpload {
 		u.dropArchiveUpload(context.WithoutCancel(ctx), job.SourceID)
 	}
-	return u.writeImportJob(ctx, job)
+	// The tasks exist: the job must never run again, so the outcome is retried here and never returned to River.
+	// Not written at all, the job reads failed (interrupted) once stale, with the tasks already in the catalog.
+	if err = u.writeImportJobRetrying(ctx, job); err != nil {
+		log.Error().Err(err).Str("job", job.ID.String()).Msg("archive import: the finished import could not be recorded")
+	}
+	return nil
+}
+
+// importStateWrites is how often an import's outcome is written before giving up.
+const importStateWrites = 5
+
+// writeImportJobRetrying writes the job up to importStateWrites times, importStateRetryDelay apart.
+func (u *ExerciseUseCase) writeImportJobRetrying(ctx context.Context, job exerciseModel.ImportJob) error {
+	var err error
+	for attempt := 0; attempt < importStateWrites; attempt++ {
+		if attempt > 0 {
+			time.Sleep(importStateRetryDelay)
+		}
+		if err = u.writeImportJob(ctx, job); err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // runArchiveImport opens the source and the password and imports the archive.
@@ -341,8 +369,9 @@ func (u *ExerciseUseCase) dropArchiveUpload(ctx context.Context, id uuid.UUID) {
 }
 
 // importJobFailure is what the user of a failed import is told: a typed error's code, message and public context
-// (an internal one only as "Internal server error"); an untyped one is the archive itself (a broken zip, a wrong
-// password), told as invalid data with its text, like the synchronous import answers it.
+// (an internal one only as "Internal server error"); an untyped failure of the archive itself (a broken zip, a wrong
+// password; IsArchiveFormatError) as invalid data with its text, like the synchronous import answers it; any other
+// untyped failure as the generic internal error (its text stays in the server log).
 func importJobFailure(failure error) exerciseModel.ImportJobError {
 	var typed appErr.Error
 	if errors.As(failure, &typed) {
@@ -352,6 +381,10 @@ func importJobFailure(failure error) exerciseModel.ImportJobError {
 		}
 		return exerciseModel.ImportJobError{Code: e.StatusCode().FullCode(), Message: e.StatusCode().Message(), Context: e.PublicContext()}
 	}
-	code := appErr.ErrInvalidData.Err().StatusCode()
-	return exerciseModel.ImportJobError{Code: code.FullCode(), Message: failure.Error()}
+	if IsArchiveFormatError(failure) {
+		code := appErr.ErrInvalidData.Err().StatusCode()
+		return exerciseModel.ImportJobError{Code: code.FullCode(), Message: failure.Error()}
+	}
+	code := model.ErrPlatform.Err().StatusCode()
+	return exerciseModel.ImportJobError{Code: code.FullCode(), Message: "Internal server error"}
 }

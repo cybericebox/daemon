@@ -15,6 +15,8 @@ type ExerciseImportArgs struct {
 
 func (ExerciseImportArgs) Kind() string { return "exercise_import" }
 
-// InsertOpts: the import records its own failure; only a failure to write that state is returned to River, so a
-// few attempts are enough.
-func (ExerciseImportArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 3} }
+// InsertOpts: the import records its own outcome; only a failure to write a failed state is returned to River, so a
+// few attempts are enough. It runs on ImagesQueue.
+func (ExerciseImportArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{MaxAttempts: 3, Queue: ImagesQueue}
+}

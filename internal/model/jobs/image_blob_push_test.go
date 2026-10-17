@@ -8,3 +8,13 @@ func TestImageBlobPushArgsInsertOpts(t *testing.T) {
 		t.Fatalf("max attempts %d", got)
 	}
 }
+
+// Image pushes and archive imports run long: they get their own small queue, so they never hold the default one.
+func TestImageJobsRunOnTheImagesQueue(t *testing.T) {
+	if q := (ImageBlobPushArgs{}).InsertOpts().Queue; q != ImagesQueue {
+		t.Fatalf("blob push queue %q", q)
+	}
+	if q := (ExerciseImportArgs{}).InsertOpts().Queue; q != ImagesQueue || ImagesQueue != "images" {
+		t.Fatalf("import queue %q", q)
+	}
+}
