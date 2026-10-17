@@ -19,10 +19,7 @@ type gitHub struct {
 
 // NewGitHub returns the GitHub Packages (ghcr.io) adapter. hc defaults to http.DefaultClient.
 func NewGitHub(baseURL string, hc *http.Client) Adapter {
-	if hc == nil {
-		hc = http.DefaultClient
-	}
-	return &gitHub{base: strings.TrimRight(baseURL, "/"), hc: hc}
+	return &gitHub{base: strings.TrimRight(baseURL, "/"), hc: safeClient(hc)}
 }
 
 func ghHeaders(token string) map[string]string {
@@ -56,7 +53,7 @@ func nextLink(h http.Header) string {
 }
 
 // paged GETs start and follows Link rel="next" within the same host, calling each with a page body.
-// A 404 on the first page is returned as ErrNotFound so callers can fall back from org to user.
+// A 404 is returned as ErrNotFound so callers can fall back from org to user.
 func (g *gitHub) paged(ctx context.Context, op, token, start string, each func(body []byte) error) error {
 	next := start
 	for page := 0; next != ""; page++ {
@@ -71,9 +68,12 @@ func (g *gitHub) paged(ctx context.Context, op, token, start string, each func(b
 			return err
 		}
 		if code != http.StatusOK {
-			return statusErr(op, code)
+			return statusErr(op, code, h)
 		}
 		if err := each(b); err != nil {
+			if errors.Is(err, errStop) {
+				return nil
+			}
 			return err
 		}
 		next = nextLink(h)
@@ -125,10 +125,8 @@ func (g *gitHub) DeleteTag(ctx context.Context, account, token, repository, tag 
 	for _, owner := range ownerPaths(account) {
 		base := g.base + owner + "/packages/container/" + url.PathEscape(pkg) + "/versions"
 		var id int64
+		var tags []string
 		err := g.paged(ctx, "list versions", token, base+"?per_page=100", func(b []byte) error {
-			if id != 0 {
-				return nil
-			}
 			var items []struct {
 				ID       int64 `json:"id"`
 				Metadata struct {
@@ -143,8 +141,8 @@ func (g *gitHub) DeleteTag(ctx context.Context, account, token, repository, tag 
 			for _, it := range items {
 				for _, t := range it.Metadata.Container.Tags {
 					if t == tag {
-						id = it.ID
-						return nil
+						id, tags = it.ID, it.Metadata.Container.Tags
+						return errStop
 					}
 				}
 			}
@@ -160,16 +158,21 @@ func (g *gitHub) DeleteTag(ctx context.Context, account, token, repository, tag 
 		if id == 0 {
 			return nil
 		}
-		code, _, _, err := call(ctx, g.hc, "delete version", http.MethodDelete, base+"/"+strconv.FormatInt(id, 10), ghHeaders(token), nil)
+		for _, t := range tags {
+			if t != tag {
+				return fmt.Errorf("delete version: %w", ErrTagShared)
+			}
+		}
+		code, h, _, err := call(ctx, g.hc, "delete version", http.MethodDelete, base+"/"+strconv.FormatInt(id, 10), ghHeaders(token), nil)
 		if err != nil {
 			return err
 		}
 		if code == http.StatusNotFound || (code >= 200 && code < 300) {
 			return nil
 		}
-		return statusErr("delete version", code)
+		return statusErr("delete version", code, h)
 	}
-	// the package does not exist under the org or the user: nothing to delete
-	_ = lastErr
-	return nil
+	// neither the org nor the user path shows the package (private packages invisible to the token also
+	// answer 404), so report it instead of pretending the tag is gone
+	return lastErr
 }

@@ -18,21 +18,18 @@ type dockerHub struct {
 
 // NewDockerHub returns the Docker Hub adapter. hc defaults to http.DefaultClient.
 func NewDockerHub(baseURL string, hc *http.Client) Adapter {
-	if hc == nil {
-		hc = http.DefaultClient
-	}
-	return &dockerHub{base: strings.TrimRight(baseURL, "/"), hc: hc}
+	return &dockerHub{base: strings.TrimRight(baseURL, "/"), hc: safeClient(hc)}
 }
 
 func (d *dockerHub) login(ctx context.Context, account, token string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"identifier": account, "secret": token})
-	code, _, b, err := call(ctx, d.hc, "docker hub login", http.MethodPost, d.base+"/v2/auth/token",
+	code, h, b, err := call(ctx, d.hc, "docker hub login", http.MethodPost, d.base+"/v2/auth/token",
 		map[string]string{"Content-Type": "application/json", "Accept": "application/json"}, body)
 	if err != nil {
 		return "", err
 	}
 	if code != http.StatusOK {
-		return "", statusErr("docker hub login", code)
+		return "", statusErr("docker hub login", code, h)
 	}
 	var r struct {
 		AccessToken string `json:"access_token"`
@@ -61,12 +58,12 @@ func (d *dockerHub) ListRepositories(ctx context.Context, account, token string)
 		if !sameHost(d.base, next) {
 			return nil, fmt.Errorf("list repositories: %w", errCrossHost)
 		}
-		code, _, b, err := call(ctx, d.hc, "list repositories", http.MethodGet, next, hdr, nil)
+		code, h, b, err := call(ctx, d.hc, "list repositories", http.MethodGet, next, hdr, nil)
 		if err != nil {
 			return nil, err
 		}
 		if code != http.StatusOK {
-			return nil, statusErr("list repositories", code)
+			return nil, statusErr("list repositories", code, h)
 		}
 		var r struct {
 			Next    *string `json:"next"`
@@ -103,7 +100,7 @@ func (d *dockerHub) DeleteTag(ctx context.Context, account, token, repository, t
 		return err
 	}
 	u := d.base + "/v2/namespaces/" + url.PathEscape(ns) + "/repositories/" + url.PathEscape(repo) + "/tags/" + url.PathEscape(tag)
-	code, _, _, err := call(ctx, d.hc, "delete tag", http.MethodDelete, u,
+	code, h, _, err := call(ctx, d.hc, "delete tag", http.MethodDelete, u,
 		map[string]string{"Authorization": "Bearer " + bearer, "Accept": "application/json"}, nil)
 	if err != nil {
 		return err
@@ -111,5 +108,5 @@ func (d *dockerHub) DeleteTag(ctx context.Context, account, token, repository, t
 	if code == http.StatusNotFound || (code >= 200 && code < 300) {
 		return nil
 	}
-	return statusErr("delete tag", code)
+	return statusErr("delete tag", code, h)
 }

@@ -238,7 +238,7 @@ func TestGitHubDeleteTag(t *testing.T) {
 	srv := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) {
 		switch {
 		case q.Method == "GET" && q.URL.Path == "/orgs/acme/packages/container/sub/tool/versions":
-			_, _ = w.Write([]byte(`[{"id":11,"metadata":{"container":{"tags":["a"]}}},{"id":12,"metadata":{"container":{"tags":["v1","b"]}}}]`))
+			_, _ = w.Write([]byte(`[{"id":11,"metadata":{"container":{"tags":["a"]}}},{"id":12,"metadata":{"container":{"tags":["v1"]}}}]`))
 		case q.Method == "DELETE" && q.URL.Path == "/orgs/acme/packages/container/sub/tool/versions/12":
 			w.WriteHeader(204)
 		default:
@@ -293,5 +293,96 @@ func TestGitHubDeleteUserFallback(t *testing.T) {
 func TestDefault(t *testing.T) {
 	if Default("dockerhub") == nil || Default("ghcr") == nil || Default("other") != nil {
 		t.Fatal("Default mapping wrong")
+	}
+}
+
+func TestGitHubDeleteSharedVersion(t *testing.T) {
+	r := &rec{}
+	srv := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) {
+		if q.Method == "GET" && q.URL.Path == "/orgs/acme/packages/container/app/versions" {
+			_, _ = w.Write([]byte(`[{"id":7,"metadata":{"container":{"tags":["v1","latest"]}}}]`))
+			return
+		}
+		w.WriteHeader(404)
+	})
+	err := NewGitHub(srv.URL, srv.Client()).DeleteTag(context.Background(), "acme", tok, "acme/app", "v1")
+	if !errors.Is(err, ErrTagShared) {
+		t.Fatalf("got %v", err)
+	}
+	for _, s := range r.reqs {
+		if strings.HasPrefix(s, "DELETE") {
+			t.Fatalf("unexpected %s", s)
+		}
+	}
+}
+
+func TestGitHubDeleteBothNotFound(t *testing.T) {
+	r := &rec{}
+	srv := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(404) })
+	err := NewGitHub(srv.URL, srv.Client()).DeleteTag(context.Background(), "acme", tok, "acme/app", "v1")
+	if !errors.Is(err, ociregistry.ErrNotFound) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestGitHubDeleteStopsPagingWhenFound(t *testing.T) {
+	r := &rec{}
+	var srv *httptest.Server
+	srv = ghServer(t, r, func(w http.ResponseWriter, q *http.Request) {
+		switch {
+		case q.Method == "GET" && q.URL.Query().Get("page") == "2":
+			t.Error("page 2 must not be fetched")
+		case q.Method == "GET":
+			w.Header().Set("Link", fmt.Sprintf(`<%s/orgs/acme/packages/container/app/versions?page=2>; rel="next"`, srv.URL))
+			_, _ = w.Write([]byte(`[{"id":3,"metadata":{"container":{"tags":["v1"]}}}]`))
+		default:
+			w.WriteHeader(204)
+		}
+	})
+	if err := NewGitHub(srv.URL, srv.Client()).DeleteTag(context.Background(), "acme", tok, "acme/app", "v1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGitHubRateLimit403(t *testing.T) {
+	r := &rec{}
+	srv := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.WriteHeader(403)
+	})
+	_, err := NewGitHub(srv.URL, srv.Client()).ListRepositories(context.Background(), "acme", tok)
+	if !errors.Is(err, ociregistry.ErrRateLimited) {
+		t.Fatalf("remaining=0: got %v", err)
+	}
+	srv2 := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) {
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(403)
+	})
+	_, err = NewGitHub(srv2.URL, srv2.Client()).ListRepositories(context.Background(), "acme", tok)
+	if !errors.Is(err, ociregistry.ErrRateLimited) {
+		t.Fatalf("retry-after: got %v", err)
+	}
+}
+
+func TestRedirectToOtherHostRefused(t *testing.T) {
+	evil := &rec{}
+	es := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) { evil.add(q) }))
+	defer es.Close()
+	r := &rec{}
+	gh := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) {
+		http.Redirect(w, q, es.URL+"/steal", http.StatusTemporaryRedirect)
+	})
+	if _, err := NewGitHub(gh.URL, gh.Client()).ListRepositories(context.Background(), "acme", tok); err == nil {
+		t.Fatal("expected error")
+	}
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+		http.Redirect(w, q, es.URL+"/steal", http.StatusTemporaryRedirect)
+	}))
+	defer hub.Close()
+	if _, err := NewDockerHub(hub.URL, hub.Client()).ListRepositories(context.Background(), "acme", tok); err == nil {
+		t.Fatal("expected error")
+	}
+	if len(evil.reqs) != 0 {
+		t.Fatalf("redirect followed: %v", evil.reqs)
 	}
 }
