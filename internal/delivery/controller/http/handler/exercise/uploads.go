@@ -24,6 +24,9 @@ type startUploadRequest struct {
 	Name        string `json:"Name" binding:"required,max=255"`
 	ContentType string `json:"ContentType" binding:"max=255"`
 	Size        int64  `json:"Size" binding:"required,min=1"`
+	// Purpose "image-blob" uploads one blob of a container image (the file limit is then 10 GiB, an image
+	// archive's); empty for an ordinary file.
+	Purpose string `json:"Purpose" binding:"omitempty,oneof=image-blob"`
 }
 
 type uploadResponse struct {
@@ -93,7 +96,7 @@ func (h *Handler) startUpload(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	upload, err := h.useCase.StartUpload(ctx, req.Name, req.ContentType, req.Size, actor.UserID)
+	upload, err := h.useCase.StartUpload(ctx, req.Name, req.ContentType, req.Size, actor.UserID, mediaModel.UploadPurpose(req.Purpose))
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

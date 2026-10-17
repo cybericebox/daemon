@@ -12683,6 +12683,20 @@ func (mr *MockQuerierMockRecorder) UpsertNotificationSetting(ctx, arg any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertNotificationSetting", reflect.TypeOf((*MockQuerier)(nil).UpsertNotificationSetting), ctx, arg)
 }
 
+// UpsertPlatformImage mocks base method.
+func (m *MockQuerier) UpsertPlatformImage(ctx context.Context, arg postgres.UpsertPlatformImageParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertPlatformImage", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertPlatformImage indicates an expected call of UpsertPlatformImage.
+func (mr *MockQuerierMockRecorder) UpsertPlatformImage(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertPlatformImage", reflect.TypeOf((*MockQuerier)(nil).UpsertPlatformImage), ctx, arg)
+}
+
 // UpsertPlatformMailIdentity mocks base method.
 func (m *MockQuerier) UpsertPlatformMailIdentity(ctx context.Context, arg postgres.UpsertPlatformMailIdentityParams) (postgres.MailIdentity, error) {
 	m.ctrl.T.Helper()

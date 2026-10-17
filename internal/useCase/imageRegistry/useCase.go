@@ -47,6 +47,9 @@ type (
 		Adapter AdapterFactory
 		// Now defaults to time.Now.
 		Now func() time.Time
+		// Media reads the blobs staged through the chunked upload (image upload); nil: pushing a staged blob is
+		// a platform error.
+		Media MediaSource
 		// HeadTimeout bounds one registry request of an availability check (default 10 s);
 		// CallTimeout bounds one whole check call (default 30 s).
 		HeadTimeout, CallTimeout time.Duration
@@ -55,6 +58,8 @@ type (
 	ImageRegistryUseCase struct {
 		settings  *imageRegistryRepo.Repository
 		secrets   *imageRegistryRepo.EventSecrets
+		images    *imageRegistryRepo.PlatformImages
+		media     MediaSource
 		cipher    secret.Sealer
 		newClient ClientFactory
 		external  ExternalClientFactory
@@ -90,6 +95,8 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 	u := &ImageRegistryUseCase{
 		settings:    imageRegistryRepo.New(deps.Repo),
 		secrets:     imageRegistryRepo.NewEventSecrets(deps.Repo),
+		images:      imageRegistryRepo.NewPlatformImages(deps.Repo),
+		media:       deps.Media,
 		cipher:      deps.Cipher,
 		newClient:   deps.NewClient,
 		external:    deps.NewExternalClient,

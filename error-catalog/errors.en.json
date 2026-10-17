@@ -234,6 +234,8 @@
   "22812": "Choose the provider and enter the account name",
   "22813": "Either enter a new pull token or remove it, not both",
   "22815": "Enter the token again when the registry host changes",
+  "22816": "The uploaded layer does not match its digest",
+  "22819": "Invalid layer digest",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
@@ -289,6 +291,7 @@
   "32617": "Laboratory not found",
   "32701": "Preview selection or active run not found",
   "32807": "Registry credentials not found",
+  "32818": "The uploaded layer was not found",
   "40211": "Event already has its own template for this notification type",
   "40903": "Exercise with this name already exists",
   "41102": "Event with this tag already exists",
@@ -455,5 +458,6 @@
   "72802": "Image upload is unavailable right now: the image registry is not configured or not responding",
   "72803": "Image unavailable",
   "72808": "Secret storage is not configured: registry tokens cannot be saved",
-  "72814": "The event already has registry credentials for this host and repository prefix"
+  "72814": "The event already has registry credentials for this host and repository prefix",
+  "72817": "An image layer is not uploaded yet"
 }

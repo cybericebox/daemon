@@ -66,6 +66,17 @@ func ChunkKey(uploadID uuid.UUID, index int) string {
 	return fmt.Sprintf("media/uploads/%s/%d", uploadID, index)
 }
 
+// UploadPurpose says what a chunked upload is for; it sets the size limit of the file.
+type UploadPurpose string
+
+const (
+	// UploadPurposeFile is an ordinary file (attachment, archive): the media file limit applies.
+	UploadPurposeFile UploadPurpose = ""
+	// UploadPurposeImageBlob is one blob (layer or config) of a container image on its way to the platform
+	// registry: it may be as large as an image archive.
+	UploadPurposeImageBlob UploadPurpose = "image-blob"
+)
+
 // Upload is a resumable chunked upload in progress: a file sent in order, in chunks of ChunkBytes (the last one
 // is shorter), through the API. Chunks are stored as temporary objects and assembled, size- and hash-checked when
 // the last one has arrived.

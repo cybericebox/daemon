@@ -14,6 +14,7 @@ import (
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
 
@@ -21,16 +22,18 @@ import (
 const maxUploadNameBytes = 255
 
 // StartUpload opens a resumable chunked upload of a file of the given size. The chunks go to PutChunk in order;
-// CompleteUpload assembles them.
-func (u *MediaUseCase) StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID) (mediaModel.Upload, error) {
+// CompleteUpload assembles them. The purpose sets the size limit: the media file limit for a file, an image
+// archive's (imageRegistryModel.MaxImageArchiveBytes) for an image blob.
+func (u *MediaUseCase) StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID, purpose mediaModel.UploadPurpose) (mediaModel.Upload, error) {
 	if !u.storageConfigured {
 		return mediaModel.Upload{}, mediaModel.ErrMediaStorageNotConfigured.Err()
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > maxUploadNameBytes || size < 1 {
+	limit, known := u.uploadLimit(purpose)
+	if name == "" || len(name) > maxUploadNameBytes || size < 1 || !known {
 		return mediaModel.Upload{}, mediaModel.ErrUploadInvalid.Err()
 	}
-	if size > u.cfg.MaxUploadBytes {
+	if size > limit {
 		return mediaModel.Upload{}, mediaModel.ErrFileTooLarge.Err()
 	}
 	upload := mediaModel.NewUpload(uuid.Must(uuid.NewV7()), createdBy, name, contentType, size, u.cfg.UploadChunkBytes, u.cfg.UploadTTL, time.Now())
@@ -39,6 +42,17 @@ func (u *MediaUseCase) StartUpload(ctx context.Context, name, contentType string
 		return mediaModel.Upload{}, model.ErrPlatform.WithError(err).WithMessage("Failed to start upload").Err()
 	}
 	return created, nil
+}
+
+// uploadLimit is the largest file an upload of the purpose may carry; known is false for an unknown purpose.
+func (u *MediaUseCase) uploadLimit(purpose mediaModel.UploadPurpose) (limit int64, known bool) {
+	switch purpose {
+	case mediaModel.UploadPurposeFile:
+		return u.cfg.MaxUploadBytes, true
+	case mediaModel.UploadPurposeImageBlob:
+		return imageRegistryModel.MaxImageArchiveBytes, true
+	}
+	return 0, false
 }
 
 // UploadStatus returns an upload of the caller: where a resumed upload continues.

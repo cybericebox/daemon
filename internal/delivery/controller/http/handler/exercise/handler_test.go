@@ -62,6 +62,8 @@ type fakeUC struct {
 	checkedImages         []string
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
+	// image upload
+	imageUpload imageUploadCalls
 
 	err error
 
@@ -219,7 +221,7 @@ func (f *fakeUC) UploadChunkBytes() int64 {
 	}
 	return f.maxUploadBytes
 }
-func (f *fakeUC) StartUpload(context.Context, string, string, int64, uuid.UUID) (mediaModel.Upload, error) {
+func (f *fakeUC) StartUpload(context.Context, string, string, int64, uuid.UUID, mediaModel.UploadPurpose) (mediaModel.Upload, error) {
 	return mediaModel.Upload{}, nil
 }
 func (f *fakeUC) UploadStatus(context.Context, uuid.UUID, uuid.UUID) (mediaModel.Upload, error) {

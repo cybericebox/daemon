@@ -17305,6 +17305,213 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/{id}/images": {
+            "post": {
+                "description": "Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag \u003cname\u003e-\u003c12 hex\u003e and returns the platform reference for the device.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Create a platform image from blobs already in the registry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "image name, config and layers",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.createImageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.createImageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/blobs": {
+            "post": {
+                "description": "Same access as saving the draft. The file must be the caller's completed chunked upload whose sha256 and size are the blob's.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Push an uploaded image blob into the platform registry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "staged file and blob",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.pushBlobRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/blobs/missing": {
+            "post": {
+                "description": "Same access as saving the draft. Upload only the missing blobs (chunked upload, Purpose \"image-blob\"), then push each one.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Which image blobs the platform registry does not have yet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "blob digests",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.missingBlobsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.missingBlobsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}/images/check": {
             "post": {
                 "description": "Same access as saving the draft. Platform images (platform:\u003cname\u003e@sha256:…) are checked in the platform registry, other images anonymously; an event-owned exercise also uses its event's registry credentials. One result per distinct image, in the order sent. Positive results are cached for 60 s.",
@@ -31821,6 +32028,41 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.createImageRequest": {
+            "type": "object",
+            "required": [
+                "Config",
+                "Layers",
+                "Name"
+            ],
+            "properties": {
+                "Config": {
+                    "$ref": "#/definitions/exercise.descriptorRequest"
+                },
+                "Layers": {
+                    "type": "array",
+                    "maxItems": 500,
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/exercise.descriptorRequest"
+                    }
+                },
+                "Name": {
+                    "description": "Name becomes the platform image name (lowercased, other characters replaced).",
+                    "type": "string",
+                    "maxLength": 255
+                }
+            }
+        },
+        "exercise.createImageResponse": {
+            "type": "object",
+            "properties": {
+                "Reference": {
+                    "description": "Reference is platform:\u003cname\u003e@sha256:\u003cmanifest digest\u003e, the device image to save.",
+                    "type": "string"
+                }
+            }
+        },
         "exercise.decideElevationRequest": {
             "type": "object",
             "properties": {
@@ -32093,6 +32335,28 @@ const docTemplate = `{
                 },
                 "TaskID": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.descriptorRequest": {
+            "type": "object",
+            "required": [
+                "Digest",
+                "MediaType",
+                "Size"
+            ],
+            "properties": {
+                "Digest": {
+                    "type": "string",
+                    "maxLength": 80
+                },
+                "MediaType": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "Size": {
+                    "type": "integer",
+                    "minimum": 1
                 }
             }
         },
@@ -32788,6 +33052,35 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.missingBlobsRequest": {
+            "type": "object",
+            "required": [
+                "Digests"
+            ],
+            "properties": {
+                "Digests": {
+                    "description": "Digests are the image's blob digests (config and layers), sha256:\u003c64 lowercase hex\u003e.",
+                    "type": "array",
+                    "maxItems": 501,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "exercise.missingBlobsResponse": {
+            "type": "object",
+            "properties": {
+                "Missing": {
+                    "description": "Missing are the digests the registry does not have, in the order sent; never null.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "exercise.networkDTO": {
             "type": "object",
             "properties": {
@@ -32928,6 +33221,28 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.pushBlobRequest": {
+            "type": "object",
+            "required": [
+                "Digest",
+                "FileID",
+                "Size"
+            ],
+            "properties": {
+                "Digest": {
+                    "type": "string",
+                    "maxLength": 80
+                },
+                "FileID": {
+                    "description": "FileID is the media file of a completed chunked upload of the caller.",
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            }
+        },
         "exercise.rejectProposalRequest": {
             "type": "object",
             "properties": {
@@ -33064,6 +33379,13 @@ const docTemplate = `{
                 "Name": {
                     "type": "string",
                     "maxLength": 255
+                },
+                "Purpose": {
+                    "description": "Purpose \"image-blob\" uploads one blob of a container image (the file limit is then 10 GiB, an image\narchive's); empty for an ordinary file.",
+                    "type": "string",
+                    "enum": [
+                        "image-blob"
+                    ]
                 },
                 "Size": {
                     "type": "integer",

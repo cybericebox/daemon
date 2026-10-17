@@ -95,7 +95,7 @@ type (
 		MaxSingleUploadBytes() int64
 		// resumable chunked upload (a request body is limited at the edge)
 		UploadChunkBytes() int64
-		StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID) (mediaModel.Upload, error)
+		StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID, purpose mediaModel.UploadPurpose) (mediaModel.Upload, error)
 		UploadStatus(ctx context.Context, id, owner uuid.UUID) (mediaModel.Upload, error)
 		PutChunk(ctx context.Context, id, owner uuid.UUID, index int, r io.Reader) (mediaModel.Upload, error)
 		CompleteUpload(ctx context.Context, id, owner uuid.UUID, wantSHA256 string) (mediaModel.File, error)
@@ -123,6 +123,10 @@ type (
 		// image availability (the editor's check); scope is the owner event of an event-owned exercise
 		ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (imageRegistryUseCase.Scope, error)
 		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
+		// image upload through the site (the platform registry)
+		MissingBlobs(ctx context.Context, exerciseID uuid.UUID, digests []string) ([]string, error)
+		PushStagedBlob(ctx context.Context, exerciseID uuid.UUID, in imageRegistryUseCase.PushBlobInput) error
+		CreateImage(ctx context.Context, exerciseID uuid.UUID, in imageRegistryUseCase.CreateImageInput) (imageRegistryUseCase.CreateImageResult, error)
 	}
 )
 
@@ -215,6 +219,10 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.PUT(":id/draft", self, h.authorize(exerciseUseCase.ActionWrite), h.saveDraft)
 		// image availability: the same access as saving the draft
 		ex.POST(":id/images/check", self, h.authorize(exerciseUseCase.ActionWrite), h.checkImages)
+		// image upload through the site: the same access as saving the draft
+		ex.POST(":id/images/blobs/missing", self, h.authorize(exerciseUseCase.ActionWrite), h.missingImageBlobs)
+		ex.POST(":id/images/blobs", self, h.authorize(exerciseUseCase.ActionWrite), h.pushImageBlob)
+		ex.POST(":id/images", self, h.authorize(exerciseUseCase.ActionWrite), h.createImage)
 		ex.DELETE(":id/draft", self, h.authorize(exerciseUseCase.ActionPublish), h.discardDraft)
 		ex.POST(":id/publish", self, h.authorize(exerciseUseCase.ActionPublish), h.publish)
 	}

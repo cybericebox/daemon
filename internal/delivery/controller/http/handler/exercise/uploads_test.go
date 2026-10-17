@@ -30,13 +30,14 @@ type chunkedUC struct {
 	owner    uuid.UUID
 	sha      string
 	started  [3]any
+	purpose  mediaModel.UploadPurpose
 	aborted  bool
 	complete mediaModel.File
 }
 
 func (c *chunkedUC) UploadChunkBytes() int64 { return 4 }
-func (c *chunkedUC) StartUpload(_ context.Context, name, contentType string, size int64, by uuid.UUID) (mediaModel.Upload, error) {
-	c.started, c.owner = [3]any{name, contentType, size}, by
+func (c *chunkedUC) StartUpload(_ context.Context, name, contentType string, size int64, by uuid.UUID, purpose mediaModel.UploadPurpose) (mediaModel.Upload, error) {
+	c.started, c.owner, c.purpose = [3]any{name, contentType, size}, by, purpose
 	return c.upload, c.err
 }
 func (c *chunkedUC) UploadStatus(_ context.Context, _, owner uuid.UUID) (mediaModel.Upload, error) {
@@ -146,5 +147,28 @@ func TestChunkedUpload_AConflictAnswersWithTheStatusCode(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/api/exercises/uploads/"+uc.upload.ID.String()+"/chunks/2", strings.NewReader("abcd")))
 	if w.Code != http.StatusConflict {
 		t.Fatalf("want 409, got %d", w.Code)
+	}
+}
+
+// Purpose "image-blob" reaches the use case (it raises the file limit to an image archive's); another value is refused.
+func TestChunkedUpload_StartPassesThePurpose(t *testing.T) {
+	uc := &chunkedUC{upload: sampleUpload()}
+	r := newChunkedEngine(uc, uuid.Must(uuid.NewV7()))
+	start := func(body string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/uploads", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := start(`{"Name":"sha256-x","Size":10,"Purpose":"image-blob"}`); code != http.StatusOK || uc.purpose != mediaModel.UploadPurposeImageBlob {
+		t.Fatalf("image blob: %d %q", code, uc.purpose)
+	}
+	if code := start(`{"Name":"a.bin","Size":10}`); code != http.StatusOK || uc.purpose != mediaModel.UploadPurposeFile {
+		t.Fatalf("file: %d %q", code, uc.purpose)
+	}
+	uc.purpose = "unchanged"
+	if code := start(`{"Name":"a.bin","Size":10,"Purpose":"avatar"}`); code != http.StatusBadRequest || uc.purpose != "unchanged" {
+		t.Fatalf("unknown purpose: %d", code)
 	}
 }

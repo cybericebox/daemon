@@ -1,5 +1,5 @@
 // Package imageRegistryRepo is the repository of the platform image registry
-// settings (event_secrets.go: the organizer secrets of events; event_images.go: the read-side list of the images
+// settings (platform_images.go: the record of each image pushed to the platform registry; event_secrets.go: the organizer secrets of events; event_images.go: the read-side list of the images
 // an event's exercises use): one row (id is always true) written whole in one statement. Tokens
 // arrive and leave sealed; this package never sees a plaintext token.
 package imageRegistryRepo
@@ -24,6 +24,8 @@ type Queries interface {
 	InsertEventRegistrySecret(ctx context.Context, arg postgres.InsertEventRegistrySecretParams) error
 	UpdateEventRegistrySecret(ctx context.Context, arg postgres.UpdateEventRegistrySecretParams) (int64, error)
 	DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error)
+
+	UpsertPlatformImage(ctx context.Context, arg postgres.UpsertPlatformImageParams) error
 
 	ListEventExerciseImages(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventExerciseImagesRow, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (postgres.Exercise, error)

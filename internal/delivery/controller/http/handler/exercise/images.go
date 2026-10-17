@@ -2,9 +2,11 @@ package exercise
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
+	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 )
 
 type (
@@ -64,4 +66,150 @@ func (h *Handler) checkImages(ctx *gin.Context) {
 		return
 	}
 	response.AbortWithData(ctx, toImageAvailability(av))
+}
+
+// Image upload through the site (a `docker save` archive read in the browser): which blobs the platform registry
+// lacks → each missing blob through the chunked upload (Purpose "image-blob") and pushed → the image created from
+// its blobs. Same access as saving the draft. The registry not configured or failing: 409 with the upload refusal
+// (ErrRegistryNotConfigured / ErrRegistryUnavailable; the latter names the reason in Status.Context for admins).
+
+type (
+	missingBlobsRequest struct {
+		// Digests are the image's blob digests (config and layers), sha256:<64 lowercase hex>.
+		Digests []string `json:"Digests" binding:"required,min=1,max=501,dive,required,max=80"`
+	}
+
+	missingBlobsResponse struct {
+		// Missing are the digests the registry does not have, in the order sent; never null.
+		Missing []string `json:"Missing"`
+	}
+
+	pushBlobRequest struct {
+		// FileID is the media file of a completed chunked upload of the caller.
+		FileID uuid.UUID `json:"FileID" binding:"required"`
+		Digest string    `json:"Digest" binding:"required,max=80"`
+		Size   int64     `json:"Size" binding:"required,min=1"`
+	}
+
+	descriptorRequest struct {
+		MediaType string `json:"MediaType" binding:"required,max=255"`
+		Digest    string `json:"Digest" binding:"required,max=80"`
+		Size      int64  `json:"Size" binding:"required,min=1"`
+	}
+
+	createImageRequest struct {
+		// Name becomes the platform image name (lowercased, other characters replaced).
+		Name   string              `json:"Name" binding:"required,max=255"`
+		Config descriptorRequest   `json:"Config" binding:"required"`
+		Layers []descriptorRequest `json:"Layers" binding:"required,min=1,max=500,dive"`
+	}
+
+	createImageResponse struct {
+		// Reference is platform:<name>@sha256:<manifest digest>, the device image to save.
+		Reference string `json:"Reference"`
+	}
+)
+
+func (d descriptorRequest) toDescriptor() imageRegistryUseCase.Descriptor {
+	return imageRegistryUseCase.Descriptor{MediaType: d.MediaType, Digest: d.Digest, Size: d.Size}
+}
+
+// missingImageBlobs godoc
+// @Summary  Which image blobs the platform registry does not have yet
+// @Description  Same access as saving the draft. Upload only the missing blobs (chunked upload, Purpose "image-blob"), then push each one.
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    id    path  string               true  "exercise ID"
+// @Param    body  body  missingBlobsRequest  true  "blob digests"
+// @Success  200  {object}  response.Response{data=missingBlobsResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Router   /exercises/{id}/images/blobs/missing [post]
+func (h *Handler) missingImageBlobs(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	var req missingBlobsRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	missing, err := h.useCase.MissingBlobs(ctx, id, req.Digests)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	if missing == nil {
+		missing = []string{}
+	}
+	response.AbortWithData(ctx, missingBlobsResponse{Missing: missing})
+}
+
+// pushImageBlob godoc
+// @Summary  Push an uploaded image blob into the platform registry
+// @Description  Same access as saving the draft. The file must be the caller's completed chunked upload whose sha256 and size are the blob's.
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    id    path  string           true  "exercise ID"
+// @Param    body  body  pushBlobRequest  true  "staged file and blob"
+// @Success  200  {object}  response.Response
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  404  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Router   /exercises/{id}/images/blobs [post]
+func (h *Handler) pushImageBlob(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	var req pushBlobRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err := h.useCase.PushStagedBlob(ctx, id, imageRegistryUseCase.PushBlobInput{FileID: req.FileID, Digest: req.Digest, Size: req.Size}); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithSuccess(ctx)
+}
+
+// createImage godoc
+// @Summary  Create a platform image from blobs already in the registry
+// @Description  Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag <name>-<12 hex> and returns the platform reference for the device.
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    id    path  string              true  "exercise ID"
+// @Param    body  body  createImageRequest  true  "image name, config and layers"
+// @Success  200  {object}  response.Response{data=createImageResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Router   /exercises/{id}/images [post]
+func (h *Handler) createImage(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	var req createImageRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	in := imageRegistryUseCase.CreateImageInput{Name: req.Name, Config: req.Config.toDescriptor(), Layers: make([]imageRegistryUseCase.Descriptor, 0, len(req.Layers))}
+	for _, l := range req.Layers {
+		in.Layers = append(in.Layers, l.toDescriptor())
+	}
+	res, err := h.useCase.CreateImage(ctx, id, in)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, createImageResponse{Reference: res.Reference})
 }

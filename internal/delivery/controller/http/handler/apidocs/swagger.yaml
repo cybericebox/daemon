@@ -5822,6 +5822,33 @@ definitions:
           type: string
         type: array
     type: object
+  exercise.createImageRequest:
+    properties:
+      Config:
+        $ref: '#/definitions/exercise.descriptorRequest'
+      Layers:
+        items:
+          $ref: '#/definitions/exercise.descriptorRequest'
+        maxItems: 500
+        minItems: 1
+        type: array
+      Name:
+        description: Name becomes the platform image name (lowercased, other characters
+          replaced).
+        maxLength: 255
+        type: string
+    required:
+    - Config
+    - Layers
+    - Name
+    type: object
+  exercise.createImageResponse:
+    properties:
+      Reference:
+        description: Reference is platform:<name>@sha256:<manifest digest>, the device
+          image to save.
+        type: string
+    type: object
   exercise.decideElevationRequest:
     properties:
       Devices:
@@ -6019,6 +6046,22 @@ definitions:
         type: string
       TaskID:
         type: string
+    type: object
+  exercise.descriptorRequest:
+    properties:
+      Digest:
+        maxLength: 80
+        type: string
+      MediaType:
+        maxLength: 255
+        type: string
+      Size:
+        minimum: 1
+        type: integer
+    required:
+    - Digest
+    - MediaType
+    - Size
     type: object
   exercise.deviceDTO:
     properties:
@@ -6490,6 +6533,28 @@ definitions:
       Type:
         type: string
     type: object
+  exercise.missingBlobsRequest:
+    properties:
+      Digests:
+        description: Digests are the image's blob digests (config and layers), sha256:<64
+          lowercase hex>.
+        items:
+          type: string
+        maxItems: 501
+        minItems: 1
+        type: array
+    required:
+    - Digests
+    type: object
+  exercise.missingBlobsResponse:
+    properties:
+      Missing:
+        description: Missing are the digests the registry does not have, in the order
+          sent; never null.
+        items:
+          type: string
+        type: array
+    type: object
   exercise.networkDTO:
     properties:
       DHCP:
@@ -6581,6 +6646,23 @@ definitions:
       Note:
         type: string
     type: object
+  exercise.pushBlobRequest:
+    properties:
+      Digest:
+        maxLength: 80
+        type: string
+      FileID:
+        description: FileID is the media file of a completed chunked upload of the
+          caller.
+        type: string
+      Size:
+        minimum: 1
+        type: integer
+    required:
+    - Digest
+    - FileID
+    - Size
+    type: object
   exercise.rejectProposalRequest:
     properties:
       Note:
@@ -6669,6 +6751,13 @@ definitions:
         type: string
       Name:
         maxLength: 255
+        type: string
+      Purpose:
+        description: |-
+          Purpose "image-blob" uploads one blob of a container image (the file limit is then 10 GiB, an image
+          archive's); empty for an ordinary file.
+        enum:
+        - image-blob
         type: string
       Size:
         minimum: 1
@@ -20747,6 +20836,141 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Whether the task already stores a content (asked before an attachment
         upload)
+      tags:
+      - exercises
+  /exercises/{id}/images:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. Builds the manifest (Docker schema
+        2 when every type is Docker's, otherwise OCI), pushes it under the tag <name>-<12
+        hex> and returns the platform reference for the device.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: image name, config and layers
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.createImageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.createImageResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Create a platform image from blobs already in the registry
+      tags:
+      - exercises
+  /exercises/{id}/images/blobs:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. The file must be the caller's
+        completed chunked upload whose sha256 and size are the blob's.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: staged file and blob
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.pushBlobRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Push an uploaded image blob into the platform registry
+      tags:
+      - exercises
+  /exercises/{id}/images/blobs/missing:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. Upload only the missing blobs
+        (chunked upload, Purpose "image-blob"), then push each one.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: blob digests
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.missingBlobsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.missingBlobsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Which image blobs the platform registry does not have yet
       tags:
       - exercises
   /exercises/{id}/images/check:

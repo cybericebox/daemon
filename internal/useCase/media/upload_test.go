@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	media "github.com/cybericebox/daemon/internal/useCase/media"
 )
@@ -39,14 +40,14 @@ func row(id, owner uuid.UUID, size int64, received int32) postgres.MediaUpload {
 func TestStartUpload_RefusesOverTheFileLimitAndBadInput(t *testing.T) {
 	uc, _, _ := uploadUC(t)
 	owner := uuid.Must(uuid.NewV7())
-	if _, err := uc.StartUpload(context.Background(), "a", "", 101, owner); !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
+	if _, err := uc.StartUpload(context.Background(), "a", "", 101, owner, mediaModel.UploadPurposeFile); !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
 		t.Fatalf("over the limit: %v", err)
 	}
 	for _, c := range []struct {
 		name string
 		size int64
 	}{{"", 10}, {"  ", 10}, {"a", 0}} {
-		if _, err := uc.StartUpload(context.Background(), c.name, "", c.size, owner); !errors.Is(err, mediaModel.ErrUploadInvalid.Err()) {
+		if _, err := uc.StartUpload(context.Background(), c.name, "", c.size, owner, mediaModel.UploadPurposeFile); !errors.Is(err, mediaModel.ErrUploadInvalid.Err()) {
 			t.Fatalf("%+v: %v", c, err)
 		}
 	}
@@ -61,9 +62,30 @@ func TestStartUpload_FileLargerThanOneRequestIsFine(t *testing.T) {
 		}
 		return postgres.MediaUpload{ID: p.ID, CreatedBy: owner, SizeBytes: p.SizeBytes, ChunkBytes: p.ChunkBytes, ExpiresAt: p.ExpiresAt}, nil
 	})
-	up, err := uc.StartUpload(context.Background(), "big.bin", "application/octet-stream", 90, owner)
+	up, err := uc.StartUpload(context.Background(), "big.bin", "application/octet-stream", 90, owner, mediaModel.UploadPurposeFile)
 	if err != nil || up.ChunkCount() != 23 {
 		t.Fatalf("upload %+v err %v", up, err)
+	}
+}
+
+// An image blob may be as large as an image archive (10 GiB), whatever the file limit; an unknown purpose is refused.
+func TestStartUpload_ImageBlobPurposeRaisesTheLimit(t *testing.T) {
+	uc, q, _ := uploadUC(t)
+	owner := uuid.Must(uuid.NewV7())
+	q.EXPECT().CreateMediaUpload(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateMediaUploadParams) (postgres.MediaUpload, error) {
+		if p.SizeBytes != imageRegistryModel.MaxImageArchiveBytes {
+			t.Fatalf("params %+v", p)
+		}
+		return postgres.MediaUpload{ID: p.ID, CreatedBy: owner, SizeBytes: p.SizeBytes, ChunkBytes: p.ChunkBytes, ExpiresAt: p.ExpiresAt}, nil
+	})
+	if _, err := uc.StartUpload(context.Background(), "sha256-blob", "", imageRegistryModel.MaxImageArchiveBytes, owner, mediaModel.UploadPurposeImageBlob); err != nil {
+		t.Fatalf("at the limit: %v", err)
+	}
+	if _, err := uc.StartUpload(context.Background(), "sha256-blob", "", imageRegistryModel.MaxImageArchiveBytes+1, owner, mediaModel.UploadPurposeImageBlob); !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
+		t.Fatalf("over the limit: %v", err)
+	}
+	if _, err := uc.StartUpload(context.Background(), "a", "", 10, owner, mediaModel.UploadPurpose("avatar")); !errors.Is(err, mediaModel.ErrUploadInvalid.Err()) {
+		t.Fatalf("unknown purpose: %v", err)
 	}
 }
 

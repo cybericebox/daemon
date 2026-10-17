@@ -1781,6 +1781,9 @@ type Querier interface {
 	UpsertImageRegistrySettings(ctx context.Context, arg UpsertImageRegistrySettingsParams) error
 	UpsertLabMonitoringCurrent(ctx context.Context, arg UpsertLabMonitoringCurrentParams) error
 	UpsertNotificationSetting(ctx context.Context, arg UpsertNotificationSettingParams) (NotificationSetting, error)
+	// One row per pushed tag. Uploading the same image again (same digest and tag) refreshes the row: the upload time
+	// (the tag collector's 24 h grace starts again), the exercise and the uploader.
+	UpsertPlatformImage(ctx context.Context, arg UpsertPlatformImageParams) error
 	UpsertPlatformMailIdentity(ctx context.Context, arg UpsertPlatformMailIdentityParams) (MailIdentity, error)
 	// Atomic get-or-create-or-update: key is UNIQUE, so ON CONFLICT replaces the
 	// old read→create|update transaction. Timestamps come from the domain factory.
