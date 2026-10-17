@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -65,10 +66,10 @@ func TestVariantUse_CountsTeamsOfOneEventExerciseWithoutModerators(t *testing.T)
 	if err != nil || len(used) != 2 || used[0] != 1 || used[2] != 1 {
 		t.Fatalf("variant use = %v, %v; want {0:1 2:1}", used, err)
 	}
-	if index, found, getErr := repo.TeamVariant(ctx, blue, first.EventExerciseID); getErr != nil || !found || index != 2 {
+	if index, found, getErr := repo.TeamVariant(ctx, blue, first.EventExerciseID, 3); getErr != nil || !found || index != 2 {
 		t.Fatalf("blue variant = %d %t %v", index, found, getErr)
 	}
-	if _, found, getErr := repo.TeamVariant(ctx, green, first.EventExerciseID); getErr != nil || found {
+	if _, found, getErr := repo.TeamVariant(ctx, green, first.EventExerciseID, 3); getErr != nil || found {
 		t.Fatalf("green has no assignment of this exercise: %t %v", found, getErr)
 	}
 }
@@ -104,5 +105,47 @@ func TestLockVariantPick_SerializesOneEventExercise(t *testing.T) {
 	}
 	if !try(exerciseID) {
 		t.Fatal("the pick lock outlived its transaction")
+	}
+}
+
+// After a source switch that dropped variants, a retained row of a terminal Lab
+// keeps its old index while the team's other rows were re-picked: the team's
+// variant is the in-range one, not the oldest row's.
+func TestTeamVariant_SkipsARetainedRowOfADroppedVariant(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	event := mustSeedEventForParticipants(t, db, "variantkept")
+	first := mustCreateScoringChallenge(t, db.Queries, event.ID)
+	second, err := db.Queries.CreateEventChallenge(ctx, postgres.CreateEventChallengeParams{
+		ID: uuid.Must(uuid.NewV7()), EventExerciseID: first.EventExerciseID, TaskID: uuid.Must(uuid.NewV7()),
+		OrderIndex: 1, Points: 100, Snapshot: []byte(`{}`), CreatedAt: itNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captain := mustSeedUser(t, db, "variant-kept@test.test")
+	team, err := eventTeamModel.New(event.ID, captain, "kept", "variant-code-kept", itNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if team, err = eventTeamRepo.New(db.Queries).Create(ctx, team); err != nil {
+		t.Fatal(err)
+	}
+	assign := func(challengeID uuid.UUID, variant int32, at time.Time) {
+		if _, assignErr := db.Queries.CreateTeamChallenge(ctx, postgres.CreateTeamChallengeParams{
+			ID: uuid.Must(uuid.NewV7()), EventID: event.ID, EventTeamID: team.ID, EventChallengeID: challengeID,
+			VariantIndex: variant, Snapshot: []byte(`{}`), ExpectedFlag: "ICE{x}", CreatedAt: at,
+		}); assignErr != nil {
+			t.Fatal(assignErr)
+		}
+	}
+	assign(first.ID, 4, itNow)                   // retained: the oldest row, variant dropped
+	assign(second.ID, 1, itNow.Add(time.Minute)) // re-picked by the source switch
+	repo := teamChallengeRepo.New(db.Queries)
+	if index, found, getErr := repo.TeamVariant(ctx, team.ID, first.EventExerciseID, 3); getErr != nil || !found || index != 1 {
+		t.Fatalf("variant = %d %t %v; want the re-picked 1", index, found, getErr)
+	}
+	if _, found, getErr := repo.TeamVariant(ctx, team.ID, first.EventExerciseID, 1); getErr != nil || found {
+		t.Fatalf("no row in range of one variant: %t %v", found, getErr)
 	}
 }

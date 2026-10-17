@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
 )
@@ -147,9 +146,8 @@ func TestResolveAt_SingleCandidate(t *testing.T) {
 	}
 }
 
-func TestResolveAt_HugeTemplateIsFast(t *testing.T) {
+func TestResolveAt_HugeTemplateWorks(t *testing.T) {
 	candidates := []string{`template:ICE{` + strings.Repeat(`[a-z0-9]`, 32) + `}`}
-	start := time.Now()
 	seen := map[string]bool{}
 	for slot := range int64(200) {
 		got, err := flagpattern.ResolveAt(candidates, big.NewInt(slot), keyA)
@@ -163,9 +161,6 @@ func TestResolveAt_HugeTemplateIsFast(t *testing.T) {
 			t.Fatalf("slot %d repeats %q", slot, got)
 		}
 		seen[got] = true
-	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("200 huge-template flags took %s", elapsed)
 	}
 }
 

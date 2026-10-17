@@ -3,6 +3,7 @@ package teamChallengeRepo
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -376,10 +377,15 @@ func (r *Repository) FlagSlot(ctx context.Context, eventID, teamID uuid.UUID) (u
 	return uint64(count), nil
 }
 
-// TeamVariant is the variant a team already has for an event exercise; false
-// when the team has no assignment of it yet.
-func (r *Repository) TeamVariant(ctx context.Context, teamID, eventExerciseID uuid.UUID) (int32, bool, error) {
-	index, err := r.q.GetTeamEventExerciseVariant(ctx, postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: eventExerciseID})
+// TeamVariant is the variant a team already has for an event exercise among
+// the current version's variantCount variants (its newest such row); false when
+// the team has no assignment in range (a retained row of a dropped variant does
+// not count).
+func (r *Repository) TeamVariant(ctx context.Context, teamID, eventExerciseID uuid.UUID, variantCount int) (int32, bool, error) {
+	if variantCount <= 0 || variantCount > math.MaxInt32 {
+		return 0, false, nil
+	}
+	index, err := r.q.GetTeamEventExerciseVariant(ctx, postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: eventExerciseID, VariantCount: int32(variantCount)})
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
 			return 0, false, nil

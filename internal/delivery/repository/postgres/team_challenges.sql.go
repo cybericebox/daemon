@@ -344,18 +344,23 @@ FROM team_challenges tc
 JOIN event_challenges ec ON ec.id = tc.event_challenge_id
 WHERE tc.event_team_id = $1
   AND ec.event_exercise_id = $2
-ORDER BY tc.created_at, tc.id
+  AND tc.variant_index >= 0
+  AND tc.variant_index < $3::integer
+ORDER BY tc.created_at DESC, tc.id DESC
 LIMIT 1
 `
 
 type GetTeamEventExerciseVariantParams struct {
 	EventTeamID     uuid.UUID `json:"event_team_id"`
 	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	VariantCount    int32     `json:"variant_count"`
 }
 
-// The variant a team already has for an event exercise (its first assignment).
+// The variant a team already has for an event exercise, among the variants the
+// current version still has: a retained row of a terminal Lab may keep an index
+// a source switch dropped while the team's other rows were re-picked.
 func (q *Queries) GetTeamEventExerciseVariant(ctx context.Context, arg GetTeamEventExerciseVariantParams) (int32, error) {
-	row := q.db.QueryRow(ctx, getTeamEventExerciseVariant, arg.EventTeamID, arg.EventExerciseID)
+	row := q.db.QueryRow(ctx, getTeamEventExerciseVariant, arg.EventTeamID, arg.EventExerciseID, arg.VariantCount)
 	var variant_index int32
 	err := row.Scan(&variant_index)
 	return variant_index, err

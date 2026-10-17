@@ -600,7 +600,9 @@ type Querier interface {
 	// One assignment's hint texts plus the board's canonical hints and costs.
 	GetTeamChallengeHints(ctx context.Context, arg GetTeamChallengeHintsParams) (GetTeamChallengeHintsRow, error)
 	GetTeamChallengeScoringContext(ctx context.Context, teamChallengeID uuid.UUID) (GetTeamChallengeScoringContextRow, error)
-	// The variant a team already has for an event exercise (its first assignment).
+	// The variant a team already has for an event exercise, among the variants the
+	// current version still has: a retained row of a terminal Lab may keep an index
+	// a source switch dropped while the team's other rows were re-picked.
 	GetTeamEventExerciseVariant(ctx context.Context, arg GetTeamEventExerciseVariantParams) (int32, error)
 	GetTemporalCodeByCode(ctx context.Context, code string) (TemporalCode, error)
 	// The one query per signed-in request: the global role and the status (blocked) of the caller.

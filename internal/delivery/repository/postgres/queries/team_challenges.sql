@@ -331,13 +331,17 @@ WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
 GROUP BY tc.variant_index;
 
 -- name: GetTeamEventExerciseVariant :one
--- The variant a team already has for an event exercise (its first assignment).
+-- The variant a team already has for an event exercise, among the variants the
+-- current version still has: a retained row of a terminal Lab may keep an index
+-- a source switch dropped while the team's other rows were re-picked.
 SELECT tc.variant_index
 FROM team_challenges tc
 JOIN event_challenges ec ON ec.id = tc.event_challenge_id
 WHERE tc.event_team_id = sqlc.arg(event_team_id)
   AND ec.event_exercise_id = sqlc.arg(event_exercise_id)
-ORDER BY tc.created_at, tc.id
+  AND tc.variant_index >= 0
+  AND tc.variant_index < sqlc.arg(variant_count)::integer
+ORDER BY tc.created_at DESC, tc.id DESC
 LIMIT 1;
 
 -- name: CountEventTeamsBefore :one

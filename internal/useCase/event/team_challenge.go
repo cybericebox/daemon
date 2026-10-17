@@ -397,7 +397,7 @@ func pickTeamVariant(ctx context.Context, teamChallenges *teamChallengeRepo.Repo
 		}
 		return *attachment.FixedVariantIndex, nil
 	}
-	index, found, err := teamChallenges.TeamVariant(ctx, teamID, attachment.ID)
+	index, found, err := teamChallenges.TeamVariant(ctx, teamID, attachment.ID, len(version.Variants))
 	if err != nil {
 		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to get the team variant").Err()
 	}

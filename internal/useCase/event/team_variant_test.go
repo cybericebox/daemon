@@ -46,7 +46,7 @@ func TestPickTeamVariant_LocksBeforeCountingAndFillsTheLowestGap(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	link, teamID := perTeamLink(), uuid.Must(uuid.NewV7())
 	gomock.InOrder(
-		q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: link.ID}).Return(int32(0), pgx.ErrNoRows),
+		q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: link.ID, VariantCount: 3}).Return(int32(0), pgx.ErrNoRows),
 		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
 		q.EXPECT().CountEventExerciseVariantTeams(gomock.Any(), link.ID).Return([]postgres.CountEventExerciseVariantTeamsRow{
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 2, Teams: 1},
@@ -62,7 +62,7 @@ func TestPickTeamVariant_KeepsTheTeamsExistingVariant(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl) // strict: no lock, no count
 	link, teamID := perTeamLink(), uuid.Must(uuid.NewV7())
-	q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), gomock.Any()).Return(int32(2), nil)
+	q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: link.ID, VariantCount: 3}).Return(int32(2), nil)
 	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, variantVersion(3, uuid.Nil))
 	if err != nil || got != 2 {
 		t.Fatalf("pick = %d, %v; want the kept 2", got, err)
@@ -74,7 +74,9 @@ func TestPickTeamVariant_ReplacesAVariantThatNoLongerExists(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl)
 	link, teamID := perTeamLink(), uuid.Must(uuid.NewV7())
 	gomock.InOrder(
-		q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), gomock.Any()).Return(int32(4), nil),
+		// Only variants the version still has count as the team's: the query
+		// filters by the current count, so a retained row on 4 is not returned.
+		q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: link.ID, VariantCount: 2}).Return(int32(0), pgx.ErrNoRows),
 		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
 		// Teams on removed variants (4) do not count.
 		q.EXPECT().CountEventExerciseVariantTeams(gomock.Any(), link.ID).Return([]postgres.CountEventExerciseVariantTeamsRow{
