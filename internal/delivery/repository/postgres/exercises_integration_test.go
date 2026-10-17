@@ -665,3 +665,53 @@ func TestListExerciseUsageEvents(t *testing.T) {
 		t.Fatalf("unused exercise: %+v err=%v", none, err)
 	}
 }
+
+// A version copied from another keeps its links: the variants blob is copied as is.
+func TestExerciseVersionCopies_KeepLinks(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	ex := mustCreateExercise(t, repo, "IT linked copies")
+
+	baseID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000e001")
+	variants := append(itVariants(), itVariants()...)
+	variants[0].ID = baseID
+	variants[1].ID = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000e002")
+	variants[1].LinkedTo = uuid.NullUUID{UUID: baseID, Valid: true}
+	if _, err := repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: variants}, itNow, uuid.NullUUID{}); err != nil {
+		t.Fatalf("UpsertDraft: %v", err)
+	}
+	published, err := repo.Publish(ctx, ex.ID, itNow.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	want := uuid.NullUUID{UUID: baseID, Valid: true}
+	requireLinked := func(step string, version exerciseModel.ExerciseVersion) {
+		t.Helper()
+		if len(version.Variants) != 2 || version.Variants[1].LinkedTo != want || version.Variants[0].IsLinked() {
+			t.Fatalf("%s lost the link: %+v", step, version.Variants)
+		}
+	}
+	requireLinked("published", published)
+
+	draft, err := repo.CreateDraftFrom(ctx, ex.ID, published.ID, uuid.Must(uuid.NewV7()), itNow.Add(2*time.Minute), uuid.NullUUID{})
+	if err != nil {
+		t.Fatalf("CreateDraftFrom: %v", err)
+	}
+	requireLinked("draft from version", draft)
+
+	checkpoint, err := repo.CreateCheckpoint(ctx, ex.ID, uuid.Must(uuid.NewV7()), "", itNow.Add(3*time.Minute), uuid.NullUUID{})
+	if err != nil {
+		t.Fatalf("CreateCheckpoint: %v", err)
+	}
+	requireLinked("checkpoint", checkpoint)
+
+	if _, err = repo.UpsertDraft(ctx, ex.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: itVariants()}, itNow.Add(4*time.Minute), uuid.NullUUID{}); err != nil {
+		t.Fatalf("UpsertDraft unlinked: %v", err)
+	}
+	restored, err := repo.RestoreVersionPreservingDraft(ctx, ex.ID, checkpoint.ID, uuid.Must(uuid.NewV7()), itNow.Add(5*time.Minute), uuid.NullUUID{})
+	if err != nil {
+		t.Fatalf("RestoreVersionPreservingDraft: %v", err)
+	}
+	requireLinked("restored draft", restored)
+}

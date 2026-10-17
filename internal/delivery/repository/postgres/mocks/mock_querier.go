@@ -264,6 +264,21 @@ func (mr *MockQuerierMockRecorder) BlobExists(ctx, contentHash any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BlobExists", reflect.TypeOf((*MockQuerier)(nil).BlobExists), ctx, contentHash)
 }
 
+// ClaimExerciseFile mocks base method.
+func (m *MockQuerier) ClaimExerciseFile(ctx context.Context, arg postgres.ClaimExerciseFileParams) (uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimExerciseFile", ctx, arg)
+	ret0, _ := ret[0].(uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimExerciseFile indicates an expected call of ClaimExerciseFile.
+func (mr *MockQuerierMockRecorder) ClaimExerciseFile(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimExerciseFile", reflect.TypeOf((*MockQuerier)(nil).ClaimExerciseFile), ctx, arg)
+}
+
 // ClaimLabGroupPlacement mocks base method.
 func (m *MockQuerier) ClaimLabGroupPlacement(ctx context.Context, arg postgres.ClaimLabGroupPlacementParams) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
@@ -4208,6 +4223,21 @@ func (mr *MockQuerierMockRecorder) GetExerciseByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseByID", reflect.TypeOf((*MockQuerier)(nil).GetExerciseByID), ctx, id)
 }
 
+// GetExerciseFileByHash mocks base method.
+func (m *MockQuerier) GetExerciseFileByHash(ctx context.Context, arg postgres.GetExerciseFileByHashParams) (postgres.GetExerciseFileByHashRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExerciseFileByHash", ctx, arg)
+	ret0, _ := ret[0].(postgres.GetExerciseFileByHashRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExerciseFileByHash indicates an expected call of GetExerciseFileByHash.
+func (mr *MockQuerierMockRecorder) GetExerciseFileByHash(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseFileByHash", reflect.TypeOf((*MockQuerier)(nil).GetExerciseFileByHash), ctx, arg)
+}
+
 // GetExerciseInfrastructure mocks base method.
 func (m *MockQuerier) GetExerciseInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error) {
 	m.ctrl.T.Helper()
@@ -7443,6 +7473,21 @@ func (mr *MockQuerierMockRecorder) ListExerciseCardExtras(ctx, ids any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseCardExtras", reflect.TypeOf((*MockQuerier)(nil).ListExerciseCardExtras), ctx, ids)
 }
 
+// ListExerciseHeldFiles mocks base method.
+func (m *MockQuerier) ListExerciseHeldFiles(ctx context.Context, arg postgres.ListExerciseHeldFilesParams) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseHeldFiles", ctx, arg)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseHeldFiles indicates an expected call of ListExerciseHeldFiles.
+func (mr *MockQuerierMockRecorder) ListExerciseHeldFiles(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseHeldFiles", reflect.TypeOf((*MockQuerier)(nil).ListExerciseHeldFiles), ctx, arg)
+}
+
 // ListExerciseProposals mocks base method.
 func (m *MockQuerier) ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]postgres.ListExerciseProposalsRow, error) {
 	m.ctrl.T.Helper()
@@ -7501,6 +7546,51 @@ func (m *MockQuerier) ListExerciseUsageEvents(ctx context.Context, arg postgres.
 func (mr *MockQuerierMockRecorder) ListExerciseUsageEvents(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseUsageEvents", reflect.TypeOf((*MockQuerier)(nil).ListExerciseUsageEvents), ctx, arg)
+}
+
+// ListExerciseVariantIssues mocks base method.
+func (m *MockQuerier) ListExerciseVariantIssues(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantIssuesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseVariantIssues", ctx, exerciseID)
+	ret0, _ := ret[0].([]postgres.ListExerciseVariantIssuesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseVariantIssues indicates an expected call of ListExerciseVariantIssues.
+func (mr *MockQuerierMockRecorder) ListExerciseVariantIssues(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseVariantIssues", reflect.TypeOf((*MockQuerier)(nil).ListExerciseVariantIssues), ctx, exerciseID)
+}
+
+// ListExerciseVariantSolveDepths mocks base method.
+func (m *MockQuerier) ListExerciseVariantSolveDepths(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantSolveDepthsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseVariantSolveDepths", ctx, exerciseID)
+	ret0, _ := ret[0].([]postgres.ListExerciseVariantSolveDepthsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseVariantSolveDepths indicates an expected call of ListExerciseVariantSolveDepths.
+func (mr *MockQuerierMockRecorder) ListExerciseVariantSolveDepths(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseVariantSolveDepths", reflect.TypeOf((*MockQuerier)(nil).ListExerciseVariantSolveDepths), ctx, exerciseID)
+}
+
+// ListExerciseVariantTaskSolves mocks base method.
+func (m *MockQuerier) ListExerciseVariantTaskSolves(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantTaskSolvesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseVariantTaskSolves", ctx, exerciseID)
+	ret0, _ := ret[0].([]postgres.ListExerciseVariantTaskSolvesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseVariantTaskSolves indicates an expected call of ListExerciseVariantTaskSolves.
+func (mr *MockQuerierMockRecorder) ListExerciseVariantTaskSolves(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseVariantTaskSolves", reflect.TypeOf((*MockQuerier)(nil).ListExerciseVariantTaskSolves), ctx, exerciseID)
 }
 
 // ListExerciseVersionIDs mocks base method.
@@ -7651,6 +7741,21 @@ func (m *MockQuerier) ListFileExerciseIDs(ctx context.Context, arg postgres.List
 func (mr *MockQuerierMockRecorder) ListFileExerciseIDs(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFileExerciseIDs", reflect.TypeOf((*MockQuerier)(nil).ListFileExerciseIDs), ctx, arg)
+}
+
+// ListFileHashes mocks base method.
+func (m *MockQuerier) ListFileHashes(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileHashesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListFileHashes", ctx, ids)
+	ret0, _ := ret[0].([]postgres.ListFileHashesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListFileHashes indicates an expected call of ListFileHashes.
+func (mr *MockQuerierMockRecorder) ListFileHashes(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFileHashes", reflect.TypeOf((*MockQuerier)(nil).ListFileHashes), ctx, ids)
 }
 
 // ListFileOwners mocks base method.

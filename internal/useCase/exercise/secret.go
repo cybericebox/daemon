@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -101,6 +102,134 @@ func submittedSecretKeys(variants []exerciseModel.Variant) map[string]bool {
 		}
 	}
 	return out
+}
+
+// secretSources maps a variant's index to the variant whose secrets it takes: the base for a linked variant,
+// else the variant it was copied from (copyOf, aligned with variants by index) when that is another variant.
+func secretSources(variants []exerciseModel.Variant, copyOf []uuid.NullUUID) map[int]uuid.UUID {
+	sources := make(map[int]uuid.UUID)
+	for i, variant := range variants {
+		if variant.IsLinked() {
+			sources[i] = variant.LinkedTo.UUID
+		} else if i < len(copyOf) && copyOf[i].Valid && copyOf[i].UUID != variant.ID {
+			sources[i] = copyOf[i].UUID
+		}
+	}
+	return sources
+}
+
+// inheritSecrets runs after mergeKeptSecrets and before encryptSecrets. A secret is sealed to its variant id,
+// so a target cannot reuse its source's ciphertext: a target secret still blank takes the source's value of
+// the same (device, env) as plaintext and is marked submitted, so encryptSecrets seals it under the target's
+// id. A linked variant's topology is the base's, so its secret always equals the base's: a stored value of
+// its own is kept only while it opens to the base's value (no re-encryption churn on every save), else
+// replaced, and it is cleared when the base has none. Sources resolve depth-first, before the variants that
+// use them (a variant linked to a new copy, a copy of a copy in any order); a copy cycle stops at the
+// variant already being resolved. A source that is not in variants is skipped.
+func (u *ExerciseUseCase) inheritSecrets(variants []exerciseModel.Variant, sources map[int]uuid.UUID, submitted map[string]bool) error {
+	positionByID := make(map[uuid.UUID]int, len(variants))
+	for i := len(variants) - 1; i >= 0; i-- {
+		positionByID[variants[i].ID] = i
+	}
+	resolved := make(map[int]bool, len(variants))
+	visiting := make(map[int]bool)
+	var resolve func(target int) error
+	resolve = func(target int) error {
+		if resolved[target] || visiting[target] {
+			return nil
+		}
+		visiting[target] = true
+		defer delete(visiting, target)
+		if sourceID, ok := sources[target]; ok {
+			if source, found := positionByID[sourceID]; found && source != target {
+				if err := resolve(source); err != nil {
+					return err
+				}
+				if err := u.inheritVariantSecrets(&variants[target], variants[source], variants[target].IsLinked(), submitted); err != nil {
+					return err
+				}
+			}
+		}
+		resolved[target] = true
+		return nil
+	}
+	for target := range variants {
+		if err := resolve(target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, source exerciseModel.Variant, linked bool, submitted map[string]bool) error {
+	for di := range target.Topology.Devices {
+		device := &target.Topology.Devices[di]
+		for ei := range device.EnvVars {
+			env := &device.EnvVars[ei]
+			if !env.Secret {
+				continue
+			}
+			targetKey := secretKey(target.ID, device.Name, env.Name)
+			if env.Value != "" && (!linked || submitted[targetKey]) {
+				continue
+			}
+			sourceValue := sourceSecret(source, device.Name, env.Name)
+			if sourceValue == "" {
+				if linked {
+					env.Value = ""
+				}
+				continue
+			}
+			plain, err := u.secretPlaintext(source.ID, device.Name, env.Name, sourceValue, submitted)
+			if err != nil {
+				return err
+			}
+			if env.Value != "" && u.cipher != nil {
+				own, openErr := u.cipher.DecryptWithContext(env.Value, envSecretContext(target.ID, device.Name, env.Name))
+				if openErr == nil && string(own) == plain {
+					continue
+				}
+				if openErr != nil {
+					log.Debug().Err(openErr).Str("variant", target.ID.String()).Str("device", device.Name).Str("env", env.Name).
+						Msg("Linked variant secret does not open; replaced with the base value")
+				}
+			}
+			env.Value = plain
+			submitted[targetKey] = true
+		}
+	}
+	return nil
+}
+
+// sourceSecret is the source variant's secret value of (device, env), "" when it has none.
+func sourceSecret(source exerciseModel.Variant, deviceName, envName string) string {
+	for _, device := range source.Topology.Devices {
+		if device.Name != deviceName {
+			continue
+		}
+		for _, env := range device.EnvVars {
+			if env.Secret && env.Name == envName {
+				return env.Value
+			}
+		}
+	}
+	return ""
+}
+
+// secretPlaintext opens a variant's secret value after the merge: a value submitted in this save is
+// plaintext, any other is the stored ciphertext sealed to that variant.
+func (u *ExerciseUseCase) secretPlaintext(variantID uuid.UUID, deviceName, envName, value string, submitted map[string]bool) (string, error) {
+	if submitted[secretKey(variantID, deviceName, envName)] {
+		return value, nil
+	}
+	if u.cipher == nil {
+		return "", exerciseModel.ErrSecretsNotConfigured.Err()
+	}
+	plain, err := u.cipher.DecryptWithContext(value, envSecretContext(variantID, deviceName, envName))
+	if err != nil {
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt the secret env var of the source variant").Err()
+	}
+	return string(plain), nil
 }
 
 // envSecretContext binds the ciphertext of a secret env var to its variant, device and name (the same identity

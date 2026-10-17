@@ -70,6 +70,10 @@ type Queries interface {
 	ListVersionVariantDevices(ctx context.Context, ids []uuid.UUID) ([]postgres.ListVersionVariantDevicesRow, error)
 	ListFileExerciseIDs(ctx context.Context, arg postgres.ListFileExerciseIDsParams) ([]uuid.UUID, error)
 	ListFileOwners(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileOwnersRow, error)
+	GetExerciseFileByHash(ctx context.Context, arg postgres.GetExerciseFileByHashParams) (postgres.GetExerciseFileByHashRow, error)
+	ClaimExerciseFile(ctx context.Context, arg postgres.ClaimExerciseFileParams) (uuid.UUID, error)
+	ListFileHashes(ctx context.Context, ids []uuid.UUID) ([]postgres.ListFileHashesRow, error)
+	ListExerciseHeldFiles(ctx context.Context, arg postgres.ListExerciseHeldFilesParams) ([]uuid.UUID, error)
 	ListUserNames(ctx context.Context, ids []uuid.UUID) ([]postgres.ListUserNamesRow, error)
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]postgres.ListUserEventMembershipsRow, error)
 	ListManagedExerciseAttachments(ctx context.Context, arg postgres.ListManagedExerciseAttachmentsParams) ([]postgres.ListManagedExerciseAttachmentsRow, error)
@@ -78,6 +82,9 @@ type Queries interface {
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (postgres.ExerciseProposal, error)
 	DecideExerciseProposal(ctx context.Context, arg postgres.DecideExerciseProposalParams) (int64, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]postgres.ListExerciseProposalsRow, error)
+	ListExerciseVariantIssues(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantIssuesRow, error)
+	ListExerciseVariantTaskSolves(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantTaskSolvesRow, error)
+	ListExerciseVariantSolveDepths(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ListExerciseVariantSolveDepthsRow, error)
 }
 
 // ListParams is the keyset-page query for the catalog list, in domain terms
@@ -222,6 +229,58 @@ func (r *Repository) ListUsage(ctx context.Context, exerciseID uuid.UUID, now ti
 	out := make([]UsageEvent, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, UsageEvent{ID: row.ID, Name: row.Name, Archived: row.Archived})
+	}
+	return out, nil
+}
+
+// VariantCounts are the grow-only facts of an exercise's variants, aggregated per version and variant
+// (query-side shapes): Issued counts teams, TaskSolves teams per subtask, Depths how many teams solved how many
+// distinct subtasks of a variant.
+type VariantCounts struct {
+	Issued     []VariantIssued
+	TaskSolves []VariantTaskSolves
+	Depths     []VariantSolveDepth
+}
+
+type VariantIssued struct {
+	VersionID, VariantID uuid.UUID
+	Teams                int64
+}
+
+type VariantTaskSolves struct {
+	VersionID, VariantID, TaskID uuid.UUID
+	Teams                        int64
+}
+
+type VariantSolveDepth struct {
+	VersionID, VariantID uuid.UUID
+	SolvedTasks, Teams   int64
+}
+
+// VariantStats returns the aggregated variant statistics of every version of the exercise.
+func (r *Repository) VariantStats(ctx context.Context, exerciseID uuid.UUID) (VariantCounts, error) {
+	issued, err := r.q.ListExerciseVariantIssues(ctx, exerciseID)
+	if err != nil {
+		return VariantCounts{}, err
+	}
+	solves, err := r.q.ListExerciseVariantTaskSolves(ctx, exerciseID)
+	if err != nil {
+		return VariantCounts{}, err
+	}
+	depths, err := r.q.ListExerciseVariantSolveDepths(ctx, exerciseID)
+	if err != nil {
+		return VariantCounts{}, err
+	}
+	out := VariantCounts{Issued: make([]VariantIssued, 0, len(issued)), TaskSolves: make([]VariantTaskSolves, 0, len(solves)),
+		Depths: make([]VariantSolveDepth, 0, len(depths))}
+	for _, row := range issued {
+		out.Issued = append(out.Issued, VariantIssued{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, Teams: row.Issued})
+	}
+	for _, row := range solves {
+		out.TaskSolves = append(out.TaskSolves, VariantTaskSolves{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, TaskID: row.TaskID, Teams: row.Solved})
+	}
+	for _, row := range depths {
+		out.Depths = append(out.Depths, VariantSolveDepth{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, SolvedTasks: row.SolvedTasks, Teams: row.Teams})
 	}
 	return out, nil
 }

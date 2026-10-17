@@ -49,6 +49,7 @@ type (
 		ListExerciseTags(ctx context.Context, actor exerciseUseCase.Actor, prefix string, limit int) ([]exerciseUseCase.ExerciseTagSuggestion, error)
 		UpdateExerciseIdentity(ctx context.Context, in exerciseUseCase.UpdateExerciseInput) (exerciseUseCase.ExerciseView, error)
 		GetExerciseUsage(ctx context.Context, id uuid.UUID) (exerciseUseCase.ExerciseUsage, error)
+		GetVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error)
 		DeleteExercise(ctx context.Context, id uuid.UUID) error
 		ArchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		UnarchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
@@ -79,6 +80,10 @@ type (
 		UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error)
 		GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error)
 		StreamFile(ctx context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error)
+		// ReadFileChunk opens chunk index of a stored file (chunks are UploadChunkBytes long) and reports its length.
+		ReadFileChunk(ctx context.Context, id uuid.UUID, index int) (io.ReadCloser, mediaModel.File, int64, error)
+		// LookupExerciseFile answers whether the task already stores a content (asked before an attachment upload).
+		LookupExerciseFile(ctx context.Context, exerciseID uuid.UUID, sha256 string) (exerciseUseCase.FileLookup, error)
 		// MaxUploadBytes is the same cap UploadFile enforces internally; the
 		// handler uses it to cap the request body at the HTTP boundary too
 		// (see files.go), so an oversized upload is rejected before the
@@ -139,6 +144,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// named wildcard (":id") was already claimed at that position.
 		ex.POST("files", self, h.uploadFile)
 		ex.GET("files/:fileID", self, h.downloadFile)
+		// chunked resumable download of a stored file (the export): the meta says how many chunks there are
+		ex.GET("files/:fileID/meta", self, h.fileMeta)
+		ex.GET("files/:fileID/chunks/:index", self, h.fileChunk)
 		// resumable chunked upload: chunks of at most 50 MiB through the API, in order
 		ex.POST("uploads", self, h.startUpload)
 		ex.GET("uploads/:uploadID", self, h.uploadStatus)
@@ -147,6 +155,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks
 		ex.POST("import/uploaded", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
+		// the built-in example archive: same gate as the import it explains
+		ex.GET("import/example", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importExample)
 		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)
 		ex.POST("import", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
 		ex.GET("capabilities", self, h.capabilities)
@@ -178,6 +188,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 		ex.GET(":id", self, h.authorize(exerciseUseCase.ActionReadPublished), h.get)
 		ex.GET(":id/usage", self, h.authorize(exerciseUseCase.ActionRead), h.usage)
+		ex.GET(":id/variant-stats", self, h.authorize(exerciseUseCase.ActionRead), h.variantStats)
 		ex.PATCH(":id", self, h.authorize(exerciseUseCase.ActionWrite), h.update)
 		ex.DELETE(":id", self, h.authorize(exerciseUseCase.ActionDelete), h.delete)
 		ex.POST(":id/archive", self, h.authorize(exerciseUseCase.ActionWrite), h.archive)
@@ -186,6 +197,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST(":id/proposals", self, h.authorize(exerciseUseCase.ActionPublish), h.propose)
 		ex.GET(":id/elevation", self, h.authorize(exerciseUseCase.ActionRead), h.exerciseElevation)
 		ex.POST(":id/elevation", self, h.authorize(exerciseUseCase.ActionWrite), h.requestElevation)
+		ex.POST(":id/files/lookup", self, h.authorize(exerciseUseCase.ActionWrite), h.lookupFile)
 
 		ex.GET(":id/versions", self, h.authorize(exerciseUseCase.ActionRead), h.listVersions)
 		ex.GET(":id/versions/:versionID", self, h.authorize(exerciseUseCase.ActionReadPublished), h.getVersion)
@@ -423,6 +435,29 @@ func (h *Handler) update(ctx *gin.Context) {
 	response.AbortWithData(ctx, exerciseToResponse(v))
 }
 
+// variantStats godoc
+// @Summary  Grow-only issue and solve counters of the exercise's variants, per version (newest first)
+// @Tags     exercises
+// @Produce  json
+// @Param    id  path  string  true  "exercise ID"
+// @Success  200  {object}  response.Response{data=[]versionVariantStatsResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  403  {object}  response.Response
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/{id}/variant-stats [get]
+func (h *Handler) variantStats(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	stats, err := h.useCase.GetVariantStats(ctx, id)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, variantStatsToResponse(stats))
+}
+
 // usage godoc
 // @Summary  Events (active or archived) where any version of the exercise is attached
 // @Tags     exercises
@@ -630,12 +665,15 @@ func (h *Handler) saveDraft(ctx *gin.Context) {
 	// assigns fresh content ids), so the request DTO must never be reused
 	// (logged/echoed) after this call.
 	variants := make([]exerciseModel.Variant, 0, len(req.Variants))
+	copyOf := make([]uuid.NullUUID, 0, len(req.Variants))
 	for _, v := range req.Variants {
 		variants = append(variants, v.toDomain())
+		copyOf = append(copyOf, v.copyOf())
 	}
 	view, err := h.useCase.SaveDraft(ctx, id, exerciseUseCase.SaveDraftInput{
 		AdminNote: req.AdminNote,
 		Variants:  variants,
+		CopyOf:    copyOf,
 		SavedBy:   claims.UserID,
 	})
 	if err != nil {

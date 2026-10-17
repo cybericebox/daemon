@@ -3,6 +3,8 @@ package exercise_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
@@ -31,6 +34,25 @@ var pgconnUniqueViolation = pgconn.PgError{
 type fakeMedia struct {
 	replaced map[uuid.UUID][]uuid.UUID
 	removed  []uuid.UUID
+	uploads  []fakeUpload
+}
+
+// fakeUpload is one UploadFile call: what the archive import sent to media.
+type fakeUpload struct {
+	ID          uuid.UUID
+	Name        string
+	ContentType string
+	Body        []byte
+}
+
+func (f *fakeMedia) UploadFile(_ context.Context, name, contentType string, body io.Reader, _ uuid.UUID) (mediaModel.File, error) {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return mediaModel.File{}, err
+	}
+	id := uuid.FromStringOrNil(fmt.Sprintf("0192f0a0-0000-7000-8000-%012d", len(f.uploads)+1))
+	f.uploads = append(f.uploads, fakeUpload{ID: id, Name: name, ContentType: contentType, Body: data})
+	return mediaModel.File{ID: id, Name: name, ContentType: contentType}, nil
 }
 
 func newFakeMedia() *fakeMedia { return &fakeMedia{replaced: map[uuid.UUID][]uuid.UUID{}} }

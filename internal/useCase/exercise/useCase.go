@@ -50,8 +50,10 @@ type ExerciseUseCase struct {
 	// resources is the platform's device resources settings (zero: the owner's defaults, see Policy).
 	resources resourcesModel.Policy
 	// testLabGate admits a test laboratory into the resource calendar; nil: no check.
-	testLabGate    TestLabGate
-	elevations     IElevations     // nil in narrow constructions: no approvals exist then
+	testLabGate TestLabGate
+	elevations  IElevations // nil in narrow constructions: no approvals exist then
+	// fileGCGrace is the media GC grace window the per-task file store follows.
+	fileGCGrace    time.Duration
 	elevationInbox IElevationInbox // nil until wired; elevation notifications are then skipped
 	// expiry schedules the end of a test lab's lease; nil: only the periodic sweep removes expired labs.
 	expiry ITestDeployExpiry
@@ -91,6 +93,9 @@ type Dependencies struct {
 	// Resources are the platform's device resources settings; Elevations the store of elevation requests.
 	Resources  resourcesModel.Policy
 	Elevations IElevations
+	// FileGCGrace is the media GC grace window (MEDIA_GC_GRACE): a stored file of a task past it with no
+	// reference is not offered or kept as the task's copy. Zero: the default 24h.
+	FileGCGrace time.Duration
 }
 
 type FlagPolicy struct {
@@ -125,6 +130,7 @@ func NewExerciseUseCase(deps Dependencies) *ExerciseUseCase {
 		flagConfig:  deps.FlagConfig,
 		resources:   deps.Resources,
 		elevations:  deps.Elevations,
+		fileGCGrace: deps.FileGCGrace,
 	}
 }
 

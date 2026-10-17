@@ -1,0 +1,8 @@
+DROP TRIGGER IF EXISTS team_challenge_solves_variant_stats ON team_challenge_solves;
+DROP TRIGGER IF EXISTS team_challenges_variant_stats ON team_challenges;
+DROP FUNCTION IF EXISTS exercise_variant_stats_backfill();
+DROP FUNCTION IF EXISTS exercise_variant_stats_solve();
+DROP FUNCTION IF EXISTS exercise_variant_stats_issue();
+DROP FUNCTION IF EXISTS exercise_variant_stats_variant_id(jsonb, integer);
+DROP TABLE IF EXISTS exercise_variant_solve_marks;
+DROP TABLE IF EXISTS exercise_variant_issue_marks;

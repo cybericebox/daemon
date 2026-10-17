@@ -118,6 +118,38 @@ func (u *MediaUseCase) StreamFile(ctx context.Context, id uuid.UUID) (io.ReadClo
 	return rc, f, nil
 }
 
+// ChunkCount is how many chunks of chunkBytes a file of size bytes takes (0 for a non-positive chunk size).
+func ChunkCount(size, chunkBytes int64) int {
+	if chunkBytes <= 0 {
+		return 0
+	}
+	return int((size + chunkBytes - 1) / chunkBytes)
+}
+
+// ReadFileChunk opens chunk index (0-based) of a stored file, chunks being UploadChunkBytes long (the last one holds
+// the rest), and reports the chunk length. An index outside the file reads as a missing file. The caller closes the
+// reader.
+func (u *MediaUseCase) ReadFileChunk(ctx context.Context, id uuid.UUID, index int) (io.ReadCloser, mediaModel.File, int64, error) {
+	if !u.storageConfigured {
+		return nil, mediaModel.File{}, 0, model.ErrPlatform.WithMessage("File storage is not configured").Err()
+	}
+	f, err := u.GetFile(ctx, id)
+	if err != nil {
+		return nil, mediaModel.File{}, 0, err
+	}
+	chunk := u.cfg.UploadChunkBytes
+	if index < 0 || index >= ChunkCount(f.SizeBytes, chunk) {
+		return nil, mediaModel.File{}, 0, mediaModel.ErrFileNotFound.Err()
+	}
+	offset := int64(index) * chunk
+	length := min(chunk, f.SizeBytes-offset)
+	rc, err := u.storage.GetRange(ctx, mediaModel.BlobKey(f.ContentHash), offset, length)
+	if err != nil {
+		return nil, mediaModel.File{}, 0, model.ErrPlatform.WithError(err).WithMessage("Failed to open blob chunk").Err()
+	}
+	return rc, f, length, nil
+}
+
 // GetFile returns a logical file's metadata (no blob access, so it works
 // without object storage) — e.g. to validate references and sum sizes.
 func (u *MediaUseCase) GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error) {

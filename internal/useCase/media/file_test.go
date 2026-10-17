@@ -43,6 +43,14 @@ func (f *fakeStorage) Get(_ context.Context, key string) (io.ReadCloser, string,
 	}
 	return io.NopCloser(bytes.NewReader(b)), "", nil
 }
+func (f *fakeStorage) GetRange(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	b, ok := f.objects[key]
+	if !ok {
+		return nil, errors.New("missing")
+	}
+	end := min(offset+length, int64(len(b)))
+	return io.NopCloser(bytes.NewReader(b[offset:end])), nil
+}
 func (f *fakeStorage) Remove(_ context.Context, key string) error { delete(f.objects, key); return nil }
 func (f *fakeStorage) Stat(_ context.Context, key string) (bool, error) {
 	_, ok := f.objects[key]
@@ -160,5 +168,33 @@ func TestGetFile_NotFound(t *testing.T) {
 	_, err := uc.GetFile(context.Background(), uuid.Must(uuid.NewV7()))
 	if !errors.Is(err, mediaModel.ErrFileNotFound.Err()) {
 		t.Fatalf("want ErrFileNotFound, got %v", err)
+	}
+}
+
+// 10 bytes in 4-byte chunks: indexes 0..2, the last chunk is half a chunk, index 3 does not exist.
+func TestReadFileChunk_Bounds(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	st := newFakeStorage()
+	uc := media.NewMediaUseCase(media.Dependencies{Repo: q, Storage: st, Config: config.MediaConfig{MaxUploadBytes: 100, UploadChunkBytes: 4}})
+	id := uuid.FromStringOrNil("11111111-1111-7111-8111-111111111111")
+	st.objects[mediaModel.BlobKey("h")] = []byte("0123456789")
+	q.EXPECT().GetFileByID(gomock.Any(), id).Return(postgres.File{ID: id, SizeBytes: 10, ContentHash: "h"}, nil).AnyTimes()
+
+	for index, want := range map[int]string{0: "0123", 1: "4567", 2: "89"} {
+		rc, _, length, err := uc.ReadFileChunk(context.Background(), id, index)
+		if err != nil {
+			t.Fatalf("chunk %d: %v", index, err)
+		}
+		got, _ := io.ReadAll(rc)
+		_ = rc.Close()
+		if string(got) != want || length != int64(len(want)) {
+			t.Fatalf("chunk %d: body %q length %d", index, got, length)
+		}
+	}
+	for _, index := range []int{3, -1} {
+		if _, _, _, err := uc.ReadFileChunk(context.Background(), id, index); !errors.Is(err, mediaModel.ErrFileNotFound.Err()) {
+			t.Fatalf("index %d: want ErrFileNotFound, got %v", index, err)
+		}
 	}
 }

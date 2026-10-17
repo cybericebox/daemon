@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 78
+// ExerciseObjectCode — next free detail code: 92
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -225,4 +225,58 @@ var (
 	// ErrDeviceCustomResources: a device size is a preset (a whole number of blocks); custom values are not accepted.
 	ErrDeviceCustomResources = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("A device size is a preset: custom resources are not accepted").WithDetailCode(74)
+	// ErrVariantLinkInvalid: a linked variant must point to another, unlinked variant of the same version;
+	// the context names the 1-based position of the offending variant.
+	ErrVariantLinkInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("A linked variant must point to an unlinked variant of the same version").WithDetailCode(78)
+	// ErrLinkedFlagsNotDistinct: a base and its linked variants share a fixed flag value for one task.
+	ErrLinkedFlagsNotDistinct = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Linked variants of one base need different flags for the same task").WithDetailCode(79)
+	// ErrArchiveInvalid: the exercise archive document breaks the schema. One public fact: the
+	// `reason` context says what and where (a key, a 1-based path), so the author can fix the file.
+	ErrArchiveInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Exercise archive is invalid").WithDetailCode(80)
+	// ErrArchiveImageFileUnsupported: the {file: ...} form of a device image is reserved; the context
+	// names the device.
+	ErrArchiveImageFileUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Device images inside the archive are not supported yet").WithDetailCode(88)
+	// ErrArchiveSchemaUnsupported: the document does not declare schema cib-exercise/1; the context
+	// `expected` names the schema.
+	ErrArchiveSchemaUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Unsupported archive schema: expected schema: cib-exercise/1").WithDetailCode(90)
+	// ErrArchiveTooLarge: an archive (imported or being exported) is over the archive limits: the zip, one file
+	// or all files unpacked, the number of entries, or how far a file expands; the context `reason` says which.
+	ErrArchiveTooLarge = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The archive is over the size limits").WithDetailCode(91)
+	// ErrArchiveBothDocuments: a task folder holds exercise.json and exercise.yaml at once.
+	ErrArchiveBothDocuments = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("A task folder holds both exercise.json and exercise.yaml").WithDetailCode(81)
+	// ErrArchiveFileUnlinked: a file in the archive that no task folder holds, or that nothing in its task
+	// folder's exercise.* links to; the context `file` names it.
+	ErrArchiveFileUnlinked = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The archive holds a file nothing links to").WithDetailCode(82)
+	// ErrArchivePathInvalid: a symlink entry, an unsafe zip path, or a link that leaves its task folder or names
+	// exercise.* / manifest.json; the context `file` names the path and `reason` says why.
+	ErrArchivePathInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("An archive path is not allowed").WithDetailCode(85)
+	// ErrArchiveFileMissing: a link in exercise.* names a file its task folder does not hold; the context `file`
+	// names the link.
+	ErrArchiveFileMissing = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("A link names a file the archive does not hold").WithDetailCode(89)
+	// ErrArchiveLinkedVariantField: a linked variant of the archive carries a key it does not own, or tasks that
+	// do not match its base (another count, another task id); the context `field` is the 1-based path.
+	ErrArchiveLinkedVariantField = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("A linked variant may carry only its note and, per task, the flag and attachments").WithDetailCode(86)
+	// ErrArchiveLinkedToInvalid: linked_to names no variant of the version, the variant itself or a linked
+	// variant; the context `variant` is the 1-based path of the linked variant and `linked_to` the value.
+	ErrArchiveLinkedToInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("linked_to must name an unlinked variant of the same version").WithDetailCode(87)
+	// ErrArchiveDescriptionKeyUnknown: a {{key}} in a plain-text task description names no placeholder of
+	// that task; the context `key` is the name and `task` the task.
+	ErrArchiveDescriptionKeyUnknown = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Task description names an unknown placeholder").WithDetailCode(84)
+	// ErrArchiveChecksumMismatch: a file differs from manifest.json; the context `file` names it. Editing an
+	// archive by hand breaks the checksums, so the fix is to delete manifest.json.
+	ErrArchiveChecksumMismatch = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Archive checksum mismatch: delete manifest.json after editing an archive by hand").WithDetailCode(83)
 )
