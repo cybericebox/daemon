@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -116,16 +117,31 @@ func (g *gitHub) ListRepositories(ctx context.Context, account, token string) ([
 
 func isNotFound(err error) bool { return errors.Is(err, ociregistry.ErrNotFound) }
 
-func (g *gitHub) DeleteTag(ctx context.Context, account, token, repository, tag string) error {
+// DeleteTags deletes the package versions that carry the tags. A version is deleted only when every tag it
+// carries is among tags (the tags of one digest sit on one version); a version with other tags too is kept
+// and ErrTagShared returned once the others were handled.
+func (g *gitHub) DeleteTags(ctx context.Context, account, token, repository string, tags []string) error {
+	if len(tags) == 0 {
+		return nil
+	}
 	pkg := repository
 	if p := strings.ToLower(account) + "/"; strings.HasPrefix(strings.ToLower(repository), p) {
 		pkg = repository[len(p):]
 	}
+	given := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		given[t] = true
+	}
+	type version struct {
+		id   int64
+		tags []string
+	}
 	var lastErr error
 	for _, owner := range ownerPaths(account) {
 		base := g.base + owner + "/packages/container/" + url.PathEscape(pkg) + "/versions"
-		var id int64
-		var tags []string
+		var found []version
+		left := len(given)
+		seen := map[string]bool{}
 		err := g.paged(ctx, "list versions", token, base+"?per_page=100", func(b []byte) error {
 			var items []struct {
 				ID       int64 `json:"id"`
@@ -139,11 +155,18 @@ func (g *gitHub) DeleteTag(ctx context.Context, account, token, repository, tag 
 				return err
 			}
 			for _, it := range items {
+				carries := false
 				for _, t := range it.Metadata.Container.Tags {
-					if t == tag {
-						id, tags = it.ID, it.Metadata.Container.Tags
-						return errStop
+					if given[t] && !seen[t] {
+						seen[t], carries = true, true
+						left--
 					}
+				}
+				if carries {
+					found = append(found, version{it.ID, it.Metadata.Container.Tags})
+				}
+				if left == 0 {
+					return errStop
 				}
 			}
 			return nil
@@ -155,24 +178,23 @@ func (g *gitHub) DeleteTag(ctx context.Context, account, token, repository, tag 
 			}
 			return err
 		}
-		if id == 0 {
-			return nil
-		}
-		for _, t := range tags {
-			if t != tag {
-				return fmt.Errorf("delete version: %w", ErrTagShared)
+		var shared error
+		for _, v := range found {
+			if slices.ContainsFunc(v.tags, func(t string) bool { return !given[t] }) {
+				shared = fmt.Errorf("delete version: %w", ErrTagShared)
+				continue
+			}
+			code, h, _, err := call(ctx, g.hc, "delete version", http.MethodDelete, base+"/"+strconv.FormatInt(v.id, 10), ghHeaders(token), nil)
+			if err != nil {
+				return err
+			}
+			if code != http.StatusNotFound && (code < 200 || code >= 300) {
+				return statusErr("delete version", code, h)
 			}
 		}
-		code, h, _, err := call(ctx, g.hc, "delete version", http.MethodDelete, base+"/"+strconv.FormatInt(id, 10), ghHeaders(token), nil)
-		if err != nil {
-			return err
-		}
-		if code == http.StatusNotFound || (code >= 200 && code < 300) {
-			return nil
-		}
-		return statusErr("delete version", code, h)
+		return shared
 	}
 	// neither the org nor the user path shows the package (private packages invisible to the token also
-	// answer 404), so report it instead of pretending the tag is gone
+	// answer 404), so report it instead of pretending the tags are gone
 	return lastErr
 }

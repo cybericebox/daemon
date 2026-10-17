@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -16,7 +17,10 @@ import (
 	"github.com/cybericebox/daemon/pkg/ociregistry/provider"
 )
 
-type deleteCall struct{ account, token, repository, tag string }
+type deleteCall struct {
+	account, token, repository string
+	tags                       []string
+}
 
 type gcAdapter struct {
 	fakeAdapter
@@ -24,9 +28,9 @@ type gcAdapter struct {
 	errs  map[string]error
 }
 
-func (a *gcAdapter) DeleteTag(_ context.Context, account, token, repository, tag string) error {
-	a.calls = append(a.calls, deleteCall{account, token, repository, tag})
-	return a.errs[tag]
+func (a *gcAdapter) DeleteTags(_ context.Context, account, token, repository string, tags []string) error {
+	a.calls = append(a.calls, deleteCall{account, token, repository, tags})
+	return a.errs[tags[0]]
 }
 
 func gcFixture(t *testing.T) (*fixture, *gcAdapter) {
@@ -77,7 +81,7 @@ func TestCollectDeletesEveryTagOfAnUnreferencedDigest(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("n=%d err=%v", n, err)
 	}
-	want := []deleteCall{{"acme", pushToken, "acme/platform", "web-aa"}, {"acme", pushToken, "acme/platform", "old-aa"}}
+	want := []deleteCall{{"acme", pushToken, "acme/platform", []string{"web-aa", "old-aa"}}}
 	if fmt.Sprint(a.calls) != fmt.Sprint(want) {
 		t.Fatalf("calls %v want %v", a.calls, want)
 	}
@@ -163,7 +167,7 @@ func TestCollectSkipsADigestReferencedAgain(t *testing.T) {
 	f.expectCollectable("sha256:bb", true)
 	f.expectRowDeleted("sha256:bb", "three")
 	n, err := f.uc.CollectUnusedTags(context.Background(), t0)
-	if err != nil || n != 1 || len(a.calls) != 1 || a.calls[0].tag != "three" {
+	if err != nil || n != 1 || len(a.calls) != 1 || fmt.Sprint(a.calls[0].tags) != "[three]" {
 		t.Fatalf("n=%d err=%v calls=%v", n, err, a.calls)
 	}
 }
@@ -179,4 +183,44 @@ func TestCollectKeepsARowTheConditionalDeleteRefused(t *testing.T) {
 	if err != nil || n != 0 || len(a.calls) != 1 {
 		t.Fatalf("n=%d err=%v calls=%v", n, err, a.calls)
 	}
+}
+
+// ghcrVersions behaves like GitHub Packages: one package version per digest carries all its tags, and a
+// version is deleted whole, only when every tag it carries is being removed.
+type ghcrVersions struct {
+	fakeAdapter
+	versions map[string][]string // version → its tags
+	deleted  []string
+}
+
+// GHCR keeps one version per digest: the tags of rows of one digest all sit on it, so they go together.
+func TestCollectRemovesASharedGHCRVersionWithAllItsTags(t *testing.T) {
+	f, _ := gcFixture(t)
+	a := &ghcrVersions{versions: map[string][]string{"v-aa": {"web-aa", "old-aa"}}}
+	f.uc.adapter = func(imageRegistryModel.Provider) provider.Adapter { return a }
+	f.expectSweep()
+	f.unreferenced(img("sha256:aa", "old-aa"), img("sha256:aa", "web-aa"))
+	f.expectCollectable("sha256:aa", true)
+	f.expectRowDeleted("sha256:aa", "old-aa")
+	f.expectRowDeleted("sha256:aa", "web-aa")
+	n, err := f.uc.CollectUnusedTags(context.Background(), t0)
+	if err != nil || n != 2 || fmt.Sprint(a.deleted) != "[v-aa]" {
+		t.Fatalf("n=%d err=%v deleted=%v", n, err, a.deleted)
+	}
+}
+
+func (a *ghcrVersions) DeleteTags(_ context.Context, _, _, _ string, tags []string) error {
+	var shared error
+	for v, carried := range a.versions {
+		if !slices.ContainsFunc(carried, func(t string) bool { return slices.Contains(tags, t) }) {
+			continue
+		}
+		if slices.ContainsFunc(carried, func(t string) bool { return !slices.Contains(tags, t) }) {
+			shared = provider.ErrTagShared
+			continue
+		}
+		a.deleted = append(a.deleted, v)
+		delete(a.versions, v)
+	}
+	return shared
 }

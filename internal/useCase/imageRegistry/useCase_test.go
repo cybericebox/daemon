@@ -88,7 +88,7 @@ func (a *fakeAdapter) ListRepositories(_ context.Context, _, token string) ([]st
 	return a.repos, a.err
 }
 
-func (a *fakeAdapter) DeleteTag(context.Context, string, string, string, string) error { return nil }
+func (a *fakeAdapter) DeleteTags(context.Context, string, string, string, []string) error { return nil }
 
 func testCipher(t *testing.T) *secret.Cipher {
 	c, err := secret.NewFromBytes([]byte("0123456789abcdef0123456789abcdef"))

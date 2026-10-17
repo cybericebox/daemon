@@ -90,7 +90,12 @@ func (d *dockerHub) ListRepositories(ctx context.Context, account, token string)
 	return out, nil
 }
 
-func (d *dockerHub) DeleteTag(ctx context.Context, account, token, repository, tag string) error {
+// DeleteTags deletes each tag on its own (Docker Hub tags are independent); the first failure is returned
+// after the other tags were tried.
+func (d *dockerHub) DeleteTags(ctx context.Context, account, token, repository string, tags []string) error {
+	if len(tags) == 0 {
+		return nil
+	}
 	ns, repo := account, repository
 	if i := strings.Index(repository, "/"); i >= 0 {
 		ns, repo = repository[:i], repository[i+1:]
@@ -99,14 +104,17 @@ func (d *dockerHub) DeleteTag(ctx context.Context, account, token, repository, t
 	if err != nil {
 		return err
 	}
-	u := d.base + "/v2/namespaces/" + url.PathEscape(ns) + "/repositories/" + url.PathEscape(repo) + "/tags/" + url.PathEscape(tag)
-	code, h, _, err := call(ctx, d.hc, "delete tag", http.MethodDelete, u,
-		map[string]string{"Authorization": "Bearer " + bearer, "Accept": "application/json"}, nil)
-	if err != nil {
-		return err
+	var first error
+	for _, tag := range tags {
+		u := d.base + "/v2/namespaces/" + url.PathEscape(ns) + "/repositories/" + url.PathEscape(repo) + "/tags/" + url.PathEscape(tag)
+		code, h, _, err := call(ctx, d.hc, "delete tag", http.MethodDelete, u,
+			map[string]string{"Authorization": "Bearer " + bearer, "Accept": "application/json"}, nil)
+		if err == nil && code != http.StatusNotFound && (code < 200 || code >= 300) {
+			err = statusErr("delete tag", code, h)
+		}
+		if err != nil && first == nil {
+			first = err
+		}
 	}
-	if code == http.StatusNotFound || (code >= 200 && code < 300) {
-		return nil
-	}
-	return statusErr("delete tag", code, h)
+	return first
 }

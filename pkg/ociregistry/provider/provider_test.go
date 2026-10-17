@@ -131,7 +131,7 @@ func TestDockerHubDelete(t *testing.T) {
 	status := 204
 	srv := hubServer(t, r, func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(status) })
 	a := NewDockerHub(srv.URL, srv.Client())
-	if err := a.DeleteTag(context.Background(), "acme", tok, "acme/app", "v1"); err != nil {
+	if err := a.DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"v1"}); err != nil {
 		t.Fatal(err)
 	}
 	last := r.reqs[len(r.reqs)-1]
@@ -139,11 +139,11 @@ func TestDockerHubDelete(t *testing.T) {
 		t.Fatalf("got %s", last)
 	}
 	status = 404
-	if err := a.DeleteTag(context.Background(), "acme", tok, "acme/app", "v1"); err != nil {
+	if err := a.DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"v1"}); err != nil {
 		t.Fatalf("missing tag must be nil, got %v", err)
 	}
 	status = 403
-	if err := a.DeleteTag(context.Background(), "acme", tok, "acme/app", "v1"); !errors.Is(err, ociregistry.ErrUnauthorized) {
+	if err := a.DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"v1"}); !errors.Is(err, ociregistry.ErrUnauthorized) {
 		t.Fatalf("got %v", err)
 	}
 	r.noTokenInURL(t)
@@ -246,7 +246,7 @@ func TestGitHubDeleteTag(t *testing.T) {
 		}
 	})
 	a := NewGitHub(srv.URL, srv.Client())
-	if err := a.DeleteTag(context.Background(), "acme", tok, "acme/sub/tool", "v1"); err != nil {
+	if err := a.DeleteTags(context.Background(), "acme", tok, "acme/sub/tool", []string{"v1"}); err != nil {
 		t.Fatal(err)
 	}
 	var del string
@@ -262,7 +262,7 @@ func TestGitHubDeleteTag(t *testing.T) {
 		t.Fatalf("got %q", del)
 	}
 	r.reqs = nil
-	if err := a.DeleteTag(context.Background(), "acme", tok, "acme/sub/tool", "missing"); err != nil {
+	if err := a.DeleteTags(context.Background(), "acme", tok, "acme/sub/tool", []string{"missing"}); err != nil {
 		t.Fatalf("absent tag must be nil: %v", err)
 	}
 	for _, s := range r.reqs {
@@ -285,7 +285,7 @@ func TestGitHubDeleteUserFallback(t *testing.T) {
 			w.WriteHeader(404)
 		}
 	})
-	if err := NewGitHub(srv.URL, srv.Client()).DeleteTag(context.Background(), "bob", tok, "bob/x", "t"); err != nil {
+	if err := NewGitHub(srv.URL, srv.Client()).DeleteTags(context.Background(), "bob", tok, "bob/x", []string{"t"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -305,7 +305,7 @@ func TestGitHubDeleteSharedVersion(t *testing.T) {
 		}
 		w.WriteHeader(404)
 	})
-	err := NewGitHub(srv.URL, srv.Client()).DeleteTag(context.Background(), "acme", tok, "acme/app", "v1")
+	err := NewGitHub(srv.URL, srv.Client()).DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"v1"})
 	if !errors.Is(err, ErrTagShared) {
 		t.Fatalf("got %v", err)
 	}
@@ -319,7 +319,7 @@ func TestGitHubDeleteSharedVersion(t *testing.T) {
 func TestGitHubDeleteBothNotFound(t *testing.T) {
 	r := &rec{}
 	srv := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) { w.WriteHeader(404) })
-	err := NewGitHub(srv.URL, srv.Client()).DeleteTag(context.Background(), "acme", tok, "acme/app", "v1")
+	err := NewGitHub(srv.URL, srv.Client()).DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"v1"})
 	if !errors.Is(err, ociregistry.ErrNotFound) {
 		t.Fatalf("got %v", err)
 	}
@@ -339,7 +339,7 @@ func TestGitHubDeleteStopsPagingWhenFound(t *testing.T) {
 			w.WriteHeader(204)
 		}
 	})
-	if err := NewGitHub(srv.URL, srv.Client()).DeleteTag(context.Background(), "acme", tok, "acme/app", "v1"); err != nil {
+	if err := NewGitHub(srv.URL, srv.Client()).DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"v1"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -384,5 +384,58 @@ func TestRedirectToOtherHostRefused(t *testing.T) {
 	}
 	if len(evil.reqs) != 0 {
 		t.Fatalf("redirect followed: %v", evil.reqs)
+	}
+}
+
+// A version is deleted when every tag it carries is given; one that also carries a tag not given stays
+// (ErrTagShared), after the others were deleted.
+func TestGitHubDeleteTagsDeletesAVersionWhoseTagsAllGo(t *testing.T) {
+	r := &rec{}
+	srv := ghServer(t, r, func(w http.ResponseWriter, q *http.Request) {
+		switch {
+		case q.Method == "GET" && q.URL.Path == "/orgs/acme/packages/container/app/versions":
+			_, _ = w.Write([]byte(`[{"id":7,"metadata":{"container":{"tags":["web-aa","old-aa"]}}},{"id":8,"metadata":{"container":{"tags":["web-bb","keep"]}}}]`))
+		case q.Method == "DELETE":
+			w.WriteHeader(204)
+		default:
+			w.WriteHeader(404)
+		}
+	})
+	a := NewGitHub(srv.URL, srv.Client())
+	if err := a.DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"web-aa", "old-aa"}); err != nil {
+		t.Fatal(err)
+	}
+	r.reqs = nil
+	err := a.DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"web-aa", "old-aa", "web-bb"})
+	if !errors.Is(err, ErrTagShared) {
+		t.Fatalf("got %v", err)
+	}
+	var dels []string
+	for _, s := range r.reqs {
+		if strings.HasPrefix(s, "DELETE") {
+			dels = append(dels, s)
+		}
+	}
+	if strings.Join(dels, ",") != "DELETE /orgs/acme/packages/container/app/versions/7" {
+		t.Fatalf("deletes %v", dels)
+	}
+}
+
+// Docker Hub tags are independent: each is deleted; a failure does not stop the others and is returned.
+func TestDockerHubDeleteTagsTriesEveryTag(t *testing.T) {
+	r := &rec{}
+	srv := hubServer(t, r, func(w http.ResponseWriter, q *http.Request) {
+		if strings.HasSuffix(q.URL.Path, "/bad") {
+			w.WriteHeader(500)
+			return
+		}
+		w.WriteHeader(204)
+	})
+	err := NewDockerHub(srv.URL, srv.Client()).DeleteTags(context.Background(), "acme", tok, "acme/app", []string{"bad", "ok"})
+	if !errors.Is(err, ociregistry.ErrUnreachable) {
+		t.Fatalf("got %v", err)
+	}
+	if last := r.reqs[len(r.reqs)-1]; last != "DELETE /v2/namespaces/acme/repositories/app/tags/ok" {
+		t.Fatalf("got %s", last)
 	}
 }

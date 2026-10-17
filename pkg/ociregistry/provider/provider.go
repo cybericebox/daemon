@@ -24,8 +24,10 @@ const (
 type Adapter interface {
 	// ListRepositories returns "account/name" for every repository the token can see.
 	ListRepositories(ctx context.Context, account, token string) ([]string, error)
-	// DeleteTag removes a tag from a repository ("account/name"). An absent tag is not an error.
-	DeleteTag(ctx context.Context, account, token, repository, tag string) error
+	// DeleteTags removes tags from a repository ("account/name"); an absent tag is not an error. Where the
+	// provider deletes a whole package version (GitHub), a version is deleted only when every tag it carries
+	// is among tags; otherwise ErrTagShared and that version stays.
+	DeleteTags(ctx context.Context, account, token, repository string, tags []string) error
 }
 
 // Default returns the adapter for a provider ("dockerhub" or "ghcr") on its real API, or nil.
@@ -39,7 +41,7 @@ func Default(provider string) Adapter {
 	return nil
 }
 
-// ErrTagShared: the tag cannot be removed because its package version carries other tags too.
+// ErrTagShared: a tag cannot be removed because its package version carries other tags too (not all given).
 var ErrTagShared = errors.New("tag shares its package version with other tags")
 
 var errCrossHost = fmt.Errorf("%w: pagination link points to another host", ociregistry.ErrUnreachable)
