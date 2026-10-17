@@ -104,6 +104,8 @@ func TestExportName_Sanitizes(t *testing.T) {
 		"dir/":               "file",
 		"tab\there":          "tab_here",
 		".DS_Store":          "_.DS_Store",
+		"exercise.json":      "_exercise.json",
+		"exercise.yaml":      "_exercise.yaml",
 		norm.NFD.String("й"): "й",
 		"Звіт.pdf":           "Звіт.pdf",
 	}
@@ -658,4 +660,68 @@ func TestExportThenImport_RoundTripRich(t *testing.T) {
 	require.JSONEq(t, string(contentIDs(t, want, body)), string(contentIDs(t, parsed.Versions, func(id uuid.UUID) []byte {
 		return parsed.Files[parsed.FilePaths[id]]
 	})))
+}
+
+// exportVersions exports versions of one exercise with the given media.
+func exportVersions(t *testing.T, versions []exerciseModel.ExerciseVersion, media *exportMedia) []byte {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	expectExport(t, q, exportExerciseID, "Повний", versions)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
+	require.NoError(t, err)
+	return data
+}
+
+// A file stored as exercise.yaml, attached without a shown name, is renamed in the archive and keeps its
+// shown name.
+func TestExportExerciseArchive_MediaNameFallbackReserved(t *testing.T) {
+	media := &exportMedia{fakeMedia: newFakeMedia(), files: map[uuid.UUID]storedFile{
+		fileNameless: {name: "exercise.yaml", body: []byte("yaml bytes")},
+	}}
+	versions := []exerciseModel.ExerciseVersion{{ID: exportID(920), Status: exerciseModel.VersionStatusDraft, Variants: []exerciseModel.Variant{{
+		ID: exportID(40), Tasks: []exerciseModel.Task{{ID: exportID(41), Name: "t", Attachments: []exerciseModel.AttachmentRef{{FileID: fileNameless}}}},
+	}}}}
+	data := exportVersions(t, versions, media)
+	var doc struct {
+		Versions []struct {
+			Variants []struct {
+				Tasks []struct {
+					Attachments []map[string]string `json:"attachments"`
+				} `json:"tasks"`
+			} `json:"variants"`
+		} `json:"versions"`
+	}
+	require.NoError(t, json.Unmarshal(exportedDocument(t, data), &doc))
+	require.Equal(t, []map[string]string{{"file": "files/v1/variant-1/1/_exercise.yaml", "name": "exercise.yaml"}},
+		doc.Versions[0].Variants[0].Tasks[0].Attachments)
+	parsed, err := exercise.ParseExerciseArchive(data, "")
+	require.NoError(t, err)
+	ref := parsed.Versions[0].Variants[0].Tasks[0].Attachments[0]
+	require.Equal(t, "exercise.yaml", ref.Name)
+	require.Equal(t, []byte("yaml bytes"), parsed.Files[parsed.FilePaths[ref.FileID]])
+}
+
+// Export, re-import, export again: the same document and files, _exercise.json at the same path with the
+// shown name exercise.json.
+func TestExportImportExport_Idempotent(t *testing.T) {
+	first := exportVersions(t, richVersions(), richMedia())
+	parsed, err := exercise.ParseExerciseArchive(first, "")
+	require.NoError(t, err)
+	exercise.NormalizeContentIDs(parsed.Versions[0].Variants)
+	media := &exportMedia{fakeMedia: newFakeMedia(), files: map[uuid.UUID]storedFile{}}
+	for id, filePath := range parsed.FilePaths {
+		media.files[id] = storedFile{name: parsed.FileMeta[id].Name, body: parsed.Files[filePath]}
+	}
+	second := exportVersions(t, parsed.Versions, media)
+
+	firstFiles, err := exercise.ReadArchiveV1(bytes.NewReader(first))
+	require.NoError(t, err)
+	secondFiles, err := exercise.ReadArchiveV1(bytes.NewReader(second))
+	require.NoError(t, err)
+	require.Equal(t, firstFiles, secondFiles)
+	require.Contains(t, secondFiles, "files/v1/variant-1/1/_exercise.json")
+	require.Contains(t, string(secondFiles["exercise.json"]), `"file": "files/v1/variant-1/1/_exercise.json",
+                  "name": "exercise.json"`)
 }
