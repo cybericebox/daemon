@@ -338,9 +338,13 @@ type (
 		// Port is the plain-HTTP listener (HTTP_SERVER_PORT). Unset it is off when TLS is on (TLS only) and 8080
 		// otherwise; set but empty turns it off. The default is applied in populateForAllConfig: the env tag
 		// cannot tell unset from empty.
-		Port               string        `env:"PORT"`
-		ReadTimeout        time.Duration `env:"READ_TIMEOUT"  envDefault:"10s"`
-		WriteTimeout       time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
+		Port         string        `env:"PORT"`
+		ReadTimeout  time.Duration `env:"READ_TIMEOUT"  envDefault:"10s"`
+		WriteTimeout time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
+		// IdleTimeout keeps an idle keep-alive connection open (IDLE_TIMEOUT). Unset, Go falls back to ReadTimeout and
+		// closes Cloudflare's origin connection after every 10 s pause; the next request then waits for a new one.
+		// Keep it under the load balancer's 350 s TCP idle timeout.
+		IdleTimeout        time.Duration `env:"IDLE_TIMEOUT" envDefault:"300s"`
 		MaxHeaderMegabytes int           `env:"MAX_HEADER_MB" envDefault:"1"`
 		// HTTPSPort is the TLS listener (default 8443); it runs only when TLS.CertFile and TLS.KeyFile are both set.
 		HTTPSPort string              `env:"HTTPS_PORT" envDefault:"8443"`
