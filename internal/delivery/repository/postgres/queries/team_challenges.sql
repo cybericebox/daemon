@@ -344,11 +344,27 @@ WHERE tc.event_team_id = sqlc.arg(event_team_id)
 ORDER BY tc.created_at DESC, tc.id DESC
 LIMIT 1;
 
--- name: CountEventTeamsBefore :one
--- The flag slot of a team: the teams of the same event created before it (team
--- ids are UUIDv7, so id order is creation order), the moderators team excluded.
-SELECT count(*)::bigint
-FROM event_teams team
-WHERE team.event_id = sqlc.arg(event_id)
+-- name: CountEarlierEventExerciseVariantTeams :one
+-- The flag slot of a team that keeps its variant: the other teams on the same
+-- variant of the event exercise that got the event exercise before it (first
+-- row by created_at, id), the moderators team excluded. For a team without
+-- rows it is every team on the variant. Read under LockEventExerciseVariantPick.
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+), mine AS (
+    SELECT f.created_at, f.id FROM firsts f WHERE f.event_team_id = sqlc.arg(event_team_id)
+)
+SELECT count(DISTINCT tc.event_team_id)::bigint
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+  AND tc.variant_index = sqlc.arg(variant_index)
   AND NOT team.moderators
-  AND team.id < sqlc.arg(event_team_id)::uuid;
+  AND tc.event_team_id <> sqlc.arg(event_team_id)
+  AND (NOT EXISTS (SELECT 1 FROM mine) OR (f.created_at, f.id) < (SELECT m.created_at, m.id FROM mine m));

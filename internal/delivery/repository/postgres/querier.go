@@ -66,6 +66,11 @@ type Querier interface {
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
 	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByStatusSinceRow, error)
 	CountDispatchesByTypeSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByTypeSinceRow, error)
+	// The flag slot of a team that keeps its variant: the other teams on the same
+	// variant of the event exercise that got the event exercise before it (first
+	// row by created_at, id), the moderators team excluded. For a team without
+	// rows it is every team on the variant. Read under LockEventExerciseVariantPick.
+	CountEarlierEventExerciseVariantTeams(ctx context.Context, arg CountEarlierEventExerciseVariantTeamsParams) (int64, error)
 	// Messages delivered through one SMTP transport since a moment (the rolling
 	// daily quota). event_id narrows the count to one Event's own transport; the
 	// platform and env transports count every dispatch that went through them,
@@ -94,9 +99,6 @@ type Querier interface {
 	// Every set that still points at the stage (detached ones too: the foreign key would refuse the delete).
 	CountEventStageSets(ctx context.Context, stageID uuid.NullUUID) (int32, error)
 	CountEventTeams(ctx context.Context, eventID uuid.UUID) (int64, error)
-	// The flag slot of a team: the teams of the same event created before it (team
-	// ids are UUIDv7, so id order is creation order), the moderators team excluded.
-	CountEventTeamsBefore(ctx context.Context, arg CountEventTeamsBeforeParams) (int64, error)
 	// Mirrors ListEventTeams' search, admission and field filters for the management list.
 	CountEventTeamsFiltered(ctx context.Context, arg CountEventTeamsFilteredParams) (int64, error)
 	// Mirrors ListEventTeamsTable's filters.

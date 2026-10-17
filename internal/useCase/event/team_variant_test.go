@@ -35,7 +35,7 @@ func TestPickTeamVariant_FixedModeNeverCounts(t *testing.T) {
 	fixed := int32(2)
 	link := perTeamLink()
 	link.VariantMode, link.FixedVariantIndex = eventExerciseModel.VariantModeFixed, &fixed
-	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), uuid.Must(uuid.NewV7()), link, variantVersion(3, uuid.Nil))
+	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), uuid.Must(uuid.NewV7()), link, variantVersion(3, uuid.Nil), nil)
 	if err != nil || got != 2 {
 		t.Fatalf("fixed pick = %d, %v; want 2", got, err)
 	}
@@ -52,7 +52,7 @@ func TestPickTeamVariant_LocksBeforeCountingAndFillsTheLowestGap(t *testing.T) {
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 2, Teams: 1},
 		}, nil),
 	)
-	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, variantVersion(3, uuid.Nil))
+	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, variantVersion(3, uuid.Nil), nil)
 	if err != nil || got != 1 {
 		t.Fatalf("pick = %d, %v; want 1", got, err)
 	}
@@ -63,7 +63,7 @@ func TestPickTeamVariant_KeepsTheTeamsExistingVariant(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(ctrl) // strict: no lock, no count
 	link, teamID := perTeamLink(), uuid.Must(uuid.NewV7())
 	q.EXPECT().GetTeamEventExerciseVariant(gomock.Any(), postgres.GetTeamEventExerciseVariantParams{EventTeamID: teamID, EventExerciseID: link.ID, VariantCount: 3}).Return(int32(2), nil)
-	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, variantVersion(3, uuid.Nil))
+	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, variantVersion(3, uuid.Nil), nil)
 	if err != nil || got != 2 {
 		t.Fatalf("pick = %d, %v; want the kept 2", got, err)
 	}
@@ -83,7 +83,7 @@ func TestPickTeamVariant_ReplacesAVariantThatNoLongerExists(t *testing.T) {
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 4, Teams: 7},
 		}, nil),
 	)
-	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, variantVersion(2, uuid.Nil))
+	got, err := pickTeamVariant(context.Background(), teamChallengeRepo.New(q), teamID, link, variantVersion(2, uuid.Nil), nil)
 	if err != nil || got != 1 {
 		t.Fatalf("pick = %d, %v; want 1", got, err)
 	}
@@ -123,8 +123,7 @@ func TestRefreshTeamAssignments_RebalancesRemovedVariants(t *testing.T) {
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 6, Teams: 1}, {VariantIndex: 7, Teams: 1},
 		}, nil),
 	)
-	// Re-resolved flags read each team's slot once (team B has two rows; team A keeps its flag).
-	q.EXPECT().CountEventTeamsBefore(gomock.Any(), gomock.Any()).Return(int64(0), nil).Times(3)
+	// Re-picked teams take their flag slot from the balance: no further query (strict mock).
 	got := map[uuid.UUID]int32{}
 	byID := map[uuid.UUID]uuid.UUID{}
 	for _, r := range rows {

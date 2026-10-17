@@ -37,3 +37,11 @@ func (b *VariantBalance) Use(index int32) {
 		b.counts[index]++
 	}
 }
+
+// Count is the number of teams counted on a variant so far (0 outside the range).
+func (b *VariantBalance) Count(index int32) int {
+	if index < 0 || int(index) >= len(b.counts) {
+		return 0
+	}
+	return b.counts[index]
+}

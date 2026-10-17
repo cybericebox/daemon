@@ -489,6 +489,21 @@ func (mr *MockQuerierMockRecorder) CountDispatchesByTypeSince(ctx, createdAt any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDispatchesByTypeSince", reflect.TypeOf((*MockQuerier)(nil).CountDispatchesByTypeSince), ctx, createdAt)
 }
 
+// CountEarlierEventExerciseVariantTeams mocks base method.
+func (m *MockQuerier) CountEarlierEventExerciseVariantTeams(ctx context.Context, arg postgres.CountEarlierEventExerciseVariantTeamsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEarlierEventExerciseVariantTeams", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEarlierEventExerciseVariantTeams indicates an expected call of CountEarlierEventExerciseVariantTeams.
+func (mr *MockQuerierMockRecorder) CountEarlierEventExerciseVariantTeams(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEarlierEventExerciseVariantTeams", reflect.TypeOf((*MockQuerier)(nil).CountEarlierEventExerciseVariantTeams), ctx, arg)
+}
+
 // CountEmailDeliveredSince mocks base method.
 func (m *MockQuerier) CountEmailDeliveredSince(ctx context.Context, arg postgres.CountEmailDeliveredSinceParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -667,21 +682,6 @@ func (m *MockQuerier) CountEventTeams(ctx context.Context, eventID uuid.UUID) (i
 func (mr *MockQuerierMockRecorder) CountEventTeams(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventTeams", reflect.TypeOf((*MockQuerier)(nil).CountEventTeams), ctx, eventID)
-}
-
-// CountEventTeamsBefore mocks base method.
-func (m *MockQuerier) CountEventTeamsBefore(ctx context.Context, arg postgres.CountEventTeamsBeforeParams) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountEventTeamsBefore", ctx, arg)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountEventTeamsBefore indicates an expected call of CountEventTeamsBefore.
-func (mr *MockQuerierMockRecorder) CountEventTeamsBefore(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventTeamsBefore", reflect.TypeOf((*MockQuerier)(nil).CountEventTeamsBefore), ctx, arg)
 }
 
 // CountEventTeamsFiltered mocks base method.

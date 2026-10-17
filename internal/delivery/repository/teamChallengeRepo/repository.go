@@ -39,7 +39,7 @@ type Queries interface {
 	LockEventExerciseVariantPick(context.Context, uuid.UUID) error
 	CountEventExerciseVariantTeams(context.Context, uuid.UUID) ([]postgres.CountEventExerciseVariantTeamsRow, error)
 	GetTeamEventExerciseVariant(context.Context, postgres.GetTeamEventExerciseVariantParams) (int32, error)
-	CountEventTeamsBefore(context.Context, postgres.CountEventTeamsBeforeParams) (int64, error)
+	CountEarlierEventExerciseVariantTeams(context.Context, postgres.CountEarlierEventExerciseVariantTeamsParams) (int64, error)
 }
 
 type Availability struct {
@@ -366,15 +366,15 @@ func (r *Repository) VariantUse(ctx context.Context, eventExerciseID uuid.UUID) 
 	return out, nil
 }
 
-// FlagSlot is a team's flag slot: the teams of the event whose UUIDv7 id is
-// below the team's, the moderators team excluded. Call it in the transaction
-// that creates the team's expected flags.
-func (r *Repository) FlagSlot(ctx context.Context, eventID, teamID uuid.UUID) (uint64, error) {
-	count, err := r.q.CountEventTeamsBefore(ctx, postgres.CountEventTeamsBeforeParams{EventID: eventID, EventTeamID: teamID})
+// EarlierVariantTeams counts the other teams on a variant of an event exercise
+// that got the event exercise before this team (all of them when the team has
+// no rows yet), the moderators team excluded. Call it under LockVariantPick.
+func (r *Repository) EarlierVariantTeams(ctx context.Context, eventExerciseID, teamID uuid.UUID, variantIndex int32) (int, error) {
+	count, err := r.q.CountEarlierEventExerciseVariantTeams(ctx, postgres.CountEarlierEventExerciseVariantTeamsParams{EventExerciseID: eventExerciseID, VariantIndex: variantIndex, EventTeamID: teamID})
 	if err != nil {
 		return 0, err
 	}
-	return uint64(count), nil
+	return int(count), nil
 }
 
 // TeamVariant is the variant a team already has for an event exercise among

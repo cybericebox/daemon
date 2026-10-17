@@ -361,7 +361,8 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get pinned exercise version").Err()
 	}
 	teamChallenges := teamChallengeRepo.New(txRepo)
-	variantIndex, err := pickTeamVariant(txCtx, teamChallenges, team.ID, attachment, version)
+	slots := newTeamFlagSlots(teamChallenges, attachment.ID)
+	variantIndex, err := pickTeamVariant(txCtx, teamChallenges, team.ID, attachment, version, slots)
 	if err != nil {
 		return err
 	}
@@ -389,7 +390,6 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		tasks[task.ID] = task
 	}
 	bindings := labBindingRepo.New(txRepo)
-	slots := newTeamFlagSlots(teamChallenges, e.ID)
 	for _, challenge := range challenges {
 		value, getErr := teamChallenges.Get(txCtx, team.ID, challenge.ID)
 		if getErr != nil {
@@ -457,7 +457,7 @@ func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallenge
 	if err != nil {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithError(err).WithMessage("Failed to snapshot team challenge").Err()
 	}
-	expectedFlag, err := u.resolveTeamFlag(ctx, slots, teamID, challenge.EventExerciseID, variantIndex, task)
+	expectedFlag, err := u.resolveTeamFlag(ctx, slots, teamID, variantIndex, task)
 	if err != nil {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()
 	}

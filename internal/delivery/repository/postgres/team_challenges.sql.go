@@ -13,6 +13,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countEarlierEventExerciseVariantTeams = `-- name: CountEarlierEventExerciseVariantTeams :one
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = $1
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+), mine AS (
+    SELECT f.created_at, f.id FROM firsts f WHERE f.event_team_id = $3
+)
+SELECT count(DISTINCT tc.event_team_id)::bigint
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = $1
+  AND tc.variant_index = $2
+  AND NOT team.moderators
+  AND tc.event_team_id <> $3
+  AND (NOT EXISTS (SELECT 1 FROM mine) OR (f.created_at, f.id) < (SELECT m.created_at, m.id FROM mine m))
+`
+
+type CountEarlierEventExerciseVariantTeamsParams struct {
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	VariantIndex    int32     `json:"variant_index"`
+	EventTeamID     uuid.UUID `json:"event_team_id"`
+}
+
+// The flag slot of a team that keeps its variant: the other teams on the same
+// variant of the event exercise that got the event exercise before it (first
+// row by created_at, id), the moderators team excluded. For a team without
+// rows it is every team on the variant. Read under LockEventExerciseVariantPick.
+func (q *Queries) CountEarlierEventExerciseVariantTeams(ctx context.Context, arg CountEarlierEventExerciseVariantTeamsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countEarlierEventExerciseVariantTeams, arg.EventExerciseID, arg.VariantIndex, arg.EventTeamID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countEventChallengeSolves = `-- name: CountEventChallengeSolves :many
 SELECT tc.event_challenge_id, count(*)::bigint AS solves
 FROM team_challenge_solves solved
@@ -96,28 +135,6 @@ func (q *Queries) CountEventExerciseVariantTeams(ctx context.Context, eventExerc
 		return nil, err
 	}
 	return items, nil
-}
-
-const countEventTeamsBefore = `-- name: CountEventTeamsBefore :one
-SELECT count(*)::bigint
-FROM event_teams team
-WHERE team.event_id = $1
-  AND NOT team.moderators
-  AND team.id < $2::uuid
-`
-
-type CountEventTeamsBeforeParams struct {
-	EventID     uuid.UUID `json:"event_id"`
-	EventTeamID uuid.UUID `json:"event_team_id"`
-}
-
-// The flag slot of a team: the teams of the same event created before it (team
-// ids are UUIDv7, so id order is creation order), the moderators team excluded.
-func (q *Queries) CountEventTeamsBefore(ctx context.Context, arg CountEventTeamsBeforeParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countEventTeamsBefore, arg.EventID, arg.EventTeamID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
 }
 
 const createHintUnlock = `-- name: CreateHintUnlock :one
