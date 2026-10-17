@@ -269,7 +269,7 @@ func ComputeParticipation(in ParticipationInput) ParticipationState {
 	}())
 
 	state.TeamFormed = a.HasTeam && a.TeamFormed
-	state.TeamNeedsConfirmation = approved && teamEvent && a.HasTeam && !a.TeamFormed && l.JoinPolicy == eventModel.JoinPolicyRolling
+	state.TeamNeedsConfirmation = state.RosterOpen && approved && teamEvent && a.HasTeam && !a.TeamFormed && l.JoinPolicy == eventModel.JoinPolicyRolling
 	state.RemoveMember = state.ManageTeam
 	state.DisbandTeam = state.ManageTeam
 	if state.DisbandTeam.Allowed && a.TeamFormed {

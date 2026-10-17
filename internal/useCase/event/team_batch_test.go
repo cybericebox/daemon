@@ -271,9 +271,8 @@ func TestCreateManagedTeams_WithoutEmailInvitesButMailsNobody(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
 	allowNonStaff(q)
 	unit := &testUoW{}
-	notifier := &invitationNotifier{}
-	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", SetupTokens: failingSetupTokens{t: t}})
-	uc.SetInvitationNotifier(notifier)
+	// No notifier, setup tokens or domain: a silent batch must not need them.
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
 	eventID, managerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	var captainID, memberID, teamID uuid.UUID
 	expectBatchEvent(q, eventID, 3, pgtype.Int4{})
@@ -305,6 +304,5 @@ func TestCreateManagedTeams_WithoutEmailInvitesButMailsNobody(t *testing.T) {
 	require.True(t, unit.saved)
 	require.Equal(t, 2, result.Invited)
 	require.Empty(t, result.NotSent)
-	require.Equal(t, uuid.Nil, notifier.userID, "no email")
 	require.ElementsMatch(t, []uuid.UUID{captainID, memberID}, userClockMarksOf(q))
 }

@@ -9,7 +9,7 @@ import (
 // Error-code convention: see internal/model/auth/errors.go. Enforced by
 // `make lint-errors`.
 //
-// UserObjectCode — next free detail code: 5
+// UserObjectCode — next free detail code: 6
 var (
 	ErrUserNotFound = err.ErrObjectNotFound.WithObjectCode(model.UserObjectCode).
 			WithMessage("User not found").WithDetailCode(1)

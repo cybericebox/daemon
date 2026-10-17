@@ -236,6 +236,8 @@ func TestTeamNeedsConfirmation(t *testing.T) {
 	captain := member
 	captain.Captain = true
 	noTeam := event.ParticipationActor{Authenticated: true, Status: participantModel.StatusApproved}
+	finished := matrixLifecycle(t, eventModel.JoinPolicyRolling, -5*hr, -4*hr, dur(-2*hr), dur(hr))
+	withdrawn := matrixLifecycle(t, eventModel.JoinPolicyRolling, -6*hr, -5*hr, dur(-3*hr), dur(-hr))
 	for _, tc := range []struct {
 		name string
 		in   event.ParticipationInput
@@ -247,6 +249,8 @@ func TestTeamNeedsConfirmation(t *testing.T) {
 		{"locked at start", event.ParticipationInput{Lifecycle: locked, Participation: &team, Actor: captain}, false},
 		{"individual event", event.ParticipationInput{Lifecycle: rolling, Participation: &individual, Actor: member}, false},
 		{"no team yet", event.ParticipationInput{Lifecycle: rolling, Participation: &team, Actor: noTeam}, false},
+		{"event withdrawn (roster closed)", event.ParticipationInput{Lifecycle: withdrawn, Participation: &team, Actor: captain}, false},
+		{"event finished", event.ParticipationInput{Lifecycle: finished, Participation: &team, Actor: captain}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.in.Registration, tc.in.Now = eventConfigModel.RegistrationOpen, matrixNow
