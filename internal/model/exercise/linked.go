@@ -65,6 +65,8 @@ func (v *ExerciseVersion) SyncLinkedVariants() error {
 	return nil
 }
 
+// deepCopyVariant copies through JSON, so fields tagged json:"-" are dropped
+// (Variant has none today).
 func deepCopyVariant(variant Variant) (Variant, error) {
 	data, err := json.Marshal(variant)
 	if err != nil {
@@ -78,7 +80,8 @@ func deepCopyVariant(variant Variant) (Variant, error) {
 }
 
 // matchLinkedTask finds the linked variant's own task for a base task: by task
-// ID when the base task has one, else by position.
+// ID when both IDs are non-nil, else by position (a linked task that has no ID
+// takes the task at the same position).
 func matchLinkedTask(tasks []Task, baseID uuid.UUID, position int) (Task, bool) {
 	if baseID != uuid.Nil {
 		for _, task := range tasks {
@@ -86,9 +89,8 @@ func matchLinkedTask(tasks []Task, baseID uuid.UUID, position int) (Task, bool) 
 				return task, true
 			}
 		}
-		return Task{}, false
 	}
-	if position < len(tasks) {
+	if position < len(tasks) && (baseID == uuid.Nil || tasks[position].ID == uuid.Nil) {
 		return tasks[position], true
 	}
 	return Task{}, false

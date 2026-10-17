@@ -103,6 +103,25 @@ func TestSyncLinkedVariants_MatchesByPositionWithoutIDs(t *testing.T) {
 	assert.Equal(t, []string{"ICE{2}"}, version.Variants[1].Tasks[1].Flag)
 }
 
+func TestSyncLinkedVariants_NilLinkedTaskIDMatchesByPosition(t *testing.T) {
+	version := &ExerciseVersion{Variants: []Variant{
+		{ID: linkBaseID, Tasks: []Task{linkedTask(linkTaskA, "A"), linkedTask(linkTaskB, "B")}},
+		{
+			ID: linkLinkedID, LinkedTo: uuid.NullUUID{UUID: linkBaseID, Valid: true},
+			Tasks: []Task{
+				{Flag: []string{"ICE{1}"}, Attachments: []AttachmentRef{{FileID: linkFileID, Name: "1.txt"}}},
+				{Flag: []string{"ICE{2}"}},
+			},
+		},
+	}}
+	require.NoError(t, version.SyncLinkedVariants())
+	got := version.Variants[1].Tasks
+	assert.Equal(t, []string{"ICE{1}"}, got[0].Flag)
+	assert.Equal(t, []AttachmentRef{{FileID: linkFileID, Name: "1.txt"}}, got[0].Attachments)
+	assert.Equal(t, []string{"ICE{2}"}, got[1].Flag)
+	assert.Equal(t, linkTaskB, got[1].ID)
+}
+
 func TestSyncLinkedVariants_UnlinksMissingBase(t *testing.T) {
 	version := &ExerciseVersion{Variants: []Variant{
 		{ID: linkBaseID, Tasks: []Task{linkedTask(linkTaskA, "A")}},
