@@ -19,6 +19,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/pkg/secret"
@@ -137,10 +138,16 @@ func (u *ExerciseUseCase) ArchiveExportJob(ctx context.Context, id, user uuid.UU
 	view := ExportJobView{ID: job.ID, State: state, Error: failure}
 	if state == exerciseModel.ImportJobDone && job.FileID != uuid.Nil {
 		file, fileErr := u.exportFiles.GetFile(ctx, job.FileID)
-		if fileErr != nil {
+		switch {
+		case errors.Is(fileErr, mediaModel.ErrFileNotFound.Err()):
+			// The media cleanup removed the zip: the export is over, start it again.
+			e := exerciseModel.ErrExportFileRemoved.Err().StatusCode()
+			view.State, view.Error = exerciseModel.ImportJobFailed, &exerciseModel.ImportJobError{Code: e.FullCode(), Message: e.Message()}
+		case fileErr != nil:
 			return ExportJobView{}, fileErr
+		default:
+			view.File = &file
 		}
-		view.File = &file
 	}
 	return view, nil
 }
@@ -235,6 +242,13 @@ func layoutExport(plans []exportPlan) (map[string][]byte, map[string]ExportedIma
 	}
 	if err := checkExportEntries(entries); err != nil {
 		return nil, nil, err
+	}
+	// The images of the whole archive, every written copy counted, are at most one image archive's worth.
+	var imageBytes int64
+	for _, image := range images {
+		if imageBytes += image.Size(); imageBytes > imageRegistryModel.MaxImageArchiveBytes {
+			return nil, nil, archiveTooLarge("the images are over " + gib(imageRegistryModel.MaxImageArchiveBytes) + " together")
+		}
 	}
 	if len(entries)+len(images)+1 > limits.Entries {
 		return nil, nil, archiveTooLarge(fmt.Sprintf("the archive has more than %d entries", limits.Entries))

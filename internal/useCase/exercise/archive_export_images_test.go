@@ -101,10 +101,15 @@ type fakeExporter struct {
 	// failFor: references the registry refuses.
 	failFor map[string]string
 	asked   []string
+	// override, when set, is answered for every reference.
+	override exercise.ExportedImage
 }
 
 func (f *fakeExporter) ExportedImage(_ context.Context, reference string) (exercise.ExportedImage, error) {
 	f.asked = append(f.asked, reference)
+	if f.override != nil {
+		return f.override, nil
+	}
 	if reason, refused := f.failFor[reference]; refused {
 		return nil, imageRegistryModel.ErrImageNotExportable.WithPublicContext(imageRegistryModel.ContextReason, reason).Err()
 	}
@@ -503,4 +508,62 @@ func readTar(t *testing.T, b []byte) map[string][]byte {
 		require.NoError(t, err)
 		out[h.Name] = body
 	}
+}
+
+// hugeImage announces a size without holding it: it is refused before any byte is streamed.
+type hugeImage struct {
+	digest string
+	size   int64
+	wrote  bool
+}
+
+func (h *hugeImage) Digest() string { return h.digest }
+func (h *hugeImage) Size() int64    { return h.size }
+func (h *hugeImage) WriteTo(context.Context, io.Writer) error {
+	h.wrote = true
+	return nil
+}
+
+// Each task is within 10 GiB of images, the bundle is not (an image shared by two tasks is written in both): the
+// export is refused up front as too large, before anything is streamed or stored.
+func TestExportBundleImagesOverTheArchiveLimitRefusedEarly(t *testing.T) {
+	f := newExportFixture(t)
+	big := &hugeImage{digest: f.web.layout.ManifestDigest, size: 6 << 30}
+	f.exporter.override = big
+	f.task(exportTaskA, "Task A", deviceSpec{"web", f.web.reference("web")})
+	f.task(exportTaskB, "Task B", deviceSpec{"web", f.web.reference("web")})
+
+	view := f.run(t, exercise.StartExportInput{IDs: []uuid.UUID{exportTaskA, exportTaskB}})
+	require.Equal(t, exerciseModel.ImportJobFailed, view.State)
+	require.Equal(t, exerciseModel.ErrArchiveTooLarge.Err().StatusCode().FullCode(), view.Error.Code)
+	require.False(t, big.wrote, "refused before streaming")
+	require.Empty(t, f.files.files)
+
+	// One task alone (6 GiB) is fine for the limit check.
+	f2 := newExportFixture(t)
+	big2 := &hugeImage{digest: f2.web.layout.ManifestDigest, size: 6 << 30}
+	f2.exporter.override = big2
+	f2.task(exportTaskA, "Task A", deviceSpec{"web", f2.web.reference("web")})
+	view = f2.run(t, exercise.StartExportInput{IDs: []uuid.UUID{exportTaskA}})
+	require.NotEqual(t, exerciseModel.ErrArchiveTooLarge.Err().StatusCode().FullCode(), errCode(view))
+}
+
+func errCode(v exercise.ExportJobView) int {
+	if v.Error == nil {
+		return 0
+	}
+	return v.Error.Code
+}
+
+// A done export whose stored file the media cleanup removed reads as failed (expired), not as a raw 404.
+func TestExportJobFileRemoved(t *testing.T) {
+	f := newExportFixture(t)
+	f.task(exportTaskA, "Task A", deviceSpec{"proxy", "nginx:1.27"})
+	view := f.run(t, exercise.StartExportInput{IDs: []uuid.UUID{exportTaskA}})
+	delete(f.files.meta, view.File.ID)
+	got, err := f.uc.ArchiveExportJob(context.Background(), view.ID, importer)
+	require.NoError(t, err)
+	require.Equal(t, exerciseModel.ImportJobFailed, got.State)
+	require.Nil(t, got.File)
+	require.Equal(t, exerciseModel.ErrExportFileRemoved.Err().StatusCode().FullCode(), got.Error.Code)
 }

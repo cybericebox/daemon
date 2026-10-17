@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 99
+// ExerciseObjectCode — next free detail code: 100
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -307,4 +307,8 @@ var (
 	// it); start it again.
 	ErrArchiveExportStopped = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("The export ran out of time or was stopped: start it again").WithDetailCode(98)
+	// ErrExportFileRemoved: the stored zip of a finished export is gone (the media cleanup removes it after its grace
+	// window); start the export again.
+	ErrExportFileRemoved = err.ErrConflict.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("The exported file is no longer stored: start the export again").WithDetailCode(99)
 )

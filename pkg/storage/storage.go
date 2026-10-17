@@ -58,9 +58,18 @@ func New(cfg Config) (*Client, error) {
 
 // Put streams an object into storage. size may be -1 if unknown.
 func (c *Client) Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
-	_, err := c.mc.PutObject(ctx, c.bucket, key, r, size, minio.PutObjectOptions{ContentType: contentType})
+	opts := minio.PutObjectOptions{ContentType: contentType}
+	if size < 0 {
+		// An unknown size would make the client buffer a part of about 550 MiB; a fixed part bounds the memory (10000
+		// parts of 64 MiB are far above the largest stream, 512 MiB + 10 GiB).
+		opts.PartSize = unknownSizePartBytes
+	}
+	_, err := c.mc.PutObject(ctx, c.bucket, key, r, size, opts)
 	return err
 }
+
+// unknownSizePartBytes is the multipart part size of a stream of unknown length.
+const unknownSizePartBytes = 64 << 20
 
 // Get opens an object stream and reports its content type. The caller must Close
 // the returned reader. Returns ErrObjectNotFound when the key is absent.

@@ -367,6 +367,7 @@
   "70995": "The import ran out of time or was stopped: start it again",
   "70997": "The export stopped before it finished: start it again",
   "70998": "The export ran out of time or was stopped: start it again",
+  "70999": "The exported file is no longer stored: start the export again",
   "71003": "File storage is not configured",
   "71007": "Chunk out of order",
   "71009": "Upload is not complete",
