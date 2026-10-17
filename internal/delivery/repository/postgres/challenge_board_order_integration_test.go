@@ -18,7 +18,7 @@ import (
 	"github.com/cybericebox/daemon/internal/testhelpers"
 )
 
-// boardSet attaches one more exercise (a «набір») to the event.
+// boardSet attaches one more exercise (a «завдання») to the event.
 func boardSet(t *testing.T, q *postgres.Queries, eventID uuid.UUID, name string, createdAt time.Time) postgres.EventExercise {
 	t.Helper()
 	ctx := context.Background()
