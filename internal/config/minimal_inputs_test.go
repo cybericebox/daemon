@@ -22,6 +22,7 @@ func TestEnvironmentDefaultsToProduction(t *testing.T) {
 	setTestHosts(t)
 	t.Setenv("RECAPTCHA_SECRET", "rsecret")
 	t.Setenv("JWT_TOKEN_SIGNATURE", "0123456789abcdef0123456789abcdef")
+	t.Setenv("FLAG_SLOT_SECRET", "fedcba9876543210fedcba9876543210")
 	unsetenv(t, "ENV")
 	cfg := MustGetConfig()
 	if cfg.Environment != Production {

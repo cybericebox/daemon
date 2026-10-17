@@ -13,6 +13,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countEarlierEventExerciseVariantTeams = `-- name: CountEarlierEventExerciseVariantTeams :one
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = $1
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+), mine AS (
+    SELECT f.created_at, f.id FROM firsts f WHERE f.event_team_id = $3
+)
+SELECT count(DISTINCT tc.event_team_id)::bigint
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = $1
+  AND tc.variant_index = $2
+  AND NOT team.moderators
+  AND tc.event_team_id <> $3
+  AND (NOT EXISTS (SELECT 1 FROM mine) OR (f.created_at, f.id) < (SELECT m.created_at, m.id FROM mine m))
+`
+
+type CountEarlierEventExerciseVariantTeamsParams struct {
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	VariantIndex    int32     `json:"variant_index"`
+	EventTeamID     uuid.UUID `json:"event_team_id"`
+}
+
+// The flag slot of a team that keeps its variant: the other teams on the same
+// variant of the event exercise that got the event exercise before it (first
+// row by created_at, id), the moderators team excluded. For a team without
+// rows it is every team on the variant. Read under LockEventExerciseVariantPick.
+func (q *Queries) CountEarlierEventExerciseVariantTeams(ctx context.Context, arg CountEarlierEventExerciseVariantTeamsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countEarlierEventExerciseVariantTeams, arg.EventExerciseID, arg.VariantIndex, arg.EventTeamID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countEventChallengeSolves = `-- name: CountEventChallengeSolves :many
 SELECT tc.event_challenge_id, count(*)::bigint AS solves
 FROM team_challenge_solves solved
@@ -50,6 +89,44 @@ func (q *Queries) CountEventChallengeSolves(ctx context.Context, arg CountEventC
 	for rows.Next() {
 		var i CountEventChallengeSolvesRow
 		if err := rows.Scan(&i.EventChallengeID, &i.Solves); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countEventExerciseVariantTeams = `-- name: CountEventExerciseVariantTeams :many
+SELECT tc.variant_index, count(DISTINCT tc.event_team_id)::bigint AS teams
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+WHERE ec.event_exercise_id = $1
+  AND NOT team.moderators
+GROUP BY tc.variant_index
+`
+
+type CountEventExerciseVariantTeamsRow struct {
+	VariantIndex int32 `json:"variant_index"`
+	Teams        int64 `json:"teams"`
+}
+
+// Teams per variant of one event exercise (every revision: a source switch
+// keeps the event exercise and its challenges). The moderators team takes no
+// variant slot.
+func (q *Queries) CountEventExerciseVariantTeams(ctx context.Context, eventExerciseID uuid.UUID) ([]CountEventExerciseVariantTeamsRow, error) {
+	rows, err := q.db.Query(ctx, countEventExerciseVariantTeams, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountEventExerciseVariantTeamsRow{}
+	for rows.Next() {
+		var i CountEventExerciseVariantTeamsRow
+		if err := rows.Scan(&i.VariantIndex, &i.Teams); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -278,6 +355,34 @@ func (q *Queries) GetTeamChallengeHints(ctx context.Context, arg GetTeamChalleng
 	return i, err
 }
 
+const getTeamEventExerciseVariant = `-- name: GetTeamEventExerciseVariant :one
+SELECT tc.variant_index
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+WHERE tc.event_team_id = $1
+  AND ec.event_exercise_id = $2
+  AND tc.variant_index >= 0
+  AND tc.variant_index < $3::integer
+ORDER BY tc.created_at DESC, tc.id DESC
+LIMIT 1
+`
+
+type GetTeamEventExerciseVariantParams struct {
+	EventTeamID     uuid.UUID `json:"event_team_id"`
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	VariantCount    int32     `json:"variant_count"`
+}
+
+// The variant a team already has for an event exercise, among the variants the
+// current version still has: a retained row of a terminal Lab may keep an index
+// a source switch dropped while the team's other rows were re-picked.
+func (q *Queries) GetTeamEventExerciseVariant(ctx context.Context, arg GetTeamEventExerciseVariantParams) (int32, error) {
+	row := q.db.QueryRow(ctx, getTeamEventExerciseVariant, arg.EventTeamID, arg.EventExerciseID, arg.VariantCount)
+	var variant_index int32
+	err := row.Scan(&variant_index)
+	return variant_index, err
+}
+
 const listEventChallengeAvailability = `-- name: ListEventChallengeAvailability :many
 SELECT ec.id AS event_challenge_id,
        count(tc.id)::bigint AS total,
@@ -414,6 +519,62 @@ func (q *Queries) ListEventChallengeSolves(ctx context.Context, arg ListEventCha
 			&i.SolvedAt,
 			&i.TeamChallengeID,
 			&i.FirstBlood,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventExerciseTeamVariants = `-- name: ListEventExerciseTeamVariants :many
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = $1
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+)
+SELECT DISTINCT tc.event_team_id, tc.variant_index, team.moderators,
+       f.created_at::timestamptz AS first_created_at, f.id::uuid AS first_id
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = $1
+ORDER BY tc.event_team_id, tc.variant_index
+`
+
+type ListEventExerciseTeamVariantsRow struct {
+	EventTeamID    uuid.UUID `json:"event_team_id"`
+	VariantIndex   int32     `json:"variant_index"`
+	Moderators     bool      `json:"moderators"`
+	FirstCreatedAt time.Time `json:"first_created_at"`
+	FirstID        uuid.UUID `json:"first_id"`
+}
+
+// One snapshot of the teams of an event exercise for a source-switch pass:
+// every (team, variant) it has a row on, with the team's first row of the
+// event exercise (created_at, id) and whether it is the moderators team. Read
+// under LockEventExerciseVariantPick before the pass updates any row.
+func (q *Queries) ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]ListEventExerciseTeamVariantsRow, error) {
+	rows, err := q.db.Query(ctx, listEventExerciseTeamVariants, eventExerciseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventExerciseTeamVariantsRow{}
+	for rows.Next() {
+		var i ListEventExerciseTeamVariantsRow
+		if err := rows.Scan(
+			&i.EventTeamID,
+			&i.VariantIndex,
+			&i.Moderators,
+			&i.FirstCreatedAt,
+			&i.FirstID,
 		); err != nil {
 			return nil, err
 		}
@@ -753,8 +914,9 @@ func (q *Queries) ListTeamChallenges(ctx context.Context, eventTeamID uuid.UUID)
 
 const listTeamChallengesForRefresh = `-- name: ListTeamChallengesForRefresh :many
 SELECT tc.id, tc.event_team_id, tc.event_challenge_id, tc.variant_index, tc.snapshot, tc.hints,
-       tc.expected_flag, (solved.solved_at IS NOT NULL)::boolean AS solved
+       tc.expected_flag, (solved.solved_at IS NOT NULL)::boolean AS solved, team.moderators
 FROM team_challenges tc
+JOIN event_teams team ON team.id = tc.event_team_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
 WHERE tc.event_challenge_id = ANY ($1::uuid[])
 ORDER BY tc.id
@@ -770,6 +932,7 @@ type ListTeamChallengesForRefreshRow struct {
 	Hints            []byte    `json:"hints"`
 	ExpectedFlag     string    `json:"expected_flag"`
 	Solved           bool      `json:"solved"`
+	Moderators       bool      `json:"moderators"`
 }
 
 // Team assignments of board challenges whose source content is switched.
@@ -791,6 +954,7 @@ func (q *Queries) ListTeamChallengesForRefresh(ctx context.Context, ids []uuid.U
 			&i.Hints,
 			&i.ExpectedFlag,
 			&i.Solved,
+			&i.Moderators,
 		); err != nil {
 			return nil, err
 		}
@@ -914,6 +1078,17 @@ func (q *Queries) ListTeamSolveAwards(ctx context.Context, eventTeamID uuid.UUID
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockEventExerciseVariantPick = `-- name: LockEventExerciseVariantPick :exec
+SELECT pg_advisory_xact_lock(hashtextextended('event-exercise-variant:' || $1::uuid, 0))
+`
+
+// Serializes the variant pick of one event exercise: concurrent preparations
+// count the teams per variant one after another, never from the same snapshot.
+func (q *Queries) LockEventExerciseVariantPick(ctx context.Context, eventExerciseID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, lockEventExerciseVariantPick, eventExerciseID)
+	return err
 }
 
 const publishAvailableTeamChallenges = `-- name: PublishAvailableTeamChallenges :many

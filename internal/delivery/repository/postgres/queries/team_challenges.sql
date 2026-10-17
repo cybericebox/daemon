@@ -202,8 +202,9 @@ RETURNING tc.event_team_id;
 -- name: ListTeamChallengesForRefresh :many
 -- Team assignments of board challenges whose source content is switched.
 SELECT tc.id, tc.event_team_id, tc.event_challenge_id, tc.variant_index, tc.snapshot, tc.hints,
-       tc.expected_flag, (solved.solved_at IS NOT NULL)::boolean AS solved
+       tc.expected_flag, (solved.solved_at IS NOT NULL)::boolean AS solved, team.moderators
 FROM team_challenges tc
+JOIN event_teams team ON team.id = tc.event_team_id
 LEFT JOIN team_challenge_solves solved ON solved.team_challenge_id = tc.id
 WHERE tc.event_challenge_id = ANY (sqlc.arg(ids)::uuid[])
 ORDER BY tc.id
@@ -311,3 +312,80 @@ LEFT JOIN LATERAL (
       AND (COALESCE(config.hint_charge_mode, 0) = 1 OR solved.solved_at >= unlock.unlocked_at)
 ) hint ON TRUE
 WHERE tc.event_team_id = sqlc.arg(event_team_id);
+
+-- name: LockEventExerciseVariantPick :exec
+-- Serializes the variant pick of one event exercise: concurrent preparations
+-- count the teams per variant one after another, never from the same snapshot.
+SELECT pg_advisory_xact_lock(hashtextextended('event-exercise-variant:' || sqlc.arg(event_exercise_id)::uuid, 0));
+
+-- name: CountEventExerciseVariantTeams :many
+-- Teams per variant of one event exercise (every revision: a source switch
+-- keeps the event exercise and its challenges). The moderators team takes no
+-- variant slot.
+SELECT tc.variant_index, count(DISTINCT tc.event_team_id)::bigint AS teams
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+  AND NOT team.moderators
+GROUP BY tc.variant_index;
+
+-- name: GetTeamEventExerciseVariant :one
+-- The variant a team already has for an event exercise, among the variants the
+-- current version still has: a retained row of a terminal Lab may keep an index
+-- a source switch dropped while the team's other rows were re-picked.
+SELECT tc.variant_index
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+WHERE tc.event_team_id = sqlc.arg(event_team_id)
+  AND ec.event_exercise_id = sqlc.arg(event_exercise_id)
+  AND tc.variant_index >= 0
+  AND tc.variant_index < sqlc.arg(variant_count)::integer
+ORDER BY tc.created_at DESC, tc.id DESC
+LIMIT 1;
+
+-- name: CountEarlierEventExerciseVariantTeams :one
+-- The flag slot of a team that keeps its variant: the other teams on the same
+-- variant of the event exercise that got the event exercise before it (first
+-- row by created_at, id), the moderators team excluded. For a team without
+-- rows it is every team on the variant. Read under LockEventExerciseVariantPick.
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+), mine AS (
+    SELECT f.created_at, f.id FROM firsts f WHERE f.event_team_id = sqlc.arg(event_team_id)
+)
+SELECT count(DISTINCT tc.event_team_id)::bigint
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+  AND tc.variant_index = sqlc.arg(variant_index)
+  AND NOT team.moderators
+  AND tc.event_team_id <> sqlc.arg(event_team_id)
+  AND (NOT EXISTS (SELECT 1 FROM mine) OR (f.created_at, f.id) < (SELECT m.created_at, m.id FROM mine m));
+
+-- name: ListEventExerciseTeamVariants :many
+-- One snapshot of the teams of an event exercise for a source-switch pass:
+-- every (team, variant) it has a row on, with the team's first row of the
+-- event exercise (created_at, id) and whether it is the moderators team. Read
+-- under LockEventExerciseVariantPick before the pass updates any row.
+WITH firsts AS (
+    SELECT DISTINCT ON (tc.event_team_id) tc.event_team_id, tc.created_at, tc.id
+    FROM team_challenges tc
+    JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+    WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+    ORDER BY tc.event_team_id, tc.created_at, tc.id
+)
+SELECT DISTINCT tc.event_team_id, tc.variant_index, team.moderators,
+       f.created_at::timestamptz AS first_created_at, f.id::uuid AS first_id
+FROM team_challenges tc
+JOIN event_challenges ec ON ec.id = tc.event_challenge_id
+JOIN event_teams team ON team.id = tc.event_team_id
+JOIN firsts f ON f.event_team_id = tc.event_team_id
+WHERE ec.event_exercise_id = sqlc.arg(event_exercise_id)
+ORDER BY tc.event_team_id, tc.variant_index;

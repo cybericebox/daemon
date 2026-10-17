@@ -105,6 +105,7 @@ func Run(cfg *config.Config) {
 		MediaConfig:        cfg.Media,
 		LabLifecycleConfig: cfg.LabLifecycle,
 		ExerciseConfig:     cfg.Exercise,
+		FlagSlotSecret:     cfg.FlagSlot.Secret,
 		ResourcesPolicy:    resourcesPolicy,
 		Calendar:           calendarConfig(cfg.Calendar, cfg.Exercise),
 		SMTPAllowedPorts:   cfg.Tunables.SMTPAllowedPorts,

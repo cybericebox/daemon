@@ -234,7 +234,9 @@ type EventUseCase struct {
 	uow              postgres.IUnitOfWorker[IRepository]
 	signalPublishers SignalPublisherFactory
 	flagRandomBytes  int
-	mail             *mailRepo.Repository
+	// flagSlotSecret keys the per-task flag permutation of event teams (never stored).
+	flagSlotSecret []byte
+	mail           *mailRepo.Repository
 	// resultsCache shares results reads between the viewers of an event.
 	resultsCache *resultsCache
 	// activity is the event activity log (analytics); taskOpens dedupes the
@@ -261,6 +263,8 @@ type Dependencies struct {
 	VPN                                        VPNStore
 	SignalPublishers                           SignalPublisherFactory
 	FlagRandomBytes                            int
+	// FlagSlotSecret is the server secret the flag-slot keys derive from (FLAG_SLOT_SECRET).
+	FlagSlotSecret []byte
 	// StandDeployBudget is the Lab deploy calls per event and engine pass; 0 means the default.
 	StandDeployBudget int
 	// StandPrewarmLead is how long before an event's stand deploy time its images are prewarmed in
@@ -395,6 +399,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		inAppTemplates:           inAppTemplateRepo.New(deps.Repo),
 		exercises:                exerciseRepo.New(deps.Repo),
 		flagRandomBytes:          flagRandomBytes,
+		flagSlotSecret:           deps.FlagSlotSecret,
 		resultsCache:             newResultsCache(),
 		uow:                      deps.UoW,
 		signalPublishers:         deps.SignalPublishers,

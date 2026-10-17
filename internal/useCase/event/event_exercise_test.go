@@ -207,6 +207,7 @@ func TestUpdateEventExercise_SwitchesInPlaceKeepingOverrides(t *testing.T) {
 	})
 	q.EXPECT().SetEventChallengeHintCosts(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	q.EXPECT().MaxEventChallengeOrder(gomock.Any(), attachmentID).Return(int32(3), nil)
+	q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // taken before the refresh row locks
 	q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), []uuid.UUID{challengeID}).Return([]postgres.ListTeamChallengesForRefreshRow{{
 		ID: teamChallengeID, EventChallengeID: challengeID, VariantIndex: 0, Snapshot: []byte(`{"name":"Old task","difficulty":"easy"}`), Hints: []byte(`[]`), ExpectedFlag: "ICE{same}"}}, nil)
 	q.EXPECT().UpdateTeamChallengeContent(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.UpdateTeamChallengeContentParams) (int64, error) {

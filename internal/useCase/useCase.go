@@ -110,6 +110,8 @@ type (
 		MediaConfig        config.MediaConfig
 		LabLifecycleConfig config.LabLifecycleConfig
 		ExerciseConfig     config.ExerciseConfig
+		// FlagSlotSecret (FLAG_SLOT_SECRET) keys the event team flag permutation.
+		FlagSlotSecret string
 		// ResourcesPolicy is the platform's device resources settings (presets, frame, ceiling); zero: the
 		// owner's defaults.
 		ResourcesPolicy resourcesModel.Policy
@@ -238,6 +240,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			VPN:                      vpnUC,
 			SignalPublishers:         eventUseCase.NewOutboxSignalPublisherFactory(time.Now),
 			FlagRandomBytes:          deps.ExerciseConfig.FlagRandomBytes,
+			FlagSlotSecret:           []byte(deps.FlagSlotSecret),
 			StandDeployBudget:        deps.ExerciseConfig.StandDeployBudget,
 			StandPrewarmLead:         deps.ExerciseConfig.StandPrewarmLead,
 			LabSweepGrace:            deps.ExerciseConfig.LabSweepGrace,

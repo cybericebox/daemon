@@ -489,6 +489,21 @@ func (mr *MockQuerierMockRecorder) CountDispatchesByTypeSince(ctx, createdAt any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDispatchesByTypeSince", reflect.TypeOf((*MockQuerier)(nil).CountDispatchesByTypeSince), ctx, createdAt)
 }
 
+// CountEarlierEventExerciseVariantTeams mocks base method.
+func (m *MockQuerier) CountEarlierEventExerciseVariantTeams(ctx context.Context, arg postgres.CountEarlierEventExerciseVariantTeamsParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEarlierEventExerciseVariantTeams", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEarlierEventExerciseVariantTeams indicates an expected call of CountEarlierEventExerciseVariantTeams.
+func (mr *MockQuerierMockRecorder) CountEarlierEventExerciseVariantTeams(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEarlierEventExerciseVariantTeams", reflect.TypeOf((*MockQuerier)(nil).CountEarlierEventExerciseVariantTeams), ctx, arg)
+}
+
 // CountEmailDeliveredSince mocks base method.
 func (m *MockQuerier) CountEmailDeliveredSince(ctx context.Context, arg postgres.CountEmailDeliveredSinceParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -532,6 +547,21 @@ func (m *MockQuerier) CountEventChallengeSolves(ctx context.Context, arg postgre
 func (mr *MockQuerierMockRecorder) CountEventChallengeSolves(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventChallengeSolves", reflect.TypeOf((*MockQuerier)(nil).CountEventChallengeSolves), ctx, arg)
+}
+
+// CountEventExerciseVariantTeams mocks base method.
+func (m *MockQuerier) CountEventExerciseVariantTeams(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.CountEventExerciseVariantTeamsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountEventExerciseVariantTeams", ctx, eventExerciseID)
+	ret0, _ := ret[0].([]postgres.CountEventExerciseVariantTeamsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountEventExerciseVariantTeams indicates an expected call of CountEventExerciseVariantTeams.
+func (mr *MockQuerierMockRecorder) CountEventExerciseVariantTeams(ctx, eventExerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountEventExerciseVariantTeams", reflect.TypeOf((*MockQuerier)(nil).CountEventExerciseVariantTeams), ctx, eventExerciseID)
 }
 
 // CountEventInfrastructureExercises mocks base method.
@@ -5138,6 +5168,21 @@ func (mr *MockQuerierMockRecorder) GetTeamChallengeScoringContext(ctx, teamChall
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamChallengeScoringContext", reflect.TypeOf((*MockQuerier)(nil).GetTeamChallengeScoringContext), ctx, teamChallengeID)
 }
 
+// GetTeamEventExerciseVariant mocks base method.
+func (m *MockQuerier) GetTeamEventExerciseVariant(ctx context.Context, arg postgres.GetTeamEventExerciseVariantParams) (int32, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetTeamEventExerciseVariant", ctx, arg)
+	ret0, _ := ret[0].(int32)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTeamEventExerciseVariant indicates an expected call of GetTeamEventExerciseVariant.
+func (mr *MockQuerierMockRecorder) GetTeamEventExerciseVariant(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTeamEventExerciseVariant", reflect.TypeOf((*MockQuerier)(nil).GetTeamEventExerciseVariant), ctx, arg)
+}
+
 // GetTemporalCodeByCode mocks base method.
 func (m *MockQuerier) GetTemporalCodeByCode(ctx context.Context, code string) (postgres.TemporalCode, error) {
 	m.ctrl.T.Helper()
@@ -6331,6 +6376,21 @@ func (m *MockQuerier) ListEventExercisePrerequisites(ctx context.Context, eventE
 func (mr *MockQuerierMockRecorder) ListEventExercisePrerequisites(ctx, eventExerciseID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExercisePrerequisites", reflect.TypeOf((*MockQuerier)(nil).ListEventExercisePrerequisites), ctx, eventExerciseID)
+}
+
+// ListEventExerciseTeamVariants mocks base method.
+func (m *MockQuerier) ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]postgres.ListEventExerciseTeamVariantsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventExerciseTeamVariants", ctx, eventExerciseID)
+	ret0, _ := ret[0].([]postgres.ListEventExerciseTeamVariantsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventExerciseTeamVariants indicates an expected call of ListEventExerciseTeamVariants.
+func (mr *MockQuerierMockRecorder) ListEventExerciseTeamVariants(ctx, eventExerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventExerciseTeamVariants", reflect.TypeOf((*MockQuerier)(nil).ListEventExerciseTeamVariants), ctx, eventExerciseID)
 }
 
 // ListEventExercises mocks base method.
@@ -9271,6 +9331,20 @@ func (m *MockQuerier) LockEventConfigForLabSizing(ctx context.Context, eventID u
 func (mr *MockQuerierMockRecorder) LockEventConfigForLabSizing(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventConfigForLabSizing", reflect.TypeOf((*MockQuerier)(nil).LockEventConfigForLabSizing), ctx, eventID)
+}
+
+// LockEventExerciseVariantPick mocks base method.
+func (m *MockQuerier) LockEventExerciseVariantPick(ctx context.Context, eventExerciseID uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockEventExerciseVariantPick", ctx, eventExerciseID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockEventExerciseVariantPick indicates an expected call of LockEventExerciseVariantPick.
+func (mr *MockQuerierMockRecorder) LockEventExerciseVariantPick(ctx, eventExerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockEventExerciseVariantPick", reflect.TypeOf((*MockQuerier)(nil).LockEventExerciseVariantPick), ctx, eventExerciseID)
 }
 
 // LockEventForLabSourceChange mocks base method.
