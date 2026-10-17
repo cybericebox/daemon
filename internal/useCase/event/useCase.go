@@ -184,6 +184,7 @@ type EventUseCase struct {
 	labSweepGrace     time.Duration
 	prewarm           *prewarmState
 	images            ImageAccess // nil: labs deploy without image checks or pull credentials
+	imageWaits        *imageWaits
 	placement         *placementCache
 	labAccessBackoff  *labAccessBackoff
 	events            *eventRepo.Repository
@@ -354,6 +355,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		prewarmLead:              deps.StandPrewarmLead,
 		labSweepGrace:            labSweepGrace(deps.LabSweepGrace),
 		prewarm:                  newPrewarmState(),
+		imageWaits:               newImageWaits(),
 		labAccessBackoff:         newLabAccessBackoff(),
 		placement:                &placementCache{need: map[uuid.UUID]cachedNeed{}, plans: map[uuid.UUID]cachedLeadPlan{}},
 		events:                   eventRepo.New(deps.Repo),

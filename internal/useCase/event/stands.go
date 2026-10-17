@@ -566,6 +566,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 		return ready, model.ErrPlatform.WithError(err).WithMessage("Failed to list pending stand labs").Err()
 	}
 	topologies := map[topologyKey]exerciseModel.Topology{}
+	pulls := map[topologyKey]standImages{}
 	budget := u.standDeployBudget
 	var errs []error
 	for _, lab := range pending {
@@ -576,7 +577,7 @@ func (u *EventUseCase) deployAndObserveStandLabs(ctx context.Context, e eventMod
 				continue
 			}
 			budget--
-			if err = u.deployStandLab(ctx, e, lab, topologies, now); err != nil {
+			if err = u.deployStandLab(ctx, e, lab, topologies, pulls, now); err != nil {
 				errs = append(errs, err)
 			}
 			continue
@@ -676,7 +677,7 @@ func (u *EventUseCase) failStandLab(ctx context.Context, binding labBindingModel
 	return changed, err
 }
 
-func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, topologies map[topologyKey]exerciseModel.Topology, now time.Time) error {
+func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, lab labBindingRepo.PendingLab, topologies map[topologyKey]exerciseModel.Topology, pulls map[topologyKey]standImages, now time.Time) error {
 	if u.topologies == nil {
 		return model.ErrPlatform.WithMessage("Laboratory deployment is not configured").Err()
 	}
@@ -692,26 +693,39 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 		}
 		topology, topologies[key] = resolved, resolved
 	}
-	topology, err := u.withTeamFlags(ctx, lab, topology)
+	// Every image must be pullable before anything is reserved or created; the Lab gets exactly the credentials
+	// its images need. The variant's images are checked once per pass, whatever number of teams deploy it.
+	pulled, cachedPull := pulls[key]
+	if !cachedPull {
+		pulled.DeployImages, pulled.err = u.prepareEventLabImages(ctx, e.ID, topology)
+		pulls[key] = pulled
+	}
+	waitKey := lab.Binding.ID.String() + "/" + lab.Binding.LabName
+	if pulled.err != nil {
+		if !errors.Is(pulled.err, imageRegistryModel.ErrImagesUnavailable.Err()) || len(pulled.Unavailable) == 0 {
+			// The registry settings or secrets cannot be read: the Lab stays pending for the next pass.
+			return pulled.err
+		}
+		image, transient := blockingImage(pulled.Unavailable)
+		// Registry trouble that may clear by itself keeps the Lab pending until the deploy timeout,
+		// counted from the first pass that tried to deploy it.
+		if transient && now.Sub(u.imageWaits.since(waitKey, now)) < eventStandModel.DeployTimeout {
+			return nil
+		}
+		u.imageWaits.done(waitKey)
+		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.ImageUnavailableReason(image)); markErr != nil {
+			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
+		}
+		return nil
+	}
+	u.imageWaits.done(waitKey)
+	topology, err := u.withTeamFlags(ctx, lab, pulled.Topology)
 	if err != nil {
 		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Flag injection failed: "+err.Error())); markErr != nil {
 			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
 		return nil
 	}
-	// Every image must be pullable before anything is reserved or created; the Lab gets exactly the credentials
-	// its images need. A registry that cannot be read (settings, secrets) leaves the Lab pending for the next pass.
-	pulled, err := u.prepareEventLabImages(ctx, e.ID, topology)
-	if err != nil {
-		if errors.Is(err, imageRegistryModel.ErrImagesUnavailable.Err()) && len(pulled.Unavailable) > 0 {
-			if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.ImageUnavailableReason(pulled.Unavailable[0].Image)); markErr != nil {
-				return model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
-			}
-			return nil
-		}
-		return err
-	}
-	topology = pulled.Topology
 	if u.lifecycleControls {
 		if err = u.reserveRevealSet(ctx, e.ID, lab.EventExerciseID, now); err != nil {
 			if errors.Is(err, calModel.ErrNotEnoughReserved.Err()) {

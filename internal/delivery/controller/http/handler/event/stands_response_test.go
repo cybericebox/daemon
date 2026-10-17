@@ -38,3 +38,14 @@ func TestStandsResponseKeepsTheImageUnavailableReason(t *testing.T) {
 		t.Fatalf("stand response %+v", got)
 	}
 }
+
+// The prewarm summary counts the images skipped as unavailable on their own.
+func TestStandsResponseCountsUnavailablePrewarmImages(t *testing.T) {
+	raw, err := json.Marshal(toStandsResponse(eventUseCase.StandsView{Prewarm: &eventUseCase.PrewarmSummary{Total: 3, Warming: 2, Unavailable: 1}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"Unavailable":1`) {
+		t.Fatalf("prewarm response %s", raw)
+	}
+}

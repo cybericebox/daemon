@@ -30,7 +30,10 @@ const (
 // last reported it. UpdatedAt is zero until the first answer.
 type PrewarmSummary struct {
 	Total, Done, Warming, Queued, Failed, Skipped int
-	UpdatedAt                                     time.Time
+	// Unavailable counts the images that cannot be pulled at all: they are not sent to the agent and
+	// their labs are refused at deploy («Образ недоступний»).
+	Unavailable int
+	UpdatedAt   time.Time
 }
 
 // Settled is true when no image is still being fetched.
@@ -162,7 +165,7 @@ func (u *EventUseCase) prewarmOneEvent(ctx context.Context, prewarmer infraModel
 	// Images that cannot be pulled are not sent: their labs are refused at deploy («Образ недоступний»).
 	for _, a := range plan.skipped {
 		summary.Total++
-		summary.Skipped++
+		summary.Unavailable++
 		unavailable = append(unavailable, a.Image+": "+string(a.Reason))
 	}
 	sort.Strings(failed)

@@ -25,12 +25,19 @@ type fakeEventImages struct {
 	rewrite     map[string]string
 	creds       map[string]infraModel.RegistryCredential
 	scopes      []imageRegistryUseCase.Scope
+	checked     map[string]int // calls per image (prewarm also checks the event's images)
 }
 
 func (f *fakeEventImages) PrepareDeployImages(_ context.Context, scope imageRegistryUseCase.Scope, topo exerciseModel.Topology) (imageRegistryUseCase.DeployImages, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scopes = append(f.scopes, scope)
+	if f.checked == nil {
+		f.checked = map[string]int{}
+	}
+	for _, d := range topo.Devices {
+		f.checked[d.Image]++
+	}
 	var bad []imageRegistryModel.Availability
 	out := topo
 	out.Devices = slices.Clone(topo.Devices)
@@ -112,6 +119,9 @@ func TestStandEngine_DeploysWithTheRewrittenImageAndItsCredentials(t *testing.T)
 	if len(f.agent.deployed) != 3 {
 		t.Fatalf("deployed %v", f.agent.deployed)
 	}
+	if n := images.checked[standPlatformImage]; n != 1 {
+		t.Fatalf("three Labs of one variant must check their images once per pass, got %d checks", n)
+	}
 	for _, lab := range f.agent.deployed {
 		topo, meta := f.agent.topos[lab], f.agent.metas[lab]
 		if topo.Devices[0].Image != rewritten {
@@ -149,7 +159,41 @@ func TestStandEngine_PrewarmSkipsUnavailableImagesAndForwardsCredentials(t *test
 		}
 	}
 	view, err := f.uc.GetEventStands(context.Background(), f.eventID)
-	if err != nil || view.Prewarm == nil || view.Prewarm.Total != 2 || view.Prewarm.Warming != 1 || view.Prewarm.Skipped != 1 {
+	if err != nil || view.Prewarm == nil || view.Prewarm.Total != 2 || view.Prewarm.Warming != 1 || view.Prewarm.Unavailable != 1 || view.Prewarm.Skipped != 0 {
 		t.Fatalf("prewarm summary = %+v, %v", view.Prewarm, err)
+	}
+}
+
+// Transient registry trouble (unreachable, rate limited, not configured) keeps the Lab pending, with
+// nothing deployed, until the deploy timeout; then it fails with the image reason.
+func TestStandEngine_TransientImageTroubleWaitsUntilTheDeployTimeout(t *testing.T) {
+	f := newStandFixture(t)
+	f.standWithImage(t, standPlatformImage)
+	images := &fakeEventImages{unavailable: map[string]imageRegistryModel.Reason{standPlatformImage: imageRegistryModel.ReasonUnreachable}}
+	f.uc.SetImageAccess(images)
+	f.pass(t)
+	f.pass(t)
+	if len(f.agent.deployed) != 0 {
+		t.Fatalf("nothing may be deployed: %v", f.agent.deployed)
+	}
+	f.assertStatuses(t, map[string]string{"Blue": "creating", "Red": "creating"})
+
+	timeout := eventStandModel.DeployTimeout
+	eventStandModel.DeployTimeout = 0
+	t.Cleanup(func() { eventStandModel.DeployTimeout = timeout })
+	f.pass(t)
+	f.pass(t)
+	if len(f.agent.deployed) != 0 {
+		t.Fatalf("nothing may be deployed: %v", f.agent.deployed)
+	}
+	f.assertStatuses(t, map[string]string{"Blue": "failed", "Red": "failed"})
+	view, err := f.uc.GetEventStands(context.Background(), f.eventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range view.Items {
+		if item.Reason != eventStandModel.ImageUnavailableReason(standPlatformImage) {
+			t.Fatalf("stand %s reason %q", item.TeamName, item.Reason)
+		}
 	}
 }

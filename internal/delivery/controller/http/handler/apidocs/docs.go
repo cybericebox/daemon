@@ -27282,6 +27282,10 @@ const docTemplate = `{
                 "Total": {
                     "type": "integer"
                 },
+                "Unavailable": {
+                    "description": "Unavailable images cannot be pulled at all; they are not prewarmed and their labs do not start.",
+                    "type": "integer"
+                },
                 "UpdatedAt": {
                     "type": "string"
                 },

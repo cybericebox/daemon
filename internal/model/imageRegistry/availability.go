@@ -25,6 +25,18 @@ const (
 	ReasonCredentialConflict Reason = "credential_conflict"
 )
 
+// Transient is true for a reason that may clear without any change to the
+// task or its credentials: the registry answers again, or an admin configures
+// the platform registry.
+func (r Reason) Transient() bool {
+	switch r {
+	case ReasonUnreachable, ReasonRateLimited, ReasonNotConfigured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Availability is the check result for one image reference.
 type Availability struct {
 	Image  string

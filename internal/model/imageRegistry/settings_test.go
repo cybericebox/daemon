@@ -37,6 +37,7 @@ func TestNewSettings(t *testing.T) {
 		{"scheme in repository", "ghcr", "acme", "https://ghcr.io/a", true, "", ""},
 		{"space in repository", "ghcr", "acme", "a b", true, "", ""},
 		{"empty account", "dockerhub", "  ", "acme/p", true, "", ""},
+		{"account with a colon (the laboratory agent refuses it)", "ghcr", "ac:me", "acme/p", true, "", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

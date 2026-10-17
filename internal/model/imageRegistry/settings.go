@@ -55,7 +55,8 @@ func NewSettings(provider, account, repository string, now time.Time) (Settings,
 	p := Provider(strings.TrimSpace(provider))
 	repo := strings.TrimSpace(repository)
 	acct := strings.TrimSpace(account)
-	if !p.Valid() || acct == "" || repo == "" || strings.ContainsAny(repo, " \t\r\n") || strings.Contains(repo, "://") {
+	// an account with ':' cannot be sent as a pull credential (the laboratory agent refuses it)
+	if !p.Valid() || acct == "" || strings.Contains(acct, ":") || repo == "" || strings.ContainsAny(repo, " \t\r\n") || strings.Contains(repo, "://") {
 		return Settings{}, ErrInvalidSettings.Err()
 	}
 	return Settings{Provider: p, Account: acct, Repository: repo, UpdatedAt: now}, nil
