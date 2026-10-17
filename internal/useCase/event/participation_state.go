@@ -128,6 +128,10 @@ type ParticipationState struct {
 	FormTeam Capability
 	// TeamFormed says the actor's team is formed.
 	TeamFormed bool
+	// TeamNeedsConfirmation: the actor's team waits for its captain to confirm
+	// the roster (late-join team event, team not formed yet). False where the
+	// start forms every team, so nothing is shown about it.
+	TeamNeedsConfirmation bool
 	// RosterOpen is the event-level fact behind the team capabilities.
 	RosterOpen bool
 	// RegistrationWindowOpen is the event-level fact behind Register.
@@ -265,6 +269,7 @@ func ComputeParticipation(in ParticipationInput) ParticipationState {
 	}())
 
 	state.TeamFormed = a.HasTeam && a.TeamFormed
+	state.TeamNeedsConfirmation = approved && teamEvent && a.HasTeam && !a.TeamFormed && l.JoinPolicy == eventModel.JoinPolicyRolling
 	state.RemoveMember = state.ManageTeam
 	state.DisbandTeam = state.ManageTeam
 	if state.DisbandTeam.Allowed && a.TeamFormed {

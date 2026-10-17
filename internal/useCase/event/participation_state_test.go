@@ -223,3 +223,36 @@ func TestParticipationReasons(t *testing.T) {
 		})
 	}
 }
+
+// Only a late-join (rolling) team event asks the captain to confirm the roster;
+// the flag is what the participant UI reads, for the captain and the members.
+func TestTeamNeedsConfirmation(t *testing.T) {
+	team, individual := eventConfigModel.ParticipationTeam, eventConfigModel.ParticipationIndividual
+	rolling := matrixLifecycle(t, eventModel.JoinPolicyRolling, -3*hr, -hr, dur(5*hr), dur(6*hr))
+	locked := matrixLifecycle(t, eventModel.JoinPolicyLockedAtStart, -3*hr, -hr, dur(5*hr), dur(6*hr))
+	member := event.ParticipationActor{Authenticated: true, Status: participantModel.StatusApproved, HasTeam: true}
+	formed := member
+	formed.TeamFormed = true
+	captain := member
+	captain.Captain = true
+	noTeam := event.ParticipationActor{Authenticated: true, Status: participantModel.StatusApproved}
+	for _, tc := range []struct {
+		name string
+		in   event.ParticipationInput
+		want bool
+	}{
+		{"rolling, unformed, captain", event.ParticipationInput{Lifecycle: rolling, Participation: &team, Actor: captain}, true},
+		{"rolling, unformed, member", event.ParticipationInput{Lifecycle: rolling, Participation: &team, Actor: member}, true},
+		{"rolling, formed", event.ParticipationInput{Lifecycle: rolling, Participation: &team, Actor: formed}, false},
+		{"locked at start", event.ParticipationInput{Lifecycle: locked, Participation: &team, Actor: captain}, false},
+		{"individual event", event.ParticipationInput{Lifecycle: rolling, Participation: &individual, Actor: member}, false},
+		{"no team yet", event.ParticipationInput{Lifecycle: rolling, Participation: &team, Actor: noTeam}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.in.Registration, tc.in.Now = eventConfigModel.RegistrationOpen, matrixNow
+			if got := event.ComputeParticipation(tc.in).TeamNeedsConfirmation; got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

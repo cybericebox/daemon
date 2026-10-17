@@ -30428,6 +30428,10 @@ const docTemplate = `{
                 "TeamFormed": {
                     "description": "TeamFormed: the caller's team roster is closed for good.",
                     "type": "boolean"
+                },
+                "TeamNeedsConfirmation": {
+                    "description": "TeamNeedsConfirmation: the caller's team waits for its captain to confirm the roster (late-join team events only).",
+                    "type": "boolean"
                 }
             }
         },

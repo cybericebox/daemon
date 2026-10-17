@@ -594,10 +594,12 @@ type participationResponse struct {
 	DisbandTeam        capabilityResponse `json:"DisbandTeam"`
 	FormTeam           capabilityResponse `json:"FormTeam"`
 	// TeamFormed: the caller's team roster is closed for good.
-	TeamFormed  bool               `json:"TeamFormed"`
-	EditAnswers capabilityResponse `json:"EditAnswers"`
-	SeeTasks    capabilityResponse `json:"SeeTasks"`
-	Submit      capabilityResponse `json:"Submit"`
+	TeamFormed bool `json:"TeamFormed"`
+	// TeamNeedsConfirmation: the caller's team waits for its captain to confirm the roster (late-join team events only).
+	TeamNeedsConfirmation bool               `json:"TeamNeedsConfirmation"`
+	EditAnswers           capabilityResponse `json:"EditAnswers"`
+	SeeTasks              capabilityResponse `json:"SeeTasks"`
+	Submit                capabilityResponse `json:"Submit"`
 }
 
 func toCapabilityResponse(c eventUseCase.Capability) capabilityResponse {
@@ -615,7 +617,7 @@ func toParticipationResponse(s *eventUseCase.ParticipationState) *participationR
 		Register: toCapabilityResponse(s.Register), CreateTeam: toCapabilityResponse(s.CreateTeam), JoinTeam: toCapabilityResponse(s.JoinTeam),
 		LeaveTeam: toCapabilityResponse(s.LeaveTeam), ManageTeam: toCapabilityResponse(s.ManageTeam),
 		RemoveMember: toCapabilityResponse(s.RemoveMember), DisbandTeam: toCapabilityResponse(s.DisbandTeam),
-		FormTeam: toCapabilityResponse(s.FormTeam), TeamFormed: s.TeamFormed,
+		FormTeam: toCapabilityResponse(s.FormTeam), TeamFormed: s.TeamFormed, TeamNeedsConfirmation: s.TeamNeedsConfirmation,
 		EditAnswers: toCapabilityResponse(s.EditAnswers), SeeTasks: toCapabilityResponse(s.SeeTasks), Submit: toCapabilityResponse(s.Submit),
 	}
 }
