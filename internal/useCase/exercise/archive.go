@@ -657,11 +657,14 @@ func sortedArchiveNames(files map[string][]byte) []string {
 
 // validateArchiveManifest verifies every manifest.json in the archive and removes it from the result. No
 // manifest means nothing to verify. A manifest at the root covers every entry by its full path; one inside a
-// task folder (older bundles) covers that folder, its paths relative to it.
+// task folder (older bundles) covers that folder, its paths relative to it. A manifest.json elsewhere, or in a
+// folder without exercise.json / exercise.yaml, is an ordinary attachment and stays untouched. A manifest lists
+// what to check: an entry it does not list is accepted unverified, a listed entry that is missing or differs
+// is a checksum mismatch.
 func validateArchiveManifest(files map[string][]byte) (map[string][]byte, error) {
 	var manifests []string
 	for name := range files {
-		if name == "manifest.json" || strings.HasSuffix(name, "/manifest.json") {
+		if isArchiveManifest(name, files) {
 			manifests = append(manifests, name)
 		}
 	}
@@ -690,6 +693,20 @@ func validateArchiveManifest(files map[string][]byte) (map[string][]byte, error)
 		delete(files, name)
 	}
 	return files, nil
+}
+
+// isArchiveManifest tells the archive manifest from an attachment that happens to be named manifest.json.
+func isArchiveManifest(name string, files map[string][]byte) bool {
+	if name == "manifest.json" {
+		return true
+	}
+	dir, ok := strings.CutSuffix(name, "/manifest.json")
+	if !ok {
+		return false
+	}
+	_, hasJSON := files[dir+"/exercise.json"]
+	_, hasYAML := files[dir+"/exercise.yaml"]
+	return hasJSON || hasYAML
 }
 
 // archiveChecksumMismatch is the one place ErrArchiveChecksumMismatch is raised; file is the entry that differs.

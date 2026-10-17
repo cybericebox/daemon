@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -130,14 +131,48 @@ func TestReadProtectedArchive_WithoutManifest(t *testing.T) {
 }
 
 func TestReadArchiveV1_LimitsStillApply(t *testing.T) {
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"../x": []byte("x")}))); err == nil {
-		t.Fatal("an unsafe path must be refused without a manifest")
+	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"../x": []byte("x")}))); err == nil || !strings.Contains(err.Error(), "unsafe archive path") {
+		t.Fatalf("an unsafe path must be refused without a manifest: %v", err)
 	}
 	entries := map[string][]byte{}
 	for i := 0; i <= maxArchiveEntries; i++ {
 		entries[fmt.Sprintf("f%04d.txt", i)] = []byte("x")
 	}
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries))); err == nil {
-		t.Fatal("1001 entries must be refused without a manifest")
+	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries))); err == nil || !strings.Contains(err.Error(), "entries") {
+		t.Fatalf("1001 entries must be refused without a manifest: %v", err)
+	}
+}
+
+func TestReadArchiveV1_NestedManifestNamedAttachmentSurvives(t *testing.T) {
+	extension := []byte(`{"manifest_version": 3}`)
+	for name, build := range map[string]func(map[string][]byte) ([]byte, error){"with root manifest": BuildArchiveV1, "without manifest": BuildArchiveNoManifest} {
+		data, err := build(map[string][]byte{"task/exercise.json": []byte(minimalDoc), "task/files/manifest.json": extension})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files, err := ReadArchiveV1(bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !bytes.Equal(files["task/files/manifest.json"], extension) || len(files) != 2 {
+			t.Fatalf("%s: the attachment must stay untouched, got %d entries", name, len(files))
+		}
+	}
+}
+
+func TestReadArchiveV1_ManifestListingAMissingFileIsAMismatch(t *testing.T) {
+	manifest := []byte(`{"version":1,"checksums":{"gone.txt":"` + hashBytes([]byte("x")) + `"}}`)
+	data := zipOf(t, map[string][]byte{"a.txt": []byte("a"), "manifest.json": manifest})
+	if _, err := ReadArchiveV1(bytes.NewReader(data)); !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestReadArchiveV1_EntryNotListedInManifestIsAcceptedUnverified(t *testing.T) {
+	manifest := []byte(`{"version":1,"checksums":{"a.txt":"` + hashBytes([]byte("a")) + `"}}`)
+	data := zipOf(t, map[string][]byte{"a.txt": []byte("a"), "extra.txt": []byte("b"), "manifest.json": manifest})
+	files, err := ReadArchiveV1(bytes.NewReader(data))
+	if err != nil || len(files) != 2 || string(files["extra.txt"]) != "b" {
+		t.Fatalf("files %d err %v", len(files), err)
 	}
 }
