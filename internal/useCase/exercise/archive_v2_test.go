@@ -59,7 +59,7 @@ func TestDecodeArchiveV2_MapsEveryEnumByName(t *testing.T) {
 }
 
 func TestDecodeArchiveV2_RejectsIntegerEnum(t *testing.T) {
-	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"tasks":[{"name":"t","difficulty":3}]}]}]}`))
+	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":3}]}]}]}`))
 	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
 		t.Fatalf("err = %v, want ErrArchiveInvalid", err)
 	}
@@ -78,7 +78,7 @@ func TestDecodeArchiveV2_UnknownKeyNamed(t *testing.T) {
 func TestDecodeArchiveV2_StrictShape(t *testing.T) {
 	for name, payload := range map[string]string{
 		"trailing data":  v2Header + `"exercise":{"name":"x"}} {}`,
-		"unknown nested": v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"linked":1}]}]}`,
+		"unknown nested": v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"linked":1}]}]}`,
 		"not json":       `schema: cib-exercise/1`,
 		"wrong schema":   `{"schema":"cib-exercise/2","exercise":{"name":"x"}}`,
 		"missing schema": `{"exercise":{"name":"x"}}`,
@@ -90,7 +90,7 @@ func TestDecodeArchiveV2_StrictShape(t *testing.T) {
 }
 
 func TestToParsed_ResolvesDeviceNames(t *testing.T) {
-	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"tasks":[{"name":"t","difficulty":"easy","linked_device":"%s"}],"topology":{"devices":[{"name":"web","type":"container"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"vpn"}]}]}}]}]}`
+	const doc = v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"easy","linked_device":"%s"}],"topology":{"devices":[{"name":"web","type":"container"}],"connections":[{"endpoints":[{"kind":"device","device":"web","interface":"eth0"},{"kind":"vpn"}]}]}}]}]}`
 	parsed, err := mustDecodeV2(t, strings.Replace(doc, "%s", "web", 1)).toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -118,7 +118,7 @@ func TestToParsed_ResolvesDeviceNames(t *testing.T) {
 
 func TestToParsed_IgnoresTaskAndVersionIDs(t *testing.T) {
 	const id = "0192f0a0-0000-7000-8000-000000000001"
-	doc := mustDecodeV2(t, `{"schema":"cib-exercise/1","exercise":{"id":"`+id+`","name":"x"},"versions":[{"id":"`+id+`","variants":[{"id":"`+id+`","tasks":[{"id":"`+id+`","name":"t","difficulty":"easy"}]}]}]}`)
+	doc := mustDecodeV2(t, `{"schema":"cib-exercise/1","exercise":{"id":"`+id+`","name":"x"},"versions":[{"id":"`+id+`","status":"draft","variants":[{"id":"`+id+`","tasks":[{"id":"`+id+`","name":"t","difficulty":"easy"}]}]}]}`)
 	parsed, err := doc.toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -133,7 +133,7 @@ func TestToParsed_IgnoresTaskAndVersionIDs(t *testing.T) {
 	if variant.Tasks[0].ID != uuid.FromStringOrNil(id) {
 		t.Fatalf("task id = %v, want the given one", variant.Tasks[0].ID)
 	}
-	bad := mustDecodeV2(t, `{"schema":"cib-exercise/1","exercise":{"name":"x"},"versions":[{"variants":[{"id":"not-a-uuid"}]}]}`)
+	bad := mustDecodeV2(t, `{"schema":"cib-exercise/1","exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"id":"not-a-uuid"}]}]}`)
 	if _, err = bad.toParsed(nil); !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
 		t.Fatalf("bad variant id err = %v, want ErrArchiveInvalid", err)
 	}
@@ -141,7 +141,7 @@ func TestToParsed_IgnoresTaskAndVersionIDs(t *testing.T) {
 
 func TestToParsed_ImageFileFormReserved(t *testing.T) {
 	build := func(image string) (archiveDocV2, error) {
-		return decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"topology":{"devices":[{"name":"web","type":"container","image":` + image + `}]}}]}]}`))
+		return decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":` + image + `}]}}]}]}`))
 	}
 	doc, err := build(`{"file":"images/web.tar"}`)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestToParsed_ImageFileFormReserved(t *testing.T) {
 
 func TestToParsed_VisualRenderOpaque(t *testing.T) {
 	const render = `{"nodes":[{"x":1.50,"y":2}],  "z":null}`
-	doc := mustDecodeV2(t, v2Header+`"exercise":{"name":"x"},"versions":[{"variants":[{"topology":{"visual_render":`+render+`}}]}]}`)
+	doc := mustDecodeV2(t, v2Header+`"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"topology":{"visual_render":`+render+`}}]}]}`)
 	parsed, err := doc.toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -281,7 +281,7 @@ func TestParseExerciseArchive_SchemaRequired(t *testing.T) {
 
 func TestToParsed_ImageObjectFormAlwaysRejected(t *testing.T) {
 	build := func(image string) (archiveDocV2, error) {
-		return decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"topology":{"devices":[{"name":"web","type":"container","image":` + image + `}]}}]}]}`))
+		return decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"web","type":"container","image":` + image + `}]}}]}]}`))
 	}
 	doc, err := build(`{"file":""}`)
 	if err == nil {
@@ -300,7 +300,7 @@ func TestToParsed_ImageObjectFormAlwaysRejected(t *testing.T) {
 }
 
 func TestDecodeArchiveV2_TypeErrorsAreIndexedAndFixed(t *testing.T) {
-	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"tasks":[{"name":"a"},{"name":7}]}]}]}`))
+	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"a"},{"name":7}]}]}]}`))
 	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
 		t.Fatalf("err = %v", err)
 	}
@@ -332,7 +332,7 @@ func TestDecodeArchiveV2_TypeErrorPathOfContainers(t *testing.T) {
 }
 
 func TestDecodeArchiveV2_NeverExposesRawDecoderText(t *testing.T) {
-	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"tasks":[{"name":"a",}]}]}]}`))
+	_, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},"versions":[{"status":"draft","variants":[{"tasks":[{"name":"a",}]}]}]}`))
 	reason := publicContext(t, err)["reason"].(string)
 	if reason != "invalid JSON at line 1" {
 		t.Fatalf("reason = %q", reason)
@@ -342,12 +342,12 @@ func TestDecodeArchiveV2_NeverExposesRawDecoderText(t *testing.T) {
 func TestToParsed_UnknownEnumNamesRejected(t *testing.T) {
 	for field, doc := range map[string]string{
 		"status":          `"versions":[{"status":"x","variants":[{}]}]`,
-		"difficulty":      `"versions":[{"variants":[{"tasks":[{"name":"t","difficulty":"bogus"}]}]}]`,
-		"level":           `"versions":[{"variants":[{"tasks":[{"name":"t","hints":[{"text":"h","level":"bogus"}]}]}]}]`,
-		"type":            `"versions":[{"variants":[{"topology":{"devices":[{"name":"d","type":"bogus"}]}}]}]`,
-		"security_preset": `"versions":[{"variants":[{"topology":{"devices":[{"name":"d","type":"container","security_preset":"bogus"}]}}]}]`,
-		"kind":            `"versions":[{"variants":[{"topology":{"connections":[{"endpoints":[{"kind":"bogus"}]}]}}]}]`,
-		"ip.type":         `"versions":[{"variants":[{"topology":{"devices":[{"name":"d","type":"container","interfaces":[{"name":"eth0","ip":{"type":"bogus"}}]}]}}]}]`,
+		"difficulty":      `"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","difficulty":"bogus"}]}]}]`,
+		"level":           `"versions":[{"status":"draft","variants":[{"tasks":[{"name":"t","hints":[{"text":"h","level":"bogus"}]}]}]}]`,
+		"type":            `"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"d","type":"bogus"}]}}]}]`,
+		"security_preset": `"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"d","type":"container","security_preset":"bogus"}]}}]}]`,
+		"kind":            `"versions":[{"status":"draft","variants":[{"topology":{"connections":[{"endpoints":[{"kind":"bogus"}]}]}}]}]`,
+		"ip.type":         `"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"d","type":"container","interfaces":[{"name":"eth0","ip":{"type":"bogus"}}]}]}}]}]`,
 	} {
 		parsed, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},` + doc + `}`))
 		if err == nil {

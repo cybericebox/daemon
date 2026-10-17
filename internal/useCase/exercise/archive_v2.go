@@ -461,8 +461,12 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 	}
 	links := newArchiveLinks(files, &parsed)
 	for vi, version := range d.Versions {
-		if version.Status != "" && !version.Status.Valid() {
-			return ParsedExerciseArchive{}, unknownEnum(fmt.Sprintf("versions[%d].status", vi+1), string(version.Status))
+		statusPath := fmt.Sprintf("versions[%d].status", vi+1)
+		if version.Status == "" {
+			return ParsedExerciseArchive{}, archiveInvalid(statusPath + ": required")
+		}
+		if !version.Status.Valid() {
+			return ParsedExerciseArchive{}, unknownEnum(statusPath, string(version.Status))
 		}
 		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
 		// Ids first: a linked variant names its base by position, possibly a later one.

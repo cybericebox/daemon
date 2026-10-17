@@ -34,6 +34,12 @@ func TestImportExample_ServesZip(t *testing.T) {
 	if got := w.Header().Get("Content-Disposition"); got != wantDisposition {
 		t.Fatalf("disposition %q, want %q", got, wantDisposition)
 	}
+	if got := w.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options %q, want nosniff", got)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "private, no-store" {
+		t.Fatalf("Cache-Control %q, want private, no-store", got)
+	}
 	if !bytes.Equal(w.Body.Bytes(), want) {
 		t.Fatalf("body differs from ExampleArchive (%d vs %d bytes)", w.Body.Len(), len(want))
 	}

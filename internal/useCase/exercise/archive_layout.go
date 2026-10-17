@@ -70,7 +70,7 @@ func checkArchiveEntry(raw string, mode fs.FileMode, seen map[string][]byte) (na
 
 // splitTaskFolders groups the archive entries by task folder: every directory whose direct children include
 // exercise.json or exercise.yaml, at any depth, the zip root included. A task folder inside another and an
-// entry outside every task folder (other than the root manifest.json) are errors; macOS litter is dropped.
+// entry outside every task folder are errors; macOS litter is dropped.
 func splitTaskFolders(files map[string][]byte) ([]taskFolder, error) {
 	kept := make(map[string][]byte, len(files))
 	prefixes := map[string]bool{}
@@ -107,10 +107,8 @@ func splitTaskFolders(files map[string][]byte) ([]taskFolder, error) {
 		folders[i] = taskFolder{Prefix: prefix, Files: map[string][]byte{}}
 	}
 	names := sortedArchiveNames(kept)
+	// No root manifest.json reaches here: validateArchiveManifest checked and removed it while reading.
 	for _, name := range names {
-		if name == "manifest.json" {
-			continue // the root manifest covers the whole archive, no task folder holds it
-		}
 		placed := false
 		for i, prefix := range sorted {
 			if prefix == "" {

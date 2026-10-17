@@ -89,14 +89,38 @@ func TestSplitTaskFolders_StrayFileRejected(t *testing.T) {
 		t.Fatalf("file = %v", file)
 	}
 	folders, err := splitTaskFolders(map[string][]byte{
-		"a/exercise.yaml": []byte("y"), "b/exercise.json": []byte("j"), "manifest.json": []byte("{}"),
+		"a/exercise.yaml": []byte("y"), "b/exercise.json": []byte("j"),
 		"__MACOSX/a/._x": []byte("m"), "a/.DS_Store": []byte("d"), ".DS_Store": []byte("d"),
 	})
 	if err != nil {
-		t.Fatalf("manifest and macOS litter must be accepted: %v", err)
+		t.Fatalf("macOS litter must be accepted: %v", err)
 	}
 	if len(folders) != 2 || len(folders[0].Files) != 1 {
 		t.Fatalf("litter must be dropped: %+v", folders)
+	}
+}
+
+// The root manifest.json of a bundle is checked and dropped while reading, so no task folder gets it.
+func TestExpandExerciseArchiveBundle_RootManifestDropped(t *testing.T) {
+	bundle, err := BuildArchiveV1(map[string][]byte{"a/exercise.yaml": []byte("y"), "b/exercise.json": []byte("j")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports, err := ExpandExerciseArchiveBundle(bundle, "")
+	if err != nil {
+		t.Fatalf("a bundle with a root manifest must expand: %v", err)
+	}
+	if len(imports) != 2 {
+		t.Fatalf("imports = %d, want 2", len(imports))
+	}
+	for _, item := range imports {
+		files, readErr := ReadArchiveV1(bytes.NewReader(item.Archive))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if len(files) != 1 {
+			t.Fatalf("a folder archive holds only its own document: %v", sortedArchiveNames(files))
+		}
 	}
 }
 

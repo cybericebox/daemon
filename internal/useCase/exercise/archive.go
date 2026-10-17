@@ -67,10 +67,21 @@ type mediaArchiveWriter interface {
 }
 
 func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, error) {
-	all, err := readExerciseArchive(data, password)
+	parsed, _, err := parseExerciseArchive(data, password)
+	return parsed, err
+}
+
+// parseExerciseArchive also tells whether the archive was password-protected (a typed password alone does not count).
+func parseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, bool, error) {
+	all, protected, err := readExerciseArchive(data, password)
 	if err != nil {
-		return ParsedExerciseArchive{}, err
+		return ParsedExerciseArchive{}, false, err
 	}
+	parsed, err := parseTaskFiles(all)
+	return parsed, protected, err
+}
+
+func parseTaskFiles(all map[string][]byte) (ParsedExerciseArchive, error) {
 	folders, err := splitTaskFolders(all)
 	if err != nil {
 		return ParsedExerciseArchive{}, err
@@ -106,9 +117,10 @@ func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, 
 
 // ExpandExerciseArchiveBundle splits an archive into one single-task archive per task folder (any depth,
 // or the zip root) for ImportExerciseArchive. Each folder is repacked with paths relative to it; when a
-// password was given the repacked archive is protected with it.
+// password opened the source archive the repacked one is protected with it; a password typed for an
+// unprotected archive is dropped.
 func ExpandExerciseArchiveBundle(data []byte, password string) ([]ArchiveImport, error) {
-	files, err := readExerciseArchive(data, password)
+	files, protected, err := readExerciseArchive(data, password)
 	if err != nil {
 		return nil, err
 	}
@@ -118,20 +130,18 @@ func ExpandExerciseArchiveBundle(data []byte, password string) ([]ArchiveImport,
 	}
 	imports := make([]ArchiveImport, 0, len(folders))
 	for _, folder := range folders {
-		contents := folder.Files
-		archive, buildErr := BuildArchiveV1(contents)
+		item := ArchiveImport{}
+		var buildErr error
+		if protected {
+			item.Archive, buildErr = BuildProtectedArchiveV1(folder.Files, password)
+			item.Password = password
+		} else {
+			item.Archive, buildErr = BuildArchiveV1(folder.Files)
+		}
 		if buildErr != nil {
 			return nil, buildErr
 		}
-		archivePassword := ""
-		if password != "" {
-			archive, buildErr = BuildProtectedArchiveV1(contents, password)
-			if buildErr != nil {
-				return nil, buildErr
-			}
-			archivePassword = password
-		}
-		imports = append(imports, ArchiveImport{Archive: archive, Password: archivePassword})
+		imports = append(imports, item)
 	}
 	return imports, nil
 }
@@ -140,7 +150,7 @@ func ExpandExerciseArchiveBundle(data []byte, password string) ([]ArchiveImport,
 // identity. Source ids and owners are never reused. Attachments are copied
 // through the media use case, which is the only route to object storage.
 func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportExerciseInput) (ExerciseView, error) {
-	parsed, err := ParseExerciseArchive(in.Archive, in.Password)
+	parsed, protected, err := parseExerciseArchive(in.Archive, in.Password)
 	if err != nil {
 		return ExerciseView{}, err
 	}
@@ -151,8 +161,9 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if err = validateImportedVersions(parsed.Versions); err != nil {
 		return ExerciseView{}, err
 	}
-	if in.Password == "" && containsSecretValues(parsed.Versions) {
-		return ExerciseView{}, fmt.Errorf("an archive containing secret values must be password-protected")
+	// Only an archive that really was protected may carry secret values: a typed password proves nothing.
+	if secretPath := firstSecretValue(parsed.Versions); !protected && secretPath != "" {
+		return ExerciseView{}, archiveInvalid(secretPath + ": a secret value needs a password-protected archive")
 	}
 	// A secret is bound to its variant id: the ids are final before anything is sealed.
 	for i := range parsed.Versions {
@@ -210,19 +221,20 @@ func syncImportedLinks(versions []exerciseModel.ExerciseVersion) error {
 	return nil
 }
 
-func containsSecretValues(versions []exerciseModel.ExerciseVersion) bool {
-	for _, version := range versions {
-		for _, variant := range version.Variants {
-			for _, device := range variant.Topology.Devices {
-				for _, env := range device.EnvVars {
+// firstSecretValue gives the 1-based path of the first secret env value, or "" when there is none.
+func firstSecretValue(versions []exerciseModel.ExerciseVersion) string {
+	for vi, version := range versions {
+		for xi, variant := range version.Variants {
+			for di, device := range variant.Topology.Devices {
+				for ei, env := range device.EnvVars {
 					if env.Secret && env.Value != "" {
-						return true
+						return fmt.Sprintf("versions[%d].variants[%d].topology.devices[%d].env_vars[%d]", vi+1, xi+1, di+1, ei+1)
 					}
 				}
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // validateImportedVersions mirrors the lifecycle rule: only a published
@@ -230,26 +242,31 @@ func containsSecretValues(versions []exerciseModel.ExerciseVersion) bool {
 // historical rows load as-is.
 func validateImportedVersions(versions []exerciseModel.ExerciseVersion) error {
 	if len(versions) == 0 {
-		return fmt.Errorf("exercise archive has no versions")
+		return archiveInvalid("versions: at least one version is required")
 	}
+	// Status first, so a second draft or published version is named before any publish check runs.
 	drafts, published := 0, 0
 	for index := range versions {
-		version := &versions[index]
-		if !version.Status.Valid() {
-			return fmt.Errorf("exercise archive has an invalid version status")
-		}
-		if version.Status.IsPublished() {
+		status := versions[index].Status
+		path := fmt.Sprintf("versions[%d].status", index+1)
+		switch {
+		case !status.Valid():
+			return unknownEnum(path, string(status))
+		case status.IsDraft():
+			drafts++
+		case status.IsPublished():
 			published++
-			if err := version.ValidateForPublish(); err != nil {
+		}
+		if drafts > 1 || published > 1 {
+			return archiveInvalid(fmt.Sprintf("%s: only one %s version is allowed", path, status))
+		}
+	}
+	for index := range versions {
+		if versions[index].Status.IsPublished() {
+			if err := versions[index].ValidateForPublish(); err != nil {
 				return err
 			}
 		}
-		if version.Status.IsDraft() {
-			drafts++
-		}
-	}
-	if drafts > 1 || published > 1 {
-		return fmt.Errorf("exercise archive has conflicting active versions")
 	}
 	return nil
 }
@@ -701,16 +718,21 @@ func BuildProtectedArchiveV1(files map[string][]byte, password string) ([]byte, 
 	return out.Bytes(), nil
 }
 
-func readExerciseArchive(data []byte, password string) (map[string][]byte, error) {
-	files, err := ReadArchiveV1(bytes.NewReader(data))
+// readExerciseArchive reads a plain archive, or a protected one when a password is given; protected tells which.
+func readExerciseArchive(data []byte, password string) (files map[string][]byte, protected bool, err error) {
+	files, err = ReadArchiveV1(bytes.NewReader(data))
 	if err == nil {
-		return files, nil
+		return files, false, nil
 	}
 	// A checksum mismatch means a readable archive edited by hand: a password would not help.
 	if password == "" || errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
-		return nil, err
+		return nil, false, err
 	}
-	return ReadProtectedArchiveV1(data, password)
+	files, err = ReadProtectedArchiveV1(data, password)
+	if err != nil {
+		return nil, false, err
+	}
+	return files, true, nil
 }
 
 func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, error) {

@@ -159,6 +159,8 @@ func (h *Handler) importExample(ctx *gin.Context) {
 // serveArchive answers with a small zip held in memory as one attachment.
 func serveArchive(ctx *gin.Context, name string, contents []byte) {
 	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
+	ctx.Header("X-Content-Type-Options", "nosniff")
+	ctx.Header("Cache-Control", "private, no-store")
 	ctx.Data(http.StatusOK, "application/zip", contents)
 }
 

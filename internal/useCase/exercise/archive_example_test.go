@@ -252,7 +252,7 @@ var requiredKeyErrors = map[string]string{
 	"exercise":                              "exercise name",
 	"exercise.name":                         "exercise name",
 	"versions":                              "nothing links to",
-	"versions[1].status":                    "version status",
+	"versions[1].status":                    "versions[1].status: required",
 	"versions[1].variants":                  "nothing links to",
 	"versions[1].variants[1].tasks[1].name": "task name",
 	"versions[1].variants[1].tasks[1].description":                                     "task description",
