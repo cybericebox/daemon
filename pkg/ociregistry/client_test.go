@@ -118,7 +118,9 @@ func TestUnreachable(t *testing.T) {
 }
 
 // bearerFake is a registry behind a token server on the same host. Accounts: "writer" (push+pull),
-// "reader" (pull only); any other account or a wrong password gets 401 from the token endpoint.
+// "reader" (pull only), "stranger" (a valid account without access to any repository: /v2/ answers,
+// every repository request is denied); any other account or a wrong password gets 401 from the token
+// endpoint.
 func bearerFake(t *testing.T) (*httptest.Server, *[]string) {
 	t.Helper()
 	var scopes []string
@@ -127,7 +129,7 @@ func bearerFake(t *testing.T) (*httptest.Server, *[]string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if !ok || p != fakePassword || (u != "writer" && u != "reader") {
+		if !ok || p != fakePassword || (u != "writer" && u != "reader" && u != "stranger") {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -139,6 +141,10 @@ func bearerFake(t *testing.T) (*httptest.Server, *[]string) {
 		if tok == "" {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="`+srv.URL+`/token",service="fake"`)
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if tok == "Bearer stranger-token" && r.URL.Path != "/v2/" {
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 		if tok == "Bearer reader-token" && r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -171,6 +177,44 @@ func TestPingProvesPushPermission(t *testing.T) {
 	require.NoError(t, newClient(srv, "reader", fakePassword).PingPull(ctx))
 	err = newClient(srv, "reader", fakePassword+"x").PingPull(ctx)
 	require.ErrorIs(t, err, ErrUnauthorized)
+}
+
+// PingPull reads the repository itself: an account the registry knows but that cannot read the
+// repository is refused; an empty repository (404 with an accepted token) passes.
+func TestPingPullProvesTheRepositoryCanBeRead(t *testing.T) {
+	srv, scopes := bearerFake(t)
+	ctx := context.Background()
+
+	err := newClient(srv, "stranger", fakePassword).PingPull(ctx)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	require.NotContains(t, err.Error(), fakePassword)
+
+	// empty repository: the registry answers 404 to an accepted token
+	require.NoError(t, newClient(srv, "reader", fakePassword).PingPull(ctx))
+	require.Contains(t, *scopes, "repository:acme/platform:pull")
+
+	// with content
+	w := newClient(srv, "writer", fakePassword)
+	cfg := []byte(`{"architecture":"amd64","os":"linux"}`)
+	require.NoError(t, w.PushBlob(ctx, digestOf(cfg), int64(len(cfg)), bytes.NewReader(cfg)))
+	manifest := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"` + digestOf(cfg) + `","size":36},"layers":[]}`)
+	_, err = w.PutManifest(ctx, "demo-0123456789ab", "application/vnd.oci.image.manifest.v1+json", manifest)
+	require.NoError(t, err)
+	require.NoError(t, newClient(srv, "reader", fakePassword).PingPull(ctx))
+}
+
+// A reference the platform's own parser accepts but go-containerregistry refuses (library/x:y from
+// "x:y:z") is an invalid reference, not an unreachable registry.
+func TestInvalidRepositoryIsAnInvalidReference(t *testing.T) {
+	srv := httptest.NewServer(registry.New())
+	defer srv.Close()
+	c := New(Options{Host: hostOf(srv), Repository: "library/x:y", Insecure: true})
+	ctx := context.Background()
+	_, err := c.ManifestExists(ctx, "z")
+	require.ErrorIs(t, err, ErrInvalidReference)
+	require.NotErrorIs(t, err, ErrUnreachable)
+	require.ErrorIs(t, c.Ping(ctx), ErrInvalidReference)
+	require.ErrorIs(t, c.PingPull(ctx), ErrInvalidReference)
 }
 
 func TestPingCancelledKeepsContextError(t *testing.T) {

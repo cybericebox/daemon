@@ -373,6 +373,14 @@ func TestPublicImages(t *testing.T) {
 			t.Fatal("an invalid reference reaches no registry")
 		}
 	})
+	t.Run("a reference only the registry client refuses is invalid, not unreachable", func(t *testing.T) {
+		f := newAccessFixture(t, true)
+		// parsed as docker.io library/x:y tag z; go-containerregistry refuses the repository
+		av, err := f.uc.CheckImageAvailability(ctx, Scope{}, []string{"x:y:z"})
+		if err != nil || len(av) != 1 || av[0].Reason != imageRegistryModel.ReasonInvalidReference {
+			t.Fatalf("got %v %v", av, err)
+		}
+	})
 }
 
 func TestEventSecretOnlyInsideItsEvent(t *testing.T) {

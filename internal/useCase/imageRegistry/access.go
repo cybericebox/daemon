@@ -414,6 +414,9 @@ func (c *imageChecker) manifest(ctx context.Context, image, identity, reference 
 				}
 			case errors.Is(err, ociregistry.ErrNotFound):
 				reason = imageRegistryModel.ReasonNotFound
+			case errors.Is(err, ociregistry.ErrInvalidReference):
+				// accepted by ParseImageRef, refused by the client (e.g. "x:y:z"): definitive
+				reason = imageRegistryModel.ReasonInvalidReference
 			}
 			// rate limits, timeouts and everything else: the registry cannot serve the pull now
 			res = unavailableResult(image, reason)

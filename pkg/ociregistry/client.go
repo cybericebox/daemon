@@ -55,7 +55,7 @@ func (c *Client) repo() (name.Repository, error) {
 	}
 	r, err := name.NewRepository(c.opts.Host+"/"+c.opts.Repository, nopts...)
 	if err != nil {
-		return name.Repository{}, fmt.Errorf("invalid repository reference: %w", err)
+		return name.Repository{}, fmt.Errorf("%w: %s", ErrInvalidReference, c.scrub(err.Error()))
 	}
 	return r, nil
 }
@@ -79,7 +79,7 @@ func (c *Client) wrap(op string, err error) error {
 			return fmt.Errorf("%s: %w", op, ce)
 		}
 	}
-	for _, s := range []error{ErrUnauthorized, ErrNotFound, ErrUnreachable, ErrRateLimited} {
+	for _, s := range []error{ErrUnauthorized, ErrNotFound, ErrUnreachable, ErrRateLimited, ErrInvalidReference} {
 		if errors.Is(err, s) {
 			return err
 		}
@@ -213,7 +213,10 @@ func (c *Client) Ping(ctx context.Context) error {
 	return nil
 }
 
-// PingPull checks that the registry answers and accepts the credentials for reading the repository.
+// PingPull proves the credentials can read the repository: a pull-scoped GET /v2/<repo>/tags/list?n=1.
+// 200 passes; 401/403 is ErrUnauthorized (a token the registry knows but without access to the repository
+// fails here, unlike a bare /v2/ check). 404 passes too: the token was accepted for the pull scope (a refused
+// one gets 401/403) and the repository is still empty — a new platform repository before its first push.
 func (c *Client) PingPull(ctx context.Context) error {
 	repo, err := c.repo()
 	if err != nil {
@@ -223,7 +226,7 @@ func (c *Client) PingPull(ctx context.Context) error {
 	if err != nil {
 		return c.wrap("ping", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, repo.Registry.Scheme()+"://"+repo.RegistryStr()+"/v2/", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base(repo)+"/tags/list?n=1", nil)
 	if err != nil {
 		return err
 	}
@@ -232,7 +235,7 @@ func (c *Client) PingPull(ctx context.Context) error {
 		return err
 	}
 	defer drain(resp)
-	if resp.StatusCode == http.StatusOK {
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound {
 		return nil
 	}
 	if s := classifyStatus(resp.StatusCode); s != nil {

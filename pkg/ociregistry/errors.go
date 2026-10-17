@@ -15,6 +15,9 @@ var (
 	ErrUnreachable = errors.New("registry unreachable")
 	// ErrRateLimited: the registry throttles requests (429).
 	ErrRateLimited = errors.New("registry rate limit reached")
+	// ErrInvalidReference: the host or repository is not a valid registry reference (refused before any
+	// request; retrying cannot help).
+	ErrInvalidReference = errors.New("invalid registry reference")
 	// ErrBlobTooLarge: a blob read whole (GetBlob) is larger than the caller allows.
 	ErrBlobTooLarge = errors.New("registry blob too large")
 )
