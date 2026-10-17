@@ -443,3 +443,32 @@ func TestTransferRoutesAreMounted(t *testing.T) {
 		}
 	}
 }
+
+// The general limiter counts the requests of the ungated routes in its global middleware (no gate will): its
+// list is exactly the mounted routes without any gate.
+func TestUngatedPublicRoutesMatchTheMountedRouter(t *testing.T) {
+	want := map[string]bool{}
+	for _, s := range buildRoutePolicy(t) {
+		if len(s.gates) == 0 {
+			want[s.method+" "+s.path] = true
+		}
+	}
+	got := map[string]bool{}
+	for _, route := range middleware.UngatedPublicRoutes() {
+		got[route] = true
+		if !want[route] {
+			t.Errorf(
+				"%s is in middleware.UngatedPublicRoutes but is not mounted without a gate",
+				route,
+			)
+		}
+	}
+	for route := range want {
+		if !got[route] {
+			t.Errorf(
+				"%s is mounted without a gate but missing from middleware.UngatedPublicRoutes",
+				route,
+			)
+		}
+	}
+}

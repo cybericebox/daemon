@@ -18,7 +18,6 @@ import (
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	authUC "github.com/cybericebox/daemon/internal/useCase/auth"
 	"github.com/gin-gonic/gin"
-	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -37,19 +36,29 @@ type renderAdmissionLimiter struct {
 	checks atomic.Int32
 }
 
-func (l *renderAdmissionLimiter) Check(ctx *gin.Context, id uuid.UUID, signedIn bool) bool {
-	l.checks.Add(1)
-	return l.RateLimiter.Check(ctx, id, signedIn)
+func (l *renderAdmissionLimiter) CheckAnonymous(ctx *gin.Context, public bool) bool {
+	if !public {
+		l.checks.Add(1)
+	}
+	return l.RateLimiter.CheckAnonymous(ctx, public)
 }
 
 // The real global limiter skips nonempty cookies, and hard authentication
-// refuses the forged cookie before Check. Admission must still bound the waits.
+// counts the forged cookie in the closed bucket before refusing it. Admission must still bound the waits.
 func TestRenderAdmissionBoundsForgedCookieConcurrencyAndReleasesCancellation(t *testing.T) {
 	const limit = 128
 	gin.SetMode(gin.TestMode)
 	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", API: "api.example.test", ID: "id.example.test", EventDomain: "example.test"}}
 	auth := &renderGarbageSession{}
-	limiter := &renderAdmissionLimiter{RateLimiter: middleware.NewRateLimiter(config.RateLimitConfig{AnonBurst: 1, AnonPerMinute: 1, UserBurst: 1, UserPerMinute: 1})}
+	limits := config.RateLimitConfig{
+		AnonBurst:       1,
+		AnonPerMinute:   1,
+		UserBurst:       1,
+		UserPerMinute:   1,
+		ClosedBurst:     1000,
+		ClosedPerMinute: 1,
+	}
+	limiter := &renderAdmissionLimiter{RateLimiter: middleware.NewRateLimiter(limits)}
 	prot := protection.New(protection.Dependencies{UseCase: auth, Config: cfg, Limiter: limiter})
 	h := NewEventRenderAPIHandler(&renderFake{}, prot, cfg)
 	h.now = func() time.Time { return time.Unix(1800000000, 0) }
@@ -102,7 +111,7 @@ func TestRenderAdmissionBoundsForgedCookieConcurrencyAndReleasesCancellation(t *
 		}
 	}
 	require.Equal(t, int32(limit), auth.opens.Load())
-	require.Zero(t, limiter.checks.Load(), "proof of the malformed-cookie rate-limit gap")
+	require.Equal(t, int32(limit), limiter.checks.Load(), "each forged cookie counts in closed")
 	var overloaded []*httptest.ResponseRecorder
 	for _, tag := range []string{"summer", "unknown"} {
 		done := make(chan *httptest.ResponseRecorder, 1)

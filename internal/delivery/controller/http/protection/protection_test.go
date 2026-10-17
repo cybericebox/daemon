@@ -7,14 +7,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
+	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -562,10 +565,14 @@ func TestAudit_DefaultTargetFromRouteIDs(t *testing.T) {
 
 type refusingLimiter struct{ calls int }
 
-func (l *refusingLimiter) Check(ctx *gin.Context, _ uuid.UUID, _ bool) bool {
+func (l *refusingLimiter) CheckUser(ctx *gin.Context, _ uuid.UUID) bool {
 	l.calls++
 	ctx.AbortWithStatus(http.StatusTooManyRequests)
 	return false
+}
+
+func (l *refusingLimiter) CheckAnonymous(ctx *gin.Context, _ bool) bool {
+	return l.CheckUser(ctx, uuid.Nil)
 }
 
 // The permission gate asks the general limiter once the caller is known; a refusal stops the request.
@@ -596,8 +603,17 @@ func TestRequirePermission_AsksTheLimiter(t *testing.T) {
 // orderLimiter records into the use case's call log, so the test sees where the limiter sits between the steps.
 type orderLimiter struct{ uc *fakeUseCase }
 
-func (l orderLimiter) Check(_ *gin.Context, _ uuid.UUID, _ bool) bool {
+func (l orderLimiter) CheckUser(_ *gin.Context, _ uuid.UUID) bool {
 	l.uc.calls = append(l.uc.calls, "limit")
+	return true
+}
+
+func (l orderLimiter) CheckAnonymous(_ *gin.Context, public bool) bool {
+	if public {
+		l.uc.calls = append(l.uc.calls, "public")
+	} else {
+		l.uc.calls = append(l.uc.calls, "closed")
+	}
 	return true
 }
 
@@ -634,16 +650,17 @@ func TestRequestOrder_OpenThenLimitThenLoad(t *testing.T) {
 	}
 }
 
-// A dead cookie (garbage, expired, revoked) is a 401 that never reaches the limiter or the database.
-func TestDeadCookie_401WithoutLimiterOrLoad_AndTheCookieIsCleared(t *testing.T) {
+// A dead cookie (garbage, expired, revoked) is a 401 counted in the closed anonymous bucket that never
+// reaches the database.
+func TestDeadCookie_401CountedClosedWithoutLoad_AndTheCookieIsCleared(t *testing.T) {
 	uc := &fakeUseCase{sessionErr: authModel.ErrAuthInvalidSession.Err()}
 	p := protection.New(protection.Dependencies{UseCase: uc, Limiter: orderLimiter{uc}})
 	w := getWithCookie(sessionRouter(p, rbac.PermSelf))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d", w.Code)
 	}
-	if got := strings.Join(uc.calls, ","); got != "open" {
-		t.Fatalf("calls %q: nothing after the cookie check may run", got)
+	if got := strings.Join(uc.calls, ","); got != "open,closed" {
+		t.Fatalf("calls %q: only the closed bucket may follow the cookie check", got)
 	}
 	if c := findCookie(w, authModel.SessionCookie); c == nil || c.MaxAge >= 0 {
 		t.Fatalf("a dead cookie must be cleared, got %+v", c)
@@ -714,5 +731,57 @@ func TestSessionKeyOnlyForAnOpeningCookie(t *testing.T) {
 	}
 	if _, ok := key(&fakeUseCase{}, ""); ok {
 		t.Fatal("no cookie is anonymous")
+	}
+}
+
+// The gate counts a request without identity once: in public on a route a caller may use without a session,
+// in closed (before the 401) on one that needs a session.
+func TestAnonymousRequestCountedInTheBucketOfTheRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		perm   rbac.Permission
+		cookie bool
+		want   string
+		status int
+	}{
+		{"no cookie, session needed", rbac.PermSelf, false, "closed", http.StatusUnauthorized},
+		{"no cookie, public read", rbac.PermBannersView, false, "public", http.StatusOK},
+		{"dead cookie, public read", rbac.PermBannersView, true, "open,public", http.StatusOK},
+	} {
+		uc := &fakeUseCase{sessionErr: authModel.ErrAuthInvalidSession.Err()}
+		p := protection.New(protection.Dependencies{UseCase: uc, Limiter: orderLimiter{uc}})
+		req := httptest.NewRequest(http.MethodGet, "/x", nil)
+		if tc.cookie {
+			req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "x"})
+		}
+		w := httptest.NewRecorder()
+		sessionRouter(p, tc.perm).ServeHTTP(w, req)
+		if got := strings.Join(uc.calls, ","); w.Code != tc.status || got != tc.want {
+			t.Errorf("%s: status %d, calls %q; want %d, %q",
+				tc.name, w.Code, got, tc.status, tc.want)
+		}
+	}
+}
+
+// authNoDB is the real auth use case over a Querier mock without expectations: any query fails the test.
+type authNoDB struct{ *authUseCase.AuthUseCase }
+
+func (authNoDB) RecordAdminAction(context.Context, adminAuditUseCase.Entry) error { return nil }
+
+// A cookie-less request to a route that needs a session is refused with 401 without one database query.
+func TestNoCookie401TouchesNoDB(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := authUseCase.NewAuthUseCase(authUseCase.Dependencies{
+		Repo:   repo,
+		Config: config.AuthConfig{SessionIdleTTL: time.Hour},
+	})
+	p := protection.New(
+		protection.Dependencies{UseCase: authNoDB{uc}, Limiter: orderLimiter{&fakeUseCase{}}},
+	)
+	w := httptest.NewRecorder()
+	sessionRouter(p, rbac.PermSelf).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/x", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401, got %d %s", w.Code, w.Body.String())
 	}
 }
