@@ -2,6 +2,7 @@ package exercise
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -18,6 +19,7 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 )
 
 type exportExercisesRequest struct {
@@ -199,7 +201,7 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents []byte, password string) {
 	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, password)
 	if err != nil {
-		response.AbortWithBadRequest(ctx, err)
+		abortArchiveError(ctx, err)
 		return
 	}
 	created := make([]exerciseResponse, 0, len(imports))
@@ -214,6 +216,17 @@ func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents
 		created = append(created, exerciseToResponse(view))
 	}
 	response.AbortWithData(ctx, created)
+}
+
+// abortArchiveError keeps a typed archive error (its code and public context reach the client); an untyped
+// one (a broken zip, a size limit) stays a plain 400.
+func abortArchiveError(ctx *gin.Context, failure error) {
+	var typed appErr.Error
+	if errors.As(failure, &typed) {
+		response.AbortWithError(ctx, failure)
+		return
+	}
+	response.AbortWithBadRequest(ctx, failure)
 }
 
 func readArchiveUpload(file io.Reader) ([]byte, error) {

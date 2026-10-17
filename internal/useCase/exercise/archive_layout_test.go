@@ -10,6 +10,7 @@ import (
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
+	yzip "github.com/yeka/zip"
 )
 
 const layoutDoc = `schema: cib-exercise/1
@@ -116,17 +117,29 @@ func TestSplitTaskFolders_BothDocumentsInOneFolder(t *testing.T) {
 	}
 }
 
+// layoutEntry is one zip entry of a hand-built archive; the slice keeps the entry order fixed.
+type layoutEntry struct {
+	name string
+	mode fs.FileMode
+	body string
+}
+
+var symlinkEntries = []layoutEntry{
+	{"exercise.yaml", 0o644, layoutDoc},
+	{"files/link", fs.ModeSymlink | 0o777, "/etc/passwd"},
+}
+
 func TestReadArchive_SymlinkEntryRejected(t *testing.T) {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for name, mode := range map[string]fs.FileMode{"exercise.yaml": 0o644, "files/link": fs.ModeSymlink | 0o777} {
-		header := &zip.FileHeader{Name: name, Method: zip.Store}
-		header.SetMode(mode)
+	for _, entry := range symlinkEntries {
+		header := &zip.FileHeader{Name: entry.name, Method: zip.Store}
+		header.SetMode(entry.mode)
 		w, err := zw.CreateHeader(header)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err = w.Write([]byte("/etc/passwd")); err != nil {
+		if _, err = w.Write([]byte(entry.body)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -134,6 +147,34 @@ func TestReadArchive_SymlinkEntryRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := ReadArchiveV1(bytes.NewReader(buf.Bytes()))
+	assertSymlinkRejected(t, err)
+}
+
+func TestReadProtectedArchive_SymlinkEntryRejected(t *testing.T) {
+	var buf bytes.Buffer
+	zw := yzip.NewWriter(&buf)
+	for _, entry := range symlinkEntries {
+		header := &yzip.FileHeader{Name: entry.name, Method: yzip.Deflate}
+		header.SetMode(entry.mode)
+		header.SetPassword("pw")
+		header.SetEncryptionMethod(yzip.AES256Encryption)
+		w, err := zw.CreateHeader(header)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = w.Write([]byte(entry.body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ReadProtectedArchiveV1(buf.Bytes(), "pw")
+	assertSymlinkRejected(t, err)
+}
+
+func assertSymlinkRejected(t *testing.T, err error) {
+	t.Helper()
 	if !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
 		t.Fatalf("want ErrArchivePathInvalid, got %v", err)
 	}
@@ -150,6 +191,64 @@ func TestReadArchive_DirectoryEntriesSkipped(t *testing.T) {
 	}
 	if len(files) != 1 || files["task/exercise.yaml"] == nil {
 		t.Fatalf("files = %v", files)
+	}
+	for _, name := range []string{"../", "./"} {
+		_, err = ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{name: nil, "exercise.yaml": []byte(layoutDoc)})))
+		if !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
+			t.Fatalf("%s: want ErrArchivePathInvalid, got %v", name, err)
+		}
+	}
+}
+
+func TestSafeArchivePath_RejectsDotNames(t *testing.T) {
+	for _, name := range []string{".", "..", "../x", "a/../b", "/a", `a\b`, ""} {
+		if safeArchivePath(name) {
+			t.Errorf("%q must be unsafe", name)
+		}
+	}
+}
+
+func TestToParsed_NFDFileNameLinkedByNFC(t *testing.T) {
+	nfd := "files/\u0438\u0306.txt" // и + combining breve: how macOS stores й
+	nfc := "files/\u0439.txt"       // й as one code point
+	data := zipOf(t, map[string][]byte{
+		"exercise.yaml": taskWithAttachments(`{file: "` + nfc + `"}`),
+		nfd:             []byte("й"),
+	})
+	parsed, err := ParseExerciseArchive(data, "")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ref := parsed.Versions[0].Variants[0].Tasks[0].Attachments[0]
+	if ref.Name != "\u0439.txt" {
+		t.Fatalf("name = %q", ref.Name)
+	}
+	if body, ok := lookupAttachment(&parsed, ref.FileID); !ok || string(body) != "й" {
+		t.Fatalf("lookup = %q %v", body, ok)
+	}
+}
+
+func TestReadArchive_NFCCollisionRejected(t *testing.T) {
+	data := zipOf(t, map[string][]byte{"\u0438\u0306.txt": []byte("a"), "\u0439.txt": []byte("b"), "exercise.yaml": []byte(layoutDoc)})
+	if _, err := ReadArchiveV1(bytes.NewReader(data)); !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
+		t.Fatalf("want ErrArchivePathInvalid, got %v", err)
+	}
+}
+
+func TestToParsed_AttachmentNameRejected(t *testing.T) {
+	for _, name := range []string{`"a/b.txt"`, `'a\b.txt'`, `"a\tb.txt"`, `"a\u0000b"`} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseLayout(t, map[string][]byte{
+				"exercise.yaml": taskWithAttachments(`{file: files/a.txt, name: ` + name + `}`),
+				"files/a.txt":   []byte("a"),
+			})
+			if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
+				t.Fatalf("want ErrArchiveInvalid, got %v", err)
+			}
+			if reason, _ := publicContext(t, err)["reason"].(string); !strings.Contains(reason, "attachments[1].name") {
+				t.Fatalf("reason = %q", reason)
+			}
+		})
 	}
 }
 

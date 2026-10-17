@@ -518,7 +518,7 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 	out := map[string][]byte{}
 	var budget archiveBudget
 	for _, f := range zr.File {
-		skip, entryErr := checkArchiveEntry(f.Name, f.Mode())
+		name, skip, entryErr := checkArchiveEntry(f.Name, f.Mode(), out)
 		if entryErr != nil {
 			return nil, entryErr
 		}
@@ -537,7 +537,7 @@ func ReadArchiveV1(r io.Reader) (map[string][]byte, error) {
 		if e != nil {
 			return nil, e
 		}
-		out[f.Name] = d
+		out[name] = d
 	}
 	return validateArchiveManifest(out)
 }
@@ -594,7 +594,7 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 	files := map[string][]byte{}
 	var budget archiveBudget
 	for _, file := range zr.File {
-		skip, entryErr := checkArchiveEntry(file.Name, file.Mode())
+		name, skip, entryErr := checkArchiveEntry(file.Name, file.Mode(), files)
 		if entryErr != nil {
 			return nil, entryErr
 		}
@@ -617,7 +617,7 @@ func ReadProtectedArchiveV1(data []byte, password string) (map[string][]byte, er
 		if readErr != nil {
 			return nil, readErr
 		}
-		files[file.Name] = body
+		files[name] = body
 	}
 	return validateArchiveManifest(files)
 }
@@ -702,7 +702,7 @@ func archiveChecksumMismatch(file string) error {
 }
 
 func safeArchivePath(n string) bool {
-	return n != "" && n == path.Clean(n) && !strings.HasPrefix(n, "/") && !strings.HasPrefix(n, "../") && !strings.Contains(n, "\\") && n != "manifest.json"
+	return n != "" && n != "." && n != ".." && n == path.Clean(n) && !strings.HasPrefix(n, "/") && !strings.HasPrefix(n, "../") && !strings.Contains(n, "\\") && n != "manifest.json"
 }
 func hashBytes(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 

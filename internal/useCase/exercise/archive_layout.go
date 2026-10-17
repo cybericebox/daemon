@@ -8,10 +8,12 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
+	"golang.org/x/text/unicode/norm"
 )
 
 // maxAttachmentNameRunes caps the shown name of an attachment.
@@ -47,18 +49,23 @@ func isArchiveLitter(name string) bool {
 
 // checkArchiveEntry decides on one zip entry before it is read: a symlink or an unsafe path is refused, a
 // directory entry is skipped (only files are kept). The root manifest.json is the one name safeArchivePath
-// refuses that an archive may hold.
-func checkArchiveEntry(name string, mode fs.FileMode) (skip bool, err error) {
+// refuses that an archive may hold. The name is returned in NFC (macOS writes NFD): two entries that are the
+// same name once normalized are refused, as is any repeated entry.
+func checkArchiveEntry(raw string, mode fs.FileMode, seen map[string][]byte) (name string, skip bool, err error) {
 	if mode&fs.ModeSymlink != 0 {
-		return false, archivePathInvalid(name, "symlink")
+		return "", false, archivePathInvalid(raw, "symlink")
 	}
+	name = norm.NFC.String(raw)
 	if dir, ok := strings.CutSuffix(name, "/"); ok && mode.IsDir() && safeArchivePath(dir) {
-		return true, nil
+		return "", true, nil
 	}
 	if !safeArchivePath(name) && name != "manifest.json" {
-		return false, archivePathInvalid(name, "unsafe path")
+		return "", false, archivePathInvalid(raw, "unsafe path")
 	}
-	return false, nil
+	if _, dup := seen[name]; dup {
+		return "", false, archivePathInvalid(raw, "duplicate path")
+	}
+	return name, false, nil
 }
 
 // splitTaskFolders groups the archive entries by task folder: every directory whose direct children include
@@ -139,6 +146,7 @@ func newArchiveLinks(files map[string][]byte, parsed *ParsedExerciseArchive) *ar
 
 // resolve checks one link (a path relative to the task folder) and returns the archive path it names.
 func (l *archiveLinks) resolve(file string) (string, error) {
+	clean := path.Clean(norm.NFC.String(file))
 	switch {
 	case file == "":
 		return "", archivePathInvalid(file, "empty path")
@@ -147,7 +155,6 @@ func (l *archiveLinks) resolve(file string) (string, error) {
 	case strings.HasPrefix(file, "/"):
 		return "", archivePathInvalid(file, "absolute path")
 	}
-	clean := path.Clean(file)
 	switch {
 	case clean == ".." || strings.HasPrefix(clean, "../"):
 		return "", archivePathInvalid(file, "leaves the task folder")
@@ -172,6 +179,9 @@ func (l *archiveLinks) attachment(where string, a archiveAttachmentV2) (exercise
 	name := a.Name
 	if name == "" {
 		name = path.Base(clean)
+	}
+	if strings.ContainsAny(name, "/\\") || strings.ContainsFunc(name, unicode.IsControl) {
+		return exerciseModel.AttachmentRef{}, archiveInvalid(fmt.Sprintf("%s.name must not contain /, \\ or control characters", where))
 	}
 	if utf8.RuneCountInString(name) > maxAttachmentNameRunes {
 		return exerciseModel.AttachmentRef{}, archiveInvalid(fmt.Sprintf("%s.name is longer than %d characters", where, maxAttachmentNameRunes))
