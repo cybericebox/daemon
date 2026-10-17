@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 78
+// ExerciseObjectCode — next free detail code: 80
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -225,4 +225,11 @@ var (
 	// ErrDeviceCustomResources: a device size is a preset (a whole number of blocks); custom values are not accepted.
 	ErrDeviceCustomResources = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("A device size is a preset: custom resources are not accepted").WithDetailCode(74)
+	// ErrVariantLinkInvalid: a linked variant must point to another, unlinked variant of the same version;
+	// the context names the 1-based position of the offending variant.
+	ErrVariantLinkInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("A linked variant must point to an unlinked variant of the same version").WithDetailCode(78)
+	// ErrLinkedFlagsNotDistinct: a base and its linked variants share a fixed flag value for one task.
+	ErrLinkedFlagsNotDistinct = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Linked variants of one base need different flags for the same task").WithDetailCode(79)
 )

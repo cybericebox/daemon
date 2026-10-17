@@ -163,11 +163,14 @@ func validateHints(task, canonical Task) error {
 }
 
 type Variant struct {
-	ID       uuid.UUID `json:"id"`
-	Index    int32     `json:"index"` // decorative admin-facing number; not an identity
-	Note     string    `json:"note"`  // per-variant admin note (never shown to participants)
-	Tasks    []Task    `json:"tasks"`
-	Topology Topology  `json:"topology"`
+	ID    uuid.UUID `json:"id"`
+	Index int32     `json:"index"` // decorative admin-facing number; not an identity
+	Note  string    `json:"note"`  // per-variant admin note (never shown to participants)
+	// LinkedTo is the base variant (same version) this one inherits its content from;
+	// only Flag and Attachments of each task, Note and Index stay its own. Zero = independent.
+	LinkedTo uuid.NullUUID `json:"linked_to,omitzero"`
+	Tasks    []Task        `json:"tasks"`
+	Topology Topology      `json:"topology"`
 }
 
 // ValidateTopologyForDeploy enforces runnable graph rules without requiring
@@ -270,7 +273,7 @@ func (v *ExerciseVersion) ValidateStructure() error {
 			return err
 		}
 	}
-	return nil
+	return validateLinkedFlags(v.Variants)
 }
 
 // ValidateForPublish runs the full validation set: structure plus per-variant
