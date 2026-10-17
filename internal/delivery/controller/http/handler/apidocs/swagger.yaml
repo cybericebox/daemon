@@ -22463,7 +22463,7 @@ paths:
         in: query
         name: deviceMemory
         type: integer
-      - description: how long it will run (default 120)
+      - description: 'how long it will run (default: the saved test-run lease)'
         in: query
         name: leaseMinutes
         type: integer

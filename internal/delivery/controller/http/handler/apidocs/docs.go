@@ -16696,7 +16696,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "how long it will run (default 120)",
+                        "description": "how long it will run (default: the saved test-run lease)",
                         "name": "leaseMinutes",
                         "in": "query"
                     }

@@ -21,6 +21,7 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	platformSettingsModel "github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 	appErr "github.com/cybericebox/daemon/pkg/err"
 )
@@ -449,4 +450,26 @@ func TestTypedView_IgnoredWhenTheSavedRowDoesNotApply(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, view.Custom)
 	assert.False(t, view.Ignored, "no row: nothing ignored")
+}
+
+// The EntryBytes default (512 MiB) over a lower media upload limit is reported at construction like a bound.
+func TestEnvDefaultOverTheMediaLimit_WarnsAtConstruction(t *testing.T) {
+	warnings := captureWarnings(t)
+	retention, testRuns := typedDefaults()
+	NewPlatformSettingsUseCase(Dependencies{Repo: postgresMocks.NewMockQuerier(gomock.NewController(t)), RetentionDefaults: retention, TestRunDefaults: testRuns, MaxUploadBytes: 256 << 20})
+
+	assert.Contains(t, warnings.String(), platformSettingsModel.ArchiveLimitsKey)
+	assert.Contains(t, warnings.String(), `"field":"EntryBytes"`)
+	assert.Contains(t, warnings.String(), `"value":536870912`)
+}
+
+// A saved lease never exceeds what the calendar can book.
+func TestTestRunLeaseMax_IsTheCalendarBookingLimit(t *testing.T) {
+	for _, spec := range exerciseModel.TestRunFields {
+		if spec.Key == "Lease" {
+			assert.Equal(t, int64(calModel.MaxBooking/time.Second), spec.Max)
+			return
+		}
+	}
+	t.Fatal("no Lease field")
 }

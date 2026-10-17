@@ -229,11 +229,14 @@ func unknownKeys(stored platformSettingsModel.Values, specs []platformSettingsMo
 	return unknown
 }
 
-// warnDefaultsOutOfRange logs one warning when the defaults of s fail its own field rules (bounds or a cross-field
-// rule): an env value the form would refuse. It names the field and the env value; the defaults still apply.
+// warnDefaultsOutOfRange logs one warning when the defaults of s fail its own field rules (bounds, a cross-field
+// rule or the platform's tighter bound, e.g. EntryBytes over the media upload limit): a value the form would refuse. It names the field and the env value; the defaults still apply.
 func warnDefaultsOutOfRange[T typedValue[T]](s typedSetting[T]) {
 	values := s.defaults.Values()
 	_, err := s.defaults.WithValues(values)
+	if err == nil && s.check != nil {
+		err = s.check(s.defaults)
+	}
 	if err == nil {
 		return
 	}

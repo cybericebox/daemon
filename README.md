@@ -200,7 +200,7 @@ S3-compatible store (MinIO, AWS S3) for user avatars. An empty `STORAGE_ENDPOINT
 | `STORAGE_BUCKET` | `cybericebox` | Bucket. |
 | `STORAGE_REGION` | `us-east-1` | Region. |
 | `STORAGE_USE_SSL` | `false` | Use TLS to the store. |
-| `MEDIA_MAX_UPLOAD_BYTES` | `52428800` | Upload size limit (50 MiB). |
+| `MEDIA_MAX_UPLOAD_BYTES` | `536870912` | Upload size limit of one file (512 MiB); one task archive entry may not be larger. |
 | `MEDIA_UPLOAD_CHUNK_BYTES` | `52428800` | Chunk of a resumable upload and the most one request may carry; between 1 MiB and 50 MiB (the edge allows a 100 MB body). |
 | `MEDIA_UPLOAD_TTL` | `24h` | How long an unfinished upload waits for its next chunk. |
 | `MEDIA_GC_GRACE` | `24h` | How long an unreferenced file is kept before garbage collection. |
