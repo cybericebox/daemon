@@ -9709,6 +9709,14 @@ definitions:
       Role:
         type: string
     type: object
+  platformSettings.saveTypedRequest:
+    properties:
+      Values:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+    type: object
   platformSettings.settingResponse:
     properties:
       CreatedAt:
@@ -9723,6 +9731,41 @@ definitions:
         type: string
       Value:
         type: object
+    type: object
+  platformSettings.typedFieldResponse:
+    properties:
+      Default:
+        type: integer
+      InPrivacyPolicy:
+        description: InPrivacyPolicy marks a period published in the Privacy Policy.
+        type: boolean
+      Key:
+        type: string
+      Kind:
+        description: Kind is duration (seconds), size (bytes) or count.
+        enum:
+        - duration
+        - size
+        - count
+        type: string
+      Max:
+        type: integer
+      Min:
+        type: integer
+      Value:
+        type: integer
+    type: object
+  platformSettings.typedSettingResponse:
+    properties:
+      Custom:
+        description: 'Custom: a value is saved; false: the defaults apply.'
+        type: boolean
+      Fields:
+        items:
+          $ref: '#/definitions/platformSettings.typedFieldResponse'
+        type: array
+      UpdatedAt:
+        type: string
     type: object
   platformSettings.upsertSettingRequest:
     properties:
@@ -25505,6 +25548,70 @@ paths:
       summary: Get a setting value by key
       tags:
       - settings
+  /settings/archive-limits:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: 'Remove the saved archive limits: the defaults apply again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: Get the task archive limits (bytes, entries) in force, with defaults
+        and bounds
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: every limit, integer bytes or entries
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save every task archive limit; a missing or unknown field, a value
+        out of bounds or one file over all files together is a 400 (Context.field)
+      tags:
+      - settings
   /settings/image-registry:
     delete:
       produces:
@@ -25671,6 +25778,134 @@ paths:
       summary: List published preview exercise variants
       tags:
       - participant-preview
+  /settings/retention:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: 'Remove the saved retention periods: the defaults apply again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: Get the data retention periods (seconds) in force, with defaults and
+        bounds
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: every period, integer seconds
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save every data retention period (seconds); a missing or unknown field,
+        a value out of bounds or a grace not shorter than the inactivity period is
+        a 400 (Context.field)
+      tags:
+      - settings
+  /settings/test-runs:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: 'Remove the saved test run leases: the defaults apply again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: Get the test run leases (seconds) in force, with defaults and bounds
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Lease and LeaseMax, integer seconds
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save both test run leases; a missing or unknown field, a value out
+        of bounds or a longest run under one lease is a 400 (Context.field)
+      tags:
+      - settings
   /users:
     get:
       parameters:

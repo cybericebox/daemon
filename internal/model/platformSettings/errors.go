@@ -11,7 +11,7 @@ import (
 // typed value carries the public context `field` (and `min`/`max` for a range)
 // so the admin form shows the error under that field.
 //
-// SettingObjectCode — next free detail code: 8
+// SettingObjectCode — next free detail code: 9
 var (
 	ErrSettingNotFound = err.ErrObjectNotFound.WithObjectCode(model.SettingObjectCode).
 				WithMessage("Setting not found").
@@ -37,4 +37,8 @@ var (
 	// ErrTestLeaseOverMax: the longest test run is shorter than one lease (declared here for the same reason).
 	ErrTestLeaseOverMax = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
 				WithMessage("The longest test run may not be shorter than one lease").WithDetailCode(7)
+	// ErrTypedSettingNotGeneric: a typed setting is saved through its own endpoint, never as a raw generic value
+	// (that would bypass its validation).
+	ErrTypedSettingNotGeneric = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
+					WithMessage("This setting is saved on its own settings tab").WithDetailCode(8)
 )

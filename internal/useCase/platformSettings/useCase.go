@@ -8,23 +8,41 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	preview "github.com/cybericebox/daemon/internal/model/participantPreview"
 	"github.com/cybericebox/daemon/internal/model/platformSettings"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	retentionModel "github.com/cybericebox/daemon/internal/model/retention"
 )
 
 type (
 	PlatformSettingsUseCase struct {
-		settings *platformSettingsRepo.Repository
+		settings          *platformSettingsRepo.Repository
+		retentionDefaults retentionModel.Policy
+		testRunDefaults   exerciseModel.TestRunLeases
+		now               func() time.Time
 	}
 	Dependencies struct {
 		Repo platformSettingsRepo.Queries
+		// RetentionDefaults and TestRunDefaults are in force while no typed setting is saved (env RETENTION_*,
+		// EXERCISE_TEST_DEPLOY_TTL(_MAX)); the archive limits default to the domain constants.
+		RetentionDefaults retentionModel.Policy
+		TestRunDefaults   exerciseModel.TestRunLeases
+		// Now is the clock; nil: time.Now.
+		Now func() time.Time
 	}
 )
 
 func NewPlatformSettingsUseCase(deps Dependencies) *PlatformSettingsUseCase {
+	now := deps.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &PlatformSettingsUseCase{
-		settings: platformSettingsRepo.New(deps.Repo),
+		settings:          platformSettingsRepo.New(deps.Repo),
+		retentionDefaults: deps.RetentionDefaults,
+		testRunDefaults:   deps.TestRunDefaults,
+		now:               now,
 	}
 }
 
@@ -88,9 +106,12 @@ func (u *PlatformSettingsUseCase) UpsertPlatformSetting(
 	if in.Key == preview.SettingKey {
 		return nil, preview.ErrTypedSettingsRequired.Err()
 	}
+	if platformSettingsModel.IsTypedKey(in.Key) {
+		return nil, platformSettingsModel.ErrTypedSettingNotGeneric.WithPublicContext("key", in.Key).Err()
+	}
 	saved, err := u.settings.Upsert(
 		ctx,
-		platformSettingsModel.NewPlatformSetting(in.Key, in.Value, in.RequiredPermission, time.Now()),
+		platformSettingsModel.NewPlatformSetting(in.Key, in.Value, in.RequiredPermission, u.now()),
 	)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to upsert setting").Err()

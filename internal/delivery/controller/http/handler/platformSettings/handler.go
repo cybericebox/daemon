@@ -29,6 +29,16 @@ type (
 			ctx context.Context,
 			in platformSettingsUseCase.UpsertInput,
 		) (*platformSettingsModel.PlatformSetting, error)
+
+		GetRetentionSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		SaveRetentionSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
+		ResetRetentionSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		GetArchiveLimitSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		SaveArchiveLimitSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
+		ResetArchiveLimitSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		GetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		SaveTestRunSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
+		ResetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.
@@ -88,6 +98,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		settingsAPI.PUT(":key", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.upsertSetting)
 		settingsAPI.GET(":key/value", h.prot.RequirePermission(rbac.PermPlatformSettingsReadValue), h.getSetting)
 	}
+	h.initTyped(settingsAPI)
 }
 
 // ListSettings godoc

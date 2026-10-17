@@ -22960,6 +22960,115 @@ const docTemplate = `{
                 }
             }
         },
+        "/settings/archive-limits": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get the task archive limits (bytes, entries) in force, with defaults and bounds",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Save every task archive limit; a missing or unknown field, a value out of bounds or one file over all files together is a 400 (Context.field)",
+                "parameters": [
+                    {
+                        "description": "every limit, integer bytes or entries",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/platformSettings.saveTypedRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Remove the saved archive limits: the defaults apply again",
+                "responses": {
+                    "200": {
+                        "description": "the defaults",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/settings/image-registry": {
             "get": {
                 "produces": [
@@ -23236,6 +23345,224 @@ const docTemplate = `{
                                             "items": {
                                                 "$ref": "#/definitions/event.PreviewCatalogItem"
                                             }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/retention": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get the data retention periods (seconds) in force, with defaults and bounds",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Save every data retention period (seconds); a missing or unknown field, a value out of bounds or a grace not shorter than the inactivity period is a 400 (Context.field)",
+                "parameters": [
+                    {
+                        "description": "every period, integer seconds",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/platformSettings.saveTypedRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Remove the saved retention periods: the defaults apply again",
+                "responses": {
+                    "200": {
+                        "description": "the defaults",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/test-runs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get the test run leases (seconds) in force, with defaults and bounds",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Save both test run leases; a missing or unknown field, a value out of bounds or a longest run under one lease is a 400 (Context.field)",
+                "parameters": [
+                    {
+                        "description": "Lease and LeaseMax, integer seconds",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/platformSettings.saveTypedRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Remove the saved test run leases: the defaults apply again",
+                "responses": {
+                    "200": {
+                        "description": "the defaults",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/platformSettings.typedSettingResponse"
                                         }
                                     }
                                 }
@@ -38048,6 +38375,18 @@ const docTemplate = `{
                 }
             }
         },
+        "platformSettings.saveTypedRequest": {
+            "type": "object",
+            "properties": {
+                "Values": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            }
+        },
         "platformSettings.settingResponse": {
             "type": "object",
             "properties": {
@@ -38068,6 +38407,57 @@ const docTemplate = `{
                 },
                 "Value": {
                     "type": "object"
+                }
+            }
+        },
+        "platformSettings.typedFieldResponse": {
+            "type": "object",
+            "properties": {
+                "Default": {
+                    "type": "integer"
+                },
+                "InPrivacyPolicy": {
+                    "description": "InPrivacyPolicy marks a period published in the Privacy Policy.",
+                    "type": "boolean"
+                },
+                "Key": {
+                    "type": "string"
+                },
+                "Kind": {
+                    "description": "Kind is duration (seconds), size (bytes) or count.",
+                    "type": "string",
+                    "enum": [
+                        "duration",
+                        "size",
+                        "count"
+                    ]
+                },
+                "Max": {
+                    "type": "integer"
+                },
+                "Min": {
+                    "type": "integer"
+                },
+                "Value": {
+                    "type": "integer"
+                }
+            }
+        },
+        "platformSettings.typedSettingResponse": {
+            "type": "object",
+            "properties": {
+                "Custom": {
+                    "description": "Custom: a value is saved; false: the defaults apply.",
+                    "type": "boolean"
+                },
+                "Fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/platformSettings.typedFieldResponse"
+                    }
+                },
+                "UpdatedAt": {
+                    "type": "string"
                 }
             }
         },

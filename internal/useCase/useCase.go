@@ -29,6 +29,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/retentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -429,7 +430,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 		authUC,
 		adminAuditUseCase.New(deps.Repo),
 		platformSettingsUseCase.NewPlatformSettingsUseCase(
-			platformSettingsUseCase.Dependencies{Repo: deps.Repo},
+			platformSettingsUseCase.Dependencies{
+				Repo:              deps.Repo,
+				RetentionDefaults: deps.RetentionPolicy,
+				TestRunDefaults:   exerciseModel.TestRunLeases{Lease: deps.ExerciseConfig.TestDeployTTL, Max: deps.ExerciseConfig.TestDeployTTLMax},
+			},
 		),
 		notificationDispatcher,
 		inboxUseCase.NewNotificationInboxUseCase(

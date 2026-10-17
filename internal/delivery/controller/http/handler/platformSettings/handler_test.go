@@ -22,6 +22,10 @@ import (
 type fakeUseCase struct {
 	getErr error
 	got    *platformSettingsModel.PlatformSetting
+
+	typedCalls []string
+	typedIn    platformSettingsModel.Values
+	typedErr   error
 }
 
 func (f *fakeUseCase) GetPlatformSetting(
