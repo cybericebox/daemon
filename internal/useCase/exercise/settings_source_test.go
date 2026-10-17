@@ -146,3 +146,13 @@ func TestExtendTestDeploy_CappedByTheSavedMaximum(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, extendedTo.Equal(createdAt.Add(4*time.Hour)), "now+3h is capped at start+4h: %s", extendedTo)
 }
+
+// The calendar's room check takes the same lease the admission holds.
+func TestTestLabLease_IsTheLeaseInForce(t *testing.T) {
+	saved := exercise.NewExerciseUseCase(exercise.Dependencies{Settings: &fakeSettings{leases: exerciseModel.TestRunLeases{Lease: 3 * time.Hour, Max: 8 * time.Hour}}})
+	require.Equal(t, 3*time.Hour, saved.TestLabLease(context.Background()))
+	failing := exercise.NewExerciseUseCase(exercise.Dependencies{
+		FlagConfig: config.ExerciseConfig{TestDeployTTL: 90 * time.Minute}, Settings: &fakeSettings{err: errors.New("db down")},
+	})
+	require.Equal(t, 90*time.Minute, failing.TestLabLease(context.Background()))
+}

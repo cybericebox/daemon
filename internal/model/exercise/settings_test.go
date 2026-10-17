@@ -27,9 +27,9 @@ func publicField(t *testing.T, e error) any {
 func TestArchiveLimitFields_MatchTheSpec(t *testing.T) {
 	size := platformSettingsModel.KindSize
 	want := []platformSettingsModel.FieldSpec{
-		{Key: "ArchiveBytes", Kind: size, Min: mib, Max: 2048 * mib},
-		{Key: "EntryBytes", Kind: size, Min: mib, Max: 2048 * mib},
-		{Key: "UnpackedBytes", Kind: size, Min: mib, Max: 2048 * mib},
+		{Key: "ArchiveBytes", Kind: size, Min: mib, Max: 1024 * mib},
+		{Key: "EntryBytes", Kind: size, Min: mib, Max: 1024 * mib},
+		{Key: "UnpackedBytes", Kind: size, Min: mib, Max: 1024 * mib},
 		{Key: "Entries", Kind: platformSettingsModel.KindCount, Min: 10, Max: 10000},
 	}
 	if !reflect.DeepEqual(exerciseModel.ArchiveLimitFields, want) {
@@ -66,6 +66,10 @@ func TestArchiveLimits_WithValues(t *testing.T) {
 	}
 	if field := publicField(t, err); field != "EntryBytes" {
 		t.Fatalf("entry error field: %v", field)
+	}
+	// The import holds the zip and the unpacked files in memory: at most 1 GiB each.
+	if _, err = l.WithValues(platformSettingsModel.Values{"ArchiveBytes": 1025 * mib, "EntryBytes": 3 * mib, "UnpackedBytes": 3 * mib, "Entries": 10}); !errors.Is(err, platformSettingsModel.ErrSettingValueOutOfRange.Err()) {
+		t.Fatalf("ArchiveBytes over 1 GiB: %v", err)
 	}
 	if _, err = l.WithValues(platformSettingsModel.Values{"ArchiveBytes": 2 * mib, "EntryBytes": 3 * mib, "UnpackedBytes": 3 * mib, "Entries": 9}); !errors.Is(err, platformSettingsModel.ErrSettingValueOutOfRange.Err()) {
 		t.Fatalf("entries under min: %v", err)

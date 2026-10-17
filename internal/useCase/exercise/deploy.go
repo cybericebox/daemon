@@ -177,6 +177,9 @@ func (u *ExerciseUseCase) testRunLeases(ctx context.Context) exerciseModel.TestR
 	return leases
 }
 
+// TestLabLease is the lease a test lab gets in force (testRunLeases), for the calendar's room checks that name none.
+func (u *ExerciseUseCase) TestLabLease(ctx context.Context) time.Duration { return u.testRunLeases(ctx).Lease }
+
 // DevicePersistenceAllowed says some agent offers device state persistence to this platform, so the
 // editor offers the option. The agents report it; there is no setting for it here.
 func (u *ExerciseUseCase) DevicePersistenceAllowed() bool {

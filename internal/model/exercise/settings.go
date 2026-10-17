@@ -36,11 +36,12 @@ type ArchiveLimits struct {
 	Entries int
 }
 
-// ArchiveLimitFields are the archive limits editable in the platform settings; sizes are bytes.
+// ArchiveLimitFields are the archive limits editable in the platform settings; sizes are bytes. The import holds
+// the zip and the unpacked files in memory, so each size is at most 1 GiB.
 var ArchiveLimitFields = []platformSettingsModel.FieldSpec{
-	{Key: "ArchiveBytes", Kind: platformSettingsModel.KindSize, Min: mib, Max: 2048 * mib},
-	{Key: "EntryBytes", Kind: platformSettingsModel.KindSize, Min: mib, Max: 2048 * mib},
-	{Key: "UnpackedBytes", Kind: platformSettingsModel.KindSize, Min: mib, Max: 2048 * mib},
+	{Key: "ArchiveBytes", Kind: platformSettingsModel.KindSize, Min: mib, Max: 1024 * mib},
+	{Key: "EntryBytes", Kind: platformSettingsModel.KindSize, Min: mib, Max: 1024 * mib},
+	{Key: "UnpackedBytes", Kind: platformSettingsModel.KindSize, Min: mib, Max: 1024 * mib},
 	{Key: "Entries", Kind: platformSettingsModel.KindCount, Min: 10, Max: 10000},
 }
 

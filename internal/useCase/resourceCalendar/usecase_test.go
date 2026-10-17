@@ -625,3 +625,32 @@ func TestAdmitTestLab_ZeroSizeNeedsNoAgentsAndHoldsNothing(t *testing.T) {
 	require.Error(t, err, "zero Size but not Static is a real lab with group overhead: it reads the agents")
 	assert.Empty(t, h.store.holds)
 }
+
+// A room check that names no lease takes the saved test run lease (the platform settings), not the config one:
+// the «no room» answer is computed for the lease the admission will hold.
+func TestCheckTestLabRoom_WithoutLeaseTakesTheSavedLease(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	owner := uuid.Must(uuid.NewV7())
+	lab := Amount{CPUMillicores: 3000, MemoryBytes: 4 << 30}
+	// An event takes all but 2 CPU from 7:00, too little for the lab; it is 6:00 now.
+	h.planner.need.Teams = 18
+	h.planner.need.PerTeam = Amount{CPUMillicores: 1000, MemoryBytes: 1 << 30}
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{BufferPercent: ptr(0)}, uuid.Nil)
+	require.NoError(t, err)
+
+	saved := 30 * time.Minute
+	h.uc.SetTestLabLease(func(context.Context) time.Duration { return saved })
+	short, err := h.uc.CheckTestLabRoom(ctx, owner, lab, Amount{}, 0)
+	require.NoError(t, err)
+	want, err := h.uc.CheckTestLabRoom(ctx, owner, lab, Amount{}, saved)
+	require.NoError(t, err)
+	assert.Equal(t, want, short)
+	assert.True(t, short.Available, "a 30-minute lease ends before the event's reservation")
+
+	saved = 4 * time.Hour
+	long, err := h.uc.CheckTestLabRoom(ctx, owner, lab, Amount{}, 0)
+	require.NoError(t, err)
+	assert.False(t, long.Available, "a 4-hour lease runs into the event")
+	require.NotNil(t, long.NearestFrom)
+}

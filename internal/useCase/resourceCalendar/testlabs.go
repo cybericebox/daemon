@@ -118,11 +118,20 @@ func (u *ResourceCalendarUseCase) fitsAbovePool(agents []calModel.Agent, rs []*c
 	return fits && size.Within(rest)
 }
 
-func (u *ResourceCalendarUseCase) leaseOf(l time.Duration) time.Duration {
-	if l <= 0 {
-		return u.cfg.TestLabLease
+// SetTestLabLease wires the test lab lease in force (the platform settings) for requests naming none, so a room
+// check answers for the lease the admission will hold.
+func (u *ResourceCalendarUseCase) SetTestLabLease(lease func(context.Context) time.Duration) { u.testLabLease = lease }
+
+func (u *ResourceCalendarUseCase) leaseOf(ctx context.Context, l time.Duration) time.Duration {
+	if l > 0 {
+		return l
 	}
-	return l
+	if u.testLabLease != nil {
+		if lease := u.testLabLease(ctx); lease > 0 {
+			return lease
+		}
+	}
+	return u.cfg.TestLabLease
 }
 
 func noRoom(a admission, lease time.Duration) error {
@@ -143,7 +152,7 @@ func (u *ResourceCalendarUseCase) AdmitTestLab(ctx context.Context, req TestLabR
 		return TestLabRoom{Available: true, Via: "none"}, nil
 	}
 	now := u.now().UTC()
-	lease := u.leaseOf(req.Lease)
+	lease := u.leaseOf(ctx, req.Lease)
 	size := u.sizeWithOverhead(req.Size)
 	states, err := u.agentStates(ctx, now)
 	if err != nil {
@@ -206,7 +215,7 @@ func (u *ResourceCalendarUseCase) CheckTestLabRoom(ctx context.Context, owner uu
 		return TestLabRoom{}, calModel.ErrBookingInvalid.WithContext("reason", "lease too long").Err()
 	}
 	now := u.now().UTC()
-	lease = u.leaseOf(lease)
+	lease = u.leaseOf(ctx, lease)
 	states, err := u.agentStates(ctx, now)
 	if err != nil {
 		return TestLabRoom{}, err

@@ -51,7 +51,7 @@ func TestStartUpload_ExerciseArchivePurposeAllowsImages(t *testing.T) {
 func TestStartUpload_ExerciseArchiveFollowsTheSavedLimit(t *testing.T) {
 	uc, q, _ := uploadUC(t)
 	owner := uuid.Must(uuid.NewV7())
-	limit := int64(2 << 30)
+	limit := int64(1<<30) + 10<<30
 	uc.SetArchiveUploadLimit(func(context.Context) int64 { return limit })
 	q.EXPECT().CreateMediaUpload(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateMediaUploadParams) (postgres.MediaUpload, error) {
 		return postgres.MediaUpload{ID: p.ID, CreatedBy: owner, SizeBytes: p.SizeBytes, ChunkBytes: p.ChunkBytes, ExpiresAt: p.ExpiresAt}, nil

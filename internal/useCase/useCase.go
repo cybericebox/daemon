@@ -328,6 +328,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 	eventUC.SetLifecycleControls(true)
 	eventUC.SetNoticeCanceller(jobQueueRepo.New(deps.Repo.Pool()).CancelEventNotifications)
 	exerciseUC.SetTestLabGate(calendarUC)
+	// A room check naming no lease answers for the lease in force (the platform settings), like the admission.
+	calendarUC.SetTestLabLease(exerciseUC.TestLabLease)
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.
 	if deps.LabAgent != nil {
 		labJobs := deps.EnqueuerFactory.NewEnqueuer()

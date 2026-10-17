@@ -127,7 +127,8 @@ type (
 		SearchHorizon time.Duration
 		// AgentFresh is how recent the capacity of an agent must be for it to count as connected (15m).
 		AgentFresh time.Duration
-		// TestLabLease is the lease a test laboratory is admitted for when the caller names none (2h).
+		// TestLabLease is the lease a test laboratory is admitted for when the caller names none and no lease source
+		// is wired (SetTestLabLease) (2h).
 		TestLabLease time.Duration
 	}
 
@@ -164,6 +165,8 @@ type (
 		frame    resourcesModel.Amount
 		policy   resourcesModel.Policy
 		overhead func() Amount
+		// testLabLease is the lease in force for a request naming none (SetTestLabLease); nil: cfg.TestLabLease.
+		testLabLease func(context.Context) time.Duration
 		now      func() time.Time
 	}
 )
