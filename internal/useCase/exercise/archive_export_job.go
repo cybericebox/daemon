@@ -105,6 +105,7 @@ func (u *ExerciseUseCase) StartArchiveExport(ctx context.Context, in StartExport
 		if err != nil {
 			return uuid.Nil, u.failQueuedExport(ctx, job, model.ErrPlatform.WithError(err).WithMessage("Failed to seal the archive password").Err())
 		}
+		// Sealed, not plain: it stays in river_job.args until River prunes the job.
 		args.SealedPassword = sealed
 	}
 	if err := u.exportQueue(ctx, args); err != nil {

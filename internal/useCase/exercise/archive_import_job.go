@@ -198,6 +198,7 @@ func (u *ExerciseUseCase) QueueArchiveImport(ctx context.Context, in QueueImport
 		}
 	}
 	args := jobsModel.ExerciseImportArgs{JobID: job.ID}
+	// The sealed password stays in river_job.args (sealed, never plain) until River prunes the finished job.
 	if in.Password != "" {
 		if args.SealedPassword, err = u.importSealer.EncryptWithContext([]byte(in.Password), passwordContext(job.ID)); err != nil {
 			return uuid.Nil, u.failQueued(ctx, job, model.ErrPlatform.WithError(err).WithMessage("Failed to seal the archive password").Err())
