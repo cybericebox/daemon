@@ -402,8 +402,11 @@ POST   /api/exercises/elevations/:elevationID/reject | gate: exercises.elevation
 POST   /api/exercises/export | gate: exercises.export | layers: -
 POST   /api/exercises/files | gate: self | layers: -
 GET    /api/exercises/files/:fileID | gate: self | layers: -
+GET    /api/exercises/files/:fileID/chunks/:index | gate: self | layers: -
+GET    /api/exercises/files/:fileID/meta | gate: self | layers: -
 GET    /api/exercises/flag-policy | gate: self | layers: -
 POST   /api/exercises/import | gate: exercises.write | layers: -
+GET    /api/exercises/import/example | gate: exercises.write | layers: -
 POST   /api/exercises/import/uploaded | gate: exercises.write | layers: -
 GET    /api/exercises/proposals | gate: exercises.read | layers: -
 POST   /api/exercises/proposals/:proposalID/approve | gate: exercises.publish | layers: -
