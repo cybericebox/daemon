@@ -7087,6 +7087,30 @@ definitions:
         description: State is one of the PodState* values.
         type: string
     type: object
+  imageRegistry.eventSecretRequest:
+    properties:
+      Host:
+        type: string
+      RepositoryPrefix:
+        type: string
+      Token:
+        type: string
+      Username:
+        type: string
+    type: object
+  imageRegistry.eventSecretResponse:
+    properties:
+      Host:
+        type: string
+      ID:
+        type: string
+      RepositoryPrefix:
+        type: string
+      UpdatedAt:
+        type: string
+      Username:
+        type: string
+    type: object
   imageRegistry.listRepositoriesRequest:
     properties:
       Account:
@@ -17454,6 +17478,144 @@ paths:
       summary: Invite event participants by email
       tags:
       - events
+  /events/{id}/manage/registry-secrets:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/imageRegistry.eventSecretResponse'
+                  type: array
+              type: object
+      summary: List the event's registry secrets (tokens are never returned)
+      tags:
+      - event-registry
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: host, optional repository prefix, username, token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.eventSecretRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.eventSecretResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: same host and prefix already saved, or secret storage not configured
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Add a registry secret to the event; used only for this event's labs
+      tags:
+      - event-registry
+  /events/{id}/manage/registry-secrets/{secretId}:
+    delete:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Secret ID
+        in: path
+        name: secretId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: no such secret in this event
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Remove a registry secret from the event
+      tags:
+      - event-registry
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Secret ID
+        in: path
+        name: secretId
+        required: true
+        type: string
+      - description: host, optional repository prefix, username, optional new token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.eventSecretRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.eventSecretResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: no such secret in this event
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: same host and prefix already saved, or secret storage not configured
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Change a registry secret of the event; an empty token keeps the stored
+        one
+      tags:
+      - event-registry
   /events/{id}/manage/resource-plan:
     get:
       description: What the event reserves. Per attached task its totals (CPU, memory,

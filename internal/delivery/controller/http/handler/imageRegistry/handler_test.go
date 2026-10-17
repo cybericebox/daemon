@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -22,6 +23,10 @@ type fakeUseCase struct {
 	saved  imageRegistryUseCase.SaveSettingsInput
 	listed imageRegistryUseCase.ListRepositoriesInput
 	clears int
+
+	secretEvent, secretID uuid.UUID
+	secretInput           imageRegistryUseCase.EventSecretInput
+	deletes               int
 }
 
 func (f *fakeUseCase) view() imageRegistryUseCase.SettingsView {

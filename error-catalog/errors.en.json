@@ -453,5 +453,6 @@
   "72801": "The image registry is not configured",
   "72802": "Image upload is unavailable right now: the image registry is not configured or not responding",
   "72803": "Image unavailable",
-  "72808": "Secret storage is not configured: registry tokens cannot be saved"
+  "72808": "Secret storage is not configured: registry tokens cannot be saved",
+  "72814": "The event already has registry credentials for this host and repository prefix"
 }

@@ -2179,6 +2179,21 @@ func (mr *MockQuerierMockRecorder) DeleteEventPreviewSettings(ctx, eventID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventPreviewSettings", reflect.TypeOf((*MockQuerier)(nil).DeleteEventPreviewSettings), ctx, eventID)
 }
 
+// DeleteEventRegistrySecret mocks base method.
+func (m *MockQuerier) DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteEventRegistrySecret indicates an expected call of DeleteEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) DeleteEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).DeleteEventRegistrySecret), ctx, arg)
+}
+
 // DeleteEventResultChangesBefore mocks base method.
 func (m *MockQuerier) DeleteEventResultChangesBefore(ctx context.Context, before time.Time) (int64, error) {
 	m.ctrl.T.Helper()
@@ -3817,6 +3832,21 @@ func (mr *MockQuerierMockRecorder) GetEventPreviewSettings(ctx, eventID any) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventPreviewSettings", reflect.TypeOf((*MockQuerier)(nil).GetEventPreviewSettings), ctx, eventID)
 }
 
+// GetEventRegistrySecret mocks base method.
+func (m *MockQuerier) GetEventRegistrySecret(ctx context.Context, arg postgres.GetEventRegistrySecretParams) (postgres.EventRegistrySecret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(postgres.EventRegistrySecret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetEventRegistrySecret indicates an expected call of GetEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) GetEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).GetEventRegistrySecret), ctx, arg)
+}
+
 // GetEventRenderDocument mocks base method.
 func (m *MockQuerier) GetEventRenderDocument(ctx context.Context, arg postgres.GetEventRenderDocumentParams) (postgres.GetEventRenderDocumentRow, error) {
 	m.ctrl.T.Helper()
@@ -5406,6 +5436,20 @@ func (mr *MockQuerierMockRecorder) InsertErrorSample(ctx, arg any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertErrorSample", reflect.TypeOf((*MockQuerier)(nil).InsertErrorSample), ctx, arg)
 }
 
+// InsertEventRegistrySecret mocks base method.
+func (m *MockQuerier) InsertEventRegistrySecret(ctx context.Context, arg postgres.InsertEventRegistrySecretParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InsertEventRegistrySecret indicates an expected call of InsertEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) InsertEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).InsertEventRegistrySecret), ctx, arg)
+}
+
 // InsertEventScoringPopulation mocks base method.
 func (m *MockQuerier) InsertEventScoringPopulation(ctx context.Context, arg postgres.InsertEventScoringPopulationParams) (postgres.EventScoringPopulation, error) {
 	m.ctrl.T.Helper()
@@ -6990,6 +7034,21 @@ func (m *MockQuerier) ListEventRegistrationFormVersions(ctx context.Context, eve
 func (mr *MockQuerierMockRecorder) ListEventRegistrationFormVersions(ctx, eventID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventRegistrationFormVersions", reflect.TypeOf((*MockQuerier)(nil).ListEventRegistrationFormVersions), ctx, eventID)
+}
+
+// ListEventRegistrySecrets mocks base method.
+func (m *MockQuerier) ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUID) ([]postgres.EventRegistrySecret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEventRegistrySecrets", ctx, eventID)
+	ret0, _ := ret[0].([]postgres.EventRegistrySecret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEventRegistrySecrets indicates an expected call of ListEventRegistrySecrets.
+func (mr *MockQuerierMockRecorder) ListEventRegistrySecrets(ctx, eventID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventRegistrySecrets", reflect.TypeOf((*MockQuerier)(nil).ListEventRegistrySecrets), ctx, eventID)
 }
 
 // ListEventReportRanking mocks base method.
@@ -12030,6 +12089,21 @@ func (m *MockQuerier) UpdateEventPublicName(ctx context.Context, arg postgres.Up
 func (mr *MockQuerierMockRecorder) UpdateEventPublicName(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEventPublicName", reflect.TypeOf((*MockQuerier)(nil).UpdateEventPublicName), ctx, arg)
+}
+
+// UpdateEventRegistrySecret mocks base method.
+func (m *MockQuerier) UpdateEventRegistrySecret(ctx context.Context, arg postgres.UpdateEventRegistrySecretParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEventRegistrySecret", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateEventRegistrySecret indicates an expected call of UpdateEventRegistrySecret.
+func (mr *MockQuerierMockRecorder) UpdateEventRegistrySecret(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEventRegistrySecret", reflect.TypeOf((*MockQuerier)(nil).UpdateEventRegistrySecret), ctx, arg)
 }
 
 // UpdateEventScoringProfile mocks base method.

@@ -46,6 +46,7 @@ type (
 
 	ImageRegistryUseCase struct {
 		settings  *imageRegistryRepo.Repository
+		secrets   *imageRegistryRepo.EventSecrets
 		cipher    secret.Sealer
 		newClient ClientFactory
 		adapter   AdapterFactory
@@ -66,6 +67,7 @@ func DefaultAdapter(p imageRegistryModel.Provider) provider.Adapter {
 func New(deps Dependencies) *ImageRegistryUseCase {
 	u := &ImageRegistryUseCase{
 		settings:  imageRegistryRepo.New(deps.Repo),
+		secrets:   imageRegistryRepo.NewEventSecrets(deps.Repo),
 		cipher:    deps.Cipher,
 		newClient: deps.NewClient,
 		adapter:   deps.Adapter,

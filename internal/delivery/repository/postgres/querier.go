@@ -258,6 +258,7 @@ type Querier interface {
 	DeleteEventParticipantInvitation(ctx context.Context, arg DeleteEventParticipantInvitationParams) (int64, error)
 	DeleteEventPreviewRun(ctx context.Context, arg DeleteEventPreviewRunParams) error
 	DeleteEventPreviewSettings(ctx context.Context, eventID uuid.UUID) error
+	DeleteEventRegistrySecret(ctx context.Context, arg DeleteEventRegistrySecretParams) (int64, error)
 	DeleteEventResultChangesBefore(ctx context.Context, before time.Time) (int64, error)
 	DeleteEventSMTPConfig(ctx context.Context, scopeEventID uuid.NullUUID) error
 	DeleteEventSignalNotificationSubscription(ctx context.Context, arg DeleteEventSignalNotificationSubscriptionParams) (int64, error)
@@ -424,6 +425,8 @@ type Querier interface {
 	GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.UUID) (int64, error)
 	GetEventPreviewRun(ctx context.Context, arg GetEventPreviewRunParams) (EventPreviewRun, error)
 	GetEventPreviewSettings(ctx context.Context, eventID uuid.UUID) (GetEventPreviewSettingsRow, error)
+	// Scoped by event: a secret of another event is simply not found.
+	GetEventRegistrySecret(ctx context.Context, arg GetEventRegistrySecretParams) (EventRegistrySecret, error)
 	// Revision and document come from the same snapshot, so concurrent publication
 	// can never put the old document under the new key.
 	GetEventRenderDocument(ctx context.Context, arg GetEventRenderDocumentParams) (GetEventRenderDocumentRow, error)
@@ -627,6 +630,7 @@ type Querier interface {
 	HasEventLabRetentionPin(ctx context.Context, arg HasEventLabRetentionPinParams) (bool, error)
 	HasIncompleteRequiredEventFormDelivery(ctx context.Context, arg HasIncompleteRequiredEventFormDeliveryParams) (bool, error)
 	InsertErrorSample(ctx context.Context, arg InsertErrorSampleParams) error
+	InsertEventRegistrySecret(ctx context.Context, arg InsertEventRegistrySecretParams) error
 	// The first lifecycle transition captures the population. A retry must return
 	// that original immutable snapshot instead of replacing it.
 	InsertEventScoringPopulation(ctx context.Context, arg InsertEventScoringPopulationParams) (EventScoringPopulation, error)
@@ -866,6 +870,7 @@ type Querier interface {
 	ListEventRegistrationDays(ctx context.Context, arg ListEventRegistrationDaysParams) ([]ListEventRegistrationDaysRow, error)
 	// Versions of the event's registration form (at most one form per event).
 	ListEventRegistrationFormVersions(ctx context.Context, eventID uuid.UUID) ([]ListEventRegistrationFormVersionsRow, error)
+	ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUID) ([]EventRegistrySecret, error)
 	// Event analytics, «Звіт по заходу» (docs/EVENT-ANALYTICS.md §6.8): the
 	// ranking, the per-task table and the funnel tail. The key numbers and the
 	// activity series come from the overview statements.
@@ -1702,6 +1707,8 @@ type Querier interface {
 	UpdateEventParticipant(ctx context.Context, arg UpdateEventParticipantParams) (int64, error)
 	// Event managers may change only the participant-visible name.
 	UpdateEventPublicName(ctx context.Context, arg UpdateEventPublicNameParams) (int64, error)
+	// The whole editable entity in one statement; id and event_id never change.
+	UpdateEventRegistrySecret(ctx context.Context, arg UpdateEventRegistrySecretParams) (int64, error)
 	UpdateEventScoringProfile(ctx context.Context, arg UpdateEventScoringProfileParams) (int64, error)
 	UpdateEventStage(ctx context.Context, arg UpdateEventStageParams) (EventStage, error)
 	UpdateEventTeam(ctx context.Context, arg UpdateEventTeamParams) (int64, error)

@@ -1,10 +1,12 @@
 // Package imageRegistryRepo is the repository of the platform image registry
-// settings: one row (id is always true) written whole in one statement. Tokens
+// settings (event_secrets.go: the organizer secrets of events): one row (id is always true) written whole in one statement. Tokens
 // arrive and leave sealed; this package never sees a plaintext token.
 package imageRegistryRepo
 
 import (
 	"context"
+
+	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
@@ -15,6 +17,12 @@ type Queries interface {
 	GetImageRegistrySettings(ctx context.Context) (postgres.ImageRegistrySetting, error)
 	UpsertImageRegistrySettings(ctx context.Context, arg postgres.UpsertImageRegistrySettingsParams) error
 	DeleteImageRegistrySettings(ctx context.Context) error
+
+	ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUID) ([]postgres.EventRegistrySecret, error)
+	GetEventRegistrySecret(ctx context.Context, arg postgres.GetEventRegistrySecretParams) (postgres.EventRegistrySecret, error)
+	InsertEventRegistrySecret(ctx context.Context, arg postgres.InsertEventRegistrySecretParams) error
+	UpdateEventRegistrySecret(ctx context.Context, arg postgres.UpdateEventRegistrySecretParams) (int64, error)
+	DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error)
 }
 
 type Repository struct {

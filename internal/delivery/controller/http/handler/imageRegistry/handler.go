@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -26,6 +27,14 @@ type (
 		SaveImageRegistrySettings(ctx context.Context, in imageRegistryUseCase.SaveSettingsInput) (imageRegistryUseCase.SettingsView, error)
 		ListImageRegistryRepositories(ctx context.Context, in imageRegistryUseCase.ListRepositoriesInput) ([]string, error)
 		ClearImageRegistrySettings(ctx context.Context) error
+
+		// Organizer secrets of one event («Панель заходу»).
+		ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUID) ([]imageRegistryUseCase.EventSecretView, error)
+		CreateEventRegistrySecret(ctx context.Context, eventID uuid.UUID, in imageRegistryUseCase.EventSecretInput) (imageRegistryUseCase.EventSecretView, error)
+		UpdateEventRegistrySecret(ctx context.Context, eventID, secretID uuid.UUID, in imageRegistryUseCase.EventSecretInput) (imageRegistryUseCase.EventSecretView, error)
+		DeleteEventRegistrySecret(ctx context.Context, eventID, secretID uuid.UUID) error
+		RequireManageEvent(ctx context.Context, eventID, userID uuid.UUID) error
+		RequireReadEvent(ctx context.Context, eventID, userID uuid.UUID) error
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.
@@ -91,6 +100,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		api.DELETE("", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.clearSettings)
 		api.POST("repositories", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.listRepositories)
 	}
+	h.initEventSecrets(router)
 }
 
 // GetImageRegistrySettings godoc

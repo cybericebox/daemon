@@ -31,25 +31,50 @@ var (
 	prefixRe = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
 )
 
+// validateSecretFields normalizes the editable fields of an event secret.
+func validateSecretFields(host, prefix, username string) (h, pfx, user string, err error) {
+	h, ok := parseSecretHost(host)
+	pfx = strings.ToLower(strings.Trim(strings.TrimSpace(prefix), "/"))
+	user = strings.TrimSpace(username)
+	if !ok || user == "" || (pfx != "" && !prefixRe.MatchString(pfx)) {
+		return "", "", "", ErrInvalidEventSecret.Err()
+	}
+	return h, pfx, user, nil
+}
+
 func NewEventSecret(eventID, host, prefix, username string, now time.Time) (EventSecret, error) {
 	eid, err := uuid.FromString(eventID)
 	if err != nil {
 		return EventSecret{}, ErrInvalidEventSecret.Err()
 	}
-	h, ok := parseSecretHost(host)
-	prefix = strings.ToLower(strings.Trim(strings.TrimSpace(prefix), "/"))
-	username = strings.TrimSpace(username)
-	if !ok || username == "" || (prefix != "" && !prefixRe.MatchString(prefix)) {
-		return EventSecret{}, ErrInvalidEventSecret.Err()
+	h, pfx, user, err := validateSecretFields(host, prefix, username)
+	if err != nil {
+		return EventSecret{}, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return EventSecret{}, err
 	}
 	return EventSecret{
-		ID: id, EventID: eid, Host: h, RepositoryPrefix: prefix, Username: username,
+		ID: id, EventID: eid, Host: h, RepositoryPrefix: pfx, Username: user,
 		CreatedAt: now, UpdatedAt: now,
 	}, nil
+}
+
+// Edit replaces host, repository prefix and username (validated like on
+// creation); a refused edit changes nothing.
+func (s *EventSecret) Edit(host, prefix, username string, now time.Time) error {
+	h, pfx, user, err := validateSecretFields(host, prefix, username)
+	if err != nil {
+		return err
+	}
+	s.Host, s.RepositoryPrefix, s.Username, s.UpdatedAt = h, pfx, user, now
+	return nil
+}
+
+// SetToken stores the sealed token.
+func (s *EventSecret) SetToken(ciphertext string, now time.Time) {
+	s.TokenCiphertext, s.UpdatedAt = ciphertext, now
 }
 
 // parseSecretHost accepts host[:port] only: no scheme, no path.

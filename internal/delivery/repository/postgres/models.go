@@ -442,6 +442,17 @@ type EventPreviewRun struct {
 	ExpiresAt   time.Time     `json:"expires_at"`
 }
 
+type EventRegistrySecret struct {
+	ID               uuid.UUID `json:"id"`
+	EventID          uuid.UUID `json:"event_id"`
+	Host             string    `json:"host"`
+	RepositoryPrefix string    `json:"repository_prefix"`
+	Username         string    `json:"username"`
+	TokenCiphertext  string    `json:"token_ciphertext"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
 type EventResultChange struct {
 	EventID   uuid.UUID `json:"event_id"`
 	Revision  int64     `json:"revision"`

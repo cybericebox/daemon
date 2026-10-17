@@ -134,3 +134,28 @@ func TestClassify(t *testing.T) {
 		})
 	}
 }
+
+func TestEventSecretEdit(t *testing.T) {
+	s, err := NewEventSecret(eventID.String(), "ghcr.io", "acme", "bob", t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1 := t0.Add(time.Hour)
+	if err := s.Edit("Index.Docker.io", "Team/", " alice ", t1); err != nil {
+		t.Fatalf("edit: %v", err)
+	}
+	if s.Host != "docker.io" || s.RepositoryPrefix != "team" || s.Username != "alice" || !s.UpdatedAt.Equal(t1) || !s.CreatedAt.Equal(t0) {
+		t.Fatalf("edited: %+v", s)
+	}
+	before := s
+	if err := s.Edit("https://ghcr.io", "", "bob", t1.Add(time.Hour)); err == nil {
+		t.Fatal("invalid host accepted")
+	}
+	if s != before {
+		t.Fatalf("a refused edit changed the secret: %+v", s)
+	}
+	s.SetToken("sealed", t1.Add(time.Minute))
+	if s.TokenCiphertext != "sealed" || !s.UpdatedAt.Equal(t1.Add(time.Minute)) {
+		t.Fatalf("token: %+v", s)
+	}
+}
