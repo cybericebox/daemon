@@ -98,7 +98,7 @@ func TestParseImageRef(t *testing.T) {
 		{"docker.io/nginx", ImageRef{"docker.io", "library/nginx", "latest", ""}},
 		{"acme/x", ImageRef{"docker.io", "acme/x", "latest", ""}},
 		{"registry.local:5000/a/b", ImageRef{"registry.local:5000", "a/b", "latest", ""}},
-		{"ghcr.io/Acme/x:v1", ImageRef{"ghcr.io", "Acme/x", "v1", ""}},
+		{"ghcr.io/Acme/x:v1", ImageRef{"ghcr.io", "acme/x", "v1", ""}},
 		{"localhost/x", ImageRef{"localhost", "x", "latest", ""}},
 		{"nginx@sha256:" + hexA, ImageRef{"docker.io", "library/nginx", "", "sha256:" + hexA}},
 		{"ghcr.io/a/b:t@sha256:" + hexA, ImageRef{"ghcr.io", "a/b", "t", "sha256:" + hexA}},
@@ -119,6 +119,14 @@ func TestParseImageRefInvalid(t *testing.T) {
 	for _, in := range []string{"", " ", "a b", "ghcr.io/", "nginx:", "x@sha256:abc", "https://ghcr.io/a/b", "a//b"} {
 		if _, err := ParseImageRef(in); err == nil {
 			t.Errorf("%q must be rejected", in)
+		}
+	}
+}
+
+func TestPlatformRefTagZeroValue(t *testing.T) {
+	for _, r := range []PlatformRef{{}, {Name: "web"}, {Name: "web", Digest: "sha256:abc"}, {Digest: "sha256:" + hexA}} {
+		if got := r.Tag(); got != "" {
+			t.Errorf("%+v: Tag = %q, want empty", r, got)
 		}
 	}
 }

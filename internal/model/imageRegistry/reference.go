@@ -45,6 +45,9 @@ func (r PlatformRef) String() string { return platformPrefix + r.Name + "@" + r.
 
 // Tag is the registry tag pushed for the reference: <name>-<first 12 hex>.
 func (r PlatformRef) Tag() string {
+	if !digestRe.MatchString(r.Digest) || !platformNameRe.MatchString(r.Name) {
+		return ""
+	}
 	return r.Name + "-" + strings.TrimPrefix(r.Digest, "sha256:")[:12]
 }
 
@@ -119,6 +122,6 @@ func ParseImageRef(s string) (ImageRef, error) {
 	if ref.Tag == "" && ref.Digest == "" {
 		ref.Tag = "latest"
 	}
-	ref.Host, ref.Repository = host, name
+	ref.Host, ref.Repository = host, strings.ToLower(name)
 	return ref, nil
 }

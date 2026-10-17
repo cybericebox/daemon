@@ -72,6 +72,6 @@ func (s *Settings) SetTokens(push, pull string, now time.Time) {
 	s.UpdatedAt = now
 }
 
-func (s Settings) Configured() bool {
+func (s *Settings) Configured() bool {
 	return s.Provider.Valid() && s.Repository != "" && s.PushTokenCiphertext != ""
 }

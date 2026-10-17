@@ -59,12 +59,18 @@ func parseSecretHost(s string) (string, bool) {
 	if !hostRe.MatchString(name) {
 		return "", false
 	}
-	if hasPort {
-		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-			return "", false
-		}
+	name = normalizeHost(name)
+	if !hasPort {
+		return name, true
 	}
-	return normalizeHost(name) + map[bool]string{true: ":" + port}[hasPort], true
+	if port == "" || strings.Trim(port, "0123456789") != "" {
+		return "", false
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return "", false
+	}
+	return name + ":" + strconv.Itoa(n), true
 }
 
 // Matches reports whether the secret applies to ref. A host-only secret has

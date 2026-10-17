@@ -66,10 +66,12 @@ func TestSettingsSetTokensAndConfigured(t *testing.T) {
 	if !s.Configured() || s.PushTokenCiphertext != "push-ct" || s.PullTokenCiphertext != "pull-ct" || !s.UpdatedAt.Equal(later) {
 		t.Fatalf("got %+v", s)
 	}
-	if (Settings{Repository: "a/b", PushTokenCiphertext: "x"}).Configured() {
+	noProvider := Settings{Repository: "a/b", PushTokenCiphertext: "x"}
+	if noProvider.Configured() {
 		t.Fatal("provider is required")
 	}
-	if (Settings{Provider: ProviderGHCR, PushTokenCiphertext: "x"}).Configured() {
+	noRepo := Settings{Provider: ProviderGHCR, PushTokenCiphertext: "x"}
+	if noRepo.Configured() {
 		t.Fatal("repository is required")
 	}
 }

@@ -26,6 +26,8 @@ func TestNewEventSecret(t *testing.T) {
 		{"path", "ghcr.io/acme", "", "bob", "", "", true},
 		{"empty host", "", "", "bob", "", "", true},
 		{"bad port", "ghcr.io:abc", "", "bob", "", "", true},
+		{"plus port", "ghcr.io:+80", "", "bob", "", "", true},
+		{"zero padded port", "ghcr.io:0080", "", "bob", "ghcr.io:80", "", false},
 		{"empty user", "ghcr.io", "", "", "", "", true},
 		{"bad prefix", "ghcr.io", "a b", "bob", "", "", true},
 	}
