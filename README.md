@@ -94,6 +94,7 @@ The daemon refuses to start without a valid `DOMAIN`. The labels `api`, `id`, `a
 | `HTTP_SERVER_PORT` | `8080`, none when TLS is on | Plain-HTTP listener. Unset it is off when TLS is on (the standard container: HTTPS only) and `8080` otherwise (unprivileged). Set to an empty value to turn it off; with it empty and TLS off the daemon refuses to start. |
 | `HTTP_SERVER_READ_TIMEOUT` | `10s` | Read timeout. |
 | `HTTP_SERVER_WRITE_TIMEOUT` | `10s` | Write timeout. |
+| `HTTP_SERVER_IDLE_TIMEOUT` | `300s` | Idle keep-alive timeout; keep it under the load balancer's 350 s idle timeout. |
 | `HTTP_SERVER_MAX_HEADER_MB` | `1` | Max header size in MiB. |
 | `MAX_REQUEST_BODY_BYTES` | `10485760` | Cap of every request body (10 MiB); an upload route states its own larger cap. |
 | `TRUSTED_PROXIES` | none | Comma-separated CIDRs or addresses of the proxies in front of the daemon (ingress, CDN). The client address is read from `X-Forwarded-For` only for requests from them; with none listed the connection address is used and the header is ignored. Behind a proxy set it, or every client shares the proxy address in the per-address limits. |

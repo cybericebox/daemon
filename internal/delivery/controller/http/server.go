@@ -188,6 +188,7 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 			Handler:        h,
 			ReadTimeout:    cfg.ReadTimeout,
 			WriteTimeout:   cfg.WriteTimeout,
+			IdleTimeout:    cfg.IdleTimeout,
 			MaxHeaderBytes: cfg.MaxHeaderMegabytes << 20,
 			TLSConfig:      tlsCfg,
 		}
