@@ -101,3 +101,19 @@ func TestOpenZipAtZip64OverTheCapRefused(t *testing.T) {
 	_, _, err := openZipAt(bytes.NewReader(b), int64(len(b)), "")
 	requireTooLarge(t, err, "guard")
 }
+
+// A fake end record inside the real one's comment (small count, a comment length that does not fit) must not hide
+// the real record: the reader skips the fake one, so the guard does too.
+func TestOpenZipAtFakeEndRecordInCommentDoesNotHideHugeCount(t *testing.T) {
+	b := guardTestZip(t, 3)
+	e := eocdOf(t, b)
+	fake := make([]byte, zipEOCDLen)
+	binary.LittleEndian.PutUint32(fake, zipEOCDSig)
+	binary.LittleEndian.PutUint16(fake[10:], 1)
+	binary.LittleEndian.PutUint16(fake[20:], 500) // comment longer than what is left
+	out := append(append([]byte{}, b...), fake...)
+	binary.LittleEndian.PutUint16(out[e+10:], 60000)
+	binary.LittleEndian.PutUint16(out[e+20:], uint16(len(fake)))
+	_, _, err := openZipAt(bytes.NewReader(out), int64(len(out)), "")
+	requireTooLarge(t, err, "fake record")
+}

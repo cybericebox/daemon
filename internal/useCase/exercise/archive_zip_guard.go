@@ -39,7 +39,8 @@ func guardZipDirectory(r io.ReaderAt, size int64) error {
 	}
 	pos := -1
 	for i := len(buf) - zipEOCDLen; i >= 0; i-- {
-		if binary.LittleEndian.Uint32(buf[i:]) == zipEOCDSig {
+		// Same rule as archive/zip: a candidate whose comment length overruns the file is skipped.
+		if binary.LittleEndian.Uint32(buf[i:]) == zipEOCDSig && i+zipEOCDLen+int(binary.LittleEndian.Uint16(buf[i+20:])) <= len(buf) {
 			pos = i
 			break
 		}
