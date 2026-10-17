@@ -180,6 +180,46 @@ func exerciseListItemToResponse(e exerciseUseCase.ExerciseListItem) exerciseList
 	}
 }
 
+type versionVariantStatsResponse struct {
+	VersionID   uuid.UUID              `json:"VersionID"`
+	Status      string                 `json:"Status"`
+	CreatedAt   time.Time              `json:"CreatedAt"`
+	PublishedAt *time.Time             `json:"PublishedAt"`
+	Variants    []variantStatsResponse `json:"Variants"`
+}
+
+type variantStatsResponse struct {
+	VariantID uuid.UUID            `json:"VariantID"`
+	Number    int                  `json:"Number"`
+	Issued    int64                `json:"Issued"`
+	Solved    int64                `json:"Solved"`
+	Tasks     []taskSolvesResponse `json:"Tasks"`
+}
+
+type taskSolvesResponse struct {
+	TaskID uuid.UUID `json:"TaskID"`
+	Name   string    `json:"Name"`
+	Solved int64     `json:"Solved"`
+}
+
+func variantStatsToResponse(stats []exerciseUseCase.VersionVariantStats) []versionVariantStatsResponse {
+	out := make([]versionVariantStatsResponse, 0, len(stats))
+	for _, version := range stats {
+		variants := make([]variantStatsResponse, 0, len(version.Variants))
+		for _, variant := range version.Variants {
+			tasks := make([]taskSolvesResponse, 0, len(variant.Tasks))
+			for _, task := range variant.Tasks {
+				tasks = append(tasks, taskSolvesResponse{TaskID: task.TaskID, Name: task.Name, Solved: task.Solved})
+			}
+			variants = append(variants, variantStatsResponse{VariantID: variant.VariantID, Number: variant.Number, Issued: variant.Issued,
+				Solved: variant.Solved, Tasks: tasks})
+		}
+		out = append(out, versionVariantStatsResponse{VersionID: version.VersionID, Status: version.Status, CreatedAt: version.CreatedAt,
+			PublishedAt: version.PublishedAt, Variants: variants})
+	}
+	return out
+}
+
 type exerciseUsageResponse struct {
 	Events []exerciseUsageEventResponse `json:"Events"`
 }

@@ -6690,6 +6690,15 @@ definitions:
           $ref: '#/definitions/exercise.placeholderDTO'
         type: array
     type: object
+  exercise.taskSolvesResponse:
+    properties:
+      Name:
+        type: string
+      Solved:
+        type: integer
+      TaskID:
+        type: string
+    type: object
   exercise.topologyDTO:
     properties:
       Connections:
@@ -6779,6 +6788,21 @@ definitions:
       VariantID:
         type: string
     type: object
+  exercise.variantStatsResponse:
+    properties:
+      Issued:
+        type: integer
+      Number:
+        type: integer
+      Solved:
+        type: integer
+      Tasks:
+        items:
+          $ref: '#/definitions/exercise.taskSolvesResponse'
+        type: array
+      VariantID:
+        type: string
+    type: object
   exercise.versionListItemResponse:
     properties:
       AdminNote:
@@ -6860,6 +6884,21 @@ definitions:
         items:
           $ref: '#/definitions/exercise.variantDTO'
         type: array
+    type: object
+  exercise.versionVariantStatsResponse:
+    properties:
+      CreatedAt:
+        type: string
+      PublishedAt:
+        type: string
+      Status:
+        type: string
+      Variants:
+        items:
+          $ref: '#/definitions/exercise.variantStatsResponse'
+        type: array
+      VersionID:
+        type: string
     type: object
   exerciseModel.DeviceSnapshot:
     properties:
@@ -20529,6 +20568,40 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Events (active or archived) where any version of the exercise is attached
+      tags:
+      - exercises
+  /exercises/{id}/variant-stats:
+    get:
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.versionVariantStatsResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Grow-only issue and solve counters of the exercise's variants, per
+        version (newest first)
       tags:
       - exercises
   /exercises/{id}/versions:

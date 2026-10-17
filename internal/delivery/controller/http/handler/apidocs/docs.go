@@ -17229,6 +17229,61 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/{id}/variant-stats": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Grow-only issue and solve counters of the exercise's variants, per version (newest first)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.versionVariantStatsResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/{id}/versions": {
             "get": {
                 "produces": [
@@ -32520,6 +32575,20 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.taskSolvesResponse": {
+            "type": "object",
+            "properties": {
+                "Name": {
+                    "type": "string"
+                },
+                "Solved": {
+                    "type": "integer"
+                },
+                "TaskID": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.topologyDTO": {
             "type": "object",
             "properties": {
@@ -32645,6 +32714,29 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.variantStatsResponse": {
+            "type": "object",
+            "properties": {
+                "Issued": {
+                    "type": "integer"
+                },
+                "Number": {
+                    "type": "integer"
+                },
+                "Solved": {
+                    "type": "integer"
+                },
+                "Tasks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.taskSolvesResponse"
+                    }
+                },
+                "VariantID": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.versionListItemResponse": {
             "type": "object",
             "properties": {
@@ -32761,6 +32853,29 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exercise.variantDTO"
                     }
+                }
+            }
+        },
+        "exercise.versionVariantStatsResponse": {
+            "type": "object",
+            "properties": {
+                "CreatedAt": {
+                    "type": "string"
+                },
+                "PublishedAt": {
+                    "type": "string"
+                },
+                "Status": {
+                    "type": "string"
+                },
+                "Variants": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.variantStatsResponse"
+                    }
+                },
+                "VersionID": {
+                    "type": "string"
                 }
             }
         },

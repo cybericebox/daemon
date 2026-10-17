@@ -689,6 +689,20 @@ type ExerciseTestDeployment struct {
 	EventID   uuid.NullUUID `json:"event_id"`
 }
 
+type ExerciseVariantStat struct {
+	ExerciseVersionID uuid.UUID `json:"exercise_version_id"`
+	VariantID         uuid.UUID `json:"variant_id"`
+	Issued            int64     `json:"issued"`
+	Solved            int64     `json:"solved"`
+}
+
+type ExerciseVariantTaskStat struct {
+	ExerciseVersionID uuid.UUID `json:"exercise_version_id"`
+	VariantID         uuid.UUID `json:"variant_id"`
+	TaskID            uuid.UUID `json:"task_id"`
+	Solved            int64     `json:"solved"`
+}
+
 type ExerciseVersion struct {
 	ID          uuid.UUID          `json:"id"`
 	ExerciseID  uuid.UUID          `json:"exercise_id"`

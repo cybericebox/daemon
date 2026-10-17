@@ -49,6 +49,7 @@ type (
 		ListExerciseTags(ctx context.Context, actor exerciseUseCase.Actor, prefix string, limit int) ([]exerciseUseCase.ExerciseTagSuggestion, error)
 		UpdateExerciseIdentity(ctx context.Context, in exerciseUseCase.UpdateExerciseInput) (exerciseUseCase.ExerciseView, error)
 		GetExerciseUsage(ctx context.Context, id uuid.UUID) (exerciseUseCase.ExerciseUsage, error)
+		GetVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error)
 		DeleteExercise(ctx context.Context, id uuid.UUID) error
 		ArchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		UnarchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
@@ -187,6 +188,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 
 		ex.GET(":id", self, h.authorize(exerciseUseCase.ActionReadPublished), h.get)
 		ex.GET(":id/usage", self, h.authorize(exerciseUseCase.ActionRead), h.usage)
+		ex.GET(":id/variant-stats", self, h.authorize(exerciseUseCase.ActionRead), h.variantStats)
 		ex.PATCH(":id", self, h.authorize(exerciseUseCase.ActionWrite), h.update)
 		ex.DELETE(":id", self, h.authorize(exerciseUseCase.ActionDelete), h.delete)
 		ex.POST(":id/archive", self, h.authorize(exerciseUseCase.ActionWrite), h.archive)
@@ -431,6 +433,28 @@ func (h *Handler) update(ctx *gin.Context) {
 		return
 	}
 	response.AbortWithData(ctx, exerciseToResponse(v))
+}
+
+// variantStats godoc
+// @Summary  Grow-only issue and solve counters of the exercise's variants, per version (newest first)
+// @Tags     exercises
+// @Produce  json
+// @Param    id  path  string  true  "exercise ID"
+// @Success  200  {object}  response.Response{data=[]versionVariantStatsResponse}
+// @Failure  400  {object}  response.Response
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/{id}/variant-stats [get]
+func (h *Handler) variantStats(ctx *gin.Context) {
+	id, ok := parseExerciseID(ctx)
+	if !ok {
+		return
+	}
+	stats, err := h.useCase.GetVariantStats(ctx, id)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, variantStatsToResponse(stats))
 }
 
 // usage godoc

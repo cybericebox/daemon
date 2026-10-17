@@ -7548,6 +7548,36 @@ func (mr *MockQuerierMockRecorder) ListExerciseUsageEvents(ctx, arg any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseUsageEvents", reflect.TypeOf((*MockQuerier)(nil).ListExerciseUsageEvents), ctx, arg)
 }
 
+// ListExerciseVariantStats mocks base method.
+func (m *MockQuerier) ListExerciseVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ExerciseVariantStat, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseVariantStats", ctx, exerciseID)
+	ret0, _ := ret[0].([]postgres.ExerciseVariantStat)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseVariantStats indicates an expected call of ListExerciseVariantStats.
+func (mr *MockQuerierMockRecorder) ListExerciseVariantStats(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseVariantStats", reflect.TypeOf((*MockQuerier)(nil).ListExerciseVariantStats), ctx, exerciseID)
+}
+
+// ListExerciseVariantTaskStats mocks base method.
+func (m *MockQuerier) ListExerciseVariantTaskStats(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ExerciseVariantTaskStat, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseVariantTaskStats", ctx, exerciseID)
+	ret0, _ := ret[0].([]postgres.ExerciseVariantTaskStat)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseVariantTaskStats indicates an expected call of ListExerciseVariantTaskStats.
+func (mr *MockQuerierMockRecorder) ListExerciseVariantTaskStats(ctx, exerciseID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseVariantTaskStats", reflect.TypeOf((*MockQuerier)(nil).ListExerciseVariantTaskStats), ctx, exerciseID)
+}
+
 // ListExerciseVersionIDs mocks base method.
 func (m *MockQuerier) ListExerciseVersionIDs(ctx context.Context, exerciseID uuid.UUID) ([]uuid.UUID, error) {
 	m.ctrl.T.Helper()

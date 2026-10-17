@@ -380,6 +380,7 @@ POST   /api/exercises/:id/proposals | gate: self | layers: exercise.authorize.fu
 POST   /api/exercises/:id/publish | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/unarchive | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/usage | gate: self | layers: exercise.authorize.func
+GET    /api/exercises/:id/variant-stats | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/versions | gate: self | layers: exercise.authorize.func
 GET    /api/exercises/:id/versions/:versionID | gate: self | layers: exercise.authorize.func
 POST   /api/exercises/:id/versions/:versionID/restore | gate: self | layers: exercise.authorize.func

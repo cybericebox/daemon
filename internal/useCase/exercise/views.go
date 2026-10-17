@@ -179,6 +179,31 @@ type ExerciseUsage struct {
 	Events []ExerciseUsageEvent
 }
 
+// VersionVariantStats is the grow-only issue and solve counters of one version's variants.
+type VersionVariantStats struct {
+	VersionID   uuid.UUID
+	Status      string
+	CreatedAt   time.Time
+	PublishedAt *time.Time
+	Variants    []VariantStats
+}
+
+// VariantStats counts one variant: teams it was issued to, teams that solved every subtask of it.
+type VariantStats struct {
+	VariantID uuid.UUID
+	Number    int
+	Issued    int64
+	Solved    int64
+	Tasks     []TaskSolves
+}
+
+// TaskSolves counts the teams that solved one subtask of a variant.
+type TaskSolves struct {
+	TaskID uuid.UUID
+	Name   string
+	Solved int64
+}
+
 type ExerciseUsageEvent struct {
 	ID       uuid.UUID
 	Name     string

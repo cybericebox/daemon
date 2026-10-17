@@ -46,6 +46,8 @@ type fakeUC struct {
 	versionView           exerciseUseCase.VersionView
 	versionList           []exerciseUseCase.VersionListItem
 	usage                 exerciseUseCase.ExerciseUsage
+	variantStats          []exerciseUseCase.VersionVariantStats
+	authErr               error
 	checkpointCalled      bool
 	sessionLink           labaccess.Link
 	checkpointLabel       string
@@ -113,6 +115,9 @@ func (f *fakeUC) ArchiveExercise(_ context.Context, id, _ uuid.UUID) (exerciseUs
 func (f *fakeUC) UnarchiveExercise(_ context.Context, id, _ uuid.UUID) (exerciseUseCase.ExerciseView, error) {
 	f.unarchivedID = id
 	return f.exerciseView, f.err
+}
+func (f *fakeUC) GetVariantStats(_ context.Context, _ uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error) {
+	return f.variantStats, f.err
 }
 func (f *fakeUC) GetExerciseUsage(_ context.Context, _ uuid.UUID) (exerciseUseCase.ExerciseUsage, error) {
 	return f.usage, f.err
@@ -1703,6 +1708,45 @@ func TestUsage_ReturnsEventsForReaders(t *testing.T) {
 	}
 }
 
+func TestVariantStats_Route(t *testing.T) {
+	exID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000001")
+	versionID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000002")
+	variantID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000003")
+	taskID := uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000004")
+	created := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	published := created.Add(time.Hour)
+	uc := &fakeUC{variantStats: []exerciseUseCase.VersionVariantStats{{VersionID: versionID, Status: "published", CreatedAt: created, PublishedAt: &published,
+		Variants: []exerciseUseCase.VariantStats{{VariantID: variantID, Number: 1, Issued: 3, Solved: 1,
+			Tasks: []exerciseUseCase.TaskSolves{{TaskID: taskID, Name: "Recon", Solved: 2}}}}}}}
+	r := newEngine(uc, uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000005"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/variant-stats", nil))
+	want := `{"Data":[{"VersionID":"` + versionID.String() + `","Status":"published","CreatedAt":"2026-09-01T10:00:00Z","PublishedAt":"2026-09-01T11:00:00Z",` +
+		`"Variants":[{"VariantID":"` + variantID.String() + `","Number":1,"Issued":3,"Solved":1,"Tasks":[{"TaskID":"` + taskID.String() + `","Name":"Recon","Solved":2}]}]}]}`
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), strings.TrimSuffix(strings.TrimPrefix(want, `{"Data":`), "}")) {
+		t.Fatalf("variant stats: got %d %s\nwant %s", w.Code, w.Body.String(), want)
+	}
+
+	hidden := &fakeUC{authErr: exerciseModel.ErrExerciseNotFound.Err()}
+	w = httptest.NewRecorder()
+	newEngine(hidden, uuid.FromStringOrNil("0199f200-0000-7000-8000-000000000005")).ServeHTTP(w,
+		httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/variant-stats", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("an exercise the user cannot read: want 404, got %d %s", w.Code, w.Body.String())
+	}
+
+	// A role without exercises.read is refused by the same gate as the usage route.
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(response.WithErrorHandler)
+	exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: rbac.RoleUser}).Init(engine.Group("api"))
+	w = httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exID.String()+"/variant-stats", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a non-reader: want 403, got %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestUsage_EmptyIsList(t *testing.T) {
 	r := newEngine(&fakeUC{}, uuid.Must(uuid.NewV7()))
 	w := httptest.NewRecorder()
@@ -1738,6 +1782,9 @@ func fakeActionPermission(action exerciseUseCase.Action) rbac.Permission {
 }
 
 func (f *fakeUC) AuthorizeExercise(_ context.Context, actor exerciseUseCase.Actor, _ uuid.UUID, action exerciseUseCase.Action) (exerciseUseCase.Access, error) {
+	if f.authErr != nil {
+		return exerciseUseCase.Access{}, f.authErr
+	}
 	if !actor.Role.HasPermission(fakeActionPermission(action)) {
 		return exerciseUseCase.Access{}, exerciseModel.ErrExerciseForbidden.Err()
 	}

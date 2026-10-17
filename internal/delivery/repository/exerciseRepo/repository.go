@@ -82,6 +82,8 @@ type Queries interface {
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (postgres.ExerciseProposal, error)
 	DecideExerciseProposal(ctx context.Context, arg postgres.DecideExerciseProposalParams) (int64, error)
 	ListExerciseProposals(ctx context.Context, status pgtype.Int2) ([]postgres.ListExerciseProposalsRow, error)
+	ListExerciseVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ExerciseVariantStat, error)
+	ListExerciseVariantTaskStats(ctx context.Context, exerciseID uuid.UUID) ([]postgres.ExerciseVariantTaskStat, error)
 }
 
 // ListParams is the keyset-page query for the catalog list, in domain terms
@@ -228,6 +230,39 @@ func (r *Repository) ListUsage(ctx context.Context, exerciseID uuid.UUID, now ti
 		out = append(out, UsageEvent{ID: row.ID, Name: row.Name, Archived: row.Archived})
 	}
 	return out, nil
+}
+
+// VariantCounters is the grow-only issue and solve count of one variant of one version (query-side shape).
+type VariantCounters struct {
+	VersionID, VariantID uuid.UUID
+	Issued, Solved       int64
+}
+
+// VariantTaskCounters is the grow-only solve count of one subtask of one variant of one version.
+type VariantTaskCounters struct {
+	VersionID, VariantID, TaskID uuid.UUID
+	Solved                       int64
+}
+
+// VariantStats returns the variant and subtask counters of every version of the exercise.
+func (r *Repository) VariantStats(ctx context.Context, exerciseID uuid.UUID) ([]VariantCounters, []VariantTaskCounters, error) {
+	rows, err := r.q.ListExerciseVariantStats(ctx, exerciseID)
+	if err != nil {
+		return nil, nil, err
+	}
+	taskRows, err := r.q.ListExerciseVariantTaskStats(ctx, exerciseID)
+	if err != nil {
+		return nil, nil, err
+	}
+	variants := make([]VariantCounters, 0, len(rows))
+	for _, row := range rows {
+		variants = append(variants, VariantCounters{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, Issued: row.Issued, Solved: row.Solved})
+	}
+	tasks := make([]VariantTaskCounters, 0, len(taskRows))
+	for _, row := range taskRows {
+		tasks = append(tasks, VariantTaskCounters{VersionID: row.ExerciseVersionID, VariantID: row.VariantID, TaskID: row.TaskID, Solved: row.Solved})
+	}
+	return variants, tasks, nil
 }
 
 func (r *Repository) Create(ctx context.Context, e exerciseModel.Exercise) (exerciseModel.Exercise, error) {
