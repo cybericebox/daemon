@@ -80,7 +80,7 @@ func TestCreateEventSecretRefusals(t *testing.T) {
 	t.Run("no cipher", func(t *testing.T) {
 		f := newFixture(t, false)
 		_, err := f.uc.CreateEventRegistrySecret(ctx, eventA, EventSecretInput{Host: "ghcr.io", Username: "bob", Token: secretToken})
-		if !errors.Is(err, imageRegistryModel.ErrSecretsKeyMissing.Err()) {
+		if !errors.Is(err, imageRegistryModel.ErrEventSecretKeyMissing.Err()) || errors.Is(err, imageRegistryModel.ErrSecretsKeyMissing.Err()) {
 			t.Fatalf("got %v", err)
 		}
 	})
@@ -94,7 +94,7 @@ func TestCreateEventSecretRefusals(t *testing.T) {
 	t.Run("empty token", func(t *testing.T) {
 		f := newFixture(t, true)
 		_, err := f.uc.CreateEventRegistrySecret(ctx, eventA, EventSecretInput{Host: "ghcr.io", Username: "bob"})
-		if !errors.Is(err, imageRegistryModel.ErrInvalidEventSecret.Err()) {
+		if !errors.Is(err, imageRegistryModel.ErrEventSecretTokenMissing.Err()) || errors.Is(err, imageRegistryModel.ErrInvalidEventSecret.Err()) {
 			t.Fatalf("got %v", err)
 		}
 	})
@@ -179,7 +179,7 @@ func TestUpdateEventSecretKeepsOrReplacesTheToken(t *testing.T) {
 	t.Run("new token without a cipher is refused", func(t *testing.T) {
 		f := newFixture(t, false)
 		_, err := f.uc.UpdateEventRegistrySecret(ctx, eventA, secID, EventSecretInput{Host: "ghcr.io", Username: "bob", Token: "new-token"})
-		if !errors.Is(err, imageRegistryModel.ErrSecretsKeyMissing.Err()) {
+		if !errors.Is(err, imageRegistryModel.ErrEventSecretTokenKeyMissing.Err()) || errors.Is(err, imageRegistryModel.ErrEventSecretKeyMissing.Err()) {
 			t.Fatalf("got %v", err)
 		}
 	})

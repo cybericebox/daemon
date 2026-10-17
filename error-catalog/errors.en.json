@@ -238,6 +238,8 @@
   "22819": "Invalid layer digest",
   "22821": "An image layer has a different size than stated",
   "22822": "The image must be a linux/amd64 image with a valid config",
+  "22824": "Invalid event for registry credentials",
+  "22825": "Enter the registry token",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
@@ -459,10 +461,12 @@
   "72624": "The laboratory cannot perform this command in its current state",
   "72703": "Start the preview laboratory first",
   "72801": "The image registry is not configured",
-  "72802": "Image upload is unavailable right now: the image registry is not configured or not responding",
+  "72802": "Image uploads are unavailable right now: the image registry is not configured or not responding",
   "72803": "Image unavailable",
   "72808": "Secret storage is not configured: registry tokens cannot be saved",
   "72814": "The event already has registry credentials for this host and repository prefix",
   "72817": "An image layer is not uploaded yet",
-  "72820": "The layer upload is not complete"
+  "72820": "The layer upload is not complete",
+  "72826": "Secret storage is not configured: registry tokens cannot be saved",
+  "72827": "Secret storage is not configured: registry tokens cannot be saved"
 }

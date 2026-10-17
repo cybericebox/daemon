@@ -1,6 +1,7 @@
 package imageRegistryModel
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestNewEventSecret(t *testing.T) {
 			}
 		})
 	}
-	if _, err := NewEventSecret("not-a-uuid", "ghcr.io", "", "bob", t0); err == nil {
+	if _, err := NewEventSecret("not-a-uuid", "ghcr.io", "", "bob", t0); !errors.Is(err, ErrInvalidEventSecretEvent.Err()) || errors.Is(err, ErrInvalidEventSecret.Err()) {
 		t.Fatal("bad event id must fail")
 	}
 }

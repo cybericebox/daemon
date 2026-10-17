@@ -65,14 +65,14 @@ func (u *ImageRegistryUseCase) ListEventRegistrySecrets(ctx context.Context, eve
 // sealed. The token is required; without the platform cipher it is refused.
 func (u *ImageRegistryUseCase) CreateEventRegistrySecret(ctx context.Context, eventID uuid.UUID, in EventSecretInput) (EventSecretView, error) {
 	if u.cipher == nil {
-		return EventSecretView{}, imageRegistryModel.ErrSecretsKeyMissing.Err()
+		return EventSecretView{}, imageRegistryModel.ErrEventSecretKeyMissing.Err()
 	}
 	s, err := imageRegistryModel.NewEventSecret(eventID.String(), in.Host, in.RepositoryPrefix, in.Username, u.now())
 	if err != nil {
 		return EventSecretView{}, err
 	}
 	if in.Token == "" {
-		return EventSecretView{}, imageRegistryModel.ErrInvalidEventSecret.Err()
+		return EventSecretView{}, imageRegistryModel.ErrEventSecretTokenMissing.Err()
 	}
 	ct, err := u.seal(in.Token, eventSecretContext(s.ID))
 	if err != nil {
@@ -92,7 +92,7 @@ func (u *ImageRegistryUseCase) CreateEventRegistrySecret(ctx context.Context, ev
 // the stored one (no cipher needed); a new one is sealed again.
 func (u *ImageRegistryUseCase) UpdateEventRegistrySecret(ctx context.Context, eventID, secretID uuid.UUID, in EventSecretInput) (EventSecretView, error) {
 	if in.Token != "" && u.cipher == nil {
-		return EventSecretView{}, imageRegistryModel.ErrSecretsKeyMissing.Err()
+		return EventSecretView{}, imageRegistryModel.ErrEventSecretTokenKeyMissing.Err()
 	}
 	s, err := u.secrets.Get(ctx, eventID, secretID)
 	if err != nil {

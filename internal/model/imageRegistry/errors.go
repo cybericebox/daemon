@@ -10,13 +10,13 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 24
+// ImageRegistryObjectCode — next free detail code: 28
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
 	// ErrRegistryUnavailable: upload refusal; admins additionally see the reason.
 	ErrRegistryUnavailable = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
-				WithMessage("Image upload is unavailable right now: the image registry is not configured or not responding").WithDetailCode(2)
+				WithMessage("Image uploads are unavailable right now: the image registry is not configured or not responding").WithDetailCode(2)
 	// ErrImagesUnavailable: deploy refusal when an image cannot be pulled.
 	ErrImagesUnavailable = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Image unavailable").WithDetailCode(3)
@@ -24,11 +24,15 @@ var (
 				WithMessage("Invalid image registry settings").WithDetailCode(4)
 	ErrInvalidPlatformRef = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Invalid platform image reference").WithDetailCode(5)
+	// ErrInvalidEventSecret: the host, repository prefix or username of an event secret is not valid.
 	ErrInvalidEventSecret = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Invalid registry credentials").WithDetailCode(6)
+	// ErrEventSecretNotFound — multi-site (category A, anti-enumeration): an event secret is always read,
+	// changed and deleted within its event, so an absent id, another event's secret and one deleted
+	// concurrently are one indistinguishable "not found" across update and delete.
 	ErrEventSecretNotFound = err.ErrObjectNotFound.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Registry credentials not found").WithDetailCode(7)
-	// ErrSecretsKeyMissing: PlatformCipher is unset, so tokens cannot be sealed.
+	// ErrSecretsKeyMissing: PlatformCipher is unset, so the platform registry tokens cannot be sealed.
 	ErrSecretsKeyMissing = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Secret storage is not configured: registry tokens cannot be saved").WithDetailCode(8)
 	ErrInvalidImageArchive = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
@@ -76,6 +80,19 @@ var (
 	// ErrUploaderUnknown: an image upload call without a signed-in caller.
 	ErrUploaderUnknown = err.ErrUnauthenticated.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Sign in to upload images").WithDetailCode(23)
+	// ErrInvalidEventSecretEvent: an event secret was built for an event id that is not a UUID.
+	ErrInvalidEventSecretEvent = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+					WithMessage("Invalid event for registry credentials").WithDetailCode(24)
+	// ErrEventSecretTokenMissing: a new event secret needs its token.
+	ErrEventSecretTokenMissing = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+					WithMessage("Enter the registry token").WithDetailCode(25)
+	// ErrEventSecretKeyMissing: PlatformCipher is unset, so a new event secret's token cannot be sealed.
+	ErrEventSecretKeyMissing = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
+					WithMessage("Secret storage is not configured: registry tokens cannot be saved").WithDetailCode(26)
+	// ErrEventSecretTokenKeyMissing: PlatformCipher is unset, so a new token for an event secret cannot be sealed
+	// (an edit without a new token still works).
+	ErrEventSecretTokenKeyMissing = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
+					WithMessage("Secret storage is not configured: registry tokens cannot be saved").WithDetailCode(27)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming

@@ -46,7 +46,7 @@ func validateSecretFields(host, prefix, username string) (h, pfx, user string, e
 func NewEventSecret(eventID, host, prefix, username string, now time.Time) (EventSecret, error) {
 	eid, err := uuid.FromString(eventID)
 	if err != nil {
-		return EventSecret{}, ErrInvalidEventSecret.Err()
+		return EventSecret{}, ErrInvalidEventSecretEvent.Err()
 	}
 	h, pfx, user, err := validateSecretFields(host, prefix, username)
 	if err != nil {
