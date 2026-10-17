@@ -103,6 +103,116 @@ func submittedSecretKeys(variants []exerciseModel.Variant) map[string]bool {
 	return out
 }
 
+// secretSources maps a variant's index to the variant whose secrets it takes: the base for a linked variant,
+// else the variant it was copied from (copyOf, aligned with variants by index) when that is another variant.
+func secretSources(variants []exerciseModel.Variant, copyOf []uuid.NullUUID) map[int]uuid.UUID {
+	sources := make(map[int]uuid.UUID)
+	for i, variant := range variants {
+		if variant.IsLinked() {
+			sources[i] = variant.LinkedTo.UUID
+		} else if i < len(copyOf) && copyOf[i].Valid && copyOf[i].UUID != variant.ID {
+			sources[i] = copyOf[i].UUID
+		}
+	}
+	return sources
+}
+
+// inheritSecrets runs after mergeKeptSecrets and before encryptSecrets. A secret is sealed to its variant id,
+// so a target cannot reuse its source's ciphertext: a target secret still blank takes the source's value of
+// the same (device, env) as plaintext and is marked submitted, so encryptSecrets seals it under the target's
+// id. A linked variant's topology is the base's, so its secret always equals the base's: a stored value of
+// its own is kept only while it opens to the base's value (no re-encryption churn on every save), else
+// replaced, and it is cleared when the base has none. Linked targets go first, so a copy of a linked variant
+// sees what it inherited. A source that is not in variants is skipped.
+func (u *ExerciseUseCase) inheritSecrets(variants []exerciseModel.Variant, sources map[int]uuid.UUID, submitted map[string]bool) error {
+	positionByID := make(map[uuid.UUID]int, len(variants))
+	for i := len(variants) - 1; i >= 0; i-- {
+		positionByID[variants[i].ID] = i
+	}
+	for _, linkedPass := range []bool{true, false} {
+		for target := range variants {
+			sourceID, ok := sources[target]
+			if !ok || variants[target].IsLinked() != linkedPass {
+				continue
+			}
+			source, ok := positionByID[sourceID]
+			if !ok || source == target {
+				continue
+			}
+			if err := u.inheritVariantSecrets(&variants[target], variants[source], linkedPass, submitted); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (u *ExerciseUseCase) inheritVariantSecrets(target *exerciseModel.Variant, source exerciseModel.Variant, linked bool, submitted map[string]bool) error {
+	for di := range target.Topology.Devices {
+		device := &target.Topology.Devices[di]
+		for ei := range device.EnvVars {
+			env := &device.EnvVars[ei]
+			if !env.Secret {
+				continue
+			}
+			targetKey := secretKey(target.ID, device.Name, env.Name)
+			if env.Value != "" && (!linked || submitted[targetKey]) {
+				continue
+			}
+			sourceValue := sourceSecret(source, device.Name, env.Name)
+			if sourceValue == "" {
+				if linked {
+					env.Value = ""
+				}
+				continue
+			}
+			plain, err := u.secretPlaintext(source.ID, device.Name, env.Name, sourceValue, submitted)
+			if err != nil {
+				return err
+			}
+			if env.Value != "" && u.cipher != nil {
+				if own, openErr := u.cipher.DecryptWithContext(env.Value, envSecretContext(target.ID, device.Name, env.Name)); openErr == nil && string(own) == plain {
+					continue
+				}
+			}
+			env.Value = plain
+			submitted[targetKey] = true
+		}
+	}
+	return nil
+}
+
+// sourceSecret is the source variant's secret value of (device, env), "" when it has none.
+func sourceSecret(source exerciseModel.Variant, deviceName, envName string) string {
+	for _, device := range source.Topology.Devices {
+		if device.Name != deviceName {
+			continue
+		}
+		for _, env := range device.EnvVars {
+			if env.Secret && env.Name == envName {
+				return env.Value
+			}
+		}
+	}
+	return ""
+}
+
+// secretPlaintext opens a variant's secret value after the merge: a value submitted in this save is
+// plaintext, any other is the stored ciphertext sealed to that variant.
+func (u *ExerciseUseCase) secretPlaintext(variantID uuid.UUID, deviceName, envName, value string, submitted map[string]bool) (string, error) {
+	if submitted[secretKey(variantID, deviceName, envName)] {
+		return value, nil
+	}
+	if u.cipher == nil {
+		return "", exerciseModel.ErrSecretsNotConfigured.Err()
+	}
+	plain, err := u.cipher.DecryptWithContext(value, envSecretContext(variantID, deviceName, envName))
+	if err != nil {
+		return "", model.ErrPlatform.WithError(err).WithMessage("Failed to decrypt the secret env var of the source variant").Err()
+	}
+	return string(plain), nil
+}
+
 // envSecretContext binds the ciphertext of a secret env var to its variant, device and name (the same identity
 // the draft merge keeps a secret by): a value copied to another variable does not open there.
 func envSecretContext(variantID uuid.UUID, device, name string) []byte {

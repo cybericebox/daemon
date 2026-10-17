@@ -396,9 +396,15 @@ type topologyDTO struct {
 }
 
 type variantDTO struct {
-	ID       *uuid.UUID  `json:"ID,omitempty"`
-	Index    int32       `json:"Index"`
-	Note     string      `json:"Note"`
+	ID    *uuid.UUID `json:"ID,omitempty"`
+	Index int32      `json:"Index"`
+	Note  string     `json:"Note"`
+	// LinkedTo is the base variant (same version) this one inherits its content from; absent = independent.
+	// The backend rewrites the inherited parts from the base on every save.
+	LinkedTo *uuid.UUID `json:"LinkedTo,omitempty"`
+	// CopyOf (request only, never in a response): the variant this new one was copied from, so a secret left
+	// blank in the copy takes that variant's value.
+	CopyOf   *uuid.UUID  `json:"CopyOf,omitempty"`
 	Tasks    []taskDTO   `json:"Tasks"`
 	Topology topologyDTO `json:"Topology"`
 }
@@ -651,7 +657,18 @@ func (d variantDTO) toDomain() exerciseModel.Variant {
 	if d.ID != nil {
 		out.ID = *d.ID
 	}
+	if d.LinkedTo != nil {
+		out.LinkedTo = uuid.NullUUID{UUID: *d.LinkedTo, Valid: true}
+	}
 	return out
+}
+
+// copyOf is the request's copy source of the variant (request only, not part of the domain variant).
+func (d variantDTO) copyOf() uuid.NullUUID {
+	if d.CopyOf == nil {
+		return uuid.NullUUID{}
+	}
+	return uuid.NullUUID{UUID: *d.CopyOf, Valid: true}
 }
 
 func (d taskDTO) toDomain() exerciseModel.Task {
@@ -779,6 +796,10 @@ func variantToDTO(v exerciseModel.Variant) variantDTO {
 	if v.ID != uuid.Nil {
 		id := v.ID
 		d.ID = &id
+	}
+	if v.LinkedTo.Valid {
+		base := v.LinkedTo.UUID
+		d.LinkedTo = &base
 	}
 	for _, t := range v.Tasks {
 		d.Tasks = append(d.Tasks, taskToDTO(t))

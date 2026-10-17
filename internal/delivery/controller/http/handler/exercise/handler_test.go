@@ -60,6 +60,7 @@ type fakeUC struct {
 	// capture what the handler actually sent, so SaveDraft's "don't reuse the
 	// request DTO afterwards" contract can be asserted.
 	savedVariants []exerciseModel.Variant
+	savedCopyOf   []uuid.NullUUID
 
 	// files
 	uploadedFile     mediaModel.File
@@ -121,6 +122,7 @@ func (f *fakeUC) DeleteExercise(_ context.Context, _ uuid.UUID) error {
 }
 func (f *fakeUC) SaveDraft(_ context.Context, _ uuid.UUID, in exerciseUseCase.SaveDraftInput) (exerciseUseCase.VersionView, error) {
 	f.savedVariants = in.Variants
+	f.savedCopyOf = in.CopyOf
 	return f.versionView, f.err
 }
 func (f *fakeUC) PublishDraft(_ context.Context, _ uuid.UUID) (exerciseUseCase.VersionView, error) {
@@ -911,6 +913,28 @@ func TestSaveDraft_MapsFlagAsPlainStringSlice(t *testing.T) {
 	gotFlag := uc.savedVariants[0].Tasks[0].Flag
 	if len(gotFlag) != 2 || gotFlag[0] != "FLAG{one}" || gotFlag[1] != "FLAG{two}" {
 		t.Fatalf("Flag not mapped as plain []string: %+v", gotFlag)
+	}
+}
+
+// CopyOf (request only) names the variant a new one was copied from; it reaches the use case by index.
+func TestSaveDraftHandler_PassesCopyOf(t *testing.T) {
+	source := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d001")
+	exID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d000")
+	uc := &fakeUC{versionView: exerciseUseCase.VersionView{ID: exID, ExerciseID: exID}}
+	r := newEngine(uc, uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000d0ff"))
+	body := `{"Variants":[{"ID":"` + source.String() + `","Index":1,"Tasks":[],"Topology":{"VPN":{},"Internet":{}}},` +
+		`{"CopyOf":"` + source.String() + `","Index":2,"Tasks":[],"Topology":{"VPN":{},"Internet":{}}}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/exercises/"+exID.String()+"/draft", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	want := []uuid.NullUUID{{}, {UUID: source, Valid: true}}
+	if len(uc.savedCopyOf) != 2 || uc.savedCopyOf[0] != want[0] || uc.savedCopyOf[1] != want[1] {
+		t.Fatalf("CopyOf = %+v, want %+v", uc.savedCopyOf, want)
 	}
 }
 

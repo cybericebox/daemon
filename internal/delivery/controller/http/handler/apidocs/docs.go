@@ -32597,11 +32597,19 @@ const docTemplate = `{
         "exercise.variantDTO": {
             "type": "object",
             "properties": {
+                "CopyOf": {
+                    "description": "CopyOf (request only, never in a response): the variant this new one was copied from, so a secret left\nblank in the copy takes that variant's value.",
+                    "type": "string"
+                },
                 "ID": {
                     "type": "string"
                 },
                 "Index": {
                     "type": "integer"
+                },
+                "LinkedTo": {
+                    "description": "LinkedTo is the base variant (same version) this one inherits its content from; absent = independent.\nThe backend rewrites the inherited parts from the base on every save.",
+                    "type": "string"
                 },
                 "Note": {
                     "type": "string"

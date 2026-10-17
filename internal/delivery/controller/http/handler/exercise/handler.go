@@ -640,12 +640,15 @@ func (h *Handler) saveDraft(ctx *gin.Context) {
 	// assigns fresh content ids), so the request DTO must never be reused
 	// (logged/echoed) after this call.
 	variants := make([]exerciseModel.Variant, 0, len(req.Variants))
+	copyOf := make([]uuid.NullUUID, 0, len(req.Variants))
 	for _, v := range req.Variants {
 		variants = append(variants, v.toDomain())
+		copyOf = append(copyOf, v.copyOf())
 	}
 	view, err := h.useCase.SaveDraft(ctx, id, exerciseUseCase.SaveDraftInput{
 		AdminNote: req.AdminNote,
 		Variants:  variants,
+		CopyOf:    copyOf,
 		SavedBy:   claims.UserID,
 	})
 	if err != nil {
