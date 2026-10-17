@@ -341,6 +341,7 @@ func TestSessionAndDocsDefaults(t *testing.T) {
 	for _, env := range []string{Production, "stage"} {
 		t.Setenv("ENV", env)
 		t.Setenv("JWT_TOKEN_SIGNATURE", "0123456789abcdef0123456789abcdef")
+		t.Setenv("FLAG_SLOT_SECRET", "fedcba9876543210fedcba9876543210")
 		if MustGetConfig().HTTPController.EnableSwaggerDocs {
 			t.Fatalf("docs must be off in %s", env)
 		}
@@ -482,5 +483,26 @@ func TestExerciseConfigLabSweepBounds(t *testing.T) {
 	short.LabSweepGrace = 30 * time.Second
 	if short.Validate() == nil {
 		t.Error("a grace under a minute accepted: the sweep must not race a group that is still being created")
+	}
+}
+
+func TestFlagSlotWeaknesses(t *testing.T) {
+	jwt := "0123456789abcdef0123456789abcdef"
+	ok := FlagSlotConfig{Secret: "fedcba9876543210fedcba9876543210"}
+	if w := ok.Weaknesses(jwt); len(w) != 0 {
+		t.Fatalf("a strong flag slot secret reported %v", w)
+	}
+	for name, secret := range map[string]string{"empty": "", "short": "short", "reused jwt secret": jwt} {
+		if len((FlagSlotConfig{Secret: secret}).Weaknesses(jwt)) == 0 {
+			t.Errorf("%s flag slot secret was not reported", name)
+		}
+	}
+}
+
+func TestFlagSlotSecretIsRead(t *testing.T) {
+	t.Setenv("RECAPTCHA_SECRET", "rsecret")
+	t.Setenv("FLAG_SLOT_SECRET", "fedcba9876543210fedcba9876543210")
+	if got := MustGetConfig().FlagSlot.Secret; got != "fedcba9876543210fedcba9876543210" {
+		t.Fatalf("FLAG_SLOT_SECRET = %q", got)
 	}
 }

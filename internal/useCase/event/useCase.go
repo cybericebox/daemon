@@ -263,7 +263,7 @@ type Dependencies struct {
 	VPN                                        VPNStore
 	SignalPublishers                           SignalPublisherFactory
 	FlagRandomBytes                            int
-	// FlagSlotSecret is the server secret the flag-slot keys derive from (JWT_TOKEN_SIGNATURE).
+	// FlagSlotSecret is the server secret the flag-slot keys derive from (FLAG_SLOT_SECRET).
 	FlagSlotSecret []byte
 	// StandDeployBudget is the Lab deploy calls per event and engine pass; 0 means the default.
 	StandDeployBudget int
