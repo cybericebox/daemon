@@ -127,6 +127,8 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `POSTGRES_MAX_CONN_LIFETIME` / `POSTGRES_MAX_CONN_IDLE_TIME` | `30m` / `5m` | A connection of either pool is replaced after this age / closed after this long unused. |
 | `POSTGRES_JOB_MAX_CONNS` | `8` | Size of the separate pool of the job queue (River: fetching, notifications, maintenance) and the session revocation poll, so requests cannot starve them and they cannot starve requests. At least 4, like `POSTGRES_MAX_CONNS`. |
 
+Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_MAX_CONNS` (40 by default), so N replicas need N × 40 + 20 (reserved for administration) ≤ the server's `max_connections`. The daemon logs this arithmetic at startup and warns when a single replica already does not fit.
+
 ### Authentication and secrets
 
 | Variable | Default | Purpose |
