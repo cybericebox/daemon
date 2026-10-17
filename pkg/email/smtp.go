@@ -132,10 +132,10 @@ func AddressBlocked(ip netip.Addr) bool {
 	return false
 }
 
-// guardControl is the net.Dialer control of a guarded connection: it sees the address that is about to be
+// GuardControl is the net.Dialer control of a guarded connection: it sees the address that is about to be
 // connected (after name resolution), so a name that resolves to a blocked address, or changes its answer
 // between a check and the connection, never gets a connection.
-func guardControl(_, address string, _ syscall.RawConn) error {
+func GuardControl(_, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return &blockedError{addr: address}
@@ -163,7 +163,7 @@ func (c *Client) deliver(ctx context.Context, from, to string, data []byte) erro
 func (c *Client) converse(ctx context.Context, from, to string, data []byte) error {
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	if c.guard {
-		dialer.Control = guardControl
+		dialer.Control = GuardControl
 	}
 	deadline := time.Now().Add(sessionTimeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {

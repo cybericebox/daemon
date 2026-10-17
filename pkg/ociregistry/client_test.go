@@ -116,3 +116,145 @@ func TestUnreachable(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnreachable)
 	require.NotContains(t, err.Error(), fakePassword)
 }
+
+// bearerFake is a registry behind a token server on the same host. Accounts: "writer" (push+pull),
+// "reader" (pull only); any other account or a wrong password gets 401 from the token endpoint.
+func bearerFake(t *testing.T) (*httptest.Server, *[]string) {
+	t.Helper()
+	var scopes []string
+	inner := registry.New()
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		u, p, ok := r.BasicAuth()
+		if !ok || p != fakePassword || (u != "writer" && u != "reader") {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		scopes = append(scopes, r.URL.Query().Get("scope"))
+		_, _ = w.Write([]byte(`{"token":"` + u + `-token"}`))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		tok := r.Header.Get("Authorization")
+		if tok == "" {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="`+srv.URL+`/token",service="fake"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if tok == "Bearer reader-token" && r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		inner.ServeHTTP(w, r)
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, &scopes
+}
+
+func TestPingProvesPushPermission(t *testing.T) {
+	srv, scopes := bearerFake(t)
+	ctx := context.Background()
+
+	require.NoError(t, newClient(srv, "writer", fakePassword).Ping(ctx))
+	require.Contains(t, *scopes, "repository:acme/platform:push,pull")
+
+	err := newClient(srv, "reader", fakePassword).Ping(ctx)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	require.NotContains(t, err.Error(), fakePassword)
+
+	err = newClient(srv, "writer", fakePassword+"x").Ping(ctx)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	require.NotContains(t, err.Error(), fakePassword)
+
+	// a pull token passes the pull check
+	require.NoError(t, newClient(srv, "reader", fakePassword).PingPull(ctx))
+	err = newClient(srv, "reader", fakePassword+"x").PingPull(ctx)
+	require.ErrorIs(t, err, ErrUnauthorized)
+}
+
+func TestPingCancelledKeepsContextError(t *testing.T) {
+	srv := httptest.NewServer(registry.New())
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := newClient(srv, "", "").Ping(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotErrorIs(t, err, ErrUnreachable)
+}
+
+func TestScrubOnlyPassword(t *testing.T) {
+	c := New(Options{Username: "bot", Password: fakePassword})
+	require.Equal(t, "user bot with ***", c.scrub("user bot with "+fakePassword))
+}
+
+func redirecting(target string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead && strings.Contains(r.URL.Path, "/blobs/") {
+			http.Redirect(w, r, target+r.URL.Path, http.StatusTemporaryRedirect)
+			return
+		}
+		basicAuthed(registry.New()).ServeHTTP(w, r)
+	})
+}
+
+func TestCrossHostRedirectCarriesNoCredentials(t *testing.T) {
+	var seen []string
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer cdn.Close()
+	reg := httptest.NewServer(redirecting(cdn.URL))
+	defer reg.Close()
+
+	c := New(Options{Host: hostOf(reg), Repository: "acme/platform", Username: "bot", Password: fakePassword,
+		Insecure: true, AllowInternal: true})
+	ok, err := c.BlobExists(context.Background(), digestOf([]byte("a")))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []string{""}, seen)
+}
+
+func TestCrossHostRedirectToLoopbackRefusedByDefault(t *testing.T) {
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer cdn.Close()
+	reg := httptest.NewServer(redirecting(cdn.URL))
+	defer reg.Close()
+
+	c := New(Options{Host: hostOf(reg), Repository: "acme/platform", Username: "bot", Password: fakePassword, Insecure: true})
+	_, err := c.BlobExists(context.Background(), digestOf([]byte("a")))
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), fakePassword)
+}
+
+func redirectReq(t *testing.T, raw string) *http.Request {
+	t.Helper()
+	r, err := http.NewRequest(http.MethodGet, raw, nil)
+	require.NoError(t, err)
+	return r
+}
+
+func TestCheckRedirectPolicy(t *testing.T) {
+	c := New(Options{})
+	first := redirectReq(t, "https://registry.example.com/v2/")
+
+	via := make([]*http.Request, 10)
+	for i := range via {
+		via[i] = first
+	}
+	require.Error(t, c.checkRedirect(redirectReq(t, "https://registry.example.com/x"), via))
+	require.NoError(t, c.checkRedirect(redirectReq(t, "https://registry.example.com/x"), via[:9]))
+
+	// https -> http downgrade
+	require.Error(t, c.checkRedirect(redirectReq(t, "http://cdn.example.com/x"), []*http.Request{first}))
+	// private / loopback / link-local / unspecified literals
+	for _, u := range []string{"https://127.0.0.1/x", "https://10.1.2.3/x", "https://169.254.169.254/x", "https://[::1]/x", "https://0.0.0.0/x"} {
+		require.Error(t, c.checkRedirect(redirectReq(t, u), []*http.Request{first}), u)
+	}
+	// public literal, other host: allowed, credentials stripped
+	next := redirectReq(t, "https://93.184.216.34/x")
+	next.Header.Set("Authorization", "Basic abc")
+	require.NoError(t, c.checkRedirect(next, []*http.Request{first}))
+	require.Empty(t, next.Header.Get("Authorization"))
+}

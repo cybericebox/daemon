@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/cybericebox/daemon/pkg/email"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,7 +27,7 @@ func TestGuardedTransportRefusesLoopback(t *testing.T) {
 
 func TestGuardedTransportRefusesInternalRanges(t *testing.T) {
 	for _, addr := range []string{"10.0.0.1:80", "192.168.1.1:80", "169.254.169.254:80", "0.0.0.0:80", "[::1]:80", "[fe80::1]:80"} {
-		require.Error(t, guardControl("tcp", addr, nil), addr)
+		require.Error(t, email.GuardControl("tcp", addr, nil), addr)
 	}
-	require.NoError(t, guardControl("tcp", "93.184.216.34:443", nil))
+	require.NoError(t, email.GuardControl("tcp", "93.184.216.34:443", nil))
 }

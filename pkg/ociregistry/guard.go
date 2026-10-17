@@ -3,8 +3,6 @@ package ociregistry
 import (
 	"net"
 	"net/http"
-	"net/netip"
-	"syscall"
 	"time"
 
 	"github.com/cybericebox/daemon/pkg/email"
@@ -21,24 +19,6 @@ func GuardedTransport(base *http.Transport) http.RoundTripper {
 		t = http.DefaultTransport.(*http.Transport).Clone()
 	}
 	t.Proxy = nil
-	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: guardControl}).DialContext
+	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: email.GuardControl}).DialContext
 	return t
 }
-
-func guardControl(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return blocked(address)
-	}
-	ip, err := netip.ParseAddr(host)
-	if err != nil || email.AddressBlocked(ip) {
-		return blocked(host)
-	}
-	return nil
-}
-
-type blockedError struct{ addr string }
-
-func blocked(addr string) error { return &blockedError{addr: addr} }
-
-func (e *blockedError) Error() string { return "destination " + e.addr + " is not allowed" }
