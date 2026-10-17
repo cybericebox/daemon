@@ -33368,6 +33368,10 @@ const docTemplate = `{
                 "Repository": {
                     "type": "string"
                 },
+                "SecretsKeyMissing": {
+                    "description": "SecretsKeyMissing: the platform secrets key is unset; tokens can be neither opened nor saved.",
+                    "type": "boolean"
+                },
                 "UpdatedAt": {
                     "type": "string"
                 }

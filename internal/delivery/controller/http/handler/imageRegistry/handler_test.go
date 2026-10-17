@@ -32,21 +32,21 @@ func (f *fakeUseCase) view() imageRegistryUseCase.SettingsView {
 	}
 }
 
-func (f *fakeUseCase) GetSettings(context.Context) (imageRegistryUseCase.SettingsView, error) {
+func (f *fakeUseCase) GetImageRegistrySettings(context.Context) (imageRegistryUseCase.SettingsView, error) {
 	return f.view(), nil
 }
 
-func (f *fakeUseCase) SaveSettings(_ context.Context, in imageRegistryUseCase.SaveSettingsInput) (imageRegistryUseCase.SettingsView, error) {
+func (f *fakeUseCase) SaveImageRegistrySettings(_ context.Context, in imageRegistryUseCase.SaveSettingsInput) (imageRegistryUseCase.SettingsView, error) {
 	f.saved = in
 	return f.view(), nil
 }
 
-func (f *fakeUseCase) ListRepositories(_ context.Context, in imageRegistryUseCase.ListRepositoriesInput) ([]string, error) {
+func (f *fakeUseCase) ListImageRegistryRepositories(_ context.Context, in imageRegistryUseCase.ListRepositoriesInput) ([]string, error) {
 	f.listed = in
 	return []string{"acme/platform"}, nil
 }
 
-func (f *fakeUseCase) ClearSettings(context.Context) error {
+func (f *fakeUseCase) ClearImageRegistrySettings(context.Context) error {
 	f.clears++
 	return nil
 }
@@ -125,7 +125,7 @@ func TestResponsesNeverCarryTheToken(t *testing.T) {
 	if uc.saved.PushToken != secretToken || uc.saved.PullToken != secretToken+"-pull" || uc.saved.Repository != "acme/platform" {
 		t.Fatalf("input %+v", uc.saved)
 	}
-	if !strings.Contains(w.Body.String(), `"PushTokenSet":true`) {
+	if !strings.Contains(w.Body.String(), `"PushTokenSet":true`) || !strings.Contains(w.Body.String(), `"SecretsKeyMissing":false`) {
 		t.Fatalf("save body %s", w.Body)
 	}
 

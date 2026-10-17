@@ -19,7 +19,10 @@ type (
 		Repository   string
 		PushTokenSet bool
 		PullTokenSet bool
-		UpdatedAt    *time.Time
+		// SecretsKeyMissing: PLATFORM_SECRETS_KEY is unset, so stored tokens
+		// cannot be opened and new ones cannot be saved.
+		SecretsKeyMissing bool
+		UpdatedAt         *time.Time
 	}
 
 	// SaveSettingsInput: an empty token keeps the stored one (when the provider
@@ -37,37 +40,44 @@ type (
 	}
 )
 
-func toView(s imageRegistryModel.Settings, found bool) SettingsView {
+// toView reports a token as set only when it can be opened (cipher present,
+// ciphertext opens), so the panel never claims a token the platform cannot use.
+func (u *ImageRegistryUseCase) toView(s imageRegistryModel.Settings, found bool) SettingsView {
 	if !found {
-		return SettingsView{}
+		return SettingsView{SecretsKeyMissing: u.cipher == nil}
 	}
 	at := s.UpdatedAt
+	pushSet := u.open(s.PushTokenCiphertext, pushContext) != ""
 	return SettingsView{
-		Configured:   s.Configured(),
-		Provider:     string(s.Provider),
-		Account:      s.Account,
-		Repository:   s.Repository,
-		PushTokenSet: s.PushTokenCiphertext != "",
-		PullTokenSet: s.PullTokenCiphertext != "",
-		UpdatedAt:    &at,
+		Configured:        s.Configured() && pushSet,
+		Provider:          string(s.Provider),
+		Account:           s.Account,
+		Repository:        s.Repository,
+		PushTokenSet:      pushSet,
+		PullTokenSet:      u.open(s.PullTokenCiphertext, pullContext) != "",
+		SecretsKeyMissing: u.cipher == nil,
+		UpdatedAt:         &at,
 	}
 }
 
-// GetSettings returns the saved settings without tokens; none saved: not configured.
-func (u *ImageRegistryUseCase) GetSettings(ctx context.Context) (SettingsView, error) {
+// GetImageRegistrySettings returns the saved settings without tokens; none saved: not configured.
+func (u *ImageRegistryUseCase) GetImageRegistrySettings(ctx context.Context) (SettingsView, error) {
 	s, found, err := u.load(ctx)
 	if err != nil {
 		return SettingsView{}, err
 	}
-	return toView(s, found), nil
+	return u.toView(s, found), nil
 }
 
-// SaveSettings validates the settings, proves the push token may push to the
+// SaveImageRegistrySettings validates the settings, proves the push token may push to the
 // repository (and the pull token may pull) and stores them with the tokens
 // sealed. Nothing is stored when a check fails.
-func (u *ImageRegistryUseCase) SaveSettings(ctx context.Context, in SaveSettingsInput) (SettingsView, error) {
+func (u *ImageRegistryUseCase) SaveImageRegistrySettings(ctx context.Context, in SaveSettingsInput) (SettingsView, error) {
 	if u.cipher == nil {
 		return SettingsView{}, imageRegistryModel.ErrSecretsKeyMissing.Err()
+	}
+	if in.PullToken != "" && in.ClearPullToken {
+		return SettingsView{}, imageRegistryModel.ErrConflictingPullToken.Err()
 	}
 	now := u.now()
 	next, err := imageRegistryModel.NewSettings(in.Provider, in.Account, in.Repository, now)
@@ -87,8 +97,15 @@ func (u *ImageRegistryUseCase) SaveSettings(ctx context.Context, in SaveSettings
 	if err := u.newClient(next.Provider, next.Repository, next.Account, push).Ping(ctx); err != nil {
 		return SettingsView{}, Unavailable(err, "push")
 	}
-	if in.PullToken != "" && !in.ClearPullToken {
-		if err := u.newClient(next.Provider, next.Repository, next.Account, in.PullToken).PingPull(ctx); err != nil {
+	// The pull token to verify: the new one, else the kept one (it must still
+	// read the possibly new repository). A kept one that no longer opens is dropped.
+	pull, dropKeptPull := in.PullToken, false
+	if pull == "" && !in.ClearPullToken && sameAccount && prev.PullTokenCiphertext != "" {
+		pull = u.open(prev.PullTokenCiphertext, pullContext)
+		dropKeptPull = pull == ""
+	}
+	if pull != "" {
+		if err := u.newClient(next.Provider, next.Repository, next.Account, pull).PingPull(ctx); err != nil {
 			return SettingsView{}, Unavailable(err, "pull")
 		}
 	}
@@ -102,25 +119,25 @@ func (u *ImageRegistryUseCase) SaveSettings(ctx context.Context, in SaveSettings
 			return SettingsView{}, err
 		}
 	}
-	if in.PullToken != "" && !in.ClearPullToken {
+	if in.PullToken != "" {
 		if pullCT, err = u.seal(in.PullToken, pullContext); err != nil {
 			return SettingsView{}, err
 		}
 	}
 	next.SetTokens(pushCT, pullCT, now)
-	if in.ClearPullToken {
+	if in.ClearPullToken || dropKeptPull {
 		next.ClearPullToken(now)
 	}
 
 	if err := u.settings.Save(ctx, next); err != nil {
 		return SettingsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save the image registry settings").Err()
 	}
-	return toView(next, true), nil
+	return u.toView(next, true), nil
 }
 
-// ListRepositories lists the repositories the token can see on the provider,
+// ListImageRegistryRepositories lists the repositories the token can see on the provider,
 // for the admin to pick one.
-func (u *ImageRegistryUseCase) ListRepositories(ctx context.Context, in ListRepositoriesInput) ([]string, error) {
+func (u *ImageRegistryUseCase) ListImageRegistryRepositories(ctx context.Context, in ListRepositoriesInput) ([]string, error) {
 	p := imageRegistryModel.Provider(strings.TrimSpace(in.Provider))
 	account := strings.TrimSpace(in.Account)
 	adapter := u.adapter(p)
@@ -149,8 +166,8 @@ func (u *ImageRegistryUseCase) ListRepositories(ctx context.Context, in ListRepo
 	return repos, nil
 }
 
-// ClearSettings removes the settings and the stored tokens.
-func (u *ImageRegistryUseCase) ClearSettings(ctx context.Context) error {
+// ClearImageRegistrySettings removes the settings and the stored tokens.
+func (u *ImageRegistryUseCase) ClearImageRegistrySettings(ctx context.Context) error {
 	if err := u.settings.Delete(ctx); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to clear the image registry settings").Err()
 	}

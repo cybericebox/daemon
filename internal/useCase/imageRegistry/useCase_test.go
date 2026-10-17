@@ -163,7 +163,7 @@ func TestSaveSealsTokens(t *testing.T) {
 	f.q.EXPECT().UpsertImageRegistrySettings(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, p postgres.UpsertImageRegistrySettingsParams) error { written = p; return nil })
 
-	view, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	view, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "dockerhub", Account: "acme", Repository: "acme/platform", PushToken: pushToken, PullToken: pullToken,
 	})
 	if err != nil {
@@ -189,7 +189,7 @@ func TestSettingsViewNeverCarriesATokenField(t *testing.T) {
 		ID: true, Provider: "dockerhub", Account: "acme", Repository: "acme/platform",
 		PushTokenCiphertext: f.seal(t, pushToken, "push"), UpdatedAt: t0,
 	})
-	view, err := f.uc.GetSettings(context.Background())
+	view, err := f.uc.GetImageRegistrySettings(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestSettingsViewNeverCarriesATokenField(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	want := "Account,Configured,Provider,PullTokenSet,PushTokenSet,Repository,UpdatedAt"
+	want := "Account,Configured,Provider,PullTokenSet,PushTokenSet,Repository,SecretsKeyMissing,UpdatedAt"
 	if strings.Join(keys, ",") != want {
 		t.Fatalf("view fields %v, want %s", keys, want)
 	}
@@ -213,7 +213,7 @@ func TestSettingsViewNeverCarriesATokenField(t *testing.T) {
 func TestGetSettingsNotConfigured(t *testing.T) {
 	f := newFixture(t, true)
 	f.empty()
-	view, err := f.uc.GetSettings(context.Background())
+	view, err := f.uc.GetImageRegistrySettings(context.Background())
 	if err != nil || view.Configured || view.UpdatedAt != nil {
 		t.Fatalf("view %+v err %v", view, err)
 	}
@@ -230,7 +230,7 @@ func TestEmptyTokenKeepsTheStoredOne(t *testing.T) {
 	f.q.EXPECT().UpsertImageRegistrySettings(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, p postgres.UpsertImageRegistrySettingsParams) error { written = p; return nil })
 
-	if _, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	if _, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "dockerhub", Account: "acme", Repository: "acme/platform",
 	}); err != nil {
 		t.Fatalf("save: %v", err)
@@ -254,7 +254,7 @@ func TestClearPullToken(t *testing.T) {
 	var written postgres.UpsertImageRegistrySettingsParams
 	f.q.EXPECT().UpsertImageRegistrySettings(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, p postgres.UpsertImageRegistrySettingsParams) error { written = p; return nil })
-	view, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	view, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "dockerhub", Account: "acme", Repository: "acme/platform", ClearPullToken: true,
 	})
 	if err != nil || written.PullTokenCiphertext != "" || written.PushTokenCiphertext != oldPush || view.PullTokenSet {
@@ -268,7 +268,7 @@ func TestAnotherAccountNeedsANewToken(t *testing.T) {
 		ID: true, Provider: "dockerhub", Account: "other", Repository: "other/p",
 		PushTokenCiphertext: f.seal(t, pushToken, "push"), UpdatedAt: t0,
 	})
-	_, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{Provider: "dockerhub", Account: "acme", Repository: "acme/platform"})
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{Provider: "dockerhub", Account: "acme", Repository: "acme/platform"})
 	if !errors.Is(err, imageRegistryModel.ErrPushTokenRequired.Err()) {
 		t.Fatalf("got %v", err)
 	}
@@ -277,7 +277,7 @@ func TestAnotherAccountNeedsANewToken(t *testing.T) {
 func TestFirstSaveRequiresAPushToken(t *testing.T) {
 	f := newFixture(t, true)
 	f.empty()
-	_, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{Provider: "dockerhub", Account: "acme", Repository: "acme/platform"})
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{Provider: "dockerhub", Account: "acme", Repository: "acme/platform"})
 	if !errors.Is(err, imageRegistryModel.ErrPushTokenRequired.Err()) {
 		t.Fatalf("got %v", err)
 	}
@@ -285,7 +285,7 @@ func TestFirstSaveRequiresAPushToken(t *testing.T) {
 
 func TestSaveWithoutCipherIsRefused(t *testing.T) {
 	f := newFixture(t, false)
-	_, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "dockerhub", Account: "acme", Repository: "acme/platform", PushToken: pushToken,
 	})
 	if !errors.Is(err, imageRegistryModel.ErrSecretsKeyMissing.Err()) {
@@ -295,7 +295,7 @@ func TestSaveWithoutCipherIsRefused(t *testing.T) {
 
 func TestInvalidSettingsAreRefused(t *testing.T) {
 	f := newFixture(t, true)
-	_, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "quay", Account: "acme", Repository: "acme/platform", PushToken: pushToken,
 	})
 	if !errors.Is(err, imageRegistryModel.ErrInvalidSettings.Err()) {
@@ -307,7 +307,7 @@ func TestFailedPingStoresNothing(t *testing.T) {
 	f := newFixture(t, true)
 	f.empty()
 	// No UpsertImageRegistrySettings expectation: a write fails the test.
-	_, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "dockerhub", Account: "acme", Repository: "acme/platform", PushToken: "revoked-token-fixed",
 	})
 	if !errors.Is(err, imageRegistryModel.ErrRegistryUnavailable.Err()) {
@@ -325,7 +325,7 @@ func TestFailedPingStoresNothing(t *testing.T) {
 func TestFailedPullTokenStoresNothing(t *testing.T) {
 	f := newFixture(t, true)
 	f.empty()
-	_, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "dockerhub", Account: "acme", Repository: "acme/platform", PushToken: pushToken, PullToken: "bad-pull-fixed",
 	})
 	if !errors.Is(err, imageRegistryModel.ErrRegistryUnavailable.Err()) || publicReason(t, err)[imageRegistryModel.ContextToken] != "pull" {
@@ -337,7 +337,7 @@ func TestUnreachableRegistryReason(t *testing.T) {
 	f := newFixture(t, true)
 	f.empty()
 	f.reg.srv.Close()
-	_, err := f.uc.SaveSettings(context.Background(), SaveSettingsInput{
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
 		Provider: "dockerhub", Account: "acme", Repository: "acme/platform", PushToken: pushToken,
 	})
 	if !errors.Is(err, imageRegistryModel.ErrRegistryUnavailable.Err()) ||
@@ -351,7 +351,7 @@ func TestListRepositories(t *testing.T) {
 	t.Run("given token", func(t *testing.T) {
 		f := newFixture(t, true)
 		f.adapter.repos = []string{"acme/a", "acme/b"}
-		got, err := f.uc.ListRepositories(ctx, ListRepositoriesInput{Provider: "ghcr", Account: "acme", Token: pushToken})
+		got, err := f.uc.ListImageRegistryRepositories(ctx, ListRepositoriesInput{Provider: "ghcr", Account: "acme", Token: pushToken})
 		if err != nil || strings.Join(got, ",") != "acme/a,acme/b" || f.adapter.tokens[0] != pushToken {
 			t.Fatalf("got %v %v %v", got, err, f.adapter.tokens)
 		}
@@ -361,7 +361,7 @@ func TestListRepositories(t *testing.T) {
 		f.stored(postgres.ImageRegistrySetting{
 			ID: true, Provider: "ghcr", Account: "Acme", Repository: "acme/p", PushTokenCiphertext: f.seal(t, pushToken, "push"), UpdatedAt: t0,
 		})
-		if _, err := f.uc.ListRepositories(ctx, ListRepositoriesInput{Provider: "ghcr", Account: "acme"}); err != nil || f.adapter.tokens[0] != pushToken {
+		if _, err := f.uc.ListImageRegistryRepositories(ctx, ListRepositoriesInput{Provider: "ghcr", Account: "acme"}); err != nil || f.adapter.tokens[0] != pushToken {
 			t.Fatalf("err %v tokens %v", err, f.adapter.tokens)
 		}
 	})
@@ -370,14 +370,14 @@ func TestListRepositories(t *testing.T) {
 		f.stored(postgres.ImageRegistrySetting{
 			ID: true, Provider: "dockerhub", Account: "acme", Repository: "acme/p", PushTokenCiphertext: f.seal(t, pushToken, "push"), UpdatedAt: t0,
 		})
-		_, err := f.uc.ListRepositories(ctx, ListRepositoriesInput{Provider: "ghcr", Account: "acme"})
+		_, err := f.uc.ListImageRegistryRepositories(ctx, ListRepositoriesInput{Provider: "ghcr", Account: "acme"})
 		if !errors.Is(err, imageRegistryModel.ErrPushTokenRequired.Err()) || len(f.adapter.tokens) != 0 {
 			t.Fatalf("got %v", err)
 		}
 	})
 	t.Run("invalid provider", func(t *testing.T) {
 		f := newFixture(t, true)
-		_, err := f.uc.ListRepositories(ctx, ListRepositoriesInput{Provider: "quay", Account: "acme", Token: pushToken})
+		_, err := f.uc.ListImageRegistryRepositories(ctx, ListRepositoriesInput{Provider: "quay", Account: "acme", Token: pushToken})
 		if !errors.Is(err, imageRegistryModel.ErrInvalidRepositoryListing.Err()) {
 			t.Fatalf("got %v", err)
 		}
@@ -385,7 +385,7 @@ func TestListRepositories(t *testing.T) {
 	t.Run("provider refuses", func(t *testing.T) {
 		f := newFixture(t, true)
 		f.adapter.err = ociregistry.ErrRateLimited
-		_, err := f.uc.ListRepositories(ctx, ListRepositoriesInput{Provider: "dockerhub", Account: "acme", Token: pushToken})
+		_, err := f.uc.ListImageRegistryRepositories(ctx, ListRepositoriesInput{Provider: "dockerhub", Account: "acme", Token: pushToken})
 		if !errors.Is(err, imageRegistryModel.ErrRegistryUnavailable.Err()) ||
 			publicReason(t, err)[imageRegistryModel.ContextReason] != string(imageRegistryModel.ReasonRateLimited) {
 			t.Fatalf("got %v", err)
@@ -396,7 +396,7 @@ func TestListRepositories(t *testing.T) {
 func TestClearSettings(t *testing.T) {
 	f := newFixture(t, true)
 	f.q.EXPECT().DeleteImageRegistrySettings(gomock.Any()).Return(nil)
-	if err := f.uc.ClearSettings(context.Background()); err != nil {
+	if err := f.uc.ClearImageRegistrySettings(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -406,13 +406,13 @@ func TestPlatformClient(t *testing.T) {
 	t.Run("not configured", func(t *testing.T) {
 		f := newFixture(t, true)
 		f.empty()
-		if _, _, err := f.uc.PlatformClient(ctx, true); !errors.Is(err, imageRegistryModel.ErrRegistryNotConfigured.Err()) {
+		if _, _, err := f.uc.PlatformRegistryClient(ctx, true); !errors.Is(err, imageRegistryModel.ErrRegistryNotConfigured.Err()) {
 			t.Fatalf("got %v", err)
 		}
 	})
 	t.Run("no cipher", func(t *testing.T) {
 		f := newFixture(t, false)
-		if _, _, err := f.uc.PlatformClient(ctx, true); !errors.Is(err, imageRegistryModel.ErrRegistryNotConfigured.Err()) {
+		if _, _, err := f.uc.PlatformRegistryClient(ctx, true); !errors.Is(err, imageRegistryModel.ErrRegistryNotConfigured.Err()) {
 			t.Fatalf("got %v", err)
 		}
 	})
@@ -422,14 +422,14 @@ func TestPlatformClient(t *testing.T) {
 			ID: true, Provider: "dockerhub", Account: "acme", Repository: "acme/platform",
 			PushTokenCiphertext: f.seal(t, pushToken, "push"), PullTokenCiphertext: f.seal(t, pullToken, "pull"), UpdatedAt: t0,
 		})
-		push, s, err := f.uc.PlatformClient(ctx, true)
+		push, s, err := f.uc.PlatformRegistryClient(ctx, true)
 		if err != nil || s.Repository != "acme/platform" || s.PushTokenCiphertext == pushToken {
 			t.Fatalf("push client: %v %+v", err, s)
 		}
 		if err := push.Ping(ctx); err != nil {
 			t.Fatalf("push ping: %v", err)
 		}
-		pull, _, err := f.uc.PlatformClient(ctx, false)
+		pull, _, err := f.uc.PlatformRegistryClient(ctx, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -447,7 +447,7 @@ func TestPlatformClient(t *testing.T) {
 			ID: true, Provider: "dockerhub", Account: "acme", Repository: "acme/platform",
 			PushTokenCiphertext: f.seal(t, pushToken, "push"), UpdatedAt: t0,
 		})
-		pull, _, err := f.uc.PlatformClient(ctx, false)
+		pull, _, err := f.uc.PlatformRegistryClient(ctx, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -458,4 +458,62 @@ func TestPlatformClient(t *testing.T) {
 			t.Fatalf("tokens used %v", seen)
 		}
 	})
+}
+
+func TestViewWithoutCipherReportsTokensUnreadable(t *testing.T) {
+	f := newFixture(t, false)
+	sealer := testCipher(t)
+	ct, _ := sealer.EncryptWithContext([]byte(pushToken), []byte("image-registry:push"))
+	f.stored(postgres.ImageRegistrySetting{
+		ID: true, Provider: "dockerhub", Account: "acme", Repository: "acme/platform", PushTokenCiphertext: ct, UpdatedAt: t0,
+	})
+	view, err := f.uc.GetImageRegistrySettings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Configured || view.PushTokenSet || view.PullTokenSet || !view.SecretsKeyMissing || view.Repository != "acme/platform" {
+		t.Fatalf("view %+v", view)
+	}
+}
+
+func TestViewWithUnopenableTokenIsNotConfigured(t *testing.T) {
+	f := newFixture(t, true)
+	f.stored(postgres.ImageRegistrySetting{
+		ID: true, Provider: "dockerhub", Account: "acme", Repository: "acme/platform",
+		PushTokenCiphertext: "v1:not-a-valid-ciphertext", PullTokenCiphertext: "v1:also-not-valid", UpdatedAt: t0,
+	})
+	view, err := f.uc.GetImageRegistrySettings(context.Background())
+	if err != nil || view.Configured || view.PushTokenSet || view.PullTokenSet || view.SecretsKeyMissing {
+		t.Fatalf("view %+v err %v", view, err)
+	}
+}
+
+func TestKeptPullTokenIsCheckedAgainstTheRepository(t *testing.T) {
+	f := newFixture(t, true)
+	// The stored pull token is refused by the registry: keeping it must refuse the save.
+	f.reg.allow["stale-pull-fixed"] = false
+	f.stored(postgres.ImageRegistrySetting{
+		ID: true, Provider: "dockerhub", Account: "acme", Repository: "acme/old",
+		PushTokenCiphertext: f.seal(t, pushToken, "push"), PullTokenCiphertext: f.seal(t, "stale-pull-fixed", "pull"), UpdatedAt: t0,
+	})
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
+		Provider: "dockerhub", Account: "acme", Repository: "acme/platform",
+	})
+	if !errors.Is(err, imageRegistryModel.ErrRegistryUnavailable.Err()) || publicReason(t, err)[imageRegistryModel.ContextToken] != "pull" {
+		t.Fatalf("got %v", err)
+	}
+	seen := f.reg.passwords()
+	if seen[len(seen)-1] != "stale-pull-fixed" {
+		t.Fatalf("kept pull token not checked: %v", seen)
+	}
+}
+
+func TestPullTokenWithClearIsRefused(t *testing.T) {
+	f := newFixture(t, true)
+	_, err := f.uc.SaveImageRegistrySettings(context.Background(), SaveSettingsInput{
+		Provider: "dockerhub", Account: "acme", Repository: "acme/platform", PushToken: pushToken, PullToken: pullToken, ClearPullToken: true,
+	})
+	if !errors.Is(err, imageRegistryModel.ErrConflictingPullToken.Err()) {
+		t.Fatalf("got %v", err)
+	}
 }

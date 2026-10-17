@@ -22,10 +22,10 @@ type (
 
 	// IUseCase is this handler's narrow port into the useCase layer.
 	IUseCase interface {
-		GetSettings(ctx context.Context) (imageRegistryUseCase.SettingsView, error)
-		SaveSettings(ctx context.Context, in imageRegistryUseCase.SaveSettingsInput) (imageRegistryUseCase.SettingsView, error)
-		ListRepositories(ctx context.Context, in imageRegistryUseCase.ListRepositoriesInput) ([]string, error)
-		ClearSettings(ctx context.Context) error
+		GetImageRegistrySettings(ctx context.Context) (imageRegistryUseCase.SettingsView, error)
+		SaveImageRegistrySettings(ctx context.Context, in imageRegistryUseCase.SaveSettingsInput) (imageRegistryUseCase.SettingsView, error)
+		ListImageRegistryRepositories(ctx context.Context, in imageRegistryUseCase.ListRepositoriesInput) ([]string, error)
+		ClearImageRegistrySettings(ctx context.Context) error
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.
@@ -37,13 +37,15 @@ type (
 // settingsResponse is the registry settings as the panel sees them: whether a
 // token is stored, never the token.
 type settingsResponse struct {
-	Configured   bool       `json:"Configured"`
-	Provider     string     `json:"Provider"`
-	Account      string     `json:"Account"`
-	Repository   string     `json:"Repository"`
-	PushTokenSet bool       `json:"PushTokenSet"`
-	PullTokenSet bool       `json:"PullTokenSet"`
-	UpdatedAt    *time.Time `json:"UpdatedAt"`
+	Configured   bool   `json:"Configured"`
+	Provider     string `json:"Provider"`
+	Account      string `json:"Account"`
+	Repository   string `json:"Repository"`
+	PushTokenSet bool   `json:"PushTokenSet"`
+	PullTokenSet bool   `json:"PullTokenSet"`
+	// SecretsKeyMissing: the platform secrets key is unset; tokens can be neither opened nor saved.
+	SecretsKeyMissing bool       `json:"SecretsKeyMissing"`
+	UpdatedAt         *time.Time `json:"UpdatedAt"`
 }
 
 // saveSettingsRequest is the settings form. Tokens are write-only: an empty
@@ -72,7 +74,7 @@ type repositoriesResponse struct {
 func toResponse(v imageRegistryUseCase.SettingsView) settingsResponse {
 	return settingsResponse{
 		Configured: v.Configured, Provider: v.Provider, Account: v.Account, Repository: v.Repository,
-		PushTokenSet: v.PushTokenSet, PullTokenSet: v.PullTokenSet, UpdatedAt: v.UpdatedAt,
+		PushTokenSet: v.PushTokenSet, PullTokenSet: v.PullTokenSet, SecretsKeyMissing: v.SecretsKeyMissing, UpdatedAt: v.UpdatedAt,
 	}
 }
 
@@ -98,7 +100,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 // @Success  200  {object}  response.Response{data=settingsResponse}
 // @Router   /settings/image-registry [get]
 func (h *Handler) getSettings(ctx *gin.Context) {
-	v, err := h.useCase.GetSettings(ctx)
+	v, err := h.useCase.GetImageRegistrySettings(ctx)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -122,7 +124,7 @@ func (h *Handler) saveSettings(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	v, err := h.useCase.SaveSettings(ctx, imageRegistryUseCase.SaveSettingsInput{
+	v, err := h.useCase.SaveImageRegistrySettings(ctx, imageRegistryUseCase.SaveSettingsInput{
 		Provider: req.Provider, Account: req.Account, Repository: req.Repository,
 		PushToken: req.PushToken, PullToken: req.PullToken, ClearPullToken: req.ClearPullToken,
 	})
@@ -140,7 +142,7 @@ func (h *Handler) saveSettings(ctx *gin.Context) {
 // @Success  200  {object}  response.Response{data=settingsResponse}  "the cleared (not configured) settings"
 // @Router   /settings/image-registry [delete]
 func (h *Handler) clearSettings(ctx *gin.Context) {
-	if err := h.useCase.ClearSettings(ctx); err != nil {
+	if err := h.useCase.ClearImageRegistrySettings(ctx); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
@@ -163,7 +165,7 @@ func (h *Handler) listRepositories(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	repos, err := h.useCase.ListRepositories(ctx, imageRegistryUseCase.ListRepositoriesInput{
+	repos, err := h.useCase.ListImageRegistryRepositories(ctx, imageRegistryUseCase.ListRepositoriesInput{
 		Provider: req.Provider, Account: req.Account, Token: req.Token,
 	})
 	if err != nil {

@@ -83,11 +83,11 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 	return u
 }
 
-// PlatformClient returns a client for the platform repository and the stored
+// PlatformRegistryClient returns a client for the platform repository and the stored
 // settings (tokens still sealed). push selects the push token; a pull uses the
 // pull token, falling back to the push token. Not configured, or no cipher to
 // open the tokens: ErrRegistryNotConfigured.
-func (u *ImageRegistryUseCase) PlatformClient(ctx context.Context, push bool) (*ociregistry.Client, imageRegistryModel.Settings, error) {
+func (u *ImageRegistryUseCase) PlatformRegistryClient(ctx context.Context, push bool) (*ociregistry.Client, imageRegistryModel.Settings, error) {
 	var (
 		s     imageRegistryModel.Settings
 		token string

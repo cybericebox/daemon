@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 13
+// ImageRegistryObjectCode — next free detail code: 14
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -40,6 +40,9 @@ var (
 				WithMessage("Enter the registry token").WithDetailCode(11)
 	ErrInvalidRepositoryListing = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("Choose the provider and enter the account name").WithDetailCode(12)
+	// ErrConflictingPullToken: a new pull token and "remove the pull token" in one save.
+	ErrConflictingPullToken = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("Either enter a new pull token or remove it, not both").WithDetailCode(13)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming
