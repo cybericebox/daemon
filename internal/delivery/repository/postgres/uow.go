@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cybericebox/daemon/internal/model"
 )
@@ -69,7 +68,7 @@ func newUoWFactory(db *DB) *UoWFactory {
 
 // NewUoWFactory builds a factory straight from a pool, for integration tests
 // that drive a use case against a real database without the full repository.
-func NewUoWFactory(pool *pgxpool.Pool) *UoWFactory {
+func NewUoWFactory(pool Conns) *UoWFactory {
 	return newUoWFactory(NewDB(pool))
 }
 

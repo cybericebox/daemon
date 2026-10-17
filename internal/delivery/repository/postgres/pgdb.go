@@ -4,20 +4,26 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type txKey struct{}
 
-// DB is a transaction-aware wrapper around *pgxpool.Pool + *Queries.
+// Conns is what the DB runs on: the statements sqlc needs plus BeginTx for the unit of work. A *pgxpool.Pool
+// is one; the repository uses an *AcquireLimited, so the wait for a connection is bounded.
+type Conns interface {
+	DBTX
+	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
+}
+
+// DB is a transaction-aware wrapper around the connections + *Queries.
 // Use Q(ctx) instead of accessing Queries directly so that a transaction
 // injected into ctx by the Unit of Work is forwarded to every query.
 type DB struct {
-	pool *pgxpool.Pool
+	pool Conns
 	q    *Queries
 }
 
-func NewDB(pool *pgxpool.Pool) *DB {
+func NewDB(pool Conns) *DB {
 	return &DB{pool: pool, q: New(pool)}
 }
 

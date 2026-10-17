@@ -4,13 +4,14 @@ import (
 	"context"
 	"time"
 
-	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 	"github.com/rs/zerolog/log"
+
+	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 )
 
 type (
@@ -18,6 +19,8 @@ type (
 		client    *river.Client[pgx.Tx]
 		pool      *pgxpool.Pool
 		retention Retention
+		// defaultWorkers is how many jobs of the default queue run at once.
+		defaultWorkers int
 		// errorHandler sees every failed attempt and panic of a job; nil keeps River's own logging only.
 		errorHandler river.ErrorHandler
 	}
@@ -42,11 +45,21 @@ type (
 	}
 )
 
+// defaultQueueWorkers is the default queue concurrency when WithDefaultWorkers is not called (JOB_DEFAULT_WORKERS).
+const defaultQueueWorkers = 6
+
 func NewWorkerClient(pool *pgxpool.Pool, retention Retention) *workerClient {
 	return &workerClient{
-		pool:      pool,
-		retention: retention,
+		pool:           pool,
+		retention:      retention,
+		defaultWorkers: defaultQueueWorkers,
 	}
+}
+
+// WithDefaultWorkers sets how many jobs of the default queue run at once.
+func (wc *workerClient) WithDefaultWorkers(n int) *workerClient {
+	wc.defaultWorkers = n
+	return wc
 }
 
 // WithErrorHandler sets the handler River calls for a failed attempt or a panic of a job (the error journal).
@@ -71,7 +84,11 @@ func (wc *workerClient) Initialize(ctx context.Context, registry iWorkerRegistry
 	client, err := river.NewClient[pgx.Tx](
 		driver, &river.Config{
 			// Separate capacity also keeps durable operator/auth commands moving when default work stalls.
-			Queues:                      map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}, jobsModel.NotifyDurableQueue: {MaxWorkers: 2}, jobsModel.ImagesQueue: {MaxWorkers: jobsModel.ImagesQueueWorkers}},
+			Queues: map[string]river.QueueConfig{
+				river.QueueDefault:           {MaxWorkers: wc.defaultWorkers},
+				jobsModel.NotifyDurableQueue: {MaxWorkers: 2},
+				jobsModel.ImagesQueue:        {MaxWorkers: jobsModel.ImagesQueueWorkers},
+			},
 			Workers:                     workers,
 			ErrorHandler:                wc.errorHandler,
 			PeriodicJobs:                registry.PeriodicJobs(),
