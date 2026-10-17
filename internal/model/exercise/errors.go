@@ -247,6 +247,10 @@ var (
 	// ErrArchiveBothDocuments: a task folder holds exercise.json and exercise.yaml at once.
 	ErrArchiveBothDocuments = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("A task folder holds both exercise.json and exercise.yaml").WithDetailCode(81)
+	// ErrArchiveDescriptionKeyUnknown: a {{key}} in a plain-text task description names no placeholder of
+	// that task; the context `key` is the name and `task` the task.
+	ErrArchiveDescriptionKeyUnknown = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Task description names an unknown placeholder").WithDetailCode(84)
 	// ErrArchiveChecksumMismatch: a file differs from manifest.json; the context `file` names it. Editing an
 	// archive by hand breaks the checksums, so the fix is to delete manifest.json.
 	ErrArchiveChecksumMismatch = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).

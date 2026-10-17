@@ -410,17 +410,24 @@ func checkArchiveKeys(path string, value any, t reflect.Type) error {
 	return nil
 }
 
-// descriptionToRaw maps a task description to the stored editor document. Until the plain-text
-// form lands, only an editor object is accepted.
-func descriptionToRaw(raw json.RawMessage) (json.RawMessage, error) {
+// descriptionToRaw maps a task description to the stored editor document: a string is plain text
+// with {{key}} variables, an object is an editor document taken as is, null or absent is none.
+func descriptionToRaw(raw json.RawMessage, placeholders []exerciseModel.Placeholder, taskName string) (json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
 	}
-	if trimmed[0] != '{' {
-		return nil, archiveInvalid("description must be an editor document")
+	switch trimmed[0] {
+	case '"':
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return nil, archiveInvalid("description must be text or an editor document")
+		}
+		return plainTextToDocument(text, placeholders, taskName)
+	case '{':
+		return raw, nil
 	}
-	return raw, nil
+	return nil, archiveInvalid("description must be text or an editor document")
 }
 
 // archiveAttachments maps task attachments to stored references. Stub until the files are read.
@@ -501,7 +508,7 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, fil
 	if t.Difficulty != "" && !t.Difficulty.Valid() {
 		return exerciseModel.Task{}, unknownEnum(path+".difficulty", string(t.Difficulty))
 	}
-	description, err := descriptionToRaw(t.Description)
+	description, err := descriptionToRaw(t.Description, t.Placeholders, t.Name)
 	if err != nil {
 		return exerciseModel.Task{}, err
 	}
