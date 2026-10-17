@@ -8,18 +8,16 @@ import (
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
-// Archive limits, one set for import and export: the export refuses what the import would refuse, so an exported
-// task imports again. One entry may be as large as one stored file (MEDIA_MAX_UPLOAD_BYTES, 512 MiB by default),
-// so every attachment fits. To be moved to platform settings later.
+// Archive limits: the domain defaults (exerciseModel.DefaultArchiveLimits). To be moved to platform settings later.
 const (
 	// MaxArchiveBytes is the .zip file itself (without device images; see MaxArchiveWithImagesBytes).
 	MaxArchiveBytes = exerciseModel.MaxArchiveBytes
 	// MaxArchiveEntryBytes is one file unpacked.
-	MaxArchiveEntryBytes int64 = 512 << 20
+	MaxArchiveEntryBytes = exerciseModel.DefaultArchiveEntryBytes
 	// MaxArchiveUnpackedBytes is all files unpacked together.
-	MaxArchiveUnpackedBytes int64 = 512 << 20
+	MaxArchiveUnpackedBytes = exerciseModel.DefaultArchiveUnpackedBytes
 	// MaxArchiveEntries counts every zip entry, folders and manifest.json included.
-	MaxArchiveEntries = 1000
+	MaxArchiveEntries = exerciseModel.DefaultArchiveEntries
 	// A file over archiveRatioFreeBytes may not expand more than maxArchiveRatio times: a small archive of
 	// repeated bytes unpacks into gigabytes otherwise.
 	maxArchiveRatio       = 200
