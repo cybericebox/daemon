@@ -262,7 +262,7 @@ PUT    /api/events/:id/manage/participants/:userID/visibility | gate: self | lay
 POST   /api/events/:id/manage/participants/invitations | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/preview-picture | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/preview-picture | gate: self | layers: event.requireManage
-GET    /api/events/:id/manage/registry-secrets | gate: self | layers: imageRegistry.requireRead
+GET    /api/events/:id/manage/registry-secrets | gate: self | layers: imageRegistry.requireManageAccess
 POST   /api/events/:id/manage/registry-secrets | gate: self | layers: imageRegistry.requireManage
 DELETE /api/events/:id/manage/registry-secrets/:secretId | gate: self | layers: imageRegistry.requireManage
 PUT    /api/events/:id/manage/registry-secrets/:secretId | gate: self | layers: imageRegistry.requireManage

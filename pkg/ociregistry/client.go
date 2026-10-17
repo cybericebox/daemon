@@ -57,6 +57,11 @@ func (c *Client) repo() (name.Repository, error) {
 	if err != nil {
 		return name.Repository{}, fmt.Errorf("%w: %s", ErrInvalidReference, c.scrub(err.Error()))
 	}
+	// go-containerregistry speaks plain http to localhost, *.local and private hosts; credentials
+	// never travel that way (Insecure is for tests only).
+	if !c.opts.Insecure && (c.opts.Username != "" || c.opts.Password != "") && r.Registry.Scheme() == "http" {
+		return name.Repository{}, fmt.Errorf("%w: plain http registry host", ErrInvalidReference)
+	}
 	return r, nil
 }
 

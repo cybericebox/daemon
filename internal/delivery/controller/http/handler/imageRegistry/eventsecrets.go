@@ -41,7 +41,7 @@ func (r eventSecretRequest) input() imageRegistryUseCase.EventSecretInput {
 
 func (h *Handler) initEventSecrets(router *gin.RouterGroup) {
 	manage := router.Group("events/:id/manage/registry-secrets", h.prot.RequirePermission(rbac.PermSelf))
-	manage.GET("", h.requireRead, h.listEventSecrets)
+	manage.GET("", h.requireManageAccess, h.listEventSecrets)
 	manage.POST("", h.requireManage, h.createEventSecret)
 	manage.PUT(":secretId", h.requireManage, h.updateEventSecret)
 	manage.DELETE(":secretId", h.requireManage, h.deleteEventSecret)
@@ -167,6 +167,12 @@ func (h *Handler) requireManage(ctx *gin.Context) {
 		}
 		return middleware.CheckEventWritable(ctx, h.useCase, eventID)
 	})
+}
+
+// requireManageAccess lets an event manager in without the writable check, so an archived
+// event's secrets stay listable. A reader (not a manager) learns nothing about them.
+func (h *Handler) requireManageAccess(ctx *gin.Context) {
+	h.requireEvent(ctx, h.useCase.RequireManageEvent)
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {

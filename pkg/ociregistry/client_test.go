@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -301,4 +302,13 @@ func TestCheckRedirectPolicy(t *testing.T) {
 	next.Header.Set("Authorization", "Basic abc")
 	require.NoError(t, c.checkRedirect(next, []*http.Request{first}))
 	require.Empty(t, next.Header.Get("Authorization"))
+}
+
+func TestPlainHTTPHostIsRefusedWithCredentials(t *testing.T) {
+	for _, host := range []string{"localhost:5000", "127.0.0.1:5000", "10.0.0.5"} {
+		c := New(Options{Host: host, Repository: "a/b", Username: "u", Password: "p"})
+		if err := c.Ping(context.Background()); !errors.Is(err, ErrInvalidReference) {
+			t.Errorf("%s: %v", host, err)
+		}
+	}
 }

@@ -108,8 +108,11 @@ func TestEventSecretWritesNeedManage(t *testing.T) {
 			t.Errorf("%s %s without manage: %d", c.method, c.path, w.Code)
 		}
 	}
-	if w := do(engine, http.MethodGet, base, ""); w.Code != http.StatusOK {
-		t.Errorf("read: %d", w.Code)
+	if w := do(engine, http.MethodGet, base, ""); w.Code != http.StatusNotFound {
+		t.Errorf("list without manage: %d", w.Code)
+	}
+	if w := do(engine, http.MethodGet, "/api/events/"+evA.String()+"/manage/registry-secrets", ""); w.Code != http.StatusOK {
+		t.Errorf("list with manage: %d", w.Code)
 	}
 }
 
