@@ -68,12 +68,16 @@ type zipEntry struct {
 // openZipAt opens the zip over r: plain, or AES-protected when its entries are encrypted and a password is given
 // (protected tells which). An encrypted archive without a password fails like the plain read of it.
 func openZipAt(r io.ReaderAt, size int64, password string) ([]zipEntry, bool, error) {
-	if err := guardZipDirectory(r, size); err != nil {
-		return nil, false, err
+	zbr := newOpenBudgetReaderAt(r)
+	zr, err := zip.NewReader(zbr, size)
+	if refused := zbr.finish(); refused != nil {
+		return nil, false, refused
 	}
-	zr, err := zip.NewReader(r, size)
 	if err != nil {
 		return nil, false, err
+	}
+	if len(zr.File) > limits.Entries {
+		return nil, false, archiveTooLarge(fmt.Sprintf("the archive has more than %d entries", limits.Entries))
 	}
 	encrypted := false
 	for _, f := range zr.File {
@@ -94,7 +98,11 @@ func openZipAt(r io.ReaderAt, size int64, password string) ([]zipEntry, bool, er
 	if password == "" {
 		return nil, false, zip.ErrAlgorithm
 	}
-	yr, err := yzip.NewReader(r, size)
+	ybr := newOpenBudgetReaderAt(r)
+	yr, err := yzip.NewReader(ybr, size)
+	if refused := ybr.finish(); refused != nil {
+		return nil, false, refused
+	}
 	if err != nil {
 		return nil, false, err
 	}
