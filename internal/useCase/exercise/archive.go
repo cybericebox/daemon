@@ -665,7 +665,11 @@ func buildArchive(files map[string][]byte, withManifest bool) ([]byte, error) {
 	for _, n := range names {
 		b := files[n]
 		checks[n] = hashBytes(b)
-		w, e := zw.Create(n)
+		header := &zip.FileHeader{Name: n, Method: zip.Deflate}
+		if expandsTooFar(b) {
+			header.Method = zip.Store
+		}
+		w, e := zw.CreateHeader(header)
 		if e != nil {
 			return nil, e
 		}
@@ -740,7 +744,13 @@ func BuildProtectedArchiveV1(files map[string][]byte, password string) ([]byte, 
 	zw := yzip.NewWriter(&out)
 	names := sortedArchiveNames(withManifest)
 	for _, name := range names {
-		writer, err := zw.Encrypt(name, password, yzip.AES256Encryption)
+		header := &yzip.FileHeader{Name: name, Method: yzip.Deflate}
+		if expandsTooFar(withManifest[name]) {
+			header.Method = yzip.Store
+		}
+		header.SetPassword(password)
+		header.SetEncryptionMethod(yzip.AES256Encryption)
+		writer, err := zw.CreateHeader(header)
 		if err != nil {
 			return nil, err
 		}

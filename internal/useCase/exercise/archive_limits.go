@@ -1,6 +1,7 @@
 package exercise
 
 import (
+	"compress/flate"
 	"fmt"
 	"io"
 
@@ -117,4 +118,30 @@ func checkExportEntries(files map[string][]byte) error {
 		}
 	}
 	return nil
+}
+
+// expandsTooFar tells whether the deflated body would break the import's ratio rule (check): such a body is
+// written uncompressed (zip Store), so an archive the export writes never fails it. Level 5 is what archive/zip and
+// yeka/zip deflate with, so the size counted here is the size written; an AES entry is only larger.
+func expandsTooFar(body []byte) bool {
+	if len(body) <= archiveRatioFreeBytes {
+		return false
+	}
+	var counted countingWriter
+	fw, err := flate.NewWriter(&counted, 5)
+	if err != nil {
+		return true
+	}
+	if _, err = fw.Write(body); err != nil || fw.Close() != nil {
+		return true
+	}
+	return counted == 0 || int64(len(body))/int64(counted) > maxArchiveRatio
+}
+
+// countingWriter counts the bytes written to it and keeps none.
+type countingWriter int64
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	*c += countingWriter(len(p))
+	return len(p), nil
 }
