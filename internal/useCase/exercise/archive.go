@@ -385,17 +385,20 @@ func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUI
 }
 
 // exportAttachments streams every attached file once and lays the contents out: it returns the archive
-// entries and, per file id, the path its attachments link to. Files with equal bytes share one entry.
+// entries and, per file id, the path its attachments link to. Files with equal bytes share one entry. An
+// attachment without a shown name gets its stored file's name in versions (the in-memory export copy).
 func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exerciseModel.ExerciseVersion) (map[string][]byte, map[uuid.UUID]string, error) {
 	contents := map[string][]byte{}
 	hashOf := map[uuid.UUID]string{}
 	bodies := map[string][]byte{}
 	mediaNames := map[uuid.UUID]string{}
 	var uses []fileUse
-	for vi, version := range versions {
-		for xi, variant := range version.Variants {
-			for ti, task := range variant.Tasks {
-				for _, ref := range task.Attachments {
+	for vi := range versions {
+		for xi := range versions[vi].Variants {
+			for ti := range versions[vi].Variants[xi].Tasks {
+				attachments := versions[vi].Variants[xi].Tasks[ti].Attachments
+				for ai := range attachments {
+					ref := &attachments[ai]
 					if _, done := hashOf[ref.FileID]; !done {
 						hash, body, name, err := u.streamExportedFile(ctx, ref.FileID)
 						if err != nil {
@@ -404,11 +407,12 @@ func (u *ExerciseUseCase) exportAttachments(ctx context.Context, versions []exer
 						hashOf[ref.FileID], mediaNames[ref.FileID] = hash, name
 						bodies[hash] = body
 					}
-					name := ref.Name
-					if name == "" {
-						name = mediaNames[ref.FileID]
+					// An attachment saved without a shown name shows its file's name: written as such, a re-import
+					// shows the same and not the name the file got in the archive.
+					if ref.Name == "" {
+						ref.Name = mediaNames[ref.FileID]
 					}
-					uses = append(uses, fileUse{Hash: hashOf[ref.FileID], Name: name, Version: vi + 1, Variant: xi + 1, Task: ti + 1})
+					uses = append(uses, fileUse{Hash: hashOf[ref.FileID], Name: ref.Name, Version: vi + 1, Variant: xi + 1, Task: ti + 1, Attachment: ai + 1})
 				}
 			}
 		}

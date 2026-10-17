@@ -19,13 +19,16 @@ type fileUse struct {
 	Version int
 	Variant int
 	Task    int
+	// Attachment is the 1-based position in the subtask's attachment list.
+	Attachment int
 }
 
 // assignExportPaths places every content (hash) once under root: a content used by one subtask goes to
 // <root>/v<V>/variant-<N>/<T>/, one used by several goes to the shared/ folder of the lowest level covering all
 // its uses (the variant, the version or root itself). The file takes the name of its first use; a name taken in
-// the folder gets _2, _3 before the extension. The uses are ordered first, so the result does not depend on the
-// order they come in.
+// the folder gets _2, _3 before the extension. The uses are ordered by position first (version, variant, task,
+// attachment; name and hash only break ties of equal positions), so the result does not depend on the order
+// they come in.
 func assignExportPaths(root string, uses []fileUse) map[string]string {
 	sorted := append([]fileUse(nil), uses...)
 	sort.Slice(sorted, func(i, j int) bool {
@@ -38,6 +41,9 @@ func assignExportPaths(root string, uses []fileUse) map[string]string {
 		}
 		if a.Task != b.Task {
 			return a.Task < b.Task
+		}
+		if a.Attachment != b.Attachment {
+			return a.Attachment < b.Attachment
 		}
 		if a.Name != b.Name {
 			return a.Name < b.Name
@@ -103,19 +109,20 @@ func freeName(name string, taken map[string]bool) string {
 	candidate := name
 	for n := 2; taken[strings.ToLower(candidate)]; n++ {
 		suffix := fmt.Sprintf("_%d", n)
-		room := maxExportNameRunes - utf8.RuneCountInString(suffix+ext)
-		candidate = truncateRunes(stem, max(room, 0)) + suffix + ext
+		candidate = truncateBytes(stem, max(maxExportNameBytes-len(suffix+ext), 0)) + suffix + ext
 	}
 	taken[strings.ToLower(candidate)] = true
 	return candidate
 }
 
-// maxExportNameRunes caps one exported file or folder name, like the shown name of an attachment.
-const maxExportNameRunes = 255
+// maxExportNameBytes caps one exported file or folder name: 255 bytes is what ext4 and APFS accept for one
+// name (and it stays within the 255 characters of a shown name).
+const maxExportNameBytes = 255
 
 // exportName turns a shown name into one safe path segment the import accepts: the base name in NFC, with
-// backslashes and control characters as _; empty is "file", "." and ".." are never returned, and .DS_Store
-// (which the import drops as macOS litter) is renamed.
+// backslashes and control characters as _, at most 255 bytes with the extension kept; empty is "file", "."
+// and ".." are never returned. Names the import treats specially are renamed: .DS_Store (dropped as macOS
+// litter), exercise.json and exercise.yaml (they would make the folder a nested task).
 func exportName(name string) string {
 	name = norm.NFC.String(name)
 	if i := strings.LastIndex(name, "/"); i >= 0 {
@@ -127,7 +134,7 @@ func exportName(name string) string {
 		}
 		return r
 	}, name)
-	name = truncateRunes(name, maxExportNameRunes)
+	name = capExportName(name)
 	switch name {
 	case "":
 		return "file"
@@ -135,8 +142,31 @@ func exportName(name string) string {
 		return "_"
 	case "..":
 		return "__"
-	case ".DS_Store":
-		return "_.DS_Store"
+	case ".DS_Store", "exercise.json", "exercise.yaml":
+		return "_" + name
 	}
 	return name
+}
+
+// capExportName cuts a name to maxExportNameBytes on a character boundary, keeping a short extension.
+func capExportName(name string) string {
+	if len(name) <= maxExportNameBytes {
+		return name
+	}
+	ext := path.Ext(name)
+	if ext == name || len(ext) > maxExportNameBytes/4 {
+		ext = ""
+	}
+	return truncateBytes(strings.TrimSuffix(name, ext), maxExportNameBytes-len(ext)) + ext
+}
+
+// truncateBytes cuts s to at most n bytes without splitting a character.
+func truncateBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

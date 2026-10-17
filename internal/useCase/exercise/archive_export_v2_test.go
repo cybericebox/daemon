@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
@@ -109,8 +110,35 @@ func TestExportName_Sanitizes(t *testing.T) {
 	for in, want := range cases {
 		require.Equal(t, want, exercise.ExportName(in), "input %q", in)
 	}
-	long := strings.Repeat("ш", 300) + ".txt"
-	require.Equal(t, 255, len([]rune(exercise.ExportName(long))))
+	long := exercise.ExportName(strings.Repeat("ш", 300) + ".txt")
+	require.LessOrEqual(t, len(long), 255, "at most 255 bytes")
+	require.True(t, utf8.ValidString(long))
+	require.True(t, strings.HasSuffix(long, ".txt"), "the extension is kept")
+	require.Equal(t, strings.Repeat("ш", 125)+".txt", long)
+
+	// The clash suffix fits inside the cap too.
+	paths := exercise.AssignExportPaths("files", []exercise.FileUse{
+		{Hash: "h1", Name: strings.Repeat("ш", 300) + ".txt", Version: 1, Variant: 1, Task: 1, Attachment: 1},
+		{Hash: "h2", Name: strings.Repeat("ш", 300) + ".txt", Version: 1, Variant: 1, Task: 1, Attachment: 2},
+	})
+	second := strings.TrimPrefix(paths["h2"], "files/v1/variant-1/1/")
+	require.LessOrEqual(t, len(second), 255)
+	require.True(t, strings.HasSuffix(second, "_2.txt"), second)
+}
+
+// The attachment order inside one subtask, not the name, decides which file is first.
+func TestAssignExportPaths_AttachmentOrder(t *testing.T) {
+	paths := exercise.AssignExportPaths("files", []exercise.FileUse{
+		{Hash: "h2", Name: "x.txt", Version: 1, Variant: 1, Task: 1, Attachment: 2},
+		{Hash: "h3", Name: "x.txt", Version: 1, Variant: 1, Task: 1, Attachment: 1},
+		{Hash: "h1", Name: "z.txt", Version: 1, Variant: 1, Task: 1, Attachment: 3},
+		{Hash: "h1", Name: "a.txt", Version: 1, Variant: 1, Task: 1, Attachment: 4},
+	})
+	require.Equal(t, map[string]string{
+		"h3": "files/v1/variant-1/1/x.txt",
+		"h2": "files/v1/variant-1/1/x_2.txt",
+		"h1": "files/v1/variant-1/1/z.txt",
+	}, paths)
 }
 
 // exportMedia is fakeMedia plus the stored files the export streams.
@@ -534,4 +562,100 @@ func rawEntries(t *testing.T, data []byte) []string {
 		names = append(names, f.Name)
 	}
 	return names
+}
+
+// richVersions covers the rest of the document: placeholders, interfaces with references, external
+// access, persistence, the internet network, two devices sharing a name, an endpoint to a device outside
+// the variant, an attachment without a stored name and a name clash that gives _2.
+func richVersions() []exerciseModel.ExerciseVersion {
+	ref := &exerciseModel.NetworkIPRef{Network: "vpn", Host: 10}
+	devices := []exerciseModel.Device{
+		{
+			ID: exportID(300), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1.27",
+			ResourcePreset: "small", SecurityPreset: exerciseModel.SecurityPresetNet,
+			Interfaces: []exerciseModel.Interface{{Name: "eth0", MAC: "02:00:00:00:00:01", IP: exerciseModel.IPConfig{
+				Type: exerciseModel.IPConfigTypeStatic, AddressRef: ref, GatewayRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1},
+				Routes: []exerciseModel.Route{{DstRef: &exerciseModel.NetworkSubnetRef{Network: "internet"}, Via: "10.0.0.1"}},
+			}}},
+			External:    &exerciseModel.ExternalAccess{Port: 8080, Protocol: "http"},
+			Persistence: &exerciseModel.DevicePersistence{Enabled: true, Debounce: "5s"},
+		},
+		{ID: exportID(301), Name: "twin", Type: exerciseModel.DeviceTypeContainer, Image: "alpine"},
+		{ID: exportID(302), Name: "twin", Type: exerciseModel.DeviceTypeContainer, Image: "alpine",
+			Interfaces: []exerciseModel.Interface{{Name: "eth0", IP: exerciseModel.IPConfig{Type: exerciseModel.IPConfigTypeDHCP}}}},
+	}
+	return []exerciseModel.ExerciseVersion{{ID: exportID(910), Status: exerciseModel.VersionStatusDraft, Variants: []exerciseModel.Variant{{
+		ID: exportID(20), Index: 1,
+		Topology: exerciseModel.Topology{
+			VPN:      exerciseModel.NetworkSpec{Enabled: true, DHCP: true, DHCPRanges: []exerciseModel.DHCPRange{{Start: 100, End: 200}}},
+			Internet: exerciseModel.NetworkSpec{Enabled: true, DNS: "1.1.1.1"},
+			Devices:  devices,
+			Connections: []exerciseModel.Connection{
+				{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointInternet}, {Kind: exerciseModel.EndpointDevice, DeviceID: exportID(302), Interface: "eth0"}}},
+				{Endpoints: []exerciseModel.Endpoint{{Kind: exerciseModel.EndpointDevice, DeviceID: exportID(301)}, {Kind: exerciseModel.EndpointDevice, DeviceID: exportID(399)}}},
+			},
+		},
+		Tasks: []exerciseModel.Task{{
+			ID: exportID(30), Name: "rich", Difficulty: exerciseModel.DifficultyHard,
+			Description:    json.RawMessage(`{"root":{"type":"root","children":[]}}`),
+			LinkedDeviceID: uuid.NullUUID{UUID: exportID(302), Valid: true}, DeviceFlagVar: "FLAG",
+			Placeholders: []exerciseModel.Placeholder{
+				{Key: "server", Kind: exerciseModel.PlaceholderIP, IPReference: "vpn", LastOctet: 10, ShowMask: true},
+				{Key: "site", Kind: exerciseModel.PlaceholderExternalLink, AsLink: true, Scheme: "https"},
+			},
+			Attachments: []exerciseModel.AttachmentRef{
+				{FileID: fileNameless},
+				{FileID: fileClashA, Name: "notes.txt"},
+				{FileID: fileClashB, Name: "notes.txt"},
+				{FileID: fileReserved, Name: "exercise.json"},
+			},
+		}},
+	}}}}
+}
+
+var (
+	fileNameless = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f101")
+	fileClashA   = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f102")
+	fileClashB   = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f103")
+	fileReserved = uuid.FromStringOrNil("0192f0a0-0000-7000-8000-00000000f104")
+)
+
+func richMedia() *exportMedia {
+	return &exportMedia{fakeMedia: newFakeMedia(), files: map[uuid.UUID]storedFile{
+		fileNameless: {name: "notes.txt", body: []byte("stored without a shown name")},
+		fileClashA:   {name: "a", body: []byte("first notes")},
+		fileClashB:   {name: "b", body: []byte("second notes")},
+		fileReserved: {name: "c", body: []byte("named like the document")},
+	}}
+}
+
+func TestExportThenImport_RoundTripRich(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	expectExport(t, q, exportExerciseID, "Повний", richVersions())
+	media := richMedia()
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
+	require.NoError(t, err)
+
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	require.NoError(t, err)
+	require.Contains(t, files, "files/v1/variant-1/1/notes.txt")
+	require.Contains(t, files, "files/v1/variant-1/1/notes_2.txt")
+	require.Contains(t, files, "files/v1/variant-1/1/notes_3.txt")
+	require.Contains(t, files, "files/v1/variant-1/1/_exercise.json")
+	doc := string(files["exercise.json"])
+	require.Contains(t, doc, `"device_id": "`+exportID(302).String()+`"`, "a shared name is written with the id")
+	require.Contains(t, doc, `"device_id": "`+exportID(399).String()+`"`, "a device outside the variant keeps its id")
+
+	parsed, err := exercise.ParseExerciseArchive(data, "")
+	require.NoError(t, err)
+	exercise.NormalizeContentIDs(parsed.Versions[0].Variants)
+	// The attachment without a stored name comes back with the stored file's name.
+	want := richVersions()
+	want[0].Variants[0].Tasks[0].Attachments[0].Name = "notes.txt"
+	body := func(id uuid.UUID) []byte { return media.files[id].body }
+	require.JSONEq(t, string(contentIDs(t, want, body)), string(contentIDs(t, parsed.Versions, func(id uuid.UUID) []byte {
+		return parsed.Files[parsed.FilePaths[id]]
+	})))
 }
