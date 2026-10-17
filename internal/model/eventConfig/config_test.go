@@ -263,3 +263,18 @@ func TestTaskRevealModeIsChosenBeforeTheStart(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateBoundsTheTeamLimit(t *testing.T) {
+	c := eventConfigModel.NewEventConfig(uuid.Must(uuid.NewV7()), cfgNow)
+	in := newValidInput()
+	limit := int32(eventConfigModel.MaxTeamsLimit)
+	in.MaxTeams = &limit
+	if err := c.Update(in, cfgNow, uuid.Nil); err != nil {
+		t.Fatalf("the largest team limit must pass: %v", err)
+	}
+	over := limit + 1
+	in.MaxTeams = &over
+	if err := c.Update(in, cfgNow, uuid.Nil); !errors.Is(err, eventConfigModel.ErrTeamLimitsInvalid.Err()) {
+		t.Fatalf("a team limit above %d must fail, got %v", limit, err)
+	}
+}

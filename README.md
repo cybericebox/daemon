@@ -129,7 +129,6 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | --- | --- | --- |
 | `JWT_TOKEN_SIGNATURE` | none | Signing secret of the user tokens: random, at least 32 bytes (`openssl rand -hex 32`); weaker is fatal in production, a warning elsewhere. |
 | `OAUTH_STATE_SIGNATURE` | none | Signing secret of the OAuth state: random, at least 32 bytes, different from the JWT secret. With `GOOGLE_CLIENT_ID` set, an empty value is fatal in production (Google would otherwise be silently disabled). |
-| `FLAG_SLOT_SECRET` | none | Key secret of the event team flags (the per-task permutation that gives the teams on a variant distinct values of a flag list): random, at least 32 bytes (`openssl rand -hex 32`), different from the JWT secret; weaker is fatal in production, a warning elsewhere. Keep it for the life of an event: a new value lets later teams repeat earlier flags (stored flags never change). |
 | `OAUTH_STATE_TTL` | `15m` | OAuth state lifetime; also the life of the OAuth state cookies. |
 | `SETUP_TOKEN_TTL` | `168h` | Life of an invitation link. |
 | `SIGNUP_SETUP_TOKEN_TTL` | `24h` | Life of the setup link of someone who signed up (or came through Google) by themselves. |

@@ -33,27 +33,6 @@ func (p Pattern) IsTemplate() bool { return p.template }
 
 func (p Pattern) Cardinality() *big.Int { return new(big.Int).Set(p.count) }
 
-func (p Pattern) Generate(source io.Reader) (string, error) {
-	if !p.template {
-		return p.literal, nil
-	}
-	var out strings.Builder
-	out.WriteString("ICE{")
-	for _, part := range p.segments {
-		if len(part.choices) == 0 {
-			out.WriteString(part.literal)
-			continue
-		}
-		index, err := rand.Int(source, big.NewInt(int64(len(part.choices))))
-		if err != nil {
-			return "", err
-		}
-		out.WriteByte(part.choices[index.Int64()])
-	}
-	out.WriteByte('}')
-	return out.String(), nil
-}
-
 func Parse(candidate string) (Pattern, error) {
 	isTemplate := strings.HasPrefix(candidate, TemplatePrefix)
 	value := candidate
@@ -230,7 +209,7 @@ func parseClass(body string, start int) ([]byte, int, error) {
 	return nil, 0, ErrInvalidPattern
 }
 
-// Resolve is the random-slot mode: with candidates it takes a uniform random
+// Resolve is the random mode: with candidates it takes a uniform random
 // global index g in [0, N) and returns the value at g (so a candidate weighs its
 // number of outputs; overlapping candidates keep their independent weight).
 // Without candidates it is the full random mode: ICE{hex of randomBytes}.

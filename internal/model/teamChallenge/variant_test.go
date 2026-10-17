@@ -80,14 +80,3 @@ func TestVariantBalance_RejectsNoVariants(t *testing.T) {
 		t.Fatal("a version without variants must be refused")
 	}
 }
-
-func TestVariantBalance_CountIsTheTeamsOnAVariant(t *testing.T) {
-	b, err := teamChallengeModel.NewVariantBalance(2, map[int32]int{1: 3, 7: 9})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b.Use(0)
-	if b.Count(0) != 1 || b.Count(1) != 3 || b.Count(7) != 0 || b.Count(-1) != 0 {
-		t.Fatalf("counts = %d %d %d", b.Count(0), b.Count(1), b.Count(7))
-	}
-}

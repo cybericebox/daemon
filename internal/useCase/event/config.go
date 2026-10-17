@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
@@ -114,7 +115,11 @@ func (u *EventUseCase) GetApprovedParticipantInfo(ctx context.Context, eventID, 
 // (set at event creation) and never changes here. Route gate: events.write.
 func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID, in UpdateConfigInput, by uuid.UUID) (EventConfigView, error) {
 	if !u.lifecycleControls || in.TaskRevealMode == nil {
-		return u.updateEventConfig(ctx, eventID, in, by)
+		view, teamsChanged, err := u.updateEventConfig(ctx, eventID, in, by)
+		if err == nil && teamsChanged {
+			u.rebuildFlagFiltersAfterLimitChange(ctx, eventID, view.MaxTeams)
+		}
+		return view, err
 	}
 	if u.uow == nil {
 		return EventConfigView{}, model.ErrPlatform.WithMessage("Reveal mode transaction is not configured").Err()
@@ -131,9 +136,14 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 	inner.repo = q
 	inner.configs = eventConfigRepo.New(q)
 	inner.events = eventRepo.New(q)
-	view, err := inner.updateEventConfig(txCtx, eventID, in, by)
+	view, teamsChanged, err := inner.updateEventConfig(txCtx, eventID, in, by)
 	if err != nil {
 		return EventConfigView{}, err
+	}
+	if teamsChanged {
+		if err = u.rebuildEventFlagFilters(txCtx, q, eventID, view.MaxTeams); err != nil {
+			return EventConfigView{}, err
+		}
 	}
 	sets, err := eventExerciseRepo.New(q).List(txCtx, eventID)
 	if err != nil {
@@ -149,9 +159,14 @@ func (u *EventUseCase) UpdateEventConfig(ctx context.Context, eventID uuid.UUID,
 	}
 	return view, nil
 }
-func (u *EventUseCase) updateEventConfig(ctx context.Context, eventID uuid.UUID, in UpdateConfigInput, by uuid.UUID) (EventConfigView, error) {
+
+// updateEventConfig also reports whether the team limit changed (the flag
+// filters of the event are sized from it).
+func (u *EventUseCase) updateEventConfig(ctx context.Context, eventID uuid.UUID, in UpdateConfigInput, by uuid.UUID) (EventConfigView, bool, error) {
 	now := time.Now()
+	teamsChanged := false
 	c, err := u.mutateEventConfig(ctx, eventID, func(cfg *eventConfigModel.EventConfig) error {
+		teamsChanged = !sameLimit(cfg.MaxTeams, in.MaxTeams)
 		participationChanged := in.Participation != nil && (cfg.Participation == nil || *cfg.Participation != *in.Participation)
 		teamSizeChanged := (in.MaxTeamSize != 0 && in.MaxTeamSize != cfg.MaxTeamSize) || !sameLimit(cfg.MinTeamSize, in.MinTeamSize)
 		if participationChanged || teamSizeChanged {
@@ -209,9 +224,32 @@ func (u *EventUseCase) updateEventConfig(ctx context.Context, eventID uuid.UUID,
 		return nil
 	})
 	if err != nil {
-		return EventConfigView{}, err
+		return EventConfigView{}, false, err
 	}
-	return toEventConfigView(c), nil
+	return toEventConfigView(c), teamsChanged, nil
+}
+
+// rebuildFlagFiltersAfterLimitChange resizes the event's flag filters in their
+// own transaction after a team limit change was saved. A failure only logs: a
+// filter that does not fit the new limit is rebuilt when it next issues a flag.
+func (u *EventUseCase) rebuildFlagFiltersAfterLimitChange(ctx context.Context, eventID uuid.UUID, maxTeams *int32) {
+	if u.uow == nil {
+		return
+	}
+	err := func() error {
+		txCtx, q, unit, err := u.uow.UnitOfWork(ctx)
+		if err != nil {
+			return err
+		}
+		defer unit.Restore()
+		if err = u.rebuildEventFlagFilters(txCtx, q, eventID, maxTeams); err != nil {
+			return err
+		}
+		return unit.Save()
+	}()
+	if err != nil {
+		log.Warn().Err(err).Stringer("eventID", eventID).Msg("Failed to rebuild the flag filters after a team limit change")
+	}
 }
 
 // acceptablePreviewPicture: the preview picture is the event's own uploaded image (our API URL, set by the
