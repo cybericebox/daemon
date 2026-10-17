@@ -40,18 +40,24 @@ func (a snapshotTeam) before(b snapshotTeam) bool {
 //     excluded) plus the number of teams moved onto it earlier in the pass; the
 //     moderators team takes that value without using it up.
 //
-// A team keeps the first slot it is given in the pass.
+// A team keeps the first slot it is given on a variant in the pass; on another
+// variant it has that variant's own slot.
 type FlagSlotSnapshot struct {
 	teams   map[uuid.UUID]snapshotTeam
 	on      map[int32][]uuid.UUID
 	onSet   map[int32]map[uuid.UUID]bool
 	movedIn map[int32]int
-	given   map[uuid.UUID]uint64
+	given   map[teamVariant]uint64
+}
+
+type teamVariant struct {
+	team    uuid.UUID
+	variant int32
 }
 
 func NewFlagSlotSnapshot(entries []TeamVariantEntry) *FlagSlotSnapshot {
 	s := &FlagSlotSnapshot{teams: map[uuid.UUID]snapshotTeam{}, on: map[int32][]uuid.UUID{}, onSet: map[int32]map[uuid.UUID]bool{},
-		movedIn: map[int32]int{}, given: map[uuid.UUID]uint64{}}
+		movedIn: map[int32]int{}, given: map[teamVariant]uint64{}}
 	for _, e := range entries {
 		s.teams[e.TeamID] = snapshotTeam{moderators: e.Moderators, firstAt: e.FirstAt, firstID: e.FirstID}
 		if s.onSet[e.Variant] == nil {
@@ -67,7 +73,8 @@ func NewFlagSlotSnapshot(entries []TeamVariantEntry) *FlagSlotSnapshot {
 
 // Slot is the team's flag slot on a variant in this pass.
 func (s *FlagSlotSnapshot) Slot(teamID uuid.UUID, variant int32) uint64 {
-	if slot, ok := s.given[teamID]; ok {
+	key := teamVariant{team: teamID, variant: variant}
+	if slot, ok := s.given[key]; ok {
 		return slot
 	}
 	me := s.teams[teamID]
@@ -89,6 +96,6 @@ func (s *FlagSlotSnapshot) Slot(teamID uuid.UUID, variant int32) uint64 {
 			s.movedIn[variant]++
 		}
 	}
-	s.given[teamID] = slot
+	s.given[key] = slot
 	return slot
 }

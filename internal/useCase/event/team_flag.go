@@ -26,12 +26,19 @@ type teamFlagSlots struct {
 	repo            *teamChallengeRepo.Repository
 	eventExerciseID uuid.UUID
 	locked          bool
-	known           map[uuid.UUID]uint64
+	known           map[teamVariantKey]uint64
 	snapshot        *teamChallengeModel.FlagSlotSnapshot
 }
 
+// teamVariantKey caches a slot per team and variant: a team's slot on one
+// variant says nothing about another.
+type teamVariantKey struct {
+	team    uuid.UUID
+	variant int32
+}
+
 func newTeamFlagSlots(repo *teamChallengeRepo.Repository, eventExerciseID uuid.UUID) *teamFlagSlots {
-	return &teamFlagSlots{repo: repo, eventExerciseID: eventExerciseID, known: map[uuid.UUID]uint64{}}
+	return &teamFlagSlots{repo: repo, eventExerciseID: eventExerciseID, known: map[teamVariantKey]uint64{}}
 }
 
 // picked records the slot of a team picked from a balance read under the lock.
@@ -40,7 +47,7 @@ func (s *teamFlagSlots) picked(teamID uuid.UUID, balance *teamChallengeModel.Var
 		return
 	}
 	s.locked = true
-	s.known[teamID] = uint64(max(balance.Count(index), 0))
+	s.known[teamVariantKey{teamID, index}] = uint64(max(balance.Count(index), 0))
 }
 
 // takeSnapshot locks the variant pick and reads the pass snapshot; call it
@@ -72,7 +79,7 @@ func (s *teamFlagSlots) slot(ctx context.Context, teamID uuid.UUID, variantIndex
 	if s.snapshot != nil {
 		return s.snapshot.Slot(teamID, variantIndex), nil
 	}
-	if slot, ok := s.known[teamID]; ok {
+	if slot, ok := s.known[teamVariantKey{teamID, variantIndex}]; ok {
 		return slot, nil
 	}
 	if err := s.lock(ctx); err != nil {
@@ -83,7 +90,7 @@ func (s *teamFlagSlots) slot(ctx context.Context, teamID uuid.UUID, variantIndex
 		return 0, model.ErrPlatform.WithError(err).WithMessage("Failed to read team flag slot").Err()
 	}
 	slot := uint64(max(count, 0))
-	s.known[teamID] = slot
+	s.known[teamVariantKey{teamID, variantIndex}] = slot
 	return slot, nil
 }
 

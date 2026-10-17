@@ -44,3 +44,23 @@ func TestFlagSlotSnapshot_KeptAndMovedTeamsAreDistinct(t *testing.T) {
 		t.Fatalf("an unknown team on an empty variant = %d, want 0", got)
 	}
 }
+
+// A team that needs slots on two variants in one pass (a retained row on one,
+// a re-picked row on another) gets each variant's own slot, so it never takes
+// a value another team on that variant holds.
+func TestFlagSlotSnapshot_OneTeamOnTwoVariantsHasASlotPerVariant(t *testing.T) {
+	s := teamChallengeModel.NewFlagSlotSnapshot([]teamChallengeModel.TeamVariantEntry{
+		entry(1, 0, 1, false), entry(2, 0, 2, false), // on 0: two teams
+		entry(3, 1, 3, false), // on 1: Y
+		entry(4, 1, 4, false), // X: retained on 1, re-picked onto 0
+	})
+	if got := s.Slot(teamID(4), 0); got != 2 {
+		t.Fatalf("X moved onto 0 = %d, want 2", got)
+	}
+	if got := s.Slot(teamID(4), 1); got != 1 {
+		t.Fatalf("X kept on 1 = %d, want its own slot 1 there", got)
+	}
+	if got := s.Slot(teamID(5), 1); got != 2 {
+		t.Fatalf("a team moved onto 1 = %d, want 2 (distinct from X's 1)", got)
+	}
+}
