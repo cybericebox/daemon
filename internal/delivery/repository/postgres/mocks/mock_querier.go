@@ -1503,6 +1503,20 @@ func (mr *MockQuerierMockRecorder) CreateExerciseCheckpoint(ctx, arg any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateExerciseCheckpoint", reflect.TypeOf((*MockQuerier)(nil).CreateExerciseCheckpoint), ctx, arg)
 }
 
+// CreateExerciseExportJob mocks base method.
+func (m *MockQuerier) CreateExerciseExportJob(ctx context.Context, arg postgres.CreateExerciseExportJobParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateExerciseExportJob", ctx, arg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateExerciseExportJob indicates an expected call of CreateExerciseExportJob.
+func (mr *MockQuerierMockRecorder) CreateExerciseExportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateExerciseExportJob", reflect.TypeOf((*MockQuerier)(nil).CreateExerciseExportJob), ctx, arg)
+}
+
 // CreateExerciseProposal mocks base method.
 func (m *MockQuerier) CreateExerciseProposal(ctx context.Context, arg postgres.CreateExerciseProposalParams) (postgres.ExerciseProposal, error) {
 	m.ctrl.T.Helper()
@@ -4309,6 +4323,21 @@ func (m *MockQuerier) GetExerciseByID(ctx context.Context, id uuid.UUID) (postgr
 func (mr *MockQuerierMockRecorder) GetExerciseByID(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseByID", reflect.TypeOf((*MockQuerier)(nil).GetExerciseByID), ctx, id)
+}
+
+// GetExerciseExportJob mocks base method.
+func (m *MockQuerier) GetExerciseExportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseExportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExerciseExportJob", ctx, id)
+	ret0, _ := ret[0].(postgres.ExerciseExportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetExerciseExportJob indicates an expected call of GetExerciseExportJob.
+func (mr *MockQuerierMockRecorder) GetExerciseExportJob(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExerciseExportJob", reflect.TypeOf((*MockQuerier)(nil).GetExerciseExportJob), ctx, id)
 }
 
 // GetExerciseFileByHash mocks base method.
@@ -12373,6 +12402,21 @@ func (m *MockQuerier) UpdateExercise(ctx context.Context, arg postgres.UpdateExe
 func (mr *MockQuerierMockRecorder) UpdateExercise(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExercise", reflect.TypeOf((*MockQuerier)(nil).UpdateExercise), ctx, arg)
+}
+
+// UpdateExerciseExportJob mocks base method.
+func (m *MockQuerier) UpdateExerciseExportJob(ctx context.Context, arg postgres.UpdateExerciseExportJobParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateExerciseExportJob", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateExerciseExportJob indicates an expected call of UpdateExerciseExportJob.
+func (mr *MockQuerierMockRecorder) UpdateExerciseExportJob(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExerciseExportJob", reflect.TypeOf((*MockQuerier)(nil).UpdateExerciseExportJob), ctx, arg)
 }
 
 // UpdateExerciseImportJob mocks base method.

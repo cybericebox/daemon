@@ -182,6 +182,8 @@ type Querier interface {
 	// only; content (admin_note, variants) is copied untouched. Zero rows:
 	// nothing to snapshot.
 	CreateExerciseCheckpoint(ctx context.Context, arg CreateExerciseCheckpointParams) (ExerciseVersion, error)
+	// Background exports of tasks with device images (the export job aggregate: one row per export).
+	CreateExerciseExportJob(ctx context.Context, arg CreateExerciseExportJobParams) error
 	CreateExerciseProposal(ctx context.Context, arg CreateExerciseProposalParams) (ExerciseProposal, error)
 	// Timestamps and the id come from the domain factory. The partial unique index allows one pending request per
 	// exercise.
@@ -478,6 +480,7 @@ type Querier interface {
 	GetEventTeamStand(ctx context.Context, eventTeamID uuid.UUID) (EventTeamStand, error)
 	GetEventTeamVisible(ctx context.Context, arg GetEventTeamVisibleParams) (bool, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
+	GetExerciseExportJob(ctx context.Context, id uuid.UUID) (ExerciseExportJob, error)
 	// A stored file still counts as the task's copy only while the media GC would keep it: some reference holds it,
 	// or it is younger than the GC grace cutoff (the same rule DeleteUnreferencedFiles applies). A file past that
 	// point may vanish at any moment, so it is neither offered by the lookup nor kept by a claim.
@@ -1750,6 +1753,8 @@ type Querier interface {
 	// published_version_id (owned by the lifecycle CTEs — including them here
 	// would race a concurrent publish) and created_at/created_by (immutable).
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
+	// The whole job aggregate (state, stored file, error) in one write.
+	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
 	// The whole job aggregate (state, created tasks, error) in one write.
 	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
 	UpdateInAppTemplate(ctx context.Context, arg UpdateInAppTemplateParams) (NotificationInAppTemplate, error)

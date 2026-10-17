@@ -18,3 +18,14 @@ func TestImageJobsRunOnTheImagesQueue(t *testing.T) {
 		t.Fatalf("import queue %q", q)
 	}
 }
+
+// An export «з образами» pulls up to 10 GiB: the images queue too, a few attempts, a kind of its own.
+func TestExerciseExportArgsRunOnTheImagesQueue(t *testing.T) {
+	opts := (ExerciseExportArgs{}).InsertOpts()
+	if opts.Queue != ImagesQueue || opts.MaxAttempts != 3 {
+		t.Fatalf("export opts %+v", opts)
+	}
+	if kind := (ExerciseExportArgs{}).Kind(); kind != "exercise_export" {
+		t.Fatalf("kind %q", kind)
+	}
+}
