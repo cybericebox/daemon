@@ -48,9 +48,11 @@ type (
 	}
 
 	archiveVariantV2 struct {
-		ID       string            `json:"id,omitempty"`
-		Index    int32             `json:"index,omitempty"`
-		Note     string            `json:"note,omitempty"`
+		ID    string `json:"id,omitempty"`
+		Index int32  `json:"index,omitempty"`
+		Note  string `json:"note,omitempty"`
+		// LinkedTo: the 1-based position of the base variant; the variant then holds only its own parts.
+		LinkedTo *int              `json:"linked_to,omitempty"`
 		Tasks    []archiveTaskV2   `json:"tasks,omitempty"`
 		Topology archiveTopologyV2 `json:"topology"`
 	}
@@ -208,6 +210,9 @@ func decodeArchiveV2(payload []byte) (archiveDocV2, error) {
 	}
 	// encoding/json matches keys case-insensitively, so unknown keys are checked on the generic
 	// tree against the exact tags first; DisallowUnknownFields below stays as a backstop.
+	if err := checkLinkedVariantKeys(payload); err != nil {
+		return archiveDocV2{}, err
+	}
 	if err := checkArchiveKeys("", generic, reflect.TypeFor[archiveDocV2]()); err != nil {
 		return archiveDocV2{}, err
 	}
@@ -460,9 +465,27 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 			return ParsedExerciseArchive{}, unknownEnum(fmt.Sprintf("versions[%d].status", vi+1), string(version.Status))
 		}
 		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
+		// Ids first: a linked variant names its base by position, possibly a later one.
+		ids := make([]uuid.UUID, len(version.Variants))
+		for xi, variant := range version.Variants {
+			id, err := optionalUUID(fmt.Sprintf("versions[%d].variants[%d].id", vi+1, xi+1), variant.ID)
+			if err != nil {
+				return ParsedExerciseArchive{}, err
+			}
+			if id == uuid.Nil {
+				id = freshID()
+			}
+			ids[xi] = id
+		}
 		for xi, variant := range version.Variants {
 			path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
-			value, err := variant.toDomain(path, links)
+			var value exerciseModel.Variant
+			var err error
+			if variant.LinkedTo != nil {
+				value, err = variant.toLinkedDomain(path, xi, version.Variants, ids, links)
+			} else {
+				value, err = variant.toDomain(path, ids[xi], links)
+			}
 			if err != nil {
 				return ParsedExerciseArchive{}, err
 			}
@@ -476,14 +499,7 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 	return parsed, nil
 }
 
-func (v archiveVariantV2) toDomain(path string, links *archiveLinks) (exerciseModel.Variant, error) {
-	id, err := optionalUUID(path+".id", v.ID)
-	if err != nil {
-		return exerciseModel.Variant{}, err
-	}
-	if id == uuid.Nil {
-		id = freshID()
-	}
+func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
 	topology, deviceIDs, err := v.Topology.toDomain(path + ".topology")
 	if err != nil {
 		return exerciseModel.Variant{}, err
@@ -642,7 +658,10 @@ func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.Exercise
 	for _, version := range versions {
 		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{}}
 		for _, variant := range version.Variants {
-			// A linked variant is written whole and without its link until the archive carries links.
+			if linked, ok := exportLinkedVariantV2(variant, version.Variants, paths); ok {
+				out.Variants = append(out.Variants, linked)
+				continue
+			}
 			out.Variants = append(out.Variants, exportVariantV2(variant, paths))
 		}
 		doc.Versions = append(doc.Versions, out)
@@ -695,16 +714,24 @@ func exportTaskV2(task exerciseModel.Task, refs deviceRefs, paths map[uuid.UUID]
 	if task.LinkedDeviceID.Valid {
 		out.LinkedDevice, out.LinkedDeviceID = refs.ref(task.LinkedDeviceID.UUID)
 	}
-	for _, attachment := range task.Attachments {
+	out.Attachments = exportAttachmentRefsV2(task.Attachments, paths)
+	for _, hint := range task.Hints {
+		out.Hints = append(out.Hints, archiveHintV2{ID: optionalID(hint.ID), Text: hint.Text, Level: hint.Level})
+	}
+	return out
+}
+
+// exportAttachmentRefsV2 writes attachments as links to their archive paths; the shown name only when it is
+// not the file's own name.
+func exportAttachmentRefsV2(attachments []exerciseModel.AttachmentRef, paths map[uuid.UUID]string) []archiveAttachmentV2 {
+	var out []archiveAttachmentV2
+	for _, attachment := range attachments {
 		file := paths[attachment.FileID]
 		mapped := archiveAttachmentV2{File: file}
 		if name := exportShownName(attachment.Name); name != path.Base(file) {
 			mapped.Name = name
 		}
-		out.Attachments = append(out.Attachments, mapped)
-	}
-	for _, hint := range task.Hints {
-		out.Hints = append(out.Hints, archiveHintV2{ID: optionalID(hint.ID), Text: hint.Text, Level: hint.Level})
+		out = append(out, mapped)
 	}
 	return out
 }

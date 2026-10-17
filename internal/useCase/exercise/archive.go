@@ -140,6 +140,10 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if err != nil {
 		return ExerciseView{}, err
 	}
+	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
+	if err = syncImportedLinks(parsed.Versions); err != nil {
+		return ExerciseView{}, err
+	}
 	if err = validateImportedVersions(parsed.Versions); err != nil {
 		return ExerciseView{}, err
 	}
@@ -149,6 +153,10 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	// A secret is bound to its variant id: the ids are final before anything is sealed.
 	for i := range parsed.Versions {
 		normalizeContentIDs(parsed.Versions[i].Variants)
+	}
+	// The ids the base just got (tasks, hints, devices, placeholder keys) flow into its linked variants.
+	if err = syncImportedLinks(parsed.Versions); err != nil {
+		return ExerciseView{}, err
 	}
 	if err = u.encryptImportedSecrets(parsed.Versions); err != nil {
 		return ExerciseView{}, err
@@ -171,6 +179,16 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 		return ExerciseView{}, err
 	}
 	return created, nil
+}
+
+// syncImportedLinks rebuilds the linked variants of every version from their bases.
+func syncImportedLinks(versions []exerciseModel.ExerciseVersion) error {
+	for i := range versions {
+		if err := versions[i].SyncLinkedVariants(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func containsSecretValues(versions []exerciseModel.ExerciseVersion) bool {

@@ -99,6 +99,8 @@
   "20983": "Archive checksum mismatch: delete manifest.json after editing an archive by hand",
   "20984": "Task description names an unknown placeholder",
   "20985": "An archive path is not allowed",
+  "20986": "A linked variant may carry only its note and, per task, the flag and attachments",
+  "20987": "linked_to must name an unlinked variant of the same version",
   "20988": "Device images inside the archive are not supported yet",
   "20989": "A link names a file the archive does not hold",
   "20990": "Unsupported archive schema: expected schema: cib-exercise/1",

@@ -78,7 +78,7 @@ func TestDecodeArchiveV2_UnknownKeyNamed(t *testing.T) {
 func TestDecodeArchiveV2_StrictShape(t *testing.T) {
 	for name, payload := range map[string]string{
 		"trailing data":  v2Header + `"exercise":{"name":"x"}} {}`,
-		"unknown nested": v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"linked_to":1}]}]}`,
+		"unknown nested": v2Header + `"exercise":{"name":"x"},"versions":[{"variants":[{"linked":1}]}]}`,
 		"not json":       `schema: cib-exercise/1`,
 		"wrong schema":   `{"schema":"cib-exercise/2","exercise":{"name":"x"}}`,
 		"missing schema": `{"exercise":{"name":"x"}}`,

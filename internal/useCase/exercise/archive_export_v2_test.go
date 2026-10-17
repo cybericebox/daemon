@@ -450,24 +450,6 @@ func TestExportThenImport_RoundTripV2(t *testing.T) {
 	require.JSONEq(t, string(want), string(got))
 }
 
-// A linked variant is written whole and without the link until the archive carries links.
-func TestExportExerciseArchive_LinkedVariantWrittenFull(t *testing.T) {
-	versions := exportFixtureVersions()
-	versions[0].Variants[1].LinkedTo = uuid.NullUUID{UUID: versions[0].Variants[0].ID, Valid: true}
-	ctrl := gomock.NewController(t)
-	q := postgresMocks.NewMockQuerier(ctrl)
-	expectExport(t, q, exportExerciseID, "Експорт", versions)
-	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
-	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
-	require.NoError(t, err)
-	doc := string(exportedDocument(t, data))
-	require.NotContains(t, doc, "linked_to")
-	parsed, err := exercise.ParseExerciseArchive(data, "")
-	require.NoError(t, err)
-	require.False(t, parsed.Versions[0].Variants[1].LinkedTo.Valid)
-	require.Equal(t, "one", parsed.Versions[0].Variants[1].Tasks[0].Name)
-}
-
 func TestExportExerciseArchive_ProtectedV2(t *testing.T) {
 	cipher, err := secret.New(testKey)
 	require.NoError(t, err)

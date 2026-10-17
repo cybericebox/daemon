@@ -259,6 +259,14 @@ var (
 	// names the link.
 	ErrArchiveFileMissing = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 				WithMessage("A link names a file the archive does not hold").WithDetailCode(89)
+	// ErrArchiveLinkedVariantField: a linked variant of the archive carries a key it does not own, or tasks that
+	// do not match its base (another count, another task id); the context `field` is the 1-based path.
+	ErrArchiveLinkedVariantField = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("A linked variant may carry only its note and, per task, the flag and attachments").WithDetailCode(86)
+	// ErrArchiveLinkedToInvalid: linked_to names no variant of the version, the variant itself or a linked
+	// variant; the context `variant` is the 1-based path of the linked variant and `linked_to` the value.
+	ErrArchiveLinkedToInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("linked_to must name an unlinked variant of the same version").WithDetailCode(87)
 	// ErrArchiveDescriptionKeyUnknown: a {{key}} in a plain-text task description names no placeholder of
 	// that task; the context `key` is the name and `task` the task.
 	ErrArchiveDescriptionKeyUnknown = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
