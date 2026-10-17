@@ -24,6 +24,8 @@ import (
 type fakeStorage struct {
 	objects map[string][]byte
 	copies  [][2]string
+	// ranges counts GetRange calls.
+	ranges int
 }
 
 func newFakeStorage() *fakeStorage { return &fakeStorage{objects: map[string][]byte{}} }
@@ -44,6 +46,7 @@ func (f *fakeStorage) Get(_ context.Context, key string) (io.ReadCloser, string,
 	return io.NopCloser(bytes.NewReader(b)), "", nil
 }
 func (f *fakeStorage) GetRange(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	f.ranges++
 	b, ok := f.objects[key]
 	if !ok {
 		return nil, errors.New("missing")
@@ -116,6 +119,26 @@ func TestUploadFile_TooLarge(t *testing.T) {
 		bytes.NewReader(bytes.Repeat([]byte("x"), 9)), uuid.Nil)
 	if !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
 		t.Fatalf("want ErrFileTooLarge, got %v", err)
+	}
+}
+
+// A generated export may be larger than a browser upload: UploadLargeFile takes its own cap, not MaxUploadBytes.
+func TestUploadLargeFile_OwnLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().CreateFile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateFileParams) (postgres.File, error) {
+			return postgres.File{ID: arg.ID, SizeBytes: arg.SizeBytes, ContentHash: arg.ContentHash}, nil
+		})
+	uc := newUC(t, q, 8) // the browser cap is 8 bytes
+
+	f, err := uc.UploadLargeFile(context.Background(), "export.zip", "application/zip", bytes.NewReader(bytes.Repeat([]byte("x"), 20)), uuid.Nil, 20)
+	if err != nil || f.SizeBytes != 20 {
+		t.Fatalf("a file within the own cap: %+v %v", f, err)
+	}
+	_, err = uc.UploadLargeFile(context.Background(), "export.zip", "application/zip", bytes.NewReader(bytes.Repeat([]byte("x"), 21)), uuid.Nil, 20)
+	if !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
+		t.Fatalf("want ErrFileTooLarge past the own cap, got %v", err)
 	}
 }
 

@@ -32,4 +32,5 @@ const (
 	ResourceCalendarObjectCode
 	EventLabObjectCode
 	ParticipantPreviewObjectCode
+	ImageRegistryObjectCode
 )

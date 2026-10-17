@@ -201,7 +201,13 @@ func TestFleetPrewarmMergesTheLeastAdvancedStatePerImage(t *testing.T) {
 	f.b.prewarmOut = &labpb.PrewarmImagesResult{Images: []*labpb.PrewarmImageStatus{
 		{Image: "x", State: labpb.PrewarmState_PREWARM_STATE_WARMING}, {Image: "y", State: labpb.PrewarmState_PREWARM_STATE_DONE},
 	}}
-	got, err := f.fleet.PrewarmImages(context.Background(), []string{"x", "y"})
+	creds := []infraModel.RegistryCredential{{Registry: "ghcr.io", Username: "u", Password: "pw"}}
+	got, err := f.fleet.PrewarmImages(context.Background(), []string{"x", "y"}, creds)
+	for name, a := range map[string]*fakeAgent{"a": f.a, "b": f.b} {
+		if c := a.prewarm.GetRegistryCredentials(); len(c) != 1 || c[0].GetPassword() != "pw" {
+			t.Fatalf("agent %s got credentials %+v", name, c)
+		}
+	}
 	if err != nil || len(got) != 2 {
 		t.Fatalf("got %+v err %v", got, err)
 	}
@@ -210,7 +216,7 @@ func TestFleetPrewarmMergesTheLeastAdvancedStatePerImage(t *testing.T) {
 		t.Fatalf("merged = %v", byImage)
 	}
 	f.a.callErr = errors.New("cache off")
-	if got, err = f.fleet.PrewarmImages(context.Background(), []string{"x"}); err != nil || len(got) == 0 {
+	if got, err = f.fleet.PrewarmImages(context.Background(), []string{"x"}, nil); err != nil || len(got) == 0 {
 		t.Fatalf("one failing agent must not hide the other: %v %v", got, err)
 	}
 }
@@ -382,7 +388,7 @@ func TestPrewarmSkipsAnAgentWhoseImageCacheIsOff(t *testing.T) {
 	f.b.prewarmOut = f.a.prewarmOut
 	f.am.Features = NewFeatureCell(&infraModel.AgentFeatures{})
 	f.bm.Features = NewFeatureCell(&infraModel.AgentFeatures{})
-	got, err := f.fleet.PrewarmImages(ctx, []string{"nginx"})
+	got, err := f.fleet.PrewarmImages(ctx, []string{"nginx"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +400,7 @@ func TestPrewarmSkipsAnAgentWhoseImageCacheIsOff(t *testing.T) {
 	}
 	// One agent with a cache is asked, and its answer stands; the other is left out.
 	f.bm.Features.Set(infraModel.AgentFeatures{ImageCache: infraModel.ImageCacheFeature{Enabled: true}})
-	got, err = f.fleet.PrewarmImages(ctx, []string{"nginx"})
+	got, err = f.fleet.PrewarmImages(ctx, []string{"nginx"}, nil)
 	if err != nil || f.a.prewarm != nil || f.b.prewarm == nil || len(got) != 1 || got[0].State != infraModel.PrewarmDone {
 		t.Fatalf("got %+v err %v", got, err)
 	}

@@ -112,7 +112,11 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("192.0.0.0/24"),
 	netip.MustParsePrefix("198.18.0.0/15"),
 	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/96"),
 	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("fec0::/10"),
 }
 
 // AddressBlocked reports whether ip is an address a guarded connection must not reach: loopback, private,
@@ -120,8 +124,9 @@ var blockedPrefixes = []netip.Prefix{
 // special ranges.
 func AddressBlocked(ip netip.Addr) bool {
 	ip = ip.Unmap()
-	if !ip.IsValid() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() {
+	// allowlist: only global unicast passes (loopback, multicast, link-local, unspecified and
+	// invalid fall out), then private and the special ranges below are denied
+	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() {
 		return true
 	}
 	for _, p := range blockedPrefixes {
@@ -132,10 +137,10 @@ func AddressBlocked(ip netip.Addr) bool {
 	return false
 }
 
-// guardControl is the net.Dialer control of a guarded connection: it sees the address that is about to be
+// GuardControl is the net.Dialer control of a guarded connection: it sees the address that is about to be
 // connected (after name resolution), so a name that resolves to a blocked address, or changes its answer
 // between a check and the connection, never gets a connection.
-func guardControl(_, address string, _ syscall.RawConn) error {
+func GuardControl(_, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return &blockedError{addr: address}
@@ -163,7 +168,7 @@ func (c *Client) deliver(ctx context.Context, from, to string, data []byte) erro
 func (c *Client) converse(ctx context.Context, from, to string, data []byte) error {
 	dialer := &net.Dialer{Timeout: dialTimeout}
 	if c.guard {
-		dialer.Control = guardControl
+		dialer.Control = GuardControl
 	}
 	deadline := time.Now().Add(sessionTimeout)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {

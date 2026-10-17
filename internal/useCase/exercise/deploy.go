@@ -208,7 +208,7 @@ func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eve
 func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
 	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
 
-	variant, err := u.loadVariant(ctx, versionID, variantID)
+	exerciseID, variant, err := u.loadVersionVariant(ctx, versionID, variantID)
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
@@ -252,6 +252,11 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		links[i].Flag = flag
 	}
 	if topo, err = topo.WithFlagEnv(links); err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
+	// Every image must be pullable before anything is created; the agent gets exactly the credentials they need.
+	topo, pullCredentials, err := u.prepareLabImages(ctx, eventID, exerciseID, topo)
+	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
 
@@ -320,7 +325,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
 		}
 		first := len(existing) == 0
-		if err = u.provisionTestLab(ctx, deploy, topo, active, first); err != nil {
+		if err = u.provisionTestLab(ctx, deploy, topo, pullCredentials, active, first); err != nil {
 			// The group or the lab may be half created. A canceled request must not prevent the cleanup;
 			// if it fails, the lease is kept so the periodic expiry pass can retry it.
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
@@ -519,7 +524,7 @@ func withoutDeploy(items []exerciseModel.TestDeploy, id uuid.UUID) []exerciseMod
 // the VPN and, in per-user mode, for the proxy, and it is replaced as a whole, so it lists every
 // Lab of the author. The group's client and its config are made once, with the first Lab; later
 // Labs reuse them.
-func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseModel.TestDeploy, topo exerciseModel.Topology, existing []exerciseModel.TestDeploy, first bool) error {
+func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseModel.TestDeploy, topo exerciseModel.Topology, pullCredentials []infraModel.RegistryCredential, existing []exerciseModel.TestDeploy, first bool) error {
 	client := testClientName(deploy.CreatedBy)
 	// The author's group has one user (the author's client); its gateway is for the labs that use the internet.
 	plan := infraModel.GroupPlan{MaxUsers: 1}
@@ -534,7 +539,9 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 		// The group is created now, so a config stored for an earlier group is stale: never keep it.
 		u.dropAuthorConfig(ctx, deploy)
 	}
-	if err := u.deployLab(ctx, deploy.GroupName, deploy.LabName, testLabMeta(deploy), topo); err != nil {
+	meta := testLabMeta(deploy)
+	meta.PullCredentials = pullCredentials
+	if err := u.deployLab(ctx, deploy.GroupName, deploy.LabName, meta, topo); err != nil {
 		return err
 	}
 	if err := u.infra.ReconcileLabGroupAccess(ctx, deploy.GroupName, []labAccessModel.ClientPolicy{{Name: client, AllowedLabs: labNames(existing, uuid.Nil, deploy.LabName)}}); err != nil {
@@ -1086,16 +1093,22 @@ func (u *ExerciseUseCase) ResolveVersionTopologies(ctx context.Context, versionI
 
 // loadVariant fetches one variant of a version by id.
 func (u *ExerciseUseCase) loadVariant(ctx context.Context, versionID, variantID uuid.UUID) (exerciseModel.Variant, error) {
+	_, variant, err := u.loadVersionVariant(ctx, versionID, variantID)
+	return variant, err
+}
+
+// loadVersionVariant is loadVariant with the exercise the version belongs to.
+func (u *ExerciseUseCase) loadVersionVariant(ctx context.Context, versionID, variantID uuid.UUID) (uuid.UUID, exerciseModel.Variant, error) {
 	version, err := u.exercises.GetVersion(ctx, versionID)
 	if err != nil {
-		return exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
+		return uuid.Nil, exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
 	}
 	for _, v := range version.Variants {
 		if v.ID == variantID {
-			return v, nil
+			return version.ExerciseID, v, nil
 		}
 	}
-	return exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
+	return uuid.Nil, exerciseModel.Variant{}, exerciseModel.ErrExerciseVersionNotFound.Err()
 }
 
 // decryptTopologySecrets returns a copy of the topology with secret env-var

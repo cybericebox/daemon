@@ -2740,6 +2740,10 @@ definitions:
         type: integer
       Total:
         type: integer
+      Unavailable:
+        description: Unavailable images cannot be pulled at all; they are not prewarmed
+          and their labs do not start.
+        type: integer
       UpdatedAt:
         type: string
       Warming:
@@ -5769,6 +5773,25 @@ definitions:
       Name:
         type: string
     type: object
+  exercise.blobStatusResponse:
+    properties:
+      Reason:
+        type: string
+      State:
+        type: string
+    type: object
+  exercise.checkImagesRequest:
+    properties:
+      Images:
+        description: Images are the device image references of the editor (at most
+          200, each at most 512 characters).
+        items:
+          type: string
+        maxItems: 200
+        type: array
+    required:
+    - Images
+    type: object
   exercise.checkpointRequest:
     properties:
       Note:
@@ -5805,6 +5828,33 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  exercise.createImageRequest:
+    properties:
+      Config:
+        $ref: '#/definitions/exercise.descriptorRequest'
+      Layers:
+        items:
+          $ref: '#/definitions/exercise.descriptorRequest'
+        maxItems: 500
+        minItems: 1
+        type: array
+      Name:
+        description: Name becomes the platform image name (lowercased, other characters
+          replaced).
+        maxLength: 255
+        type: string
+    required:
+    - Config
+    - Layers
+    - Name
+    type: object
+  exercise.createImageResponse:
+    properties:
+      Reference:
+        description: Reference is platform:<name>@sha256:<manifest digest>, the device
+          image to save.
+        type: string
     type: object
   exercise.decideElevationRequest:
     properties:
@@ -6003,6 +6053,22 @@ definitions:
         type: string
       TaskID:
         type: string
+    type: object
+  exercise.descriptorRequest:
+    properties:
+      Digest:
+        maxLength: 80
+        type: string
+      MediaType:
+        maxLength: 255
+        type: string
+      Size:
+        minimum: 1
+        type: integer
+    required:
+    - Digest
+    - MediaType
+    - Size
     type: object
   exercise.deviceDTO:
     properties:
@@ -6331,12 +6397,37 @@ definitions:
         maxItems: 100
         minItems: 1
         type: array
+      IncludeImages:
+        description: |-
+          IncludeImages writes the platform images of the devices into the archive («з образами», up to 10 GiB): the export
+          then runs in the background, 202 {JobID}.
+        type: boolean
       IncludeSecrets:
         type: boolean
       Password:
         type: string
     required:
     - IDs
+    type: object
+  exercise.exportJobResponse:
+    properties:
+      Error:
+        allOf:
+        - $ref: '#/definitions/exercise.importJobError'
+        description: Error is why it failed (failed only).
+      File:
+        allOf:
+        - $ref: '#/definitions/exercise.exportedFileResponse'
+        description: File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index}
+          (done only).
+      State:
+        description: State is running, done or failed.
+        type: string
+    type: object
+  exercise.exportJobStarted:
+    properties:
+      JobID:
+        type: string
     type: object
   exercise.exportedFileResponse:
     properties:
@@ -6427,6 +6518,56 @@ definitions:
       Text:
         type: string
     type: object
+  exercise.imageAvailabilityResponse:
+    properties:
+      Image:
+        type: string
+      Reason:
+        type: string
+      Status:
+        type: string
+    type: object
+  exercise.importJobError:
+    properties:
+      Code:
+        type: integer
+      Context:
+        additionalProperties: {}
+        type: object
+      Message:
+        type: string
+    type: object
+  exercise.importJobResponse:
+    properties:
+      Error:
+        allOf:
+        - $ref: '#/definitions/exercise.importJobError'
+        description: Error is why it failed (failed only).
+      Exercises:
+        description: Exercises are the created tasks (done only).
+        items:
+          $ref: '#/definitions/exercise.exerciseResponse'
+        type: array
+      State:
+        description: State is running, done or failed.
+        type: string
+    type: object
+  exercise.importJobStarted:
+    properties:
+      JobID:
+        type: string
+    type: object
+  exercise.importUploadRequest:
+    properties:
+      Password:
+        type: string
+      UploadID:
+        description: UploadID is a chunked upload with Purpose "exercise-archive",
+          every chunk sent (no complete call).
+        type: string
+    required:
+    - UploadID
+    type: object
   exercise.importUploadedRequest:
     properties:
       FileID:
@@ -6464,6 +6605,28 @@ definitions:
         type: array
       Type:
         type: string
+    type: object
+  exercise.missingBlobsRequest:
+    properties:
+      Digests:
+        description: Digests are the image's blob digests (config and layers), sha256:<64
+          lowercase hex>.
+        items:
+          type: string
+        maxItems: 501
+        minItems: 1
+        type: array
+    required:
+    - Digests
+    type: object
+  exercise.missingBlobsResponse:
+    properties:
+      Missing:
+        description: Missing are the digests the registry does not have, in the order
+          sent; never null.
+        items:
+          type: string
+        type: array
     type: object
   exercise.networkDTO:
     properties:
@@ -6556,6 +6719,23 @@ definitions:
       Note:
         type: string
     type: object
+  exercise.pushBlobRequest:
+    properties:
+      Digest:
+        maxLength: 80
+        type: string
+      Size:
+        minimum: 1
+        type: integer
+      UploadID:
+        description: UploadID is a chunked upload of the caller with Purpose "image-blob"
+          and every chunk received.
+        type: string
+    required:
+    - Digest
+    - Size
+    - UploadID
+    type: object
   exercise.rejectProposalRequest:
     properties:
       Note:
@@ -6644,6 +6824,15 @@ definitions:
         type: string
       Name:
         maxLength: 255
+        type: string
+      Purpose:
+        description: |-
+          Purpose "image-blob" uploads one blob of a container image (the file limit is then 10 GiB, an image
+          archive's); "exercise-archive" a task archive to import with POST /exercises/import/upload (up to 512 MiB +
+          10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.
+        enum:
+        - image-blob
+        - exercise-archive
         type: string
       Size:
         minimum: 1
@@ -7085,6 +7274,104 @@ definitions:
         type: string
       state:
         description: State is one of the PodState* values.
+        type: string
+    type: object
+  imageRegistry.eventExerciseImagesResponse:
+    properties:
+      EventExerciseID:
+        type: string
+      ExerciseID:
+        type: string
+      ExerciseName:
+        type: string
+      Unavailable:
+        items:
+          $ref: '#/definitions/imageRegistry.unavailableImageResponse'
+        type: array
+    type: object
+  imageRegistry.eventSecretRequest:
+    properties:
+      Host:
+        type: string
+      RepositoryPrefix:
+        type: string
+      Token:
+        type: string
+      Username:
+        type: string
+    type: object
+  imageRegistry.eventSecretResponse:
+    properties:
+      Host:
+        type: string
+      ID:
+        type: string
+      RepositoryPrefix:
+        type: string
+      UpdatedAt:
+        type: string
+      Username:
+        type: string
+    type: object
+  imageRegistry.listRepositoriesRequest:
+    properties:
+      Account:
+        type: string
+      Provider:
+        type: string
+      Token:
+        type: string
+    type: object
+  imageRegistry.repositoriesResponse:
+    properties:
+      Repositories:
+        items:
+          type: string
+        type: array
+    type: object
+  imageRegistry.saveSettingsRequest:
+    properties:
+      Account:
+        type: string
+      ClearPullToken:
+        type: boolean
+      Provider:
+        type: string
+      PullToken:
+        type: string
+      PushToken:
+        type: string
+      Repository:
+        type: string
+    type: object
+  imageRegistry.settingsResponse:
+    properties:
+      Account:
+        type: string
+      Configured:
+        type: boolean
+      Provider:
+        type: string
+      PullTokenSet:
+        type: boolean
+      PushTokenSet:
+        type: boolean
+      Repository:
+        type: string
+      SecretsKeyMissing:
+        description: 'SecretsKeyMissing: the platform secrets key is unset; tokens
+          can be neither opened nor saved.'
+        type: boolean
+      UpdatedAt:
+        type: string
+    type: object
+  imageRegistry.unavailableImageResponse:
+    properties:
+      Image:
+        type: string
+      Reason:
+        type: string
+      Status:
         type: string
     type: object
   inbox.countsResponse:
@@ -14994,6 +15281,35 @@ paths:
       summary: Who unlocked which hint, when and for how much
       tags:
       - events
+  /events/{id}/manage/images/availability:
+    get:
+      description: Checks the device images of every active task of the event (its
+        pinned version, all variants) with the event's own registry credentials. Lists
+        only the tasks with unavailable images; an empty list means every image can
+        be pulled. Positive results are cached for 60 s.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/imageRegistry.eventExerciseImagesResponse'
+                  type: array
+              type: object
+      summary: The event's tasks whose images cannot be pulled now
+      tags:
+      - event-registry
   /events/{id}/manage/labs:
     get:
       parameters:
@@ -17402,6 +17718,144 @@ paths:
       summary: Invite event participants by email
       tags:
       - events
+  /events/{id}/manage/registry-secrets:
+    get:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/imageRegistry.eventSecretResponse'
+                  type: array
+              type: object
+      summary: List the event's registry secrets (tokens are never returned)
+      tags:
+      - event-registry
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: host, optional repository prefix, username, token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.eventSecretRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.eventSecretResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: same host and prefix already saved, or secret storage not configured
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Add a registry secret to the event; used only for this event's labs
+      tags:
+      - event-registry
+  /events/{id}/manage/registry-secrets/{secretId}:
+    delete:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Secret ID
+        in: path
+        name: secretId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: no such secret in this event
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Remove a registry secret from the event
+      tags:
+      - event-registry
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Secret ID
+        in: path
+        name: secretId
+        required: true
+        type: string
+      - description: host, optional repository prefix, username, optional new token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.eventSecretRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.eventSecretResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: no such secret in this event
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: same host and prefix already saved, or secret storage not configured
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Change a registry secret of the event; an empty token keeps the stored
+        one
+      tags:
+      - event-registry
   /events/{id}/manage/resource-plan:
     get:
       description: What the event reserves. Per attached task its totals (CPU, memory,
@@ -20459,6 +20913,245 @@ paths:
         upload)
       tags:
       - exercises
+  /exercises/{id}/images:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. Builds the manifest (Docker schema
+        2 when every type is Docker's, otherwise OCI), pushes it under the tag <name>-<the
+        whole digest hex> and returns the platform reference for the device.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: image name, config and layers
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.createImageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.createImageResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Create a platform image from blobs already in the registry
+      tags:
+      - exercises
+  /exercises/{id}/images/blobs:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. The upload must be the caller's
+        chunked upload with Purpose "image-blob", every chunk received and Size bytes.
+        200 {State:"present"} when the registry already has the blob; 202 {State:"pushing"}
+        when the push is queued (poll GET …/images/blobs/{digest}).
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: upload and blob
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.pushBlobRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.blobStatusResponse'
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.blobStatusResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Queue the push of an uploaded image blob into the platform registry
+      tags:
+      - exercises
+  /exercises/{id}/images/blobs/{digest}:
+    get:
+      description: 'Same access as saving the draft. present: the platform registry
+        has it; pushing: a push is queued or running; failed: the last push failed
+        (Reason), ask for the push again or upload again; missing: upload it.'
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: blob digest, sha256:<64 hex>
+        in: path
+        name: digest
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.blobStatusResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 'Where one image blob stands: present, pushing, failed or missing'
+      tags:
+      - exercises
+  /exercises/{id}/images/blobs/missing:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. Upload only the missing blobs
+        (chunked upload, Purpose "image-blob"), then push each one.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: blob digests
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.missingBlobsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.missingBlobsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Which image blobs the platform registry does not have yet
+      tags:
+      - exercises
+  /exercises/{id}/images/check:
+    post:
+      consumes:
+      - application/json
+      description: Same access as saving the draft. Platform images (platform:<name>@sha256:…)
+        are checked in the platform registry, other images anonymously; an event-owned
+        exercise also uses its event's registry credentials. One result per distinct
+        image, in the order sent. Positive results are cached for 60 s.
+      parameters:
+      - description: exercise ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: images
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.checkImagesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.imageAvailabilityResponse'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Check that the device images of the exercise can be pulled
+      tags:
+      - exercises
   /exercises/{id}/proposals:
     post:
       consumes:
@@ -21137,8 +21830,12 @@ paths:
     post:
       consumes:
       - application/json
+      description: |-
+        200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
+        `images/…/<device>.tar`) the export runs in the background: 202 {JobID}; poll GET
+        /exercises/export/jobs/{jobID}, then read the file in chunks.
       parameters:
-      - description: selection and secret option
+      - description: selection and options
         in: body
         name: body
         required: true
@@ -21156,12 +21853,52 @@ paths:
                 data:
                   $ref: '#/definitions/exercise.exportedFileResponse'
               type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.exportJobStarted'
+              type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
       summary: 'Export selected exercises as one ZIP archive stored as a file (several:
         one folder per exercise)'
+      tags:
+      - exercises
+  /exercises/export/jobs/{jobID}:
+    get:
+      description: |-
+        running → done (File: the stored zip, read in chunks like any export) or failed (Error: Code, Message,
+        Context). Only the user who started it sees it (404 otherwise). The file is kept for the media grace
+        window (24 h by default).
+      parameters:
+      - description: export job ID
+        in: path
+        name: jobID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.exportJobResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: State of a background export «з образами»
       tags:
       - exercises
   /exercises/files:
@@ -21274,6 +22011,9 @@ paths:
     post:
       consumes:
       - multipart/form-data
+      description: |-
+        200 with the created tasks; an archive naming device image files is stored as a file and imported
+        in the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).
       parameters:
       - description: exercise ZIP
         in: formData
@@ -21297,6 +22037,15 @@ paths:
                   items:
                     $ref: '#/definitions/exercise.exerciseResponse'
                   type: array
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobStarted'
               type: object
         "400":
           description: Bad Request
@@ -21322,10 +22071,99 @@ paths:
         tasks)
       tags:
       - exercises
+  /exercises/import/jobs/{jobID}:
+    get:
+      description: |-
+        running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is
+        created unless the whole import succeeded. Only the user who started it sees it (404 otherwise).
+      parameters:
+      - description: import job ID
+        in: path
+        name: jobID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: State of a background task archive import
+      tags:
+      - exercises
+  /exercises/import/upload:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        The archive is read where its chunks lie. Without device image files the tasks are created at once:
+        200 with the created tasks (the archive limits apply: 512 MiB). With image files (`image: {file: …}`)
+        the import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import
+        per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
+        platform image registry is not configured or failing; 409 70993 when the upload is not a complete
+        task archive upload; 404 when the upload is absent, expired or another user's.
+      parameters:
+      - description: the upload and the archive password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.importUploadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.exerciseResponse'
+                  type: array
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobStarted'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Import a task archive uploaded in chunks (Purpose exercise-archive)
+      tags:
+      - exercises
   /exercises/import/uploaded:
     post:
       consumes:
       - application/json
+      description: |-
+        200 with the created tasks; an archive naming device image files is imported in the background:
+        202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.
       parameters:
       - description: the uploaded file and the archive password
         in: body
@@ -21347,11 +22185,21 @@ paths:
                     $ref: '#/definitions/exercise.exerciseResponse'
                   type: array
               type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobStarted'
+              type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
-      summary: Import an exercise ZIP archive that went up in chunks
+      summary: Import an exercise ZIP archive that went up in chunks (completed into
+        a file, at most 512 MiB)
       tags:
       - exercises
   /exercises/proposals:
@@ -21611,6 +22459,11 @@ paths:
               type: object
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Purpose image-blob, or exercise-archive over 512 MiB, while
+            the platform image registry is not configured (72801) or failing (72802)
           schema:
             $ref: '#/definitions/response.Response'
       summary: Start a resumable chunked file upload
@@ -24650,6 +25503,108 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Get a setting value by key
+      tags:
+      - settings
+  /settings/image-registry:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the cleared (not configured) settings
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.settingsResponse'
+              type: object
+      summary: Remove the platform image registry settings and tokens
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.settingsResponse'
+              type: object
+      summary: Get the platform image registry settings (tokens are never returned)
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: settings; empty tokens keep the stored ones
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.saveSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.settingsResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: registry unavailable (Context.reason) or secret storage not
+            configured
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save the platform image registry settings after checking the push token
+        can push
+      tags:
+      - settings
+  /settings/image-registry/repositories:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: 'provider, account and token (empty: the stored one)'
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/imageRegistry.listRepositoriesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.repositoriesResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: registry unavailable (Context.reason)
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: List the repositories a registry token can see
       tags:
       - settings
   /settings/participant-preview:

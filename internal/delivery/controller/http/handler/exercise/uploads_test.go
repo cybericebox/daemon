@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,8 @@ import (
 
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
 
@@ -30,13 +33,22 @@ type chunkedUC struct {
 	owner    uuid.UUID
 	sha      string
 	started  [3]any
+	purpose  mediaModel.UploadPurpose
 	aborted  bool
 	complete mediaModel.File
+	// noRegistry is what RequireImageUploads answers (nil: the platform registry is configured).
+	noRegistry error
+	required   int
+}
+
+func (c *chunkedUC) RequireImageUploads(context.Context) error {
+	c.required++
+	return c.noRegistry
 }
 
 func (c *chunkedUC) UploadChunkBytes() int64 { return 4 }
-func (c *chunkedUC) StartUpload(_ context.Context, name, contentType string, size int64, by uuid.UUID) (mediaModel.Upload, error) {
-	c.started, c.owner = [3]any{name, contentType, size}, by
+func (c *chunkedUC) StartUpload(_ context.Context, name, contentType string, size int64, by uuid.UUID, purpose mediaModel.UploadPurpose) (mediaModel.Upload, error) {
+	c.started, c.owner, c.purpose = [3]any{name, contentType, size}, by, purpose
 	return c.upload, c.err
 }
 func (c *chunkedUC) UploadStatus(_ context.Context, _, owner uuid.UUID) (mediaModel.Upload, error) {
@@ -61,7 +73,7 @@ func (c *chunkedUC) AbortUpload(_ context.Context, _, owner uuid.UUID) error {
 }
 
 func sampleUpload() mediaModel.Upload {
-	return mediaModel.NewUpload(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "big.bin", "application/octet-stream", 10, 4, time.Hour, time.Now())
+	return mediaModel.NewUpload(uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "big.bin", "application/octet-stream", 10, 4, time.Hour, time.Now(), mediaModel.UploadPurposeFile)
 }
 
 func newChunkedEngine(uc *chunkedUC, uid uuid.UUID) *gin.Engine {
@@ -146,5 +158,70 @@ func TestChunkedUpload_AConflictAnswersWithTheStatusCode(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/api/exercises/uploads/"+uc.upload.ID.String()+"/chunks/2", strings.NewReader("abcd")))
 	if w.Code != http.StatusConflict {
 		t.Fatalf("want 409, got %d", w.Code)
+	}
+}
+
+// Purpose "image-blob" reaches the use case (it raises the file limit to an image archive's); another value is refused.
+func TestChunkedUpload_StartPassesThePurpose(t *testing.T) {
+	uc := &chunkedUC{upload: sampleUpload()}
+	r := newChunkedEngine(uc, uuid.Must(uuid.NewV7()))
+	start := func(body string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/uploads", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := start(`{"Name":"sha256-x","Size":10,"Purpose":"image-blob"}`); code != http.StatusOK || uc.purpose != mediaModel.UploadPurposeImageBlob {
+		t.Fatalf("image blob: %d %q", code, uc.purpose)
+	}
+	if code := start(`{"Name":"a.bin","Size":10}`); code != http.StatusOK || uc.purpose != mediaModel.UploadPurposeFile {
+		t.Fatalf("file: %d %q", code, uc.purpose)
+	}
+	uc.purpose = "unchanged"
+	if code := start(`{"Name":"a.bin","Size":10,"Purpose":"avatar"}`); code != http.StatusBadRequest || uc.purpose != "unchanged" {
+		t.Fatalf("unknown purpose: %d", code)
+	}
+}
+
+// An image-blob upload is refused before it starts while the platform registry is not configured: the
+// archive would be uploaded for nothing. Ordinary files do not ask.
+func TestChunkedUpload_ImageBlobNeedsTheRegistry(t *testing.T) {
+	uc := &chunkedUC{upload: sampleUpload(), noRegistry: imageRegistryModel.ErrRegistryNotConfigured.Err()}
+	r := newChunkedEngine(uc, uuid.Must(uuid.NewV7()))
+	start := func(body string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/uploads", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := start(`{"Name":"sha256-x","Size":10,"Purpose":"image-blob"}`); code == http.StatusOK || uc.started[0] != nil {
+		t.Fatalf("image blob without a registry: %d started=%v", code, uc.started)
+	}
+	if code := start(`{"Name":"a.bin","Size":10}`); code != http.StatusOK || uc.required != 1 {
+		t.Fatalf("file: %d, registry asked %d times", code, uc.required)
+	}
+}
+
+// A task archive upload ("exercise-archive") may carry images: over the archive limit (512 MiB) it is refused
+// before it starts while the platform registry is not configured; up to the limit it never asks.
+func TestChunkedUpload_LargeExerciseArchiveNeedsTheRegistry(t *testing.T) {
+	uc := &chunkedUC{upload: sampleUpload(), noRegistry: imageRegistryModel.ErrRegistryNotConfigured.Err()}
+	r := newChunkedEngine(uc, uuid.Must(uuid.NewV7()))
+	start := func(body string) (int, string) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/uploads", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+	code, body := start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.MaxArchiveBytes+1))
+	if code != http.StatusConflict || !strings.Contains(body, "72801") || uc.started[0] != nil {
+		t.Fatalf("large archive without a registry: %d %s started=%v", code, body, uc.started)
+	}
+	code, _ = start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.MaxArchiveBytes))
+	if code != http.StatusOK || uc.purpose != mediaModel.UploadPurposeExerciseArchive || uc.required != 1 {
+		t.Fatalf("archive at the limit: %d %q, registry asked %d times", code, uc.purpose, uc.required)
 	}
 }

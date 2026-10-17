@@ -236,6 +236,8 @@ type LabMeta struct {
 	// DeployGroup groups labs the scheduler dispatches together, one lab after another (the task key
 	// for events whose tasks appear at the same time for every team). Empty = independent.
 	DeployGroup string
+	// PullCredentials are the registry credentials the agent pulls this lab's images with (never logged).
+	PullCredentials []RegistryCredential
 }
 
 // ImagePrewarm is the state of one image in the platform image cache.
@@ -259,7 +261,7 @@ const (
 // ImagePrewarmer is the optional agent capability that fills the image cache before a burst of labs.
 // The call is asynchronous and idempotent: repeat it to poll.
 type ImagePrewarmer interface {
-	PrewarmImages(ctx context.Context, images []string) ([]ImagePrewarm, error)
+	PrewarmImages(ctx context.Context, images []string, creds []RegistryCredential) ([]ImagePrewarm, error)
 }
 
 // AvailabilityReporter is implemented by an agent port that can have no agent behind it (the fleet

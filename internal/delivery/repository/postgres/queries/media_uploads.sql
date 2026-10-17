@@ -1,6 +1,6 @@
 -- name: CreateMediaUpload :one
-INSERT INTO media_uploads (id, created_by, name, content_type, size_bytes, chunk_bytes, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO media_uploads (id, created_by, name, content_type, size_bytes, chunk_bytes, created_at, expires_at, purpose)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
 -- name: GetMediaUpload :one

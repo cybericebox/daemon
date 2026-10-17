@@ -485,7 +485,7 @@ func (f *Fleet) RescueDevice(ctx context.Context, group, lab, device string, ena
 
 // PrewarmImages asks every enabled agent's image cache to fetch the images: whichever agent a team
 // is placed on needs them. An image is reported with the least advanced state among the agents.
-func (f *Fleet) PrewarmImages(ctx context.Context, images []string) ([]infraModel.ImagePrewarm, error) {
+func (f *Fleet) PrewarmImages(ctx context.Context, images []string, creds []infraModel.RegistryCredential) ([]infraModel.ImagePrewarm, error) {
 	var merged []infraModel.ImagePrewarm
 	var firstErr error
 	answered, skipped := 0, 0
@@ -501,7 +501,7 @@ func (f *Fleet) PrewarmImages(ctx context.Context, images []string) ([]infraMode
 			}
 			continue
 		}
-		got, err := m.Client.PrewarmImages(ctx, images)
+		got, err := m.Client.PrewarmImages(ctx, images, creds)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("agent %s: %w", m.Name, err)

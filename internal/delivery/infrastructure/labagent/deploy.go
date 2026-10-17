@@ -93,7 +93,7 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	}
 	res, err := c.CreateLabs(ctx, &labpb.CreateLabsRequest{
 		Labels:   c.requestLabels(),
-		Variants: []*labpb.LabVariant{{VariantId: deployVariantID, SpecJson: specJSON}},
+		Variants: []*labpb.LabVariant{{VariantId: deployVariantID, SpecJson: specJSON, RegistryCredentials: registryCredentials(meta.PullCredentials)}},
 		Items: []*labpb.LabItem{{
 			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: env,
 			Labels: meta.Labels, DeployGroup: meta.DeployGroup,
@@ -502,8 +502,8 @@ func (c *Client) RescueDevice(ctx context.Context, group, lab, device string, en
 // PrewarmImages asks the platform image cache to fetch the images from their upstream registries
 // before labs need them. It is asynchronous and idempotent: every call returns the current state of
 // each image, so repeating it polls.
-func (c *Client) PrewarmImages(ctx context.Context, images []string) ([]infraModel.ImagePrewarm, error) {
-	res, err := c.Client.PrewarmImages(ctx, &labpb.PrewarmImagesRequest{Images: images})
+func (c *Client) PrewarmImages(ctx context.Context, images []string, creds []infraModel.RegistryCredential) ([]infraModel.ImagePrewarm, error) {
+	res, err := c.Client.PrewarmImages(ctx, &labpb.PrewarmImagesRequest{Images: images, RegistryCredentials: registryCredentials(creds)})
 	if err != nil {
 		return nil, agentErr("prewarm images", err)
 	}
@@ -512,6 +512,18 @@ func (c *Client) PrewarmImages(ctx context.Context, images []string) ([]infraMod
 		out = append(out, infraModel.ImagePrewarm{Image: image.GetImage(), State: prewarmState(image.GetState()), Error: image.GetError(), Digest: image.GetDigest()})
 	}
 	return out, nil
+}
+
+// registryCredentials maps the pull credentials onto the wire; none maps to nil.
+func registryCredentials(creds []infraModel.RegistryCredential) []*labpb.RegistryCredential {
+	if len(creds) == 0 {
+		return nil
+	}
+	out := make([]*labpb.RegistryCredential, 0, len(creds))
+	for _, c := range creds {
+		out = append(out, &labpb.RegistryCredential{Registry: c.Registry, Username: c.Username, Password: c.Password})
+	}
+	return out
 }
 
 func prewarmState(s labpb.PrewarmState) string {

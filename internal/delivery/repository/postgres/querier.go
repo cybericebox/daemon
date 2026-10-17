@@ -182,6 +182,8 @@ type Querier interface {
 	// only; content (admin_note, variants) is copied untouched. Zero rows:
 	// nothing to snapshot.
 	CreateExerciseCheckpoint(ctx context.Context, arg CreateExerciseCheckpointParams) (ExerciseVersion, error)
+	// Background exports of tasks with device images (the export job aggregate: one row per export).
+	CreateExerciseExportJob(ctx context.Context, arg CreateExerciseExportJobParams) error
 	CreateExerciseProposal(ctx context.Context, arg CreateExerciseProposalParams) (ExerciseProposal, error)
 	// Timestamps and the id come from the domain factory. The partial unique index allows one pending request per
 	// exercise.
@@ -258,6 +260,7 @@ type Querier interface {
 	DeleteEventParticipantInvitation(ctx context.Context, arg DeleteEventParticipantInvitationParams) (int64, error)
 	DeleteEventPreviewRun(ctx context.Context, arg DeleteEventPreviewRunParams) error
 	DeleteEventPreviewSettings(ctx context.Context, eventID uuid.UUID) error
+	DeleteEventRegistrySecret(ctx context.Context, arg DeleteEventRegistrySecretParams) (int64, error)
 	DeleteEventResultChangesBefore(ctx context.Context, before time.Time) (int64, error)
 	DeleteEventSMTPConfig(ctx context.Context, scopeEventID uuid.NullUUID) error
 	DeleteEventSignalNotificationSubscription(ctx context.Context, arg DeleteEventSignalNotificationSubscriptionParams) (int64, error)
@@ -273,6 +276,8 @@ type Querier interface {
 	DeleteExpiredSessionRevocations(ctx context.Context) (int64, error)
 	DeleteFileReferences(ctx context.Context, arg DeleteFileReferencesParams) (int64, error)
 	DeleteFileReferencesBatch(ctx context.Context, arg DeleteFileReferencesBatchParams) (int64, error)
+	DeleteImageBlobPush(ctx context.Context, digest string) error
+	DeleteImageRegistrySettings(ctx context.Context) error
 	DeleteInAppTemplate(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteInfrastructureAgent(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteIntegrityDismissal(ctx context.Context, arg DeleteIntegrityDismissalParams) (int64, error)
@@ -281,10 +286,14 @@ type Querier interface {
 	DeleteMediaUpload(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteNonOwnerEventManager(ctx context.Context, arg DeleteNonOwnerEventManagerParams) (int64, error)
 	DeleteOwnedExerciseTestDeploy(ctx context.Context, arg DeleteOwnedExerciseTestDeployParams) (int64, error)
+	// Removes the record of one tag only while its digest is still collectable (same predicate as IsDigestCollectable).
+	DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) (int64, error)
 	DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSolveIntegrityReview(ctx context.Context, arg DeleteSolveIntegrityReviewParams) (int64, error)
+	// Push states nobody came back to: failed ones, and pushing ones whose job is long gone.
+	DeleteStaleImageBlobPushes(ctx context.Context, updatedAt time.Time) (int64, error)
 	// A snapshot is the agent's full picture: groups it no longer reports are gone.
 	DeleteStaleLabMonitoringCurrent(ctx context.Context, arg DeleteStaleLabMonitoringCurrentParams) error
 	DeleteTeamChallengeSolve(ctx context.Context, teamChallengeID uuid.UUID) error
@@ -423,6 +432,8 @@ type Querier interface {
 	GetEventPlannedMaxUsers(ctx context.Context, eventID uuid.UUID) (int64, error)
 	GetEventPreviewRun(ctx context.Context, arg GetEventPreviewRunParams) (EventPreviewRun, error)
 	GetEventPreviewSettings(ctx context.Context, eventID uuid.UUID) (GetEventPreviewSettingsRow, error)
+	// Scoped by event: a secret of another event is simply not found.
+	GetEventRegistrySecret(ctx context.Context, arg GetEventRegistrySecretParams) (EventRegistrySecret, error)
 	// Revision and document come from the same snapshot, so concurrent publication
 	// can never put the old document under the new key.
 	GetEventRenderDocument(ctx context.Context, arg GetEventRenderDocumentParams) (GetEventRenderDocumentRow, error)
@@ -469,11 +480,13 @@ type Querier interface {
 	GetEventTeamStand(ctx context.Context, eventTeamID uuid.UUID) (EventTeamStand, error)
 	GetEventTeamVisible(ctx context.Context, arg GetEventTeamVisibleParams) (bool, error)
 	GetExerciseByID(ctx context.Context, id uuid.UUID) (Exercise, error)
+	GetExerciseExportJob(ctx context.Context, id uuid.UUID) (ExerciseExportJob, error)
 	// A stored file still counts as the task's copy only while the media GC would keep it: some reference holds it,
 	// or it is younger than the GC grace cutoff (the same rule DeleteUnreferencedFiles applies). A file past that
 	// point may vanish at any moment, so it is neither offered by the lookup nor kept by a claim.
 	// The task's stored file for a content, if any. Scoped to the one task: never reveals another task's files.
 	GetExerciseFileByHash(ctx context.Context, arg GetExerciseFileByHashParams) (GetExerciseFileByHashRow, error)
+	GetExerciseImportJob(ctx context.Context, id uuid.UUID) (ExerciseImportJob, error)
 	GetExerciseInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error)
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (ExerciseProposal, error)
 	GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (ExerciseResourceElevation, error)
@@ -487,6 +500,8 @@ type Querier interface {
 	// deterministic, not incidental, answer. Repositories don't validate on read:
 	// a ref_type/ref_id with no rows simply yields an empty slice, not an error.
 	GetFileReferenceIDs(ctx context.Context, arg GetFileReferenceIDsParams) ([]uuid.UUID, error)
+	GetImageBlobPush(ctx context.Context, digest string) (ImageBlobPush, error)
+	GetImageRegistrySettings(ctx context.Context) (ImageRegistrySetting, error)
 	GetInAppTemplate(ctx context.Context, id uuid.UUID) (NotificationInAppTemplate, error)
 	GetInboxItemForUser(ctx context.Context, arg GetInboxItemForUserParams) (GetInboxItemForUserRow, error)
 	GetInfrastructureAgent(ctx context.Context, id uuid.UUID) (InfrastructureAgent, error)
@@ -625,6 +640,7 @@ type Querier interface {
 	HasEventLabRetentionPin(ctx context.Context, arg HasEventLabRetentionPinParams) (bool, error)
 	HasIncompleteRequiredEventFormDelivery(ctx context.Context, arg HasIncompleteRequiredEventFormDeliveryParams) (bool, error)
 	InsertErrorSample(ctx context.Context, arg InsertErrorSampleParams) error
+	InsertEventRegistrySecret(ctx context.Context, arg InsertEventRegistrySecretParams) error
 	// The first lifecycle transition captures the population. A retry must return
 	// that original immutable snapshot instead of replacing it.
 	InsertEventScoringPopulation(ctx context.Context, arg InsertEventScoringPopulationParams) (EventScoringPopulation, error)
@@ -636,6 +652,9 @@ type Querier interface {
 	// never insert/freeze a cohort before the assignment preparation boundary.
 	InvalidateEventLabRevealBarrier(ctx context.Context, arg InvalidateEventLabRevealBarrierParams) error
 	InviteEventParticipant(ctx context.Context, arg InviteEventParticipantParams) (EventParticipant, error)
+	// The list query's predicate for one digest, asked again right before its tags are removed: nothing references it
+	// now, no row of it was uploaded at/after $2, and none of its tags is shared with another digest.
+	IsDigestCollectable(ctx context.Context, arg IsDigestCollectableParams) (pgtype.Bool, error)
 	IsEventChallengePublished(ctx context.Context, id uuid.UUID) (bool, error)
 	IsEventLabManualReachable(ctx context.Context, arg IsEventLabManualReachableParams) (bool, error)
 	IsEventTeamLabComplete(ctx context.Context, id uuid.UUID) (pgtype.Bool, error)
@@ -771,6 +790,10 @@ type Querier interface {
 	// query: names, scope, catalog version numbers (ordinal among published
 	// versions), newer versions, fork source, infrastructure, counts.
 	ListEventExerciseDetails(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseDetailsRow, error)
+	// The active attachments of an event with the distinct device images of their
+	// pinned version (every variant's topology; forwarding devices carry no
+	// image). A read-side shape for the image availability check.
+	ListEventExerciseImages(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseImagesRow, error)
 	// Every prerequisite edge of one board revision in one query.
 	ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]EventChallengePrerequisite, error)
 	ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]EventExercise, error)
@@ -864,6 +887,7 @@ type Querier interface {
 	ListEventRegistrationDays(ctx context.Context, arg ListEventRegistrationDaysParams) ([]ListEventRegistrationDaysRow, error)
 	// Versions of the event's registration form (at most one form per event).
 	ListEventRegistrationFormVersions(ctx context.Context, eventID uuid.UUID) ([]ListEventRegistrationFormVersionsRow, error)
+	ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUID) ([]EventRegistrySecret, error)
 	// Event analytics, «Звіт по заходу» (docs/EVENT-ANALYTICS.md §6.8): the
 	// ranking, the per-task table and the funnel tail. The key numbers and the
 	// activity series come from the overview statements.
@@ -1339,6 +1363,13 @@ type Querier interface {
 	// A historical dispatched generation with no persisted requests is unknown,
 	// never a zero-capacity certificate. Unlaunched objective pins do not hold CPU.
 	ListUnaccountedEventLabStarts(ctx context.Context) ([]ListUnaccountedEventLabStartsRow, error)
+	// Rows (tags) of the platform digests the tag collector may remove: every row of the digest was uploaded before
+	// $1 (the grace filter, applied first), and no exercise version (draft, published, any status) has a device image
+	// platform:<name>@<digest> (the name may differ). Variants that are not an array, or a "devices" that is null or
+	// not an array, hold no image. A digest with a tag that a row of another digest also maps (a shared tag: only a bug or
+	// an old short tag makes one) is never a candidate: removing that tag could remove what serves the other digest; its
+	// rows stay until the other digest's row goes. At most 500 rows a pass; the rest wait for the next one.
+	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
 	// First and last name of the authors an exercise response shows (never the email).
@@ -1429,6 +1460,8 @@ type Querier interface {
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
 	OpenEventStandRollout(ctx context.Context, arg OpenEventStandRolloutParams) error
 	OpenReadyEventLabRevealBarriers(ctx context.Context, arg OpenReadyEventLabRevealBarriersParams) (int64, error)
+	// Whether a row of another digest already maps this tag: CreateImage refuses then instead of re-pointing the tag.
+	PlatformImageTagTakenByOtherDigest(ctx context.Context, arg PlatformImageTagTakenByOtherDigestParams) (bool, error)
 	// Ready -> Published for board-published challenges. A challenge without a lab
 	// binding is static and opens at once; one with a binding is infrastructure
 	// and opens only when the caller passes the event's strict barrier.
@@ -1648,6 +1681,9 @@ type Querier interface {
 	SetPlatformSMTPProviderEnabled(ctx context.Context, arg SetPlatformSMTPProviderEnabledParams) (MailSmtpConfig, error)
 	SetResourceCalendarSettings(ctx context.Context, arg SetResourceCalendarSettingsParams) error
 	StartErrorNotification(ctx context.Context, arg StartErrorNotificationParams) error
+	// Background imports of task archives with device images (the import job aggregate: one row per source).
+	// Records a new import of the source, or returns the row the source already has: one import per source.
+	StartExerciseImportJob(ctx context.Context, arg StartExerciseImportJobParams) (ExerciseImportJob, error)
 	// What a user (or, with a nil user, anybody in the team) did against one task
 	// before a moment. Keep lab-only rows separate from participant observations:
 	// their packets cannot supply missing participant response evidence.
@@ -1700,6 +1736,8 @@ type Querier interface {
 	UpdateEventParticipant(ctx context.Context, arg UpdateEventParticipantParams) (int64, error)
 	// Event managers may change only the participant-visible name.
 	UpdateEventPublicName(ctx context.Context, arg UpdateEventPublicNameParams) (int64, error)
+	// The whole editable entity in one statement; id and event_id never change.
+	UpdateEventRegistrySecret(ctx context.Context, arg UpdateEventRegistrySecretParams) (int64, error)
 	UpdateEventScoringProfile(ctx context.Context, arg UpdateEventScoringProfileParams) (int64, error)
 	UpdateEventStage(ctx context.Context, arg UpdateEventStageParams) (EventStage, error)
 	UpdateEventTeam(ctx context.Context, arg UpdateEventTeamParams) (int64, error)
@@ -1715,6 +1753,10 @@ type Querier interface {
 	// published_version_id (owned by the lifecycle CTEs — including them here
 	// would race a concurrent publish) and created_at/created_by (immutable).
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
+	// The whole job aggregate (state, stored file, error) in one write.
+	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
+	// The whole job aggregate (state, created tasks, error) in one write.
+	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
 	UpdateInAppTemplate(ctx context.Context, arg UpdateInAppTemplateParams) (NotificationInAppTemplate, error)
 	// What an admin may change after enrollment: the label, the order, the switch and the server CA. The
 	// endpoint identifies the agent (and its certificate), so it never changes.
@@ -1763,8 +1805,16 @@ type Querier interface {
 	// (updated_at & co) are deliberately untouched — the identity optimistic lock
 	// must not be disturbed by content saves.
 	UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error)
+	// The whole push state of one blob in one statement (queued, failed).
+	UpsertImageBlobPush(ctx context.Context, arg UpsertImageBlobPushParams) error
+	// The settings are one row (id is always true): the whole entity is written in
+	// one statement. Timestamps come from the domain.
+	UpsertImageRegistrySettings(ctx context.Context, arg UpsertImageRegistrySettingsParams) error
 	UpsertLabMonitoringCurrent(ctx context.Context, arg UpsertLabMonitoringCurrentParams) error
 	UpsertNotificationSetting(ctx context.Context, arg UpsertNotificationSettingParams) (NotificationSetting, error)
+	// One row per pushed tag. Uploading the same image again (same digest and tag) refreshes the row: the upload time
+	// (the tag collector's 24 h grace starts again), the exercise and the uploader.
+	UpsertPlatformImage(ctx context.Context, arg UpsertPlatformImageParams) error
 	UpsertPlatformMailIdentity(ctx context.Context, arg UpsertPlatformMailIdentityParams) (MailIdentity, error)
 	// Atomic get-or-create-or-update: key is UNIQUE, so ON CONFLICT replaces the
 	// old read→create|update transaction. Timestamps come from the domain factory.

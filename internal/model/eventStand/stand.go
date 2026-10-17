@@ -54,6 +54,15 @@ const (
 // nothing is deployed before it exists, then everything starts by itself.
 const ReasonAwaitingReservation = "awaiting_reservation"
 
+// ReasonImageUnavailable prefixes the reason of a Lab that was never deployed
+// because one of its images cannot be pulled ("ImageUnavailable: <image>").
+const ReasonImageUnavailable = "ImageUnavailable"
+
+// ImageUnavailableReason is the stored failure reason of a Lab refused for image.
+func ImageUnavailableReason(image string) string {
+	return Reason(ReasonImageUnavailable + ": " + image)
+}
+
 // DeployTimeout fails a Lab that the agent accepted but never reported
 // ready, so a stuck image pull or crash loop reaches the moderators
 // (EVENT_STAND_DEPLOY_TIMEOUT, set once at start).

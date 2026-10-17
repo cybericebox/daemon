@@ -12,8 +12,8 @@ import (
 // task imports again. One entry may be as large as one stored file (MEDIA_MAX_UPLOAD_BYTES, 512 MiB by default),
 // so every attachment fits. To be moved to platform settings later.
 const (
-	// MaxArchiveBytes is the .zip file itself.
-	MaxArchiveBytes int64 = 512 << 20
+	// MaxArchiveBytes is the .zip file itself (without device images; see MaxArchiveWithImagesBytes).
+	MaxArchiveBytes = exerciseModel.MaxArchiveBytes
 	// MaxArchiveEntryBytes is one file unpacked.
 	MaxArchiveEntryBytes int64 = 512 << 20
 	// MaxArchiveUnpackedBytes is all files unpacked together.

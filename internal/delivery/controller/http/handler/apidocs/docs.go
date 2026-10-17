@@ -7383,6 +7383,50 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/images/availability": {
+            "get": {
+                "description": "Checks the device images of every active task of the event (its pinned version, all variants) with the event's own registry credentials. Lists only the tasks with unavailable images; an empty list means every image can be pulled. Positive results are cached for 60 s.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-registry"
+                ],
+                "summary": "The event's tasks whose images cannot be pulled now",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/imageRegistry.eventExerciseImagesResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/labs": {
             "get": {
                 "produces": [
@@ -11256,6 +11300,227 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/registry-secrets": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-registry"
+                ],
+                "summary": "List the event's registry secrets (tokens are never returned)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/imageRegistry.eventSecretResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-registry"
+                ],
+                "summary": "Add a registry secret to the event; used only for this event's labs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "host, optional repository prefix, username, token",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/imageRegistry.eventSecretRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.eventSecretResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "same host and prefix already saved, or secret storage not configured",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/registry-secrets/{secretId}": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-registry"
+                ],
+                "summary": "Change a registry secret of the event; an empty token keeps the stored one",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Secret ID",
+                        "name": "secretId",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "host, optional repository prefix, username, optional new token",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/imageRegistry.eventSecretRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.eventSecretResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "no such secret in this event",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "same host and prefix already saved, or secret storage not configured",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-registry"
+                ],
+                "summary": "Remove a registry secret from the event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Secret ID",
+                        "name": "secretId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "no such secret in this event",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -15493,6 +15758,7 @@ const docTemplate = `{
         },
         "/exercises/export": {
             "post": {
+                "description": "200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,\n` + "`" + `images/…/\u003cdevice\u003e.tar` + "`" + `) the export runs in the background: 202 {JobID}; poll GET\n/exercises/export/jobs/{jobID}, then read the file in chunks.",
                 "consumes": [
                     "application/json"
                 ],
@@ -15505,7 +15771,7 @@ const docTemplate = `{
                 "summary": "Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)",
                 "parameters": [
                     {
-                        "description": "selection and secret option",
+                        "description": "selection and options",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -15533,8 +15799,73 @@ const docTemplate = `{
                             ]
                         }
                     },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.exportJobStarted"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/export/jobs/{jobID}": {
+            "get": {
+                "description": "running → done (File: the stored zip, read in chunks like any export) or failed (Error: Code, Message,\nContext). Only the user who started it sees it (404 otherwise). The file is kept for the media grace\nwindow (24 h by default).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "State of a background export «з образами»",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "export job ID",
+                        "name": "jobID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.exportJobResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -15714,6 +16045,7 @@ const docTemplate = `{
         },
         "/exercises/import": {
             "post": {
+                "description": "200 with the created tasks; an archive naming device image files is stored as a file and imported\nin the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -15761,6 +16093,24 @@ const docTemplate = `{
                             ]
                         }
                     },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobStarted"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
@@ -15795,8 +16145,56 @@ const docTemplate = `{
                 }
             }
         },
-        "/exercises/import/uploaded": {
+        "/exercises/import/jobs/{jobID}": {
+            "get": {
+                "description": "running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is\ncreated unless the whole import succeeded. Only the user who started it sees it (404 otherwise).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "State of a background task archive import",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "import job ID",
+                        "name": "jobID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/import/upload": {
             "post": {
+                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits apply: 512 MiB). With image files (` + "`" + `image: {file: …}` + "`" + `)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.",
                 "consumes": [
                     "application/json"
                 ],
@@ -15806,7 +16204,92 @@ const docTemplate = `{
                 "tags": [
                     "exercises"
                 ],
-                "summary": "Import an exercise ZIP archive that went up in chunks",
+                "summary": "Import a task archive uploaded in chunks (Purpose exercise-archive)",
+                "parameters": [
+                    {
+                        "description": "the upload and the archive password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.importUploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.exerciseResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobStarted"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/import/uploaded": {
+            "post": {
+                "description": "200 with the created tasks; an archive naming device image files is imported in the background:\n202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Import an exercise ZIP archive that went up in chunks (completed into a file, at most 512 MiB)",
                 "parameters": [
                     {
                         "description": "the uploaded file and the archive password",
@@ -15834,6 +16317,24 @@ const docTemplate = `{
                                             "items": {
                                                 "$ref": "#/definitions/exercise.exerciseResponse"
                                             }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobStarted"
                                         }
                                     }
                                 }
@@ -16266,6 +16767,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Purpose image-blob, or exercise-archive over 512 MiB, while the platform image registry is not configured (72801) or failing (72802)",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -17033,6 +17540,377 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images": {
+            "post": {
+                "description": "Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag \u003cname\u003e-\u003cthe whole digest hex\u003e and returns the platform reference for the device.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Create a platform image from blobs already in the registry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "image name, config and layers",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.createImageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.createImageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/blobs": {
+            "post": {
+                "description": "Same access as saving the draft. The upload must be the caller's chunked upload with Purpose \"image-blob\", every chunk received and Size bytes. 200 {State:\"present\"} when the registry already has the blob; 202 {State:\"pushing\"} when the push is queued (poll GET …/images/blobs/{digest}).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Queue the push of an uploaded image blob into the platform registry",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "upload and blob",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.pushBlobRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.blobStatusResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.blobStatusResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/blobs/missing": {
+            "post": {
+                "description": "Same access as saving the draft. Upload only the missing blobs (chunked upload, Purpose \"image-blob\"), then push each one.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Which image blobs the platform registry does not have yet",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "blob digests",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.missingBlobsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.missingBlobsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/blobs/{digest}": {
+            "get": {
+                "description": "Same access as saving the draft. present: the platform registry has it; pushing: a push is queued or running; failed: the last push failed (Reason), ask for the push again or upload again; missing: upload it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Where one image blob stands: present, pushing, failed or missing",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "blob digest, sha256:\u003c64 hex\u003e",
+                        "name": "digest",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.blobStatusResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/{id}/images/check": {
+            "post": {
+                "description": "Same access as saving the draft. Platform images (platform:\u003cname\u003e@sha256:…) are checked in the platform registry, other images anonymously; an event-owned exercise also uses its event's registry credentials. One result per distinct image, in the order sent. Positive results are cached for 60 s.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Check that the device images of the exercise can be pulled",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "exercise ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "images",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.checkImagesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.imageAvailabilityResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -22082,6 +22960,178 @@ const docTemplate = `{
                 }
             }
         },
+        "/settings/image-registry": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Get the platform image registry settings (tokens are never returned)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Save the platform image registry settings after checking the push token can push",
+                "parameters": [
+                    {
+                        "description": "settings; empty tokens keep the stored ones",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/imageRegistry.saveSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "registry unavailable (Context.reason) or secret storage not configured",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Remove the platform image registry settings and tokens",
+                "responses": {
+                    "200": {
+                        "description": "the cleared (not configured) settings",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/image-registry/repositories": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "List the repositories a registry token can see",
+                "parameters": [
+                    {
+                        "description": "provider, account and token (empty: the stored one)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/imageRegistry.listRepositoriesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.repositoriesResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "registry unavailable (Context.reason)",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/settings/participant-preview": {
             "get": {
                 "produces": [
@@ -26777,6 +27827,10 @@ const docTemplate = `{
                 "Total": {
                     "type": "integer"
                 },
+                "Unavailable": {
+                    "description": "Unavailable images cannot be pulled at all; they are not prewarmed and their labs do not start.",
+                    "type": "integer"
+                },
                 "UpdatedAt": {
                     "type": "string"
                 },
@@ -31243,6 +32297,33 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.blobStatusResponse": {
+            "type": "object",
+            "properties": {
+                "Reason": {
+                    "type": "string"
+                },
+                "State": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.checkImagesRequest": {
+            "type": "object",
+            "required": [
+                "Images"
+            ],
+            "properties": {
+                "Images": {
+                    "description": "Images are the device image references of the editor (at most 200, each at most 512 characters).",
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
         "exercise.checkpointRequest": {
             "type": "object",
             "properties": {
@@ -31293,6 +32374,41 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "exercise.createImageRequest": {
+            "type": "object",
+            "required": [
+                "Config",
+                "Layers",
+                "Name"
+            ],
+            "properties": {
+                "Config": {
+                    "$ref": "#/definitions/exercise.descriptorRequest"
+                },
+                "Layers": {
+                    "type": "array",
+                    "maxItems": 500,
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/exercise.descriptorRequest"
+                    }
+                },
+                "Name": {
+                    "description": "Name becomes the platform image name (lowercased, other characters replaced).",
+                    "type": "string",
+                    "maxLength": 255
+                }
+            }
+        },
+        "exercise.createImageResponse": {
+            "type": "object",
+            "properties": {
+                "Reference": {
+                    "description": "Reference is platform:\u003cname\u003e@sha256:\u003cmanifest digest\u003e, the device image to save.",
+                    "type": "string"
                 }
             }
         },
@@ -31568,6 +32684,28 @@ const docTemplate = `{
                 },
                 "TaskID": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.descriptorRequest": {
+            "type": "object",
+            "required": [
+                "Digest",
+                "MediaType",
+                "Size"
+            ],
+            "properties": {
+                "Digest": {
+                    "type": "string",
+                    "maxLength": 80
+                },
+                "MediaType": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "Size": {
+                    "type": "integer",
+                    "minimum": 1
                 }
             }
         },
@@ -32056,10 +33194,47 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "IncludeImages": {
+                    "description": "IncludeImages writes the platform images of the devices into the archive («з образами», up to 10 GiB): the export\nthen runs in the background, 202 {JobID}.",
+                    "type": "boolean"
+                },
                 "IncludeSecrets": {
                     "type": "boolean"
                 },
                 "Password": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.exportJobResponse": {
+            "type": "object",
+            "properties": {
+                "Error": {
+                    "description": "Error is why it failed (failed only).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.importJobError"
+                        }
+                    ]
+                },
+                "File": {
+                    "description": "File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index} (done only).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.exportedFileResponse"
+                        }
+                    ]
+                },
+                "State": {
+                    "description": "State is running, done or failed.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.exportJobStarted": {
+            "type": "object",
+            "properties": {
+                "JobID": {
                     "type": "string"
                 }
             }
@@ -32191,6 +33366,82 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.imageAvailabilityResponse": {
+            "type": "object",
+            "properties": {
+                "Image": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "Status": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importJobError": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "type": "integer"
+                },
+                "Context": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "Message": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importJobResponse": {
+            "type": "object",
+            "properties": {
+                "Error": {
+                    "description": "Error is why it failed (failed only).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.importJobError"
+                        }
+                    ]
+                },
+                "Exercises": {
+                    "description": "Exercises are the created tasks (done only).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.exerciseResponse"
+                    }
+                },
+                "State": {
+                    "description": "State is running, done or failed.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importJobStarted": {
+            "type": "object",
+            "properties": {
+                "JobID": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importUploadRequest": {
+            "type": "object",
+            "required": [
+                "UploadID"
+            ],
+            "properties": {
+                "Password": {
+                    "type": "string"
+                },
+                "UploadID": {
+                    "description": "UploadID is a chunked upload with Purpose \"exercise-archive\", every chunk sent (no complete call).",
+                    "type": "string"
+                }
+            }
+        },
         "exercise.importUploadedRequest": {
             "type": "object",
             "required": [
@@ -32246,6 +33497,35 @@ const docTemplate = `{
                 },
                 "Type": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.missingBlobsRequest": {
+            "type": "object",
+            "required": [
+                "Digests"
+            ],
+            "properties": {
+                "Digests": {
+                    "description": "Digests are the image's blob digests (config and layers), sha256:\u003c64 lowercase hex\u003e.",
+                    "type": "array",
+                    "maxItems": 501,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "exercise.missingBlobsResponse": {
+            "type": "object",
+            "properties": {
+                "Missing": {
+                    "description": "Missing are the digests the registry does not have, in the order sent; never null.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -32389,6 +33669,28 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.pushBlobRequest": {
+            "type": "object",
+            "required": [
+                "Digest",
+                "Size",
+                "UploadID"
+            ],
+            "properties": {
+                "Digest": {
+                    "type": "string",
+                    "maxLength": 80
+                },
+                "Size": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "UploadID": {
+                    "description": "UploadID is a chunked upload of the caller with Purpose \"image-blob\" and every chunk received.",
+                    "type": "string"
+                }
+            }
+        },
         "exercise.rejectProposalRequest": {
             "type": "object",
             "properties": {
@@ -32525,6 +33827,14 @@ const docTemplate = `{
                 "Name": {
                     "type": "string",
                     "maxLength": 255
+                },
+                "Purpose": {
+                    "description": "Purpose \"image-blob\" uploads one blob of a container image (the file limit is then 10 GiB, an image\narchive's); \"exercise-archive\" a task archive to import with POST /exercises/import/upload (up to 512 MiB +\n10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.",
+                    "type": "string",
+                    "enum": [
+                        "image-blob",
+                        "exercise-archive"
+                    ]
                 },
                 "Size": {
                     "type": "integer",
@@ -33123,6 +34433,155 @@ const docTemplate = `{
                 },
                 "state": {
                     "description": "State is one of the PodState* values.",
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.eventExerciseImagesResponse": {
+            "type": "object",
+            "properties": {
+                "EventExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseID": {
+                    "type": "string"
+                },
+                "ExerciseName": {
+                    "type": "string"
+                },
+                "Unavailable": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/imageRegistry.unavailableImageResponse"
+                    }
+                }
+            }
+        },
+        "imageRegistry.eventSecretRequest": {
+            "type": "object",
+            "properties": {
+                "Host": {
+                    "type": "string"
+                },
+                "RepositoryPrefix": {
+                    "type": "string"
+                },
+                "Token": {
+                    "type": "string"
+                },
+                "Username": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.eventSecretResponse": {
+            "type": "object",
+            "properties": {
+                "Host": {
+                    "type": "string"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "RepositoryPrefix": {
+                    "type": "string"
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                },
+                "Username": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.listRepositoriesRequest": {
+            "type": "object",
+            "properties": {
+                "Account": {
+                    "type": "string"
+                },
+                "Provider": {
+                    "type": "string"
+                },
+                "Token": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.repositoriesResponse": {
+            "type": "object",
+            "properties": {
+                "Repositories": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "imageRegistry.saveSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "Account": {
+                    "type": "string"
+                },
+                "ClearPullToken": {
+                    "type": "boolean"
+                },
+                "Provider": {
+                    "type": "string"
+                },
+                "PullToken": {
+                    "type": "string"
+                },
+                "PushToken": {
+                    "type": "string"
+                },
+                "Repository": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.settingsResponse": {
+            "type": "object",
+            "properties": {
+                "Account": {
+                    "type": "string"
+                },
+                "Configured": {
+                    "type": "boolean"
+                },
+                "Provider": {
+                    "type": "string"
+                },
+                "PullTokenSet": {
+                    "type": "boolean"
+                },
+                "PushTokenSet": {
+                    "type": "boolean"
+                },
+                "Repository": {
+                    "type": "string"
+                },
+                "SecretsKeyMissing": {
+                    "description": "SecretsKeyMissing: the platform secrets key is unset; tokens can be neither opened nor saved.",
+                    "type": "boolean"
+                },
+                "UpdatedAt": {
+                    "type": "string"
+                }
+            }
+        },
+        "imageRegistry.unavailableImageResponse": {
+            "type": "object",
+            "properties": {
+                "Image": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "Status": {
                     "type": "string"
                 }
             }

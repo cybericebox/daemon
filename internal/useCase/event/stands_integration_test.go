@@ -58,14 +58,16 @@ type standAgent struct {
 	deviceCalls  []string
 	deviceErr    error
 	prewarmCalls [][]string
+	prewarmCreds [][]infraModel.RegistryCredential
 	prewarmState string
 	prewarmErr   error
 }
 
-func (a *standAgent) PrewarmImages(_ context.Context, images []string) ([]infraModel.ImagePrewarm, error) {
+func (a *standAgent) PrewarmImages(_ context.Context, images []string, creds []infraModel.RegistryCredential) ([]infraModel.ImagePrewarm, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.prewarmCalls = append(a.prewarmCalls, append([]string(nil), images...))
+	a.prewarmCreds = append(a.prewarmCreds, append([]infraModel.RegistryCredential(nil), creds...))
 	if a.prewarmErr != nil {
 		return nil, a.prewarmErr
 	}
@@ -223,6 +225,7 @@ type standFixture struct {
 	staticChallenge, infraOne uuid.UUID
 	infraTaskID, infraDevice  uuid.UUID
 	sets                      *standSets
+	topologies                standTopologies
 }
 
 // journalCollector stands in for the error journal and keeps what is reported.
@@ -550,13 +553,19 @@ func newStandFixture(t *testing.T) *standFixture {
 	f.blueID, f.redID, f.smallID = newTeam("Blue", true), newTeam("Red", true), newTeam("Small", false)
 	f.staticChallenge = f.attach(t, false)
 	f.infraOne = f.attach(t, true)
-	f.uc = event.NewEventUseCase(event.Dependencies{
-		Repo: db.Queries, UoW: postgres.NewUnitOfWorker[event.IRepository](postgres.NewUoWFactory(db.Pool)),
-		Infra: f.agent, InfrastructureCapability: standCapability{}, Topologies: standTopologies{deviceID: f.infraDevice, taskID: f.infraTaskID, sets: f.sets},
-		SignalPublishers: event.NewOutboxSignalPublisherFactory(time.Now),
-		StandPrewarmLead: 30 * time.Minute, StandDeployBudget: 200,
-	})
+	f.topologies = standTopologies{deviceID: f.infraDevice, taskID: f.infraTaskID, sets: f.sets}
+	f.uc = f.newUseCase(200)
 	return f
+}
+
+// newUseCase builds the event use case over the fixture with a stand deploy budget per pass.
+func (f *standFixture) newUseCase(budget int) *event.EventUseCase {
+	return event.NewEventUseCase(event.Dependencies{
+		Repo: f.db.Queries, UoW: postgres.NewUnitOfWorker[event.IRepository](postgres.NewUoWFactory(f.db.Pool)),
+		Infra: f.agent, InfrastructureCapability: standCapability{}, Topologies: f.topologies,
+		SignalPublishers: event.NewOutboxSignalPublisherFactory(time.Now),
+		StandPrewarmLead: 30 * time.Minute, StandDeployBudget: budget,
+	})
 }
 
 // attach publishes one single-task exercise (static or with a lab topology)

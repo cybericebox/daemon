@@ -16,7 +16,11 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/eventmail"
 	"github.com/cybericebox/daemon/internal/jobs/eventscoringpopulation"
 	"github.com/cybericebox/daemon/internal/jobs/eventstands"
+	"github.com/cybericebox/daemon/internal/jobs/exerciseexport"
+	"github.com/cybericebox/daemon/internal/jobs/exerciseimport"
 	"github.com/cybericebox/daemon/internal/jobs/idempotencygc"
+	"github.com/cybericebox/daemon/internal/jobs/imageblobpush"
+	"github.com/cybericebox/daemon/internal/jobs/imageregistrygc"
 	"github.com/cybericebox/daemon/internal/jobs/labaccesssync"
 	"github.com/cybericebox/daemon/internal/jobs/labcleanup"
 	"github.com/cybericebox/daemon/internal/jobs/labgroupsweep"
@@ -61,6 +65,10 @@ type (
 		eventanalyticsJob.IUseCase
 		errorjournalJob.IUseCase
 		resourcecalendarJob.IUseCase
+		imageblobpushJob.IUseCase
+		imageregistrygcJob.IUseCase
+		exerciseimportJob.IUseCase
+		exerciseexportJob.IUseCase
 	}
 	workerRegistry struct {
 		uc                   iUseCase
@@ -127,6 +135,10 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	river.AddWorker(workers, eventanalyticsJob.NewWorker(wr.uc))
 	river.AddWorker(workers, errorjournalJob.NewPurgeWorker(wr.uc))
 	river.AddWorker(workers, resourcecalendarJob.NewWorker(wr.uc))
+	river.AddWorker(workers, imageblobpushJob.NewWorker(wr.uc))
+	river.AddWorker(workers, imageregistrygcJob.NewWorker(wr.uc))
+	river.AddWorker(workers, exerciseimportJob.NewWorker(wr.uc))
+	river.AddWorker(workers, exerciseexportJob.NewWorker(wr.uc))
 }
 
 // PeriodicJobs declares the schedule-driven jobs (queried by the worker
@@ -138,6 +150,10 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 			func() (river.JobArgs, *river.InsertOpts) { return jobsModel.MediaGCArgs{}, nil },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
+		// Unused platform registry tags (no version uses them, older than a day), hourly, one pass at a time.
+		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.ImageRegistryGCArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.IdempotencyGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(5*time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.ResultChangeGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.EventScoringPopulationArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),

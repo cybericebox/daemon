@@ -127,6 +127,7 @@ func uploadToDomain(row postgres.MediaUpload) mediaModel.Upload {
 	return mediaModel.Upload{
 		ID: row.ID, CreatedBy: row.CreatedBy, Name: row.Name, ContentType: row.ContentType, SizeBytes: row.SizeBytes,
 		ChunkBytes: row.ChunkBytes, ChunksReceived: int(row.ChunksReceived), CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt,
+		Purpose: mediaModel.UploadPurpose(row.Purpose),
 	}
 }
 
@@ -134,7 +135,7 @@ func uploadToDomain(row postgres.MediaUpload) mediaModel.Upload {
 func (r *Repository) CreateUpload(ctx context.Context, u mediaModel.Upload) (mediaModel.Upload, error) {
 	row, err := r.q.CreateMediaUpload(ctx, postgres.CreateMediaUploadParams{
 		ID: u.ID, CreatedBy: u.CreatedBy, Name: u.Name, ContentType: u.ContentType, SizeBytes: u.SizeBytes,
-		ChunkBytes: u.ChunkBytes, CreatedAt: u.CreatedAt, ExpiresAt: u.ExpiresAt,
+		ChunkBytes: u.ChunkBytes, CreatedAt: u.CreatedAt, ExpiresAt: u.ExpiresAt, Purpose: string(u.Purpose),
 	})
 	if err != nil {
 		return mediaModel.Upload{}, err
