@@ -215,6 +215,9 @@ func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	require.Len(t, base.Topology.Devices, 1)
 	web := base.Topology.Devices[0]
 	require.Equal(t, "web", web.Name)
+	require.Nil(t, base.Topology.VisualRender, "visual_render: null is no layout")
+	require.Nil(t, web.External)
+	require.Nil(t, web.Persistence)
 	require.Len(t, base.Topology.Connections, 1)
 	var endpointDevices []uuid.UUID
 	for _, endpoint := range base.Topology.Connections[0].Endpoints {
@@ -241,6 +244,43 @@ func TestExampleArchive_EveryKeyHasEndOfLineComment(t *testing.T) {
 	}
 }
 
+// requiredKeyErrors is, per required key of the example, what the import error names when the key is deleted:
+// the key, its path or the object it belongs to. versions and variants carry the attachments, so without them
+// the first error is the file nothing links to any more.
+var requiredKeyErrors = map[string]string{
+	"schema":                                "schema",
+	"exercise":                              "exercise name",
+	"exercise.name":                         "exercise name",
+	"versions":                              "nothing links to",
+	"versions[1].status":                    "version status",
+	"versions[1].variants":                  "nothing links to",
+	"versions[1].variants[1].tasks[1].name": "task name",
+	"versions[1].variants[1].tasks[1].description":                                     "task description",
+	"versions[1].variants[1].tasks[1].difficulty":                                      "task difficulty",
+	"versions[1].variants[1].tasks[1].flag":                                            "task flag",
+	"versions[1].variants[1].tasks[1].attachments[1].file":                             "archive path",
+	"versions[1].variants[1].tasks[1].placeholders[1].kind":                            "placeholder",
+	"versions[1].variants[1].tasks[1].placeholders[1].ip_reference":                    "placeholder",
+	"versions[1].variants[1].tasks[1].hints[1].text":                                   "hint text",
+	"versions[1].variants[1].topology.devices[1].name":                                 `device named "web"`,
+	"versions[1].variants[1].topology.devices[1].type":                                 "device type",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].name":                   "device interface",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip":                     "device interface",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.type":                "static mode",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref":         "ip address",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.network": "address reference",
+	"versions[1].variants[1].topology.devices[1].interfaces[1].ip.address_ref.host":    "address reference",
+	"versions[1].variants[1].topology.connections[1].endpoints":                        "two endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[1].kind":                "endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[1].interface":           "endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[2].kind":                "endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[2].device":              "endpoints",
+	"versions[1].variants[1].topology.connections[1].endpoints[2].interface":           "device or interface",
+	"versions[1].variants[2].linked_to":                                                "every variant",
+	"versions[1].variants[2].tasks[1].flag":                                            "task flag",
+	"versions[1].variants[2].tasks[1].attachments[1].file":                             "archive path",
+}
+
 // Every key, at every level: an optional key may go (unless its comment says something here needs it, and then
 // it may not), a required one may not.
 func TestExampleArchive_CommentTagsMatchRealOptionality(t *testing.T) {
@@ -252,6 +292,9 @@ func TestExampleArchive_CommentTagsMatchRealOptionality(t *testing.T) {
 			switch {
 			case strings.HasPrefix(key.Comment, tagRequired):
 				require.Error(t, err, "%s is marked required but the example imports without it", key.Path)
+				want, listed := requiredKeyErrors[key.Path]
+				require.True(t, listed, "%s is required: add what its error says to requiredKeyErrors", key.Path)
+				require.Contains(t, strings.ToLower(err.Error()), strings.ToLower(want), "%s: the error must point at the key", key.Path)
 			case strings.Contains(key.Comment, neededHere):
 				require.Error(t, err, "%s says the example needs it, but the example imports without it", key.Path)
 			default:

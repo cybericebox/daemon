@@ -2,8 +2,11 @@ package exercise
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -80,5 +83,25 @@ func TestStripJSONComments_KeepsLineNumbers(t *testing.T) {
 	_, decodeErr := decodeArchiveV2(out)
 	if got := publicContext(t, decodeErr)["reason"]; got != "invalid JSON at line 4" {
 		t.Fatalf("reason = %v, want line 4", got)
+	}
+}
+
+// exercise.json has the same 4 MiB cap as exercise.yaml, checked before comments are stripped. The filler is
+// hex (no comment, valid JSON), so the zip's expansion ratio stays far below its own limit.
+func TestParseExerciseArchive_JSONDocumentTooLarge(t *testing.T) {
+	var filler bytes.Buffer
+	seed := sha256.Sum256([]byte("filler"))
+	for filler.Len() <= maxExerciseDocBytes {
+		seed = sha256.Sum256(seed[:])
+		filler.WriteString(hex.EncodeToString(seed[:]))
+	}
+	doc := `{"schema":"cib-exercise/1","exercise":{"name":"Завелике","description":"` + filler.String() + `"},"versions":[]}`
+	archive, err := BuildArchiveNoManifest(map[string][]byte{"exercise.json": []byte(doc)})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	_, err = ParseExerciseArchive(archive, "")
+	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) || !strings.Contains(err.Error(), "the document is too large") {
+		t.Fatalf("got %v, want the document-too-large error", err)
 	}
 }

@@ -567,6 +567,14 @@ func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, lin
 	return task, nil
 }
 
+// absentIfNull treats a JSON null (visual_render: null) as no value, so it is not stored as the text null.
+func absentIfNull(raw json.RawMessage) json.RawMessage {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil
+	}
+	return raw
+}
+
 // unknownEnum names the field and the value an enum name could not be matched for.
 func unknownEnum(path, value string) error {
 	return archiveInvalid(fmt.Sprintf("%s: unknown value %q", path, value))
@@ -601,7 +609,7 @@ func resolveDevice(path, name, rawID string, deviceIDs map[string]uuid.UUID) (uu
 }
 
 func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[string]uuid.UUID, error) {
-	topology := exerciseModel.Topology{VPN: t.VPN, Internet: t.Internet, VisualRender: t.VisualRender}
+	topology := exerciseModel.Topology{VPN: t.VPN, Internet: t.Internet, VisualRender: absentIfNull(t.VisualRender)}
 	deviceIDs := make(map[string]uuid.UUID, len(t.Devices))
 	for di, device := range t.Devices {
 		devicePath := fmt.Sprintf("%s.devices[%d]", path, di+1)

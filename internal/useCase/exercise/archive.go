@@ -83,9 +83,12 @@ func ParseExerciseArchive(data []byte, password string) (ParsedExerciseArchive, 
 	if err != nil {
 		return ParsedExerciseArchive{}, err
 	}
-	if name == "exercise.yaml" {
+	switch {
+	case name == "exercise.yaml":
 		body, err = yamlToJSON(body)
-	} else {
+	case len(body) > maxExerciseDocBytes: // the same cap as YAML, before any work on the bytes
+		err = archiveInvalid("the document is too large")
+	default:
 		body, err = stripJSONComments(body)
 	}
 	if err != nil {
