@@ -154,6 +154,9 @@ type (
 		// arguments of a notification job hold an address, a name and a link, so they do not stay for days.
 		JobCompletedRetention time.Duration `env:"JOB_COMPLETED_RETENTION" envDefault:"1h"`
 		JobFailedRetention    time.Duration `env:"JOB_FAILED_RETENTION"    envDefault:"24h"`
+		// JobDefaultWorkers is how many jobs of the default queue one replica runs at once (the durable notice
+		// and image queues keep their own 2 each).
+		JobDefaultWorkers int `env:"JOB_DEFAULT_WORKERS" envDefault:"6"`
 		// SMTPAllowedPorts are the ports an organizer may use for an event SMTP server.
 		SMTPAllowedPorts []int `env:"SMTP_ALLOWED_PORTS" envDefault:"25,465,587,2525"`
 
@@ -227,7 +230,17 @@ type (
 		// SSLMode defaults to verify-full: the connection is encrypted and the server's certificate and name are
 		// checked. An operator that talks to a database on a trusted local network sets another mode (disable
 		// for a development database). The database name defaults to the one the deploy creates (cybericebox).
-		SSLMode        string `env:"SSL_MODE" envDefault:"verify-full"`
+		SSLMode string `env:"SSL_MODE" envDefault:"verify-full"`
+		// MaxConns sizes the pool requests and use cases share. A statement waits at most AcquireTimeout for a
+		// free connection, then the request is answered 503 (Retry-After) instead of queueing until the client
+		// gives up. Connections are replaced after MaxConnLifetime and closed after MaxConnIdleTime unused.
+		MaxConns        int           `env:"MAX_CONNS"          envDefault:"32"`
+		AcquireTimeout  time.Duration `env:"ACQUIRE_TIMEOUT"    envDefault:"3s"`
+		MaxConnLifetime time.Duration `env:"MAX_CONN_LIFETIME"  envDefault:"30m"`
+		MaxConnIdleTime time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"5m"`
+		// JobMaxConns sizes the separate pool of the job queue and the session revocation poll, so neither can
+		// be starved by requests or starve them.
+		JobMaxConns    int    `env:"JOB_MAX_CONNS" envDefault:"8"`
 		MigrationsPath string // derived in populateForAllConfig
 	}
 
@@ -700,6 +713,26 @@ func (c TunablesConfig) Validate() error {
 	if c.MailMaxPerSecondLimit <= 0 {
 		return errors.New("MAIL_MAX_PER_SECOND_LIMIT must be positive")
 	}
+	if c.JobDefaultWorkers < 1 || c.JobDefaultWorkers > 64 {
+		return errors.New("JOB_DEFAULT_WORKERS must be between 1 and 64")
+	}
+	return nil
+}
+
+// Validate keeps the pools usable: a few connections at least, and an acquire timeout long enough for a busy
+// moment but short enough to answer before the client gives up.
+func (c PostgresConfig) Validate() error {
+	if c.MaxConns < 4 || c.JobMaxConns < 4 {
+		return errors.New("POSTGRES_MAX_CONNS and POSTGRES_JOB_MAX_CONNS must be at least 4")
+	}
+	if c.AcquireTimeout < 100*time.Millisecond || c.AcquireTimeout > 30*time.Second {
+		return errors.New("POSTGRES_ACQUIRE_TIMEOUT must be between 100ms and 30s")
+	}
+	if c.MaxConnLifetime <= 0 || c.MaxConnIdleTime <= 0 {
+		return errors.New(
+			"POSTGRES_MAX_CONN_LIFETIME and POSTGRES_MAX_CONN_IDLE_TIME must be positive",
+		)
+	}
 	return nil
 }
 
@@ -972,6 +1005,9 @@ func MustGetConfig() *Config {
 		log.Fatal().Err(err).Msg("Config: invalid TLS files")
 	}
 	log.Info().Str("mode", instance.HTTPController.Server.Mode()).Msg("Config: listener mode")
+	if err = instance.Infrastructure.Postgres.Validate(); err != nil {
+		log.Fatal().Err(err).Msg("Config: invalid postgres pool configuration")
+	}
 	if err = instance.Tunables.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid limits and timings")
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/infrastructureAgentRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labPlacementRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/labTrafficRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
 	jobsRegistry "github.com/cybericebox/daemon/internal/jobs"
 	errorjournalJob "github.com/cybericebox/daemon/internal/jobs/errorjournal"
@@ -58,10 +59,11 @@ func Run(cfg *config.Config) {
 	cls := setupClients(cfg)
 
 	// job worker client
-	// Every failed attempt, discard and panic of a job goes to the error journal.
-	wc := worker.NewWorkerClient(repo.Pool(), worker.Retention{
+	// Every failed attempt, discard and panic of a job goes to the error journal. River runs on the job pool;
+	// a job enqueued inside a use-case transaction still joins that transaction (InsertTx takes the caller's tx).
+	wc := worker.NewWorkerClient(repo.JobPool(), worker.Retention{
 		Completed: cfg.Tunables.JobCompletedRetention, Failed: cfg.Tunables.JobFailedRetention,
-	}).WithErrorHandler(errorjournalJob.ErrorHandler{})
+	}).WithErrorHandler(errorjournalJob.ErrorHandler{}).WithDefaultWorkers(cfg.Tunables.JobDefaultWorkers)
 
 	// Flag rate limits are process-wide settings read by the submit paths.
 	challengeAttempt.ChallengeRateLimit = challengeAttempt.RateLimit{Attempts: cfg.FlagRateLimit.ChallengeAttempts, Window: cfg.FlagRateLimit.ChallengeWindow}
@@ -82,9 +84,10 @@ func Run(cfg *config.Config) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("SESSION_ENCRYPTION_KEY is invalid")
 	}
+	// The poll runs on the job pool: a flood of requests holding the main pool cannot make it stale.
 	sessions := session.NewRuntime(session.RuntimeConfig{
 		Sealer:     sessionCipher,
-		Source:     sessionRepo.New(repo.Queries),
+		Source:     sessionRepo.New(postgres.New(repo.JobPool())),
 		StaleAfter: cfg.Auth.SessionRevocationStaleAfter,
 	})
 	if err = sessions.Start(runtimeCtx); err != nil {

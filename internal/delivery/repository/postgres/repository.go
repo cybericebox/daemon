@@ -24,13 +24,15 @@ const migrationTable = "ap_backend_schema_migrations"
 
 type (
 	// PostgresRepository is the concrete postgres data store. It embeds the
-	// pool-bound *Queries (so it IS a Querier for non-tx reads/writes) and holds
+	// acquire-limited *Queries (so it IS a Querier for non-tx reads/writes) and holds
 	// the tx-aware *DB used to mint per-useCase Units of Work via UoWFactory.
 	PostgresRepository struct {
 		*Queries
-		db   *DB
-		pool *pgxpool.Pool
-		cfg  *config.PostgresConfig
+		db      *DB
+		pool    *pgxpool.Pool
+		limited *AcquireLimited
+		jobPool *pgxpool.Pool
+		cfg     *config.PostgresConfig
 	}
 
 	Dependencies struct {
@@ -38,24 +40,29 @@ type (
 	}
 )
 
-// poolMaxConns bounds the pool of one replica. pgx would default to the CPU count (4 on a 4-vCPU node), fewer than the
-// River workers (12) alone: a few jobs holding a transaction left no connection for requests, the session revocation
-// poll and every other job. The server allows 200.
-const poolMaxConns = 32
-
-func newPoolConfig(dsn string) (*pgxpool.Config, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
+// newPoolConfig sizes one pool of the replica. pgx would default to the CPU count (4 on a 4-vCPU node). The main
+// pool (POSTGRES_MAX_CONNS, 32) serves requests and use cases, job handlers included: their concurrency is bounded
+// by the job workers (default 6 + durable notices 2 + images 2). The job pool (POSTGRES_JOB_MAX_CONNS, 8) carries
+// River itself (fetching, LISTEN, maintenance, migrations) and the session revocation poll, so a flood of requests
+// cannot starve the poll into mass 503s, and jobs holding a transaction cannot starve requests. The server allows 200.
+func newPoolConfig(dsn string, maxConns int, cfg *config.PostgresConfig) (*pgxpool.Config, error) {
+	poolConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
 	}
-	cfg.MaxConns = poolMaxConns
-	return cfg, nil
+	poolConfig.MaxConns = int32(maxConns) //nolint:gosec // validated: at least 4, far below int32
+	poolConfig.MaxConnLifetime = cfg.MaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.MaxConnIdleTime
+	return poolConfig, nil
 }
 
-func NewRepository(deps Dependencies) *PostgresRepository {
-	ctx := context.Background()
-
-	poolConfig, err := newPoolConfig(deps.Config.DSN())
+func openPool(
+	ctx context.Context,
+	dsn string,
+	maxConns int,
+	cfg *config.PostgresConfig,
+) *pgxpool.Pool {
+	poolConfig, err := newPoolConfig(dsn, maxConns, cfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to parse postgres pool config")
 	}
@@ -66,18 +73,27 @@ func NewRepository(deps Dependencies) *PostgresRepository {
 	if err = pool.Ping(ctx); err != nil {
 		log.Fatal().Err(err).Msg("Failed to ping postgres")
 	}
+	return pool
+}
 
-	db := NewDB(pool)
+func NewRepository(deps Dependencies) *PostgresRepository {
+	ctx := context.Background()
+
+	pool := openPool(ctx, deps.Config.DSN(), deps.Config.MaxConns, deps.Config)
+	jobPool := openPool(ctx, deps.Config.DSN(), deps.Config.JobMaxConns, deps.Config)
+	limited := NewAcquireLimited(pool, deps.Config.AcquireTimeout)
 
 	return &PostgresRepository{
-		Queries: New(pool),
-		db:      db,
+		Queries: New(limited),
+		db:      NewDB(limited),
 		pool:    pool,
+		limited: limited,
+		jobPool: jobPool,
 		cfg:     deps.Config,
 	}
 }
 
-// Close releases the connection pool. pgxpool.Close blocks until EVERY connection
+// Close releases both connection pools. pgxpool.Close blocks until EVERY connection
 // is returned; a connection still held by a goroutine that outlived its owner
 // (e.g. River after a timed-out stop) would hang the process forever on shutdown.
 // Bound it so Ctrl+C always exits promptly — a connection still open at process
@@ -85,19 +101,33 @@ func NewRepository(deps Dependencies) *PostgresRepository {
 func (r *PostgresRepository) Close() {
 	done := make(chan struct{})
 	go func() {
+		r.jobPool.Close()
 		r.pool.Close()
 		close(done)
 	}()
 	select {
 	case <-done:
 	case <-time.After(5 * time.Second):
-		log.Warn().Msg("Postgres pool close timed out; forcing exit (a connection was not released)")
+		log.Warn().
+			Msg("Postgres pool close timed out; forcing exit (a connection was not released)")
 	}
 }
 
-// Pool exposes the underlying pool for infrastructure that needs it (e.g. River).
+// Pool exposes the raw main pool, with no acquire timeout, for infrastructure that holds a connection of its own
+// (the laboratory monitoring lock, the seed command, migrations).
 func (r *PostgresRepository) Pool() *pgxpool.Pool {
 	return r.pool
+}
+
+// Limited is the main pool with the bounded wait for a connection, for the repositories that run raw statements
+// next to sqlc (Exec, QueryRow, Begin).
+func (r *PostgresRepository) Limited() *AcquireLimited {
+	return r.limited
+}
+
+// JobPool is the separate pool of the job queue (River) and the session revocation poll.
+func (r *PostgresRepository) JobPool() *pgxpool.Pool {
+	return r.jobPool
 }
 
 // UoWFactory hands out the Unit of Work factory with the *DB already wired in.
@@ -137,7 +167,9 @@ func (r *PostgresRepository) Migrate() error {
 func (r *PostgresRepository) SchemaCurrent() error {
 	entries, err := os.ReadDir(r.cfg.MigrationsPath)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the migrations directory").Err()
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to read the migrations directory").
+			Err()
 	}
 	var latest uint64
 	for _, e := range entries {
@@ -161,11 +193,14 @@ func (r *PostgresRepository) SchemaCurrent() error {
 	}
 	current, dirty, err := driver.Version()
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the schema version").Err()
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to read the schema version").
+			Err()
 	}
 	if dirty || current < 0 || uint64(current) != latest {
 		return model.ErrPlatform.WithError(fmt.Errorf("schema version %d (dirty: %t), expected %d", current, dirty, latest)).
-			WithMessage("The database schema is not current: start the backend first so it migrates").Err()
+			WithMessage("The database schema is not current: start the backend first so it migrates").
+			Err()
 	}
 	return nil
 }
