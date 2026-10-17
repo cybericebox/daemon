@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 29
+// ImageRegistryObjectCode — next free detail code: 30
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -97,6 +97,11 @@ var (
 	// digest, so this means a bug; the upload is refused rather than re-point a tag another image may serve.
 	ErrImageTagTaken = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("Another image already uses this registry tag").WithDetailCode(28)
+	// ErrImageArchiveUnreadable: an image file of a task archive is not one linux/amd64 image in an uncompressed
+	// docker save tar, is over MaxImageArchiveBytes, or a blob's bytes are not its digest. The public context
+	// "reason" says which: gzip, not_tar, no_image, multi_image, no_amd64, too_large, digest_mismatch.
+	ErrImageArchiveUnreadable = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+					WithMessage("The image archive cannot be imported").WithDetailCode(29)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
@@ -199,5 +201,27 @@ func TestChunkedUpload_ImageBlobNeedsTheRegistry(t *testing.T) {
 	}
 	if code := start(`{"Name":"a.bin","Size":10}`); code != http.StatusOK || uc.required != 1 {
 		t.Fatalf("file: %d, registry asked %d times", code, uc.required)
+	}
+}
+
+// A task archive upload ("exercise-archive") may carry images: over the archive limit (512 MiB) it is refused
+// before it starts while the platform registry is not configured; up to the limit it never asks.
+func TestChunkedUpload_LargeExerciseArchiveNeedsTheRegistry(t *testing.T) {
+	uc := &chunkedUC{upload: sampleUpload(), noRegistry: imageRegistryModel.ErrRegistryNotConfigured.Err()}
+	r := newChunkedEngine(uc, uuid.Must(uuid.NewV7()))
+	start := func(body string) (int, string) {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/exercises/uploads", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+	code, body := start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.MaxArchiveBytes+1))
+	if code != http.StatusConflict || !strings.Contains(body, "72801") || uc.started[0] != nil {
+		t.Fatalf("large archive without a registry: %d %s started=%v", code, body, uc.started)
+	}
+	code, _ = start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.MaxArchiveBytes))
+	if code != http.StatusOK || uc.purpose != mediaModel.UploadPurposeExerciseArchive || uc.required != 1 {
+		t.Fatalf("archive at the limit: %d %q, registry asked %d times", code, uc.purpose, uc.required)
 	}
 }

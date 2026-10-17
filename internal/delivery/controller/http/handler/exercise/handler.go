@@ -78,6 +78,10 @@ type (
 		// archive portability
 		ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts exerciseUseCase.ExportOptions) ([]byte, error)
 		ImportExerciseArchive(ctx context.Context, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error)
+		// background import of archives naming device image files
+		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
+		ImportUploadedArchive(ctx context.Context, in exerciseUseCase.ImportUploadInput) (exerciseUseCase.ArchiveImportStart, error)
+		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
 		// files
 		UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error)
 		GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error)
@@ -166,6 +170,10 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks
 		ex.POST("import/uploaded", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
+		// a task archive upload (purpose exercise-archive), read where its chunks lie; with images a background job
+		ex.POST("import/upload", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchiveUpload)
+		// the background import's state, for the user who started it (same gate as the import)
+		ex.GET("import/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importJob)
 		// the built-in example archive: same gate as the import it explains
 		ex.GET("import/example", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importExample)
 		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)

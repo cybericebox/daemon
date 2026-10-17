@@ -63,6 +63,11 @@ type ExerciseUseCase struct {
 	clock func() time.Time
 	// images checks a lab's images and gives its pull credentials; nil: no checks (narrow constructions).
 	images IImageAccess
+	// The background import of archives with image files (SetArchiveImport); nil: such archives are refused.
+	archiveImages  IArchiveImages
+	archiveSources IArchiveSources
+	importQueue    ImportJobQueue
+	importSealer   secret.Sealer
 }
 
 // IProposalInbox turns catalog proposals into inbox requests for platform

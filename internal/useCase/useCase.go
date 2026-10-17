@@ -176,6 +176,13 @@ func blobPushQueue(enq worker.IEnqueuer) imageRegistryUseCase.BlobPushQueue {
 	}
 }
 
+// importQueue adapts the River enqueuer to the background archive import: one run per job while queued or running.
+func importQueue(enq worker.IEnqueuer) exerciseUseCase.ImportJobQueue {
+	return func(ctx context.Context, args jobsModel.ExerciseImportArgs) error {
+		return enq.EnqueueUniqueAt(ctx, args, time.Now())
+	}
+}
+
 // testDeployExpiry adapts the River enqueuer to the exercise use case's test lab expiry port.
 type testDeployExpiry struct{ enq worker.IEnqueuer }
 
@@ -302,6 +309,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 	})
 	// Every lab deploy and prewarm checks its images first and sends exactly that lab's pull credentials.
 	exerciseUC.SetImageAccess(imageRegistryUC)
+	// Task archives naming device image files import in the background: images pushed through the registry use
+	// case, the archive read where it lies, the password sealed with the platform cipher.
+	exerciseUC.SetArchiveImport(exerciseUseCase.ArchiveImportDependencies{
+		Images: imageRegistryUC, Sources: mediaUC, Queue: importQueue(deps.EnqueuerFactory.NewEnqueuer()), Sealer: registrySealer,
+	})
 	eventUC.SetImageAccess(imageRegistryUC)
 	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{
 		Store: infrastructureAgentRepo.New(deps.Repo), Placements: labPlacementRepo.New(deps.Repo),

@@ -6502,6 +6502,47 @@ definitions:
       Status:
         type: string
     type: object
+  exercise.importJobError:
+    properties:
+      Code:
+        type: integer
+      Context:
+        additionalProperties: {}
+        type: object
+      Message:
+        type: string
+    type: object
+  exercise.importJobResponse:
+    properties:
+      Error:
+        allOf:
+        - $ref: '#/definitions/exercise.importJobError'
+        description: Error is why it failed (failed only).
+      Exercises:
+        description: Exercises are the created tasks (done only).
+        items:
+          $ref: '#/definitions/exercise.exerciseResponse'
+        type: array
+      State:
+        description: State is running, done or failed.
+        type: string
+    type: object
+  exercise.importJobStarted:
+    properties:
+      JobID:
+        type: string
+    type: object
+  exercise.importUploadRequest:
+    properties:
+      Password:
+        type: string
+      UploadID:
+        description: UploadID is a chunked upload with Purpose "exercise-archive",
+          every chunk sent (no complete call).
+        type: string
+    required:
+    - UploadID
+    type: object
   exercise.importUploadedRequest:
     properties:
       FileID:
@@ -6762,9 +6803,11 @@ definitions:
       Purpose:
         description: |-
           Purpose "image-blob" uploads one blob of a container image (the file limit is then 10 GiB, an image
-          archive's); empty for an ordinary file.
+          archive's); "exercise-archive" a task archive to import with POST /exercises/import/upload (up to 512 MiB +
+          10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.
         enum:
         - image-blob
+        - exercise-archive
         type: string
       Size:
         minimum: 1
@@ -21899,6 +21942,9 @@ paths:
     post:
       consumes:
       - multipart/form-data
+      description: |-
+        200 with the created tasks; an archive naming device image files is stored as a file and imported
+        in the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).
       parameters:
       - description: exercise ZIP
         in: formData
@@ -21922,6 +21968,15 @@ paths:
                   items:
                     $ref: '#/definitions/exercise.exerciseResponse'
                   type: array
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobStarted'
               type: object
         "400":
           description: Bad Request
@@ -21947,10 +22002,99 @@ paths:
         tasks)
       tags:
       - exercises
+  /exercises/import/jobs/{jobID}:
+    get:
+      description: |-
+        running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is
+        created unless the whole import succeeded. Only the user who started it sees it (404 otherwise).
+      parameters:
+      - description: import job ID
+        in: path
+        name: jobID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: State of a background task archive import
+      tags:
+      - exercises
+  /exercises/import/upload:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        The archive is read where its chunks lie. Without device image files the tasks are created at once:
+        200 with the created tasks (the archive limits apply: 512 MiB). With image files (`image: {file: …}`)
+        the import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import
+        per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
+        platform image registry is not configured or failing; 409 70993 when the upload is not a complete
+        task archive upload; 404 when the upload is absent, expired or another user's.
+      parameters:
+      - description: the upload and the archive password
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.importUploadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.exerciseResponse'
+                  type: array
+              type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobStarted'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Import a task archive uploaded in chunks (Purpose exercise-archive)
+      tags:
+      - exercises
   /exercises/import/uploaded:
     post:
       consumes:
       - application/json
+      description: |-
+        200 with the created tasks; an archive naming device image files is imported in the background:
+        202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.
       parameters:
       - description: the uploaded file and the archive password
         in: body
@@ -21972,11 +22116,21 @@ paths:
                     $ref: '#/definitions/exercise.exerciseResponse'
                   type: array
               type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.importJobStarted'
+              type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
-      summary: Import an exercise ZIP archive that went up in chunks
+      summary: Import an exercise ZIP archive that went up in chunks (completed into
+        a file, at most 512 MiB)
       tags:
       - exercises
   /exercises/proposals:
@@ -22239,8 +22393,8 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
         "409":
-          description: Purpose image-blob while the platform image registry is not
-            configured
+          description: Purpose image-blob, or exercise-archive over 512 MiB, while
+            the platform image registry is not configured (72801) or failing (72802)
           schema:
             $ref: '#/definitions/response.Response'
       summary: Start a resumable chunked file upload

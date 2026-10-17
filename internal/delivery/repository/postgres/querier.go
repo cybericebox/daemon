@@ -483,6 +483,7 @@ type Querier interface {
 	// point may vanish at any moment, so it is neither offered by the lookup nor kept by a claim.
 	// The task's stored file for a content, if any. Scoped to the one task: never reveals another task's files.
 	GetExerciseFileByHash(ctx context.Context, arg GetExerciseFileByHashParams) (GetExerciseFileByHashRow, error)
+	GetExerciseImportJob(ctx context.Context, id uuid.UUID) (ExerciseImportJob, error)
 	GetExerciseInfrastructure(ctx context.Context, exerciseID uuid.UUID) (bool, error)
 	GetExerciseProposal(ctx context.Context, id uuid.UUID) (ExerciseProposal, error)
 	GetExerciseResourceElevation(ctx context.Context, id uuid.UUID) (ExerciseResourceElevation, error)
@@ -1677,6 +1678,9 @@ type Querier interface {
 	SetPlatformSMTPProviderEnabled(ctx context.Context, arg SetPlatformSMTPProviderEnabledParams) (MailSmtpConfig, error)
 	SetResourceCalendarSettings(ctx context.Context, arg SetResourceCalendarSettingsParams) error
 	StartErrorNotification(ctx context.Context, arg StartErrorNotificationParams) error
+	// Background imports of task archives with device images (the import job aggregate: one row per source).
+	// Records a new import of the source, or returns the row the source already has: one import per source.
+	StartExerciseImportJob(ctx context.Context, arg StartExerciseImportJobParams) (ExerciseImportJob, error)
 	// What a user (or, with a nil user, anybody in the team) did against one task
 	// before a moment. Keep lab-only rows separate from participant observations:
 	// their packets cannot supply missing participant response evidence.
@@ -1746,6 +1750,8 @@ type Querier interface {
 	// published_version_id (owned by the lifecycle CTEs — including them here
 	// would race a concurrent publish) and created_at/created_by (immutable).
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
+	// The whole job aggregate (state, created tasks, error) in one write.
+	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
 	UpdateInAppTemplate(ctx context.Context, arg UpdateInAppTemplateParams) (NotificationInAppTemplate, error)
 	// What an admin may change after enrollment: the label, the order, the switch and the server CA. The
 	// endpoint identifies the agent (and its certificate), so it never changes.

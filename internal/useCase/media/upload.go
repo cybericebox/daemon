@@ -14,6 +14,7 @@ import (
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 )
@@ -23,7 +24,8 @@ const maxUploadNameBytes = 255
 
 // StartUpload opens a resumable chunked upload of a file of the given size. The chunks go to PutChunk in order;
 // CompleteUpload assembles them. The purpose sets the size limit: the media file limit for a file, an image
-// archive's (imageRegistryModel.MaxImageArchiveBytes) for an image blob.
+// archive's (imageRegistryModel.MaxImageArchiveBytes) for an image blob, exerciseModel.MaxArchiveWithImagesBytes
+// for a task archive.
 func (u *MediaUseCase) StartUpload(ctx context.Context, name, contentType string, size int64, createdBy uuid.UUID, purpose mediaModel.UploadPurpose) (mediaModel.Upload, error) {
 	if !u.storageConfigured {
 		return mediaModel.Upload{}, mediaModel.ErrMediaStorageNotConfigured.Err()
@@ -51,6 +53,8 @@ func (u *MediaUseCase) uploadLimit(purpose mediaModel.UploadPurpose) (limit int6
 		return u.cfg.MaxUploadBytes, true
 	case mediaModel.UploadPurposeImageBlob:
 		return imageRegistryModel.MaxImageArchiveBytes, true
+	case mediaModel.UploadPurposeExerciseArchive:
+		return exerciseModel.MaxArchiveWithImagesBytes, true
 	}
 	return 0, false
 }
@@ -119,7 +123,8 @@ func (u *MediaUseCase) CompleteUpload(ctx context.Context, id, owner uuid.UUID, 
 	if err != nil {
 		return mediaModel.File{}, err
 	}
-	if upload.Purpose == mediaModel.UploadPurposeImageBlob {
+	// An image blob goes to the registry, a task archive is read where its chunks lie: neither becomes a file.
+	if upload.Purpose != mediaModel.UploadPurposeFile {
 		return mediaModel.File{}, mediaModel.ErrUploadNotAFile.Err()
 	}
 	if !upload.Complete() {

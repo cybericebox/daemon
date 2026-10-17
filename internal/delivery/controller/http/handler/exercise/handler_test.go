@@ -64,6 +64,8 @@ type fakeUC struct {
 	scopeAsked            bool
 	// image upload
 	imageUpload imageUploadCalls
+	// background import of archives with images
+	archiveImport archiveImportCalls
 
 	err error
 

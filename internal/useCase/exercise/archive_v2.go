@@ -192,7 +192,8 @@ func probeArchiveSchema(payload []byte) error {
 	return nil
 }
 
-// archiveImageFileUnsupported is the one place ErrArchiveImageFileUnsupported is raised.
+// archiveImageFileUnsupported is the one place ErrArchiveImageFileUnsupported is raised: an image file reached a
+// path that does not import image files (the synchronous import; archives naming image files run as a job).
 func archiveImageFileUnsupported(device string) error {
 	return exerciseModel.ErrArchiveImageFileUnsupported.WithPublicContext("device", device).Err()
 }
@@ -453,13 +454,21 @@ func optionalUUID(path, raw string) (uuid.UUID, error) {
 func freshID() uuid.UUID { return uuid.Must(uuid.NewV7()) }
 
 // toParsed maps the document to the domain: fresh UUIDv7 for id-less variants and devices,
-// device names to ids, optional ids parsed. Exercise and version ids are ignored.
+// device names to ids, optional ids parsed. Exercise and version ids are ignored. An image file is refused.
 func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, error) {
+	return d.toParsedWithImages(files, nil)
+}
+
+// toParsedWithImages is toParsed for a folder whose device image files were read aside (images, by path relative
+// to the folder): a device naming one gets a marker image (imageFileMarker) the import replaces with the pushed
+// image's platform reference. nil images: an image file is refused (archiveImageFileUnsupported).
+func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[string]*archiveImageFile) (ParsedExerciseArchive, error) {
 	parsed := ParsedExerciseArchive{
 		Exercise: exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
 		Files:    files,
 	}
 	links := newArchiveLinks(files, &parsed)
+	links.images = images
 	for vi, version := range d.Versions {
 		statusPath := fmt.Sprintf("versions[%d].status", vi+1)
 		if version.Status == "" {
@@ -511,7 +520,7 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 }
 
 func (v archiveVariantV2) toDomain(path string, id uuid.UUID, links *archiveLinks) (exerciseModel.Variant, error) {
-	topology, deviceIDs, err := v.Topology.toDomain(path + ".topology")
+	topology, deviceIDs, err := v.Topology.toDomain(path+".topology", links)
 	if err != nil {
 		return exerciseModel.Variant{}, err
 	}
@@ -612,7 +621,7 @@ func resolveDevice(path, name, rawID string, deviceIDs map[string]uuid.UUID) (uu
 	return id, nil
 }
 
-func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[string]uuid.UUID, error) {
+func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseModel.Topology, map[string]uuid.UUID, error) {
 	topology := exerciseModel.Topology{VPN: t.VPN, Internet: t.Internet, VisualRender: absentIfNull(t.VisualRender)}
 	deviceIDs := make(map[string]uuid.UUID, len(t.Devices))
 	for di, device := range t.Devices {
@@ -635,8 +644,19 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 				return exerciseModel.Topology{}, nil, unknownEnum(fmt.Sprintf("%s.interfaces[%d].ip.type", devicePath, ii+1), string(iface.IP.Type))
 			}
 		}
+		image := device.Image.Ref
+		if strings.HasPrefix(image, imageFileMarker) {
+			return exerciseModel.Topology{}, nil, archiveInvalid(devicePath + ".image is not a valid image reference")
+		}
 		if device.Image.File != "" {
-			return exerciseModel.Topology{}, nil, archiveImageFileUnsupported(device.Name)
+			if links.images == nil {
+				return exerciseModel.Topology{}, nil, archiveImageFileUnsupported(device.Name)
+			}
+			marker, linkErr := links.image(device.Name, device.Image.File)
+			if linkErr != nil {
+				return exerciseModel.Topology{}, nil, linkErr
+			}
+			image = marker
 		}
 		if _, seen := deviceIDs[device.Name]; seen {
 			deviceIDs[device.Name] = ambiguousDevice
@@ -644,7 +664,7 @@ func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[st
 			deviceIDs[device.Name] = id
 		}
 		topology.Devices = append(topology.Devices, exerciseModel.Device{
-			ID: id, Name: device.Name, Type: device.Type, Image: device.Image.Ref,
+			ID: id, Name: device.Name, Type: device.Type, Image: image,
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
 			Interfaces: device.Interfaces, EnvVars: device.EnvVars,
 			External: device.External, Persistence: device.Persistence,

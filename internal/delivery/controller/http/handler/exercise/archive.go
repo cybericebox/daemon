@@ -14,6 +14,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
@@ -104,13 +105,16 @@ func (h *Handler) export(ctx *gin.Context) {
 }
 
 // importArchive godoc
-// @Summary  Import an exercise ZIP archive
+// @Summary      Import an exercise ZIP archive
+// @Description  200 with the created tasks; an archive naming device image files is stored as a file and imported
+// @Description  in the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).
 // @Tags     exercises
 // @Accept   multipart/form-data
 // @Produce  json
 // @Param    archive   formData  file    true   "exercise ZIP"
 // @Param    password  formData  string  false  "archive password when it contains secrets"
 // @Success  200  {object}  response.Response{data=[]exerciseResponse}
+// @Success  202  {object}  response.Response{data=importJobStarted}
 // @Failure  400  {object}  response.Response
 // @Router   /exercises/import [post]
 func (h *Handler) importArchive(ctx *gin.Context) {
@@ -136,7 +140,19 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		abortArchiveError(ctx, err)
 		return
 	}
-	h.importContents(ctx, claims.UserID, contents, ctx.PostForm("password"))
+	password := ctx.PostForm("password")
+	if exerciseUseCase.ArchiveNamesImages(contents, password) {
+		// The background import reads a stored archive: the zip becomes a file of the caller (nothing references
+		// it, so the media cleanup removes it after the grace window).
+		stored, storeErr := h.useCase.UploadFile(ctx, archiveFilename(strings.TrimSuffix(file.Filename, ".zip")), "application/zip", bytes.NewReader(contents), claims.UserID)
+		if storeErr != nil {
+			response.AbortWithError(ctx, storeErr)
+			return
+		}
+		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: stored.ID, Password: password, CreatedBy: claims.UserID})
+		return
+	}
+	h.importContents(ctx, claims.UserID, contents, password)
 }
 
 // importExample godoc
@@ -170,12 +186,15 @@ type importUploadedRequest struct {
 }
 
 // importUploadedArchive godoc
-// @Summary  Import an exercise ZIP archive that went up in chunks
+// @Summary      Import an exercise ZIP archive that went up in chunks (completed into a file, at most 512 MiB)
+// @Description  200 with the created tasks; an archive naming device image files is imported in the background:
+// @Description  202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.
 // @Tags     exercises
 // @Accept   json
 // @Produce  json
 // @Param    body  body  importUploadedRequest  true  "the uploaded file and the archive password"
 // @Success  200  {object}  response.Response{data=[]exerciseResponse}
+// @Success  202  {object}  response.Response{data=importJobStarted}
 // @Failure  400  {object}  response.Response
 // @Router   /exercises/import/uploaded [post]
 func (h *Handler) importUploadedArchive(ctx *gin.Context) {
@@ -210,7 +229,135 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 		abortArchiveError(ctx, err)
 		return
 	}
+	if exerciseUseCase.ArchiveNamesImages(contents, req.Password) {
+		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: req.FileID, Password: req.Password, CreatedBy: claims.UserID})
+		return
+	}
 	h.importContents(ctx, claims.UserID, contents, req.Password)
+}
+
+// importJobStarted is the answer of an import that runs in the background (an archive naming device image files):
+// poll GET /exercises/import/jobs/{JobID}.
+type importJobStarted struct {
+	JobID uuid.UUID `json:"JobID"`
+}
+
+// queueImport starts the background import of a stored archive and answers 202 {JobID}.
+func (h *Handler) queueImport(ctx *gin.Context, in exerciseUseCase.QueueImportInput) {
+	jobID, err := h.useCase.QueueArchiveImport(ctx, in)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithDataStatus(ctx, http.StatusAccepted, importJobStarted{JobID: jobID})
+}
+
+type importUploadRequest struct {
+	// UploadID is a chunked upload with Purpose "exercise-archive", every chunk sent (no complete call).
+	UploadID uuid.UUID `json:"UploadID" binding:"required"`
+	Password string    `json:"Password"`
+}
+
+// importArchiveUpload godoc
+// @Summary      Import a task archive uploaded in chunks (Purpose exercise-archive)
+// @Description  The archive is read where its chunks lie. Without device image files the tasks are created at once:
+// @Description  200 with the created tasks (the archive limits apply: 512 MiB). With image files (`image: {file: …}`)
+// @Description  the import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import
+// @Description  per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
+// @Description  platform image registry is not configured or failing; 409 70993 when the upload is not a complete
+// @Description  task archive upload; 404 when the upload is absent, expired or another user's.
+// @Tags     exercises
+// @Accept   json
+// @Produce  json
+// @Param    body  body  importUploadRequest  true  "the upload and the archive password"
+// @Success  200  {object}  response.Response{data=[]exerciseResponse}
+// @Success  202  {object}  response.Response{data=importJobStarted}
+// @Failure  400  {object}  response.Response
+// @Failure  404  {object}  response.Response
+// @Failure  409  {object}  response.Response
+// @Router   /exercises/import/upload [post]
+func (h *Handler) importArchiveUpload(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	var req importUploadRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	start, err := h.useCase.ImportUploadedArchive(ctx, exerciseUseCase.ImportUploadInput{UploadID: req.UploadID, Password: req.Password, CreatedBy: claims.UserID})
+	if err != nil {
+		abortArchiveError(ctx, err)
+		return
+	}
+	if start.JobID != uuid.Nil {
+		response.AbortWithDataStatus(ctx, http.StatusAccepted, importJobStarted{JobID: start.JobID})
+		return
+	}
+	created := make([]exerciseResponse, 0, len(start.Exercises))
+	for _, view := range start.Exercises {
+		created = append(created, exerciseToResponse(view))
+	}
+	response.AbortWithData(ctx, created)
+}
+
+// importJobError is why a background import failed, as an error response's Status carries it: the API code, the
+// message and the public context (e.g. reason, file, field). Never a secret.
+type importJobError struct {
+	Code    int            `json:"Code"`
+	Message string         `json:"Message"`
+	Context map[string]any `json:"Context,omitempty"`
+}
+
+type importJobResponse struct {
+	// State is running, done or failed.
+	State string `json:"State"`
+	// Exercises are the created tasks (done only).
+	Exercises []exerciseResponse `json:"Exercises,omitempty"`
+	// Error is why it failed (failed only).
+	Error *importJobError `json:"Error,omitempty"`
+}
+
+// importJob godoc
+// @Summary      State of a background task archive import
+// @Description  running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is
+// @Description  created unless the whole import succeeded. Only the user who started it sees it (404 otherwise).
+// @Tags     exercises
+// @Produce  json
+// @Param    jobID  path  string  true  "import job ID"
+// @Success  200  {object}  response.Response{data=importJobResponse}
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/import/jobs/{jobID} [get]
+func (h *Handler) importJob(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	id, err := uuid.FromString(ctx.Param("jobID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	job, err := h.useCase.ArchiveImportJob(ctx, id, claims.UserID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	out := importJobResponse{State: string(job.State)}
+	if job.Error != nil {
+		out.Error = &importJobError{Code: job.Error.Code, Message: job.Error.Message, Context: job.Error.Context}
+	}
+	for _, exerciseID := range job.ExerciseIDs {
+		view, getErr := h.useCase.GetExercise(ctx, exerciseID)
+		if getErr != nil {
+			continue // removed since the import
+		}
+		out.Exercises = append(out.Exercises, exerciseToResponse(view))
+	}
+	response.AbortWithData(ctx, out)
 }
 
 // importContents expands the archive bytes and imports every exercise in them.

@@ -657,6 +657,18 @@ type Exercise struct {
 	ForkedFromVersionID  uuid.NullUUID      `json:"forked_from_version_id"`
 }
 
+type ExerciseImportJob struct {
+	ID          uuid.UUID   `json:"id"`
+	CreatedBy   uuid.UUID   `json:"created_by"`
+	Source      string      `json:"source"`
+	SourceID    uuid.UUID   `json:"source_id"`
+	State       string      `json:"state"`
+	ExerciseIds []uuid.UUID `json:"exercise_ids"`
+	Error       []byte      `json:"error"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+}
+
 type ExerciseProposal struct {
 	ID                uuid.UUID          `json:"id"`
 	ExerciseID        uuid.UUID          `json:"exercise_id"`

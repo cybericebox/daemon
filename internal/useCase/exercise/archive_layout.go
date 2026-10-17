@@ -134,6 +134,10 @@ type archiveLinks struct {
 	byHash map[[sha256.Size]byte]uuid.UUID
 	linked map[string]bool
 	parsed *ParsedExerciseArchive
+	// images are the folder's device image files (relative paths), read aside; nil when not imported.
+	images map[string]*archiveImageFile
+	// imageMarkers is the marker given to each image file already linked.
+	imageMarkers map[string]string
 }
 
 func newArchiveLinks(files map[string][]byte, parsed *ParsedExerciseArchive) *archiveLinks {
@@ -142,8 +146,25 @@ func newArchiveLinks(files map[string][]byte, parsed *ParsedExerciseArchive) *ar
 	return &archiveLinks{files: files, byHash: map[[sha256.Size]byte]uuid.UUID{}, linked: map[string]bool{}, parsed: parsed}
 }
 
-// resolve checks one link (a path relative to the task folder) and returns the archive path it names.
+// resolve checks one attachment link (a path relative to the task folder) and returns the archive path it names.
 func (l *archiveLinks) resolve(file string) (string, error) {
+	clean, err := checkLinkPath(file)
+	if err != nil {
+		return "", err
+	}
+	if _, isImage := l.images[clean]; isImage {
+		return "", archivePathInvalid(file, "a device image file, not an attachment")
+	}
+	if _, ok := l.files[clean]; !ok {
+		return "", archiveFileMissing(file)
+	}
+	l.linked[clean] = true
+	return clean, nil
+}
+
+// checkLinkPath cleans a link and refuses one that is empty, absolute, leaves the task folder, names a reserved
+// file or is otherwise unsafe.
+func checkLinkPath(file string) (string, error) {
 	clean := path.Clean(norm.NFC.String(file))
 	switch {
 	case file == "":
@@ -161,11 +182,31 @@ func (l *archiveLinks) resolve(file string) (string, error) {
 	case !safeArchivePath(clean):
 		return "", archivePathInvalid(file, "unsafe path")
 	}
-	if _, ok := l.files[clean]; !ok {
+	return clean, nil
+}
+
+// image links a device image file; the same file named by several devices is one image (pushed once, under the
+// first device's name). It returns the marker the device holds until the image is pushed.
+func (l *archiveLinks) image(device, file string) (string, error) {
+	clean, err := checkLinkPath(file)
+	if err != nil {
+		return "", err
+	}
+	entry, ok := l.images[clean]
+	if !ok {
 		return "", archiveFileMissing(file)
 	}
 	l.linked[clean] = true
-	return clean, nil
+	if marker, done := l.imageMarkers[clean]; done {
+		return marker, nil
+	}
+	if l.imageMarkers == nil {
+		l.imageMarkers = map[string]string{}
+	}
+	marker := imageFileMarker + entry.Name
+	l.imageMarkers[clean] = marker
+	l.parsed.Images = append(l.parsed.Images, ParsedArchiveImage{Path: clean, Device: device, Marker: marker, file: entry})
+	return marker, nil
 }
 
 // attachment maps one attachment link; where is its 1-based document path.

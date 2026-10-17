@@ -15979,6 +15979,7 @@ const docTemplate = `{
         },
         "/exercises/import": {
             "post": {
+                "description": "200 with the created tasks; an archive naming device image files is stored as a file and imported\nin the background: 202 {JobID} (see GET /exercises/import/jobs/{jobID}).",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -16026,6 +16027,24 @@ const docTemplate = `{
                             ]
                         }
                     },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobStarted"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
@@ -16060,8 +16079,56 @@ const docTemplate = `{
                 }
             }
         },
-        "/exercises/import/uploaded": {
+        "/exercises/import/jobs/{jobID}": {
+            "get": {
+                "description": "running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is\ncreated unless the whole import succeeded. Only the user who started it sees it (404 otherwise).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "State of a background task archive import",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "import job ID",
+                        "name": "jobID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/import/upload": {
             "post": {
+                "description": "The archive is read where its chunks lie. Without device image files the tasks are created at once:\n200 with the created tasks (the archive limits apply: 512 MiB). With image files (` + "`" + `image: {file: …}` + "`" + `)\nthe import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import\nper upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the\nplatform image registry is not configured or failing; 409 70993 when the upload is not a complete\ntask archive upload; 404 when the upload is absent, expired or another user's.",
                 "consumes": [
                     "application/json"
                 ],
@@ -16071,7 +16138,92 @@ const docTemplate = `{
                 "tags": [
                     "exercises"
                 ],
-                "summary": "Import an exercise ZIP archive that went up in chunks",
+                "summary": "Import a task archive uploaded in chunks (Purpose exercise-archive)",
+                "parameters": [
+                    {
+                        "description": "the upload and the archive password",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.importUploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.exerciseResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobStarted"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/import/uploaded": {
+            "post": {
+                "description": "200 with the created tasks; an archive naming device image files is imported in the background:\n202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Import an exercise ZIP archive that went up in chunks (completed into a file, at most 512 MiB)",
                 "parameters": [
                     {
                         "description": "the uploaded file and the archive password",
@@ -16099,6 +16251,24 @@ const docTemplate = `{
                                             "items": {
                                                 "$ref": "#/definitions/exercise.exerciseResponse"
                                             }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.importJobStarted"
                                         }
                                     }
                                 }
@@ -16536,7 +16706,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Purpose image-blob while the platform image registry is not configured",
+                        "description": "Purpose image-blob, or exercise-archive over 512 MiB, while the platform image registry is not configured (72801) or failing (72802)",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -33107,6 +33277,68 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.importJobError": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "type": "integer"
+                },
+                "Context": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "Message": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importJobResponse": {
+            "type": "object",
+            "properties": {
+                "Error": {
+                    "description": "Error is why it failed (failed only).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.importJobError"
+                        }
+                    ]
+                },
+                "Exercises": {
+                    "description": "Exercises are the created tasks (done only).",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.exerciseResponse"
+                    }
+                },
+                "State": {
+                    "description": "State is running, done or failed.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importJobStarted": {
+            "type": "object",
+            "properties": {
+                "JobID": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.importUploadRequest": {
+            "type": "object",
+            "required": [
+                "UploadID"
+            ],
+            "properties": {
+                "Password": {
+                    "type": "string"
+                },
+                "UploadID": {
+                    "description": "UploadID is a chunked upload with Purpose \"exercise-archive\", every chunk sent (no complete call).",
+                    "type": "string"
+                }
+            }
+        },
         "exercise.importUploadedRequest": {
             "type": "object",
             "required": [
@@ -33494,10 +33726,11 @@ const docTemplate = `{
                     "maxLength": 255
                 },
                 "Purpose": {
-                    "description": "Purpose \"image-blob\" uploads one blob of a container image (the file limit is then 10 GiB, an image\narchive's); empty for an ordinary file.",
+                    "description": "Purpose \"image-blob\" uploads one blob of a container image (the file limit is then 10 GiB, an image\narchive's); \"exercise-archive\" a task archive to import with POST /exercises/import/upload (up to 512 MiB +\n10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.",
                     "type": "string",
                     "enum": [
-                        "image-blob"
+                        "image-blob",
+                        "exercise-archive"
                     ]
                 },
                 "Size": {

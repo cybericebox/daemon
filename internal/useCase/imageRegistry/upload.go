@@ -321,15 +321,27 @@ func (u *ImageRegistryUseCase) CreateImage(ctx context.Context, exerciseID uuid.
 	if err != nil {
 		return CreateImageResult{}, err
 	}
+	if _, err = imageRegistryModel.BuildManifest(in.Config, in.Layers); err != nil {
+		return CreateImageResult{}, err
+	}
+	client, _, err := u.PlatformRegistryClient(ctx, true)
+	if err != nil {
+		return CreateImageResult{}, err
+	}
+	return u.publishImage(ctx, client, exerciseID, user, in)
+}
+
+// publishImage is the one way an image becomes a platform image, for the browser upload (CreateImage) and the
+// task archive import (PushImageArchive) alike: the manifest is built (validation, the size limit), every blob
+// must be in the registry with the stated size, the config must be linux/amd64 with one diff id per layer, the
+// platform_images row is written, and only then the manifest is pushed under the full-digest tag. Registry
+// failures are Unavailable.
+func (u *ImageRegistryUseCase) publishImage(ctx context.Context, client *ociregistry.Client, exerciseID, user uuid.UUID, in CreateImageInput) (CreateImageResult, error) {
 	manifest, err := imageRegistryModel.BuildManifest(in.Config, in.Layers)
 	if err != nil {
 		return CreateImageResult{}, err
 	}
 	ref, err := imageRegistryModel.NewPlatformRef(imageRegistryModel.SanitizeName(in.Name), manifest.Digest)
-	if err != nil {
-		return CreateImageResult{}, err
-	}
-	client, _, err := u.PlatformRegistryClient(ctx, true)
 	if err != nil {
 		return CreateImageResult{}, err
 	}

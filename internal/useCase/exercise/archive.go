@@ -46,6 +46,8 @@ type ParsedExerciseArchive struct {
 	FileMeta map[uuid.UUID]exportedFile
 	// FilePaths maps each imported file id to the first folder path linking those bytes.
 	FilePaths map[uuid.UUID]string
+	// Images are the device image files the document names (each once), when they are imported.
+	Images []ParsedArchiveImage
 }
 
 type ImportExerciseInput struct {
@@ -90,13 +92,28 @@ func parseTaskFiles(all map[string][]byte) (ParsedExerciseArchive, error) {
 	if len(folders) != 1 {
 		return ParsedExerciseArchive{}, archiveInvalid("the archive holds several task folders: import it as a bundle")
 	}
-	files := folders[0].Files
+	return parseTaskFolder(folders[0].Files, nil)
+}
+
+// parseTaskFolder parses one task folder; images are its device image files (paths relative to it), nil where
+// image files are not imported.
+func parseTaskFolder(files map[string][]byte, images map[string]*archiveImageFile) (ParsedExerciseArchive, error) {
 	name, body, err := pickExerciseDocument(files)
 	if err != nil {
 		return ParsedExerciseArchive{}, err
 	}
+	doc, err := decodeDocument(name, body)
+	if err != nil {
+		return ParsedExerciseArchive{}, err
+	}
+	return doc.toParsedWithImages(files, images)
+}
+
+// decodeDocument reads exercise.yaml or exercise.json (by base name) into the document.
+func decodeDocument(name string, body []byte) (archiveDocV2, error) {
+	var err error
 	switch {
-	case name == "exercise.yaml":
+	case path.Base(name) == "exercise.yaml":
 		body, err = yamlToJSON(body)
 	case len(body) > maxExerciseDocBytes: // the same cap as YAML, before any work on the bytes
 		err = archiveInvalid("the document is too large")
@@ -104,16 +121,12 @@ func parseTaskFiles(all map[string][]byte) (ParsedExerciseArchive, error) {
 		body, err = stripJSONComments(body)
 	}
 	if err != nil {
-		return ParsedExerciseArchive{}, err
+		return archiveDocV2{}, err
 	}
 	if err = probeArchiveSchema(body); err != nil {
-		return ParsedExerciseArchive{}, err
+		return archiveDocV2{}, err
 	}
-	doc, err := decodeArchiveV2(body)
-	if err != nil {
-		return ParsedExerciseArchive{}, err
-	}
-	return doc.toParsed(files)
+	return decodeArchiveV2(body)
 }
 
 // ExpandExerciseArchiveBundle splits an archive into one single-task archive per task folder (any depth,
@@ -155,37 +168,47 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if err != nil {
 		return ExerciseView{}, err
 	}
-	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
-	if err = syncImportedLinks(parsed.Versions); err != nil {
+	if err = u.prepareImport(ctx, &parsed, protected); err != nil {
 		return ExerciseView{}, err
 	}
-	if err = validateImportedVersions(parsed.Versions); err != nil {
-		return ExerciseView{}, err
+	return u.storeImport(ctx, &parsed, in.CreatedBy)
+}
+
+// prepareImport checks a parsed task and makes it final before anything is uploaded or written: linked variants,
+// statuses, secrets only in a protected archive, final ids, the publish gate, secrets sealed.
+func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool) error {
+	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
+	if err := syncImportedLinks(parsed.Versions); err != nil {
+		return err
+	}
+	if err := validateImportedVersions(parsed.Versions); err != nil {
+		return err
 	}
 	// Only an archive that really was protected may carry secret values: a typed password proves nothing.
 	if secretPath := firstSecretValue(parsed.Versions); !protected && secretPath != "" {
-		return ExerciseView{}, archiveInvalid(secretPath + ": a secret value needs a password-protected archive")
+		return archiveInvalid(secretPath + ": a secret value needs a password-protected archive")
 	}
 	// A secret is bound to its variant id: the ids are final before anything is sealed.
 	for i := range parsed.Versions {
 		normalizeContentIDs(parsed.Versions[i].Variants)
 	}
 	// The ids the base just got (tasks, hints, devices, placeholder keys) flow into its linked variants.
-	if err = syncImportedLinks(parsed.Versions); err != nil {
-		return ExerciseView{}, err
+	if err := syncImportedLinks(parsed.Versions); err != nil {
+		return err
 	}
 	// A version imported as published passes the same gate as PublishDraft, before anything is uploaded or written.
-	if err = u.requireImportedPublishable(ctx, parsed.Versions); err != nil {
-		return ExerciseView{}, err
+	if err := u.requireImportedPublishable(ctx, parsed.Versions); err != nil {
+		return err
 	}
-	if err = u.encryptImportedSecrets(parsed.Versions); err != nil {
-		return ExerciseView{}, err
-	}
-	if err = u.copyImportedAttachments(ctx, &parsed, in.CreatedBy); err != nil {
-		return ExerciseView{}, err
-	}
+	return u.encryptImportedSecrets(parsed.Versions)
+}
 
-	created, err := u.createImportedIdentity(ctx, parsed.Exercise, in.CreatedBy)
+// storeImport uploads the attachments of a prepared task and creates it.
+func (u *ExerciseUseCase) storeImport(ctx context.Context, parsed *ParsedExerciseArchive, createdBy uuid.UUID) (ExerciseView, error) {
+	if err := u.copyImportedAttachments(ctx, parsed, createdBy); err != nil {
+		return ExerciseView{}, err
+	}
+	created, err := u.createImportedIdentity(ctx, parsed.Exercise, createdBy)
 	if err != nil {
 		return ExerciseView{}, err
 	}
@@ -198,7 +221,7 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 		_, _ = u.exercises.Delete(ctx, created.ID)
 		return ExerciseView{}, err
 	}
-	if err = u.persistImportedVersions(ctx, created.ID, parsed.Versions, in.CreatedBy); err != nil {
+	if err = u.persistImportedVersions(ctx, created.ID, parsed.Versions, createdBy); err != nil {
 		_, _ = u.exercises.Delete(ctx, created.ID)
 		return ExerciseView{}, err
 	}
@@ -851,6 +874,12 @@ func sortedArchiveNames(files map[string][]byte) []string {
 // what to check: an entry it does not list is accepted unverified, a listed entry that is missing or differs
 // is a checksum mismatch.
 func validateArchiveManifest(files map[string][]byte) (map[string][]byte, error) {
+	return validateArchiveManifestWith(files, nil)
+}
+
+// validateArchiveManifestWith is validateArchiveManifest for an archive whose image files were read aside: a listed
+// image file is not hashed here, its checksum is kept on it for the import, which hashes it while reading it.
+func validateArchiveManifestWith(files map[string][]byte, images map[string]*archiveImageFile) (map[string][]byte, error) {
 	var manifests []string
 	for name := range files {
 		if isArchiveManifest(name, files) {
@@ -875,6 +904,10 @@ func validateArchiveManifest(files map[string][]byte) (map[string][]byte, error)
 		for _, entry := range checked {
 			// Entry names are stored in NFC (checkArchiveEntry); a manifest written on macOS may list NFD.
 			name := norm.NFC.String(prefix + entry)
+			if image, ok := images[name]; ok {
+				image.checksum = manifest.Checksums[entry]
+				continue
+			}
 			if got, ok := files[name]; !ok || hashBytes(got) != manifest.Checksums[entry] {
 				return nil, archiveChecksumMismatch(name)
 			}

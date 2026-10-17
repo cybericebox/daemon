@@ -24,6 +24,8 @@ import (
 type fakeStorage struct {
 	objects map[string][]byte
 	copies  [][2]string
+	// ranges counts GetRange calls.
+	ranges int
 }
 
 func newFakeStorage() *fakeStorage { return &fakeStorage{objects: map[string][]byte{}} }
@@ -44,6 +46,7 @@ func (f *fakeStorage) Get(_ context.Context, key string) (io.ReadCloser, string,
 	return io.NopCloser(bytes.NewReader(b)), "", nil
 }
 func (f *fakeStorage) GetRange(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	f.ranges++
 	b, ok := f.objects[key]
 	if !ok {
 		return nil, errors.New("missing")

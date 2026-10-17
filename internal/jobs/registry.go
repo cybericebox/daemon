@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/eventmail"
 	"github.com/cybericebox/daemon/internal/jobs/eventscoringpopulation"
 	"github.com/cybericebox/daemon/internal/jobs/eventstands"
+	"github.com/cybericebox/daemon/internal/jobs/exerciseimport"
 	"github.com/cybericebox/daemon/internal/jobs/idempotencygc"
 	"github.com/cybericebox/daemon/internal/jobs/imageblobpush"
 	"github.com/cybericebox/daemon/internal/jobs/imageregistrygc"
@@ -65,6 +66,7 @@ type (
 		resourcecalendarJob.IUseCase
 		imageblobpushJob.IUseCase
 		imageregistrygcJob.IUseCase
+		exerciseimportJob.IUseCase
 	}
 	workerRegistry struct {
 		uc                   iUseCase
@@ -133,6 +135,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	river.AddWorker(workers, resourcecalendarJob.NewWorker(wr.uc))
 	river.AddWorker(workers, imageblobpushJob.NewWorker(wr.uc))
 	river.AddWorker(workers, imageregistrygcJob.NewWorker(wr.uc))
+	river.AddWorker(workers, exerciseimportJob.NewWorker(wr.uc))
 }
 
 // PeriodicJobs declares the schedule-driven jobs (queried by the worker
