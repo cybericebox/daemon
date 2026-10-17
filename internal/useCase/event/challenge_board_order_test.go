@@ -129,6 +129,7 @@ func TestUpdateEventExercise_NewTaskFollowsSetVisibility(t *testing.T) {
 		}
 		return postgres.EventChallenge{ID: arg.ID, EventExerciseID: arg.EventExerciseID, TaskID: arg.TaskID, Published: arg.Published, CreatedAt: now}, nil
 	})
+	q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // taken before the refresh row locks
 	q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	q.EXPECT().UpdateEventExerciseSource(gomock.Any(), gomock.Any()).Return(link, nil)
 

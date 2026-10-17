@@ -95,6 +95,7 @@ func newStandUpdateFixture(t *testing.T, started bool, stageOpensIn *time.Durati
 	q.EXPECT().IsExerciseAvailableToEvent(gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
 	q.EXPECT().GetEventByID(gomock.Any(), f.eventID).Return(ev, nil).AnyTimes()
 	q.EXPECT().ListEventChallenges(gomock.Any(), f.attachmentID).Return([]postgres.EventChallenge{challenge}, nil).AnyTimes()
+	q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // taken before the refresh row locks
 	q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), []uuid.UUID{f.challengeID}).Return([]postgres.ListTeamChallengesForRefreshRow{{
 		ID: f.assignmentID, EventTeamID: f.teamID, EventChallengeID: f.challengeID, Snapshot: []byte(`{"name":"Old","difficulty":"easy"}`), Hints: []byte(`[]`), ExpectedFlag: "ICE{same}"}}, nil).AnyTimes()
 	q.EXPECT().GetLabBinding(gomock.Any(), postgres.GetLabBindingParams{EventTeamID: f.teamID, EventChallengeID: f.challengeID}).Return(binding, nil).AnyTimes()

@@ -66,6 +66,11 @@ type Querier interface {
 	CountDispatches(ctx context.Context, arg CountDispatchesParams) (int64, error)
 	CountDispatchesByStatusSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByStatusSinceRow, error)
 	CountDispatchesByTypeSince(ctx context.Context, createdAt time.Time) ([]CountDispatchesByTypeSinceRow, error)
+	// The flag slot of a team that keeps its variant: the other teams on the same
+	// variant of the event exercise that got the event exercise before it (first
+	// row by created_at, id), the moderators team excluded. For a team without
+	// rows it is every team on the variant. Read under LockEventExerciseVariantPick.
+	CountEarlierEventExerciseVariantTeams(ctx context.Context, arg CountEarlierEventExerciseVariantTeamsParams) (int64, error)
 	// Messages delivered through one SMTP transport since a moment (the rolling
 	// daily quota). event_id narrows the count to one Event's own transport; the
 	// platform and env transports count every dispatch that went through them,
@@ -76,6 +81,10 @@ type Querier interface {
 	// caller's own team even when it is hidden or not admitted. A cutoff (freeze)
 	// keeps only other teams' solves before it.
 	CountEventChallengeSolves(ctx context.Context, arg CountEventChallengeSolvesParams) ([]CountEventChallengeSolvesRow, error)
+	// Teams per variant of one event exercise (every revision: a source switch
+	// keeps the event exercise and its challenges). The moderators team takes no
+	// variant slot.
+	CountEventExerciseVariantTeams(ctx context.Context, eventExerciseID uuid.UUID) ([]CountEventExerciseVariantTeamsRow, error)
 	// Active attachments whose pinned set has a lab topology: they block turning
 	// the event's infrastructure off.
 	CountEventInfrastructureExercises(ctx context.Context, eventID uuid.UUID) (int32, error)
@@ -593,6 +602,10 @@ type Querier interface {
 	// One assignment's hint texts plus the board's canonical hints and costs.
 	GetTeamChallengeHints(ctx context.Context, arg GetTeamChallengeHintsParams) (GetTeamChallengeHintsRow, error)
 	GetTeamChallengeScoringContext(ctx context.Context, teamChallengeID uuid.UUID) (GetTeamChallengeScoringContextRow, error)
+	// The variant a team already has for an event exercise, among the variants the
+	// current version still has: a retained row of a terminal Lab may keep an index
+	// a source switch dropped while the team's other rows were re-picked.
+	GetTeamEventExerciseVariant(ctx context.Context, arg GetTeamEventExerciseVariantParams) (int32, error)
 	GetTemporalCodeByCode(ctx context.Context, code string) (TemporalCode, error)
 	// The one query per signed-in request: the global role and the status (blocked) of the caller.
 	GetUserAccess(ctx context.Context, id uuid.UUID) (GetUserAccessRow, error)
@@ -756,6 +769,11 @@ type Querier interface {
 	ListEventExerciseDetails(ctx context.Context, eventID uuid.UUID) ([]ListEventExerciseDetailsRow, error)
 	// Every prerequisite edge of one board revision in one query.
 	ListEventExercisePrerequisites(ctx context.Context, eventExerciseID uuid.UUID) ([]EventChallengePrerequisite, error)
+	// One snapshot of the teams of an event exercise for a source-switch pass:
+	// every (team, variant) it has a row on, with the team's first row of the
+	// event exercise (created_at, id) and whether it is the moderators team. Read
+	// under LockEventExerciseVariantPick before the pass updates any row.
+	ListEventExerciseTeamVariants(ctx context.Context, eventExerciseID uuid.UUID) ([]ListEventExerciseTeamVariantsRow, error)
 	ListEventExercises(ctx context.Context, eventID uuid.UUID) ([]EventExercise, error)
 	ListEventFormAnswers(ctx context.Context, arg ListEventFormAnswersParams) ([]ListEventFormAnswersRow, error)
 	ListEventFormAssignmentsByTrigger(ctx context.Context, arg ListEventFormAssignmentsByTriggerParams) ([]EventFormAssignment, error)
@@ -1326,6 +1344,9 @@ type Querier interface {
 	LockErrorNotification(ctx context.Context, id uuid.UUID) (ErrorNotificationDelivery, error)
 	// Configured maxima cannot change while an admission validates immutable group sizes.
 	LockEventConfigForLabSizing(ctx context.Context, eventID uuid.UUID) (uuid.UUID, error)
+	// Serializes the variant pick of one event exercise: concurrent preparations
+	// count the teams per variant one after another, never from the same snapshot.
+	LockEventExerciseVariantPick(ctx context.Context, eventExerciseID uuid.UUID) error
 	// Serialize roster creation/change without blocking the KEY SHARE locks of
 	// concurrent answer inserts while we wait for their team admission locks.
 	LockEventForLabSourceChange(ctx context.Context, id uuid.UUID) (uuid.UUID, error)

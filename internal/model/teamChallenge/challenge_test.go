@@ -22,15 +22,6 @@ func TestGenerateFlag(t *testing.T) {
 	}
 }
 
-func TestSelectVariant_IsStable(t *testing.T) {
-	teamID, exerciseID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	a, err := teamChallengeModel.SelectVariant(teamID, exerciseID, 3)
-	b, err2 := teamChallengeModel.SelectVariant(teamID, exerciseID, 3)
-	if err != nil || err2 != nil || a != b || a < 0 || a > 2 {
-		t.Fatalf("unstable variant selection: %d, %d, %v, %v", a, b, err, err2)
-	}
-}
-
 func TestResolveExpectedFlag_UsesCatalogPolicy(t *testing.T) {
 	fixed, err := teamChallengeModel.ResolveExpectedFlag([]string{"ICE{fixed}"})
 	if err != nil || fixed != "ICE{fixed}" {
