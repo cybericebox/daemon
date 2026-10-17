@@ -1,18 +1,16 @@
 package exercise
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"mime"
-	"net/http"
 	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
-	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -27,16 +25,32 @@ type exportExercisesRequest struct {
 	Password       string      `json:"Password"`
 }
 
+type exportedFileResponse struct {
+	// FileID is the stored zip; its chunks are read with GET /exercises/files/{fileID}/chunks/{index}. The file is
+	// kept for the media grace window (24 h by default), then the cleanup removes it.
+	FileID uuid.UUID `json:"FileID"`
+	Name   string    `json:"Name"`
+	Size   int64     `json:"Size"`
+	// ChunkSize is the size of every chunk but the last.
+	ChunkSize int64 `json:"ChunkSize"`
+	Chunks    int   `json:"Chunks"`
+}
+
 // export godoc
-// @Summary  Export selected exercises as one ZIP archive (several: one folder per exercise)
+// @Summary  Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)
 // @Tags     exercises
 // @Accept   json
-// @Produce  application/zip
+// @Produce  json
 // @Param    body  body  exportExercisesRequest  true  "selection and secret option"
-// @Success  200  {file}  binary
+// @Success  200  {object}  response.Response{data=exportedFileResponse}
 // @Failure  400  {object}  response.Response
 // @Router   /exercises/export [post]
 func (h *Handler) export(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
 	var req exportExercisesRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -60,21 +74,31 @@ func (h *Handler) export(ctx *gin.Context) {
 		}
 		items = append(items, exerciseUseCase.NamedArchive{Name: exercise.Name, Archive: archive})
 	}
-	if len(items) == 1 {
-		serveArchive(ctx, archiveFilename(items[0].Name), items[0].Archive)
-		return
+	name, contents := archiveFilename(items[0].Name), items[0].Archive
+	if len(items) > 1 {
+		password := ""
+		if req.IncludeSecrets {
+			password = req.Password
+		}
+		// One zip, one folder per task, one root manifest.json.
+		bundle, err := exerciseUseCase.BundleExerciseArchives(items, password)
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		name, contents = "exercises.cybericebox.zip", bundle
 	}
-	password := ""
-	if req.IncludeSecrets {
-		password = req.Password
-	}
-	// One zip, one folder per task, one root manifest.json.
-	bundle, err := exerciseUseCase.BundleExerciseArchives(items, password)
+	// The zip becomes a stored file of its creator; nothing references it, so the media cleanup removes it after the
+	// grace window: that is the time to download it.
+	stored, err := h.useCase.UploadFile(ctx, name, "application/zip", bytes.NewReader(contents), claims.UserID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	serveArchive(ctx, "exercises.cybericebox.zip", bundle)
+	chunkSize := h.useCase.UploadChunkBytes()
+	response.AbortWithData(ctx, exportedFileResponse{
+		FileID: stored.ID, Name: stored.Name, Size: stored.SizeBytes, ChunkSize: chunkSize, Chunks: chunkCount(stored.SizeBytes, chunkSize),
+	})
 }
 
 // importArchive godoc
@@ -219,11 +243,4 @@ func archiveFilename(name string) string {
 		name = "exercise"
 	}
 	return filepath.Base(name) + ".cybericebox.zip"
-}
-
-func serveArchive(ctx *gin.Context, filename string, contents []byte) {
-	download.ExtendDeadline(ctx)
-	ctx.Header("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
-	ctx.Header("X-Content-Type-Options", "nosniff")
-	ctx.Data(http.StatusOK, "application/zip", contents)
 }

@@ -6,6 +6,7 @@ import (
 	"mime"
 	"net/http"
 	"regexp"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -192,4 +193,95 @@ func (h *Handler) downloadFile(ctx *gin.Context) {
 		contentType = "application/octet-stream"
 	}
 	download.File(ctx, rc, f.SizeBytes, contentType)
+}
+
+type fileMetaResponse struct {
+	Name string `json:"Name"`
+	Size int64  `json:"Size"`
+	// ChunkSize is the size of every chunk but the last.
+	ChunkSize int64 `json:"ChunkSize"`
+	Chunks    int   `json:"Chunks"`
+	// SHA256 is the hex digest of the whole file, for the client to check the reassembled bytes.
+	SHA256 string `json:"SHA256"`
+}
+
+// chunkCount is how many chunks of chunkSize a file of size bytes takes.
+func chunkCount(size, chunkSize int64) int {
+	if chunkSize <= 0 {
+		return 0
+	}
+	return int((size + chunkSize - 1) / chunkSize)
+}
+
+// authorizedFile reads the file's metadata and checks the caller may download it; a stranger reads a missing file.
+func (h *Handler) authorizedFile(ctx *gin.Context) (mediaModel.File, bool) {
+	fileID, err := uuid.FromString(ctx.Param("fileID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return mediaModel.File{}, false
+	}
+	actor, ok := actorFrom(ctx)
+	if !ok {
+		return mediaModel.File{}, false
+	}
+	meta, err := h.useCase.GetFile(ctx, fileID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return mediaModel.File{}, false
+	}
+	if err = h.useCase.AuthorizeFileDownload(ctx, actor, meta); err != nil {
+		response.AbortWithError(ctx, err)
+		return mediaModel.File{}, false
+	}
+	return meta, true
+}
+
+// fileMeta godoc
+// @Summary  Size, chunk layout and hash of a stored file (start of a chunked download)
+// @Tags     exercises
+// @Produce  json
+// @Param    fileID  path  string  true  "file ID"
+// @Success  200  {object}  response.Response{data=fileMetaResponse}
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/files/{fileID}/meta [get]
+func (h *Handler) fileMeta(ctx *gin.Context) {
+	meta, ok := h.authorizedFile(ctx)
+	if !ok {
+		return
+	}
+	chunkSize := h.useCase.UploadChunkBytes()
+	response.AbortWithData(ctx, fileMetaResponse{
+		Name: meta.Name, Size: meta.SizeBytes, ChunkSize: chunkSize, Chunks: chunkCount(meta.SizeBytes, chunkSize), SHA256: meta.ContentHash,
+	})
+}
+
+// fileChunk godoc
+// @Summary  Chunk N (0-based) of a stored file; a failed chunk is asked for again on its own
+// @Tags     exercises
+// @Produce  application/octet-stream
+// @Param    fileID  path  string  true  "file ID"
+// @Param    index   path  int     true  "chunk index"
+// @Success  200  {file}  binary
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/files/{fileID}/chunks/{index} [get]
+func (h *Handler) fileChunk(ctx *gin.Context) {
+	index, err := strconv.Atoi(ctx.Param("index"))
+	if err != nil || index < 0 {
+		response.AbortWithBadRequest(ctx, errors.New("invalid chunk index"))
+		return
+	}
+	meta, ok := h.authorizedFile(ctx)
+	if !ok {
+		return
+	}
+	rc, _, length, err := h.useCase.ReadFileChunk(ctx, meta.ID, index)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	defer func() { _ = rc.Close() }()
+	download.ExtendDeadline(ctx)
+	ctx.Header("X-Content-Type-Options", "nosniff")
+	ctx.Header("Cache-Control", "private, no-store")
+	download.File(ctx, rc, length, "application/octet-stream")
 }

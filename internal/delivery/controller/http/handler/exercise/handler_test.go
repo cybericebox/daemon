@@ -71,6 +71,7 @@ type fakeUC struct {
 	uploadCreatedBy  uuid.UUID
 	streamedFileID   uuid.UUID
 	maxUploadBytes   int64
+	chunkBytes       int64
 	fileLookup       exerciseUseCase.FileLookup
 	lookupExercise   uuid.UUID
 	lookupHash       string
@@ -155,7 +156,34 @@ func (f *fakeUC) UploadFile(_ context.Context, name, contentType string, r io.Re
 	f.uploadCreatedBy = createdBy
 	b, _ := io.ReadAll(r)
 	f.uploadContent = string(b)
-	return f.uploadedFile, f.err
+	if f.err != nil {
+		return mediaModel.File{}, f.err
+	}
+	if f.uploadedFile.ID == uuid.Nil {
+		// like the real use case: a stored file the caller uploaded, readable chunk by chunk
+		f.uploadedFile = mediaModel.File{
+			ID: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000f1"), Name: name, ContentType: contentType,
+			SizeBytes: int64(len(b)), ContentHash: "feedface", CreatedBy: uuid.NullUUID{UUID: createdBy, Valid: true},
+		}
+		f.streamedFile = f.uploadedFile
+	}
+	return f.uploadedFile, nil
+}
+func (f *fakeUC) ReadFileChunk(_ context.Context, id uuid.UUID, index int) (io.ReadCloser, mediaModel.File, int64, error) {
+	if f.err != nil {
+		return nil, mediaModel.File{}, 0, f.err
+	}
+	content := f.uploadContent
+	if content == "" {
+		content = f.streamedContent
+	}
+	size := f.UploadChunkBytes()
+	from := int64(index) * size
+	if index < 0 || from >= int64(len(content)) {
+		return nil, mediaModel.File{}, 0, mediaModel.ErrFileNotFound.Err()
+	}
+	to := min(from+size, int64(len(content)))
+	return io.NopCloser(strings.NewReader(content[from:to])), f.streamedFile, to - from, nil
 }
 func (f *fakeUC) GetFile(_ context.Context, id uuid.UUID) (mediaModel.File, error) {
 	if f.err != nil {
@@ -172,7 +200,12 @@ func (f *fakeUC) StreamFile(_ context.Context, id uuid.UUID) (io.ReadCloser, med
 }
 func (f *fakeUC) MaxUploadBytes() int64       { return f.maxUploadBytes }
 func (f *fakeUC) MaxSingleUploadBytes() int64 { return f.maxUploadBytes }
-func (f *fakeUC) UploadChunkBytes() int64     { return f.maxUploadBytes }
+func (f *fakeUC) UploadChunkBytes() int64 {
+	if f.chunkBytes > 0 {
+		return f.chunkBytes
+	}
+	return f.maxUploadBytes
+}
 func (f *fakeUC) StartUpload(context.Context, string, string, int64, uuid.UUID) (mediaModel.Upload, error) {
 	return mediaModel.Upload{}, nil
 }
@@ -592,27 +625,77 @@ func TestCreateExercise_Returns200(t *testing.T) {
 	}
 }
 
+// exportedFile is the answer of POST /exercises/export.
+type exportedFile struct {
+	FileID    string
+	Name      string
+	Size      int64
+	ChunkSize int64
+	Chunks    int
+}
+
+// exportAndDownload exports the ids, then reads every chunk through the chunk route and returns the reassembled bytes.
+func exportAndDownload(t *testing.T, r *gin.Engine, body string) (exportedFile, []byte) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("export: want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var env struct{ Data exportedFile }
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	var out []byte
+	for index := 0; index < env.Data.Chunks; index++ {
+		chunk := httptest.NewRecorder()
+		r.ServeHTTP(chunk, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+env.Data.FileID+"/chunks/"+strconv.Itoa(index), nil))
+		if chunk.Code != http.StatusOK || chunk.Header().Get("Content-Type") != "application/octet-stream" {
+			t.Fatalf("chunk %d: status %d type %q", index, chunk.Code, chunk.Header().Get("Content-Type"))
+		}
+		out = append(out, chunk.Body.Bytes()...)
+	}
+	if int64(len(out)) != env.Data.Size {
+		t.Fatalf("reassembled %d bytes, answer says %d", len(out), env.Data.Size)
+	}
+	return env.Data, out
+}
+
 func TestExportOneExercise_UsesStandardPlatformZipName(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	id := uuid.Must(uuid.NewV7())
 	uc := &fakeUC{
 		exerciseView:    exerciseUseCase.ExerciseView{ID: id, Name: "SQL injection basics"},
-		exportedArchive: []byte("zip contents"),
+		exportedArchive: []byte("zip contents"), chunkBytes: 5,
 	}
 	r := newEngine(uc, uid)
-	body := strings.NewReader(`{"IDs":["` + id.String() + `"]}`)
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	file, _ := exportAndDownload(t, r, `{"IDs":["`+id.String()+`"]}`)
+	if file.Name != "sql-injection-basics.cybericebox.zip" || uc.uploadContentTyp != "application/zip" {
+		t.Fatalf("unexpected stored file: %+v type %q", file, uc.uploadContentTyp)
 	}
-	if got := w.Header().Get("Content-Disposition"); !strings.Contains(got, "sql-injection-basics.cybericebox.zip") {
-		t.Fatalf("unexpected archive disposition: %q", got)
+	if uc.uploadCreatedBy != uid {
+		t.Fatalf("the export belongs to its creator, got %s", uc.uploadCreatedBy)
 	}
-	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "application/zip") {
-		t.Fatalf("unexpected content type: %q", got)
+}
+
+// The export is a stored file: the answer names it and its chunks, which reassemble to the zip.
+func TestExport_ReturnsStoredFile(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	id := uuid.Must(uuid.NewV7())
+	archive, err := exerciseUseCase.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"schema":"cib-exercise/1"}`)})
+	if err != nil {
+		t.Fatalf("build archive: %v", err)
+	}
+	uc := &fakeUC{exerciseView: exerciseUseCase.ExerciseView{ID: id, Name: "web"}, exportedArchive: archive, chunkBytes: 64}
+	r := newEngine(uc, uid)
+	file, body := exportAndDownload(t, r, `{"IDs":["`+id.String()+`"]}`)
+	if file.FileID == "" || file.Chunks < 2 || file.ChunkSize != 64 || file.Size != int64(len(archive)) {
+		t.Fatalf("unexpected answer: %+v (zip is %d bytes)", file, len(archive))
+	}
+	if _, err = exerciseUseCase.ReadArchiveV1(bytes.NewReader(body)); err != nil {
+		t.Fatalf("chunks do not reassemble to a valid zip: %v", err)
 	}
 }
 
@@ -631,7 +714,7 @@ func TestExportExercise_RequiresExportPermission(t *testing.T) {
 			r.Use(response.WithErrorHandler)
 			uc := &fakeUC{
 				exerciseView:    exerciseUseCase.ExerciseView{ID: id, Name: "exercise"},
-				exportedArchive: []byte("zip contents"),
+				exportedArchive: []byte("zip contents"), chunkBytes: 5,
 			}
 			exerciseHandler.NewExerciseAPIHandler(uc, roleProt{role: tc.role}).Init(r.Group("api"))
 			req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", strings.NewReader(`{"IDs":["`+id.String()+`"]}`))
@@ -655,17 +738,13 @@ func TestExportSeveralExercises_UsesFoldersInsteadOfNestedArchives(t *testing.T)
 	if err != nil {
 		t.Fatalf("build archive: %v", err)
 	}
-	uc := &fakeUC{exerciseView: exerciseUseCase.ExerciseView{Name: "web basics"}, exportedArchive: archive}
+	uc := &fakeUC{exerciseView: exerciseUseCase.ExerciseView{Name: "web basics"}, exportedArchive: archive, chunkBytes: 100}
 	r := newEngine(uc, uid)
-	body := strings.NewReader(`{"IDs":["` + first.String() + `","` + second.String() + `"]}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/exercises/export", body)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	file, bundle := exportAndDownload(t, r, `{"IDs":["`+first.String()+`","`+second.String()+`"]}`)
+	if file.Name != "exercises.cybericebox.zip" {
+		t.Fatalf("unexpected bundle name %q", file.Name)
 	}
-	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(w.Body.Bytes()))
+	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(bundle))
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}
@@ -1152,6 +1231,68 @@ func TestDownloadFile_Unauthorized_DoesNotOpenBlob(t *testing.T) {
 	}
 	if uc.streamedFileID != (uuid.UUID{}) {
 		t.Fatalf("blob opened for an unauthorized caller")
+	}
+}
+
+// A caller without the download right gets a 404 and the blob is never read.
+func TestFileChunk_RequiresDownloadRight(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	fileID := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{streamedFile: mediaModel.File{ID: fileID, Name: "f", SizeBytes: 5}, streamedContent: "hello", chunkBytes: 4}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	r.Use(func(c *gin.Context) {
+		rc := rbac.ContextWithCurrentUserSession(c.Request.Context(), rbac.Claims{UserID: uid})
+		c.Request = c.Request.WithContext(rc)
+		c.Next()
+	})
+	exerciseHandler.NewExerciseAPIHandler(uc, fakeProt{}).Init(r.Group("api"))
+
+	for _, path := range []string{"/meta", "/chunks/0"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+path, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: want 404, got %d body=%s", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestFileMetaAndChunk_Reader(t *testing.T) {
+	fileID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000f2")
+	uc := &fakeUC{
+		streamedFile:    mediaModel.File{ID: fileID, Name: "a.zip", SizeBytes: 5, ContentHash: "abc"},
+		streamedContent: "hello", chunkBytes: 4,
+	}
+	r := newEngine(uc, uuid.Must(uuid.NewV7()))
+	meta := httptest.NewRecorder()
+	r.ServeHTTP(meta, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+"/meta", nil))
+	var env struct {
+		Data struct {
+			Name      string
+			Size      int64
+			ChunkSize int64
+			Chunks    int
+			SHA256    string
+		}
+	}
+	if err := json.Unmarshal(meta.Body.Bytes(), &env); err != nil || meta.Code != http.StatusOK {
+		t.Fatalf("meta: %d %s %v", meta.Code, meta.Body.String(), err)
+	}
+	if env.Data.Name != "a.zip" || env.Data.Size != 5 || env.Data.ChunkSize != 4 || env.Data.Chunks != 2 || env.Data.SHA256 != "abc" {
+		t.Fatalf("unexpected meta: %+v", env.Data)
+	}
+	last := httptest.NewRecorder()
+	r.ServeHTTP(last, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+"/chunks/1", nil))
+	if last.Code != http.StatusOK || last.Body.String() != "o" || last.Header().Get("Content-Length") != "1" {
+		t.Fatalf("last chunk: %d %q len %q", last.Code, last.Body.String(), last.Header().Get("Content-Length"))
+	}
+	for _, bad := range []string{"2", "-1", "x"} {
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/exercises/files/"+fileID.String()+"/chunks/"+bad, nil))
+		if rec.Code != http.StatusNotFound && rec.Code != http.StatusBadRequest {
+			t.Fatalf("chunk %s: want 404/400, got %d", bad, rec.Code)
+		}
 	}
 }
 

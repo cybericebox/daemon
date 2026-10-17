@@ -6338,6 +6338,23 @@ definitions:
     required:
     - IDs
     type: object
+  exercise.exportedFileResponse:
+    properties:
+      ChunkSize:
+        description: ChunkSize is the size of every chunk but the last.
+        type: integer
+      Chunks:
+        type: integer
+      FileID:
+        description: |-
+          FileID is the stored zip; its chunks are read with GET /exercises/files/{fileID}/chunks/{index}. The file is
+          kept for the media grace window (24 h by default), then the cleanup removes it.
+        type: string
+      Name:
+        type: string
+      Size:
+        type: integer
+    type: object
   exercise.externalDTO:
     properties:
       Port:
@@ -6362,6 +6379,22 @@ definitions:
       Found:
         type: boolean
       Name:
+        type: string
+      Size:
+        type: integer
+    type: object
+  exercise.fileMetaResponse:
+    properties:
+      ChunkSize:
+        description: ChunkSize is the size of every chunk but the last.
+        type: integer
+      Chunks:
+        type: integer
+      Name:
+        type: string
+      SHA256:
+        description: SHA256 is the hex digest of the whole file, for the client to
+          check the reassembled bytes.
         type: string
       Size:
         type: integer
@@ -21025,18 +21058,23 @@ paths:
         schema:
           $ref: '#/definitions/exercise.exportExercisesRequest'
       produces:
-      - application/zip
+      - application/json
       responses:
         "200":
           description: OK
           schema:
-            type: file
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.exportedFileResponse'
+              type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
-      summary: 'Export selected exercises as one ZIP archive (several: one folder
-        per exercise)'
+      summary: 'Export selected exercises as one ZIP archive stored as a file (several:
+        one folder per exercise)'
       tags:
       - exercises
   /exercises/files:
@@ -21088,6 +21126,61 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Stream an exercise attachment
+      tags:
+      - exercises
+  /exercises/files/{fileID}/chunks/{index}:
+    get:
+      parameters:
+      - description: file ID
+        in: path
+        name: fileID
+        required: true
+        type: string
+      - description: chunk index
+        in: path
+        name: index
+        required: true
+        type: integer
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Chunk N (0-based) of a stored file; a failed chunk is asked for again
+        on its own
+      tags:
+      - exercises
+  /exercises/files/{fileID}/meta:
+    get:
+      parameters:
+      - description: file ID
+        in: path
+        name: fileID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.fileMetaResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Size, chunk layout and hash of a stored file (start of a chunked download)
       tags:
       - exercises
   /exercises/import:

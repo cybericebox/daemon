@@ -15490,12 +15490,12 @@
                     "application/json"
                 ],
                 "produces": [
-                    "application/zip"
+                    "application/json"
                 ],
                 "tags": [
                     "exercises"
                 ],
-                "summary": "Export selected exercises as one ZIP archive (several: one folder per exercise)",
+                "summary": "Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)",
                 "parameters": [
                     {
                         "description": "selection and secret option",
@@ -15511,7 +15511,19 @@
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "file"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.exportedFileResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -15599,6 +15611,93 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/files/{fileID}/chunks/{index}": {
+            "get": {
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Chunk N (0-based) of a stored file; a failed chunk is asked for again on its own",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "file ID",
+                        "name": "fileID",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "chunk index",
+                        "name": "index",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/files/{fileID}/meta": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Size, chunk layout and hash of a stored file (start of a chunked download)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "file ID",
+                        "name": "fileID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.fileMetaResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -31872,6 +31971,28 @@
                 }
             }
         },
+        "exercise.exportedFileResponse": {
+            "type": "object",
+            "properties": {
+                "ChunkSize": {
+                    "description": "ChunkSize is the size of every chunk but the last.",
+                    "type": "integer"
+                },
+                "Chunks": {
+                    "type": "integer"
+                },
+                "FileID": {
+                    "description": "FileID is the stored zip; its chunks are read with GET /exercises/files/{fileID}/chunks/{index}. The file is\nkept for the media grace window (24 h by default), then the cleanup removes it.",
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.externalDTO": {
             "type": "object",
             "properties": {
@@ -31905,6 +32026,28 @@
                     "type": "boolean"
                 },
                 "Name": {
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "exercise.fileMetaResponse": {
+            "type": "object",
+            "properties": {
+                "ChunkSize": {
+                    "description": "ChunkSize is the size of every chunk but the last.",
+                    "type": "integer"
+                },
+                "Chunks": {
+                    "type": "integer"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "SHA256": {
+                    "description": "SHA256 is the hex digest of the whole file, for the client to check the reassembled bytes.",
                     "type": "string"
                 },
                 "Size": {

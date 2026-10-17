@@ -22,6 +22,7 @@ type IRepository interface {
 type IStorage interface {
 	Put(ctx context.Context, key string, r io.Reader, size int64, contentType string) error
 	Get(ctx context.Context, key string) (io.ReadCloser, string, error)
+	GetRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error)
 	Remove(ctx context.Context, key string) error
 	Stat(ctx context.Context, key string) (bool, error)
 	Copy(ctx context.Context, src, dst string) error

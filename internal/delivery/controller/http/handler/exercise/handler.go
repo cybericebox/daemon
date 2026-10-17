@@ -79,6 +79,8 @@ type (
 		UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error)
 		GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error)
 		StreamFile(ctx context.Context, id uuid.UUID) (io.ReadCloser, mediaModel.File, error)
+		// ReadFileChunk opens chunk index of a stored file (chunks are UploadChunkBytes long) and reports its length.
+		ReadFileChunk(ctx context.Context, id uuid.UUID, index int) (io.ReadCloser, mediaModel.File, int64, error)
 		// LookupExerciseFile answers whether the task already stores a content (asked before an attachment upload).
 		LookupExerciseFile(ctx context.Context, exerciseID uuid.UUID, sha256 string) (exerciseUseCase.FileLookup, error)
 		// MaxUploadBytes is the same cap UploadFile enforces internally; the
@@ -141,6 +143,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// named wildcard (":id") was already claimed at that position.
 		ex.POST("files", self, h.uploadFile)
 		ex.GET("files/:fileID", self, h.downloadFile)
+		// chunked resumable download of a stored file (the export): the meta says how many chunks there are
+		ex.GET("files/:fileID/meta", self, h.fileMeta)
+		ex.GET("files/:fileID/chunks/:index", self, h.fileChunk)
 		// resumable chunked upload: chunks of at most 50 MiB through the API, in order
 		ex.POST("uploads", self, h.startUpload)
 		ex.GET("uploads/:uploadID", self, h.uploadStatus)
