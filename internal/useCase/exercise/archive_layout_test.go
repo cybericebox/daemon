@@ -446,3 +446,19 @@ func mustBuild(t *testing.T, files map[string][]byte) []byte {
 	}
 	return data
 }
+
+func TestReadArchive_ManifestListingNFDName(t *testing.T) {
+	nfd := "files/й.txt"
+	doc := taskWithAttachments(`{file: "files/й.txt"}`)
+	manifest := `{"version":1,"checksums":{"exercise.yaml":"` + hashBytes(doc) + `","` + nfd + `":"` + hashBytes([]byte("й")) + `"}}`
+	data := zipOf(t, map[string][]byte{"exercise.yaml": doc, nfd: []byte("й"), "manifest.json": []byte(manifest)})
+	if _, err := ParseExerciseArchive(data, ""); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	broken := `{"version":1,"checksums":{"` + nfd + `":"` + hashBytes([]byte("other")) + `"}}`
+	data = zipOf(t, map[string][]byte{"exercise.yaml": doc, nfd: []byte("й"), "manifest.json": []byte(broken)})
+	_, err := ParseExerciseArchive(data, "")
+	if !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) || publicContext(t, err)["file"] != "files/й.txt" {
+		t.Fatalf("want mismatch naming the NFC file, got %v", err)
+	}
+}

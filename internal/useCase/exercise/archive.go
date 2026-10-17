@@ -21,6 +21,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/model"
 	yzip "github.com/yeka/zip"
+	"golang.org/x/text/unicode/norm"
 )
 
 type archiveManifest struct {
@@ -671,8 +672,10 @@ func validateArchiveManifest(files map[string][]byte) (map[string][]byte, error)
 		}
 		sort.Strings(checked)
 		for _, entry := range checked {
-			if got, ok := files[prefix+entry]; !ok || hashBytes(got) != manifest.Checksums[entry] {
-				return nil, archiveChecksumMismatch(prefix + entry)
+			// Entry names are stored in NFC (checkArchiveEntry); a manifest written on macOS may list NFD.
+			name := norm.NFC.String(prefix + entry)
+			if got, ok := files[name]; !ok || hashBytes(got) != manifest.Checksums[entry] {
+				return nil, archiveChecksumMismatch(name)
 			}
 		}
 	}
