@@ -284,12 +284,19 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 // importStateWrites is how often an import's outcome is written before giving up.
 const importStateWrites = 5
 
-// writeImportJobRetrying writes the job up to importStateWrites times, importStateRetryDelay apart.
+// writeImportJobRetrying writes the job up to importStateWrites times, importStateRetryDelay apart; the wait ends
+// early when ctx does (the last write's error is returned then).
 func (u *ExerciseUseCase) writeImportJobRetrying(ctx context.Context, job exerciseModel.ImportJob) error {
 	var err error
 	for attempt := 0; attempt < importStateWrites; attempt++ {
 		if attempt > 0 {
-			time.Sleep(importStateRetryDelay)
+			timer := time.NewTimer(importStateRetryDelay)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return err
+			}
 		}
 		if err = u.writeImportJob(ctx, job); err == nil {
 			return nil

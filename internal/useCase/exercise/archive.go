@@ -373,11 +373,11 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 	for _, sourceID := range sources {
 		meta, ok := parsed.FileMeta[sourceID]
 		if !ok {
-			return fmt.Errorf("exercise archive is missing metadata for attachment %s", sourceID)
+			return archiveInvalid("an attachment the document links has no file in the archive")
 		}
 		body, ok := lookupAttachment(parsed, sourceID)
 		if !ok {
-			return fmt.Errorf("exercise archive is missing attachment %s", sourceID)
+			return archiveInvalid("an attachment the document links is missing from the archive")
 		}
 		hash := sha256.Sum256(body)
 		if stored, done := uploadedByHash[hash]; done {

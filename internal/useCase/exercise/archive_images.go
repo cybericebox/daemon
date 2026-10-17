@@ -276,22 +276,27 @@ func readArchiveEntries(entries []zipEntry, protected bool) (archiveRead, error)
 		if imageTotal += size; imageTotal > imageRegistryModel.MaxImageArchiveBytes {
 			return archiveRead{}, archiveTooLarge("the image files are over " + gib(imageRegistryModel.MaxImageArchiveBytes) + " unpacked together")
 		}
-		images[name] = &archiveImageFile{Name: name, Size: size, open: func() (io.ReadCloser, error) {
-			rc, openErr := e.open(true)
-			if openErr != nil {
-				if IsArchiveFormatError(openErr) {
-					return nil, fmt.Errorf("%w: %w", ociregistry.ErrSourceCorrupt, openErr)
-				}
-				return nil, openErr
-			}
-			return &sizedEntryReader{r: rc, size: size}, nil
-		}}
+		images[name] = imageFileOf(name, size, e.open)
 	}
 	files, err = validateArchiveManifestWith(files, images)
 	if err != nil {
 		return archiveRead{}, err
 	}
 	return archiveRead{files: files, images: images, protected: protected}, nil
+}
+
+// imageFileOf is an image entry left in the zip, read through sizedEntryReader.
+func imageFileOf(name string, size int64, open func(stream bool) (io.ReadCloser, error)) *archiveImageFile {
+	return &archiveImageFile{Name: name, Size: size, open: func() (io.ReadCloser, error) {
+		rc, err := open(true)
+		if err != nil {
+			if !isTyped(err) && IsArchiveFormatError(err) {
+				return nil, fmt.Errorf("%w: %w", ociregistry.ErrSourceCorrupt, err)
+			}
+			return nil, err
+		}
+		return &sizedEntryReader{r: rc, size: size}, nil
+	}}
 }
 
 func gib(n int64) string { return fmt.Sprintf("%d GiB", n>>30) }

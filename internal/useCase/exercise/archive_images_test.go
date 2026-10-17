@@ -738,3 +738,21 @@ func TestArchiveNamesImages(t *testing.T) {
 	_, err := exercise.ParseExerciseArchive(with, "")
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveImageFileUnsupported.Err())
 }
+
+// The wait between outcome writes ends with the job's context.
+func TestRunArchiveImportOutcomeRetryStopsWithTheContext(t *testing.T) {
+	exercise.SetImportStateRetryDelay(t, time.Hour)
+	f := newImportFixture(t)
+	f.sources.stage(archiveUpID, importer, zipOf(t, map[string][]byte{
+		"exercise.json":  imageTask("Images", [2]string{"web", "images/web.tar"}),
+		"images/web.tar": []byte(strings.Repeat("text ", 200)),
+	}), mediaModel.UploadPurposeExerciseArchive)
+	_, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
+	require.NoError(t, err)
+	f.failUpdates = 100
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	began := time.Now()
+	require.Error(t, f.uc.RunArchiveImport(ctx, f.queued[0]), "an unrecorded failure goes back to River")
+	require.Less(t, time.Since(began), 10*time.Second, "no hour-long sleep after the context ended")
+}
