@@ -93,6 +93,8 @@
   "20976": "Several flags or a flag template are only available for tasks with a device",
   "20978": "A linked variant must point to an unlinked variant of the same version",
   "20979": "Linked variants of one base need different flags for the same task",
+  "20980": "Exercise archive is invalid",
+  "20988": "Device images inside the archive are not supported yet",
   "21002": "File exceeds the maximum upload size",
   "21004": "The picture has too many pixels",
   "21005": "The picture cannot be read",

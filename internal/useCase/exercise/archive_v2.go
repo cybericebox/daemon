@@ -1,0 +1,432 @@
+package exercise
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"reflect"
+	"sort"
+	"strings"
+
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/gofrs/uuid"
+)
+
+// archiveSchema is the only accepted value of the document's `schema` key.
+const archiveSchema = "cib-exercise/1"
+
+// The DTOs below are the portable document (snake_case keys). Domain types are reused where
+// their JSON shape already is the document shape (placeholders, interfaces, env vars, ...);
+// everything that differs (names instead of ids, optional ids, image forms) has its own DTO.
+type (
+	archiveDocV2 struct {
+		Schema   string             `json:"schema"`
+		Exercise archiveExerciseV2  `json:"exercise"`
+		Versions []archiveVersionV2 `json:"versions"`
+	}
+
+	// archiveExerciseV2: id is accepted and ignored, a new exercise gets its own.
+	archiveExerciseV2 struct {
+		ID          string   `json:"id,omitempty"`
+		Name        string   `json:"name"`
+		Description string   `json:"description,omitempty"`
+		Tags        []string `json:"tags,omitempty"`
+	}
+
+	// archiveVersionV2: id is accepted and ignored.
+	archiveVersionV2 struct {
+		ID        string                      `json:"id,omitempty"`
+		Status    exerciseModel.VersionStatus `json:"status,omitempty"`
+		AdminNote string                      `json:"admin_note,omitempty"`
+		Label     string                      `json:"label,omitempty"`
+		Variants  []archiveVariantV2          `json:"variants"`
+	}
+
+	archiveVariantV2 struct {
+		ID       string            `json:"id,omitempty"`
+		Index    int32             `json:"index,omitempty"`
+		Note     string            `json:"note,omitempty"`
+		Tasks    []archiveTaskV2   `json:"tasks,omitempty"`
+		Topology archiveTopologyV2 `json:"topology"`
+	}
+
+	archiveTaskV2 struct {
+		ID             string                      `json:"id,omitempty"`
+		Name           string                      `json:"name"`
+		Description    json.RawMessage             `json:"description,omitempty"`
+		Difficulty     exerciseModel.Difficulty    `json:"difficulty,omitempty"`
+		Flag           []string                    `json:"flag,omitempty"`
+		LinkedDevice   string                      `json:"linked_device,omitempty"`
+		LinkedDeviceID string                      `json:"linked_device_id,omitempty"`
+		DeviceFlagVar  string                      `json:"device_flag_var,omitempty"`
+		Attachments    []archiveAttachmentV2       `json:"attachments,omitempty"`
+		Placeholders   []exerciseModel.Placeholder `json:"placeholders,omitempty"`
+		Hints          []archiveHintV2             `json:"hints,omitempty"`
+	}
+
+	// archiveAttachmentV2: File is relative to the task folder; Name defaults to its base name.
+	archiveAttachmentV2 struct {
+		File string `json:"file"`
+		Name string `json:"name,omitempty"`
+	}
+
+	archiveHintV2 struct {
+		ID    string                  `json:"id,omitempty"`
+		Text  string                  `json:"text"`
+		Level exerciseModel.HintLevel `json:"level,omitempty"`
+	}
+
+	archiveTopologyV2 struct {
+		VPN          exerciseModel.NetworkSpec `json:"vpn"`
+		Internet     exerciseModel.NetworkSpec `json:"internet"`
+		Devices      []archiveDeviceV2         `json:"devices,omitempty"`
+		Connections  []archiveConnectionV2     `json:"connections,omitempty"`
+		VisualRender json.RawMessage           `json:"visual_render,omitempty"`
+	}
+
+	archiveDeviceV2 struct {
+		ID             string                           `json:"id,omitempty"`
+		Name           string                           `json:"name"`
+		Type           exerciseModel.DeviceType         `json:"type"`
+		Image          archiveImageV2                   `json:"image,omitzero"`
+		SecurityPreset exerciseModel.SecurityPreset     `json:"security_preset,omitempty"`
+		ResourcePreset string                           `json:"resource_preset,omitempty"`
+		Interfaces     []exerciseModel.Interface        `json:"interfaces,omitempty"`
+		EnvVars        []exerciseModel.EnvVar           `json:"env_vars,omitempty"`
+		External       *exerciseModel.ExternalAccess    `json:"external,omitempty"`
+		Persistence    *exerciseModel.DevicePersistence `json:"persistence,omitempty"`
+	}
+
+	archiveConnectionV2 struct {
+		Endpoints []archiveEndpointV2 `json:"endpoints"`
+	}
+
+	// archiveEndpointV2: a device is named (Device) or addressed by id (DeviceID, wins when both).
+	archiveEndpointV2 struct {
+		Kind      exerciseModel.EndpointKind `json:"kind"`
+		Device    string                     `json:"device,omitempty"`
+		DeviceID  string                     `json:"device_id,omitempty"`
+		Interface string                     `json:"interface,omitempty"`
+	}
+)
+
+// archiveImageV2 is a device image: a reference string ("nginx:1.27") or the reserved object
+// form {"file": "<path>"} for an image shipped inside the archive.
+type archiveImageV2 struct {
+	Ref  string
+	File string
+}
+
+const archiveImageShape = "image must be a reference string or an object with the single key file"
+
+func (i *archiveImageV2) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	var ref string
+	if json.Unmarshal(trimmed, &ref) == nil {
+		*i = archiveImageV2{Ref: ref}
+		return nil
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(trimmed, &object) != nil || len(object) != 1 {
+		return archiveInvalid(archiveImageShape)
+	}
+	rawFile, ok := object["file"]
+	var file string
+	if !ok || json.Unmarshal(rawFile, &file) != nil {
+		return archiveInvalid(archiveImageShape)
+	}
+	*i = archiveImageV2{File: file}
+	return nil
+}
+
+func (i archiveImageV2) MarshalJSON() ([]byte, error) {
+	return json.Marshal(i.Ref)
+}
+
+// archiveInvalid is the one place ErrArchiveInvalid is raised; reason is shown to the author.
+func archiveInvalid(reason string) error {
+	return exerciseModel.ErrArchiveInvalid.WithPublicContext("reason", reason).Err()
+}
+
+// archiveImageFileUnsupported is the one place ErrArchiveImageFileUnsupported is raised.
+func archiveImageFileUnsupported(device string) error {
+	return exerciseModel.ErrArchiveImageFileUnsupported.WithPublicContext("device", device).Err()
+}
+
+// decodeArchiveV2 reads one document strictly: exact (case-sensitive) known keys only, no
+// trailing data, enums by name. Every failure is ErrArchiveInvalid.
+func decodeArchiveV2(payload []byte) (archiveDocV2, error) {
+	var generic any
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	if err := decoder.Decode(&generic); err != nil {
+		return archiveDocV2{}, archiveInvalid("the document is not valid JSON")
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return archiveDocV2{}, archiveInvalid("the document has data after its end")
+	}
+	// encoding/json matches keys case-insensitively, so unknown keys are checked on the generic
+	// tree against the exact tags first; DisallowUnknownFields below stays as a backstop.
+	if err := checkArchiveKeys("", generic, reflect.TypeFor[archiveDocV2]()); err != nil {
+		return archiveDocV2{}, err
+	}
+	var doc archiveDocV2
+	strict := json.NewDecoder(bytes.NewReader(payload))
+	strict.DisallowUnknownFields()
+	if err := strict.Decode(&doc); err != nil {
+		return archiveDocV2{}, decodeFailure(err)
+	}
+	if doc.Schema != archiveSchema {
+		return archiveDocV2{}, archiveInvalid(fmt.Sprintf("schema must be %q", archiveSchema))
+	}
+	return doc, nil
+}
+
+// decodeFailure turns an encoding/json failure into ErrArchiveInvalid without leaking Go type names.
+func decodeFailure(err error) error {
+	if errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
+		return err
+	}
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) {
+		return archiveInvalid(fmt.Sprintf("%s must be a %s, got a %s", typeErr.Field, typeErr.Type.Kind(), typeErr.Value))
+	}
+	return archiveInvalid(err.Error())
+}
+
+var jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
+
+// checkArchiveKeys walks the generic JSON tree next to the Go type it decodes into and names the
+// first key (alphabetical, for stable messages) no field declares, matching case-sensitively.
+// Paths are 1-based, as in every message to the author.
+func checkArchiveKeys(path string, value any, t reflect.Type) error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if reflect.PointerTo(t).Implements(jsonUnmarshalerType) {
+		return nil // opaque or custom: json.RawMessage, archiveImageV2
+	}
+	switch t.Kind() {
+	case reflect.Struct:
+		object, ok := value.(map[string]any)
+		if !ok {
+			return nil // a type mismatch, reported by the decode
+		}
+		fields := make(map[string]reflect.Type, t.NumField())
+		for i := range t.NumField() {
+			field := t.Field(i)
+			if name, _, _ := strings.Cut(field.Tag.Get("json"), ","); name != "" && name != "-" {
+				fields[name] = field.Type
+			}
+		}
+		keys := make([]string, 0, len(object))
+		for key := range object {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			fieldType, known := fields[key]
+			if !known {
+				where := path
+				if where == "" {
+					where = "the document"
+				}
+				return archiveInvalid(fmt.Sprintf("unknown key %q in %s", key, where))
+			}
+			child := key
+			if path != "" {
+				child = path + "." + key
+			}
+			if err := checkArchiveKeys(child, object[key], fieldType); err != nil {
+				return err
+			}
+		}
+	case reflect.Slice:
+		items, ok := value.([]any)
+		if !ok {
+			return nil
+		}
+		for i, item := range items {
+			if err := checkArchiveKeys(fmt.Sprintf("%s[%d]", path, i+1), item, t.Elem()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// descriptionToRaw maps a task description to the stored editor document. Until the plain-text
+// form lands, only an editor object is accepted.
+func descriptionToRaw(raw json.RawMessage) (json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil, nil
+	}
+	if trimmed[0] != '{' {
+		return nil, archiveInvalid("description must be an editor document")
+	}
+	return raw, nil
+}
+
+// archiveAttachments maps task attachments to stored references. Stub until the files are read.
+func archiveAttachments(_ map[string][]byte, attachments []archiveAttachmentV2) ([]exerciseModel.AttachmentRef, error) {
+	if len(attachments) > 0 {
+		return nil, archiveInvalid("attachments are not supported yet")
+	}
+	return nil, nil
+}
+
+// optionalUUID parses an optional id; empty is uuid.Nil.
+func optionalUUID(path, raw string) (uuid.UUID, error) {
+	if raw == "" {
+		return uuid.Nil, nil
+	}
+	id, err := uuid.FromString(raw)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, archiveInvalid(path + " must be a UUID")
+	}
+	return id, nil
+}
+
+func freshID() uuid.UUID { return uuid.Must(uuid.NewV7()) }
+
+// toParsed maps the document to the domain: fresh UUIDv7 for id-less variants and devices,
+// device names to ids, optional ids parsed. Exercise and version ids are ignored.
+func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, error) {
+	parsed := ParsedExerciseArchive{
+		Exercise: exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
+		Files:    files,
+	}
+	for vi, version := range d.Versions {
+		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
+		for xi, variant := range version.Variants {
+			path := fmt.Sprintf("versions[%d].variants[%d]", vi+1, xi+1)
+			value, err := variant.toDomain(path, files)
+			if err != nil {
+				return ParsedExerciseArchive{}, err
+			}
+			mapped.Variants = append(mapped.Variants, value)
+		}
+		parsed.Versions = append(parsed.Versions, mapped)
+	}
+	return parsed, nil
+}
+
+func (v archiveVariantV2) toDomain(path string, files map[string][]byte) (exerciseModel.Variant, error) {
+	id, err := optionalUUID(path+".id", v.ID)
+	if err != nil {
+		return exerciseModel.Variant{}, err
+	}
+	if id == uuid.Nil {
+		id = freshID()
+	}
+	topology, deviceIDs, err := v.Topology.toDomain(path + ".topology")
+	if err != nil {
+		return exerciseModel.Variant{}, err
+	}
+	variant := exerciseModel.Variant{ID: id, Index: v.Index, Note: v.Note, Topology: topology}
+	for ti, task := range v.Tasks {
+		value, taskErr := task.toDomain(fmt.Sprintf("%s.tasks[%d]", path, ti+1), deviceIDs, files)
+		if taskErr != nil {
+			return exerciseModel.Variant{}, taskErr
+		}
+		variant.Tasks = append(variant.Tasks, value)
+	}
+	return variant, nil
+}
+
+func (t archiveTaskV2) toDomain(path string, deviceIDs map[string]uuid.UUID, files map[string][]byte) (exerciseModel.Task, error) {
+	id, err := optionalUUID(path+".id", t.ID)
+	if err != nil {
+		return exerciseModel.Task{}, err
+	}
+	description, err := descriptionToRaw(t.Description)
+	if err != nil {
+		return exerciseModel.Task{}, err
+	}
+	task := exerciseModel.Task{
+		ID: id, Name: t.Name, Description: description, Difficulty: t.Difficulty, Flag: t.Flag,
+		DeviceFlagVar: t.DeviceFlagVar, Placeholders: t.Placeholders,
+	}
+	if task.Attachments, err = archiveAttachments(files, t.Attachments); err != nil {
+		return exerciseModel.Task{}, err
+	}
+	linked, err := resolveDevice(path+".linked_device", t.LinkedDevice, t.LinkedDeviceID, deviceIDs)
+	if err != nil {
+		return exerciseModel.Task{}, err
+	}
+	task.LinkedDeviceID = uuid.NullUUID{UUID: linked, Valid: linked != uuid.Nil}
+	for hi, hint := range t.Hints {
+		hintID, hintErr := optionalUUID(fmt.Sprintf("%s.hints[%d].id", path, hi+1), hint.ID)
+		if hintErr != nil {
+			return exerciseModel.Task{}, hintErr
+		}
+		task.Hints = append(task.Hints, exerciseModel.Hint{ID: hintID, Text: hint.Text, Level: hint.Level})
+	}
+	return task, nil
+}
+
+// ambiguousDevice marks a name two devices share, so a reference by that name cannot be resolved.
+var ambiguousDevice = uuid.UUID{0xff}
+
+// resolveDevice picks the device a reference points to: the id wins when both are given, a name
+// must belong to exactly one device. Neither given is uuid.Nil.
+func resolveDevice(path, name, rawID string, deviceIDs map[string]uuid.UUID) (uuid.UUID, error) {
+	if rawID != "" {
+		return optionalUUID(path+"_id", rawID)
+	}
+	if name == "" {
+		return uuid.Nil, nil
+	}
+	id, ok := deviceIDs[name]
+	if !ok || id == ambiguousDevice {
+		return uuid.Nil, archiveInvalid(fmt.Sprintf("%s: no single device named %q", path, name))
+	}
+	return id, nil
+}
+
+func (t archiveTopologyV2) toDomain(path string) (exerciseModel.Topology, map[string]uuid.UUID, error) {
+	topology := exerciseModel.Topology{VPN: t.VPN, Internet: t.Internet, VisualRender: t.VisualRender}
+	deviceIDs := make(map[string]uuid.UUID, len(t.Devices))
+	for di, device := range t.Devices {
+		devicePath := fmt.Sprintf("%s.devices[%d]", path, di+1)
+		id, err := optionalUUID(devicePath+".id", device.ID)
+		if err != nil {
+			return exerciseModel.Topology{}, nil, err
+		}
+		if id == uuid.Nil {
+			id = freshID()
+		}
+		if device.Image.File != "" {
+			return exerciseModel.Topology{}, nil, archiveImageFileUnsupported(device.Name)
+		}
+		if _, seen := deviceIDs[device.Name]; seen {
+			deviceIDs[device.Name] = ambiguousDevice
+		} else {
+			deviceIDs[device.Name] = id
+		}
+		topology.Devices = append(topology.Devices, exerciseModel.Device{
+			ID: id, Name: device.Name, Type: device.Type, Image: device.Image.Ref,
+			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
+			Interfaces: device.Interfaces, EnvVars: device.EnvVars,
+			External: device.External, Persistence: device.Persistence,
+		})
+	}
+	for ci, connection := range t.Connections {
+		mapped := exerciseModel.Connection{}
+		for ei, endpoint := range connection.Endpoints {
+			endpointPath := fmt.Sprintf("%s.connections[%d].endpoints[%d].device", path, ci+1, ei+1)
+			id, err := resolveDevice(endpointPath, endpoint.Device, endpoint.DeviceID, deviceIDs)
+			if err != nil {
+				return exerciseModel.Topology{}, nil, err
+			}
+			mapped.Endpoints = append(mapped.Endpoints, exerciseModel.Endpoint{Kind: endpoint.Kind, DeviceID: id, Interface: endpoint.Interface})
+		}
+		topology.Connections = append(topology.Connections, mapped)
+	}
+	return topology, deviceIDs, nil
+}

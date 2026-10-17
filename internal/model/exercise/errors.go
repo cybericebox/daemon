@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 80
+// ExerciseObjectCode — next free detail code: 89
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across
@@ -232,4 +232,12 @@ var (
 	// ErrLinkedFlagsNotDistinct: a base and its linked variants share a fixed flag value for one task.
 	ErrLinkedFlagsNotDistinct = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
 					WithMessage("Linked variants of one base need different flags for the same task").WithDetailCode(79)
+	// ErrArchiveInvalid: the exercise archive document breaks the schema. One public fact: the
+	// `reason` context says what and where (a key, a 1-based path), so the author can fix the file.
+	ErrArchiveInvalid = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+				WithMessage("Exercise archive is invalid").WithDetailCode(80)
+	// ErrArchiveImageFileUnsupported: the {file: ...} form of a device image is reserved; the context
+	// names the device.
+	ErrArchiveImageFileUnsupported = err.ErrInvalidData.WithObjectCode(model.ExerciseObjectCode).
+					WithMessage("Device images inside the archive are not supported yet").WithDetailCode(88)
 )
