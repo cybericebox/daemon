@@ -19,6 +19,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/internal/model/rbac"
+	"github.com/cybericebox/daemon/pkg/overload"
 )
 
 type fakeSink struct {
@@ -237,4 +238,24 @@ func TestEventsNeverCarryAnAddress(t *testing.T) {
 	require.Len(t, sink.events, 1)
 	assert.NotContains(t, sink.events[0].Message+sink.events[0].Source+sink.events[0].RequestID, "203.0.113.9")
 	assert.Empty(t, sink.events[0].Details)
+}
+
+// An overload refusal (the in-flight limiter, a busy database pool) is protection working, like 429: not recorded.
+// Any other 503 is still a fault.
+func TestErrJournalSkipsOverload(t *testing.T) {
+	sink := &fakeSink{}
+	r := newRouter(sink)
+	r.GET("/limited", func(c *gin.Context) { response.AbortWithServiceOverloaded(c) })
+	r.GET("/dbbusy", func(c *gin.Context) {
+		response.AbortWithError(c, fmt.Errorf("load: %w", overload.ErrDBBusy))
+	})
+	r.GET("/down", func(c *gin.Context) { c.AbortWithStatus(http.StatusServiceUnavailable) })
+
+	assert.Equal(t, 503, do(r, http.MethodGet, "/limited").Code)
+	assert.Equal(t, 503, do(r, http.MethodGet, "/dbbusy").Code)
+	assert.Empty(t, sink.events)
+
+	assert.Equal(t, 503, do(r, http.MethodGet, "/down").Code)
+	require.Len(t, sink.events, 1)
+	assert.Equal(t, "/down", sink.events[0].Route)
 }

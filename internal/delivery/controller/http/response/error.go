@@ -7,12 +7,25 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/cybericebox/daemon/internal/model"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	"github.com/cybericebox/daemon/pkg/overload"
 )
 
 const ErrorCtxKey = "error"
+
+// OverloadCtxKey marks a request refused because the server is saturated (in-flight limiter, busy database pool).
+// Such a refusal is protection working, not a fault: the error journal skips it.
+const OverloadCtxKey = "overload"
+
+// IsOverload reports whether the request was refused for overload.
+func IsOverload(ctx *gin.Context) bool {
+	_, ok := ctx.Get(OverloadCtxKey)
+	return ok
+}
 
 func getErrorFromContext(ctx context.Context) err.Error {
 	errFromContext := ctx.Value(ErrorCtxKey)
@@ -70,6 +83,13 @@ func WithErrorHandler(ctx *gin.Context) {
 	errFromContext := getErrorFromContext(ctx)
 
 	if errFromContext == nil {
+		return
+	}
+
+	// Pool saturation surfaces from any depth of use-case wrapping: answer it as a retryable 503, not an internal error.
+	if errors.Is(errFromContext, overload.ErrDBBusy) {
+		ctx.Set(OverloadCtxKey, true)
+		AbortWithStatus(ctx, authModel.ErrDatabaseBusy.WithDetail(err.DetailRetryAfterSeconds, int64(1)).Err())
 		return
 	}
 

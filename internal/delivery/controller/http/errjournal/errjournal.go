@@ -1,5 +1,5 @@
 // Package errjournal is the HTTP capture point of the platform error journal: one middleware that sees every
-// request end. It records 5xx, panics, 403 refused by a route permission (with that permission; a business refusal of a use case is routine and not recorded) (429 is protection, not a fault, and is not recorded), counts 404s
+// request end. It records 5xx, panics, 403 refused by a route permission (with that permission; a business refusal of a use case is routine and not recorded) (429 and the overload 503s are protection, not a fault, and are not recorded), counts 404s
 // per route template (unmatched paths in one counter, never stored) and gives every request an id. 401 is not
 // recorded: expired sessions and sign-in failures are noise. No client address is ever read.
 package errjournal
@@ -99,7 +99,8 @@ func capture(c *gin.Context, sink Sink, rid string) {
 	case status == http.StatusNotFound:
 		sink.CountNotFound(route) // empty route: the path matched nothing
 	case status >= http.StatusInternalServerError:
-		if isRequestCancellation(c) {
+		// An overload refusal is protection working, like 429: not a fault.
+		if response.IsOverload(c) || isRequestCancellation(c) {
 			return
 		}
 		e := base(c, rid, route, status)
