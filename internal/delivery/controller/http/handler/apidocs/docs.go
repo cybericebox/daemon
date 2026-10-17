@@ -24198,7 +24198,7 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "SendEmails": {
-                    "description": "SendEmails false is a silent add: members are approved and placed in\ntheir team at once and no email is sent. Omitted means send.",
+                    "description": "SendEmails false creates the same invitations without any email (people\naccept on the event site). Omitted means send.",
                     "type": "boolean"
                 },
                 "Teams": {
@@ -25066,7 +25066,7 @@ const docTemplate = `{
                     }
                 },
                 "SendEmails": {
-                    "description": "SendEmails false is a silent add: people are approved at once and get\nno email. Omitted means send (the default).",
+                    "description": "SendEmails false creates the same invitations without any email (people\naccept on the event site). Omitted means send (the default).",
                     "type": "boolean"
                 }
             }

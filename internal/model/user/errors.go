@@ -30,4 +30,8 @@ var (
 	// too long; such names let one person pass for another.
 	ErrUserNameInvalid = err.ErrInvalidData.WithObjectCode(model.UserObjectCode).
 				WithMessage("The name contains characters that are not allowed").WithDetailCode(4)
+	// ErrUserNameRequired: finishing registration needs a first and a last name (an account created by an
+	// invitation may have none yet).
+	ErrUserNameRequired = err.ErrInvalidData.WithObjectCode(model.UserObjectCode).
+				WithMessage("First and last name are required").WithDetailCode(5)
 )

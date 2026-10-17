@@ -121,8 +121,8 @@ type (
 		ListParticipantFormAnswers(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.ParticipantFormAnswerView, error)
 		UploadAnswerFile(ctx context.Context, eventID, actorID uuid.UUID, scope eventFormModel.AnswerScope, fieldKey, name string, r io.Reader) (eventUseCase.AnswerFileView, error)
 		StreamManagedAnswerFile(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, eventUseCase.AnswerFileView, error)
-		InviteParticipants(ctx context.Context, eventID, by uuid.UUID, entries []eventUseCase.ParticipantInvitationInput, silent bool) ([]eventUseCase.ParticipantInvitationResult, error)
-		InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []eventUseCase.ParticipantInvitationInput, silent bool) ([]eventUseCase.ParticipantInvitationResult, error)
+		InviteParticipants(ctx context.Context, eventID, by uuid.UUID, entries []eventUseCase.ParticipantInvitationInput, noEmail bool) ([]eventUseCase.ParticipantInvitationResult, error)
+		InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []eventUseCase.ParticipantInvitationInput, noEmail bool) ([]eventUseCase.ParticipantInvitationResult, error)
 		ResendParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) (eventUseCase.ParticipantInvitationResult, error)
 		RevokeParticipantInvitation(ctx context.Context, eventID, userID, by uuid.UUID) error
 		GetTeamProfile(ctx context.Context, eventID, teamID uuid.UUID) (eventUseCase.TeamProfileView, error)
@@ -145,7 +145,7 @@ type (
 		ListTeamsTable(ctx context.Context, q eventUseCase.TeamsTableQuery) (eventUseCase.TeamsTableResult, error)
 		AssignParticipantToTeam(ctx context.Context, eventID, teamID, userID uuid.UUID) error
 		CreateManagedTeam(ctx context.Context, eventID uuid.UUID, in eventUseCase.CreateManagedTeamInput) (eventUseCase.TeamView, error)
-		CreateManagedTeams(ctx context.Context, eventID, by uuid.UUID, in []eventUseCase.BatchTeamInput, dryRun, silent bool) (eventUseCase.BatchTeamsResult, error)
+		CreateManagedTeams(ctx context.Context, eventID, by uuid.UUID, in []eventUseCase.BatchTeamInput, dryRun, noEmail bool) (eventUseCase.BatchTeamsResult, error)
 		UpdateManagedTeam(ctx context.Context, eventID, teamID uuid.UUID, in eventUseCase.UpdateManagedTeamInput) (eventUseCase.TeamView, error)
 		RemoveParticipantFromTeam(ctx context.Context, eventID, teamID, userID uuid.UUID) error
 		FormManagedTeam(ctx context.Context, eventID, teamID, moderatorID uuid.UUID) error

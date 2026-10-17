@@ -100,6 +100,26 @@ func TestForgotPassword_IncompleteResendsSetupLink(t *testing.T) {
 	}
 }
 
+// An invitation can leave an account without names: forgot-password still sends
+// the continue-registration email (no reset code), greeting by the address.
+func TestForgotPassword_IncompleteWithoutNamesResendsSetupLink(t *testing.T) {
+	uc, repo, _, notifier := newPwUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "i@b.test").
+		Return(postgres.User{ID: uid, Email: "i@b.test", Status: string(userModel.UserStatusIncomplete)}, nil)
+
+	if err := uc.ForgotPassword(context.Background(), "i@b.test"); err != nil {
+		t.Fatalf("forgot: %v", err)
+	}
+	p, ok := notifier.lastPayload.(payloads.ContinueRegistrationPayload)
+	if !ok {
+		t.Fatalf("want ContinueRegistrationPayload, got %T", notifier.lastPayload)
+	}
+	if notifier.calls != 1 || p.Name != "i@b.test" || !strings.Contains(p.RegistrationURL, "/setup/?token=") {
+		t.Fatalf("unexpected payload: %+v", p)
+	}
+}
+
 func TestResetPassword_Success(t *testing.T) {
 	uc, repo, _, _ := newPwUC(t)
 	uid := uuid.Must(uuid.NewV7())

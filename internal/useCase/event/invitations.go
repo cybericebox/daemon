@@ -65,13 +65,13 @@ type ParticipantInvitationResult struct {
 // InviteParticipants handles every address independently, so a bad CSV row
 // cannot roll back invitations that were accepted by the server.
 //
-// silent registers the people at once instead: they are approved (and placed in
-// the team), no email of any kind is sent and no invitation is left pending.
-func (u *EventUseCase) InviteParticipants(ctx context.Context, eventID, by uuid.UUID, entries []ParticipantInvitationInput, silent bool) ([]ParticipantInvitationResult, error) {
-	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{}, "", by, entries, silent)
+// noEmail creates the very same invitations but sends no email: the person
+// finds the invitation on the event site and accepts it there.
+func (u *EventUseCase) InviteParticipants(ctx context.Context, eventID, by uuid.UUID, entries []ParticipantInvitationInput, noEmail bool) ([]ParticipantInvitationResult, error) {
+	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{}, "", by, entries, noEmail)
 }
 
-func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []ParticipantInvitationInput, silent bool) ([]ParticipantInvitationResult, error) {
+func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, by uuid.UUID, entries []ParticipantInvitationInput, noEmail bool) ([]ParticipantInvitationResult, error) {
 	config, err := u.configs.Get(ctx, eventID)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
@@ -88,7 +88,7 @@ func (u *EventUseCase) InviteTeamMembers(ctx context.Context, eventID, teamID, b
 	}
 	// The seats are checked for each invitation in its own transaction, under the event's roster lock
 	// (requireTeamSeat): a count made here would be stale by then.
-	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{UUID: teamID, Valid: true}, team.Name, by, entries, silent)
+	return u.inviteParticipants(ctx, eventID, uuid.NullUUID{UUID: teamID, Valid: true}, team.Name, by, entries, noEmail)
 }
 
 func uniqueInvitationEmails(entries []ParticipantInvitationInput) map[string]struct{} {
@@ -99,7 +99,7 @@ func uniqueInvitationEmails(entries []ParticipantInvitationInput) map[string]str
 	return seen
 }
 
-func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, entries []ParticipantInvitationInput, silent bool) ([]ParticipantInvitationResult, error) {
+func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, entries []ParticipantInvitationInput, noEmail bool) ([]ParticipantInvitationResult, error) {
 	if len(entries) == 0 || len(entries) > 200 {
 		return nil, participantModel.ErrInvitationEmailInvalid.WithMessage("Provide 1 to 200 email addresses").Err()
 	}
@@ -128,7 +128,7 @@ func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID
 			results = append(results, result)
 			continue
 		}
-		result.UserID, err = u.inviteParticipant(ctx, eventID, targetTeamID, targetTeamName, by, email, strings.TrimSpace(entry.FirstName), strings.TrimSpace(entry.LastName), form, entry.Fields, silent)
+		result.UserID, err = u.inviteParticipant(ctx, eventID, targetTeamID, targetTeamName, by, email, strings.TrimSpace(entry.FirstName), strings.TrimSpace(entry.LastName), form, entry.Fields, noEmail)
 		if err != nil {
 			switch {
 			case errors.Is(err, participantModel.ErrInvitationEmailInvalid.Err()):
@@ -149,7 +149,7 @@ func (u *EventUseCase) inviteParticipants(ctx context.Context, eventID uuid.UUID
 	return results, nil
 }
 
-func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, email, firstName, lastName string, form *eventFormRepo.Version, fields map[string]any, silent bool) (uuid.UUID, error) {
+func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID, targetTeamID uuid.NullUUID, targetTeamName string, by uuid.UUID, email, firstName, lastName string, form *eventFormRepo.Version, fields map[string]any, noEmail bool) (uuid.UUID, error) {
 	address, err := mail.ParseAddress(email)
 	if err != nil || address.Address != email || len(email) > 254 {
 		return uuid.Nil, participantModel.ErrInvitationEmailInvalid.Err()
@@ -157,8 +157,7 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 	if err = userModel.ValidName(firstName, lastName); err != nil {
 		return uuid.Nil, err
 	}
-	if u.uow == nil || (silent && u.signalPublishers == nil) ||
-		(!silent && (u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "")) {
+	if u.uow == nil || (!noEmail && (u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" || u.idHost == "")) {
 		return uuid.Nil, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
 	}
 	txCtx, txRepo, unit, err := u.uow.UnitOfWork(ctx)
@@ -199,20 +198,6 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 		return uuid.Nil, registerError(ReasonStaff)
 	}
 	participants := participantRepo.New(txRepo)
-	if silent {
-		if err = u.enrollSilently(txCtx, txRepo, e, user.ID, by, targetTeamID); err != nil {
-			return uuid.Nil, err
-		}
-		if len(fields) > 0 && form != nil {
-			if err = savePrefilledAnswers(txCtx, eventFormRepo.New(txRepo), eventID, user.ID, *form, fields, time.Now().UTC()); err != nil {
-				return uuid.Nil, err
-			}
-		}
-		if err = unit.Save(); err != nil {
-			return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to save participant").Err()
-		}
-		return user.ID, nil
-	}
 	_, ok, err := participants.Invite(txCtx, eventID, user.ID, by, targetTeamID, time.Now().UTC())
 	if err != nil {
 		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to create participant invitation").Err()
@@ -229,118 +214,23 @@ func (u *EventUseCase) inviteParticipant(ctx context.Context, eventID uuid.UUID,
 			return uuid.Nil, err
 		}
 	}
+	if noEmail {
+		// No email restarts nothing by itself: the invitation time starts the
+		// 30-day clock of an unconfirmed account here instead.
+		if _, err = users.MarkInvitationSent(txCtx, user.ID, time.Now().UTC()); err != nil {
+			return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to record invitation").Err()
+		}
+	}
 	if err = unit.Save(); err != nil {
 		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to save invitation").Err()
+	}
+	if noEmail {
+		return user.ID, nil
 	}
 	if _, err = u.sendParticipantInvitation(ctx, e, user, targetTeamID.Valid, targetTeamName, by); err != nil {
 		return user.ID, err
 	}
 	return user.ID, nil
-}
-
-// enrollSilently is the silent add of one person: approved at once (a still
-// pending invitation of the same target is approved in place), placed in the
-// target team and, in an individual event, given their own team, exactly as
-// accepting an invitation would. Nothing is mailed. Only the internal
-// participant.enrolled signal is published (it feeds the form deliveries,
-// which are in-app records); the invitation-accepted signal is not, because
-// it is the one that notifies the participant.
-func (u *EventUseCase) enrollSilently(ctx context.Context, repo IRepository, e eventModel.Event, userID, by uuid.UUID, targetTeamID uuid.NullUUID) error {
-	now := time.Now().UTC()
-	participants := participantRepo.New(repo)
-	existing, getErr := participants.Get(ctx, e.ID, userID)
-	var p *participantModel.Participant
-	switch {
-	case getErr == nil:
-		if existing.Status != participantModel.StatusPending || !existing.Invited ||
-			existing.InvitedToTeam != targetTeamID.Valid || (targetTeamID.Valid && (existing.InvitedTeamID == nil || *existing.InvitedTeamID != targetTeamID.UUID)) {
-			return participantModel.ErrAlreadyParticipant.Err()
-		}
-		p = &existing
-	case !repositoryTools.IsObjectNotFoundError(getErr) && !errors.Is(getErr, pgx.ErrNoRows):
-		return model.ErrPlatform.WithError(getErr).WithMessage("Failed to get participant").Err()
-	}
-	approved, err := approveSilently(ctx, participants, e.ID, userID, by, p, now)
-	if err != nil {
-		return err
-	}
-	cfg, err := eventConfigRepo.New(repo).Get(ctx, e.ID)
-	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
-	}
-	switch {
-	case cfg.Participation != nil && *cfg.Participation == eventConfigModel.ParticipationIndividual:
-		if err = u.createIndividualTeamInTransaction(ctx, repo, e.ID, userID); err != nil {
-			return err
-		}
-	case targetTeamID.Valid:
-		teams := eventTeamRepo.New(repo)
-		team, lookupErr := teams.GetByID(ctx, e.ID, targetTeamID.UUID)
-		if lookupErr != nil {
-			if repositoryTools.IsObjectNotFoundError(lookupErr) {
-				return eventTeamModel.ErrEventTeamNotFound.Err()
-			}
-			return model.ErrPlatform.WithError(lookupErr).WithMessage("Failed to get event team").Err()
-		}
-		if affected, addErr := teams.TryAddMember(ctx, e.ID, team.ID, cfg.MaxTeamSize, now); addErr != nil {
-			return model.ErrPlatform.WithError(addErr).WithMessage("Failed to reserve team membership").Err()
-		} else if affected == 0 {
-			return eventTeamModel.ErrEventTeamFull.Err()
-		}
-		role := participantModel.TeamRoleMember
-		if team.IsCaptain(userID) {
-			role = participantModel.TeamRoleCaptain
-		}
-		if err = approved.AssignTeam(team.ID, role); err != nil {
-			return err
-		}
-		if affected, assignErr := participants.AssignTeam(ctx, approved); assignErr != nil {
-			return model.ErrPlatform.WithError(assignErr).WithMessage("Failed to assign event team").Err()
-		} else if affected == 0 {
-			return participantModel.ErrParticipantTeamInvalid.Err()
-		}
-		if err = u.requestLabAccessSyncInTransaction(ctx, repo, team.ID, now); err != nil {
-			return err
-		}
-	}
-	return u.publishEnrolled(ctx, repo, e, userID, by)
-}
-
-// approveSilently creates the approved row, or approves the given pending one.
-func approveSilently(ctx context.Context, participants *participantRepo.Repository, eventID, userID, by uuid.UUID, pending *participantModel.Participant, now time.Time) (participantModel.Participant, error) {
-	if pending != nil {
-		if err := pending.Approve(now, by); err != nil {
-			return participantModel.Participant{}, participantModel.ErrAlreadyParticipant.Err()
-		}
-		if affected, err := participants.Update(ctx, *pending); err != nil {
-			return participantModel.Participant{}, model.ErrPlatform.WithError(err).WithMessage("Failed to approve participant").Err()
-		} else if affected != 1 {
-			return participantModel.Participant{}, participantModel.ErrAlreadyParticipant.Err()
-		}
-		return *pending, nil
-	}
-	row, created, err := participants.Upsert(ctx, participantModel.Participant{
-		EventID: eventID, UserID: userID, Status: participantModel.StatusApproved, CreatedAt: now,
-		DecidedAt: &now, DecidedBy: uuid.NullUUID{UUID: by, Valid: by != uuid.Nil},
-	})
-	if err != nil {
-		return participantModel.Participant{}, model.ErrPlatform.WithError(err).WithMessage("Failed to add participant").Err()
-	}
-	if !created {
-		return participantModel.Participant{}, participantModel.ErrAlreadyParticipant.Err()
-	}
-	return row, nil
-}
-
-func (u *EventUseCase) publishEnrolled(ctx context.Context, repo IRepository, e eventModel.Event, userID, by uuid.UUID) error {
-	if u.signalPublishers == nil {
-		return model.ErrPlatform.WithMessage("Event signal publisher is not configured").Err()
-	}
-	payload := signalModel.ParticipantPayload{ScopeEventID: e.ID, ActorUserID: by, SubjectUserID: userID, EventTag: e.Tag, EventName: e.Name, Registration: signalModel.RegistrationInvitation}
-	if err := u.signalPublishers(repo).Publish(ctx, signalModel.TypeParticipantEnrolled, &payload); err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to publish participant signal").Err()
-	}
-	return nil
 }
 
 // sendParticipantInvitation queues the invitation email (a setup link first

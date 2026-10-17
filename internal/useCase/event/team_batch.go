@@ -118,11 +118,10 @@ type pendingInvitation struct {
 // and a single issue writes nothing. It is idempotent per address: a repeat
 // finds the team by name (same captain) and skips people already on it.
 // dryRun runs every check and count, then rolls back and sends nothing: the
-// preview of a CSV import. silent registers everybody at once instead of
-// inviting: new and still-pending people are approved and placed in their
-// team, and no email of any kind is sent.
-func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.UUID, in []BatchTeamInput, dryRun, silent bool) (BatchTeamsResult, error) {
-	if u.uow == nil || (silent && u.signalPublishers == nil) || (!silent && (u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "")) {
+// preview of a CSV import. noEmail creates the same invitations but mails
+// nobody: people accept on the event site.
+func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.UUID, in []BatchTeamInput, dryRun, noEmail bool) (BatchTeamsResult, error) {
+	if u.uow == nil || (!noEmail && (u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "")) {
 		return BatchTeamsResult{}, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
 	}
 	teams, issues := normalizeBatchTeams(in)
@@ -314,45 +313,7 @@ func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.
 		assigned := false
 		for _, person := range people {
 			p := person.participant
-			role := participantModel.TeamRoleMember
-			if person.member.captain {
-				role = participantModel.TeamRoleCaptain
-			}
-			assign := func(p *participantModel.Participant) error {
-				if err = p.AssignTeam(target.ID, role); err != nil {
-					return err
-				}
-				if affected, addErr := teamRepo.TryAddMember(txCtx, eventID, target.ID, config.MaxTeamSize, now); addErr != nil {
-					return model.ErrPlatform.WithError(addErr).WithMessage("Failed to reserve team membership").Err()
-				} else if affected == 0 {
-					return eventTeamModel.ErrEventTeamFull.Err()
-				}
-				if affected, assignErr := participants.AssignTeam(txCtx, *p); assignErr != nil {
-					return model.ErrPlatform.WithError(assignErr).WithMessage("Failed to assign event team").Err()
-				} else if affected == 0 {
-					return participantModel.ErrParticipantTeamInvalid.Err()
-				}
-				result.Assigned++
-				assigned = true
-				return nil
-			}
 			switch {
-			case p != nil && p.Status == participantModel.StatusApproved && batchMemberOnTeam(p, target.ID):
-				result.Unchanged++
-			case silent && (p == nil || p.Status == participantModel.StatusPending):
-				approved, approveErr := approveSilently(txCtx, participants, eventID, person.user.ID, by, p, now)
-				if approveErr != nil {
-					return BatchTeamsResult{}, approveErr
-				}
-				if err = savePersonFields(txCtx, txRepo, eventID, person.user.ID, memberForm, person.member.Fields, now); err != nil {
-					return BatchTeamsResult{}, err
-				}
-				if err = assign(&approved); err != nil {
-					return BatchTeamsResult{}, err
-				}
-				if err = u.publishEnrolled(txCtx, txRepo, e, person.user.ID, by); err != nil {
-					return BatchTeamsResult{}, err
-				}
 			case batchMemberOnTeam(p, target.ID):
 				result.Unchanged++
 			case p == nil:
@@ -375,9 +336,25 @@ func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.
 					return BatchTeamsResult{}, err
 				}
 			default:
-				if err = assign(p); err != nil {
+				role := participantModel.TeamRoleMember
+				if person.member.captain {
+					role = participantModel.TeamRoleCaptain
+				}
+				if err = p.AssignTeam(target.ID, role); err != nil {
 					return BatchTeamsResult{}, err
 				}
+				if affected, addErr := teamRepo.TryAddMember(txCtx, eventID, target.ID, config.MaxTeamSize, now); addErr != nil {
+					return BatchTeamsResult{}, model.ErrPlatform.WithError(addErr).WithMessage("Failed to reserve team membership").Err()
+				} else if affected == 0 {
+					return BatchTeamsResult{}, eventTeamModel.ErrEventTeamFull.Err()
+				}
+				if affected, assignErr := participants.AssignTeam(txCtx, *p); assignErr != nil {
+					return BatchTeamsResult{}, model.ErrPlatform.WithError(assignErr).WithMessage("Failed to assign event team").Err()
+				} else if affected == 0 {
+					return BatchTeamsResult{}, participantModel.ErrParticipantTeamInvalid.Err()
+				}
+				result.Assigned++
+				assigned = true
 			}
 		}
 		if assigned {
@@ -393,8 +370,21 @@ func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.
 		result.Invited = len(invitations)
 		return result, nil
 	}
+	if noEmail {
+		// Nothing is mailed, so the invitation time starts the 30-day clock
+		// of every unconfirmed account here.
+		for _, invitation := range invitations {
+			if _, err = users.MarkInvitationSent(txCtx, invitation.user.ID, now); err != nil {
+				return BatchTeamsResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record invitation").Err()
+			}
+		}
+	}
 	if err = unit.Save(); err != nil {
 		return BatchTeamsResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create event teams").Err()
+	}
+	if noEmail {
+		result.Invited = len(invitations)
+		return result, nil
 	}
 	for _, invitation := range invitations {
 		if _, sendErr := u.sendParticipantInvitation(ctx, e, invitation.user, true, invitation.teamName, by); sendErr != nil {

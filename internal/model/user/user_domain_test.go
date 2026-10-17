@@ -229,3 +229,16 @@ func TestSeenAfter_ComparesLastSeen(t *testing.T) {
 		t.Fatal("not seen after a warning at or after last_seen")
 	}
 }
+
+// An account created by an invitation may have no name; finishing registration needs both.
+func TestCompleteSetup_RequiresNames(t *testing.T) {
+	for _, names := range [][2]string{{"", "Test"}, {"Ivan", ""}, {"  ", "Test"}} {
+		u := incompleteUser()
+		if err := u.CompleteSetup(names[0], names[1], "pwd", 1, hasProviderStub(false), now); !errors.Is(err, userModel.ErrUserNameRequired.Err()) {
+			t.Fatalf("names %q: want ErrUserNameRequired, got %v", names, err)
+		}
+		if u.Status != userModel.UserStatusIncomplete {
+			t.Fatalf("must stay incomplete: %+v", u)
+		}
+	}
+}

@@ -265,59 +265,46 @@ func TestCreateManagedTeams_DryRunCountsWithoutWriting(t *testing.T) {
 	require.Equal(t, uuid.Nil, notifier.userID)
 }
 
-// Silent: a new captain (account created silently), an approved member and a
-// brand-new member all land in the team at once; no invitation and no email.
-func TestCreateManagedTeams_SilentPlacesEveryoneWithoutEmail(t *testing.T) {
+// SendEmails=false in a batch: same teams and invitations, no email, no setup
+// link, and the clock of the new incomplete account starts.
+func TestCreateManagedTeams_WithoutEmailInvitesButMailsNobody(t *testing.T) {
 	q := newFormGateMock(gomock.NewController(t))
 	allowNonStaff(q)
 	unit := &testUoW{}
 	notifier := &invitationNotifier{}
-	publisher := &recordingSignalPublisher{}
-	uc := event.NewEventUseCase(event.Dependencies{
-		Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", IDHost: "id.example.test",
-		SetupTokens: failingSetupTokens{t: t}, SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
-	})
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}, EventDomain: "example.test", SetupTokens: failingSetupTokens{t: t}})
 	uc.SetInvitationNotifier(notifier)
-	eventID, managerID, memberID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	var captainID, teamID uuid.UUID
+	eventID, managerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	var captainID, memberID, teamID uuid.UUID
 	expectBatchEvent(q, eventID, 3, pgtype.Int4{})
 	q.EXPECT().GetEventTeamByName(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{}, pgx.ErrNoRows)
 	q.EXPECT().GetUserByEmail(gomock.Any(), "cap@example.test").Return(postgres.User{}, pgx.ErrNoRows)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "m@example.test").Return(postgres.User{}, pgx.ErrNoRows)
 	q.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateUserParams) (postgres.User, error) {
-		captainID = p.ID
+		if p.Email == "cap@example.test" {
+			captainID = p.ID
+		} else {
+			memberID = p.ID
+		}
 		return postgres.User{ID: p.ID, Email: p.Email, Status: p.Status}, nil
-	})
-	q.EXPECT().GetUserByEmail(gomock.Any(), "member@example.test").Return(postgres.User{ID: memberID, Email: "member@example.test", Status: "active"}, nil)
+	}).Times(2)
 	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).Times(2)
 	q.EXPECT().CreateEventTeam(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.CreateEventTeamParams) (postgres.EventTeam, error) {
-		require.Equal(t, captainID, arg.CaptainID)
 		teamID = arg.ID
 		return postgres.EventTeam{ID: arg.ID, EventID: eventID, Name: arg.Name, CaptainID: arg.CaptainID}, nil
 	})
-	q.EXPECT().UpsertEventParticipant(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpsertEventParticipantParams) (postgres.EventParticipant, error) {
-		require.Equal(t, int16(participantModel.StatusApproved), p.Status)
-		return postgres.EventParticipant{EventID: p.EventID, UserID: p.UserID, Status: p.Status}, nil
+	q.EXPECT().InviteEventParticipant(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.InviteEventParticipantParams) (postgres.EventParticipant, error) {
+		require.Equal(t, teamID, p.InvitedTeamID.UUID)
+		return postgres.EventParticipant{EventID: eventID, UserID: p.UserID, Status: 1, Invited: true, InvitedTeamID: p.InvitedTeamID, InvitedToTeam: true}, nil
 	}).Times(2)
-	q.EXPECT().TryAddEventTeamMember(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(2)
-	roles := map[uuid.UUID]int16{}
-	q.EXPECT().AssignEventParticipantTeam(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.AssignEventParticipantTeamParams) (int64, error) {
-		require.Equal(t, teamID, p.TeamID.UUID)
-		roles[p.UserID] = p.TeamRole.Int16
-		return 1, nil
-	}).Times(2)
-
 	result, err := uc.CreateManagedTeams(context.Background(), eventID, managerID, []event.BatchTeamInput{{
-		Name: "Blue Team", CaptainEmail: "cap@example.test",
-		Members: []event.BatchTeamMemberInput{{Email: "cap@example.test"}, {Email: "member@example.test"}},
+		Name: "Blue Team", CaptainEmail: "cap@example.test", Members: []event.BatchTeamMemberInput{{Email: "cap@example.test"}, {Email: "m@example.test"}},
 	}}, false, true)
 	require.NoError(t, err)
 	require.Empty(t, result.Issues)
 	require.True(t, unit.saved)
-	require.Equal(t, 2, result.Assigned)
-	require.Equal(t, 0, result.Invited)
+	require.Equal(t, 2, result.Invited)
 	require.Empty(t, result.NotSent)
-	require.Equal(t, int16(participantModel.TeamRoleCaptain), roles[captainID])
-	require.Equal(t, int16(participantModel.TeamRoleMember), roles[memberID])
-	require.Equal(t, uuid.Nil, notifier.userID, "no email of any kind")
-	require.Equal(t, []signalModel.Type{signalModel.TypeParticipantEnrolled, signalModel.TypeParticipantEnrolled}, publisher.types)
+	require.Equal(t, uuid.Nil, notifier.userID, "no email")
+	require.ElementsMatch(t, []uuid.UUID{captainID, memberID}, userClockMarksOf(q))
 }

@@ -31,8 +31,8 @@ type createManagedTeamsRequest struct {
 	// Import marks a CSV import: team and member fields are checked by type
 	// only, required ones may stay empty.
 	Import bool `json:"Import"`
-	// SendEmails false is a silent add: members are approved and placed in
-	// their team at once and no email is sent. Omitted means send.
+	// SendEmails false creates the same invitations without any email (people
+	// accept on the event site). Omitted means send.
 	SendEmails *bool `json:"SendEmails"`
 }
 
