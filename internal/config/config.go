@@ -49,14 +49,6 @@ type (
 		Platform       PlatformConfig       `                                   envPrefix:"PLATFORM_"`
 		ErrorJournal   ErrorJournalConfig   `                                   envPrefix:"ERROR_JOURNAL_"`
 		Telegram       TelegramConfig       `                                   envPrefix:"TELEGRAM_"`
-		FlagSlot       FlagSlotConfig       `                                   envPrefix:"FLAG_SLOT_"`
-	}
-
-	// FlagSlotConfig keys the per-task flag permutation of event teams (FLAG_SLOT_*).
-	FlagSlotConfig struct {
-		// Secret (FLAG_SLOT_SECRET) derives the permutation keys: random, at least 32 bytes, its own value. It
-		// is never stored or logged. Changing it during an event lets later teams repeat earlier flags.
-		Secret string `env:"SECRET"`
 	}
 
 	// TelegramConfig is the one bot of the platform's operator notifications (the error journal).
@@ -872,20 +864,6 @@ func (c AuthConfig) Weaknesses() []string {
 	return out
 }
 
-// Weaknesses applies the signing-secret policy to FLAG_SLOT_SECRET: random, at
-// least MinSigningSecretBytes, not the JWT secret. Fatal in production, logged
-// elsewhere.
-func (c FlagSlotConfig) Weaknesses(tokenSignature string) []string {
-	var out []string
-	if len(c.Secret) < MinSigningSecretBytes {
-		out = append(out, fmt.Sprintf("FLAG_SLOT_SECRET must be random and at least %d bytes", MinSigningSecretBytes))
-	}
-	if c.Secret != "" && c.Secret == tokenSignature {
-		out = append(out, "FLAG_SLOT_SECRET must differ from JWT_TOKEN_SIGNATURE")
-	}
-	return out
-}
-
 // Policy is the configured retention policy.
 func (c RetentionConfig) Policy() retentionModel.Policy {
 	return retentionModel.Policy{
@@ -948,11 +926,11 @@ func MustGetConfig() *Config {
 	if err = instance.Auth.ValidateSession(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid session configuration")
 	}
-	for _, weakness := range append(instance.Auth.Weaknesses(), instance.FlagSlot.Weaknesses(instance.Auth.TokenSignature)...) {
+	for _, weakness := range instance.Auth.Weaknesses() {
 		if instance.Environment == Production {
-			log.Fatal().Msg("Config: weak secret or authentication setting: " + weakness)
+			log.Fatal().Msg("Config: weak authentication setting: " + weakness)
 		}
-		log.Warn().Msg("Config: weak secret or authentication setting (fatal in production): " + weakness)
+		log.Warn().Msg("Config: weak authentication setting (fatal in production): " + weakness)
 	}
 	if err = instance.HTTPController.Validate(); err != nil {
 		log.Fatal().Err(err).Msg("Config: invalid HTTP controller configuration")

@@ -387,7 +387,7 @@ func (u *EventUseCase) requireChallengeBoardVisible(ctx context.Context, eventID
 // gets the least used variant, ties to the lowest index. The pick is
 // serialized per event exercise and counted inside the caller's transaction,
 // so two concurrent preparations never take the same free slot.
-func pickTeamVariant(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, teamID uuid.UUID, attachment eventExerciseModel.EventExercise, version exerciseModel.ExerciseVersion, slots *teamFlagSlots) (int32, error) {
+func pickTeamVariant(ctx context.Context, teamChallenges *teamChallengeRepo.Repository, teamID uuid.UUID, attachment eventExerciseModel.EventExercise, version exerciseModel.ExerciseVersion, flags *teamFlags) (int32, error) {
 	if len(version.Variants) == 0 {
 		return 0, model.ErrPlatform.WithMessage("Pinned exercise version has no variants").Err()
 	}
@@ -409,7 +409,7 @@ func pickTeamVariant(ctx context.Context, teamChallenges *teamChallengeRepo.Repo
 		return 0, err
 	}
 	index = balance.Pick()
-	slots.picked(teamID, balance, index)
+	flags.heldLock()
 	return index, nil
 }
 

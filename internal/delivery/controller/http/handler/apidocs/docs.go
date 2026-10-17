@@ -24521,6 +24521,10 @@ const docTemplate = `{
                 "FixedVariantIndex": {
                     "type": "integer"
                 },
+                "FlagsMayRepeat": {
+                    "description": "FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags\nwere reused after every value was given, so two teams may get the same flag.",
+                    "type": "boolean"
+                },
                 "Fork": {
                     "$ref": "#/definitions/event.eventExerciseForkResponse"
                 },
@@ -25066,7 +25070,7 @@ const docTemplate = `{
                     }
                 },
                 "SendEmails": {
-                    "description": "SendEmails false creates the same invitations without any email (people\naccept on the event site). Omitted means send (the default).",
+                    "description": "SendEmails false creates the same invitations without sending any email\n(people accept on the event site). Omitted means send (the default).",
                     "type": "boolean"
                 }
             }

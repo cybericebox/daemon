@@ -20,6 +20,10 @@ import (
 
 const previewDescriptionMaxLen = 1000
 
+// MaxTeamsLimit is the largest team limit of an event (the flag filters of
+// its tasks are sized from it).
+const MaxTeamsLimit = 100000
+
 // defaultMaxTeamSize is the team size limit of a new event (EVENT_DEFAULT_MAX_TEAM_SIZE, set once at start).
 var defaultMaxTeamSize int32 = 5
 
@@ -212,7 +216,7 @@ func (c *EventConfig) Update(in ConfigInput, now time.Time, by uuid.UUID) error 
 		return ErrVisibilityInvalid.Err()
 	}
 	if in.MaxTeamSize <= 0 || (in.MinTeamSize != nil && (*in.MinTeamSize <= 0 || *in.MinTeamSize > in.MaxTeamSize)) ||
-		(in.MaxTeams != nil && *in.MaxTeams <= 0) {
+		(in.MaxTeams != nil && (*in.MaxTeams <= 0 || *in.MaxTeams > MaxTeamsLimit)) {
 		return ErrTeamLimitsInvalid.Err()
 	}
 	desc := strings.TrimSpace(in.PreviewDescription)

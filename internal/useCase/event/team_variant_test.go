@@ -116,11 +116,15 @@ func TestRefreshTeamAssignments_RebalancesRemovedVariants(t *testing.T) {
 		row(teamC, board[0].ID, 6, false),
 	}
 	want := map[uuid.UUID]int32{teamA: 0, teamB: 1, moderators: 2, teamC: 2}
+	store := newFlagStore(t, q, nil) // single-value flags still draw through their filters
 	gomock.InOrder(
-		// The pick lock comes before the row locks; the slot snapshot before any row changes.
-		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), link.ID).Return(nil),
-		q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).Return(rows, nil),
-		q.EXPECT().ListEventExerciseTeamVariants(gomock.Any(), link.ID).Return(nil, nil),
+		// The pick lock comes before the row locks.
+		q.EXPECT().ListTeamChallengesForRefresh(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, []uuid.UUID) ([]postgres.ListTeamChallengesForRefreshRow, error) {
+			if !store.locked {
+				t.Fatal("rows read before the variant pick lock")
+			}
+			return rows, nil
+		}),
 		q.EXPECT().CountEventExerciseVariantTeams(gomock.Any(), link.ID).Return([]postgres.CountEventExerciseVariantTeamsRow{
 			{VariantIndex: 0, Teams: 1}, {VariantIndex: 6, Teams: 1}, {VariantIndex: 7, Teams: 1},
 		}, nil),

@@ -270,6 +270,21 @@ type EventExercise struct {
 	StageID                 uuid.NullUUID      `json:"stage_id"`
 }
 
+type EventFlagFilter struct {
+	EventExerciseID uuid.UUID `json:"event_exercise_id"`
+	VariantIndex    int32     `json:"variant_index"`
+	TaskID          uuid.UUID `json:"task_id"`
+	Fingerprint     []byte    `json:"fingerprint"`
+	Mode            int16     `json:"mode"`
+	Salt            []byte    `json:"salt"`
+	Hashes          int16     `json:"hashes"`
+	Size            int64     `json:"size"`
+	Bits            []byte    `json:"bits"`
+	Inserted        int32     `json:"inserted"`
+	Capacity        int32     `json:"capacity"`
+	Resets          int32     `json:"resets"`
+}
+
 type EventFormAnswer struct {
 	EventID       uuid.UUID `json:"event_id"`
 	UserID        uuid.UUID `json:"user_id"`

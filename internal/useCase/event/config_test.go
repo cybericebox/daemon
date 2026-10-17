@@ -102,6 +102,11 @@ func TestUpdateEventConfig_HappyPath_WritesRow(t *testing.T) {
 			return int64(1), nil
 		})
 
+	// The team limit changed: the event's flag filters are rebuilt (an event without exercises has none).
+	q.EXPECT().ListEventExercises(gomock.Any(), eventID).Return(nil, nil)
+	q.EXPECT().ListEventFlagFilters(gomock.Any(), eventID).Return(nil, nil)
+	q.EXPECT().ListEventIssuedFlags(gomock.Any(), eventID).Return(nil, nil)
+
 	v, err := uc.UpdateEventConfig(context.Background(), eventID, event.UpdateConfigInput{
 		Registration:           eventConfigModel.RegistrationOpen,
 		ScoreboardVisibility:   eventConfigModel.VisibilityPublic,
@@ -656,5 +661,71 @@ func TestUpdateEventConfig_PreviewPictureMustBeOwnOrUnchanged(t *testing.T) {
 		if err := run(t, c[0], c[1]); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
+	}
+}
+
+// A team limit change rebuilds every flag filter of the event in one
+// transaction: the variant pick locks of all its event exercises in id order
+// first, then one read of the filters and the issued flags, then each filter
+// rewritten at the new capacity with its issued flags and reset count kept.
+func TestUpdateEventConfig_TeamLimitChangeRebuildsEveryFlagFilterInOneTransaction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{
+		Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit},
+		Media: newTemplateMediaFake(), InfrastructureCapability: availableLaboratoriesCapability{},
+	})
+	eventID, by := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	t0 := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
+	row := postgres.EventConfig{EventID: eventID, Registration: int16(eventConfigModel.RegistrationClose), ScoreboardVisibility: int16(eventConfigModel.VisibilityHidden),
+		ParticipantsVisibility: int16(eventConfigModel.VisibilityHidden), CreatedAt: t0, UpdatedAt: pgtype.Timestamptz{Time: t0, Valid: true}, MaxTeams: pgtype.Int4{Int32: 4, Valid: true}}
+	low, high := uuid.FromStringOrNil("00000000-0000-7000-8000-000000000001"), uuid.FromStringOrNil("00000000-0000-7000-8000-000000000002")
+	versionLow, versionHigh := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	digits, letters, plain := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	var written []postgres.UpsertEventFlagFilterParams
+	gomock.InOrder(
+		q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(row, nil),
+		q.EXPECT().UpdateEventConfig(gomock.Any(), gomock.Any()).Return(int64(1), nil),
+		q.EXPECT().ListEventExercises(gomock.Any(), eventID).Return([]postgres.EventExercise{
+			{ID: high, EventID: eventID, ExerciseVersionID: versionHigh}, {ID: low, EventID: eventID, ExerciseVersionID: versionLow},
+		}, nil),
+		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), low).Return(nil),
+		q.EXPECT().LockEventExerciseVariantPick(gomock.Any(), high).Return(nil),
+		q.EXPECT().ListEventFlagFilters(gomock.Any(), eventID).Return([]postgres.ListEventFlagFiltersRow{
+			{EventExerciseID: low, VariantIndex: 0, TaskID: digits, Resets: 2},
+		}, nil),
+		q.EXPECT().ListEventIssuedFlags(gomock.Any(), eventID).Return([]postgres.ListEventIssuedFlagsRow{
+			{EventExerciseID: low, VariantIndex: 0, TaskID: digits, ExpectedFlag: "ICE{1}"},
+			{EventExerciseID: low, VariantIndex: 0, TaskID: digits, ExpectedFlag: "ICE{7}"},
+			{EventExerciseID: high, VariantIndex: 1, TaskID: letters, ExpectedFlag: "ICE{abc}"},
+		}, nil),
+		q.EXPECT().ListVersionTaskFlags(gomock.Any(), gomock.Any()).Return([]postgres.ListVersionTaskFlagsRow{
+			{VersionID: versionLow, Variants: []byte(`[{"tasks":[{"id":"` + digits.String() + `","flag":["template:ICE{\\d}"]},{"id":"` + plain.String() + `","flag":null}]}]`)},
+			{VersionID: versionHigh, Variants: []byte(`[{"tasks":[{"id":"` + letters.String() + `","flag":["template:ICE{\\l\\l\\l}"]}]},{"tasks":[{"id":"` + letters.String() + `","flag":["template:ICE{\\l\\l\\l}"]}]}]`)},
+		}, nil),
+	)
+	q.EXPECT().UpsertEventFlagFilter(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.UpsertEventFlagFilterParams) error {
+		if !unit.saved {
+			written = append(written, arg)
+		}
+		return nil
+	}).Times(2)
+	if _, err := uc.UpdateEventConfig(context.Background(), eventID, event.UpdateConfigInput{Registration: eventConfigModel.RegistrationClose,
+		ScoreboardVisibility: eventConfigModel.VisibilityHidden, ParticipantsVisibility: eventConfigModel.VisibilityHidden, MaxTeams: int32Ptr(50)}, by); err != nil {
+		t.Fatal(err)
+	}
+	if !unit.saved || len(written) != 2 {
+		t.Fatalf("saved %v, filters written before the commit: %d", unit.saved, len(written))
+	}
+	byKey := map[uuid.UUID]postgres.UpsertEventFlagFilterParams{}
+	for _, w := range written {
+		byKey[w.TaskID] = w
+	}
+	if d := byKey[digits]; d.EventExerciseID != low || d.Mode != 2 || d.Size != 10 || d.Inserted != 2 || d.Capacity != 50 || d.Resets != 2 {
+		t.Fatalf("digits filter = %+v", d)
+	}
+	if l := byKey[letters]; l.EventExerciseID != high || l.VariantIndex != 1 || l.Mode != 1 || l.Size != 256 || l.Inserted != 1 || l.Capacity != 50 || l.Resets != 0 {
+		t.Fatalf("letters filter = %+v", l)
 	}
 }

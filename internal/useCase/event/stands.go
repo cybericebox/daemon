@@ -361,8 +361,8 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get pinned exercise version").Err()
 	}
 	teamChallenges := teamChallengeRepo.New(txRepo)
-	slots := newTeamFlagSlots(teamChallenges, attachment.ID)
-	variantIndex, err := pickTeamVariant(txCtx, teamChallenges, team.ID, attachment, version, slots)
+	flags := u.newTeamFlags(txRepo, e.ID, attachment.ID)
+	variantIndex, err := pickTeamVariant(txCtx, teamChallenges, team.ID, attachment, version, flags)
 	if err != nil {
 		return err
 	}
@@ -396,7 +396,7 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 			if !repositoryTools.IsObjectNotFoundError(getErr) {
 				return model.ErrPlatform.WithError(getErr).WithMessage("Failed to get team challenge").Err()
 			}
-			if value, err = u.newTeamChallenge(txCtx, teamChallenges, slots, e.ID, team.ID, challenge, tasks, variantIndex, now); err != nil {
+			if value, err = u.newTeamChallenge(txCtx, teamChallenges, flags, e.ID, team.ID, challenge, tasks, variantIndex, now); err != nil {
 				return err
 			}
 		}
@@ -447,8 +447,8 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 
 // newTeamChallenge makes the durable, team-specific copy of one task: the
 // snapshot and the resolved flag are pinned once and never recomputed. A task
-// with candidates takes the value of the team's flag slot (see resolveTeamFlag).
-func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallengeRepo.Repository, slots *teamFlagSlots, eventID, teamID uuid.UUID, challenge eventChallengeModel.EventChallenge, tasks map[uuid.UUID]exerciseModel.Task, variantIndex int32, now time.Time) (teamChallengeModel.TeamChallenge, error) {
+// with candidates takes a value its flag filter has not issued (see teamFlags).
+func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallengeRepo.Repository, flags *teamFlags, eventID, teamID uuid.UUID, challenge eventChallengeModel.EventChallenge, tasks map[uuid.UUID]exerciseModel.Task, variantIndex int32, now time.Time) (teamChallengeModel.TeamChallenge, error) {
 	task, found := tasks[challenge.TaskID]
 	if !found {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithMessage("Pinned exercise version has no task for event challenge").Err()
@@ -457,7 +457,7 @@ func (u *EventUseCase) newTeamChallenge(ctx context.Context, repo *teamChallenge
 	if err != nil {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithError(err).WithMessage("Failed to snapshot team challenge").Err()
 	}
-	expectedFlag, err := u.resolveTeamFlag(ctx, slots, teamID, variantIndex, task)
+	expectedFlag, err := flags.issue(ctx, variantIndex, task)
 	if err != nil {
 		return teamChallengeModel.TeamChallenge{}, model.ErrPlatform.WithError(err).WithMessage("Failed to resolve team challenge flag").Err()
 	}
