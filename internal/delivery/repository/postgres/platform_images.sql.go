@@ -31,6 +31,10 @@ WHERE pi.digest = $1
   AND pi.tag = $2
   AND NOT EXISTS (SELECT 1 FROM platform_images fresh WHERE fresh.digest = pi.digest AND fresh.uploaded_at >= $3::timestamptz)
   AND NOT EXISTS (SELECT 1
+                  FROM platform_images own
+                           JOIN platform_images other ON other.tag = own.tag AND other.digest <> own.digest
+                  WHERE own.digest = pi.digest)
+  AND NOT EXISTS (SELECT 1
                   FROM exercise_versions v,
                        jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
                        jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
@@ -91,6 +95,10 @@ const isDigestCollectable = `-- name: IsDigestCollectable :one
 SELECT EXISTS (SELECT 1 FROM platform_images WHERE digest = $1::text)
        AND NOT EXISTS (SELECT 1 FROM platform_images WHERE digest = $1::text AND uploaded_at >= $2::timestamptz)
        AND NOT EXISTS (SELECT 1
+                       FROM platform_images own
+                                JOIN platform_images other ON other.tag = own.tag AND other.digest <> own.digest
+                       WHERE own.digest = $1::text)
+       AND NOT EXISTS (SELECT 1
                        FROM exercise_versions v,
                             jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
                             jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
@@ -105,7 +113,7 @@ type IsDigestCollectableParams struct {
 }
 
 // The list query's predicate for one digest, asked again right before its tags are removed: nothing references it
-// now and no row of it was uploaded at/after $2.
+// now, no row of it was uploaded at/after $2, and none of its tags is shared with another digest.
 func (q *Queries) IsDigestCollectable(ctx context.Context, arg IsDigestCollectableParams) (pgtype.Bool, error) {
 	row := q.db.QueryRow(ctx, isDigestCollectable, arg.TargetDigest, arg.Before)
 	var collectable pgtype.Bool
@@ -123,12 +131,17 @@ WITH candidates AS (SELECT digest
                          jsonb_array_elements(CASE WHEN jsonb_typeof(v.variants) = 'array' THEN v.variants ELSE '[]'::jsonb END) AS variant,
                          jsonb_array_elements(CASE WHEN jsonb_typeof(variant #> '{topology,devices}') = 'array' THEN variant #> '{topology,devices}' ELSE '[]'::jsonb END) AS device
                     WHERE jsonb_typeof(device -> 'image') = 'string'
-                      AND (device ->> 'image') LIKE 'platform:%')
+                      AND (device ->> 'image') LIKE 'platform:%'),
+     shared AS (SELECT DISTINCT own.digest
+                FROM platform_images own
+                         JOIN platform_images other ON other.tag = own.tag AND other.digest <> own.digest)
 SELECT pi.digest, pi.tag, pi.name, pi.exercise_id, pi.uploaded_by, pi.uploaded_at
 FROM platform_images pi
          JOIN candidates c ON c.digest = pi.digest
          LEFT JOIN referenced r ON r.digest = pi.digest
+         LEFT JOIN shared s ON s.digest = pi.digest
 WHERE r.digest IS NULL
+  AND s.digest IS NULL
 ORDER BY pi.digest, pi.tag
 LIMIT 500
 `
@@ -136,7 +149,9 @@ LIMIT 500
 // Rows (tags) of the platform digests the tag collector may remove: every row of the digest was uploaded before
 // $1 (the grace filter, applied first), and no exercise version (draft, published, any status) has a device image
 // platform:<name>@<digest> (the name may differ). Variants that are not an array, or a "devices" that is null or
-// not an array, hold no image. At most 500 rows a pass; the rest wait for the next one.
+// not an array, hold no image. A digest with a tag that a row of another digest also maps (a shared tag: only a bug or
+// an old short tag makes one) is never a candidate: removing that tag could remove what serves the other digest; its
+// rows stay until the other digest's row goes. At most 500 rows a pass; the rest wait for the next one.
 func (q *Queries) ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error) {
 	rows, err := q.db.Query(ctx, listUnreferencedPlatformImages, before)
 	if err != nil {
@@ -162,6 +177,26 @@ func (q *Queries) ListUnreferencedPlatformImages(ctx context.Context, before tim
 		return nil, err
 	}
 	return items, nil
+}
+
+const platformImageTagTakenByOtherDigest = `-- name: PlatformImageTagTakenByOtherDigest :one
+SELECT EXISTS (SELECT 1
+               FROM platform_images
+               WHERE tag = $1::text
+                 AND digest <> $2::text) AS taken
+`
+
+type PlatformImageTagTakenByOtherDigestParams struct {
+	Tag    string `json:"tag"`
+	Digest string `json:"digest"`
+}
+
+// Whether a row of another digest already maps this tag: CreateImage refuses then instead of re-pointing the tag.
+func (q *Queries) PlatformImageTagTakenByOtherDigest(ctx context.Context, arg PlatformImageTagTakenByOtherDigestParams) (bool, error) {
+	row := q.db.QueryRow(ctx, platformImageTagTakenByOtherDigest, arg.Tag, arg.Digest)
+	var taken bool
+	err := row.Scan(&taken)
+	return taken, err
 }
 
 const upsertImageBlobPush = `-- name: UpsertImageBlobPush :exec

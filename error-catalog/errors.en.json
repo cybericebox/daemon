@@ -468,5 +468,6 @@
   "72817": "An image layer is not uploaded yet",
   "72820": "The layer upload is not complete",
   "72826": "Secret storage is not configured: registry tokens cannot be saved",
-  "72827": "Secret storage is not configured: registry tokens cannot be saved"
+  "72827": "Secret storage is not configured: registry tokens cannot be saved",
+  "72828": "Another image already uses this registry tag"
 }

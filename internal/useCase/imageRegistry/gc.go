@@ -25,7 +25,9 @@ const (
 // unused layers itself. It also drops the blob push states older than a week. It returns how many tags it
 // removed. Not configured (no settings, no cipher): nothing to do. A provider failure keeps that row for the next
 // pass and does not stop the others; the tags of one digest are removed together, and a package version that
-// also carries tags of other rows waits until those go too.
+// also carries tags of other rows waits until those go too. A digest with a tag that another digest's row also maps
+// is never collected (the list, the re-check and the conditional row delete all skip it): its tags are not sent to
+// the provider and its rows stay until the other digest's row goes, so the tag serving the other digest survives.
 func (u *ImageRegistryUseCase) CollectUnusedTags(ctx context.Context, now time.Time) (int, error) {
 	if n, err := u.blobPushes.DeleteStale(ctx, now.Add(-stalePushAfter)); err != nil {
 		log.Warn().Err(err).Msg("image registry: dropping stale blob push states failed")

@@ -434,6 +434,8 @@ func TestCreateImageRecordsThenPushesTheManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref, _ := imageRegistryModel.NewPlatformRef("my-web", m.Digest)
+	f.q.EXPECT().PlatformImageTagTakenByOtherDigest(gomock.Any(), postgres.PlatformImageTagTakenByOtherDigestParams{Tag: ref.Tag(), Digest: m.Digest}).
+		Return(false, nil).Times(2)
 	var written []postgres.UpsertPlatformImageParams
 	f.q.EXPECT().UpsertPlatformImage(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, p postgres.UpsertPlatformImageParams) error {
@@ -469,6 +471,29 @@ func TestCreateImageRecordsThenPushesTheManifest(t *testing.T) {
 	}
 	if len(written) != 2 || !written[1].UploadedAt.Equal(t0.Add(time.Hour)) {
 		t.Fatalf("second %+v", written)
+	}
+}
+
+// A tag another digest already maps to is never re-pointed (full-digest tags make this a bug, not an upload):
+// nothing is recorded and no manifest is pushed.
+func TestCreateImageRefusesATagOfAnotherDigest(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.preload(t, configBytes, layerBytes)
+	in := testImage()
+	m, err := imageRegistryModel.BuildManifest(in.Config, in.Layers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := imageRegistryModel.NewPlatformRef("my-web", m.Digest)
+	f.q.EXPECT().PlatformImageTagTakenByOtherDigest(gomock.Any(), postgres.PlatformImageTagTakenByOtherDigestParams{Tag: ref.Tag(), Digest: m.Digest}).
+		Return(true, nil)
+	// No UpsertPlatformImage expectation: nothing is recorded.
+
+	if _, err = f.uc.CreateImage(as(uploader), exerciseID, in); !errors.Is(err, imageRegistryModel.ErrImageTagTaken.Err()) {
+		t.Fatalf("err %v", err)
+	}
+	if ok, err := f.registry().ManifestExists(context.Background(), ref.Tag()); err != nil || ok {
+		t.Fatalf("tag %s pushed=%v err=%v", ref.Tag(), ok, err)
 	}
 }
 

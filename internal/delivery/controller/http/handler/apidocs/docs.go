@@ -17313,7 +17313,7 @@ const docTemplate = `{
         },
         "/exercises/{id}/images": {
             "post": {
-                "description": "Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag \u003cname\u003e-\u003c12 hex\u003e and returns the platform reference for the device.",
+                "description": "Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag \u003cname\u003e-\u003cthe whole digest hex\u003e and returns the platform reference for the device.",
                 "consumes": [
                     "application/json"
                 ],

@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 28
+// ImageRegistryObjectCode — next free detail code: 29
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -93,6 +93,10 @@ var (
 	// (an edit without a new token still works).
 	ErrEventSecretTokenKeyMissing = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("Secret storage is not configured: registry tokens cannot be saved").WithDetailCode(27)
+	// ErrImageTagTaken: the platform tag of an image is already recorded for another digest. Tags carry the whole
+	// digest, so this means a bug; the upload is refused rather than re-point a tag another image may serve.
+	ErrImageTagTaken = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("Another image already uses this registry tag").WithDetailCode(28)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming

@@ -10234,6 +10234,21 @@ func (mr *MockQuerierMockRecorder) OpenReadyEventLabRevealBarriers(ctx, arg any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OpenReadyEventLabRevealBarriers", reflect.TypeOf((*MockQuerier)(nil).OpenReadyEventLabRevealBarriers), ctx, arg)
 }
 
+// PlatformImageTagTakenByOtherDigest mocks base method.
+func (m *MockQuerier) PlatformImageTagTakenByOtherDigest(ctx context.Context, arg postgres.PlatformImageTagTakenByOtherDigestParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlatformImageTagTakenByOtherDigest", ctx, arg)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PlatformImageTagTakenByOtherDigest indicates an expected call of PlatformImageTagTakenByOtherDigest.
+func (mr *MockQuerierMockRecorder) PlatformImageTagTakenByOtherDigest(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlatformImageTagTakenByOtherDigest", reflect.TypeOf((*MockQuerier)(nil).PlatformImageTagTakenByOtherDigest), ctx, arg)
+}
+
 // PublishAvailableTeamChallenges mocks base method.
 func (m *MockQuerier) PublishAvailableTeamChallenges(ctx context.Context, arg postgres.PublishAvailableTeamChallengesParams) ([]uuid.UUID, error) {
 	m.ctrl.T.Helper()

@@ -649,7 +649,7 @@ type Querier interface {
 	InvalidateEventLabRevealBarrier(ctx context.Context, arg InvalidateEventLabRevealBarrierParams) error
 	InviteEventParticipant(ctx context.Context, arg InviteEventParticipantParams) (EventParticipant, error)
 	// The list query's predicate for one digest, asked again right before its tags are removed: nothing references it
-	// now and no row of it was uploaded at/after $2.
+	// now, no row of it was uploaded at/after $2, and none of its tags is shared with another digest.
 	IsDigestCollectable(ctx context.Context, arg IsDigestCollectableParams) (pgtype.Bool, error)
 	IsEventChallengePublished(ctx context.Context, id uuid.UUID) (bool, error)
 	IsEventLabManualReachable(ctx context.Context, arg IsEventLabManualReachableParams) (bool, error)
@@ -1362,7 +1362,9 @@ type Querier interface {
 	// Rows (tags) of the platform digests the tag collector may remove: every row of the digest was uploaded before
 	// $1 (the grace filter, applied first), and no exercise version (draft, published, any status) has a device image
 	// platform:<name>@<digest> (the name may differ). Variants that are not an array, or a "devices" that is null or
-	// not an array, hold no image. At most 500 rows a pass; the rest wait for the next one.
+	// not an array, hold no image. A digest with a tag that a row of another digest also maps (a shared tag: only a bug or
+	// an old short tag makes one) is never a candidate: removing that tag could remove what serves the other digest; its
+	// rows stay until the other digest's row goes. At most 500 rows a pass; the rest wait for the next one.
 	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
@@ -1454,6 +1456,8 @@ type Querier interface {
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
 	OpenEventStandRollout(ctx context.Context, arg OpenEventStandRolloutParams) error
 	OpenReadyEventLabRevealBarriers(ctx context.Context, arg OpenReadyEventLabRevealBarriersParams) (int64, error)
+	// Whether a row of another digest already maps this tag: CreateImage refuses then instead of re-pointing the tag.
+	PlatformImageTagTakenByOtherDigest(ctx context.Context, arg PlatformImageTagTakenByOtherDigestParams) (bool, error)
 	// Ready -> Published for board-published challenges. A challenge without a lab
 	// binding is static and opens at once; one with a binding is infrastructure
 	// and opens only when the caller passes the event's strict barrier.

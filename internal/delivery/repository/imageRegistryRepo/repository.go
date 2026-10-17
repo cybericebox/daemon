@@ -29,6 +29,7 @@ type Queries interface {
 	DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error)
 
 	UpsertPlatformImage(ctx context.Context, arg postgres.UpsertPlatformImageParams) error
+	PlatformImageTagTakenByOtherDigest(ctx context.Context, arg postgres.PlatformImageTagTakenByOtherDigestParams) (bool, error)
 	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]postgres.PlatformImage, error)
 	DeletePlatformImage(ctx context.Context, arg postgres.DeletePlatformImageParams) (int64, error)
 	IsDigestCollectable(ctx context.Context, arg postgres.IsDigestCollectableParams) (pgtype.Bool, error)

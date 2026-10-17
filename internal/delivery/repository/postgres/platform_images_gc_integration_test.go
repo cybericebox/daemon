@@ -14,6 +14,9 @@ import (
 
 func gcDigest(c string) string { return "sha256:" + strings.Repeat(c, 64) }
 
+// gcTag is the platform tag of gcDigest(c) under name: <name>-<the whole digest hex>.
+func gcTag(name, c string) string { return name + "-" + strings.Repeat(c, 64) }
+
 // The tag collector's query: a digest any version references (draft or published, under any name) is kept, a
 // version with "devices": null or a non-array variants is no reference, and a digest with a recent row is kept whole.
 func TestListUnreferencedPlatformImages(t *testing.T) {
@@ -43,13 +46,13 @@ func TestListUnreferencedPlatformImages(t *testing.T) {
 	version(5, "published", `[{"topology":{"devices":[{"image":"docker.io/x@`+gcDigest("d")+`"},{"image":5}]}}]`)
 
 	img := repoSaver(t, db)
-	img("a", "web-aaaaaaaaaaaa", old)
-	img("b", "web-bbbbbbbbbbbb", old)
-	img("d", "web-dddddddddddd", old)
-	img("d", "alt-dddddddddddd", old.Add(time.Hour))
-	img("e", "web-eeeeeeeeeeee", old)
-	img("e", "new-eeeeeeeeeeee", t0)
-	img("f", "web-ffffffffffff", old)
+	img("a", gcTag("web", "a"), old)
+	img("b", gcTag("web", "b"), old)
+	img("d", gcTag("web", "d"), old)
+	img("d", gcTag("alt", "d"), old.Add(time.Hour))
+	img("e", gcTag("web", "e"), old)
+	img("e", gcTag("new", "e"), t0)
+	img("f", gcTag("web", "f"), old)
 
 	rows, err := db.Queries.ListUnreferencedPlatformImages(ctx, before)
 	if err != nil {
@@ -59,12 +62,12 @@ func TestListUnreferencedPlatformImages(t *testing.T) {
 	for _, r := range rows {
 		got = append(got, r.Tag)
 	}
-	want := []string{"alt-dddddddddddd", "web-dddddddddddd", "web-ffffffffffff"}
+	want := []string{gcTag("alt", "d"), gcTag("web", "d"), gcTag("web", "f")}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("got %v want %v", got, want)
 	}
 
-	if _, err = db.Queries.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: gcDigest("d"), Tag: "web-dddddddddddd", Before: before}); err != nil {
+	if _, err = db.Queries.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: gcDigest("d"), Tag: gcTag("web", "d"), Before: before}); err != nil {
 		t.Fatal(err)
 	}
 	if rows, err = db.Queries.ListUnreferencedPlatformImages(ctx, before); err != nil || len(rows) != 2 {
@@ -107,8 +110,8 @@ func TestPlatformImageRecheckAndConditionalDelete(t *testing.T) {
 	t0 := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
 	before := t0.Add(-24 * time.Hour)
 	save := repoSaver(t, db)
-	save("a", "web-aaaaaaaaaaaa", t0.Add(-48*time.Hour))
-	save("b", "web-bbbbbbbbbbbb", t0.Add(-48*time.Hour))
+	save("a", gcTag("web", "a"), t0.Add(-48*time.Hour))
+	save("b", gcTag("web", "b"), t0.Add(-48*time.Hour))
 
 	collectable := func(c string) bool {
 		v, err := db.Queries.IsDigestCollectable(ctx, postgres.IsDigestCollectableParams{TargetDigest: gcDigest(c), Before: before})
@@ -136,7 +139,7 @@ func TestPlatformImageRecheckAndConditionalDelete(t *testing.T) {
 	if collectable("a") || collectable("b") {
 		t.Fatal("re-referenced and refreshed digests are no longer collectable")
 	}
-	for _, c := range []struct{ d, tag string }{{"a", "web-aaaaaaaaaaaa"}, {"b", "web-bbbbbbbbbbbb"}} {
+	for _, c := range []struct{ d, tag string }{{"a", gcTag("web", "a")}, {"b", gcTag("web", "b")}} {
 		n, err := db.Queries.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: gcDigest(c.d), Tag: c.tag, Before: before})
 		if err != nil || n != 0 {
 			t.Fatalf("%s: deleted %d %v", c.d, n, err)
@@ -145,5 +148,56 @@ func TestPlatformImageRecheckAndConditionalDelete(t *testing.T) {
 	var rows int
 	if err := db.Pool.QueryRow(ctx, "SELECT count(*) FROM platform_images").Scan(&rows); err != nil || rows != 2 {
 		t.Fatalf("rows=%d %v", rows, err)
+	}
+}
+
+// Defense in depth against a tag that two digests map to (only a bug or an old short tag can make one): the collector
+// never removes such a tag. The candidate list skips every digest that has one, the re-check refuses it, and the
+// conditional delete keeps its rows; the digest's records stay until the other digest's row goes.
+func TestPlatformImageSharedTagIsNeverCollected(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	t0 := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+	old := t0.Add(-48 * time.Hour)
+	before := t0.Add(-24 * time.Hour)
+	ex := uuid.Must(uuid.FromString("01900000-0000-7000-8000-0000000000ca"))
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercises (id, name, created_at, updated_at) VALUES ($1, 'gc-shared', $2, $2)`, ex, t0); err != nil {
+		t.Fatal(err)
+	}
+	// a is referenced; b is not, and its row maps the same tag string as a's (the tag now serves one of them).
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at) VALUES ($1, $2, 'published', $3::jsonb, $4)`,
+		uuid.Must(uuid.FromString("01900000-0000-7000-8000-0000000000ea")), ex, `[{"topology":{"devices":[{"image":"platform:web@`+gcDigest("a")+`"}]}}]`, t0); err != nil {
+		t.Fatal(err)
+	}
+	shared := "web-aaaaaaaaaaaa"
+	for _, r := range []struct{ c, tag string }{{"a", shared}, {"b", shared}, {"b", gcTag("web", "b")}, {"c", gcTag("web", "c")}} {
+		if _, err := db.Pool.Exec(ctx, `INSERT INTO platform_images (digest, tag, name, uploaded_at) VALUES ($1, $2, 'web', $3)`, gcDigest(r.c), r.tag, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := db.Queries.ListUnreferencedPlatformImages(ctx, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Digest != gcDigest("c") {
+		t.Fatalf("candidates %+v: a digest with a shared tag must not be listed", rows)
+	}
+	v, err := db.Queries.IsDigestCollectable(ctx, postgres.IsDigestCollectableParams{TargetDigest: gcDigest("b"), Before: before})
+	if err != nil || (v.Valid && v.Bool) {
+		t.Fatalf("re-check of the digest with a shared tag: %v %v", v, err)
+	}
+	for _, tag := range []string{shared, gcTag("web", "b")} {
+		n, err := db.Queries.DeletePlatformImage(ctx, postgres.DeletePlatformImageParams{Digest: gcDigest("b"), Tag: tag, Before: before})
+		if err != nil || n != 0 {
+			t.Fatalf("%s: deleted %d %v", tag, n, err)
+		}
+	}
+	// Once the other digest's row is gone the tag is no longer shared and b is collected as usual.
+	if _, err = db.Pool.Exec(ctx, `DELETE FROM platform_images WHERE digest = $1`, gcDigest("a")); err != nil {
+		t.Fatal(err)
+	}
+	if v, err = db.Queries.IsDigestCollectable(ctx, postgres.IsDigestCollectableParams{TargetDigest: gcDigest("b"), Before: before}); err != nil || !v.Valid || !v.Bool {
+		t.Fatalf("b after the shared row went: %v %v", v, err)
 	}
 }

@@ -20850,8 +20850,8 @@ paths:
       consumes:
       - application/json
       description: Same access as saving the draft. Builds the manifest (Docker schema
-        2 when every type is Docker's, otherwise OCI), pushes it under the tag <name>-<12
-        hex> and returns the platform reference for the device.
+        2 when every type is Docker's, otherwise OCI), pushes it under the tag <name>-<the
+        whole digest hex> and returns the platform reference for the device.
       parameters:
       - description: exercise ID
         in: path

@@ -50,7 +50,7 @@ func TestPlatformImageUpsertRefreshesTheUpload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tag != "web-aaaaaaaaaaaa" || name != "web" || by != second || !uploadedAt.Equal(t0.Add(time.Hour)) || exercise.Valid {
+	if tag != "web-"+strings.Repeat("a", 64) || name != "web" || by != second || !uploadedAt.Equal(t0.Add(time.Hour)) || exercise.Valid {
 		t.Fatalf("row tag=%s name=%s by=%s at=%s exercise=%v", tag, name, by, uploadedAt, exercise)
 	}
 }
@@ -100,5 +100,26 @@ func TestMediaUploadKeepsItsPurpose(t *testing.T) {
 	got, err := repo.GetUpload(ctx, up.ID)
 	if err != nil || got.Purpose != mediaModel.UploadPurposeImageBlob {
 		t.Fatalf("get %+v %v", got, err)
+	}
+}
+
+// CreateImage's guard: a tag another digest already maps to is reported taken; the digest's own tag is not.
+func TestPlatformImageTagTakenByOtherDigest(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := imageRegistryRepo.NewPlatformImages(db.Queries)
+	t0 := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+	a, b := "sha256:"+strings.Repeat("a", 64), "sha256:"+strings.Repeat("b", 64)
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO platform_images (digest, tag, name, uploaded_at) VALUES ($1, 'web-x', 'web', $2)`, a, t0); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		tag, digest string
+		want        bool
+	}{{"web-x", b, true}, {"web-x", a, false}, {"web-y", b, false}} {
+		got, err := repo.TagTakenByOtherDigest(ctx, c.tag, c.digest)
+		if err != nil || got != c.want {
+			t.Fatalf("%s %s: taken=%v err=%v, want %v", c.tag, c.digest, got, err, c.want)
+		}
 	}
 }

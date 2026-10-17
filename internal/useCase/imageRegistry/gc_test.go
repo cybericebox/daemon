@@ -224,3 +224,28 @@ func (a *ghcrVersions) DeleteTags(_ context.Context, _, _, _ string, tags []stri
 	}
 	return shared
 }
+
+// Two digests whose rows map the same tag string (only a bug or an old short tag makes one), one of them
+// referenced: even when such a row reaches the pass (listed before the other row was written), the re-check refuses
+// the digest and the provider is never asked to remove the shared tag.
+func TestCollectNeverRemovesATagAnotherDigestMapsTo(t *testing.T) {
+	f, a := gcFixture(t)
+	f.expectSweep()
+	f.unreferenced(img("sha256:bb", "web-shared"), img("sha256:cc", "web-cc"))
+	f.expectCollectable("sha256:bb", false)
+	f.expectCollectable("sha256:cc", true)
+	f.expectRowDeleted("sha256:cc", "web-cc")
+
+	n, err := f.uc.CollectUnusedTags(context.Background(), t0)
+	if err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	for _, c := range a.calls {
+		if slices.Contains(c.tags, "web-shared") {
+			t.Fatalf("the shared tag was sent to the provider: %+v", a.calls)
+		}
+	}
+	if len(a.calls) != 1 {
+		t.Fatalf("calls %+v", a.calls)
+	}
+}

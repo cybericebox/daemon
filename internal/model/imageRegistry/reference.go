@@ -43,12 +43,21 @@ func ParsePlatformRef(s string) (PlatformRef, bool) {
 
 func (r PlatformRef) String() string { return platformPrefix + r.Name + "@" + r.Digest }
 
-// Tag is the registry tag pushed for the reference: <name>-<first 12 hex>.
+// maxTagNameLen keeps a tag within the OCI limit of 128 characters: name, "-", 64 hex.
+const maxTagNameLen = 128 - 1 - 64
+
+// Tag is the registry tag pushed for the reference: <name>-<the whole digest hex>, the name cut to 63 characters
+// (separators left at the cut are trimmed). The tag carries the full digest: with a prefix, an author could craft an
+// image whose digest shares it and re-point another image's tag. "" for an invalid reference.
 func (r PlatformRef) Tag() string {
 	if !digestRe.MatchString(r.Digest) || !platformNameRe.MatchString(r.Name) {
 		return ""
 	}
-	return r.Name + "-" + strings.TrimPrefix(r.Digest, "sha256:")[:12]
+	name := r.Name
+	if len(name) > maxTagNameLen {
+		name = strings.TrimRight(name[:maxTagNameLen], "._-")
+	}
+	return name + "-" + strings.TrimPrefix(r.Digest, "sha256:")
 }
 
 // SanitizeName turns arbitrary text into a valid platform image name.

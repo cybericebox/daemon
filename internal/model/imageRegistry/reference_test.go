@@ -1,6 +1,7 @@
 package imageRegistryModel
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -19,7 +20,7 @@ func TestPlatformRefRoundTrip(t *testing.T) {
 	if ref.String() != s {
 		t.Fatalf("String = %q", ref.String())
 	}
-	if ref.Tag() != "web-aaaaaaaaaaaa" {
+	if ref.Tag() != "web-"+hexA {
 		t.Fatalf("Tag = %q", ref.Tag())
 	}
 }
@@ -120,6 +121,38 @@ func TestParseImageRefInvalid(t *testing.T) {
 		if _, err := ParseImageRef(in); err == nil {
 			t.Errorf("%q must be rejected", in)
 		}
+	}
+}
+
+// The tag carries the whole digest (a 12-hex prefix let a crafted image take over another image's tag): the name is
+// cut to 63 characters, separators left at the cut are trimmed, and the tag stays a valid OCI tag of at most 128.
+func TestPlatformRefTagCarriesTheFullDigest(t *testing.T) {
+	ociTag := regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
+	cases := []struct{ name, wantName string }{
+		{"web", "web"},
+		{strings.Repeat("a", 63), strings.Repeat("a", 63)},
+		{strings.Repeat("a", 64), strings.Repeat("a", 63)},
+		{strings.Repeat("a", 62) + "-b", strings.Repeat("a", 62)},
+		{strings.Repeat("a", 61) + "b.c", strings.Repeat("a", 61) + "b"},
+	}
+	for _, c := range cases {
+		ref, err := NewPlatformRef(c.name, "sha256:"+hexA)
+		if err != nil {
+			t.Fatalf("%q: %v", c.name, err)
+		}
+		tag := ref.Tag()
+		if tag != c.wantName+"-"+hexA {
+			t.Errorf("%q: Tag = %q", c.name, tag)
+		}
+		if len(tag) > 128 || !ociTag.MatchString(tag) {
+			t.Errorf("%q: Tag %q (%d) is not a valid OCI tag", c.name, tag, len(tag))
+		}
+	}
+	// Two digests sharing their first 12 hex characters get different tags.
+	a, _ := NewPlatformRef("web", "sha256:"+strings.Repeat("a", 12)+strings.Repeat("b", 52))
+	b, _ := NewPlatformRef("web", "sha256:"+strings.Repeat("a", 12)+strings.Repeat("c", 52))
+	if a.Tag() == b.Tag() {
+		t.Fatalf("a digest-prefix collision shares the tag %q", a.Tag())
 	}
 }
 

@@ -32,6 +32,11 @@ func (r *PlatformImages) Save(ctx context.Context, img imageRegistryModel.Platfo
 	})
 }
 
+// TagTakenByOtherDigest reports whether a row of a digest other than this one already maps the tag.
+func (r *PlatformImages) TagTakenByOtherDigest(ctx context.Context, tag, digest string) (bool, error) {
+	return r.q.PlatformImageTagTakenByOtherDigest(ctx, postgres.PlatformImageTagTakenByOtherDigestParams{Tag: tag, Digest: digest})
+}
+
 func nullable(id uuid.UUID) uuid.NullUUID {
 	return uuid.NullUUID{UUID: id, Valid: id != uuid.Nil}
 }
@@ -53,8 +58,8 @@ func (r *PlatformImages) ListUnreferenced(ctx context.Context, before time.Time)
 	return out, nil
 }
 
-// IsCollectable asks again whether the digest may still be removed: no exercise version references it and none of
-// its rows was uploaded at/after the cutoff.
+// IsCollectable asks again whether the digest may still be removed: no exercise version references it, none of
+// its rows was uploaded at/after the cutoff, and none of its tags is also mapped by another digest.
 func (r *PlatformImages) IsCollectable(ctx context.Context, digest string, before time.Time) (bool, error) {
 	v, err := r.q.IsDigestCollectable(ctx, postgres.IsDigestCollectableParams{TargetDigest: digest, Before: before})
 	return v.Valid && v.Bool, err
