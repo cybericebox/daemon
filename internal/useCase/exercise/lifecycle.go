@@ -150,13 +150,7 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 		}
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get draft").Err()
 	}
-	if err = draft.ValidateForPublish(); err != nil {
-		return VersionView{}, err
-	}
-	if err = u.requireInfrastructureAllowed(ctx, e, draft.Variants); err != nil {
-		return VersionView{}, err
-	}
-	if err = u.requireResourcesAllowed(ctx, exerciseID, draft.Variants); err != nil {
+	if err = u.requirePublishable(ctx, e, &draft); err != nil {
 		return VersionView{}, err
 	}
 	published, err := u.exercises.Publish(ctx, exerciseID, time.Now())
@@ -168,6 +162,20 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to publish draft").Err()
 	}
 	return u.versionView(ctx, published), nil
+}
+
+// requirePublishable is the publish gate, the one set of checks every way a version becomes published runs
+// (PublishDraft, and the import of a version marked published): the full content validation, the event's
+// infrastructure permission and the resources model (presets, ceiling, approved elevations of e.ID; a task not
+// yet created has none).
+func (u *ExerciseUseCase) requirePublishable(ctx context.Context, e exerciseModel.Exercise, version *exerciseModel.ExerciseVersion) error {
+	if err := version.ValidateForPublish(); err != nil {
+		return err
+	}
+	if err := u.requireInfrastructureAllowed(ctx, e, version.Variants); err != nil {
+		return err
+	}
+	return u.requireResourcesAllowed(ctx, e.ID, version.Variants)
 }
 
 // DiscardDraft deletes the draft slot; the exercise's draft pointer clears via

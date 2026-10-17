@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cybericebox/daemon/internal/model"
+	appErr "github.com/cybericebox/daemon/pkg/err"
 	yzip "github.com/yeka/zip"
 	"golang.org/x/text/unicode/norm"
 )
@@ -173,6 +174,10 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if err = syncImportedLinks(parsed.Versions); err != nil {
 		return ExerciseView{}, err
 	}
+	// A version imported as published passes the same gate as PublishDraft, before anything is uploaded or written.
+	if err = u.requireImportedPublishable(ctx, parsed.Versions); err != nil {
+		return ExerciseView{}, err
+	}
 	if err = u.encryptImportedSecrets(parsed.Versions); err != nil {
 		return ExerciseView{}, err
 	}
@@ -237,9 +242,9 @@ func firstSecretValue(versions []exerciseModel.ExerciseVersion) string {
 	return ""
 }
 
-// validateImportedVersions mirrors the lifecycle rule: only a published
-// version must be publishable; drafts and checkpoints may be incomplete, and
-// historical rows load as-is.
+// validateImportedVersions checks the statuses: at least one version, at most one draft and one published.
+// Drafts and checkpoints may be incomplete and historical rows load as-is; the published one passes the publish
+// gate later (requireImportedPublishable), once its ids are final.
 func validateImportedVersions(versions []exerciseModel.ExerciseVersion) error {
 	if len(versions) == 0 {
 		return archiveInvalid("versions: at least one version is required")
@@ -261,14 +266,62 @@ func validateImportedVersions(versions []exerciseModel.ExerciseVersion) error {
 			return archiveInvalid(fmt.Sprintf("%s: only one %s version is allowed", path, status))
 		}
 	}
+	return nil
+}
+
+// requireImportedPublishable runs the publish gate (requirePublishable, the one PublishDraft runs) on every
+// version imported as published. The import always creates a new catalog task: no owner event, no approved
+// elevation yet. A refusal keeps its error and gains the archive path it is about.
+func (u *ExerciseUseCase) requireImportedPublishable(ctx context.Context, versions []exerciseModel.ExerciseVersion) error {
+	newTask := exerciseModel.Exercise{Scope: exerciseModel.ScopeCatalog}
 	for index := range versions {
-		if versions[index].Status.IsPublished() {
-			if err := versions[index].ValidateForPublish(); err != nil {
-				return err
-			}
+		if !versions[index].Status.IsPublished() {
+			continue
+		}
+		if err := u.requirePublishable(ctx, newTask, &versions[index]); err != nil {
+			return withImportedPath(err, index, versions[index].Variants)
 		}
 	}
 	return nil
+}
+
+// withImportedPath adds the archive path to a publish-gate error as its public "field": the version, and the
+// device when the error names one variant's device. The variant id is dropped: the new task's ids mean nothing
+// to the author of the archive.
+func withImportedPath(failure error, versionIndex int, variants []exerciseModel.Variant) error {
+	var creator appErr.ErrorCreator
+	if !errors.As(failure, &creator) {
+		return failure
+	}
+	var withContext interface{ PublicContext() map[string]any }
+	field := fmt.Sprintf("versions[%d]", versionIndex+1)
+	if errors.As(failure, &withContext) {
+		public := withContext.PublicContext()
+		if variantID, ok := public["variant"].(string); ok {
+			field += variantPath(variants, variantID, public["device"])
+			creator = creator.WithPublicContext("variant", "")
+		}
+	}
+	return creator.WithPublicContext("field", field).Err()
+}
+
+// variantPath is ".variants[i]" (and ".topology.devices[j]" for a named device) of the variant with that id.
+func variantPath(variants []exerciseModel.Variant, variantID string, device any) string {
+	for vi, variant := range variants {
+		if variant.ID.String() != variantID {
+			continue
+		}
+		path := fmt.Sprintf(".variants[%d]", vi+1)
+		if name, ok := device.(string); ok {
+			for di, d := range variant.Topology.Devices {
+				if d.Name == name {
+					return path + fmt.Sprintf(".topology.devices[%d]", di+1)
+				}
+			}
+		}
+		return path
+	}
+	return ""
 }
 
 func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *ParsedExerciseArchive, createdBy uuid.UUID) error {
