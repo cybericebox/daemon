@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 30
+// ImageRegistryObjectCode — next free detail code: 31
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -102,6 +102,12 @@ var (
 	// "reason" says which: gzip, not_tar, no_image, multi_image, no_amd64, too_large, digest_mismatch.
 	ErrImageArchiveUnreadable = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image archive cannot be imported").WithDetailCode(29)
+	// ErrImageNotExportable: a platform image of a task cannot be written into an export «з образами»: the registry
+	// is not configured, refused, failed, or does not have the image. The public context "reason" says which
+	// (not_configured, not_found, unauthorized, rate_limited, unreachable, invalid_reference, invalid_image); the
+	// export adds "device" and "file".
+	ErrImageNotExportable = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
+				WithMessage("A platform image cannot be exported: the image registry is not configured, not responding or does not have it").WithDetailCode(30)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming

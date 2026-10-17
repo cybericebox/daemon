@@ -41,10 +41,12 @@ type fakeRegistry struct {
 	mu    sync.Mutex
 	seen  []string
 	allow map[string]bool
+	// gone answers 404 for a request path ending in one of these (a blob lost from the registry).
+	gone map[string]bool
 }
 
 func newFakeRegistry(t *testing.T) *fakeRegistry {
-	f := &fakeRegistry{allow: map[string]bool{pushToken: true, pullToken: true}}
+	f := &fakeRegistry{allow: map[string]bool{pushToken: true, pullToken: true}, gone: map[string]bool{}}
 	inner := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
@@ -56,6 +58,16 @@ func newFakeRegistry(t *testing.T) *fakeRegistry {
 		if !ok || u != "acme" || !f.allow[p] {
 			w.Header().Set("WWW-Authenticate", `Basic realm="fake"`)
 			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		f.mu.Lock()
+		gone := false
+		for suffix := range f.gone {
+			gone = gone || strings.HasSuffix(r.URL.Path, suffix)
+		}
+		f.mu.Unlock()
+		if gone {
+			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		inner.ServeHTTP(w, r)

@@ -27,6 +27,8 @@ const (
 	ReasonDigestMismatch Reason = "digest_mismatch"
 	// ReasonUploadMissing: the chunked upload a blob push reads is gone (expired or dropped); upload it again.
 	ReasonUploadMissing Reason = "upload_missing"
+	// ReasonInvalidImage: the registry holds something that is not one image under the reference (an export).
+	ReasonInvalidImage Reason = "invalid_image"
 )
 
 // Transient is true for a reason that may clear without any change to the
