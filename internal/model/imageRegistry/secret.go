@@ -15,7 +15,7 @@ type Kind int
 const (
 	KindPlatform  Kind = iota // platform:<name>@sha256:<hex>, platform registry
 	KindPublic                // pulled anonymously
-	KindOrganizer             // pulled with an event secret
+	KindOrganizer             // may be pulled with an event secret (see Classify)
 )
 
 // EventSecret is an organizer-supplied registry credential, usable only
@@ -115,8 +115,11 @@ func (s EventSecret) Matches(ref ImageRef) (int, bool) {
 	return 0, false
 }
 
-// Classify decides which credentials an image needs: the platform registry,
-// none (public) or the best-matching organizer secret.
+// Classify decides which credentials an image may need: the platform registry,
+// none (public) or the best-matching organizer secret. An organizer match is a
+// candidate only: the check tries the image anonymously first and uses the
+// secret only when the anonymous pull fails, so public images on a secret's
+// host stay public.
 func Classify(image string, secrets []EventSecret) (Kind, *EventSecret) {
 	if _, ok := ParsePlatformRef(image); ok {
 		return KindPlatform, nil

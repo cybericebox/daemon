@@ -64,14 +64,16 @@ func TestEventImagesAvailabilityShowsCredentialConflicts(t *testing.T) {
 }
 
 // The laboratory agent refuses a credential with an empty password or a username with ':'; such a
-// credential is never sent: the image is unavailable (unauthorized) and its registry is not asked.
+// credential is never sent: a private image is unavailable (unauthorized) and its registry only
+// sees the anonymous check.
 func TestACredentialTheAgentRefusesIsNeverSent(t *testing.T) {
 	ctx := context.Background()
 	t.Run("username with a colon", func(t *testing.T) {
 		f := newAccessFixture(t, true)
-		open := newTestRegistry(t, "", "")
-		f.hosts["quay.io"] = open.host()
-		pushImage(t, open.host(), "acme/app", "", "", "1")
+		priv := newTestRegistry(t, "bob", secretToken)
+		f.hosts["quay.io"] = priv.host()
+		pushImage(t, priv.host(), "acme/app", "bob", secretToken, "1")
+		pushed := len(priv.passwords())
 		row := f.row(t, secID, "quay.io", "acme", secretToken)
 		row.Username = "bo:b"
 		f.q.EXPECT().ListEventRegistrySecrets(gomock.Any(), eventA).Return([]postgres.EventRegistrySecret{row}, nil).Times(2)
@@ -86,8 +88,8 @@ func TestACredentialTheAgentRefusesIsNeverSent(t *testing.T) {
 		if err != nil || len(av) != 1 || av[0].Reason != imageRegistryModel.ReasonUnauthorized {
 			t.Fatalf("check %+v %v", av, err)
 		}
-		if n := open.headCount(); n != 0 {
-			t.Fatalf("the registry was asked with a credential the agent refuses: %d", n)
+		if pw := priv.passwords()[pushed:]; len(pw) != 0 {
+			t.Fatalf("the registry was asked with a credential the agent refuses: %v", pw)
 		}
 	})
 	// A secret whose token is empty (or does not open) is not used at all: the image is checked

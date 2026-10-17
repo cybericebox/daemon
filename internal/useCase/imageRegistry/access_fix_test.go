@@ -67,10 +67,10 @@ func TestTwoCredentialsForOneHostConflict(t *testing.T) {
 	})
 	t.Run("two organizer secrets with different prefixes on one host", func(t *testing.T) {
 		f := newAccessFixture(t, true)
-		priv := newTestRegistry(t, "", "")
+		priv := newTestRegistry(t, "bob", secretToken, func(r *testRegistry) { r.also = []string{"token-b"} })
 		f.hosts["quay.io"] = priv.host()
-		pushImage(t, priv.host(), "a/app", "", "", "1")
-		pushImage(t, priv.host(), "b/app", "", "", "1")
+		pushImage(t, priv.host(), "a/app", "bob", secretToken, "1")
+		pushImage(t, priv.host(), "b/app", "bob", secretToken, "1")
 		other := uuid.Must(uuid.FromString("0199a000-0000-7000-8000-0000000000e2"))
 		f.q.EXPECT().ListEventRegistrySecrets(gomock.Any(), eventA).Return([]postgres.EventRegistrySecret{
 			f.row(t, secID, "quay.io", "a", secretToken), f.row(t, other, "quay.io", "b", "token-b"),
@@ -87,8 +87,8 @@ func TestTwoCredentialsForOneHostConflict(t *testing.T) {
 	})
 	t.Run("more than 8 hosts", func(t *testing.T) {
 		f := newAccessFixture(t, true)
-		priv := newTestRegistry(t, "", "")
-		pushImage(t, priv.host(), "acme/app", "", "", "1")
+		priv := newTestRegistry(t, "bob", secretToken)
+		pushImage(t, priv.host(), "acme/app", "bob", secretToken, "1")
 		var rows []postgres.EventRegistrySecret
 		var images []string
 		for i := range 9 {
@@ -188,8 +188,10 @@ func TestCacheForgetsAChangedSecret(t *testing.T) {
 			t.Fatalf("%v %v", av, err)
 		}
 	}
-	if n := priv.headCount(); n != 2 {
-		t.Fatalf("HEADs %d: cached once, checked again after the change", n)
+	// each check first tries anonymously (refused, never cached), then with
+	// the secret: cached once, checked again after the change
+	if n := priv.headCount(); n != 3+2 {
+		t.Fatalf("HEADs %d: 3 anonymous + 2 with the secret", n)
 	}
 }
 

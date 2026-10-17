@@ -349,7 +349,21 @@ func (c *imageChecker) check(ctx context.Context, image string) checkResult {
 	if reference == "" {
 		reference = ref.Tag
 	}
+	anonymous := func() checkResult {
+		r := c.manifest(ctx, image, "anon", reference, c.u.external(ref.Host, ref.Repository, "", ""), true)
+		r.identity = ""
+		return r
+	}
 	if kind, secret := imageRegistryModel.Classify(image, c.secrets); kind == imageRegistryModel.KindOrganizer && secret != nil {
+		// A secret matches by host and optional prefix, so it may cover public
+		// images too (a host-only docker.io secret covers docker.io/library/*).
+		// Those stay public: no credential is attached, so they never count in
+		// the one-credential-per-host rule. The secret is used only when the
+		// anonymous check fails (unauthorized, not found, or unreachable — a
+		// rate-limited anonymous pull may still pass with the credential).
+		if r := anonymous(); r.availability.Status == imageRegistryModel.StatusAvailable {
+			return r
+		}
 		token := c.tokens[secret.ID]
 		if agentRefuses(secret.Username, token) {
 			return unavailableResult(image, imageRegistryModel.ReasonUnauthorized)
@@ -359,9 +373,7 @@ func (c *imageChecker) check(ctx context.Context, image string) checkResult {
 		r.credential = &infraModel.RegistryCredential{Registry: secret.Host, Username: secret.Username, Password: token}
 		return r
 	}
-	r := c.manifest(ctx, image, "anon", reference, c.u.external(ref.Host, ref.Repository, "", ""), true)
-	r.identity = ""
-	return r
+	return anonymous()
 }
 
 func (c *imageChecker) checkPlatform(ctx context.Context, image string, ref imageRegistryModel.PlatformRef) checkResult {

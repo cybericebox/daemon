@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -32,19 +33,36 @@ import (
 const missingDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000001"
 
 // testRegistry is an in-process registry. With a user set it wants basic auth
-// with that user and password; with status set it answers every request with
-// it. It counts manifest HEADs and records the passwords it saw.
+// with that user and password (or one of the passwords in also), except
+// for the repositories in open, which anyone may read and write; with status
+// set it answers every request with it. It counts manifest HEADs and records
+// the passwords it saw.
 type testRegistry struct {
 	srv        *httptest.Server
 	user, pass string
+	also       []string
+	open       []string
 	mu         sync.Mutex
 	status     int
 	heads      int
 	seen       []string
 }
 
-func newTestRegistry(t *testing.T, user, pass string) *testRegistry {
+// opened reports whether path is in one of the repositories anyone may use.
+func (r *testRegistry) opened(path string) bool {
+	for _, repo := range r.open {
+		if strings.HasPrefix(path, "/v2/"+repo+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func newTestRegistry(t *testing.T, user, pass string, opts ...func(*testRegistry)) *testRegistry {
 	r := &testRegistry{user: user, pass: pass}
+	for _, o := range opts {
+		o(r)
+	}
 	inner := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
 	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		r.mu.Lock()
@@ -61,7 +79,7 @@ func newTestRegistry(t *testing.T, user, pass string) *testRegistry {
 			w.WriteHeader(status)
 			return
 		}
-		if r.user != "" && (!ok || u != r.user || p != r.pass) {
+		if r.user != "" && !r.opened(req.URL.Path) && (!ok || u != r.user || (p != r.pass && !slices.Contains(r.also, p))) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="fake"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -126,6 +144,11 @@ type accessFixture struct {
 // "acme", repository acme/tasks on ghcr); external registries are reached
 // without the guard (in-process fakes on loopback), recording each client.
 func newAccessFixture(t *testing.T, configured bool, opts ...func(*Dependencies)) *accessFixture {
+	return newAccessFixtureOn(t, configured, "ghcr", opts...)
+}
+
+// newAccessFixtureOn is newAccessFixture with the platform registry on the given provider.
+func newAccessFixtureOn(t *testing.T, configured bool, platformProvider string, opts ...func(*Dependencies)) *accessFixture {
 	ctrl := gomock.NewController(t)
 	base := &fixture{reg: newFakeRegistry(t), adapter: &fakeAdapter{}}
 	base.q = postgresMocks.NewMockQuerier(ctrl)
@@ -153,7 +176,7 @@ func newAccessFixture(t *testing.T, configured bool, opts ...func(*Dependencies)
 	base.uc = New(deps)
 	if configured {
 		base.stored(postgres.ImageRegistrySetting{
-			ID: true, Provider: "ghcr", Account: "acme", Repository: "acme/tasks",
+			ID: true, Provider: platformProvider, Account: "acme", Repository: "acme/tasks",
 			PushTokenCiphertext: base.seal(t, pushToken, "push"), PullTokenCiphertext: base.seal(t, pullToken, "pull"), UpdatedAt: t0,
 		})
 	} else {
