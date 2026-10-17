@@ -1,0 +1,380 @@
+package exercise_test
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/gofrs/uuid"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+	"go.yaml.in/yaml/v3"
+
+	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
+)
+
+const (
+	tagRequired = "обовʼязкове."
+	tagOptional = "можна пропустити."
+	// neededHere marks an optional key the example cannot drop alone: something else in it refers to the key.
+	neededHere = "тут потрібн"
+)
+
+// exampleEntries unpacks the example archive.
+func exampleEntries(t *testing.T) map[string][]byte {
+	t.Helper()
+	archive, err := exercise.ExampleArchive()
+	require.NoError(t, err)
+	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	require.NoError(t, err)
+	entries := map[string][]byte{}
+	for _, file := range reader.File {
+		rc, openErr := file.Open()
+		require.NoError(t, openErr)
+		body, readErr := io.ReadAll(rc)
+		require.NoError(t, rc.Close())
+		require.NoError(t, readErr)
+		entries[file.Name] = body
+	}
+	return entries
+}
+
+func exampleRoot(t *testing.T, doc []byte) *yaml.Node {
+	t.Helper()
+	var root yaml.Node
+	require.NoError(t, yaml.Unmarshal(doc, &root))
+	require.Equal(t, yaml.DocumentNode, root.Kind)
+	require.Equal(t, yaml.MappingNode, root.Content[0].Kind)
+	return &root
+}
+
+// exampleKey is one key of the example document: its 1-based path, its comment, the steps (Content indices from
+// the document node) to the mapping holding it and its index there.
+type exampleKey struct {
+	Path    string
+	Name    string
+	Comment string
+	Parent  []int
+	Index   int
+	Value   *yaml.Node
+}
+
+func exampleKeys(root *yaml.Node) []exampleKey {
+	var keys []exampleKey
+	var walk func(node *yaml.Node, path string, steps []int)
+	walk = func(node *yaml.Node, path string, steps []int) {
+		switch node.Kind {
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(node.Content); i += 2 {
+				key, value := node.Content[i], node.Content[i+1]
+				child := key.Value
+				if path != "" {
+					child = path + "." + key.Value
+				}
+				comment := key.LineComment
+				if comment == "" {
+					comment = value.LineComment
+				}
+				keys = append(keys, exampleKey{
+					Path: child, Name: key.Value, Comment: strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(comment), "#")),
+					Parent: append([]int(nil), steps...), Index: i, Value: value,
+				})
+				walk(value, child, append(append([]int(nil), steps...), i+1))
+			}
+		case yaml.SequenceNode:
+			for j, item := range node.Content {
+				walk(item, path+"["+strconv.Itoa(j+1)+"]", append(append([]int(nil), steps...), j))
+			}
+		}
+	}
+	walk(root.Content[0], "", []int{0})
+	return keys
+}
+
+// withoutKey is the example document with one key (and its value) removed.
+func withoutKey(t *testing.T, doc []byte, key exampleKey) []byte {
+	t.Helper()
+	root := exampleRoot(t, doc)
+	node := root
+	for _, step := range key.Parent {
+		node = node.Content[step]
+	}
+	node.Content = append(node.Content[:key.Index:key.Index], node.Content[key.Index+2:]...)
+	if len(node.Content) == 0 {
+		node.Style = yaml.FlowStyle // the encoder writes an emptied block mapping that carries a comment as invalid YAML
+	}
+	out, err := yaml.Marshal(root)
+	require.NoError(t, err)
+	return out
+}
+
+// importExample imports one task folder (the example's files, document replaced) through the use case.
+func importExample(t *testing.T, files map[string][]byte) (*fakeMedia, [][]byte, error) {
+	t.Helper()
+	archive, err := exercise.BuildArchiveNoManifest(files)
+	require.NoError(t, err)
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	expectUserNames(q)
+	expectFilesAdoptedAsIs(q)
+	media := newFakeMedia()
+	var written [][]byte
+	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
+			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
+		}).AnyTimes()
+	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
+			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			written = append(written, arg.Variants)
+			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
+		}).AnyTimes()
+	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	_, err = uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{
+		Archive: archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
+	})
+	return media, written, err
+}
+
+func replaced(files map[string][]byte, name string, body []byte) map[string][]byte {
+	out := make(map[string][]byte, len(files))
+	for key, value := range files {
+		if key != "exercise.yaml" {
+			out[key] = value
+		}
+	}
+	out[name] = body
+	return out
+}
+
+func TestExampleArchive_ContainsOnlyYAMLAndFiles(t *testing.T) {
+	entries := exampleEntries(t)
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	require.Equal(t, []string{"exercise.yaml", "files/notes-2.txt", "files/notes.txt"}, names)
+	require.Equal(t, "example-task.cybericebox.zip", exercise.ExampleArchiveFilename)
+}
+
+func TestExampleArchive_StartsWithSchema(t *testing.T) {
+	root := exampleRoot(t, exampleEntries(t)["exercise.yaml"]).Content[0]
+	require.Equal(t, "schema", root.Content[0].Value)
+	require.Equal(t, "cib-exercise/1", root.Content[1].Value)
+}
+
+func TestExampleArchive_ImportsCleanly(t *testing.T) {
+	archive, err := exercise.ExampleArchive()
+	require.NoError(t, err)
+	imports, err := exercise.ExpandExerciseArchiveBundle(archive, "")
+	require.NoError(t, err)
+	require.Len(t, imports, 1)
+
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	expectUserNames(q)
+	expectFilesAdoptedAsIs(q)
+	media := newFakeMedia()
+	q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
+			require.Equal(t, "Приклад завдання", arg.Name)
+			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
+		})
+	var variants []exerciseModel.Variant
+	q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.InsertImportedExerciseVersionParams) (postgres.ExerciseVersion, error) {
+			require.EqualValues(t, exerciseModel.VersionStatusPublished, arg.Status)
+			require.NoError(t, json.Unmarshal(arg.Variants, &variants))
+			return postgres.ExerciseVersion{ID: arg.ID, ExerciseID: arg.ExerciseID, Status: arg.Status, Variants: arg.Variants, CreatedAt: arg.CreatedAt}, nil
+		})
+	q.EXPECT().SetImportedExercisePointers(gomock.Any(), gomock.Any()).Return(nil)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media})
+	imported, err := uc.ImportExerciseArchive(context.Background(), exercise.ImportExerciseInput{
+		Archive: imports[0].Archive, CreatedBy: uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000aa"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Приклад завдання", imported.Name)
+
+	require.Len(t, variants, 2)
+	base, linked := variants[0], variants[1]
+	require.Len(t, base.Tasks, 1)
+	require.Contains(t, string(base.Tasks[0].Description), `"type":"variable"`)
+	require.Contains(t, string(base.Tasks[0].Description), `"varName":"server"`)
+	require.Len(t, base.Topology.Devices, 1)
+	web := base.Topology.Devices[0]
+	require.Equal(t, "web", web.Name)
+	require.Len(t, base.Topology.Connections, 1)
+	var endpointDevices []uuid.UUID
+	for _, endpoint := range base.Topology.Connections[0].Endpoints {
+		if endpoint.Kind == exerciseModel.EndpointDevice {
+			endpointDevices = append(endpointDevices, endpoint.DeviceID)
+		}
+	}
+	require.Equal(t, []uuid.UUID{web.ID}, endpointDevices, "the device is referenced by its name")
+	require.Equal(t, uuid.NullUUID{UUID: base.ID, Valid: true}, linked.LinkedTo)
+	require.Equal(t, []string{"ICE{example_flag_2}"}, linked.Tasks[0].Flag)
+	require.Equal(t, []string{"ICE{example_flag}"}, base.Tasks[0].Flag)
+	require.Len(t, media.uploads, 2)
+}
+
+func TestExampleArchive_EveryKeyHasEndOfLineComment(t *testing.T) {
+	keys := exampleKeys(exampleRoot(t, exampleEntries(t)["exercise.yaml"]))
+	require.NotEmpty(t, keys)
+	for _, key := range keys {
+		require.NotEmpty(t, key.Comment, "%s has no end-of-line comment", key.Path)
+		require.True(t, strings.HasPrefix(key.Comment, tagRequired) || strings.HasPrefix(key.Comment, tagOptional),
+			"%s: the comment must start with %q or %q: %q", key.Path, tagRequired, tagOptional, key.Comment)
+		require.Greater(t, len(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(key.Comment, tagRequired), tagOptional))), 0,
+			"%s: the comment must say what the key is", key.Path)
+	}
+}
+
+// Every key, at every level: an optional key may go (unless its comment says something here needs it, and then
+// it may not), a required one may not.
+func TestExampleArchive_CommentTagsMatchRealOptionality(t *testing.T) {
+	files := exampleEntries(t)
+	doc := files["exercise.yaml"]
+	for _, key := range exampleKeys(exampleRoot(t, doc)) {
+		t.Run(key.Path, func(t *testing.T) {
+			_, _, err := importExample(t, replaced(files, "exercise.yaml", withoutKey(t, doc, key)))
+			switch {
+			case strings.HasPrefix(key.Comment, tagRequired):
+				require.Error(t, err, "%s is marked required but the example imports without it", key.Path)
+			case strings.Contains(key.Comment, neededHere):
+				require.Error(t, err, "%s says the example needs it, but the example imports without it", key.Path)
+			default:
+				require.NoError(t, err, "%s is marked optional but the example fails without it", key.Path)
+			}
+		})
+	}
+}
+
+var indexRE = regexp.MustCompile(`\[\d+\]`)
+
+func TestExampleArchive_ListsAllEnumValues(t *testing.T) {
+	enums := map[string][]string{
+		"versions.status":                                                      {"draft", "published", "unpublished", "checkpoint"},
+		"versions.variants.tasks.difficulty":                                   {"elementary", "trivial", "easy", "medium", "hard", "insane"},
+		"versions.variants.tasks.hints.level":                                  {"nudge", "direction", "steps", "near_solution"},
+		"versions.variants.tasks.placeholders.kind":                            {"vpn.subnet", "internet.subnet", "ip", "external.link"},
+		"versions.variants.tasks.placeholders.ip_reference":                    {"vpn", "internet", "static"},
+		"versions.variants.topology.devices.type":                              {"container", "unmanaged-switch", "hub"},
+		"versions.variants.topology.devices.security_preset":                   {"basic", "service", "net", "debug"},
+		"versions.variants.topology.devices.interfaces.ip.type":                {"static", "dhcp", "dhcp-preset", "none"},
+		"versions.variants.topology.devices.interfaces.ip.address_ref.network": {"vpn", "internet"},
+		"versions.variants.topology.connections.endpoints.kind":                {"device", "vpn", "internet"},
+	}
+	seen := map[string]bool{}
+	for _, key := range exampleKeys(exampleRoot(t, exampleEntries(t)["exercise.yaml"])) {
+		values, ok := enums[indexRE.ReplaceAllString(key.Path, "")]
+		if !ok {
+			continue
+		}
+		seen[indexRE.ReplaceAllString(key.Path, "")] = true
+		for _, value := range values {
+			require.Regexp(t, `(^|[^a-z_.-])`+regexp.QuoteMeta(value)+`($|[^a-z_.-])`, key.Comment, "%s must list %q", key.Path, value)
+		}
+	}
+	for path := range enums {
+		require.True(t, seen[path], "the example has no %s", path)
+	}
+}
+
+func TestExampleArchive_ImageCommentMentionsComingFileForm(t *testing.T) {
+	found := false
+	for _, key := range exampleKeys(exampleRoot(t, exampleEntries(t)["exercise.yaml"])) {
+		if key.Name == "image" {
+			found = true
+			require.Equal(t, yaml.ScalarNode, key.Value.Kind, "the example uses the reference string form")
+			require.Contains(t, key.Comment, "image: {file: images/")
+		}
+	}
+	require.True(t, found)
+}
+
+func TestExampleArchive_NoIDs(t *testing.T) {
+	for _, key := range exampleKeys(exampleRoot(t, exampleEntries(t)["exercise.yaml"])) {
+		require.False(t, key.Name == "id" || strings.HasSuffix(key.Name, "_id"), "%s is an id", key.Path)
+	}
+}
+
+func TestExampleArchive_LinkedVariantMinimal(t *testing.T) {
+	var doc struct {
+		Versions []struct {
+			Variants []map[string]any `yaml:"variants"`
+		} `yaml:"versions"`
+	}
+	require.NoError(t, yaml.Unmarshal(exampleEntries(t)["exercise.yaml"], &doc))
+	require.Len(t, doc.Versions, 1)
+	require.Len(t, doc.Versions[0].Variants, 2)
+	linked := doc.Versions[0].Variants[1]
+	require.Equal(t, 1, linked["linked_to"])
+	for key := range linked {
+		require.Contains(t, []string{"linked_to", "index", "note", "tasks"}, key)
+	}
+	tasks, ok := linked["tasks"].([]any)
+	require.True(t, ok)
+	require.Len(t, tasks, 1)
+	task, ok := tasks[0].(map[string]any)
+	require.True(t, ok)
+	for key := range task {
+		require.Contains(t, []string{"flag", "attachments"}, key)
+	}
+	require.Equal(t, []any{"ICE{example_flag_2}"}, task["flag"])
+}
+
+func TestExampleArchive_FlagCommentWarnsAboutSpaceHash(t *testing.T) {
+	found := false
+	for _, key := range exampleKeys(exampleRoot(t, exampleEntries(t)["exercise.yaml"])) {
+		if key.Path == "versions[1].variants[1].tasks[1].flag" {
+			found = true
+			require.Contains(t, key.Comment, " #")
+			require.Contains(t, key.Comment, "лапк")
+		}
+	}
+	require.True(t, found)
+}
+
+var uuidRE = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+
+// parsedContent is what an archive parses to, with the fresh ids blanked.
+func parsedContent(t *testing.T, files map[string][]byte) string {
+	t.Helper()
+	archive, err := exercise.BuildArchiveNoManifest(files)
+	require.NoError(t, err)
+	parsed, err := exercise.ParseExerciseArchive(archive, "")
+	require.NoError(t, err)
+	out, err := json.Marshal(struct {
+		Exercise exerciseModel.Exercise
+		Versions []exerciseModel.ExerciseVersion
+	}{parsed.Exercise, parsed.Versions})
+	require.NoError(t, err)
+	return uuidRE.ReplaceAllString(string(out), "<id>")
+}
+
+func TestExampleArchive_JSONFormImportsToo(t *testing.T) {
+	files := exampleEntries(t)
+	var generic any
+	require.NoError(t, yaml.Unmarshal(files["exercise.yaml"], &generic))
+	body, err := json.MarshalIndent(generic, "", "  ")
+	require.NoError(t, err)
+	asJSON := append([]byte("// the example task, as JSON\n"), body...)
+	jsonFiles := replaced(files, "exercise.json", asJSON)
+
+	require.Equal(t, parsedContent(t, files), parsedContent(t, jsonFiles))
+	_, written, err := importExample(t, jsonFiles)
+	require.NoError(t, err)
+	require.Len(t, written, 1)
+}
