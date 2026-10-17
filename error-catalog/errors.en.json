@@ -225,6 +225,11 @@
   "22702": "Preview requires unique published exercises and fixed variants",
   "22704": "Use participant preview settings to select published exercises",
   "22705": "Preview group name must contain 1 to 100 characters without control characters",
+  "22804": "Invalid image registry settings",
+  "22805": "Invalid platform image reference",
+  "22806": "Invalid registry credentials",
+  "22809": "Invalid image archive",
+  "22810": "The image archive is too large",
   "30101": "Setting not found",
   "30201": "Notification dispatch not found",
   "30202": "Notification template not found",
@@ -279,6 +284,7 @@
   "32610": "Laboratory not found",
   "32617": "Laboratory not found",
   "32701": "Preview selection or active run not found",
+  "32807": "Registry credentials not found",
   "40211": "Event already has its own template for this notification type",
   "40903": "Exercise with this name already exists",
   "41102": "Event with this tag already exists",
@@ -440,5 +446,9 @@
   "72622": "The retained laboratory state is unavailable",
   "72623": "Laboratory lifecycle controls are unavailable",
   "72624": "The laboratory cannot perform this command in its current state",
-  "72703": "Start the preview laboratory first"
+  "72703": "Start the preview laboratory first",
+  "72801": "The image registry is not configured",
+  "72802": "Image upload is unavailable right now: the image registry is not configured or not responding",
+  "72803": "Image unavailable",
+  "72808": "Secret storage is not configured: registry tokens cannot be saved"
 }
