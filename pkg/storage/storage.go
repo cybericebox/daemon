@@ -120,11 +120,22 @@ func (c *Client) Stat(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-// Copy performs a server-side object copy within the bucket.
+// maxSingleCopyBytes is the largest object one S3 CopyObject request copies.
+const maxSingleCopyBytes = 5 << 30
+
+// Copy performs a server-side object copy within the bucket. An object over 5 GiB is copied in parts (multipart
+// copy), still on the server.
 func (c *Client) Copy(ctx context.Context, src, dst string) error {
-	_, err := c.mc.CopyObject(ctx,
-		minio.CopyDestOptions{Bucket: c.bucket, Object: dst},
-		minio.CopySrcOptions{Bucket: c.bucket, Object: src},
-	)
+	info, err := c.mc.StatObject(ctx, c.bucket, src, minio.StatObjectOptions{})
+	if err != nil {
+		return err
+	}
+	dstOpts := minio.CopyDestOptions{Bucket: c.bucket, Object: dst}
+	srcOpts := minio.CopySrcOptions{Bucket: c.bucket, Object: src}
+	if info.Size > maxSingleCopyBytes {
+		_, err = c.mc.ComposeObject(ctx, dstOpts, srcOpts)
+		return err
+	}
+	_, err = c.mc.CopyObject(ctx, dstOpts, srcOpts)
 	return err
 }

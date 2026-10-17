@@ -32,6 +32,7 @@ import (
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	archiveExport         archiveExportCalls
 	elevation             exerciseUseCase.ElevationView
 	elevationReason       string
 	elevationStatus       string

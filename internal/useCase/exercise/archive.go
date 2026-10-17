@@ -33,6 +33,9 @@ type archiveManifest struct {
 type ExportOptions struct {
 	IncludeSecrets bool
 	Password       string
+	// IncludeImages writes the platform images of the devices into the archive («з образами»). Up to 10 GiB, so only
+	// the background export (StartArchiveExport) takes it; ExportExerciseArchive refuses it.
+	IncludeImages bool
 }
 type exportedFile struct {
 	Name        string `json:"name"`
@@ -498,43 +501,73 @@ type mediaArchiveReader interface {
 // once per content (SHA-256) at the path assignExportPaths gives it under files/, and manifest.json. With
 // secrets the archive is AES-protected and secret values are written in plain text only inside it.
 func (u *ExerciseUseCase) ExportExerciseArchive(ctx context.Context, id uuid.UUID, opts ExportOptions) ([]byte, error) {
-	e, err := u.exercises.GetByID(ctx, id)
+	if opts.IncludeImages {
+		return nil, model.ErrPlatform.WithMessage("An export with images runs as a background job").Err()
+	}
+	plan, err := u.planExport(ctx, id, opts)
 	if err != nil {
 		return nil, err
 	}
-	versions, err := u.exercises.ListVersions(ctx, id)
+	if err = checkExportEntries(plan.Contents); err != nil {
+		return nil, err
+	}
+	var archive []byte
+	if opts.IncludeSecrets {
+		archive, err = BuildProtectedArchiveV1(plan.Contents, opts.Password)
+	} else {
+		archive, err = BuildArchiveV1(plan.Contents)
+	}
 	if err != nil {
 		return nil, err
+	}
+	return archive, checkArchiveSize(len(archive))
+}
+
+// exportPlan is one task laid out for its archive: the small files (exercise.json and the attachments, by path in
+// the task folder) and the image files, which are streamed.
+type exportPlan struct {
+	Name     string
+	Contents map[string][]byte
+	Images   []exportedImage
+}
+
+// planExport reads a task and lays it out: the document, the attachments once per content and, with
+// opts.IncludeImages, its platform images. Without secrets their values are masked; with them they are decrypted.
+func (u *ExerciseUseCase) planExport(ctx context.Context, id uuid.UUID, opts ExportOptions) (exportPlan, error) {
+	e, err := u.exercises.GetByID(ctx, id)
+	if err != nil {
+		return exportPlan{}, err
+	}
+	versions, err := u.exercises.ListVersions(ctx, id)
+	if err != nil {
+		return exportPlan{}, err
 	}
 	if !opts.IncludeSecrets {
 		for i := range versions {
 			versions[i].Variants = maskSecrets(versions[i].Variants)
 		}
 	} else if err = u.decryptExportedSecrets(versions); err != nil {
-		return nil, err
+		return exportPlan{}, err
 	}
 	contents, filePaths, err := u.exportAttachments(ctx, versions)
 	if err != nil {
-		return nil, err
+		return exportPlan{}, err
 	}
-	document, err := buildV2Document(e, versions, filePaths)
+	var (
+		images     []exportedImage
+		imagePaths map[string]string
+	)
+	if opts.IncludeImages {
+		if images, imagePaths, err = u.exportImages(ctx, versions); err != nil {
+			return exportPlan{}, err
+		}
+	}
+	document, err := buildV2DocumentWithImages(e, versions, filePaths, imagePaths)
 	if err != nil {
-		return nil, err
+		return exportPlan{}, err
 	}
 	contents["exercise.json"] = document
-	if err = checkExportEntries(contents); err != nil {
-		return nil, err
-	}
-	var archive []byte
-	if opts.IncludeSecrets {
-		archive, err = BuildProtectedArchiveV1(contents, opts.Password)
-	} else {
-		archive, err = BuildArchiveV1(contents)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return archive, checkArchiveSize(len(archive))
+	return exportPlan{Name: e.Name, Contents: contents, Images: images}, nil
 }
 
 // exportAttachments streams every attached file once and lays the contents out: it returns the archive
@@ -618,6 +651,19 @@ type NamedArchive struct {
 // import drops as macOS litter (compared in lower case).
 var bundleReservedFolders = []string{"manifest.json", "__macosx"}
 
+// bundleFolders names the folder of each task of a bundle after its name (exportName); a taken name gets _2, _3.
+func bundleFolders(names []string) []string {
+	taken := map[string]bool{}
+	for _, name := range bundleReservedFolders {
+		taken[name] = true
+	}
+	folders := make([]string, len(names))
+	for i, name := range names {
+		folders[i] = freeName(exportName(name), taken)
+	}
+	return folders
+}
+
 // BundleExerciseArchives puts several exported tasks into one archive: each in a folder named exportName(task
 // name) (a taken name gets _2, _3), one manifest.json at the root. A single task stays at the zip root. With a
 // password every archive is read and the bundle written protected, so plain secrets never leave encryption.
@@ -625,12 +671,13 @@ func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, erro
 	if len(items) == 1 {
 		return items[0].Archive, nil
 	}
-	taken := map[string]bool{}
-	for _, name := range bundleReservedFolders {
-		taken[name] = true
+	names := make([]string, len(items))
+	for i, item := range items {
+		names[i] = item.Name
 	}
+	folders := bundleFolders(names)
 	bundle := map[string][]byte{}
-	for _, item := range items {
+	for i, item := range items {
 		var files map[string][]byte
 		var err error
 		if password != "" {
@@ -641,7 +688,7 @@ func BundleExerciseArchives(items []NamedArchive, password string) ([]byte, erro
 		if err != nil {
 			return nil, err
 		}
-		folder := freeName(exportName(item.Name), taken)
+		folder := folders[i]
 		for name, body := range files {
 			bundle[folder+"/"+name] = body
 		}

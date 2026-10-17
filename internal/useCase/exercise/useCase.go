@@ -68,6 +68,11 @@ type ExerciseUseCase struct {
 	archiveSources IArchiveSources
 	importQueue    ImportJobQueue
 	importSealer   secret.Sealer
+	// The background export «з образами» (SetArchiveExport, SetImageExporter); nil: such exports are refused.
+	imageExporter IImageExporter
+	exportFiles   IExportFiles
+	exportQueue   ExportJobQueue
+	exportSealer  secret.Sealer
 }
 
 // IProposalInbox turns catalog proposals into inbox requests for platform

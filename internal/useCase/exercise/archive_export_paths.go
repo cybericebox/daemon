@@ -21,6 +21,9 @@ type fileUse struct {
 	Task    int
 	// Attachment is the 1-based position in the subtask's attachment list.
 	Attachment int
+	// Device is the 1-based position of the device in its variant, for a device image (Task and Attachment are then
+	// 0): the image sits with its variant, not with a subtask.
+	Device int
 }
 
 // assignExportPaths places every content (hash) once under root: a content used by one subtask goes to
@@ -41,6 +44,9 @@ func assignExportPaths(root string, uses []fileUse) map[string]string {
 		}
 		if a.Task != b.Task {
 			return a.Task < b.Task
+		}
+		if a.Device != b.Device {
+			return a.Device < b.Device
 		}
 		if a.Attachment != b.Attachment {
 			return a.Attachment < b.Attachment
@@ -75,7 +81,7 @@ func assignExportPaths(root string, uses []fileUse) map[string]string {
 // exportFolder is the lowest level that covers every use of one content.
 func exportFolder(root string, uses []fileUse) string {
 	first := uses[0]
-	sameVersion, sameVariant, sameTask := true, true, true
+	sameVersion, sameVariant, sameTask, sameDevice := true, true, true, true
 	for _, use := range uses[1:] {
 		if use.Version != first.Version {
 			sameVersion = false
@@ -86,9 +92,15 @@ func exportFolder(root string, uses []fileUse) string {
 		if !sameVariant || use.Task != first.Task {
 			sameTask = false
 		}
+		if !sameTask || use.Device != first.Device {
+			sameDevice = false
+		}
 	}
 	switch {
-	case sameTask:
+	case sameDevice && first.Task == 0:
+		// A device image used by one device lies with its variant.
+		return fmt.Sprintf("%s/v%d/variant-%d", root, first.Version, first.Variant)
+	case sameDevice:
 		return fmt.Sprintf("%s/v%d/variant-%d/%d", root, first.Version, first.Variant, first.Task)
 	case sameVariant:
 		return fmt.Sprintf("%s/v%d/variant-%d/shared", root, first.Version, first.Variant)

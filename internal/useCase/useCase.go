@@ -183,6 +183,26 @@ func importQueue(enq worker.IEnqueuer) exerciseUseCase.ImportJobQueue {
 	}
 }
 
+// exportQueue adapts the River enqueuer to the background export «з образами»: one run per job while queued or running.
+func exportQueue(enq worker.IEnqueuer) exerciseUseCase.ExportJobQueue {
+	return func(ctx context.Context, args jobsModel.ExerciseExportArgs) error {
+		return enq.EnqueueUniqueAt(ctx, args, time.Now())
+	}
+}
+
+// imageExporter adapts the image registry use case to the export's port.
+type imageExporter struct {
+	uc *imageRegistryUseCase.ImageRegistryUseCase
+}
+
+func (e imageExporter) ExportedImage(ctx context.Context, reference string) (exerciseUseCase.ExportedImage, error) {
+	image, err := e.uc.ResolveImageExport(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	return image, nil
+}
+
 // testDeployExpiry adapts the River enqueuer to the exercise use case's test lab expiry port.
 type testDeployExpiry struct{ enq worker.IEnqueuer }
 
@@ -313,6 +333,10 @@ func NewUseCase(deps Dependencies) *UseCase {
 	// case, the archive read where it lies, the password sealed with the platform cipher.
 	exerciseUC.SetArchiveImport(exerciseUseCase.ArchiveImportDependencies{
 		Images: imageRegistryUC, Sources: mediaUC, Queue: importQueue(deps.EnqueuerFactory.NewEnqueuer()), Sealer: registrySealer,
+	})
+	// Exports «з образами» run in the background too: images read from the registry, the zip stored as a media file.
+	exerciseUC.SetArchiveExport(exerciseUseCase.ArchiveExportDependencies{
+		Images: imageExporter{uc: imageRegistryUC}, Files: mediaUC, Queue: exportQueue(deps.EnqueuerFactory.NewEnqueuer()), Sealer: registrySealer,
 	})
 	eventUC.SetImageAccess(imageRegistryUC)
 	agentsUC := infrastructureUseCase.NewAgentsUseCase(infrastructureUseCase.AgentsDependencies{

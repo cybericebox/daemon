@@ -122,6 +122,26 @@ func TestUploadFile_TooLarge(t *testing.T) {
 	}
 }
 
+// A generated export may be larger than a browser upload: UploadLargeFile takes its own cap, not MaxUploadBytes.
+func TestUploadLargeFile_OwnLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().CreateFile(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.CreateFileParams) (postgres.File, error) {
+			return postgres.File{ID: arg.ID, SizeBytes: arg.SizeBytes, ContentHash: arg.ContentHash}, nil
+		})
+	uc := newUC(t, q, 8) // the browser cap is 8 bytes
+
+	f, err := uc.UploadLargeFile(context.Background(), "export.zip", "application/zip", bytes.NewReader(bytes.Repeat([]byte("x"), 20)), uuid.Nil, 20)
+	if err != nil || f.SizeBytes != 20 {
+		t.Fatalf("a file within the own cap: %+v %v", f, err)
+	}
+	_, err = uc.UploadLargeFile(context.Background(), "export.zip", "application/zip", bytes.NewReader(bytes.Repeat([]byte("x"), 21)), uuid.Nil, 20)
+	if !errors.Is(err, mediaModel.ErrFileTooLarge.Err()) {
+		t.Fatalf("want ErrFileTooLarge past the own cap, got %v", err)
+	}
+}
+
 func TestStreamFile_StorageUnconfigured(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl) // GetFileByID must NOT be called

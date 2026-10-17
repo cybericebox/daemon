@@ -36,6 +36,12 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // then promotes it to the content-addressed blob key (server-side copy,
 // skipped when the blob already exists) and records the logical file row.
 func (u *MediaUseCase) UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error) {
+	return u.UploadLargeFile(ctx, name, contentType, r, createdBy, u.cfg.MaxUploadBytes)
+}
+
+// UploadLargeFile is UploadFile with a cap of its own: the platform's own generated files (an export «з образами»,
+// up to 512 MiB + 10 GiB) are larger than one file a person uploads (MaxUploadBytes).
+func (u *MediaUseCase) UploadLargeFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID, maxBytes int64) (mediaModel.File, error) {
 	if !u.storageConfigured {
 		return mediaModel.File{}, mediaModel.ErrMediaStorageNotConfigured.Err()
 	}
@@ -44,14 +50,14 @@ func (u *MediaUseCase) UploadFile(ctx context.Context, name, contentType string,
 	tmpKey := mediaModel.TmpKey(fileID)
 
 	hasher := sha256.New()
-	counter := &countingReader{r: io.TeeReader(io.LimitReader(r, u.cfg.MaxUploadBytes+1), hasher)}
+	counter := &countingReader{r: io.TeeReader(io.LimitReader(r, maxBytes+1), hasher)}
 	if err := u.storage.Put(ctx, tmpKey, counter, -1, contentType); err != nil {
 		return mediaModel.File{}, model.ErrPlatform.WithError(err).WithMessage("Failed to store upload").Err()
 	}
 	// Best-effort tmp cleanup on every exit path below.
 	defer func() { _ = u.storage.Remove(ctx, tmpKey) }()
 
-	if counter.n > u.cfg.MaxUploadBytes {
+	if counter.n > maxBytes {
 		return mediaModel.File{}, mediaModel.ErrFileTooLarge.Err()
 	}
 

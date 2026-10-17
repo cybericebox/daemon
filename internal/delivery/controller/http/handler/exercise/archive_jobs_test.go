@@ -250,3 +250,108 @@ func TestImportUpload_ErrorsNeverLeakInternals(t *testing.T) {
 		t.Fatalf("storage failure: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// archiveExportCalls records what the background export routes passed to the use case.
+type archiveExportCalls struct {
+	started  []exerciseUseCase.StartExportInput
+	jobID    uuid.UUID
+	startErr error
+	job      exerciseUseCase.ExportJobView
+	jobAsked [2]uuid.UUID
+	jobErr   error
+}
+
+func (f *fakeUC) StartArchiveExport(_ context.Context, in exerciseUseCase.StartExportInput) (uuid.UUID, error) {
+	f.archiveExport.started = append(f.archiveExport.started, in)
+	return f.archiveExport.jobID, f.archiveExport.startErr
+}
+
+func (f *fakeUC) ArchiveExportJob(_ context.Context, id, user uuid.UUID) (exerciseUseCase.ExportJobView, error) {
+	f.archiveExport.jobAsked = [2]uuid.UUID{id, user}
+	return f.archiveExport.job, f.archiveExport.jobErr
+}
+
+// POST /exercises/export with IncludeImages runs in the background: 202 {JobID}, the zip is not built in the request.
+func TestExport_WithImagesQueuedAnswers202(t *testing.T) {
+	first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUC{exerciseView: exerciseUseCase.ExerciseView{Name: "Web lab"}, archiveExport: archiveExportCalls{jobID: jobID}}
+	w := jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/export", `{"IDs":["`+first.String()+`"],"IncludeImages":true}`)
+	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), `"JobID":"`+jobID.String()+`"`) {
+		t.Fatalf("status %d body %s", w.Code, w.Body.String())
+	}
+	want := exerciseUseCase.StartExportInput{IDs: []uuid.UUID{first}, FileName: "web-lab.cybericebox.zip", CreatedBy: jobCaller}
+	if got := uc.archiveExport.started; len(got) != 1 || !sameExportInput(got[0], want) {
+		t.Fatalf("passed %+v", got)
+	}
+	if uc.uploadName != "" {
+		t.Fatal("nothing is stored by the request")
+	}
+
+	uc = &fakeUC{exerciseView: exerciseUseCase.ExerciseView{Name: "Web lab"}, archiveExport: archiveExportCalls{jobID: jobID}}
+	w = jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/export", `{"IDs":["`+first.String()+`","`+second.String()+`"],"IncludeImages":true,"IncludeSecrets":true,"Password":"pw"}`)
+	got := uc.archiveExport.started
+	if w.Code != http.StatusAccepted || len(got) != 1 || got[0].FileName != "exercises.cybericebox.zip" || !got[0].IncludeSecrets || got[0].Password != "pw" || len(got[0].IDs) != 2 {
+		t.Fatalf("status %d passed %+v", w.Code, got)
+	}
+}
+
+func sameExportInput(a, b exerciseUseCase.StartExportInput) bool {
+	return fmt.Sprint(a.IDs) == fmt.Sprint(b.IDs) && a.IncludeSecrets == b.IncludeSecrets && a.Password == b.Password && a.FileName == b.FileName && a.CreatedBy == b.CreatedBy
+}
+
+// Secrets still need a password, and an unknown task is refused, before any job is recorded.
+func TestExport_WithImagesValidatesFirst(t *testing.T) {
+	id := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{}
+	w := jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/export", `{"IDs":["`+id.String()+`"],"IncludeImages":true,"IncludeSecrets":true}`)
+	if w.Code != http.StatusBadRequest || len(uc.archiveExport.started) != 0 {
+		t.Fatalf("status %d", w.Code)
+	}
+	uc = &fakeUC{err: exerciseModel.ErrExerciseNotFound.Err()}
+	w = jsonRequest(newEngine(uc, jobCaller), http.MethodPost, "/api/exercises/export", `{"IDs":["`+id.String()+`"],"IncludeImages":true}`)
+	if w.Code != http.StatusNotFound || len(uc.archiveExport.started) != 0 {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+
+// GET /exercises/export/jobs/{jobID}: running, done (the stored zip, read in chunks) and failed.
+func TestExportJob_States(t *testing.T) {
+	fileID := uuid.Must(uuid.NewV7())
+	cases := map[string]struct {
+		view exerciseUseCase.ExportJobView
+		want []string
+	}{
+		"running": {exerciseUseCase.ExportJobView{ID: jobID, State: exerciseModel.ImportJobRunning}, []string{`"State":"running"`}},
+		"done": {exerciseUseCase.ExportJobView{ID: jobID, State: exerciseModel.ImportJobDone, File: &mediaModel.File{ID: fileID, Name: "x.cybericebox.zip", SizeBytes: 12}},
+			[]string{`"State":"done"`, `"FileID":"` + fileID.String() + `"`, `"Name":"x.cybericebox.zip"`, `"Size":12`, `"ChunkSize":5`, `"Chunks":3`}},
+		"failed": {exerciseUseCase.ExportJobView{ID: jobID, State: exerciseModel.ImportJobFailed, Error: &exerciseModel.ImportJobError{Code: 72830, Message: "m", Context: map[string]any{"device": "web", "reason": "not_found"}}},
+			[]string{`"State":"failed"`, `"Code":72830`, `"device":"web"`, `"reason":"not_found"`}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			uc := &fakeUC{chunkBytes: 5, archiveExport: archiveExportCalls{job: tc.view}}
+			w := jsonRequest(newEngine(uc, jobCaller), http.MethodGet, "/api/exercises/export/jobs/"+jobID.String(), "")
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d body %s", w.Code, w.Body.String())
+			}
+			for _, part := range tc.want {
+				if !strings.Contains(w.Body.String(), part) {
+					t.Fatalf("missing %s in %s", part, w.Body.String())
+				}
+			}
+			if uc.archiveExport.jobAsked != [2]uuid.UUID{jobID, jobCaller} {
+				t.Fatalf("asked %v", uc.archiveExport.jobAsked)
+			}
+		})
+	}
+}
+
+func TestExportJob_NotFoundAndBadID(t *testing.T) {
+	uc := &fakeUC{archiveExport: archiveExportCalls{jobErr: exerciseModel.ErrExportJobNotFound.Err()}}
+	if w := jsonRequest(newEngine(uc, jobCaller), http.MethodGet, "/api/exercises/export/jobs/"+jobID.String(), ""); w.Code != http.StatusNotFound {
+		t.Fatalf("status %d", w.Code)
+	}
+	if w := jsonRequest(newEngine(uc, jobCaller), http.MethodGet, "/api/exercises/export/jobs/nope", ""); w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", w.Code)
+	}
+}

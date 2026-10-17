@@ -411,6 +411,7 @@ GET    /api/exercises/elevations/:elevationID | gate: exercises.elevations.read 
 POST   /api/exercises/elevations/:elevationID/approve | gate: exercises.elevations.write | layers: -
 POST   /api/exercises/elevations/:elevationID/reject | gate: exercises.elevations.write | layers: -
 POST   /api/exercises/export | gate: exercises.export | layers: -
+GET    /api/exercises/export/jobs/:jobID | gate: exercises.export | layers: -
 POST   /api/exercises/files | gate: self | layers: -
 GET    /api/exercises/files/:fileID | gate: self | layers: -
 GET    /api/exercises/files/:fileID/chunks/:index | gate: self | layers: -

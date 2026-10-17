@@ -6397,12 +6397,37 @@ definitions:
         maxItems: 100
         minItems: 1
         type: array
+      IncludeImages:
+        description: |-
+          IncludeImages writes the platform images of the devices into the archive («з образами», up to 10 GiB): the export
+          then runs in the background, 202 {JobID}.
+        type: boolean
       IncludeSecrets:
         type: boolean
       Password:
         type: string
     required:
     - IDs
+    type: object
+  exercise.exportJobResponse:
+    properties:
+      Error:
+        allOf:
+        - $ref: '#/definitions/exercise.importJobError'
+        description: Error is why it failed (failed only).
+      File:
+        allOf:
+        - $ref: '#/definitions/exercise.exportedFileResponse'
+        description: File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index}
+          (done only).
+      State:
+        description: State is running, done or failed.
+        type: string
+    type: object
+  exercise.exportJobStarted:
+    properties:
+      JobID:
+        type: string
     type: object
   exercise.exportedFileResponse:
     properties:
@@ -21805,8 +21830,12 @@ paths:
     post:
       consumes:
       - application/json
+      description: |-
+        200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
+        `images/…/<device>.tar`) the export runs in the background: 202 {JobID}; poll GET
+        /exercises/export/jobs/{jobID}, then read the file in chunks.
       parameters:
-      - description: selection and secret option
+      - description: selection and options
         in: body
         name: body
         required: true
@@ -21824,12 +21853,52 @@ paths:
                 data:
                   $ref: '#/definitions/exercise.exportedFileResponse'
               type: object
+        "202":
+          description: Accepted
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.exportJobStarted'
+              type: object
         "400":
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
       summary: 'Export selected exercises as one ZIP archive stored as a file (several:
         one folder per exercise)'
+      tags:
+      - exercises
+  /exercises/export/jobs/{jobID}:
+    get:
+      description: |-
+        running → done (File: the stored zip, read in chunks like any export) or failed (Error: Code, Message,
+        Context). Only the user who started it sees it (404 otherwise). The file is kept for the media grace
+        window (24 h by default).
+      parameters:
+      - description: export job ID
+        in: path
+        name: jobID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.exportJobResponse'
+              type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: State of a background export «з образами»
       tags:
       - exercises
   /exercises/files:

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
 	"github.com/gofrs/uuid"
 )
 
@@ -153,6 +154,9 @@ func (i *archiveImageV2) UnmarshalJSON(data []byte) error {
 }
 
 func (i archiveImageV2) MarshalJSON() ([]byte, error) {
+	if i.File != "" {
+		return json.Marshal(map[string]string{"file": i.File})
+	}
 	return json.Marshal(i.Ref)
 }
 
@@ -693,6 +697,12 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 // re-import is lossless; an editor description stays an object. paths maps each attached file id to the path
 // it is stored at in the archive. The output is indented plain JSON without comments.
 func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, paths map[uuid.UUID]string) ([]byte, error) {
+	return buildV2DocumentWithImages(e, versions, paths, nil)
+}
+
+// buildV2DocumentWithImages is buildV2Document for an export «з образами»: a device whose platform image has a path in
+// imagePaths (by the image's digest) names that file, `image: {file: …}`.
+func buildV2DocumentWithImages(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, paths map[uuid.UUID]string, imagePaths map[string]string) ([]byte, error) {
 	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{Name: e.Name, Description: e.Description, Tags: e.Tags}}
 	for _, version := range versions {
 		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{}}
@@ -701,7 +711,7 @@ func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.Exercise
 				out.Variants = append(out.Variants, linked)
 				continue
 			}
-			out.Variants = append(out.Variants, exportVariantV2(variant, paths))
+			out.Variants = append(out.Variants, exportVariantV2(variant, paths, imagePaths))
 		}
 		doc.Versions = append(doc.Versions, out)
 	}
@@ -719,12 +729,12 @@ func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.Exercise
 }
 
 // exportVariantV2 writes one variant in full.
-func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string) archiveVariantV2 {
+func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, imagePaths map[string]string) archiveVariantV2 {
 	refs := newDeviceRefs(variant.Topology.Devices)
 	topology := archiveTopologyV2{VPN: variant.Topology.VPN, Internet: variant.Topology.Internet, VisualRender: variant.Topology.VisualRender}
 	for _, device := range variant.Topology.Devices {
 		topology.Devices = append(topology.Devices, archiveDeviceV2{
-			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: archiveImageV2{Ref: device.Image},
+			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: exportDeviceImage(device.Image, imagePaths),
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
 			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence,
 		})
@@ -743,6 +753,17 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string) 
 		result.Tasks = append(result.Tasks, exportTaskV2(task, refs, paths))
 	}
 	return result
+}
+
+// exportDeviceImage is the image as the document writes it: the file of its platform image when the export carries
+// the image files, else the reference.
+func exportDeviceImage(image string, imagePaths map[string]string) archiveImageV2 {
+	if ref, ok := imageRegistryModel.ParsePlatformRef(image); ok {
+		if file, shipped := imagePaths[ref.Digest]; shipped {
+			return archiveImageV2{File: file}
+		}
+	}
+	return archiveImageV2{Ref: image}
 }
 
 func exportTaskV2(task exerciseModel.Task, refs deviceRefs, paths map[uuid.UUID]string) archiveTaskV2 {

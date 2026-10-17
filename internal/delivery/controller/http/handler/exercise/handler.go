@@ -82,6 +82,9 @@ type (
 		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
 		ImportUploadedArchive(ctx context.Context, in exerciseUseCase.ImportUploadInput) (exerciseUseCase.ArchiveImportStart, error)
 		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
+		// background export of tasks «з образами»
+		StartArchiveExport(ctx context.Context, in exerciseUseCase.StartExportInput) (uuid.UUID, error)
+		ArchiveExportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ExportJobView, error)
 		// files
 		UploadFile(ctx context.Context, name, contentType string, r io.Reader, createdBy uuid.UUID) (mediaModel.File, error)
 		GetFile(ctx context.Context, id uuid.UUID) (mediaModel.File, error)
@@ -177,6 +180,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// the built-in example archive: same gate as the import it explains
 		ex.GET("import/example", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importExample)
 		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)
+		// the background export's state, for the user who started it (same gate as the export)
+		ex.GET("export/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesExport), h.exportJob)
 		ex.POST("import", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
 		ex.GET("capabilities", self, h.capabilities)
 		ex.GET("flag-policy", self, h.flagPolicy)

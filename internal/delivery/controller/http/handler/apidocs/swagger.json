@@ -15751,6 +15751,7 @@
         },
         "/exercises/export": {
             "post": {
+                "description": "200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,\n`images/…/\u003cdevice\u003e.tar`) the export runs in the background: 202 {JobID}; poll GET\n/exercises/export/jobs/{jobID}, then read the file in chunks.",
                 "consumes": [
                     "application/json"
                 ],
@@ -15763,7 +15764,7 @@
                 "summary": "Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)",
                 "parameters": [
                     {
-                        "description": "selection and secret option",
+                        "description": "selection and options",
                         "name": "body",
                         "in": "body",
                         "required": true,
@@ -15791,8 +15792,73 @@
                             ]
                         }
                     },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.exportJobStarted"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/export/jobs/{jobID}": {
+            "get": {
+                "description": "running → done (File: the stored zip, read in chunks like any export) or failed (Error: Code, Message,\nContext). Only the user who started it sees it (404 otherwise). The file is kept for the media grace\nwindow (24 h by default).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "State of a background export «з образами»",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "export job ID",
+                        "name": "jobID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.exportJobResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -33121,10 +33187,47 @@
                         "type": "string"
                     }
                 },
+                "IncludeImages": {
+                    "description": "IncludeImages writes the platform images of the devices into the archive («з образами», up to 10 GiB): the export\nthen runs in the background, 202 {JobID}.",
+                    "type": "boolean"
+                },
                 "IncludeSecrets": {
                     "type": "boolean"
                 },
                 "Password": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.exportJobResponse": {
+            "type": "object",
+            "properties": {
+                "Error": {
+                    "description": "Error is why it failed (failed only).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.importJobError"
+                        }
+                    ]
+                },
+                "File": {
+                    "description": "File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index} (done only).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.exportedFileResponse"
+                        }
+                    ]
+                },
+                "State": {
+                    "description": "State is running, done or failed.",
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.exportJobStarted": {
+            "type": "object",
+            "properties": {
+                "JobID": {
                     "type": "string"
                 }
             }

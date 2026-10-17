@@ -27,6 +27,9 @@ type exportExercisesRequest struct {
 	IDs            []uuid.UUID `json:"IDs" binding:"required,min=1,max=100"`
 	IncludeSecrets bool        `json:"IncludeSecrets"`
 	Password       string      `json:"Password"`
+	// IncludeImages writes the platform images of the devices into the archive («з образами», up to 10 GiB): the export
+	// then runs in the background, 202 {JobID}.
+	IncludeImages bool `json:"IncludeImages"`
 }
 
 type exportedFileResponse struct {
@@ -41,12 +44,16 @@ type exportedFileResponse struct {
 }
 
 // export godoc
-// @Summary  Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)
+// @Summary      Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)
+// @Description  200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
+// @Description  `images/…/<device>.tar`) the export runs in the background: 202 {JobID}; poll GET
+// @Description  /exercises/export/jobs/{jobID}, then read the file in chunks.
 // @Tags     exercises
 // @Accept   json
 // @Produce  json
-// @Param    body  body  exportExercisesRequest  true  "selection and secret option"
+// @Param    body  body  exportExercisesRequest  true  "selection and options"
 // @Success  200  {object}  response.Response{data=exportedFileResponse}
+// @Success  202  {object}  response.Response{data=exportJobStarted}
 // @Failure  400  {object}  response.Response
 // @Router   /exercises/export [post]
 func (h *Handler) export(ctx *gin.Context) {
@@ -62,6 +69,10 @@ func (h *Handler) export(ctx *gin.Context) {
 	}
 	if req.IncludeSecrets && strings.TrimSpace(req.Password) == "" {
 		response.AbortWithBadRequest(ctx, fmt.Errorf("a password is required when exporting secrets"))
+		return
+	}
+	if req.IncludeImages {
+		h.startImageExport(ctx, claims.UserID, req)
 		return
 	}
 	items := make([]exerciseUseCase.NamedArchive, 0, len(req.IDs))
@@ -103,6 +114,89 @@ func (h *Handler) export(ctx *gin.Context) {
 	response.AbortWithData(ctx, exportedFileResponse{
 		FileID: stored.ID, Name: stored.Name, Size: stored.SizeBytes, ChunkSize: chunkSize, Chunks: mediaUseCase.ChunkCount(stored.SizeBytes, chunkSize),
 	})
+}
+
+// exportJobStarted is the answer of an export that runs in the background (IncludeImages): poll
+// GET /exercises/export/jobs/{JobID}.
+type exportJobStarted struct {
+	JobID uuid.UUID `json:"JobID"`
+}
+
+// startImageExport records the background export «з образами» of the tasks and answers 202 {JobID}. Every task is
+// read first, so an unknown one is refused before any job is recorded.
+func (h *Handler) startImageExport(ctx *gin.Context, user uuid.UUID, req exportExercisesRequest) {
+	var firstName string
+	for i, id := range req.IDs {
+		exercise, err := h.useCase.GetExercise(ctx, id)
+		if err != nil {
+			response.AbortWithError(ctx, err)
+			return
+		}
+		if i == 0 {
+			firstName = exercise.Name
+		}
+	}
+	name := archiveFilename(firstName)
+	if len(req.IDs) > 1 {
+		name = "exercises.cybericebox.zip"
+	}
+	jobID, err := h.useCase.StartArchiveExport(ctx, exerciseUseCase.StartExportInput{
+		IDs: req.IDs, IncludeSecrets: req.IncludeSecrets, Password: req.Password, FileName: name, CreatedBy: user,
+	})
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithDataStatus(ctx, http.StatusAccepted, exportJobStarted{JobID: jobID})
+}
+
+type exportJobResponse struct {
+	// State is running, done or failed.
+	State string `json:"State"`
+	// File is the stored zip, read with GET /exercises/files/{FileID}/chunks/{index} (done only).
+	File *exportedFileResponse `json:"File,omitempty"`
+	// Error is why it failed (failed only).
+	Error *importJobError `json:"Error,omitempty"`
+}
+
+// exportJob godoc
+// @Summary      State of a background export «з образами»
+// @Description  running → done (File: the stored zip, read in chunks like any export) or failed (Error: Code, Message,
+// @Description  Context). Only the user who started it sees it (404 otherwise). The file is kept for the media grace
+// @Description  window (24 h by default).
+// @Tags     exercises
+// @Produce  json
+// @Param    jobID  path  string  true  "export job ID"
+// @Success  200  {object}  response.Response{data=exportJobResponse}
+// @Failure  404  {object}  response.Response
+// @Router   /exercises/export/jobs/{jobID} [get]
+func (h *Handler) exportJob(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	id, err := uuid.FromString(ctx.Param("jobID"))
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	job, err := h.useCase.ArchiveExportJob(ctx, id, claims.UserID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	out := exportJobResponse{State: string(job.State)}
+	if job.Error != nil {
+		out.Error = &importJobError{Code: job.Error.Code, Message: job.Error.Message, Context: job.Error.Context}
+	}
+	if job.File != nil {
+		chunkSize := h.useCase.UploadChunkBytes()
+		out.File = &exportedFileResponse{
+			FileID: job.File.ID, Name: job.File.Name, Size: job.File.SizeBytes, ChunkSize: chunkSize, Chunks: mediaUseCase.ChunkCount(job.File.SizeBytes, chunkSize),
+		}
+	}
+	response.AbortWithData(ctx, out)
 }
 
 // importArchive godoc

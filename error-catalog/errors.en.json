@@ -259,6 +259,7 @@
   "30960": "The device has no web address",
   "30968": "Resource elevation request not found",
   "30992": "Import not found",
+  "30996": "Export not found",
   "31001": "File not found",
   "31006": "Upload not found",
   "31101": "Event not found",
@@ -364,6 +365,8 @@
   "70993": "The archive upload is not complete",
   "70994": "The import stopped before it finished: start it again",
   "70995": "The import ran out of time or was stopped: start it again",
+  "70997": "The export stopped before it finished: start it again",
+  "70998": "The export ran out of time or was stopped: start it again",
   "71003": "File storage is not configured",
   "71007": "Chunk out of order",
   "71009": "Upload is not complete",
@@ -474,5 +477,6 @@
   "72820": "The layer upload is not complete",
   "72826": "Secret storage is not configured: registry tokens cannot be saved",
   "72827": "Secret storage is not configured: registry tokens cannot be saved",
-  "72828": "Another image already uses this registry tag"
+  "72828": "Another image already uses this registry tag",
+  "72830": "A platform image cannot be exported: the image registry is not configured, not responding or does not have it"
 }
