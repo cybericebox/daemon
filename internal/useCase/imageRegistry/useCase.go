@@ -135,7 +135,7 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 
 // PlatformRegistryClient returns a client for the platform repository and the stored
 // settings (tokens still sealed). push selects the push token; a pull uses the
-// pull token, falling back to the push token. Not configured, or no cipher to
+// pull token, falling back to the push token when none is set or it cannot be opened. Not configured, or no cipher to
 // open the tokens: ErrRegistryNotConfigured.
 func (u *ImageRegistryUseCase) PlatformRegistryClient(ctx context.Context, push bool) (*ociregistry.Client, imageRegistryModel.Settings, error) {
 	s, token, err := u.platformToken(ctx, push)
@@ -166,11 +166,14 @@ func (u *ImageRegistryUseCase) platformToken(ctx context.Context, push bool) (im
 	if err != nil || !found || !s.Configured() {
 		return imageRegistryModel.Settings{}, "", err
 	}
-	ct, kind := s.PushTokenCiphertext, pushContext
-	if !push && s.PullTokenCiphertext != "" {
-		ct, kind = s.PullTokenCiphertext, pullContext
+	var token string
+	if !push {
+		// a pull token that does not open counts as not set: the push token pulls too
+		token = u.open(s.PullTokenCiphertext, pullContext)
 	}
-	token := u.open(ct, kind)
+	if token == "" {
+		token = u.open(s.PushTokenCiphertext, pushContext)
+	}
 	if token == "" {
 		return imageRegistryModel.Settings{}, "", nil
 	}

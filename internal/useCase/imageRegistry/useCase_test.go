@@ -533,3 +533,20 @@ func TestRequireImageUploads(t *testing.T) {
 		t.Fatalf("configured: %v", err)
 	}
 }
+
+// A pull token that no longer opens (a rotated key, a copied value) counts as not set: pulls use the push
+// token, as when no pull token was saved.
+func TestUnreadablePullTokenFallsBackToThePushToken(t *testing.T) {
+	f := newFixture(t, true)
+	f.stored(postgres.ImageRegistrySetting{
+		ID: true, Provider: "ghcr", Account: "acme", Repository: "acme/tasks",
+		PushTokenCiphertext: f.seal(t, pushToken, "push"), PullTokenCiphertext: f.seal(t, pullToken, "push"), UpdatedAt: t0,
+	})
+	if _, _, err := f.uc.PlatformRegistryClient(context.Background(), false); err != nil {
+		t.Fatalf("pull client: %v", err)
+	}
+	_, token, err := f.uc.platformToken(context.Background(), false)
+	if err != nil || token != pushToken {
+		t.Fatalf("token %q err %v, want the push token", token, err)
+	}
+}
