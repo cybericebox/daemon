@@ -1166,6 +1166,11 @@ definitions:
           Import marks a CSV import: team and member fields are checked by type
           only, required ones may stay empty.
         type: boolean
+      SendEmails:
+        description: |-
+          SendEmails false creates the same invitations without any email (people
+          accept on the event site). Omitted means send.
+        type: boolean
       Teams:
         items:
           $ref: '#/definitions/event.batchTeamRequest'
@@ -1758,6 +1763,11 @@ definitions:
               type: string
           type: object
         type: array
+      SendEmails:
+        description: |-
+          SendEmails false creates the same invitations without any email (people
+          accept on the event site). Omitted means send (the default).
+        type: boolean
     required:
     - Entries
     type: object
@@ -5375,6 +5385,10 @@ definitions:
         $ref: '#/definitions/eventself.capabilityResponse'
       TeamFormed:
         description: 'TeamFormed: the caller''s team roster is closed for good.'
+        type: boolean
+      TeamNeedsConfirmation:
+        description: 'TeamNeedsConfirmation: the caller''s team waits for its captain
+          to confirm the roster (late-join team events only).'
         type: boolean
     type: object
   eventself.participationSolveResponse:

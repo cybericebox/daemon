@@ -128,6 +128,9 @@ func (u *User) CompleteSetup(firstName, lastName, hashedPassword string, tosVers
 	if err := ValidName(firstName, lastName); err != nil {
 		return err
 	}
+	if strings.TrimSpace(firstName) == "" || strings.TrimSpace(lastName) == "" {
+		return ErrUserNameRequired.Err()
+	}
 	if tosVersion <= 0 {
 		return authModel.ErrTosNotAccepted.Err()
 	}

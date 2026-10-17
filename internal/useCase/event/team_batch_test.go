@@ -41,7 +41,7 @@ func TestCreateManagedTeams_ReportsInputIssuesWithoutWriting(t *testing.T) {
 		{Name: "Blue", CaptainEmail: "a@example.test", Members: []event.BatchTeamMemberInput{{Email: "A@example.test"}, {Email: "not-an-email"}}},
 		{Name: "Red", CaptainEmail: "nobody@example.test", Members: []event.BatchTeamMemberInput{{Email: "a@example.test"}}},
 		{Name: "x", CaptainEmail: "c@example.test", Members: []event.BatchTeamMemberInput{{Email: "c@example.test"}}},
-	}, false)
+	}, false, false)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []event.BatchTeamIssue{
 		{Team: 0, Email: "not-an-email", Code: event.BatchIssueEmailInvalid},
@@ -105,7 +105,7 @@ func TestCreateManagedTeams_AssignsApprovedAndInvitesTheRest(t *testing.T) {
 	result, err := uc.CreateManagedTeams(context.Background(), eventID, managerID, []event.BatchTeamInput{{
 		Name: " Blue Team ", CaptainEmail: "Cap@example.test",
 		Members: []event.BatchTeamMemberInput{{Email: "cap@example.test", FirstName: "Olena", LastName: "Koval"}, {Email: "member@example.test"}},
-	}}, false)
+	}}, false, false)
 	require.NoError(t, err)
 	require.Empty(t, result.Issues)
 	require.True(t, unit.saved)
@@ -131,7 +131,7 @@ func TestCreateManagedTeams_RejectsSizeAndTeamLimits(t *testing.T) {
 	result, err := uc.CreateManagedTeams(context.Background(), eventID, uuid.Must(uuid.NewV7()), []event.BatchTeamInput{{
 		Name: "Blue Team", CaptainEmail: "a@example.test",
 		Members: []event.BatchTeamMemberInput{{Email: "a@example.test"}, {Email: "b@example.test"}, {Email: "c@example.test"}},
-	}}, false)
+	}}, false, false)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []event.BatchTeamIssue{{Team: 0, Code: event.BatchIssueTeamTooLarge}, {Team: -1, Code: event.BatchIssueTooManyTeams}}, result.Issues)
 	require.False(t, unit.saved)
@@ -153,7 +153,7 @@ func TestCreateManagedTeams_IsIdempotentPerAddress(t *testing.T) {
 	}, nil)
 	result, err := uc.CreateManagedTeams(context.Background(), eventID, uuid.Must(uuid.NewV7()), []event.BatchTeamInput{{
 		Name: "Blue Team", CaptainEmail: "cap@example.test", Members: []event.BatchTeamMemberInput{{Email: "cap@example.test"}},
-	}}, false)
+	}}, false, false)
 	require.NoError(t, err)
 	require.Empty(t, result.Issues)
 	require.True(t, unit.saved)
@@ -176,7 +176,7 @@ func TestCreateManagedTeams_RejectsMemberOfAnotherTeam(t *testing.T) {
 	}, nil)
 	result, err := uc.CreateManagedTeams(context.Background(), eventID, uuid.Must(uuid.NewV7()), []event.BatchTeamInput{{
 		Name: "Blue Team", CaptainEmail: "busy@example.test", Members: []event.BatchTeamMemberInput{{Email: "busy@example.test"}},
-	}}, false)
+	}}, false, false)
 	require.NoError(t, err)
 	require.Contains(t, result.Issues, event.BatchTeamIssue{Team: 0, Email: "busy@example.test", Code: event.BatchIssueInTeam})
 	require.False(t, unit.saved)
@@ -257,10 +257,52 @@ func TestCreateManagedTeams_DryRunCountsWithoutWriting(t *testing.T) {
 	q.EXPECT().InviteEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{Status: 1, Invited: true}, nil).Times(2)
 	result, err := uc.CreateManagedTeams(context.Background(), eventID, uuid.Must(uuid.NewV7()), []event.BatchTeamInput{{
 		Name: "Blue Team", CaptainEmail: "new@example.test", Members: []event.BatchTeamMemberInput{{Email: "new@example.test"}, {Email: "second@example.test"}},
-	}}, true)
+	}}, true, false)
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Invited)
 	require.False(t, unit.saved)
 	require.True(t, unit.restored)
 	require.Equal(t, uuid.Nil, notifier.userID)
+}
+
+// SendEmails=false in a batch: same teams and invitations, no email, no setup
+// link, and the clock of the new incomplete account starts.
+func TestCreateManagedTeams_WithoutEmailInvitesButMailsNobody(t *testing.T) {
+	q := newFormGateMock(gomock.NewController(t))
+	allowNonStaff(q)
+	unit := &testUoW{}
+	// No notifier, setup tokens or domain: a silent batch must not need them.
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	eventID, managerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	var captainID, memberID, teamID uuid.UUID
+	expectBatchEvent(q, eventID, 3, pgtype.Int4{})
+	q.EXPECT().GetEventTeamByName(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{}, pgx.ErrNoRows)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "cap@example.test").Return(postgres.User{}, pgx.ErrNoRows)
+	q.EXPECT().GetUserByEmail(gomock.Any(), "m@example.test").Return(postgres.User{}, pgx.ErrNoRows)
+	q.EXPECT().CreateUser(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateUserParams) (postgres.User, error) {
+		if p.Email == "cap@example.test" {
+			captainID = p.ID
+		} else {
+			memberID = p.ID
+		}
+		return postgres.User{ID: p.ID, Email: p.Email, Status: p.Status}, nil
+	}).Times(2)
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).Times(2)
+	q.EXPECT().CreateEventTeam(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, arg postgres.CreateEventTeamParams) (postgres.EventTeam, error) {
+		teamID = arg.ID
+		return postgres.EventTeam{ID: arg.ID, EventID: eventID, Name: arg.Name, CaptainID: arg.CaptainID}, nil
+	})
+	q.EXPECT().InviteEventParticipant(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.InviteEventParticipantParams) (postgres.EventParticipant, error) {
+		require.Equal(t, teamID, p.InvitedTeamID.UUID)
+		return postgres.EventParticipant{EventID: eventID, UserID: p.UserID, Status: 1, Invited: true, InvitedTeamID: p.InvitedTeamID, InvitedToTeam: true}, nil
+	}).Times(2)
+	result, err := uc.CreateManagedTeams(context.Background(), eventID, managerID, []event.BatchTeamInput{{
+		Name: "Blue Team", CaptainEmail: "cap@example.test", Members: []event.BatchTeamMemberInput{{Email: "cap@example.test"}, {Email: "m@example.test"}},
+	}}, false, true)
+	require.NoError(t, err)
+	require.Empty(t, result.Issues)
+	require.True(t, unit.saved)
+	require.Equal(t, 2, result.Invited)
+	require.Empty(t, result.NotSent)
+	require.ElementsMatch(t, []uuid.UUID{captainID, memberID}, userClockMarksOf(q))
 }

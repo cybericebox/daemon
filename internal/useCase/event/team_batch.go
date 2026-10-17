@@ -118,9 +118,10 @@ type pendingInvitation struct {
 // and a single issue writes nothing. It is idempotent per address: a repeat
 // finds the team by name (same captain) and skips people already on it.
 // dryRun runs every check and count, then rolls back and sends nothing: the
-// preview of a CSV import.
-func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.UUID, in []BatchTeamInput, dryRun bool) (BatchTeamsResult, error) {
-	if u.uow == nil || u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "" {
+// preview of a CSV import. noEmail creates the same invitations but mails
+// nobody: people accept on the event site.
+func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.UUID, in []BatchTeamInput, dryRun, noEmail bool) (BatchTeamsResult, error) {
+	if u.uow == nil || (!noEmail && (u.invitationNotifier == nil || u.setupTokens == nil || u.eventDomain == "")) {
 		return BatchTeamsResult{}, model.ErrPlatform.WithMessage("Event invitation dependencies are not configured").Err()
 	}
 	teams, issues := normalizeBatchTeams(in)
@@ -369,8 +370,21 @@ func (u *EventUseCase) CreateManagedTeams(ctx context.Context, eventID, by uuid.
 		result.Invited = len(invitations)
 		return result, nil
 	}
+	if noEmail {
+		// Nothing is mailed, so the invitation time starts the 30-day clock
+		// of every unconfirmed account here.
+		for _, invitation := range invitations {
+			if _, err = users.MarkInvitationSent(txCtx, invitation.user.ID, now); err != nil {
+				return BatchTeamsResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to record invitation").Err()
+			}
+		}
+	}
 	if err = unit.Save(); err != nil {
 		return BatchTeamsResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to create event teams").Err()
+	}
+	if noEmail {
+		result.Invited = len(invitations)
+		return result, nil
 	}
 	for _, invitation := range invitations {
 		if _, sendErr := u.sendParticipantInvitation(ctx, e, invitation.user, true, invitation.teamName, by); sendErr != nil {
