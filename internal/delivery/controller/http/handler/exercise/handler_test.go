@@ -61,6 +61,7 @@ type fakeUC struct {
 	imageScope            imageRegistryUseCase.Scope
 	checkedImages         []string
 	availability          []imageRegistryModel.Availability
+	scopeAsked            bool
 
 	err error
 

@@ -1,6 +1,9 @@
 package infrastructure
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // RegistryCredential is one image pull credential the backend hands the laboratory agent with a lab deploy:
 // the platform pull credential for platform images, or an event's own secret for an organizer's image.
@@ -29,6 +32,16 @@ func (c RegistryCredential) Format(f fmt.State, verb rune) {
 		return
 	}
 	_, _ = fmt.Fprint(f, c.String())
+}
+
+// MarshalJSON writes the password as "***" (empty stays empty): a credential
+// never reaches a log or an API body through JSON.
+func (c RegistryCredential) MarshalJSON() ([]byte, error) {
+	pw := ""
+	if c.Password != "" {
+		pw = "***"
+	}
+	return json.Marshal(struct{ Registry, Username, Password string }{c.Registry, c.Username, pw})
 }
 
 func (c RegistryCredential) redactedPassword() string {

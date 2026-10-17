@@ -47,6 +47,9 @@ type (
 		Adapter AdapterFactory
 		// Now defaults to time.Now.
 		Now func() time.Time
+		// HeadTimeout bounds one registry request of an availability check (default 10 s);
+		// CallTimeout bounds one whole check call (default 30 s).
+		HeadTimeout, CallTimeout time.Duration
 	}
 
 	ImageRegistryUseCase struct {
@@ -58,6 +61,8 @@ type (
 		adapter   AdapterFactory
 		now       func() time.Time
 		available *availabilityCache
+
+		headTimeout, callTimeout time.Duration
 	}
 )
 
@@ -83,14 +88,16 @@ func DefaultAdapter(p imageRegistryModel.Provider) provider.Adapter {
 
 func New(deps Dependencies) *ImageRegistryUseCase {
 	u := &ImageRegistryUseCase{
-		settings:  imageRegistryRepo.New(deps.Repo),
-		secrets:   imageRegistryRepo.NewEventSecrets(deps.Repo),
-		cipher:    deps.Cipher,
-		newClient: deps.NewClient,
-		external:  deps.NewExternalClient,
-		adapter:   deps.Adapter,
-		now:       deps.Now,
-		available: newAvailabilityCache(),
+		settings:    imageRegistryRepo.New(deps.Repo),
+		secrets:     imageRegistryRepo.NewEventSecrets(deps.Repo),
+		cipher:      deps.Cipher,
+		newClient:   deps.NewClient,
+		external:    deps.NewExternalClient,
+		adapter:     deps.Adapter,
+		now:         deps.Now,
+		available:   newAvailabilityCache(),
+		headTimeout: deps.HeadTimeout,
+		callTimeout: deps.CallTimeout,
 	}
 	if u.newClient == nil {
 		u.newClient = DefaultClient
@@ -103,6 +110,12 @@ func New(deps Dependencies) *ImageRegistryUseCase {
 	}
 	if u.now == nil {
 		u.now = time.Now
+	}
+	if u.headTimeout <= 0 {
+		u.headTimeout = defaultHeadTimeout
+	}
+	if u.callTimeout <= 0 {
+		u.callTimeout = defaultCallTimeout
 	}
 	return u
 }

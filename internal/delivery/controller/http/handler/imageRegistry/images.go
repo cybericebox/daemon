@@ -10,7 +10,7 @@ import (
 
 type (
 	// unavailableImageResponse is one image that cannot be pulled. Reason: not_configured, not_found,
-	// unauthorized, unreachable, needs_event_secret or invalid_reference.
+	// unauthorized, unreachable, needs_event_secret, invalid_reference or credential_conflict.
 	unavailableImageResponse struct {
 		Image  string `json:"Image"`
 		Status string `json:"Status"`

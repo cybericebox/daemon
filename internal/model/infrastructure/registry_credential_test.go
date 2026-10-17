@@ -1,6 +1,7 @@
 package infrastructure
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -24,5 +25,15 @@ func TestRegistryCredentialNeverFormatsThePassword(t *testing.T) {
 	}
 	if c.Password != "pull-token-fixed" {
 		t.Fatal("the field itself keeps the value")
+	}
+}
+
+func TestRegistryCredentialJSONRedactsThePassword(t *testing.T) {
+	b, err := json.Marshal([]RegistryCredential{{Registry: "ghcr.io", Username: "acme", Password: "pull-token-fixed"}, {Registry: "quay.io", Username: "bob"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != `[{"Registry":"ghcr.io","Username":"acme","Password":"***"},{"Registry":"quay.io","Username":"bob","Password":""}]` {
+		t.Fatalf("json %s", b)
 	}
 }

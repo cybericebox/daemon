@@ -31,3 +31,13 @@ func (r *Repository) EventExerciseImages(ctx context.Context, eventID uuid.UUID)
 	}
 	return out, nil
 }
+
+// ExerciseOwnerEvent reads the event that owns the exercise (invalid for a
+// catalog exercise). Not found propagates the raw repo error.
+func (r *Repository) ExerciseOwnerEvent(ctx context.Context, exerciseID uuid.UUID) (uuid.NullUUID, error) {
+	row, err := r.q.GetExerciseByID(ctx, exerciseID)
+	if err != nil {
+		return uuid.NullUUID{}, err
+	}
+	return row.OwnerEventID, nil
+}

@@ -118,18 +118,20 @@ type accessFixture struct {
 	now      time.Time
 	mu       sync.Mutex
 	external []externalCall
+	// hosts sends an image host (e.g. docker.io) to an in-process registry.
+	hosts map[string]string
 }
 
 // newAccessFixture: the platform registry is the fixture's fake (account
 // "acme", repository acme/tasks on ghcr); external registries are reached
 // without the guard (in-process fakes on loopback), recording each client.
-func newAccessFixture(t *testing.T, configured bool) *accessFixture {
+func newAccessFixture(t *testing.T, configured bool, opts ...func(*Dependencies)) *accessFixture {
 	ctrl := gomock.NewController(t)
 	base := &fixture{reg: newFakeRegistry(t), adapter: &fakeAdapter{}}
 	base.q = postgresMocks.NewMockQuerier(ctrl)
-	f := &accessFixture{fixture: base, now: t0}
+	f := &accessFixture{fixture: base, now: t0, hosts: map[string]string{}}
 	base.cipher = testCipher(t)
-	base.uc = New(Dependencies{
+	deps := Dependencies{
 		Repo:      base.q,
 		Cipher:    base.cipher,
 		NewClient: base.reg.newClient,
@@ -138,10 +140,17 @@ func newAccessFixture(t *testing.T, configured bool) *accessFixture {
 		NewExternalClient: func(host, repository, username, password string) *ociregistry.Client {
 			f.mu.Lock()
 			f.external = append(f.external, externalCall{host, repository, username, password})
+			if to, ok := f.hosts[host]; ok {
+				host = to
+			}
 			f.mu.Unlock()
 			return ociregistry.New(ociregistry.Options{Host: host, Repository: repository, Username: username, Password: password, Insecure: true, AllowInternal: true})
 		},
-	})
+	}
+	for _, o := range opts {
+		o(&deps)
+	}
+	base.uc = New(deps)
 	if configured {
 		base.stored(postgres.ImageRegistrySetting{
 			ID: true, Provider: "ghcr", Account: "acme", Repository: "acme/tasks",

@@ -5,7 +5,6 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
-	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
 )
 
 type (
@@ -16,7 +15,7 @@ type (
 
 	// imageAvailabilityResponse is the check result for one image: Status "available" or "unavailable";
 	// Reason (unavailable only): not_configured, not_found, unauthorized, unreachable,
-	// needs_event_secret or invalid_reference.
+	// needs_event_secret, invalid_reference or credential_conflict.
 	imageAvailabilityResponse struct {
 		Image  string `json:"Image"`
 		Status string `json:"Status"`
@@ -54,12 +53,12 @@ func (h *Handler) checkImages(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	exercise, err := h.useCase.GetExercise(ctx, id)
+	scope, err := h.useCase.ExerciseImageScope(ctx, id)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	av, err := h.useCase.CheckImageAvailability(ctx, imageRegistryUseCase.Scope{EventID: exercise.OwnerEventID}, req.Images)
+	av, err := h.useCase.CheckImageAvailability(ctx, scope, req.Images)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

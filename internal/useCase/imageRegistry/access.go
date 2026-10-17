@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofrs/uuid"
 
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
@@ -17,14 +19,21 @@ import (
 	"github.com/cybericebox/daemon/pkg/ociregistry"
 )
 
-// availableFor is how long a positive check is trusted. Negative results are
-// never cached: a fixed image must show as fixed on the next check.
-const availableFor = 60 * time.Second
+const (
+	// availableFor is how long a positive check is trusted. Negative results are
+	// never cached: a fixed image must show as fixed on the next check.
+	availableFor = 60 * time.Second
+	// defaultHeadTimeout bounds one registry request; defaultCallTimeout one
+	// whole check call. A registry that runs out of time is unreachable.
+	defaultHeadTimeout = 10 * time.Second
+	defaultCallTimeout = 30 * time.Second
+	// parallelChecks is how many images are checked at once.
+	parallelChecks = 8
+)
 
 type (
 	// Scope says whose credentials a check may use. EventID set: that event's
-	// organizer secrets (and only that event's); nil: platform and anonymous only
-	// (the exercise editor, test labs).
+	// organizer secrets (and only that event's); nil: platform and anonymous only.
 	Scope struct{ EventID *uuid.UUID }
 
 	// DeployImages is what one lab deploy needs from the image registry.
@@ -32,9 +41,11 @@ type (
 		// Topology is a copy of the input with platform references rewritten to
 		// <registry host>/<repository>@sha256:<digest>; other images unchanged.
 		Topology exerciseModel.Topology
-		// Credentials are exactly the pull credentials the images need: the
-		// platform pull credential when a platform image is present, the event
-		// secret(s) matching organizer images present. Nil on a refusal.
+		// Credentials are exactly the pull credentials the images need, one per
+		// registry host (imageRegistryModel.CredentialHost, at most
+		// MaxDeployCredentials): the platform pull credential when a platform
+		// image is present, the event secret(s) matching organizer images
+		// present. Nil on a refusal.
 		Credentials []infraModel.RegistryCredential
 		// Unavailable lists the images that cannot be pulled (one per image).
 		Unavailable []imageRegistryModel.Availability
@@ -49,34 +60,75 @@ type (
 	}
 )
 
-// CheckImageAvailability checks each distinct non-empty image (in the order
-// given) with the credentials scope allows.
+// ExerciseImageScope is the scope an exercise's images are checked and pulled
+// with outside an event (the editor check, test and preview labs): the owner
+// event for an event-owned exercise, none for a catalog exercise.
+func (u *ImageRegistryUseCase) ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (Scope, error) {
+	owner, err := u.settings.ExerciseOwnerEvent(ctx, exerciseID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return Scope{}, exerciseModel.ErrExerciseNotFound.Err()
+		}
+		return Scope{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load the exercise").Err()
+	}
+	if !owner.Valid {
+		return Scope{}, nil
+	}
+	id := owner.UUID
+	return Scope{EventID: &id}, nil
+}
+
+// CheckImageAvailability checks each distinct non-empty image (results in the
+// order given) with the credentials scope allows.
 func (u *ImageRegistryUseCase) CheckImageAvailability(ctx context.Context, scope Scope, images []string) ([]imageRegistryModel.Availability, error) {
-	c := u.newImageChecker(scope)
-	out := make([]imageRegistryModel.Availability, 0, len(images))
-	seen := make(map[string]bool, len(images))
+	results, err := u.checkImages(ctx, scope, images)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]imageRegistryModel.Availability, 0, len(results))
+	seen := make(map[string]bool, len(results))
 	for _, image := range images {
-		if image == "" || seen[image] {
-			continue
+		if r, ok := results[image]; ok && !seen[image] {
+			seen[image] = true
+			out = append(out, r.availability)
 		}
-		seen[image] = true
-		r, err := c.check(ctx, image)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, r.availability)
 	}
 	return out, nil
 }
 
 // PrepareDeployImages checks every device image of a lab topology right before
 // the deploy (forwarding devices and empty images are skipped), rewrites the
-// platform references and collects the pull credentials. Any unavailable image
-// refuses the deploy with ErrImagesUnavailable, whose public context "images"
-// carries the list (also in DeployImages.Unavailable); nothing else is
-// returned then.
+// platform references and collects the pull credentials, one per registry
+// host. Two different credentials for one host, or more hosts than the agent
+// takes, make the images concerned unavailable (credential_conflict). Any
+// unavailable image refuses the deploy with ErrImagesUnavailable, whose public
+// context "images" carries the list (also in DeployImages.Unavailable);
+// nothing else is returned then.
 func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Scope, topo exerciseModel.Topology) (DeployImages, error) {
-	c := u.newImageChecker(scope)
+	var images []string
+	for _, d := range topo.Devices {
+		if !d.Type.IsForwarding() && d.Image != "" {
+			images = append(images, d.Image)
+		}
+	}
+	results, err := u.checkImages(ctx, scope, images)
+	if err != nil {
+		return DeployImages{}, err
+	}
+
+	// credential identities per host, among the images that can be pulled
+	hosts := map[string]map[string]bool{}
+	for _, r := range results {
+		if r.credential != nil && r.availability.Status == imageRegistryModel.StatusAvailable {
+			h := imageRegistryModel.CredentialHost(r.credential.Registry)
+			if hosts[h] == nil {
+				hosts[h] = map[string]bool{}
+			}
+			hosts[h][r.identity] = true
+		}
+	}
+	tooMany := len(hosts) > imageRegistryModel.MaxDeployCredentials
+
 	out := topo
 	out.Devices = slices.Clone(topo.Devices)
 	var (
@@ -89,9 +141,13 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 		if d.Type.IsForwarding() || d.Image == "" {
 			continue
 		}
-		r, err := c.check(ctx, d.Image)
-		if err != nil {
-			return DeployImages{}, err
+		r := results[d.Image]
+		var host string
+		if r.credential != nil {
+			host = imageRegistryModel.CredentialHost(r.credential.Registry)
+		}
+		if r.availability.Status == imageRegistryModel.StatusAvailable && host != "" && (tooMany || len(hosts[host]) > 1) {
+			r = unavailableResult(d.Image, imageRegistryModel.ReasonCredentialConflict)
 		}
 		if r.availability.Status != imageRegistryModel.StatusAvailable {
 			if !imageSeen[d.Image] {
@@ -103,9 +159,11 @@ func (u *ImageRegistryUseCase) PrepareDeployImages(ctx context.Context, scope Sc
 		if r.rewritten != "" {
 			out.Devices[i].Image = r.rewritten
 		}
-		if r.credential != nil && !credSeen[r.identity] {
-			credSeen[r.identity] = true
-			creds = append(creds, *r.credential)
+		if host != "" && !credSeen[host] {
+			credSeen[host] = true
+			c := *r.credential
+			c.Registry = host
+			creds = append(creds, c)
 		}
 	}
 	if len(unavailable) > 0 {
@@ -124,89 +182,138 @@ func (u *ImageRegistryUseCase) EventImagesAvailability(ctx context.Context, even
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to load the event's exercise images").Err()
 	}
-	c := u.newImageChecker(Scope{EventID: &eventID})
+	var images []string
+	for _, row := range rows {
+		images = append(images, row.Images...)
+	}
+	results, err := u.checkImages(ctx, Scope{EventID: &eventID}, images)
+	if err != nil {
+		return nil, err
+	}
 	out := []EventExerciseImages{}
 	for _, row := range rows {
-		var unavailable []imageRegistryModel.Availability
+		var bad []imageRegistryModel.Availability
 		for _, image := range row.Images {
-			r, err := c.check(ctx, image)
-			if err != nil {
-				return nil, err
-			}
-			if r.availability.Status != imageRegistryModel.StatusAvailable {
-				unavailable = append(unavailable, r.availability)
+			if r, ok := results[image]; ok && r.availability.Status != imageRegistryModel.StatusAvailable {
+				bad = append(bad, r.availability)
 			}
 		}
-		if len(unavailable) > 0 {
+		if len(bad) > 0 {
 			out = append(out, EventExerciseImages{
 				EventExerciseID: row.EventExerciseID, ExerciseID: row.ExerciseID,
-				ExerciseName: row.ExerciseName, Unavailable: unavailable,
+				ExerciseName: row.ExerciseName, Unavailable: bad,
 			})
 		}
 	}
 	return out, nil
 }
 
-// imageChecker checks images for one scope; the platform settings and the
-// event secrets are read once, on first need.
+// checkImages checks the distinct non-empty images, at most parallelChecks at
+// once, within the call timeout. The error is a failure to read the settings
+// or the secrets, or the caller's own context error; registry answers
+// (including running out of time) are results.
+func (u *ImageRegistryUseCase) checkImages(parent context.Context, scope Scope, images []string) (map[string]checkResult, error) {
+	ctx, cancel := context.WithTimeout(parent, u.callTimeout)
+	defer cancel()
+
+	var distinct []string
+	seen := map[string]bool{}
+	needPlatform, needSecrets := false, false
+	for _, image := range images {
+		if image == "" || seen[image] {
+			continue
+		}
+		seen[image] = true
+		distinct = append(distinct, image)
+		if strings.HasPrefix(image, "platform:") {
+			needPlatform = true
+		} else {
+			needSecrets = true
+		}
+	}
+	c := &imageChecker{u: u, scope: scope}
+	if needPlatform {
+		s, token, err := u.platformToken(ctx, false)
+		if err != nil {
+			return nil, contextErr(parent, err)
+		}
+		c.platform, c.platformToken = s, token
+	}
+	if needSecrets && scope.EventID != nil {
+		secrets, tokens, err := u.EventRegistrySecretsForDeploy(ctx, *scope.EventID)
+		if err != nil {
+			return nil, contextErr(parent, err)
+		}
+		c.secrets, c.tokens = secrets, tokens
+	}
+
+	results := make([]checkResult, len(distinct))
+	sem := make(chan struct{}, parallelChecks)
+	var wg sync.WaitGroup
+	for i, image := range distinct {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			results[i] = c.check(ctx, image)
+		}()
+	}
+	wg.Wait()
+	if err := parent.Err(); err != nil {
+		return nil, err
+	}
+	out := make(map[string]checkResult, len(distinct))
+	for i, image := range distinct {
+		out[image] = results[i]
+	}
+	return out, nil
+}
+
+// contextErr prefers the caller's context error over a failure it caused.
+func contextErr(parent context.Context, err error) error {
+	if perr := parent.Err(); perr != nil {
+		return perr
+	}
+	return err
+}
+
+// imageChecker checks images for one scope with the settings and secrets
+// read up front; check is safe for concurrent use.
 type imageChecker struct {
 	u     *ImageRegistryUseCase
 	scope Scope
 
-	platformLoaded bool
-	platform       imageRegistryModel.Settings
-	platformToken  string
+	platform      imageRegistryModel.Settings
+	platformToken string
 
-	secretsLoaded bool
-	secrets       []imageRegistryModel.EventSecret
-	tokens        map[uuid.UUID]string
-
-	results map[string]checkResult
+	secrets []imageRegistryModel.EventSecret
+	tokens  map[uuid.UUID]string
 }
 
 type checkResult struct {
 	availability imageRegistryModel.Availability
 	rewritten    string
 	credential   *infraModel.RegistryCredential
-	identity     string
+	// identity names the credential (never the token); "" for anonymous.
+	identity string
 }
 
-func (u *ImageRegistryUseCase) newImageChecker(scope Scope) *imageChecker {
-	return &imageChecker{u: u, scope: scope, results: map[string]checkResult{}}
-}
-
-func unavailable(image string, reason imageRegistryModel.Reason) checkResult {
+func unavailableResult(image string, reason imageRegistryModel.Reason) checkResult {
 	return checkResult{availability: imageRegistryModel.Availability{Image: image, Status: imageRegistryModel.StatusUnavailable, Reason: reason}}
 }
 
-// check returns the result for one image; the error is only a failure to read
-// the settings or the secrets, never a registry answer.
-func (c *imageChecker) check(ctx context.Context, image string) (checkResult, error) {
-	if r, ok := c.results[image]; ok {
-		return r, nil
-	}
-	r, err := c.checkOnce(ctx, image)
-	if err != nil {
-		return checkResult{}, err
-	}
-	c.results[image] = r
-	return r, nil
-}
-
-func (c *imageChecker) checkOnce(ctx context.Context, image string) (checkResult, error) {
+func (c *imageChecker) check(ctx context.Context, image string) checkResult {
 	if strings.HasPrefix(image, "platform:") {
 		ref, ok := imageRegistryModel.ParsePlatformRef(image)
 		if !ok {
-			return unavailable(image, imageRegistryModel.ReasonInvalidReference), nil
+			return unavailableResult(image, imageRegistryModel.ReasonInvalidReference)
 		}
 		return c.checkPlatform(ctx, image, ref)
 	}
 	ref, err := imageRegistryModel.ParseImageRef(image)
 	if err != nil {
-		return unavailable(image, imageRegistryModel.ReasonInvalidReference), nil
-	}
-	if err = c.loadSecrets(ctx); err != nil {
-		return checkResult{}, err
+		return unavailableResult(image, imageRegistryModel.ReasonInvalidReference)
 	}
 	reference := ref.Digest
 	if reference == "" {
@@ -214,44 +321,40 @@ func (c *imageChecker) checkOnce(ctx context.Context, image string) (checkResult
 	}
 	if kind, secret := imageRegistryModel.Classify(image, c.secrets); kind == imageRegistryModel.KindOrganizer && secret != nil {
 		token := c.tokens[secret.ID]
-		r := c.manifest(ctx, image, "secret:"+secret.ID.String(), reference,
-			c.u.external(ref.Host, ref.Repository, secret.Username, token), false)
+		identity := "secret:" + secret.ID.String() + "@" + strconv.FormatInt(secret.UpdatedAt.UnixNano(), 10)
+		r := c.manifest(ctx, image, identity, reference, c.u.external(ref.Host, ref.Repository, secret.Username, token), false)
 		r.credential = &infraModel.RegistryCredential{Registry: secret.Host, Username: secret.Username, Password: token}
-		return r, nil
+		return r
 	}
-	return c.manifest(ctx, image, "anon", reference, c.u.external(ref.Host, ref.Repository, "", ""), true), nil
+	r := c.manifest(ctx, image, "anon", reference, c.u.external(ref.Host, ref.Repository, "", ""), true)
+	r.identity = ""
+	return r
 }
 
-func (c *imageChecker) checkPlatform(ctx context.Context, image string, ref imageRegistryModel.PlatformRef) (checkResult, error) {
-	if !c.platformLoaded {
-		s, token, err := c.u.platformToken(ctx, false)
-		if err != nil {
-			return checkResult{}, err
-		}
-		c.platform, c.platformToken, c.platformLoaded = s, token, true
-	}
+func (c *imageChecker) checkPlatform(ctx context.Context, image string, ref imageRegistryModel.PlatformRef) checkResult {
 	if c.platformToken == "" {
-		return unavailable(image, imageRegistryModel.ReasonNotConfigured), nil
+		return unavailableResult(image, imageRegistryModel.ReasonNotConfigured)
 	}
 	s := c.platform
 	host := s.Provider.RegistryHost()
-	identity := "platform:" + string(s.Provider) + "/" + s.Repository
+	identity := "platform:" + string(s.Provider) + "/" + s.Account + "/" + s.Repository + "@" + strconv.FormatInt(s.UpdatedAt.UnixNano(), 10)
 	r := c.manifest(ctx, image, identity, ref.Digest, c.u.newClient(s.Provider, s.Repository, s.Account, c.platformToken), false)
 	r.rewritten = host + "/" + s.Repository + "@" + ref.Digest
 	r.credential = &infraModel.RegistryCredential{Registry: host, Username: s.Account, Password: c.platformToken}
-	return r, nil
+	return r
 }
 
-// manifest asks the registry for the manifest, unless a positive answer for
-// the same image and credential identity is younger than availableFor.
-// identity names the credential (platform repository, secret id, "anon"),
-// never the token.
+// manifest asks the registry for the manifest (within the request timeout),
+// unless a positive answer for the same image and credential identity is
+// younger than availableFor.
 func (c *imageChecker) manifest(ctx context.Context, image, identity, reference string, client *ociregistry.Client, public bool) checkResult {
-	r := checkResult{identity: identity}
 	key := cacheKey{image: image, identity: identity}
 	now := c.u.now()
 	if !c.u.available.fresh(key, now) {
-		ok, err := client.ManifestExists(ctx, reference)
+		hctx, cancel := context.WithTimeout(ctx, c.u.headTimeout)
+		ok, err := client.ManifestExists(hctx, reference)
+		cancel()
+		var res checkResult
 		switch {
 		case err != nil:
 			reason := imageRegistryModel.ReasonUnreachable
@@ -264,35 +367,18 @@ func (c *imageChecker) manifest(ctx context.Context, image, identity, reference 
 			case errors.Is(err, ociregistry.ErrNotFound):
 				reason = imageRegistryModel.ReasonNotFound
 			}
-			// rate limits and everything else: the registry cannot serve the pull now
-			res := unavailable(image, reason)
-			res.identity = identity
-			return res
+			// rate limits, timeouts and everything else: the registry cannot serve the pull now
+			res = unavailableResult(image, reason)
 		case !ok:
-			res := unavailable(image, imageRegistryModel.ReasonNotFound)
+			res = unavailableResult(image, imageRegistryModel.ReasonNotFound)
+		}
+		if err != nil || !ok {
 			res.identity = identity
 			return res
 		}
 		c.u.available.put(key, now)
 	}
-	r.availability = imageRegistryModel.Availability{Image: image, Status: imageRegistryModel.StatusAvailable}
-	return r
-}
-
-func (c *imageChecker) loadSecrets(ctx context.Context) error {
-	if c.secretsLoaded {
-		return nil
-	}
-	c.secretsLoaded = true
-	if c.scope.EventID == nil {
-		return nil
-	}
-	secrets, tokens, err := c.u.EventRegistrySecretsForDeploy(ctx, *c.scope.EventID)
-	if err != nil {
-		return err
-	}
-	c.secrets, c.tokens = secrets, tokens
-	return nil
+	return checkResult{identity: identity, availability: imageRegistryModel.Availability{Image: image, Status: imageRegistryModel.StatusAvailable}}
 }
 
 type cacheKey struct{ image, identity string }

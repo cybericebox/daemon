@@ -25,6 +25,12 @@ func (f *fakeUC) CheckImageAvailability(_ context.Context, scope imageRegistryUs
 	return f.availability, f.err
 }
 
+// ExerciseImageScope: the owner event of an event-owned exercise (from the fake's exercise view).
+func (f *fakeUC) ExerciseImageScope(_ context.Context, _ uuid.UUID) (imageRegistryUseCase.Scope, error) {
+	f.scopeAsked = true
+	return imageRegistryUseCase.Scope{EventID: f.exerciseView.OwnerEventID}, f.err
+}
+
 func postImages(r *gin.Engine, exID uuid.UUID, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/api/exercises/"+exID.String()+"/images/check", bytes.NewReader([]byte(body)))
 	req.Header.Set("Content-Type", "application/json")
@@ -46,7 +52,7 @@ func TestCheckImagesUsesTheOwnerEventAndReturnsTheResults(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
-	if uc.imageScope.EventID == nil || *uc.imageScope.EventID != owner || len(uc.checkedImages) != 2 {
+	if !uc.scopeAsked || uc.imageScope.EventID == nil || *uc.imageScope.EventID != owner || len(uc.checkedImages) != 2 {
 		t.Fatalf("scope %+v images %v", uc.imageScope, uc.checkedImages)
 	}
 	var body struct{ Data []map[string]string }

@@ -121,6 +121,7 @@ type (
 		ApproveProposal(ctx context.Context, actor exerciseUseCase.Actor, proposalID uuid.UUID, in exerciseUseCase.ApproveProposalInput) (exerciseUseCase.ProposalView, error)
 		RejectProposal(ctx context.Context, actor exerciseUseCase.Actor, proposalID uuid.UUID, note string) (exerciseUseCase.ProposalView, error)
 		// image availability (the editor's check); scope is the owner event of an event-owned exercise
+		ExerciseImageScope(ctx context.Context, exerciseID uuid.UUID) (imageRegistryUseCase.Scope, error)
 		CheckImageAvailability(ctx context.Context, scope imageRegistryUseCase.Scope, images []string) ([]imageRegistryModel.Availability, error)
 	}
 )

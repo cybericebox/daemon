@@ -26,6 +26,7 @@ type Queries interface {
 	DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error)
 
 	ListEventExerciseImages(ctx context.Context, eventID uuid.UUID) ([]postgres.ListEventExerciseImagesRow, error)
+	GetExerciseByID(ctx context.Context, id uuid.UUID) (postgres.Exercise, error)
 }
 
 type Repository struct {
