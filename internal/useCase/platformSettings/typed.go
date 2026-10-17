@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -141,26 +142,52 @@ func loadTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase,
 	}
 	var stored platformSettingsModel.Values
 	if err = json.Unmarshal(row.Value, &stored); err != nil {
-		log.Warn().Err(err).Str("key", s.key).Msg("Stored setting does not parse, the defaults apply")
+		u.warnStored(row, log.Warn().Err(err).Str("key", s.key), "Stored setting does not parse, the defaults apply")
 		return s.defaults, &row, nil
 	}
 	if stored == nil {
-		log.Warn().Str("key", s.key).Msg("Stored setting is null, the defaults apply")
+		u.warnStored(row, log.Warn().Str("key", s.key), "Stored setting is null, the defaults apply")
 		return s.defaults, &row, nil
 	}
-	if unknown := unknownKeys(stored, s.specs); len(unknown) > 0 {
-		log.Warn().Str("key", s.key).Strs("unknown", unknown).Msg("Stored setting has fields no longer known, they are ignored")
-	}
+	unknown := unknownKeys(stored, s.specs)
 	value, err := s.defaults.WithValues(platformSettingsModel.Overlay(s.defaults.Values(), stored, s.specs))
 	if err != nil {
-		if u.badDefaults[s.key] {
-			log.Warn().Err(err).Str("key", s.key).Msg("A default of this setting is out of range (see the startup warning), the defaults apply")
-		} else {
-			log.Warn().Err(err).Str("key", s.key).Msg("Stored setting is not valid, the defaults apply")
+		event := log.Warn().Err(err).Str("key", s.key)
+		if field, ok := failingField(err); ok {
+			event = event.Str("field", field)
+			if _, fromRow := stored[field]; !fromRow {
+				u.warnStored(row, event, "A default of this setting is out of range (see the startup warning), the defaults apply")
+				return s.defaults, &row, nil
+			}
 		}
+		u.warnStored(row, event, "Stored setting is not valid, the defaults apply")
 		return s.defaults, &row, nil
 	}
+	if len(unknown) > 0 {
+		u.warnStored(row, log.Warn().Str("key", s.key).Strs("unknown", unknown), "Stored setting has fields no longer known, they are ignored")
+	}
 	return value, &row, nil
+}
+
+// warnStored logs a warning about a stored row once per row version: the sources are read on every pass and request,
+// and the same row would repeat the same warning each time. A saved or reset row (another UpdatedAt) warns again.
+func (u *PlatformSettingsUseCase) warnStored(row platformSettingsModel.PlatformSetting, event *zerolog.Event, msg string) {
+	version := row.UpdatedAt.UTC().Format(time.RFC3339Nano) + "\x00" + string(row.Value)
+	if previous, seen := u.warnedRows.Swap(row.Key, version); seen && previous == version {
+		event.Discard()
+		return
+	}
+	event.Msg(msg)
+}
+
+// failingField is the field a domain error names in its public context.
+func failingField(err error) (string, bool) {
+	var typed appErr.Error
+	if !errors.As(err, &typed) {
+		return "", false
+	}
+	field, ok := typed.PublicContext()["field"].(string)
+	return field, ok
 }
 
 // unknownKeys are the keys of stored outside specs, sorted.
@@ -174,23 +201,19 @@ func unknownKeys(stored platformSettingsModel.Values, specs []platformSettingsMo
 	return unknown
 }
 
-// defaultsOutOfRange tells whether the defaults of s fail its own field rules (bounds or a cross-field rule): an env
-// value the form would refuse. It logs one warning naming the field and the env value; the defaults still apply.
-func defaultsOutOfRange[T typedValue[T]](s typedSetting[T]) bool {
+// warnDefaultsOutOfRange logs one warning when the defaults of s fail its own field rules (bounds or a cross-field
+// rule): an env value the form would refuse. It names the field and the env value; the defaults still apply.
+func warnDefaultsOutOfRange[T typedValue[T]](s typedSetting[T]) {
 	values := s.defaults.Values()
 	_, err := s.defaults.WithValues(values)
 	if err == nil {
-		return false
+		return
 	}
 	event := log.Warn().Err(err).Str("key", s.key)
-	var typed appErr.Error
-	if errors.As(err, &typed) {
-		if field, ok := typed.PublicContext()["field"].(string); ok {
-			event = event.Str("field", field).Int64("value", values[field])
-		}
+	if field, ok := failingField(err); ok {
+		event = event.Str("field", field).Int64("value", values[field])
 	}
 	event.Msg("An env default of this setting is outside the bounds the platform panel allows; it still applies")
-	return true
 }
 
 func getTyped[T typedValue[T]](ctx context.Context, u *PlatformSettingsUseCase, s typedSetting[T]) (TypedView, error) {

@@ -177,6 +177,8 @@ func (u *ExerciseUseCase) testRunLeases(ctx context.Context) exerciseModel.TestR
 	return leases
 }
 
+// DevicePersistenceAllowed says some agent offers device state persistence to this platform, so the
+// editor offers the option. The agents report it; there is no setting for it here.
 func (u *ExerciseUseCase) DevicePersistenceAllowed() bool {
 	p, ok := u.infra.(interface{ PersistenceAvailable() bool })
 	return ok && p.PersistenceAvailable()

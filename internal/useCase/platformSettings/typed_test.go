@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -331,4 +332,54 @@ func TestGetPlatformSettingValue_TypedRowHiddenFromValueOnlyCaller(t *testing.T)
 		assert.Nil(t, value)
 		assert.True(t, errors.Is(err, platformSettingsModel.ErrSettingNotFound.Err()), "%s: got %v", key, err)
 	}
+}
+
+// With a bad env default, a stored row whose own field is out of range is still blamed; the default is blamed only
+// when the failing field is not in the row.
+func TestLoadTyped_BlamesWhoseFieldFails(t *testing.T) {
+	retention := retentionModel.DefaultPolicy()
+	retention.UnusedAnswerFile = time.Hour // out of range
+	for name, tc := range map[string]struct {
+		stored    string
+		wantBlame string
+	}{
+		"the stored field fails":  {`{"UnusedAnswerFile":60}`, "Stored setting is not valid"},
+		"the default field fails": {`{"DeliveryLog":864000}`, "A default of this setting is out of range"},
+		"a stored field over max": {`{"DeliveryLog":999999999,"UnusedAnswerFile":86400}`, "Stored setting is not valid"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			warnings := captureWarnings(t)
+			repo := postgresMocks.NewMockQuerier(gomock.NewController(t))
+			uc := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retention})
+			warnings.Reset()
+			repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.RetentionKey).
+				Return(storedRow(platformSettingsModel.RetentionKey, tc.stored), nil)
+
+			_, err := uc.RetentionPolicy(context.Background())
+			require.NoError(t, err)
+			assert.Contains(t, warnings.String(), tc.wantBlame)
+		})
+	}
+}
+
+// A stored row's warning is logged once per row content, not on every read; a changed row warns again.
+func TestLoadTyped_WarnsOncePerStoredRow(t *testing.T) {
+	warnings := captureWarnings(t)
+	repo, uc := setupTyped(t)
+	row := storedRow(platformSettingsModel.ArchiveLimitsKey, `{"Entries":50,"Old":1}`)
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).Return(row, nil).Times(3)
+	for range 3 {
+		_, err := uc.ArchiveLimits(context.Background())
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 1, strings.Count(warnings.String(), `"level":"warn"`))
+
+	changed := storedRow(platformSettingsModel.ArchiveLimitsKey, `null`)
+	changed.UpdatedAt = typedNow.Add(time.Minute)
+	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), platformSettingsModel.ArchiveLimitsKey).Return(changed, nil).Times(2)
+	for range 2 {
+		_, err := uc.ArchiveLimits(context.Background())
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 2, strings.Count(warnings.String(), `"level":"warn"`))
 }

@@ -175,7 +175,8 @@ func (u *ExerciseUseCase) importArchiveBundle(ctx context.Context, contents []by
 
 // QueueArchiveImport records the background import of an archive source and queues it; it returns the job id.
 // One import per source: a running or done import of it is returned as it is, a failed one runs again. The
-// registry not configured: the upload refusal, nothing recorded.
+// registry not configured: the upload refusal, nothing recorded. The queued job checks the archive against the
+// limits in force when it runs (RunArchiveImport reads them once for the whole import), not those of this request.
 func (u *ExerciseUseCase) QueueArchiveImport(ctx context.Context, in QueueImportInput) (uuid.UUID, error) {
 	if u.archiveImages == nil || u.importQueue == nil {
 		return uuid.Nil, model.ErrPlatform.WithMessage("Image import is not wired").Err()

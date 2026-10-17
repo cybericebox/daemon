@@ -3,6 +3,7 @@ package platformSettingsUseCase
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
@@ -20,9 +21,9 @@ type (
 		settings          *platformSettingsRepo.Repository
 		retentionDefaults retentionModel.Policy
 		testRunDefaults   exerciseModel.TestRunLeases
-		// badDefaults are the typed settings whose defaults fail their own field rules (an env value out of range).
-		badDefaults map[string]bool
-		now         func() time.Time
+		// warnedRows is the stored row version last warned about, per key (warnStored).
+		warnedRows sync.Map
+		now        func() time.Time
 	}
 	Dependencies struct {
 		Repo platformSettingsRepo.Queries
@@ -54,11 +55,9 @@ func NewPlatformSettingsUseCase(deps Dependencies) *PlatformSettingsUseCase {
 		testRunDefaults:   testRuns,
 		now:               now,
 	}
-	u.badDefaults = map[string]bool{
-		platformSettingsModel.RetentionKey:     defaultsOutOfRange(u.retentionSetting()),
-		platformSettingsModel.ArchiveLimitsKey: defaultsOutOfRange(u.archiveLimitSetting()),
-		platformSettingsModel.TestRunsKey:      defaultsOutOfRange(u.testRunSetting()),
-	}
+	warnDefaultsOutOfRange(u.retentionSetting())
+	warnDefaultsOutOfRange(u.archiveLimitSetting())
+	warnDefaultsOutOfRange(u.testRunSetting())
 	return u
 }
 
