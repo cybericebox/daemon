@@ -10,7 +10,7 @@ import (
 // `make lint-errors`. Vars without a call site yet are used by the later
 // image-registry layers (settings, upload, availability use cases).
 //
-// ImageRegistryObjectCode — next free detail code: 15
+// ImageRegistryObjectCode — next free detail code: 16
 var (
 	ErrRegistryNotConfigured = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 					WithMessage("The image registry is not configured").WithDetailCode(1)
@@ -46,6 +46,9 @@ var (
 	// ErrDuplicateEventSecret: the event already has a secret for this host and repository prefix.
 	ErrDuplicateEventSecret = err.ErrConflict.WithObjectCode(model.ImageRegistryObjectCode).
 				WithMessage("The event already has registry credentials for this host and repository prefix").WithDetailCode(14)
+	// ErrEventSecretTokenRequired: a secret moved to another host must get a new token, never reuse the stored one.
+	ErrEventSecretTokenRequired = err.ErrInvalidData.WithObjectCode(model.ImageRegistryObjectCode).
+					WithMessage("Enter the token again when the registry host changes").WithDetailCode(15)
 )
 
 // ContextReason is the public error context of ErrRegistryUnavailable naming

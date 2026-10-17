@@ -102,8 +102,13 @@ func (u *ImageRegistryUseCase) UpdateEventRegistrySecret(ctx context.Context, ev
 		return EventSecretView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load the event registry secret").Err()
 	}
 	now := u.now()
+	oldHost := s.Host
 	if err = s.Edit(in.Host, in.RepositoryPrefix, in.Username, now); err != nil {
 		return EventSecretView{}, err
+	}
+	if s.Host != oldHost && in.Token == "" {
+		// A stored token must not be repointed at another registry host.
+		return EventSecretView{}, imageRegistryModel.ErrEventSecretTokenRequired.Err()
 	}
 	if in.Token != "" {
 		ct, sealErr := u.seal(in.Token, eventSecretContext(s.ID))

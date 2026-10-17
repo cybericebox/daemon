@@ -293,3 +293,34 @@ func TestEventRegistrySecretsForDeploy(t *testing.T) {
 		}
 	})
 }
+
+// A stored token must not be repointed at another registry host: changing the
+// (normalized) host needs a new token. Prefix or username alone may keep it.
+func TestUpdateEventSecretHostChangeNeedsANewToken(t *testing.T) {
+	ctx := context.Background()
+	tokenRequired := imageRegistryModel.ErrEventSecretTokenRequired.Err()
+	t.Run("host changed, empty token", func(t *testing.T) {
+		f := newFixture(t, true)
+		f.q.EXPECT().GetEventRegistrySecret(gomock.Any(), gomock.Any()).Return(f.row(t, secID, "ghcr.io", "acme", secretToken), nil)
+		_, err := f.uc.UpdateEventRegistrySecret(ctx, eventA, secID, EventSecretInput{Host: "evil.example.com", RepositoryPrefix: "acme", Username: "bob"})
+		if !errors.Is(err, tokenRequired) {
+			t.Fatalf("got %v", err)
+		}
+	})
+	t.Run("host changed with a new token", func(t *testing.T) {
+		f := newFixture(t, true)
+		f.q.EXPECT().GetEventRegistrySecret(gomock.Any(), gomock.Any()).Return(f.row(t, secID, "ghcr.io", "acme", secretToken), nil)
+		f.q.EXPECT().UpdateEventRegistrySecret(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+		if _, err := f.uc.UpdateEventRegistrySecret(ctx, eventA, secID, EventSecretInput{Host: "quay.io", Username: "bob", Token: "new"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("alias of the same host keeps the token", func(t *testing.T) {
+		f := newFixture(t, true)
+		f.q.EXPECT().GetEventRegistrySecret(gomock.Any(), gomock.Any()).Return(f.row(t, secID, "docker.io", "", secretToken), nil)
+		f.q.EXPECT().UpdateEventRegistrySecret(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+		if _, err := f.uc.UpdateEventRegistrySecret(ctx, eventA, secID, EventSecretInput{Host: "Index.Docker.io", Username: "bob"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+}

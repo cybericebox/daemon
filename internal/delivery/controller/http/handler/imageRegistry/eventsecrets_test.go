@@ -126,3 +126,31 @@ func TestEventSecretBadIDs(t *testing.T) {
 		}
 	}
 }
+
+// archivedUseCase is the use case of an archived event: it implements the
+// middleware's EventWriteGuard and refuses every write.
+type archivedUseCase struct{ *fakeUseCase }
+
+func (archivedUseCase) RequireEventWritable(context.Context, uuid.UUID) error {
+	return imageRegistryModel.ErrEventSecretNotFound.Err()
+}
+
+func TestArchivedEventRefusesSecretWrites(t *testing.T) {
+	uc := &fakeUseCase{}
+	engine := secretsEngine(archivedUseCase{uc})
+	base := "/api/events/" + evA.String() + "/manage/registry-secrets"
+	body := `{"Host":"ghcr.io","Username":"bob","Token":"x"}`
+	for _, c := range []struct{ method, path string }{
+		{http.MethodPost, base}, {http.MethodPut, base + "/" + secUID.String()}, {http.MethodDelete, base + "/" + secUID.String()},
+	} {
+		if w := do(engine, c.method, c.path, body); w.Code == http.StatusOK {
+			t.Errorf("%s %s on an archived event: %d", c.method, c.path, w.Code)
+		}
+	}
+	if uc.deletes != 0 || uc.secretInput.Token != "" || uc.secretID != uuid.Nil {
+		t.Fatalf("a write reached the use case: %+v", uc)
+	}
+	if w := do(engine, http.MethodGet, base, ""); w.Code != http.StatusOK {
+		t.Errorf("read on an archived event: %d", w.Code)
+	}
+}
