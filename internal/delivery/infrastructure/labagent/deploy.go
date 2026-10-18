@@ -19,15 +19,9 @@ import (
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
-// Conventional names within a deploy: the lab group name is the caller's deploy
-// id, and the lab name is fixed so status/teardown reconstruct the whole handle
-// from the group alone. A deploy creates no VPN client: callers ask for their own
-// with EnsureLabClient.
-const (
-	deployLabName = "lab"
-	// deployVariantID names the one variant a single-lab deploy sends.
-	deployVariantID = "v"
-)
+// deployVariantID names the one variant a single-lab deploy sends. A deploy
+// creates no VPN client: callers ask for their own with EnsureLabClient.
+const deployVariantID = "v"
 
 // namespaceWait bounds the wait for the group namespace to be provisioned (the
 // LabGroup reconciler creates it within a few seconds).
