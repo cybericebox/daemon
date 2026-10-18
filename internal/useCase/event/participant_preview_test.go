@@ -509,15 +509,81 @@ func TestPreviewGlobalCatalogStartsFromSentinelCursor(t *testing.T) {
 	data, _ := json.Marshal([]exerciseModel.Variant{{ID: variant}})
 	published := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error) {
-		if !p.CursorCreatedAt.After(time.Date(9000, 1, 1, 0, 0, 0, 0, time.UTC)) || p.CursorID.String() != "ffffffff-ffff-ffff-ffff-ffffffffffff" {
+		if p.Archived == "only" || !p.CursorCreatedAt.After(time.Date(9000, 1, 1, 0, 0, 0, 0, time.UTC)) || p.CursorID.String() != "ffffffff-ffff-ffff-ffff-ffffffffffff" {
 			return nil, nil
 		}
 		return []postgres.ListExercisesCursorRow{{Exercise: postgres.Exercise{ID: exercise, Name: "Catalog", PublishedVersionID: uuid.NullUUID{UUID: version, Valid: true}}}}, nil
-	})
+	}).AnyTimes()
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), version).Return(postgres.ExerciseVersion{ID: version, ExerciseID: exercise, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: data}, nil).AnyTimes()
 	q.EXPECT().GetExerciseByID(gomock.Any(), exercise).Return(postgres.Exercise{ID: exercise, Name: "Catalog"}, nil).AnyTimes()
 	items, err := uc.ListPreviewCatalog(context.Background(), uuid.Nil, uuid.Must(uuid.NewV7()), "")
 	if err != nil || len(items) != 1 {
 		t.Fatalf("catalog = %v, err = %v", items, err)
+	}
+}
+
+// Every matching task is listed: eligible first, the rest with the reason they cannot be chosen.
+func TestPreviewGlobalCatalogListsIneligibleWithReasons(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	id := func() uuid.UUID { return uuid.Must(uuid.NewV7()) }
+	okEx, draftEx, restrictedEx, archivedEx, emptyEx := id(), id(), id(), id(), id()
+	okVer, restrictedVer, emptyVer := id(), id(), id()
+	variant := id()
+	published := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	valid := func(v uuid.UUID) uuid.NullUUID { return uuid.NullUUID{UUID: v, Valid: true} }
+	q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error) {
+		if p.Archived == "only" {
+			return []postgres.ListExercisesCursorRow{{Exercise: postgres.Exercise{ID: archivedEx, Name: "Archived", PublishedVersionID: valid(id())}}}, nil
+		}
+		return []postgres.ListExercisesCursorRow{
+			{Exercise: postgres.Exercise{ID: draftEx, Name: "Draft"}},
+			{Exercise: postgres.Exercise{ID: restrictedEx, Name: "Restricted", AccessLevel: 1, PublishedVersionID: valid(restrictedVer)}},
+			{Exercise: postgres.Exercise{ID: emptyEx, Name: "Empty", PublishedVersionID: valid(emptyVer)}},
+			{Exercise: postgres.Exercise{ID: okEx, Name: "Ok", PublishedVersionID: valid(okVer)}},
+		}, nil
+	}).AnyTimes()
+	data, _ := json.Marshal([]exerciseModel.Variant{{ID: variant}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), okVer).Return(postgres.ExerciseVersion{ID: okVer, ExerciseID: okEx, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: data}, nil).AnyTimes()
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), emptyVer).Return(postgres.ExerciseVersion{ID: emptyVer, ExerciseID: emptyEx, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: []byte("[]")}, nil).AnyTimes()
+	q.EXPECT().GetExerciseByID(gomock.Any(), okEx).Return(postgres.Exercise{ID: okEx, Name: "Ok"}, nil).AnyTimes()
+	items, err := uc.ListPreviewCatalog(context.Background(), uuid.Nil, id(), "")
+	if err != nil || len(items) != 5 {
+		t.Fatalf("catalog = %v, err = %v", items, err)
+	}
+	want := []struct {
+		name, reason string
+		eligible     bool
+	}{{"Ok", "", true}, {"Draft", event.PreviewReasonNotPublished, false}, {"Restricted", event.PreviewReasonRestrictedAccess, false}, {"Empty", event.PreviewReasonNoPreviewVariant, false}, {"Archived", event.PreviewReasonArchived, false}}
+	got := map[string]event.PreviewCatalogItem{}
+	for _, it := range items {
+		got[it.Name] = it
+	}
+	for i, w := range want {
+		it := got[w.name]
+		if it.Eligible != w.eligible || it.Reason != w.reason || (i == 0 && len(it.Variants) != 1) {
+			t.Fatalf("%s = %+v, want eligible=%v reason=%q", w.name, it, w.eligible, w.reason)
+		}
+	}
+	if !items[0].Eligible || items[1].Eligible {
+		t.Fatalf("eligible items must come first: %+v", items)
+	}
+}
+
+// Event scope: a task whose infrastructure cannot start now stays listed with the no_capacity reason.
+func TestPreviewEventCatalogMarksNoCapacity(t *testing.T) {
+	f := newPreviewFixture(t, true)
+	f.labs.startErr = errors.New("no capacity")
+	f.q.EXPECT().ListEventCatalog(gomock.Any(), gomock.Any()).Return([]postgres.ListEventCatalogRow{{ID: f.exercise, Name: "Catalog", PublishedVersionID: f.version}}, nil)
+	f.q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	items, err := f.uc.ListPreviewCatalog(context.Background(), f.event, f.user, "")
+	if err != nil || len(items) != 1 || items[0].Eligible || items[0].Reason != event.PreviewReasonNoCapacity {
+		t.Fatalf("items = %+v, err = %v", items, err)
+	}
+	f.labs.startErr = nil
+	f.q.EXPECT().ListEventCatalog(gomock.Any(), gomock.Any()).Return([]postgres.ListEventCatalogRow{{ID: f.exercise, Name: "Catalog", PublishedVersionID: f.version}}, nil)
+	items, err = f.uc.ListPreviewCatalog(context.Background(), f.event, f.user, "")
+	if err != nil || len(items) != 1 || !items[0].Eligible || items[0].Reason != "" {
+		t.Fatalf("items = %+v, err = %v", items, err)
 	}
 }

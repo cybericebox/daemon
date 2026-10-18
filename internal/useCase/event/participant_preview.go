@@ -73,6 +73,8 @@ type PreviewCatalogItem struct {
 	Name              string                  `json:"Name"`
 	Variants          []PreviewCatalogVariant `json:"Variants"`
 	Infrastructure    bool                    `json:"Infrastructure"`
+	Eligible          bool                    `json:"Eligible"`
+	Reason            string                  `json:"Reason"`
 }
 type PreviewChallenge struct {
 	OwnChallengeView
@@ -344,75 +346,146 @@ func (u *EventUseCase) PutPreviewDefaults(ctx context.Context, in PreviewSetting
 	return PreviewSettings{GroupName: defaults.GroupName, Selections: views, EffectiveSelections: views, DefaultSelections: views, DefaultGroupName: defaults.GroupName, DynamicAllocated: true}, nil
 }
 
+// Reasons a catalog task cannot be chosen for a preview.
+const (
+	PreviewReasonNotPublished           = "not_published"
+	PreviewReasonRestrictedAccess       = "restricted_access"
+	PreviewReasonArchived               = "archived"
+	PreviewReasonNoPreviewVariant       = "no_preview_variant"
+	PreviewReasonNoCapacity             = "no_capacity"
+	previewCatalogPageSize        int32 = 100
+)
+
+type previewCandidate struct {
+	exerciseID uuid.UUID
+	name       string
+	versionID  uuid.UUID
+	reason     string
+}
+
+// listPreviewCatalogRows pages the catalog-scope tasks matching search; archived is "exclude" or "only".
+func (u *EventUseCase) listPreviewCatalogRows(ctx context.Context, search, archived string) ([]exerciseRepo.Listed, error) {
+	var out []exerciseRepo.Listed
+	// Keyset pages hold rows strictly before the cursor: start after everything.
+	cursor, cursorID := cursorSentinelTime, maxUUID
+	for {
+		rows, err := u.exercises.ListCursor(ctx, exerciseRepo.ListParams{Search: search, Archived: archived, Visibility: exerciseRepo.Visibility{Scope: "catalog"}, CursorCreatedAt: cursor, CursorID: cursorID, Limit: previewCatalogPageSize})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+		if len(rows) < int(previewCatalogPageSize) {
+			return out, nil
+		}
+		last := rows[len(rows)-1]
+		cursor, cursorID = last.CreatedAt, last.ID
+	}
+}
+
+// ListPreviewCatalog returns every task matching the search: the ones that can be previewed first, then the others
+// with the reason they cannot be chosen.
 func (u *EventUseCase) ListPreviewCatalog(ctx context.Context, event, user uuid.UUID, search string) ([]PreviewCatalogItem, error) {
-	ids := []uuid.UUID{}
+	search = strings.TrimSpace(search)
 	if event != uuid.Nil {
 		if err := u.RequireManageEvent(ctx, event, user); err != nil {
 			return nil, err
 		}
-		rows, err := u.eventExercises.Catalog(ctx, event, strings.TrimSpace(search), "", nil)
+	}
+	var eligible, blocked []previewCandidate
+	seen := map[uuid.UUID]bool{}
+	if event != uuid.Nil {
+		rows, err := u.eventExercises.Catalog(ctx, event, search, "", nil)
 		if err != nil {
 			return nil, previewFailure(err)
 		}
 		for _, row := range rows {
-			ids = append(ids, row.PublishedVersionID)
-		}
-	} else {
-		// Keyset pages hold rows strictly before the cursor: start after everything.
-		cursor, cursorID := cursorSentinelTime, maxUUID
-		for {
-			rows, err := u.exercises.ListCursor(ctx, exerciseRepo.ListParams{Search: strings.TrimSpace(search), Archived: "exclude", Visibility: exerciseRepo.Visibility{Scope: "catalog"}, CursorCreatedAt: cursor, CursorID: cursorID, Limit: 100})
-			if err != nil {
-				return nil, previewFailure(err)
-			}
-			for _, row := range rows {
-				if row.PublishedVersionID.Valid && row.AccessLevel == exerciseModel.AccessAllEvents {
-					ids = append(ids, row.PublishedVersionID.UUID)
-				}
-			}
-			if len(rows) < 100 {
-				break
-			}
-			last := rows[len(rows)-1]
-			cursor, cursorID = last.CreatedAt, last.ID
+			seen[row.ID] = true
+			eligible = append(eligible, previewCandidate{exerciseID: row.ID, name: row.Name, versionID: row.PublishedVersionID})
 		}
 	}
-	out := []PreviewCatalogItem{}
-	for _, id := range ids {
-		version, err := u.exercises.GetVersion(ctx, id)
+	for _, archived := range []string{"exclude", "only"} {
+		rows, err := u.listPreviewCatalogRows(ctx, search, archived)
 		if err != nil {
 			return nil, previewFailure(err)
 		}
-		if len(version.Variants) == 0 {
-			continue
-		}
-		item := PreviewCatalogItem{ExerciseVersionID: id, Variants: []PreviewCatalogVariant{}}
-		for position, variant := range version.Variants {
-			_, entry, _, e := u.previewVersion(ctx, event, id, variant.ID)
-			if e != nil {
+		for _, row := range rows {
+			if seen[row.ID] {
 				continue
 			}
-			if event != uuid.Nil && len(variant.Topology.Devices) > 0 {
-				if u.previewLabs == nil {
-					continue
-				}
-				canStart, e := u.previewLabs.CanStartEventPreview(ctx, event, id, variant.ID)
-				if e != nil {
-					return nil, e
-				}
-				if !canStart {
-					continue
-				}
+			c := previewCandidate{exerciseID: row.ID, name: row.Name}
+			switch {
+			case archived == "only":
+				c.reason = PreviewReasonArchived
+			case !row.PublishedVersionID.Valid:
+				c.reason = PreviewReasonNotPublished
+			case event != uuid.Nil || row.AccessLevel != exerciseModel.AccessAllEvents:
+				// Published catalog tasks the event catalog did not offer are not available to the event.
+				c.reason = PreviewReasonRestrictedAccess
+			default:
+				c.versionID = row.PublishedVersionID.UUID
+				eligible = append(eligible, c)
+				continue
 			}
-			item.ID, item.Name = entry.ID, entry.Name
-			item.Variants = append(item.Variants, PreviewCatalogVariant{ID: variant.ID, Index: variant.Index, Position: position, Infrastructure: len(variant.Topology.Devices) > 0})
-			item.Infrastructure = item.Infrastructure || len(variant.Topology.Devices) > 0
-		}
-		if len(item.Variants) > 0 {
-			out = append(out, item)
+			blocked = append(blocked, c)
 		}
 	}
-	return out, nil
+	out := []PreviewCatalogItem{}
+	var rejected []PreviewCatalogItem
+	for _, c := range eligible {
+		item, reason, err := u.previewCatalogItem(ctx, event, c)
+		if err != nil {
+			return nil, err
+		}
+		if reason != "" {
+			rejected = append(rejected, PreviewCatalogItem{ID: c.exerciseID, ExerciseVersionID: c.versionID, Name: c.name, Variants: []PreviewCatalogVariant{}, Reason: reason})
+			continue
+		}
+		out = append(out, item)
+	}
+	for _, c := range blocked {
+		rejected = append(rejected, PreviewCatalogItem{ID: c.exerciseID, ExerciseVersionID: c.versionID, Name: c.name, Variants: []PreviewCatalogVariant{}, Reason: c.reason})
+	}
+	return append(out, rejected...), nil
+}
+
+// previewCatalogItem builds the eligible item of a published task, or returns the reason it has no usable variant.
+func (u *EventUseCase) previewCatalogItem(ctx context.Context, event uuid.UUID, c previewCandidate) (PreviewCatalogItem, string, error) {
+	version, err := u.exercises.GetVersion(ctx, c.versionID)
+	if err != nil {
+		return PreviewCatalogItem{}, "", previewFailure(err)
+	}
+	item := PreviewCatalogItem{Eligible: true, ExerciseVersionID: c.versionID, Variants: []PreviewCatalogVariant{}}
+	noCapacity := false
+	for position, variant := range version.Variants {
+		_, entry, _, e := u.previewVersion(ctx, event, c.versionID, variant.ID)
+		if e != nil {
+			continue
+		}
+		if event != uuid.Nil && len(variant.Topology.Devices) > 0 {
+			if u.previewLabs == nil {
+				noCapacity = true
+				continue
+			}
+			canStart, e := u.previewLabs.CanStartEventPreview(ctx, event, c.versionID, variant.ID)
+			if e != nil {
+				return PreviewCatalogItem{}, "", e
+			}
+			if !canStart {
+				noCapacity = true
+				continue
+			}
+		}
+		item.ID, item.Name = entry.ID, entry.Name
+		item.Variants = append(item.Variants, PreviewCatalogVariant{ID: variant.ID, Index: variant.Index, Position: position, Infrastructure: len(variant.Topology.Devices) > 0})
+		item.Infrastructure = item.Infrastructure || len(variant.Topology.Devices) > 0
+	}
+	if len(item.Variants) > 0 {
+		return item, "", nil
+	}
+	if noCapacity {
+		return PreviewCatalogItem{}, PreviewReasonNoCapacity, nil
+	}
+	return PreviewCatalogItem{}, PreviewReasonNoPreviewVariant, nil
 }
 func (u *EventUseCase) selectedPreview(ctx context.Context, event, user, selection uuid.UUID) (PreviewSelection, exerciseModel.Variant, error) {
 	if err := u.RequireManageEvent(ctx, event, user); err != nil {

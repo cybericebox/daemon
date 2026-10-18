@@ -25236,6 +25236,9 @@ const docTemplate = `{
         "event.PreviewCatalogItem": {
             "type": "object",
             "properties": {
+                "Eligible": {
+                    "type": "boolean"
+                },
                 "ExerciseVersionID": {
                     "type": "string"
                 },
@@ -25246,6 +25249,9 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "Name": {
+                    "type": "string"
+                },
+                "Reason": {
                     "type": "string"
                 },
                 "Variants": {
