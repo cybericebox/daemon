@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -209,6 +210,10 @@ func (h *Handler) listVisibleBanners(ctx *gin.Context) {
 			Dismissible: b.Dismissible, Version: b.UpdatedAt.UnixMilli(),
 		})
 	}
-	ctx.Header("Cache-Control", "no-store")
-	response.AbortWithData(ctx, out)
+	// Anonymous answers are the same for everyone: the browser may reuse them for a short while.
+	var freshFor time.Duration
+	if userID == nil {
+		freshFor = 30 * time.Second
+	}
+	response.AbortWithETagData(ctx, out, freshFor)
 }

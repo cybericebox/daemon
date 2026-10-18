@@ -28,7 +28,6 @@ POST   /api/auth/account/email | gate: self | layers: middleware.RateLimitPerUse
 POST   /api/auth/account/email/confirm | gate: - | layers: -
 PATCH  /api/auth/account/profile | gate: self | layers: -
 GET    /api/auth/avatar/:id | gate: - | layers: middleware.PublicMedia
-GET    /api/auth/event-render-key | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
 GET    /api/auth/google | gate: - | layers: -
 GET    /api/auth/google/callback | gate: - | layers: -
 DELETE /api/auth/google/link | gate: self | layers: -
@@ -57,15 +56,9 @@ PUT    /api/events/:id | gate: events.write | layers: -
 POST   /api/events/:id/archive | gate: events.write | layers: -
 GET    /api/events/:id/config | gate: events.read | layers: -
 PUT    /api/events/:id/config | gate: events.write | layers: event.requireWritableEvent
-GET    /api/events/:id/content | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content-images/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
-GET    /api/events/:id/content/document | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content/pages | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/content/pages/:slug | gate: events.content.read(public) | layers: -
-GET    /api/events/:id/content/pages/:slug/access | gate: events.content.read(public) | layers: -
-GET    /api/events/:id/content/pages/:slug/document | gate: events.content.read(public) | layers: -
-GET    /api/events/:id/content/pages/:slug/values | gate: events.content.read(public) | layers: -
-GET    /api/events/:id/content/values | gate: events.content.read(public) | layers: -
 GET    /api/events/:id/favicon/:fileID | gate: events.content.read(public) | layers: middleware.PublicMedia
 GET    /api/events/:id/forms/:formID | gate: self | layers: eventself.touchPresence
 POST   /api/events/:id/forms/:formID/response | gate: self | layers: eventself.touchPresence
@@ -363,10 +356,7 @@ GET    /api/events/self/participant-info | gate: self | layers: middleware.Resol
 PUT    /api/events/self/pseudonym | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/public-info | gate: events.content.read(public) | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 POST   /api/events/self/render-grant | gate: self | layers: eventself.(*EventRenderHandler).noStore,eventself.(*EventRenderHandler).resolveGrantTenant
-GET    /api/events/self/render-manifest | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
-GET    /api/events/self/render-page | gate: events.content.read(public) | layers: eventself.(*EventRenderHandler).noStore
 GET    /api/events/self/team-fields | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
-GET    /api/events/upcoming | gate: - | layers: -
 GET    /api/exercises | gate: self | layers: -
 POST   /api/exercises | gate: self | layers: -
 DELETE /api/exercises/:id | gate: self | layers: exercise.authorize.func
@@ -539,6 +529,9 @@ GET    /api/notifications/templates/inapp/latest | gate: notifications.templates
 POST   /api/notifications/test | gate: notifications.test | layers: -
 GET    /api/notifications/types | gate: notifications.templates.read | layers: -
 GET    /api/notifications/types/:type | gate: notifications.templates.read | layers: -
+GET    /api/render/events/:tag/manifest | gate: - | layers: eventself.(*EventRenderHandler).requireSecret
+GET    /api/render/events/:tag/page | gate: - | layers: eventself.(*EventRenderHandler).requireSecret
+GET    /api/render/key | gate: - | layers: eventself.(*EventRenderHandler).requireSecret
 GET    /api/settings | gate: platform.settings.read | layers: -
 GET    /api/settings/:key | gate: platform.settings.read | layers: -
 PUT    /api/settings/:key | gate: platform.settings.write | layers: -

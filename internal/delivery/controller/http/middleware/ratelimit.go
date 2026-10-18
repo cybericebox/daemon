@@ -189,7 +189,9 @@ func UngatedPublicRoutes() []string {
 		"GET /api/auth/google/register",
 		"GET /api/auth/google/setup",
 		"GET /api/auth/google/callback",
-		"GET /api/events/upcoming",
+		"GET /api/render/key",
+		"GET /api/render/events/:tag/manifest",
+		"GET /api/render/events/:tag/page",
 	}
 }
 

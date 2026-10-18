@@ -142,11 +142,11 @@ func TestEventContentImageIsIndependentAndEventScoped(t *testing.T) {
 	require.Equal(t, "/api/events/"+eventID.String()+"/content-images/"+fileID.String(), url)
 	require.Equal(t, []uuid.UUID{fileID}, media.contentRefs[eventID])
 	require.Len(t, media.previewRefs, 1, "upload must leave the event preview untouched")
-	reader, contentType, err := u.StreamEventContentImage(ctx, eventID, fileID)
+	reader, contentType, err := streamMedia(u, event.EventMediaContentImage)(ctx, eventID, fileID)
 	require.NoError(t, err)
 	require.Equal(t, "image/png", contentType)
 	require.NoError(t, reader.Close())
-	_, _, err = u.StreamEventContentImage(ctx, otherEventID, fileID)
+	_, _, err = streamMedia(u, event.EventMediaContentImage)(ctx, otherEventID, fileID)
 	require.Error(t, err, "another event must not serve this image")
 }
 
@@ -166,7 +166,7 @@ func TestEventContentImageAcceptsAnimatedGIF(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/api/events/"+eventID.String()+"/content-images/"+fileID.String(), url)
 	require.Equal(t, "image/gif", media.mime)
-	reader, contentType, err := u.StreamEventContentImage(ctx, eventID, fileID)
+	reader, contentType, err := streamMedia(u, event.EventMediaContentImage)(ctx, eventID, fileID)
 	require.NoError(t, err)
 	require.Equal(t, "image/gif", contentType)
 	require.NoError(t, reader.Close())
@@ -197,10 +197,10 @@ func TestEventLogoUploadReadAndReset(t *testing.T) {
 	if got, err := u.EventLogoURL(ctx, eventID); err != nil || got != want {
 		t.Fatalf("logo url: %q, %v", got, err)
 	}
-	if _, _, err := u.StreamEventLogo(ctx, eventID, uuid.Must(uuid.NewV7())); err == nil {
+	if _, _, err := streamMedia(u, event.EventMediaLogo)(ctx, eventID, uuid.Must(uuid.NewV7())); err == nil {
 		t.Fatal("served a non-current logo")
 	}
-	reader, mime, err := u.StreamEventLogo(ctx, eventID, fileID)
+	reader, mime, err := streamMedia(u, event.EventMediaLogo)(ctx, eventID, fileID)
 	if err != nil || mime != "image/png" {
 		t.Fatalf("stream: %q, %v", mime, err)
 	}
@@ -262,10 +262,10 @@ func TestEventPreviewPictureUploadReadAndReset(t *testing.T) {
 	if err != nil || gotURL != wantURL || len(media.previewRefs) != 1 || media.previewRefs[0] != fileID {
 		t.Fatalf("upload: %q, refs %+v, %v", gotURL, media.previewRefs, err)
 	}
-	if _, _, err := u.StreamEventPreviewPicture(ctx, eventID, uuid.Must(uuid.NewV7())); err == nil {
+	if _, _, err := streamMedia(u, event.EventMediaPreviewPicture)(ctx, eventID, uuid.Must(uuid.NewV7())); err == nil {
 		t.Fatal("served a non-current preview")
 	}
-	reader, mime, err := u.StreamEventPreviewPicture(ctx, eventID, fileID)
+	reader, mime, err := streamMedia(u, event.EventMediaPreviewPicture)(ctx, eventID, fileID)
 	if err != nil || mime != "image/png" {
 		t.Fatalf("stream: %q, %v", mime, err)
 	}
@@ -338,19 +338,19 @@ func TestEventMediaOfAnUnpublishedEventIsForItsStaffOnly(t *testing.T) {
 	published := startedEvent(eventID, time.Now())
 	streams := map[string]func(*event.EventUseCase, context.Context) error{
 		"logo": func(u *event.EventUseCase, c context.Context) error {
-			_, _, err := u.StreamEventLogo(c, eventID, logoID)
+			_, _, err := streamMedia(u, event.EventMediaLogo)(c, eventID, logoID)
 			return err
 		},
 		"favicon": func(u *event.EventUseCase, c context.Context) error {
-			_, _, err := u.StreamEventFavicon(c, eventID, logoID)
+			_, _, err := streamMedia(u, event.EventMediaFavicon)(c, eventID, logoID)
 			return err
 		},
 		"preview": func(u *event.EventUseCase, c context.Context) error {
-			_, _, err := u.StreamEventPreviewPicture(c, eventID, logoID)
+			_, _, err := streamMedia(u, event.EventMediaPreviewPicture)(c, eventID, logoID)
 			return err
 		},
 		"content": func(u *event.EventUseCase, c context.Context) error {
-			_, _, err := u.StreamEventContentImage(c, eventID, logoID)
+			_, _, err := streamMedia(u, event.EventMediaContentImage)(c, eventID, logoID)
 			return err
 		},
 	}
@@ -396,13 +396,13 @@ func TestWithdrawnEventMediaIsPrivateToStaff(t *testing.T) {
 			var err error
 			switch kind {
 			case "logo":
-				_, _, err = u.StreamEventLogo(context.Background(), eventID, fileID)
+				_, _, err = streamMedia(u, event.EventMediaLogo)(context.Background(), eventID, fileID)
 			case "favicon":
-				_, _, err = u.StreamEventFavicon(context.Background(), eventID, fileID)
+				_, _, err = streamMedia(u, event.EventMediaFavicon)(context.Background(), eventID, fileID)
 			case "preview":
-				_, _, err = u.StreamEventPreviewPicture(context.Background(), eventID, fileID)
+				_, _, err = streamMedia(u, event.EventMediaPreviewPicture)(context.Background(), eventID, fileID)
 			case "content":
-				_, _, err = u.StreamEventContentImage(context.Background(), eventID, fileID)
+				_, _, err = streamMedia(u, event.EventMediaContentImage)(context.Background(), eventID, fileID)
 			}
 			require.ErrorIs(t, err, eventModel.ErrEventNotFound.Err())
 		})

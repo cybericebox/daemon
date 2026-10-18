@@ -2,10 +2,11 @@ package eventself
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -33,6 +34,8 @@ type EventRenderHandler struct {
 	uc        EventRenderUseCase
 	prot      IProtection
 	hosts     config.HostsConfig
+	secret    [sha256.Size]byte
+	secretSet bool
 	signer    *eventrender.Signer
 	now       func() time.Time
 	wait      func(context.Context, time.Duration) error
@@ -44,25 +47,54 @@ func NewEventRenderAPIHandler(uc EventRenderUseCase, prot IProtection, cfg confi
 	if err != nil {
 		panic(fmt.Errorf("configure event render signer: %w", err))
 	}
-	return &EventRenderHandler{uc: uc, prot: prot, hosts: cfg.Hosts, signer: signer, now: time.Now, wait: waitForRenderDenial, admission: make(chan struct{}, renderMaxInFlight)}
+	h := &EventRenderHandler{uc: uc, prot: prot, hosts: cfg.Hosts, signer: signer, now: time.Now, wait: waitForRenderDenial, admission: make(chan struct{}, renderMaxInFlight)}
+	if cfg.RenderSecret != "" {
+		h.secret, h.secretSet = sha256.Sum256([]byte(cfg.RenderSecret)), true
+	}
+	return h
 }
 func (h *EventRenderHandler) Init(router *gin.RouterGroup) {
-	router.GET("auth/event-render-key", h.noStore, h.prot.RequirePermission(rbac.PermEventContentRead), h.key)
 	// Issuance retains the ordinary API session gate and tenant/staff policy.
 	router.POST("events/self/render-grant", h.noStore, h.prot.RequirePermission(rbac.PermSelf), h.resolveGrantTenant, h.grant)
-	// Grants are consumed only inside these handlers. They never inject rbac.Claims,
-	// so even a valid render token cannot authenticate any other route or mutation.
-	reads := router.Group("events/self", h.noStore, h.prot.RequirePermission(rbac.PermEventContentRead))
-	reads.GET("render-manifest", h.manifest)
-	reads.GET("render-page", h.page)
+	// The render routes are for the event-frontend server only: the shared render secret is their
+	// whole gate (no permission, no Origin), and without it they do not exist (404). Grants are
+	// consumed only inside these handlers. They never inject rbac.Claims, so even a valid render
+	// token cannot authenticate any other route or mutation.
+	server := router.Group("render", h.requireSecret)
+	server.GET("key", h.key)
+	server.GET("events/:tag/manifest", h.manifest)
+	server.GET("events/:tag/page", h.page)
+}
+
+// renderSecretHeader carries the render secret from the event-frontend server.
+const renderSecretHeader = "X-Render-Secret"
+
+// requireSecret answers 404 to anyone without the render secret (constant-time comparison of the
+// digests, so neither the value nor its length leaks), and bounds the in-flight render work.
+func (h *EventRenderHandler) requireSecret(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "private, no-store")
+	got := sha256.Sum256([]byte(ctx.GetHeader(renderSecretHeader)))
+	if !h.secretSet || subtle.ConstantTimeCompare(got[:], h.secret[:]) != 1 {
+		response.AbortWithNotFound(ctx)
+		return
+	}
+	select {
+	case h.admission <- struct{}{}:
+		defer func() { <-h.admission }()
+	default:
+		response.AbortWithTooManyRequests(ctx, time.Second)
+		return
+	}
+	ctx.Next()
 }
 
 // key godoc
-// @Summary Read the event common-page grant verification key
-// @Tags auth
+// @Summary Read the event common-page grant verification key (event-frontend server only)
+// @Tags render
 // @Produce json
+// @Param X-Render-Secret header string true "render secret"
 // @Success 200 {object} response.Response{data=eventrender.Key}
-// @Router /auth/event-render-key [get]
+// @Router /render/key [get]
 func (h *EventRenderHandler) key(ctx *gin.Context) {
 	if h.signer == nil {
 		ctx.AbortWithStatus(http.StatusServiceUnavailable)
@@ -123,17 +155,13 @@ func (h *EventRenderHandler) grant(ctx *gin.Context) {
 
 var renderSlug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// renderAccess resolves the tenant with exact canonical Origin matching. A
-// signed preview flag grants only published common-page reads for that event.
+var renderTag = regexp.MustCompile(`^[a-z0-9]{1,63}$`)
+
+// renderAccess resolves the event named by the :tag parameter. A signed preview
+// flag grants only published common-page reads for that event.
 func (h *EventRenderHandler) renderAccess(ctx *gin.Context) (uuid.UUID, bool, bool) {
-	origin := ctx.GetHeader("Origin")
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Host == "" {
-		response.AbortWithNotFound(ctx)
-		return uuid.Nil, false, false
-	}
-	tag, ok := h.hosts.EventTag(parsed.Hostname())
-	if !ok || origin != strings.TrimSuffix(h.hosts.EventURL(tag), "/") {
+	tag := ctx.Param("tag")
+	if !renderTag.MatchString(tag) {
 		response.AbortWithNotFound(ctx)
 		return uuid.Nil, false, false
 	}
@@ -148,7 +176,8 @@ func (h *EventRenderHandler) renderAccess(ctx *gin.Context) (uuid.UUID, bool, bo
 			response.AbortWithNotFound(ctx)
 			return uuid.Nil, false, false
 		}
-		claims, err := h.signer.Verify(strings.TrimPrefix(authorization, "EventRender "), origin, tenant.EventID, time.Now().UTC())
+		audience := strings.TrimSuffix(h.hosts.EventURL(tag), "/")
+		claims, err := h.signer.Verify(strings.TrimPrefix(authorization, "EventRender "), audience, tenant.EventID, time.Now().UTC())
 		if err != nil {
 			response.AbortWithNotFound(ctx)
 			return uuid.Nil, false, false
@@ -201,12 +230,14 @@ type eventRenderDocumentResponse struct {
 }
 
 // manifest godoc
-// @Summary Check common-page visibility and lightweight publication revision
-// @Tags events-self
+// @Summary Check common-page visibility and lightweight publication revision (event-frontend server only)
+// @Tags render
 // @Produce json
+// @Param X-Render-Secret header string true "render secret"
+// @Param tag path string true "event tag"
 // @Param page query string false "published public page slug, empty for landing"
 // @Success 200 {object} response.Response{data=eventRenderManifestResponse}
-// @Router /events/self/render-manifest [get]
+// @Router /render/events/{tag}/manifest [get]
 func (h *EventRenderHandler) manifest(ctx *gin.Context) {
 	slug, ok := renderSlugFromQuery(ctx)
 	if !ok {
@@ -225,14 +256,16 @@ func (h *EventRenderHandler) manifest(ctx *gin.Context) {
 }
 
 // page godoc
-// @Summary Read the published PUBLIC-only document and values for an exact revision
-// @Tags events-self
+// @Summary Read the published PUBLIC-only document and values for an exact revision (event-frontend server only)
+// @Tags render
 // @Produce json
+// @Param X-Render-Secret header string true "render secret"
+// @Param tag path string true "event tag"
 // @Param page query string false "published public page slug, empty for landing"
 // @Param revision query string true "manifest revision"
 // @Success 200 {object} response.Response{data=eventRenderPageResponse}
 // @Failure 409 {object} response.Response
-// @Router /events/self/render-page [get]
+// @Router /render/events/{tag}/page [get]
 func (h *EventRenderHandler) page(ctx *gin.Context) {
 	slug, ok := renderSlugFromQuery(ctx)
 	if !ok {
@@ -251,6 +284,10 @@ func (h *EventRenderHandler) page(ctx *gin.Context) {
 	if err != nil {
 		h.readError(ctx, err)
 		return
+	}
+	if !preview {
+		// A revision names one exact content: the server may keep this answer for good.
+		ctx.Header("Cache-Control", "private, max-age=31536000, immutable")
 	}
 	response.AbortWithData(ctx, eventRenderPageResponse{Revision: view.Revision, Event: toPublicEventInfoResponse(view.Event), Page: eventRenderDocumentResponse{Slug: view.Page.Slug, Title: view.Page.Title, Document: view.Document}, Variables: view.Variables, Images: view.Images})
 }

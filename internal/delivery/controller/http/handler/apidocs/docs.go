@@ -1402,37 +1402,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/auth/event-render-key": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "auth"
-                ],
-                "summary": "Read the event common-page grant verification key",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/eventrender.Key"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
         "/auth/google": {
             "get": {
                 "tags": [
@@ -2753,129 +2722,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/events/self/render-manifest": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "events-self"
-                ],
-                "summary": "Check common-page visibility and lightweight publication revision",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "published public page slug, empty for landing",
-                        "name": "page",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/eventself.eventRenderManifestResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/events/self/render-page": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "events-self"
-                ],
-                "summary": "Read the published PUBLIC-only document and values for an exact revision",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "published public page slug, empty for landing",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "manifest revision",
-                        "name": "revision",
-                        "in": "query",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/eventself.eventRenderPageResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/response.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/events/upcoming": {
-            "get": {
-                "description": "Public (no auth). Currently always returns data: null — events have no public visibility yet. Once they do: a running public event wins (earliest start among started), otherwise the published public event with the nearest future start. Cacheable for 60 seconds.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "events"
-                ],
-                "summary": "Get the nearest public event for the platform landing page",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/event.upcomingEventResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
         "/events/{id}": {
             "get": {
                 "produces": [
@@ -3153,46 +2999,6 @@ const docTemplate = `{
                         "description": "Bad Request",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/events/{id}/content": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "events-self"
-                ],
-                "summary": "Read published event landing content",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "event ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/response.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/eventself.publicEventContentResponse"
-                                        }
-                                    }
-                                }
-                            ]
                         }
                     }
                 }
@@ -22926,6 +22732,165 @@ const docTemplate = `{
                 }
             }
         },
+        "/render/events/{tag}/manifest": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "render"
+                ],
+                "summary": "Check common-page visibility and lightweight publication revision (event-frontend server only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "render secret",
+                        "name": "X-Render-Secret",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "event tag",
+                        "name": "tag",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "published public page slug, empty for landing",
+                        "name": "page",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.eventRenderManifestResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/render/events/{tag}/page": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "render"
+                ],
+                "summary": "Read the published PUBLIC-only document and values for an exact revision (event-frontend server only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "render secret",
+                        "name": "X-Render-Secret",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "event tag",
+                        "name": "tag",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "published public page slug, empty for landing",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "manifest revision",
+                        "name": "revision",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventself.eventRenderPageResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/render/key": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "render"
+                ],
+                "summary": "Read the event common-page grant verification key (event-frontend server only)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "render secret",
+                        "name": "X-Render-Secret",
+                        "in": "header",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/eventrender.Key"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/settings": {
             "get": {
                 "produces": [
@@ -28427,37 +28392,6 @@ const docTemplate = `{
                 }
             }
         },
-        "event.upcomingEventResponse": {
-            "type": "object",
-            "properties": {
-                "FinishAt": {
-                    "type": "string"
-                },
-                "LogoURL": {
-                    "type": "string"
-                },
-                "Name": {
-                    "type": "string"
-                },
-                "Registration": {
-                    "type": "string",
-                    "enum": [
-                        "open",
-                        "approval",
-                        "close"
-                    ]
-                },
-                "StartAt": {
-                    "type": "string"
-                },
-                "Tag": {
-                    "type": "string"
-                },
-                "URL": {
-                    "type": "string"
-                }
-            }
-        },
         "event.updateChallengeGroupRequest": {
             "type": "object",
             "properties": {
@@ -32167,17 +32101,6 @@ const docTemplate = `{
                 },
                 "TeamName": {
                     "type": "string"
-                }
-            }
-        },
-        "eventself.publicEventContentResponse": {
-            "type": "object",
-            "properties": {
-                "Landing": {},
-                "Live": {},
-                "Variables": {
-                    "type": "object",
-                    "additionalProperties": {}
                 }
             }
         },

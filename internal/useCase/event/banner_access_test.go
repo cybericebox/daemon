@@ -51,9 +51,9 @@ func TestBannerStreamsRecheckPublicationStaffAccessAndReferences(t *testing.T) {
 				previewRefs: []uuid.UUID{fileID}, contentRefs: map[uuid.UUID][]uuid.UUID{eventID: {fileID}},
 			}}
 			u := event.NewEventUseCase(event.Dependencies{Repo: q, BrandMedia: media})
-			stream := u.StreamEventPreviewPicture
+			stream := streamMedia(u, event.EventMediaPreviewPicture)
 			if kind == "content" {
-				stream = u.StreamEventContentImage
+				stream = streamMedia(u, event.EventMediaContentImage)
 			}
 			read := func(ctx context.Context) error {
 				r, _, err := stream(ctx, eventID, fileID)

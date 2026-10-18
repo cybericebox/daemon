@@ -1,6 +1,8 @@
 package eventself
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
@@ -9,62 +11,24 @@ import (
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 )
 
+// publicReadFreshFor is how long a browser reuses an anonymous answer of a public read before it asks again.
+const publicReadFreshFor = 30 * time.Second
+
+// anonymousFreshFor is publicReadFreshFor for a caller with no session, and 0 (always revalidate) for a
+// signed-in one, whose answer may differ (staff see more).
+func anonymousFreshFor(ctx *gin.Context) time.Duration {
+	if _, signedIn := rbac.CurrentUserSessionFromContext(ctx.Request.Context()); signedIn {
+		return 0
+	}
+	return publicReadFreshFor
+}
+
 func contentAccess(ctx *gin.Context) eventUseCase.ContentAccess {
 	access := eventUseCase.ContentAccess{Role: rbac.RolePublic}
 	if claims, found := rbac.CurrentUserSessionFromContext(ctx.Request.Context()); found {
 		access.UserID, access.Role = &claims.UserID, claims.Role
 	}
 	return access
-}
-
-// publicContent godoc
-// @Summary Read published event landing content
-// @Tags events-self
-// @Produce json
-// @Param id path string true "event ID"
-// @Success 200 {object} response.Response{data=publicEventContentResponse}
-// @Router /events/{id}/content [get]
-func (h *Handler) publicContent(ctx *gin.Context) {
-	eventID, ok := eventIDFromPath(ctx)
-	if !ok {
-		return
-	}
-	content, err := h.useCase.GetPublicEventContent(ctx, eventID, contentAccess(ctx))
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, toPublicEventContentResponse(content))
-}
-
-func (h *Handler) publicContentDocument(ctx *gin.Context) {
-	eventID, ok := eventIDFromPath(ctx)
-	if !ok {
-		return
-	}
-	content, err := h.useCase.GetPublicEventContent(ctx, eventID, eventUseCase.ContentAccess{Role: rbac.RolePublic})
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, struct {
-		Landing any `json:"Landing"`
-	}{Landing: content.Landing})
-}
-
-func (h *Handler) publicContentValues(ctx *gin.Context) {
-	eventID, ok := eventIDFromPath(ctx)
-	if !ok {
-		return
-	}
-	content, err := h.useCase.GetPublicEventContent(ctx, eventID, eventUseCase.ContentAccess{Role: rbac.RolePublic})
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, struct {
-		Variables map[string]any `json:"Variables"`
-	}{Variables: content.Variables})
 }
 
 func (h *Handler) visiblePages(ctx *gin.Context) {
@@ -77,8 +41,7 @@ func (h *Handler) visiblePages(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	ctx.Header("Cache-Control", "private, no-store")
-	response.AbortWithData(ctx, pages)
+	response.AbortWithETagData(ctx, pages, anonymousFreshFor(ctx))
 }
 
 // publicPage godoc
@@ -103,48 +66,4 @@ func (h *Handler) publicPage(ctx *gin.Context) {
 		ctx.Header("Cache-Control", "private, no-store")
 	}
 	response.AbortWithData(ctx, toPublicEventPageResponse(page))
-}
-
-func (h *Handler) publicPageAccess(ctx *gin.Context) {
-	eventID, ok := eventIDFromPath(ctx)
-	if !ok {
-		return
-	}
-	if err := h.useCase.RequirePublicEventPage(ctx, eventID, ctx.Param("slug")); err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	ctx.Header("Cache-Control", "no-store")
-	ctx.Status(204)
-	ctx.Writer.WriteHeaderNow()
-}
-
-func (h *Handler) publicPageDocument(ctx *gin.Context) {
-	eventID, ok := eventIDFromPath(ctx)
-	if !ok {
-		return
-	}
-	page, err := h.useCase.GetPublicEventPage(ctx, eventID, ctx.Param("slug"), eventUseCase.ContentAccess{Role: rbac.RolePublic})
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, struct {
-		Page any `json:"Page"`
-	}{Page: page.Page})
-}
-
-func (h *Handler) publicPageValues(ctx *gin.Context) {
-	eventID, ok := eventIDFromPath(ctx)
-	if !ok {
-		return
-	}
-	page, err := h.useCase.GetPublicEventPage(ctx, eventID, ctx.Param("slug"), eventUseCase.ContentAccess{Role: rbac.RolePublic})
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	response.AbortWithData(ctx, struct {
-		Variables map[string]any `json:"Variables"`
-	}{Variables: page.Variables})
 }

@@ -12,11 +12,16 @@ import (
 	"github.com/gofrs/uuid"
 
 	eventHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/event"
+	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 )
 
 type logoStreamFake struct{ eventHandler.IUseCase }
 
-func (logoStreamFake) StreamEventLogo(_ context.Context, _, _ uuid.UUID) (io.ReadCloser, string, error) {
+func (logoStreamFake) CheckEventMedia(context.Context, eventUseCase.EventMediaKind, uuid.UUID, uuid.UUID) (bool, error) {
+	return true, nil
+}
+
+func (logoStreamFake) OpenEventMedia(context.Context, uuid.UUID) (io.ReadCloser, string, error) {
 	return io.NopCloser(strings.NewReader("image-bytes")), "image/png", nil
 }
 

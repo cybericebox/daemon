@@ -245,7 +245,9 @@ var publicRoutes = map[string]string{
 	"GET /api/auth/google/register":         "OAuth registration redirect",
 	"GET /api/auth/google/setup":            "OAuth setup-link redirect; the email must match the account",
 	"GET /api/auth/google/callback":         "OAuth callback; state cookie double-submit",
-	"GET /api/events/upcoming":              "landing card of the nearest published event (public data only)",
+	"GET /api/render/key":                   "event-frontend server only: the render secret is the credential, 404 without it",
+	"GET /api/render/events/:tag/manifest":  "event-frontend server only: the render secret is the credential, 404 without it",
+	"GET /api/render/events/:tag/page":      "event-frontend server only: the render secret is the credential, 404 without it",
 }
 
 // selfWithoutLayerPrefixes are the areas where PermSelf alone is the whole route

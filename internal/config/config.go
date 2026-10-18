@@ -259,6 +259,8 @@ type (
 		// SessionEncryptionKey seals the session cookie (AES-256-GCM): one 64-hex-char key, or a keyring of
 		// id:hex entries whose first key seals and every key opens (rotation without signing everyone out). Secret.
 		SessionEncryptionKey string `env:"SESSION_ENCRYPTION_KEY"`
+		// RenderSecret is shared with the event-frontend server, the only caller of /api/render/*. Secret.
+		RenderSecret string `env:"RENDER_SECRET"`
 		// SessionRevocationStaleAfter is how long the poll of the revoked-session list may keep failing before the
 		// replica refuses signed-in requests rather than trust a stale list.
 		SessionRevocationStaleAfter time.Duration `env:"SESSION_REVOCATION_STALE_AFTER" envDefault:"30s"`
@@ -914,6 +916,9 @@ func (c AuthConfig) ValidateSession() error {
 	}
 	if _, err := secret.New(c.SessionEncryptionKey); err != nil {
 		return fmt.Errorf("session: SESSION_ENCRYPTION_KEY is invalid (one 64-hex-char key, or a keyring of id:hex entries): %w", err)
+	}
+	if len(c.RenderSecret) < 32 {
+		return errors.New("render: RENDER_SECRET is required (at least 32 characters, shared with the event frontend)")
 	}
 	if c.SessionIdleTTL < time.Minute {
 		return errors.New("session: SESSION_IDLE_TTL must be at least 1m")
