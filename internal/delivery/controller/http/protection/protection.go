@@ -131,6 +131,9 @@ func (p *Protection) RequirePermission(required rbac.Permission) gin.HandlerFunc
 	}
 }
 
+// auditRecordTimeout bounds writing one audit entry, detached from the request.
+const auditRecordTimeout = 10 * time.Second
+
 // recordAudit writes the audit entry of an administrative action with the
 // status the client actually gets (a handler's error is only written by the
 // outer error handler, after this middleware returns).
@@ -146,7 +149,10 @@ func (p *Protection) recordAudit(ctx *gin.Context, required rbac.Permission, sta
 	if target == "" {
 		target = routeTarget(ctx)
 	}
-	if err := p.useCase.RecordAdminAction(ctx.Request.Context(), adminAuditUseCase.Entry{
+	// The record must outlive a client that went away (or a deadline that cut the request): the action happened.
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx.Request.Context()), auditRecordTimeout)
+	defer cancel()
+	if err := p.useCase.RecordAdminAction(auditCtx, adminAuditUseCase.Entry{
 		ActorID: claims.UserID, Permission: string(required), Method: ctx.Request.Method,
 		Route: ctx.FullPath(), ResponseStatus: status, Target: target,
 	}); err != nil {

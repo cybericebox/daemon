@@ -41,6 +41,9 @@ func TransferRoutes() []string {
 		"/api/notifications/templates/email/images",
 		"/api/exercises/files",
 		"/api/exercises/import",
+		"/api/exercises/import/upload",
+		"/api/exercises/import/uploaded",
+		"/api/exercises/uploads/:uploadID/complete",
 		"/api/exercises/uploads/:uploadID/chunks/:index",
 		// file downloads
 		"/api/exercises/files/:fileID",
