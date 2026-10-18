@@ -11327,6 +11327,59 @@
                 }
             }
         },
+        "/events/{id}/manage/registry-secrets/{secretId}/check": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event-registry"
+                ],
+                "summary": "Check a registry secret of the event now (authentication only) and return it with the result",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Secret ID",
+                        "name": "secretId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.eventSecretResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "no such secret in this event",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/resource-plan": {
             "get": {
                 "description": "What the event reserves. Per attached task its totals (CPU, memory, devices; the least and the most over its variants) and what planning reserves (the largest variant, the pinned one for a fixed variant); the group overhead as a separate line (the VPN sized by the event's maximum team size and the gateway sized by the group's internet labs, with the laboratories' formula); the per-team sum and the total for the teams. Never names a laboratory.",
@@ -23142,6 +23195,43 @@
                 }
             }
         },
+        "/settings/image-registry/check": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "settings"
+                ],
+                "summary": "Check the platform registry tokens now (authentication only) and return the settings with the results",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/imageRegistry.settingsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "409": {
+                        "description": "the registry is not configured, or secret storage is not configured",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/settings/image-registry/repositories": {
             "post": {
                 "consumes": [
@@ -34680,6 +34770,26 @@
                 }
             }
         },
+        "imageRegistry.checkResponse": {
+            "type": "object",
+            "properties": {
+                "AttemptedAt": {
+                    "type": "string"
+                },
+                "CheckedAt": {
+                    "type": "string"
+                },
+                "Failure": {
+                    "type": "string"
+                },
+                "Reason": {
+                    "type": "string"
+                },
+                "State": {
+                    "type": "string"
+                }
+            }
+        },
         "imageRegistry.eventExerciseImagesResponse": {
             "type": "object",
             "properties": {
@@ -34720,6 +34830,14 @@
         "imageRegistry.eventSecretResponse": {
             "type": "object",
             "properties": {
+                "Check": {
+                    "description": "Check is the last result of the periodic credential check.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/imageRegistry.checkResponse"
+                        }
+                    ]
+                },
                 "Host": {
                     "type": "string"
                 },
@@ -34797,8 +34915,19 @@
                 "Provider": {
                     "type": "string"
                 },
+                "PullCheck": {
+                    "$ref": "#/definitions/imageRegistry.checkResponse"
+                },
                 "PullTokenSet": {
                     "type": "boolean"
+                },
+                "PushCheck": {
+                    "description": "PushCheck and PullCheck are the last results of the periodic credential check (PullCheck is empty without\na pull token).",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/imageRegistry.checkResponse"
+                        }
+                    ]
                 },
                 "PushTokenSet": {
                     "type": "boolean"

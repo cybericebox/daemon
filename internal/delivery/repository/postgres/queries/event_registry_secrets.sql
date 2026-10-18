@@ -31,3 +31,32 @@ DELETE
 FROM event_registry_secrets
 WHERE id = $1
   AND event_id = $2;
+
+-- name: UpdateEventRegistrySecretCheck :execrows
+-- The periodic check result, written apart from the editable entity (the narrow-query exception, like the
+-- batched last_seen): only while the secret is still the one that was checked (updated_at), so a result for a
+-- token that was replaced meanwhile is dropped.
+UPDATE event_registry_secrets
+SET credential_check = $3
+WHERE id = $1
+  AND updated_at = $2;
+
+-- name: ListEventRegistrySecretsToCheck :many
+-- The secrets the periodic check covers: those of events that are not finished and not archived.
+SELECT s.id, s.event_id, s.host, s.repository_prefix, s.username, s.token_ciphertext, s.created_at, s.updated_at,
+       s.credential_check, e.tag AS event_tag, e.name AS event_name
+FROM event_registry_secrets s
+         JOIN events e ON e.id = s.event_id
+WHERE (e.finish_at IS NULL OR e.finish_at > sqlc.arg(now)::timestamptz)
+  AND (e.archive_at IS NULL OR e.archive_at > sqlc.arg(now)::timestamptz)
+ORDER BY s.event_id, s.host, s.repository_prefix;
+
+-- name: ListEndedBrokenEventRegistrySecrets :many
+-- Secrets still marked broken whose event has finished or been archived: their alert is closed.
+SELECT s.*
+FROM event_registry_secrets s
+         JOIN events e ON e.id = s.event_id
+WHERE s.credential_check ->> 'state' = 'broken'
+  AND ((e.finish_at IS NOT NULL AND e.finish_at <= sqlc.arg(now)::timestamptz)
+    OR (e.archive_at IS NOT NULL AND e.archive_at <= sqlc.arg(now)::timestamptz))
+ORDER BY s.event_id, s.host, s.repository_prefix;

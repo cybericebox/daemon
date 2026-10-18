@@ -33,7 +33,7 @@ func (q *Queries) DeleteEventRegistrySecret(ctx context.Context, arg DeleteEvent
 }
 
 const getEventRegistrySecret = `-- name: GetEventRegistrySecret :one
-SELECT id, event_id, host, repository_prefix, username, token_ciphertext, created_at, updated_at
+SELECT id, event_id, host, repository_prefix, username, token_ciphertext, created_at, updated_at, credential_check
 FROM event_registry_secrets
 WHERE id = $1
   AND event_id = $2
@@ -57,6 +57,7 @@ func (q *Queries) GetEventRegistrySecret(ctx context.Context, arg GetEventRegist
 		&i.TokenCiphertext,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CredentialCheck,
 	)
 	return i, err
 }
@@ -91,8 +92,49 @@ func (q *Queries) InsertEventRegistrySecret(ctx context.Context, arg InsertEvent
 	return err
 }
 
+const listEndedBrokenEventRegistrySecrets = `-- name: ListEndedBrokenEventRegistrySecrets :many
+SELECT s.id, s.event_id, s.host, s.repository_prefix, s.username, s.token_ciphertext, s.created_at, s.updated_at, s.credential_check
+FROM event_registry_secrets s
+         JOIN events e ON e.id = s.event_id
+WHERE s.credential_check ->> 'state' = 'broken'
+  AND ((e.finish_at IS NOT NULL AND e.finish_at <= $1::timestamptz)
+    OR (e.archive_at IS NOT NULL AND e.archive_at <= $1::timestamptz))
+ORDER BY s.event_id, s.host, s.repository_prefix
+`
+
+// Secrets still marked broken whose event has finished or been archived: their alert is closed.
+func (q *Queries) ListEndedBrokenEventRegistrySecrets(ctx context.Context, now time.Time) ([]EventRegistrySecret, error) {
+	rows, err := q.db.Query(ctx, listEndedBrokenEventRegistrySecrets, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventRegistrySecret{}
+	for rows.Next() {
+		var i EventRegistrySecret
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Host,
+			&i.RepositoryPrefix,
+			&i.Username,
+			&i.TokenCiphertext,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CredentialCheck,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventRegistrySecrets = `-- name: ListEventRegistrySecrets :many
-SELECT id, event_id, host, repository_prefix, username, token_ciphertext, created_at, updated_at
+SELECT id, event_id, host, repository_prefix, username, token_ciphertext, created_at, updated_at, credential_check
 FROM event_registry_secrets
 WHERE event_id = $1
 ORDER BY host, repository_prefix
@@ -116,6 +158,64 @@ func (q *Queries) ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUI
 			&i.TokenCiphertext,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CredentialCheck,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEventRegistrySecretsToCheck = `-- name: ListEventRegistrySecretsToCheck :many
+SELECT s.id, s.event_id, s.host, s.repository_prefix, s.username, s.token_ciphertext, s.created_at, s.updated_at,
+       s.credential_check, e.tag AS event_tag, e.name AS event_name
+FROM event_registry_secrets s
+         JOIN events e ON e.id = s.event_id
+WHERE (e.finish_at IS NULL OR e.finish_at > $1::timestamptz)
+  AND (e.archive_at IS NULL OR e.archive_at > $1::timestamptz)
+ORDER BY s.event_id, s.host, s.repository_prefix
+`
+
+type ListEventRegistrySecretsToCheckRow struct {
+	ID               uuid.UUID `json:"id"`
+	EventID          uuid.UUID `json:"event_id"`
+	Host             string    `json:"host"`
+	RepositoryPrefix string    `json:"repository_prefix"`
+	Username         string    `json:"username"`
+	TokenCiphertext  string    `json:"token_ciphertext"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	CredentialCheck  []byte    `json:"credential_check"`
+	EventTag         string    `json:"event_tag"`
+	EventName        string    `json:"event_name"`
+}
+
+// The secrets the periodic check covers: those of events that are not finished and not archived.
+func (q *Queries) ListEventRegistrySecretsToCheck(ctx context.Context, now time.Time) ([]ListEventRegistrySecretsToCheckRow, error) {
+	rows, err := q.db.Query(ctx, listEventRegistrySecretsToCheck, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEventRegistrySecretsToCheckRow{}
+	for rows.Next() {
+		var i ListEventRegistrySecretsToCheckRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Host,
+			&i.RepositoryPrefix,
+			&i.Username,
+			&i.TokenCiphertext,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CredentialCheck,
+			&i.EventTag,
+			&i.EventName,
 		); err != nil {
 			return nil, err
 		}
@@ -159,6 +259,30 @@ func (q *Queries) UpdateEventRegistrySecret(ctx context.Context, arg UpdateEvent
 		arg.TokenCiphertext,
 		arg.UpdatedAt,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateEventRegistrySecretCheck = `-- name: UpdateEventRegistrySecretCheck :execrows
+UPDATE event_registry_secrets
+SET credential_check = $3
+WHERE id = $1
+  AND updated_at = $2
+`
+
+type UpdateEventRegistrySecretCheckParams struct {
+	ID              uuid.UUID `json:"id"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	CredentialCheck []byte    `json:"credential_check"`
+}
+
+// The periodic check result, written apart from the editable entity (the narrow-query exception, like the
+// batched last_seen): only while the secret is still the one that was checked (updated_at), so a result for a
+// token that was replaced meanwhile is dropped.
+func (q *Queries) UpdateEventRegistrySecretCheck(ctx context.Context, arg UpdateEventRegistrySecretCheckParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateEventRegistrySecretCheck, arg.ID, arg.UpdatedAt, arg.CredentialCheck)
 	if err != nil {
 		return 0, err
 	}

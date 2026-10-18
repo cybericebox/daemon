@@ -49,6 +49,9 @@ type Settings struct {
 	PushTokenCiphertext string
 	PullTokenCiphertext string
 	UpdatedAt           time.Time
+	// PushCheck and PullCheck are the last results of the periodic credential check. They belong to the stored
+	// tokens, not to the form: SetTokens and ClearPullToken leave them alone, Verified replaces them.
+	PushCheck, PullCheck Check
 }
 
 func NewSettings(provider, account, repository string, now time.Time) (Settings, error) {
@@ -82,6 +85,16 @@ func (s *Settings) Configured() bool {
 func (s *Settings) ClearPullToken(now time.Time) {
 	s.PullTokenCiphertext = ""
 	s.UpdatedAt = now
+}
+
+// Verified records that the save itself proved the tokens: the push token always, the pull token when one is
+// used (otherwise its check is cleared, the push token pulls).
+func (s *Settings) Verified(pullChecked bool, now time.Time) {
+	s.PushCheck = Check{State: CheckOK, CheckedAt: now, AttemptedAt: now}
+	s.PullCheck = Check{}
+	if pullChecked {
+		s.PullCheck = Check{State: CheckOK, CheckedAt: now, AttemptedAt: now}
+	}
 }
 
 // SameAccount reports whether the settings belong to this provider account, so

@@ -23,7 +23,7 @@ func (q *Queries) DeleteImageRegistrySettings(ctx context.Context) error {
 }
 
 const getImageRegistrySettings = `-- name: GetImageRegistrySettings :one
-SELECT id, provider, account, repository, push_token_ciphertext, pull_token_ciphertext, updated_at
+SELECT id, provider, account, repository, push_token_ciphertext, pull_token_ciphertext, updated_at, push_check, pull_check
 FROM image_registry_settings
 WHERE id
 `
@@ -39,6 +39,8 @@ func (q *Queries) GetImageRegistrySettings(ctx context.Context) (ImageRegistrySe
 		&i.PushTokenCiphertext,
 		&i.PullTokenCiphertext,
 		&i.UpdatedAt,
+		&i.PushCheck,
+		&i.PullCheck,
 	)
 	return i, err
 }
@@ -95,16 +97,44 @@ func (q *Queries) ListEventExerciseImages(ctx context.Context, eventID uuid.UUID
 	return items, nil
 }
 
+const updateImageRegistryChecks = `-- name: UpdateImageRegistryChecks :execrows
+UPDATE image_registry_settings
+SET push_check = $1,
+    pull_check = $2
+WHERE id
+  AND updated_at = $3
+`
+
+type UpdateImageRegistryChecksParams struct {
+	PushCheck []byte    `json:"push_check"`
+	PullCheck []byte    `json:"pull_check"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// The periodic check result, written apart from the settings (the narrow-query exception, like the batched
+// last_seen): only while the settings are still the ones that were checked (updated_at), so a result for a
+// token that was replaced meanwhile is dropped.
+func (q *Queries) UpdateImageRegistryChecks(ctx context.Context, arg UpdateImageRegistryChecksParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateImageRegistryChecks, arg.PushCheck, arg.PullCheck, arg.UpdatedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const upsertImageRegistrySettings = `-- name: UpsertImageRegistrySettings :exec
-INSERT INTO image_registry_settings (id, provider, account, repository, push_token_ciphertext, pull_token_ciphertext, updated_at)
-VALUES (true, $1, $2, $3, $4, $5, $6)
+INSERT INTO image_registry_settings (id, provider, account, repository, push_token_ciphertext, pull_token_ciphertext, updated_at,
+                                     push_check, pull_check)
+VALUES (true, $1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (id) DO UPDATE
     SET provider              = EXCLUDED.provider,
         account               = EXCLUDED.account,
         repository            = EXCLUDED.repository,
         push_token_ciphertext = EXCLUDED.push_token_ciphertext,
         pull_token_ciphertext = EXCLUDED.pull_token_ciphertext,
-        updated_at            = EXCLUDED.updated_at
+        updated_at            = EXCLUDED.updated_at,
+        push_check            = EXCLUDED.push_check,
+        pull_check            = EXCLUDED.pull_check
 `
 
 type UpsertImageRegistrySettingsParams struct {
@@ -114,6 +144,8 @@ type UpsertImageRegistrySettingsParams struct {
 	PushTokenCiphertext string    `json:"push_token_ciphertext"`
 	PullTokenCiphertext string    `json:"pull_token_ciphertext"`
 	UpdatedAt           time.Time `json:"updated_at"`
+	PushCheck           []byte    `json:"push_check"`
+	PullCheck           []byte    `json:"pull_check"`
 }
 
 // The settings are one row (id is always true): the whole entity is written in
@@ -126,6 +158,8 @@ func (q *Queries) UpsertImageRegistrySettings(ctx context.Context, arg UpsertIma
 		arg.PushTokenCiphertext,
 		arg.PullTokenCiphertext,
 		arg.UpdatedAt,
+		arg.PushCheck,
+		arg.PullCheck,
 	)
 	return err
 }

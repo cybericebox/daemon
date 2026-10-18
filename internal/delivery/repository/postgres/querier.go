@@ -707,6 +707,8 @@ type Querier interface {
 	ListEffectiveEventSignalNotificationSubscriptions(ctx context.Context, scopeEventID uuid.UUID) ([]ListEffectiveEventSignalNotificationSubscriptionsRow, error)
 	ListEmailBlockPresets(ctx context.Context) ([]NotificationEmailBlockPreset, error)
 	ListEmailTemplates(ctx context.Context, arg ListEmailTemplatesParams) ([]NotificationEmailTemplate, error)
+	// Secrets still marked broken whose event has finished or been archived: their alert is closed.
+	ListEndedBrokenEventRegistrySecrets(ctx context.Context, now time.Time) ([]EventRegistrySecret, error)
 	ListErrorGroups(ctx context.Context, arg ListErrorGroupsParams) ([]ErrorGroup, error)
 	ListErrorNotFound(ctx context.Context, arg ListErrorNotFoundParams) ([]ErrorNotFoundDaily, error)
 	ListErrorNotificationDeliveries(ctx context.Context, groupID uuid.UUID) ([]ErrorNotificationDelivery, error)
@@ -890,6 +892,8 @@ type Querier interface {
 	// Versions of the event's registration form (at most one form per event).
 	ListEventRegistrationFormVersions(ctx context.Context, eventID uuid.UUID) ([]ListEventRegistrationFormVersionsRow, error)
 	ListEventRegistrySecrets(ctx context.Context, eventID uuid.UUID) ([]EventRegistrySecret, error)
+	// The secrets the periodic check covers: those of events that are not finished and not archived.
+	ListEventRegistrySecretsToCheck(ctx context.Context, now time.Time) ([]ListEventRegistrySecretsToCheckRow, error)
 	// Event analytics, «Звіт по заходу» (docs/EVENT-ANALYTICS.md §6.8): the
 	// ranking, the per-task table and the funnel tail. The key numbers and the
 	// activity series come from the overview statements.
@@ -1740,6 +1744,10 @@ type Querier interface {
 	UpdateEventPublicName(ctx context.Context, arg UpdateEventPublicNameParams) (int64, error)
 	// The whole editable entity in one statement; id and event_id never change.
 	UpdateEventRegistrySecret(ctx context.Context, arg UpdateEventRegistrySecretParams) (int64, error)
+	// The periodic check result, written apart from the editable entity (the narrow-query exception, like the
+	// batched last_seen): only while the secret is still the one that was checked (updated_at), so a result for a
+	// token that was replaced meanwhile is dropped.
+	UpdateEventRegistrySecretCheck(ctx context.Context, arg UpdateEventRegistrySecretCheckParams) (int64, error)
 	UpdateEventScoringProfile(ctx context.Context, arg UpdateEventScoringProfileParams) (int64, error)
 	UpdateEventStage(ctx context.Context, arg UpdateEventStageParams) (EventStage, error)
 	UpdateEventTeam(ctx context.Context, arg UpdateEventTeamParams) (int64, error)
@@ -1759,6 +1767,10 @@ type Querier interface {
 	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
 	// The whole job aggregate (state, created tasks, error) in one write.
 	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
+	// The periodic check result, written apart from the settings (the narrow-query exception, like the batched
+	// last_seen): only while the settings are still the ones that were checked (updated_at), so a result for a
+	// token that was replaced meanwhile is dropped.
+	UpdateImageRegistryChecks(ctx context.Context, arg UpdateImageRegistryChecksParams) (int64, error)
 	UpdateInAppTemplate(ctx context.Context, arg UpdateInAppTemplateParams) (NotificationInAppTemplate, error)
 	// What an admin may change after enrollment: the label, the order, the switch and the server CA. The
 	// endpoint identifies the agent (and its certificate), so it never changes.

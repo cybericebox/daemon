@@ -65,6 +65,7 @@ type (
 		blobPushes    *imageRegistryRepo.BlobPushes
 		queueBlobPush BlobPushQueue
 		cipher        secret.Sealer
+		notifier      CheckNotifier
 		newClient     ClientFactory
 		external      ExternalClientFactory
 		adapter       AdapterFactory

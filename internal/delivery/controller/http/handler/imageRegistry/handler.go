@@ -26,6 +26,7 @@ type (
 		GetImageRegistrySettings(ctx context.Context) (imageRegistryUseCase.SettingsView, error)
 		SaveImageRegistrySettings(ctx context.Context, in imageRegistryUseCase.SaveSettingsInput) (imageRegistryUseCase.SettingsView, error)
 		ListImageRegistryRepositories(ctx context.Context, in imageRegistryUseCase.ListRepositoriesInput) ([]string, error)
+		CheckPlatformRegistry(ctx context.Context) (imageRegistryUseCase.SettingsView, error)
 		ClearImageRegistrySettings(ctx context.Context) error
 
 		// Organizer secrets of one event («Панель заходу»).
@@ -33,6 +34,7 @@ type (
 		CreateEventRegistrySecret(ctx context.Context, eventID uuid.UUID, in imageRegistryUseCase.EventSecretInput) (imageRegistryUseCase.EventSecretView, error)
 		UpdateEventRegistrySecret(ctx context.Context, eventID, secretID uuid.UUID, in imageRegistryUseCase.EventSecretInput) (imageRegistryUseCase.EventSecretView, error)
 		DeleteEventRegistrySecret(ctx context.Context, eventID, secretID uuid.UUID) error
+		CheckEventRegistrySecret(ctx context.Context, eventID, secretID uuid.UUID) (imageRegistryUseCase.EventSecretView, error)
 		RequireManageEvent(ctx context.Context, eventID, userID uuid.UUID) error
 		RequireReadEvent(ctx context.Context, eventID, userID uuid.UUID) error
 
@@ -58,6 +60,24 @@ type settingsResponse struct {
 	// SecretsKeyMissing: the platform secrets key is unset; tokens can be neither opened nor saved.
 	SecretsKeyMissing bool       `json:"SecretsKeyMissing"`
 	UpdatedAt         *time.Time `json:"UpdatedAt"`
+	// PushCheck and PullCheck are the last results of the periodic credential check (PullCheck is empty without
+	// a pull token).
+	PushCheck checkResponse `json:"PushCheck"`
+	PullCheck checkResponse `json:"PullCheck"`
+}
+
+// checkResponse is the last check result of a credential: reason codes and times, never a token. State is "ok",
+// "broken" or "" (never checked); Failure is why the last attempt gave no verdict ("" when it did).
+type checkResponse struct {
+	State       string     `json:"State"`
+	CheckedAt   *time.Time `json:"CheckedAt"`
+	Reason      string     `json:"Reason"`
+	AttemptedAt *time.Time `json:"AttemptedAt"`
+	Failure     string     `json:"Failure"`
+}
+
+func toCheckResponse(v imageRegistryUseCase.CheckView) checkResponse {
+	return checkResponse{State: v.State, CheckedAt: v.CheckedAt, Reason: v.Reason, AttemptedAt: v.AttemptedAt, Failure: v.Failure}
 }
 
 // saveSettingsRequest is the settings form. Tokens are write-only: an empty
@@ -87,6 +107,7 @@ func toResponse(v imageRegistryUseCase.SettingsView) settingsResponse {
 	return settingsResponse{
 		Configured: v.Configured, Provider: v.Provider, Account: v.Account, Repository: v.Repository,
 		PushTokenSet: v.PushTokenSet, PullTokenSet: v.PullTokenSet, SecretsKeyMissing: v.SecretsKeyMissing, UpdatedAt: v.UpdatedAt,
+		PushCheck: toCheckResponse(v.PushCheck), PullCheck: toCheckResponse(v.PullCheck),
 	}
 }
 
@@ -102,6 +123,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		api.PUT("", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.saveSettings)
 		api.DELETE("", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.clearSettings)
 		api.POST("repositories", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.listRepositories)
+		api.POST("check", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.checkNow)
 	}
 	h.initEventSecrets(router)
 	h.initEventImages(router)
@@ -142,6 +164,22 @@ func (h *Handler) saveSettings(ctx *gin.Context) {
 		Provider: req.Provider, Account: req.Account, Repository: req.Repository,
 		PushToken: req.PushToken, PullToken: req.PullToken, ClearPullToken: req.ClearPullToken,
 	})
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, toResponse(v))
+}
+
+// CheckImageRegistryNow godoc
+// @Summary  Check the platform registry tokens now (authentication only) and return the settings with the results
+// @Tags     settings
+// @Produce  json
+// @Success  200  {object}  response.Response{data=settingsResponse}
+// @Failure  409  {object}  response.Response  "the registry is not configured, or secret storage is not configured"
+// @Router   /settings/image-registry/check [post]
+func (h *Handler) checkNow(ctx *gin.Context) {
+	v, err := h.useCase.CheckPlatformRegistry(ctx)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

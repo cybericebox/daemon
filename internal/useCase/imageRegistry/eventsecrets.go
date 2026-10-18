@@ -24,6 +24,8 @@ type (
 		RepositoryPrefix string
 		Username         string
 		UpdatedAt        time.Time
+		// Check is the last result of the periodic credential check.
+		Check CheckView
 	}
 
 	// EventSecretInput is the secret form. On update an empty Token keeps the
@@ -35,7 +37,7 @@ type (
 
 func toEventSecretView(s imageRegistryModel.EventSecret) EventSecretView {
 	return EventSecretView{
-		ID: s.ID.String(), Host: s.Host, RepositoryPrefix: s.RepositoryPrefix, Username: s.Username, UpdatedAt: s.UpdatedAt,
+		ID: s.ID.String(), Host: s.Host, RepositoryPrefix: s.RepositoryPrefix, Username: s.Username, UpdatedAt: s.UpdatedAt, Check: toCheckView(s.Check),
 	}
 }
 
@@ -139,6 +141,7 @@ func (u *ImageRegistryUseCase) DeleteEventRegistrySecret(ctx context.Context, ev
 	if !found {
 		return imageRegistryModel.ErrEventSecretNotFound.Err()
 	}
+	u.closeAlert(ctx, eventSecretKey(secretID))
 	return nil
 }
 
