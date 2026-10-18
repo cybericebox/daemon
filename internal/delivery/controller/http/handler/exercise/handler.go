@@ -14,6 +14,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
@@ -154,6 +155,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// rights, event managers work on their events' exercises and read
 		// the catalog exercises available to them. Export/import stay RBAC.
 		self := h.prot.RequirePermission(rbac.PermSelf)
+		// long: whole-file server-side work (assemble, promote, import) outlives the server WriteTimeout
+		long := download.LongOperation()
 		ex.GET("", self, h.list)
 		ex.GET("tags", self, h.listTags)
 		ex.GET("access", self, h.access)
@@ -172,12 +175,12 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("uploads", self, h.startUpload)
 		ex.GET("uploads/:uploadID", self, h.uploadStatus)
 		ex.PUT("uploads/:uploadID/chunks/:index", self, middleware.RawBody, h.putUploadChunk)
-		ex.POST("uploads/:uploadID/complete", self, h.completeUpload)
+		ex.POST("uploads/:uploadID/complete", long, self, h.completeUpload)
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks
-		ex.POST("import/uploaded", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
+		ex.POST("import/uploaded", long, h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
 		// a task archive upload (purpose exercise-archive), read where its chunks lie; with images a background job
-		ex.POST("import/upload", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchiveUpload)
+		ex.POST("import/upload", long, h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchiveUpload)
 		// the background import's state, for the user who started it (same gate as the import)
 		ex.GET("import/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importJob)
 		// the built-in example archive: same gate as the import it explains
@@ -185,7 +188,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)
 		// the background export's state, for the user who started it (same gate as the export)
 		ex.GET("export/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesExport), h.exportJob)
-		ex.POST("import", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
+		ex.POST("import", long, h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
 		ex.GET("capabilities", self, h.capabilities)
 		ex.GET("flag-policy", self, h.flagPolicy)
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/download"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
@@ -21,6 +22,8 @@ import (
 func applyTunables(t config.TunablesConfig) {
 	eventStandModel.DeployTimeout = t.EventStandDeployTimeout
 	sse.SetMaxLifetime(t.SSEMaxLifetime)
+	download.SetLongOperationTimeout(t.LongOperationTimeout)
+	mediaModel.LongOperationTimeout = t.LongOperationTimeout
 	eventContentModel.LiveScreenLinkMaxTTL = t.LiveScreenLinkMaxTTL
 	eventConfigModel.SetDefaultMaxTeamSize(t.EventDefaultMaxTeamSize)
 	p := eventLabModel.Policy{SnapshotMode: t.EventLabSnapshotMode, RetentionMinutes: t.EventLabRetentionMinutes}

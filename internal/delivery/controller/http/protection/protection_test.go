@@ -37,6 +37,7 @@ type fakeUseCase struct {
 	reissue       string
 	calls         []string
 	auditEntries  []adminAuditUseCase.Entry
+	auditCtxErr   error
 }
 
 func (f *fakeUseCase) OpenSession(_ string) (authUseCase.SessionPass, error) {
@@ -64,7 +65,8 @@ func (f *fakeUseCase) ReissueCookie(_ authUseCase.SessionPass) (string, bool) {
 }
 
 func (f *fakeUseCase) SignOut(_ context.Context, _ uuid.UUID) error { return nil }
-func (f *fakeUseCase) RecordAdminAction(_ context.Context, entry adminAuditUseCase.Entry) error {
+func (f *fakeUseCase) RecordAdminAction(ctx context.Context, entry adminAuditUseCase.Entry) error {
+	f.auditCtxErr = ctx.Err()
 	f.auditEntries = append(f.auditEntries, entry)
 	return nil
 }
@@ -874,5 +876,26 @@ func TestRequireAPIHost_HealthAnyHost_200(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
+	}
+}
+
+// A client that went away (or a deadline that cut the request) must not lose the audit record of the action.
+func TestAuditRecordSurvivesACancelledRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	uid, sid := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	uc := &fakeUseCase{sessionResult: &authUseCase.SessionAuthResult{Claims: authModel.AuthClaims{SessionID: sid, UserID: uid, Role: rbac.RoleAdmin}}}
+	p := newProt(uc)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := gin.New()
+	r.POST("/users/:id/status", p.RequirePermission(rbac.PermUsersStatusWrite), func(c *gin.Context) {
+		cancel()
+		c.Status(http.StatusOK)
+	})
+	req := httptest.NewRequest(http.MethodPost, "/users/abc/status", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "session"})
+	r.ServeHTTP(httptest.NewRecorder(), req)
+	if len(uc.auditEntries) != 1 || uc.auditCtxErr != nil {
+		t.Fatalf("entries %d, audit context error %v", len(uc.auditEntries), uc.auditCtxErr)
 	}
 }

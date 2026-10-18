@@ -142,6 +142,10 @@ type (
 		EventStandDeployTimeout time.Duration `env:"EVENT_STAND_DEPLOY_TIMEOUT" envDefault:"20m"`
 		// SSEMaxLifetime bounds one event stream; the client reconnects with Last-Event-ID.
 		SSEMaxLifetime time.Duration `env:"SSE_MAX_LIFETIME" envDefault:"30m"`
+		// LongOperationTimeout is how long a route that works on a whole big file on the server (assembling and
+		// promoting a chunked upload, importing an archive) may take: it lifts the server WriteTimeout for that
+		// response and bounds the work itself, which runs detached from the client connection.
+		LongOperationTimeout time.Duration `env:"LONG_OPERATION_TIMEOUT" envDefault:"15m"`
 		// LiveScreenLinkMaxTTL caps «until the event ends» of a live screen link.
 		LiveScreenLinkMaxTTL time.Duration `env:"LIVE_SCREEN_LINK_MAX_TTL" envDefault:"1440h"`
 		// EventDefaultMaxTeamSize is the team size limit of a new event.
@@ -711,7 +715,7 @@ func (c HTTPServerConfig) validate() error {
 // Validate rejects values that would turn a limit off by accident.
 func (c TunablesConfig) Validate() error {
 	durations := map[string]time.Duration{
-		"EVENT_STAND_DEPLOY_TIMEOUT": c.EventStandDeployTimeout, "SSE_MAX_LIFETIME": c.SSEMaxLifetime,
+		"EVENT_STAND_DEPLOY_TIMEOUT": c.EventStandDeployTimeout, "SSE_MAX_LIFETIME": c.SSEMaxLifetime, "LONG_OPERATION_TIMEOUT": c.LongOperationTimeout,
 		"LIVE_SCREEN_LINK_MAX_TTL": c.LiveScreenLinkMaxTTL, "MAIL_MAX_RATE_WAIT": c.MailMaxRateWait,
 		"MAIL_QUOTA_RETRY_AFTER": c.MailQuotaRetryAfter, "MAIL_QUOTA_RECHECK": c.MailQuotaRecheck,
 		"MAIL_QUOTA_WINDOW": c.MailQuotaWindow, "JOB_COMPLETED_RETENTION": c.JobCompletedRetention, "JOB_FAILED_RETENTION": c.JobFailedRetention,

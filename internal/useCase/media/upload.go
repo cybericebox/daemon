@@ -122,6 +122,10 @@ func (u *MediaUseCase) PutChunk(ctx context.Context, id, owner uuid.UUID, index 
 // computed, and records the file as UploadFile would. A file that does not match its hash is dropped with its
 // chunks: the client starts again.
 func (u *MediaUseCase) CompleteUpload(ctx context.Context, id, owner uuid.UUID, wantSHA256 string) (mediaModel.File, error) {
+	// Assembling and promoting a big file must not depend on the client connection (a dropped client or a
+	// request deadline would leave a half-promoted blob): it runs on its own context with its own timeout.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), mediaModel.LongOperationTimeout)
+	defer cancel()
 	upload, err := u.UploadStatus(ctx, id, owner)
 	if err != nil {
 		return mediaModel.File{}, err

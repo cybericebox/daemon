@@ -3,6 +3,7 @@ package mediaModel
 import (
 	"bytes"
 	"image"
+	"time"
 	// The decoders of the picture types the upload routes accept; the header is read, not the pixels.
 	_ "image/gif"
 	_ "image/jpeg"
@@ -14,6 +15,10 @@ import (
 // MaxImagePixels is the most pixels (width times height) an uploaded picture may have (IMAGE_MAX_PIXELS, set
 // once at start).
 var MaxImagePixels int64 = 16_000_000
+
+// LongOperationTimeout bounds the server-side work on a whole big file that must outlive the client connection
+// (assembling a chunked upload and promoting it to its blob); LONG_OPERATION_TIMEOUT sets it at start.
+var LongOperationTimeout = 15 * time.Minute
 
 // CheckImagePixels reads the header of a raster picture and refuses one with more than MaxImagePixels pixels.
 // A header that cannot be read is refused too: the type sniff looked at the first bytes only.
