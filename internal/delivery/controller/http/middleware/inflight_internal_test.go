@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,10 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cybericebox/daemon/internal/config"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/model"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	"github.com/cybericebox/daemon/pkg/overload"
 )
 
 // testSessionKey stands in for the gate's cookie check: a session cookie "valid-<id>" opens as session <id>,
@@ -67,6 +71,11 @@ func newInflightRig(t *testing.T, cfg config.InflightConfig) *inflightRig {
 	g.r.GET("/api/health", block)
 	g.r.GET("/api/events/:id/results/live", block)
 	g.r.GET("/api/exercises/files/:fileID", block)
+	g.r.GET("/api/auth/avatar/:id", block)
+	g.r.GET("/api/busy", func(c *gin.Context) {
+		busy := fmt.Errorf("q: %w", overload.ErrDBBusy)
+		c.Set(response.ErrorCtxKey, model.ErrPlatform.WithError(busy).Err())
+	})
 	g.r.GET("/api/panic", func(*gin.Context) { panic("handler failed") })
 	g.r.POST("/api/echo", func(c *gin.Context) {
 		body, err := io.ReadAll(c.Request.Body)
@@ -426,6 +435,111 @@ func TestInflightLogsOneSummaryPerInterval(t *testing.T) {
 	if line.Level != "warn" || line.Rejected != 3 || line.RejectedGeneral != 3 ||
 		line.PeakGeneral != 1 ||
 		line.PeakStreams != 0 {
+		t.Fatalf("summary: %s", lines[0])
+	}
+}
+
+// A session at its cap waits on its own budget (SubcapWait), not the short general wait: one of its requests
+// that finishes after 200 ms lets the next one in.
+func TestInflightPerSessionWaitsOnItsOwnBudget(t *testing.T) {
+	g := newInflightRig(t, config.InflightConfig{
+		Max: 64, Wait: 10 * time.Millisecond, AnonShare: 25, PerSession: 8, SubcapWait: time.Second,
+	})
+	held := make([]<-chan *httptest.ResponseRecorder, 0, 8)
+	for range 8 {
+		held = append(held, g.hold(request{path: "/api/x", cookie: "valid-a"}))
+	}
+	ninth := g.start(request{path: "/api/x", cookie: "valid-a"})
+	time.Sleep(200 * time.Millisecond)
+	g.finish(held[0])
+	select {
+	case <-g.entered:
+	case w := <-ninth:
+		t.Fatalf("the 9th request of the session was refused: %d", w.Code)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the 9th request never got in")
+	}
+}
+
+// The anonymous share waits on the same budget.
+func TestInflightAnonShareWaitsOnItsOwnBudget(t *testing.T) {
+	g := newInflightRig(t, config.InflightConfig{
+		Max: 4, Wait: 10 * time.Millisecond, AnonShare: 25, SubcapWait: time.Second,
+	})
+	first := g.hold(get("/api/x"))
+	second := g.start(get("/api/x"))
+	time.Sleep(200 * time.Millisecond)
+	g.finish(first)
+	select {
+	case <-g.entered:
+	case w := <-second:
+		t.Fatalf("the waiting anonymous request was refused: %d", w.Code)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiting anonymous request never got in")
+	}
+}
+
+// Public media have their own slots: transfers (uploads, exports) holding every transfer slot cannot starve
+// page images.
+func TestInflightMediaSeparateFromTransfers(t *testing.T) {
+	g := newInflightRig(t, config.InflightConfig{Max: 1, TransfersMax: 1, MediaMax: 1})
+	g.hold(get("/api/exercises/files/f1"))
+	assertOverloaded(t, g.answered(get("/api/exercises/files/f2")))
+	g.hold(get("/api/auth/avatar/a1"))
+	assertOverloaded(t, g.answered(get("/api/auth/avatar/a2")))
+}
+
+// An image over the media cap waits SubcapWait for a slot.
+func TestInflightMediaWaitsOnTheSubcapBudget(t *testing.T) {
+	g := newInflightRig(t, config.InflightConfig{
+		Max: 1, Wait: 10 * time.Millisecond, MediaMax: 1, SubcapWait: time.Second,
+	})
+	image := g.hold(get("/api/auth/avatar/a1"))
+	next := g.start(get("/api/auth/avatar/a2"))
+	time.Sleep(100 * time.Millisecond)
+	g.finish(image)
+	select {
+	case <-g.entered:
+	case w := <-next:
+		t.Fatalf("the waiting image was refused: %d", w.Code)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiting image never got in")
+	}
+}
+
+// Every public media route is in the media class, none is a transfer.
+func TestInflightMediaRoutesAreNotTransfers(t *testing.T) {
+	for _, route := range TransferRoutes() {
+		if PublicMediaRoutes[route] {
+			t.Errorf("%s is public media but listed as a transfer", route)
+		}
+	}
+}
+
+// DB-busy 503s are counted and reported in the summary line (db_busy), even when no slot was refused.
+func TestInflightSummaryCountsDBBusy(t *testing.T) {
+	_, zlOut := captureLogs(t)
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	g := newInflightRig(t, config.InflightConfig{Max: 4})
+	g.l.now = func() time.Time { return now }
+	g.l.lastReport.Store(now.UnixNano())
+	for range 2 {
+		g.answered(get("/api/busy"))
+	}
+	now = now.Add(10 * time.Second)
+	g.answered(get("/api/busy"))
+	lines := strings.Split(strings.TrimSpace(zlOut.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("want one summary line, got %q", zlOut.String())
+	}
+	var line struct {
+		DBBusy   int64 `json:"db_busy"`
+		Rejected int64 `json:"rejected"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &line); err != nil {
+		t.Fatal(err)
+	}
+	if line.DBBusy != 2 || line.Rejected != 0 {
 		t.Fatalf("summary: %s", lines[0])
 	}
 }
