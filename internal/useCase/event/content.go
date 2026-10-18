@@ -44,15 +44,35 @@ type NavigationPageView struct {
 	NavigationOrder int32  `json:"NavigationOrder"`
 }
 
+// requireContentVisible lets a caller read the public content of an event: anyone once it is published,
+// only staff with read access while it is not published yet or already withdrawn. Everyone else gets
+// not-found, as if the event did not exist. public tells which of the two let the caller in.
+func (u *EventUseCase) requireContentVisible(ctx context.Context, eventID uuid.UUID, access ContentAccess) (public bool, err error) {
+	e, err := u.events.GetByID(ctx, eventID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return false, eventModel.ErrEventNotFound.Err()
+		}
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+	}
+	phase := e.Lifecycle.Status(time.Now())
+	if phase != eventModel.LifecycleNotPublished && phase != eventModel.LifecycleWithdrawn {
+		return true, nil
+	}
+	if access.UserID == nil {
+		return false, eventModel.ErrEventNotFound.Err()
+	}
+	if err = u.RequireReadEvent(ctx, eventID, *access.UserID); err != nil {
+		return false, eventModel.ErrEventNotFound.WithError(err).Err()
+	}
+	return false, nil
+}
+
 // ListNavigationPages exposes titles and routes only for pages the current
 // audience can enter. Documents and hidden page names stay in management.
 func (u *EventUseCase) ListNavigationPages(ctx context.Context, eventID uuid.UUID, access ContentAccess) ([]NavigationPageView, error) {
-	info, err := u.GetEventInfo(ctx, eventID)
-	if err != nil {
+	if _, err := u.requireContentVisible(ctx, eventID, access); err != nil {
 		return nil, err
-	}
-	if info.Status == eventModel.LifecycleNotPublished || info.Status == eventModel.LifecycleWithdrawn {
-		return nil, eventModel.ErrEventNotFound.Err()
 	}
 	pages, err := u.ListEventPages(ctx, eventID)
 	if err != nil {
@@ -294,7 +314,10 @@ func (u *EventUseCase) GetPublicEventPage(ctx context.Context, eventID uuid.UUID
 		return PublicEventPageView{}, err
 	}
 	if content.Variables["event.isPublished"] != true || content.Variables["event.isWithdrawn"] == true {
-		return PublicEventPageView{}, eventModel.ErrEventNotFound.Err()
+		// Staff with read access preview the pages of a hidden event.
+		if _, err := u.requireContentVisible(ctx, eventID, access); err != nil {
+			return PublicEventPageView{}, err
+		}
 	}
 	page, err := u.getPublishedPage(ctx, eventID, slug)
 	if err != nil {

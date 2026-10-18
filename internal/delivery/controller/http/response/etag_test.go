@@ -46,3 +46,16 @@ func TestAbortWithETagDataFreshForAnonymous(t *testing.T) {
 		t.Fatalf("revalidated: %d %q", again.Code, again.Header().Get("Cache-Control"))
 	}
 }
+
+func TestAbortWithETagData304HasNoContentType(t *testing.T) {
+	tag := etagGet("", 0, []int{1}).Header().Get("ETag")
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	ctx.Request.Header.Set("If-None-Match", tag)
+	ctx.Header("Content-Type", "application/json") // the API-wide default
+	AbortWithETagData(ctx, []int{1}, 0)
+	if w.Code != http.StatusNotModified || w.Header().Get("Content-Type") != "" {
+		t.Fatalf("304: %d content-type=%q", w.Code, w.Header().Get("Content-Type"))
+	}
+}
