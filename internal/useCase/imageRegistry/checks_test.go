@@ -457,6 +457,7 @@ func TestRunRegistryChecksCoversThePlatformAndEverySecretOfLiveEvents(t *testing
 	good := f.row(t, other, "ghcr.io", "", secretToken)
 	good.EventID = eventB
 	good.CredentialCheck = mustCheck(t, okAt0)
+	f.q.EXPECT().ListEndedBrokenEventRegistrySecrets(gomock.Any(), t0).Return(nil, nil)
 	f.q.EXPECT().ListEventRegistrySecretsToCheck(gomock.Any(), t0).Return([]postgres.ListEventRegistrySecretsToCheckRow{
 		{ID: bad.ID, EventID: eventA, Host: bad.Host, RepositoryPrefix: bad.RepositoryPrefix, Username: bad.Username, TokenCiphertext: bad.TokenCiphertext,
 			CreatedAt: bad.CreatedAt, UpdatedAt: bad.UpdatedAt, CredentialCheck: bad.CredentialCheck, EventTag: "ctf-a", EventName: "A"},
@@ -499,6 +500,7 @@ func TestRunRegistryChecksOneFailingSecretDoesNotStopTheRest(t *testing.T) {
 		return postgres.ListEventRegistrySecretsToCheckRow{ID: r.ID, EventID: r.EventID, Host: r.Host, Username: r.Username,
 			TokenCiphertext: r.TokenCiphertext, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, CredentialCheck: r.CredentialCheck}
 	}
+	f.q.EXPECT().ListEndedBrokenEventRegistrySecrets(gomock.Any(), t0).Return(nil, nil)
 	f.q.EXPECT().ListEventRegistrySecretsToCheck(gomock.Any(), t0).Return([]postgres.ListEventRegistrySecretsToCheckRow{toRow(a), toRow(b)}, nil)
 	ok := newStatusRegistry(t, http.StatusOK)
 	f.uc.external = func(_, repository, username, password string) *ociregistry.Client {
@@ -569,5 +571,52 @@ func TestDeletingASecretClosesItsAlert(t *testing.T) {
 	}
 	if strings.Join(n.closed, ",") != "event_secret:"+secID.String() {
 		t.Fatalf("closed %v", n.closed)
+	}
+}
+
+func TestMissingRepositoryIsBrokenWithItsOwnReason(t *testing.T) {
+	f, n := newCheckFixture(t)
+	gone := newStatusRegistry(t, http.StatusNotFound)
+	f.uc.external = func(_, repository, username, password string) *ociregistry.Client {
+		return gone.client(repository, username, password)
+	}
+	f.q.EXPECT().GetEventRegistrySecret(gomock.Any(), gomock.Any()).Return(f.secretRow(t, okAt0), nil)
+	f.expectEventLabel()
+	var saved postgres.UpdateEventRegistrySecretCheckParams
+	f.q.EXPECT().UpdateEventRegistrySecretCheck(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p postgres.UpdateEventRegistrySecretCheckParams) (int64, error) {
+			saved = p
+			return 1, nil
+		})
+	if _, err := f.uc.CheckEventRegistrySecret(context.Background(), eventA, secID); err != nil {
+		t.Fatal(err)
+	}
+	if got := parseCheck(t, saved.CredentialCheck); got.State != imageRegistryModel.CheckBroken || got.Reason != imageRegistryModel.ReasonNotFound {
+		t.Fatalf("saved %+v", got)
+	}
+	if len(n.broken) != 1 || n.broken[0].Reason != "not_found" {
+		t.Fatalf("alerts %+v", n.broken)
+	}
+}
+
+func TestEndedEventsBrokenSecretsAreClosedSilentlyOnce(t *testing.T) {
+	f, n := newCheckFixture(t)
+	f.empty()
+	f.q.EXPECT().ListEndedBrokenEventRegistrySecrets(gomock.Any(), t0).Return([]postgres.EventRegistrySecret{f.secretRow(t, brokenAt0)}, nil)
+	f.q.EXPECT().ListEventRegistrySecretsToCheck(gomock.Any(), t0).Return(nil, nil)
+	var saved postgres.UpdateEventRegistrySecretCheckParams
+	f.q.EXPECT().UpdateEventRegistrySecretCheck(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p postgres.UpdateEventRegistrySecretCheckParams) (int64, error) {
+			saved = p
+			return 1, nil
+		})
+	if err := f.uc.RunRegistryChecks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := parseCheck(t, saved.CredentialCheck); got != (imageRegistryModel.Check{}) {
+		t.Fatalf("state not forgotten: %+v", got)
+	}
+	if strings.Join(n.closed, ",") != "event_secret:"+secID.String() || len(n.broken)+len(n.restored) != 0 {
+		t.Fatalf("closed %v alerts %+v", n.closed, n)
 	}
 }

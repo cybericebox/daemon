@@ -6148,6 +6148,21 @@ func (mr *MockQuerierMockRecorder) ListEmailTemplates(ctx, arg any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEmailTemplates", reflect.TypeOf((*MockQuerier)(nil).ListEmailTemplates), ctx, arg)
 }
 
+// ListEndedBrokenEventRegistrySecrets mocks base method.
+func (m *MockQuerier) ListEndedBrokenEventRegistrySecrets(ctx context.Context, now time.Time) ([]postgres.EventRegistrySecret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListEndedBrokenEventRegistrySecrets", ctx, now)
+	ret0, _ := ret[0].([]postgres.EventRegistrySecret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListEndedBrokenEventRegistrySecrets indicates an expected call of ListEndedBrokenEventRegistrySecrets.
+func (mr *MockQuerierMockRecorder) ListEndedBrokenEventRegistrySecrets(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEndedBrokenEventRegistrySecrets", reflect.TypeOf((*MockQuerier)(nil).ListEndedBrokenEventRegistrySecrets), ctx, now)
+}
+
 // ListErrorGroups mocks base method.
 func (m *MockQuerier) ListErrorGroups(ctx context.Context, arg postgres.ListErrorGroupsParams) ([]postgres.ErrorGroup, error) {
 	m.ctrl.T.Helper()

@@ -117,3 +117,16 @@ func (r *EventSecrets) Delete(ctx context.Context, eventID, id uuid.UUID) (bool,
 	n, err := r.q.DeleteEventRegistrySecret(ctx, postgres.DeleteEventRegistrySecretParams{ID: id, EventID: eventID})
 	return n > 0, err
 }
+
+// ListEndedBroken lists the secrets still marked broken whose event has finished or been archived at now.
+func (r *EventSecrets) ListEndedBroken(ctx context.Context, now time.Time) ([]imageRegistryModel.EventSecret, error) {
+	rows, err := r.q.ListEndedBrokenEventRegistrySecrets(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]imageRegistryModel.EventSecret, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toSecret(row))
+	}
+	return out, nil
+}

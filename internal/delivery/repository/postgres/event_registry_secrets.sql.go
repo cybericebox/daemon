@@ -92,6 +92,47 @@ func (q *Queries) InsertEventRegistrySecret(ctx context.Context, arg InsertEvent
 	return err
 }
 
+const listEndedBrokenEventRegistrySecrets = `-- name: ListEndedBrokenEventRegistrySecrets :many
+SELECT s.id, s.event_id, s.host, s.repository_prefix, s.username, s.token_ciphertext, s.created_at, s.updated_at, s.credential_check
+FROM event_registry_secrets s
+         JOIN events e ON e.id = s.event_id
+WHERE s.credential_check ->> 'state' = 'broken'
+  AND ((e.finish_at IS NOT NULL AND e.finish_at <= $1::timestamptz)
+    OR (e.archive_at IS NOT NULL AND e.archive_at <= $1::timestamptz))
+ORDER BY s.event_id, s.host, s.repository_prefix
+`
+
+// Secrets still marked broken whose event has finished or been archived: their alert is closed.
+func (q *Queries) ListEndedBrokenEventRegistrySecrets(ctx context.Context, now time.Time) ([]EventRegistrySecret, error) {
+	rows, err := q.db.Query(ctx, listEndedBrokenEventRegistrySecrets, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []EventRegistrySecret{}
+	for rows.Next() {
+		var i EventRegistrySecret
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventID,
+			&i.Host,
+			&i.RepositoryPrefix,
+			&i.Username,
+			&i.TokenCiphertext,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CredentialCheck,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEventRegistrySecrets = `-- name: ListEventRegistrySecrets :many
 SELECT id, event_id, host, repository_prefix, username, token_ciphertext, created_at, updated_at, credential_check
 FROM event_registry_secrets
