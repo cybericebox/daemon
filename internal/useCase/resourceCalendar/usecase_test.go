@@ -191,7 +191,7 @@ func TestChangeRequestApprovalExtendsTheReservation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, calModel.ChangeApproved, decided.Status)
 	r, _ := h.store.GetEventReservation(ctx, h.event.ID)
-	assert.Equal(t, end.Add(time.Hour), r.Window.End, "the 1h gap still applies on top of the longer window")
+	assert.Equal(t, end, r.Window.End, "the requested end is the real end of the reservation (what the organizer reads as «Діє до»)")
 	assert.Equal(t, []bool{true}, h.notifier.decided)
 	_, err = h.uc.DecideResourceChangeRequest(ctx, view.ID, false, "", uuid.Nil, false)
 	assert.True(t, is(err, calModel.ErrChangeRequestDecided))

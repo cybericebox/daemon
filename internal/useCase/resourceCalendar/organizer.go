@@ -21,7 +21,7 @@ type ChangeInput struct {
 	Size *Amount
 	// Dynamic is the wanted estimate for future dynamic tasks.
 	Dynamic *Amount
-	// WindowStart and WindowEnd are the wanted window; the tail gap is added to the end when approved.
+	// WindowStart and WindowEnd are the wanted window; WindowEnd is the real end of the reservation (no tail is added).
 	WindowStart *time.Time
 	WindowEnd   *time.Time
 	Reason      string
@@ -302,8 +302,8 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 	return u.changeView(ctx, calModel.NamedChangeRequest{ChangeRequest: decided, EventName: label.EventName, EventTag: label.EventTag}), nil
 }
 
-// applyChange puts an approved request into the reservation: the estimate, then the size, then the window. The
-// tail gap still applies on top of a later end.
+// applyChange puts an approved request into the reservation: the estimate, then the size, then the window. A
+// requested end is the real end: it already includes the time after the event.
 func (u *ResourceCalendarUseCase) applyChange(r *calModel.Reservation, c calModel.ChangeRequest, now time.Time) error {
 	if c.Dynamic != nil {
 		if err := r.Recalculate(r.Teams, r.PerTeam, r.LargestDevice, r.BufferPercent, *c.Dynamic, now); err != nil {
@@ -331,8 +331,7 @@ func (u *ResourceCalendarUseCase) applyChange(r *calModel.Reservation, c calMode
 			start = *c.WindowStart
 		}
 		if c.WindowEnd != nil {
-			tail := max(r.TailGap, u.cfg.TailGap)
-			end = c.WindowEnd.Add(tail)
+			end = *c.WindowEnd
 		}
 		w, err := calModel.NewWindow(start, end)
 		if err != nil {
