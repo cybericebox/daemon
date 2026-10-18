@@ -28,6 +28,7 @@ type (
 	//   - InternalPort set: a plain listener on HEALTH_BIND with the same API handler for in-cluster callers.
 	Server struct {
 		listeners []*listener
+		h3        *h3Listener
 	}
 
 	listener struct {
@@ -195,8 +196,13 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 		}
 	}
 	s := &Server{}
+	plain := handler
+	if cfg.HTTP3.Enabled && cfg.TLSEnabled() {
+		s.h3 = newH3Listener(cfg, newTLSConfig(&cfg.TLS), handler)
+		handler = altSvc(handler, cfg.HTTP3.AdvertisedPort)
+	}
 	if cfg.Port != "" {
-		s.listeners = append(s.listeners, &listener{name: "HTTP", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.Port), handler, nil)})
+		s.listeners = append(s.listeners, &listener{name: "HTTP", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.Port), plain, nil)})
 	}
 	if cfg.TLSEnabled() {
 		s.listeners = append(s.listeners, &listener{name: "HTTPS", srv: newHTTP(net.JoinHostPort(cfg.Host, cfg.HTTPSPort), handler, newTLSConfig(&cfg.TLS)), tls: true})
@@ -205,7 +211,7 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 		s.listeners = append(s.listeners, &listener{name: "health", srv: newHTTP(net.JoinHostPort(healthBind, cfg.HealthPort), healthHandler(), nil)})
 	}
 	if cfg.InternalPort != "" {
-		internal := newHTTP(net.JoinHostPort(healthBind, cfg.InternalPort), handler, nil)
+		internal := newHTTP(net.JoinHostPort(healthBind, cfg.InternalPort), plain, nil)
 		// Its callers are in-cluster (SSR in front of many visitors): the in-flight limiter holds them to the
 		// general cap only.
 		internal.ConnContext = func(ctx context.Context, _ net.Conn) context.Context {
@@ -217,6 +223,13 @@ func NewServer(cfg *config.HTTPServerConfig, healthBind string, handler http.Han
 }
 
 func (s *Server) Start() {
+	if s.h3 != nil {
+		go func() {
+			if err := s.h3.serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error().Err(err).Str("listener", "HTTP/3").Msg("Can not start HTTP/3 server")
+			}
+		}()
+	}
 	for _, l := range s.listeners {
 		go func() {
 			var err error
@@ -234,6 +247,16 @@ func (s *Server) Start() {
 
 func (s *Server) Stop(ctx context.Context) {
 	var wg sync.WaitGroup
+	if s.h3 != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.h3.srv.Shutdown(ctx); err != nil {
+				log.Error().Err(err).Str("listener", "HTTP/3").Msg("Can not stop HTTP/3 server")
+			}
+			s.h3.close()
+		}()
+	}
 	for _, l := range s.listeners {
 		wg.Add(1)
 		go func() {

@@ -361,6 +361,19 @@ type (
 		// InternalPort, when set, opens a second plain-HTTP listener on HEALTH_BIND with the same API handler for
 		// in-cluster callers (the event-frontend server rendering). Empty (default) is off.
 		InternalPort string `env:"INTERNAL_PORT"`
+		// HTTP3 is the optional HTTP/3 (QUIC, UDP) listener next to the HTTPS one (HTTP_SERVER_HTTP3_*).
+		HTTP3 HTTP3Config `envPrefix:"HTTP3_"`
+	}
+
+	// HTTP3Config is the HTTP/3 listener: it serves the same handler with the same certificate as the HTTPS
+	// listener, so it needs TLS. The TCP responses then carry Alt-Svc.
+	HTTP3Config struct {
+		Enabled bool `env:"ENABLED"`
+		// Port is the UDP port the daemon listens on; empty is the HTTPS port.
+		Port string `env:"PORT"`
+		// AdvertisedPort is the UDP port clients are told in Alt-Svc: the one outside the load balancer, which
+		// can differ from the pod port.
+		AdvertisedPort string `env:"ADVERTISED_PORT" envDefault:"443"`
 	}
 
 	// HTTPServerTLSConfig is the optional TLS of the HTTP server (HTTP_SERVER_TLS_*): on only when the
@@ -683,6 +696,9 @@ func (c HTTPServerConfig) validate() error {
 		}
 	default:
 		return fmt.Errorf("HTTP_SERVER_TLS_CLIENT_AUTH must be off, optional or require, got %q", c.TLS.ClientAuth)
+	}
+	if c.HTTP3.Enabled && !c.TLSEnabled() {
+		return errors.New("HTTP_SERVER_HTTP3_ENABLED needs HTTP_SERVER_TLS_CERT_FILE and HTTP_SERVER_TLS_KEY_FILE")
 	}
 	if c.Port == "" && !c.TLSEnabled() {
 		return errors.New("no listener: HTTP_SERVER_PORT is empty and TLS is off")
