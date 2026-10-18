@@ -91,3 +91,24 @@ func TestHTTPControllerConfig_Validate(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTP3Config(t *testing.T) {
+	setTestHosts(t)
+	t.Setenv("RECAPTCHA_SECRET", "r")
+	h := MustGetConfig().HTTPController.Server.HTTP3
+	if h.Enabled || h.Port != "" || h.AdvertisedPort != "443" {
+		t.Fatalf("defaults: %+v", h)
+	}
+
+	var c HTTPServerConfig
+	c.Port = "80"
+	c.TLS.MinVersion, c.TLS.ClientAuth = "1.2", "off"
+	c.HTTP3.Enabled = true
+	if err := c.validate(); err == nil || !strings.Contains(err.Error(), "HTTP_SERVER_HTTP3_ENABLED") {
+		t.Fatalf("HTTP/3 without TLS must be refused: %v", err)
+	}
+	c.TLS.CertFile, c.TLS.KeyFile = "c", "k"
+	if err := c.validate(); err != nil {
+		t.Fatal(err)
+	}
+}
