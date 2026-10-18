@@ -13,7 +13,7 @@ import (
 )
 
 const getExerciseImportJob = `-- name: GetExerciseImportJob :one
-SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at
+SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total
 FROM exercise_import_jobs
 WHERE id = $1
 `
@@ -31,6 +31,13 @@ func (q *Queries) GetExerciseImportJob(ctx context.Context, id uuid.UUID) (Exerc
 		&i.Error,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Stage,
+		&i.ImagesDone,
+		&i.ImagesTotal,
+		&i.TasksDone,
+		&i.TasksTotal,
+		&i.BytesPushed,
+		&i.BytesTotal,
 	)
 	return i, err
 }
@@ -41,7 +48,7 @@ INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exer
 VALUES ($1, $2, $3, $4, $5,
         $6::uuid[], $7, $8, $9)
 ON CONFLICT (source_id) DO UPDATE SET source_id = EXCLUDED.source_id
-RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at
+RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total
 `
 
 type StartExerciseImportJobParams struct {
@@ -81,6 +88,13 @@ func (q *Queries) StartExerciseImportJob(ctx context.Context, arg StartExerciseI
 		&i.Error,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Stage,
+		&i.ImagesDone,
+		&i.ImagesTotal,
+		&i.TasksDone,
+		&i.TasksTotal,
+		&i.BytesPushed,
+		&i.BytesTotal,
 	)
 	return i, err
 }
@@ -90,24 +104,91 @@ UPDATE exercise_import_jobs
 SET state        = $1,
     exercise_ids = $2::uuid[],
     error        = $3,
-    updated_at   = $4
-WHERE id = $5
+    stage        = $4,
+    images_done  = $5,
+    images_total = $6,
+    tasks_done   = $7,
+    tasks_total  = $8,
+    bytes_pushed = $9,
+    bytes_total  = $10,
+    updated_at   = $11
+WHERE id = $12
 `
 
 type UpdateExerciseImportJobParams struct {
 	State       string      `json:"state"`
 	ExerciseIds []uuid.UUID `json:"exercise_ids"`
 	Error       []byte      `json:"error"`
+	Stage       string      `json:"stage"`
+	ImagesDone  int32       `json:"images_done"`
+	ImagesTotal int32       `json:"images_total"`
+	TasksDone   int32       `json:"tasks_done"`
+	TasksTotal  int32       `json:"tasks_total"`
+	BytesPushed int64       `json:"bytes_pushed"`
+	BytesTotal  int64       `json:"bytes_total"`
 	UpdatedAt   time.Time   `json:"updated_at"`
 	ID          uuid.UUID   `json:"id"`
 }
 
-// The whole job aggregate (state, created tasks, error) in one write.
+// The whole job aggregate (state, created tasks, error, progress) in one write.
 func (q *Queries) UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateExerciseImportJob,
 		arg.State,
 		arg.ExerciseIds,
 		arg.Error,
+		arg.Stage,
+		arg.ImagesDone,
+		arg.ImagesTotal,
+		arg.TasksDone,
+		arg.TasksTotal,
+		arg.BytesPushed,
+		arg.BytesTotal,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateExerciseImportJobProgress = `-- name: UpdateExerciseImportJobProgress :execrows
+UPDATE exercise_import_jobs
+SET stage        = $1,
+    images_done  = $2,
+    images_total = $3,
+    tasks_done   = $4,
+    tasks_total  = $5,
+    bytes_pushed = $6,
+    bytes_total  = $7,
+    updated_at   = $8
+WHERE id = $9
+  AND state = 'running'
+`
+
+type UpdateExerciseImportJobProgressParams struct {
+	Stage       string    `json:"stage"`
+	ImagesDone  int32     `json:"images_done"`
+	ImagesTotal int32     `json:"images_total"`
+	TasksDone   int32     `json:"tasks_done"`
+	TasksTotal  int32     `json:"tasks_total"`
+	BytesPushed int64     `json:"bytes_pushed"`
+	BytesTotal  int64     `json:"bytes_total"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	ID          uuid.UUID `json:"id"`
+}
+
+// The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
+// has ended (zero rows) keeps its outcome.
+func (q *Queries) UpdateExerciseImportJobProgress(ctx context.Context, arg UpdateExerciseImportJobProgressParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateExerciseImportJobProgress,
+		arg.Stage,
+		arg.ImagesDone,
+		arg.ImagesTotal,
+		arg.TasksDone,
+		arg.TasksTotal,
+		arg.BytesPushed,
+		arg.BytesTotal,
 		arg.UpdatedAt,
 		arg.ID,
 	)

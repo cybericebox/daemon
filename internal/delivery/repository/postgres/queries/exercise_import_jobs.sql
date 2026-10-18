@@ -14,10 +14,32 @@ FROM exercise_import_jobs
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateExerciseImportJob :execrows
--- The whole job aggregate (state, created tasks, error) in one write.
+-- The whole job aggregate (state, created tasks, error, progress) in one write.
 UPDATE exercise_import_jobs
 SET state        = sqlc.arg(state),
     exercise_ids = sqlc.arg(exercise_ids)::uuid[],
     error        = sqlc.narg(error),
+    stage        = sqlc.arg(stage),
+    images_done  = sqlc.arg(images_done),
+    images_total = sqlc.arg(images_total),
+    tasks_done   = sqlc.arg(tasks_done),
+    tasks_total  = sqlc.arg(tasks_total),
+    bytes_pushed = sqlc.arg(bytes_pushed),
+    bytes_total  = sqlc.arg(bytes_total),
     updated_at   = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id);
+
+-- name: UpdateExerciseImportJobProgress :execrows
+-- The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
+-- has ended (zero rows) keeps its outcome.
+UPDATE exercise_import_jobs
+SET stage        = sqlc.arg(stage),
+    images_done  = sqlc.arg(images_done),
+    images_total = sqlc.arg(images_total),
+    tasks_done   = sqlc.arg(tasks_done),
+    tasks_total  = sqlc.arg(tasks_total),
+    bytes_pushed = sqlc.arg(bytes_pushed),
+    bytes_total  = sqlc.arg(bytes_total),
+    updated_at   = sqlc.arg(updated_at)
+WHERE id = sqlc.arg(id)
+  AND state = 'running';

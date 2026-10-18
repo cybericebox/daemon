@@ -1765,8 +1765,11 @@ type Querier interface {
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
 	// The whole job aggregate (state, stored file, error) in one write.
 	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
-	// The whole job aggregate (state, created tasks, error) in one write.
+	// The whole job aggregate (state, created tasks, error, progress) in one write.
 	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
+	// The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
+	// has ended (zero rows) keeps its outcome.
+	UpdateExerciseImportJobProgress(ctx context.Context, arg UpdateExerciseImportJobProgressParams) (int64, error)
 	// The periodic check result, written apart from the settings (the narrow-query exception, like the batched
 	// last_seen): only while the settings are still the ones that were checked (updated_at), so a result for a
 	// token that was replaced meanwhile is dropped.
