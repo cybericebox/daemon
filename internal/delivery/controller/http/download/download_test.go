@@ -45,7 +45,7 @@ func fetch(t *testing.T, extend bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	return string(body), err
 }
@@ -88,7 +88,7 @@ func slowWork(t *testing.T, long bool, work time.Duration) (status int, ctxErr e
 	if err != nil {
 		return 0, ctxErr, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, err = io.ReadAll(resp.Body)
 	return resp.StatusCode, ctxErr, err
 }
