@@ -254,7 +254,7 @@ func TestRequireAPIHost_ExactAPIHost_200(t *testing.T) {
 	}
 }
 
-func TestRequireAPIHost_ForeignHost_404(t *testing.T) {
+func TestRequireAPIHost_ForeignHost_421(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	p := newProt(&fakeUseCase{})
 	r := gin.New()
@@ -265,16 +265,16 @@ func TestRequireAPIHost_ForeignHost_404(t *testing.T) {
 	req.Host = "evil.com"
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("want 404, got %d", w.Code)
+	if w.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("want 421, got %d", w.Code)
 	}
 }
 
-// TestRequireAPIHost_BareApexDomain_404 proves a behavior change: the old
+// TestRequireAPIHost_BareApexDomain_421 proves a behavior change: the old
 // ValidateRequestDomain accepted the bare apex domain (Host: "example.test")
 // as a valid root request. RequireAPIHost requires the Host to be EXACTLY
-// api.<domain> now, so the bare apex must be rejected with 404.
-func TestRequireAPIHost_BareApexDomain_404(t *testing.T) {
+// api.<domain> now, so the bare apex must be rejected with 421.
+func TestRequireAPIHost_BareApexDomain_421(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	p := newProt(&fakeUseCase{})
 	r := gin.New()
@@ -285,8 +285,8 @@ func TestRequireAPIHost_BareApexDomain_404(t *testing.T) {
 	req.Host = "example.test"
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("bare apex domain must now be rejected: want 404, got %d", w.Code)
+	if w.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("bare apex domain must now be rejected: want 421, got %d", w.Code)
 	}
 }
 
@@ -826,5 +826,53 @@ func TestSilentRouteStaleRevocationListIs503(t *testing.T) {
 	}
 	if findCookie(w, authModel.SessionCookie) != nil {
 		t.Fatal("the cookie must stay")
+	}
+}
+
+func TestRequireAPIHost_CaseAndPort_200(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	p := newProt(&fakeUseCase{})
+	r := gin.New()
+	r.Use(p.RequireAPIHost)
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Host = "API.Example.Test:443"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+}
+
+func TestRequireAPIHost_ForeignHost_EmptyBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	p := newProt(&fakeUseCase{})
+	r := gin.New()
+	r.Use(p.RequireAPIHost)
+	r.GET("/x", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Host = "khctf.example.test"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusMisdirectedRequest || w.Body.Len() != 0 {
+		t.Fatalf("want empty 421, got %d %q", w.Code, w.Body.String())
+	}
+}
+
+func TestRequireAPIHost_HealthAnyHost_200(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	p := newProt(&fakeUseCase{})
+	r := gin.New()
+	r.Use(p.RequireAPIHost)
+	r.GET("/api/health", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req.Host = "10.0.0.5:8080"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
 	}
 }
