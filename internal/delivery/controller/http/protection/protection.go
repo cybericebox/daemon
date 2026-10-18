@@ -86,12 +86,15 @@ func cookieLifetime(cfg config.AuthConfig) time.Duration {
 	return cfg.SessionIdleTTL
 }
 
-// RequireAPIHost rejects any request whose Host is not exactly API_HOST.
-// This service answers on a single host now; every other host is routed to a
-// frontend by the edge proxy and never reaches this process.
+// RequireAPIHost answers 421 Misdirected Request, with an empty body, to any request whose Host is not exactly
+// API_HOST (case-insensitive, port ignored). An HTTP/2 browser connection opened for api.<domain> is reused for
+// every host the wildcard certificate covers (RFC 9113 §9.1.1): the event site of a phone that visited the
+// admin panel lands here. A 421 makes the browser retry on a fresh connection, which the edge routes by SNI
+// to the right backend. The route /api/health answers under any Host (probes), and the check runs before
+// CORS and every limiter, so a misdirected request costs nothing.
 func (p *Protection) RequireAPIHost(ctx *gin.Context) {
-	if hostWithoutPort(ctx.Request.Host) != p.hosts.API {
-		response.AbortWithNotFound(ctx)
+	if ctx.Request.URL.Path != "/api/health" && !strings.EqualFold(hostWithoutPort(ctx.Request.Host), p.hosts.API) {
+		ctx.AbortWithStatus(http.StatusMisdirectedRequest)
 		return
 	}
 	ctx.Next()
