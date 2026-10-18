@@ -30,6 +30,7 @@ type archiveImportCalls struct {
 	start    exerciseUseCase.ArchiveImportStart
 	job      exerciseUseCase.ImportJobView
 	jobAsked [2]uuid.UUID
+	running  []exerciseUseCase.ImportJobView
 	jobErr   error
 	// noRegistry is what RequireImageUploads answers; required counts the asks.
 	noRegistry error
@@ -51,6 +52,11 @@ func (f *fakeUC) ImportUploadedArchive(_ context.Context, in exerciseUseCase.Imp
 func (f *fakeUC) ArchiveImportJob(_ context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error) {
 	f.archiveImport.jobAsked = [2]uuid.UUID{id, user}
 	return f.archiveImport.job, f.archiveImport.jobErr
+}
+
+func (f *fakeUC) RunningArchiveImports(_ context.Context, user uuid.UUID) ([]exerciseUseCase.ImportJobView, error) {
+	f.archiveImport.jobAsked = [2]uuid.UUID{uuid.Nil, user}
+	return f.archiveImport.running, f.archiveImport.jobErr
 }
 
 var (
@@ -360,5 +366,27 @@ func TestExportJob_NotFoundAndBadID(t *testing.T) {
 	}
 	if w := jsonRequest(newEngine(uc, jobCaller), http.MethodGet, "/api/exercises/export/jobs/nope", ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("status %d", w.Code)
+	}
+}
+
+// GET /exercises/import/jobs: the caller's running imports with their progress.
+func TestRunningImportJobs(t *testing.T) {
+	uc := &fakeUC{archiveImport: archiveImportCalls{running: []exerciseUseCase.ImportJobView{{
+		ID: jobID, State: exerciseModel.ImportJobRunning, Stage: exerciseModel.ImportStageTasks,
+		Progress: exerciseModel.ImportProgress{ImagesDone: 2, ImagesTotal: 2, TasksDone: 5, TasksTotal: 12},
+	}}}}
+	r := newEngine(uc, jobCaller)
+	w := jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs", "")
+	if w.Code != http.StatusOK || uc.archiveImport.jobAsked[1] != jobCaller {
+		t.Fatalf("status %d asked %v", w.Code, uc.archiveImport.jobAsked)
+	}
+	for _, want := range []string{`"JobID":"` + jobID.String() + `"`, `"Stage":"tasks"`, `"TasksDone":5`, `"TasksTotal":12`, `"ImagesTotal":2`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("lacks %s: %s", want, w.Body.String())
+		}
+	}
+	uc.archiveImport.running = nil
+	if w = jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs", ""); !strings.Contains(w.Body.String(), `"data":[]`) && !strings.Contains(w.Body.String(), `"Data":[]`) {
+		t.Fatalf("empty list should be []: %s", w.Body.String())
 	}
 }

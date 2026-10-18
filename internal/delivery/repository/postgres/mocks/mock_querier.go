@@ -9268,6 +9268,21 @@ func (mr *MockQuerierMockRecorder) ListRevealSetLabs(ctx, arg any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRevealSetLabs", reflect.TypeOf((*MockQuerier)(nil).ListRevealSetLabs), ctx, arg)
 }
 
+// ListRunningExerciseImportJobs mocks base method.
+func (m *MockQuerier) ListRunningExerciseImportJobs(ctx context.Context, arg postgres.ListRunningExerciseImportJobsParams) ([]postgres.ExerciseImportJob, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunningExerciseImportJobs", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ExerciseImportJob)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunningExerciseImportJobs indicates an expected call of ListRunningExerciseImportJobs.
+func (mr *MockQuerierMockRecorder) ListRunningExerciseImportJobs(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunningExerciseImportJobs", reflect.TypeOf((*MockQuerier)(nil).ListRunningExerciseImportJobs), ctx, arg)
+}
+
 // ListSessionRevocationsSince mocks base method.
 func (m *MockQuerier) ListSessionRevocationsSince(ctx context.Context, revokedAt time.Time) ([]postgres.SessionRevocation, error) {
 	m.ctrl.T.Helper()

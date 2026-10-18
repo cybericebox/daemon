@@ -42,6 +42,58 @@ func (q *Queries) GetExerciseImportJob(ctx context.Context, id uuid.UUID) (Exerc
 	return i, err
 }
 
+const listRunningExerciseImportJobs = `-- name: ListRunningExerciseImportJobs :many
+SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total
+FROM exercise_import_jobs
+WHERE created_by = $1
+  AND state = 'running'
+  AND updated_at > $2
+ORDER BY created_at
+`
+
+type ListRunningExerciseImportJobsParams struct {
+	CreatedBy   uuid.UUID `json:"created_by"`
+	StaleBefore time.Time `json:"stale_before"`
+}
+
+// The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
+func (q *Queries) ListRunningExerciseImportJobs(ctx context.Context, arg ListRunningExerciseImportJobsParams) ([]ExerciseImportJob, error) {
+	rows, err := q.db.Query(ctx, listRunningExerciseImportJobs, arg.CreatedBy, arg.StaleBefore)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ExerciseImportJob{}
+	for rows.Next() {
+		var i ExerciseImportJob
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedBy,
+			&i.Source,
+			&i.SourceID,
+			&i.State,
+			&i.ExerciseIds,
+			&i.Error,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Stage,
+			&i.ImagesDone,
+			&i.ImagesTotal,
+			&i.TasksDone,
+			&i.TasksTotal,
+			&i.BytesPushed,
+			&i.BytesTotal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const startExerciseImportJob = `-- name: StartExerciseImportJob :one
 
 INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at)

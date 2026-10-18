@@ -6787,6 +6787,25 @@ definitions:
       ViaRef:
         $ref: '#/definitions/exercise.networkIPRefDTO'
     type: object
+  exercise.runningImport:
+    properties:
+      BytesPushed:
+        type: integer
+      BytesTotal:
+        type: integer
+      ImagesDone:
+        type: integer
+      ImagesTotal:
+        type: integer
+      JobID:
+        type: string
+      Stage:
+        type: string
+      TasksDone:
+        type: integer
+      TasksTotal:
+        type: integer
+    type: object
   exercise.saveDraftRequest:
     properties:
       AdminNote:
@@ -22064,6 +22083,27 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Download the example import archive (a small built-in ZIP of sample
         tasks)
+      tags:
+      - exercises
+  /exercises/import/jobs:
+    get:
+      description: So a page on another device, or with cleared storage, can follow
+        them (GET /exercises/import/jobs/{jobID}).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.runningImport'
+                  type: array
+              type: object
+      summary: The caller's background task imports that still run
       tags:
       - exercises
   /exercises/import/jobs/{jobID}:

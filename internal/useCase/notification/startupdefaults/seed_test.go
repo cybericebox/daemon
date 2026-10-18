@@ -53,7 +53,7 @@ func TestSeedInAppDefaultsIsIdempotent(t *testing.T) {
 			t.Fatalf("run %d: %v", i, err)
 		}
 	}
-	for _, typ := range []string{"exercise.elevation.requested", "exercise.elevation.approved", "exercise.elevation.rejected"} {
+	for _, typ := range []string{"exercise.elevation.requested", "exercise.elevation.approved", "exercise.elevation.rejected", "exercise.import.done", "exercise.import.failed"} {
 		var n int
 		if err := db.Pool.QueryRow(ctx, `SELECT count(*) FROM notification_in_app_templates WHERE notification_type = $1`, typ).Scan(&n); err != nil || n != 1 {
 			t.Fatalf("%s: templates = %d, %v; want exactly one", typ, n, err)

@@ -28,6 +28,7 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	exercise "github.com/cybericebox/daemon/internal/useCase/exercise"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
+	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 	"github.com/cybericebox/daemon/pkg/ociregistry"
 	"github.com/cybericebox/daemon/pkg/ociregistry/archivetest"
 	"github.com/cybericebox/daemon/pkg/secret"
@@ -184,6 +185,21 @@ func (s *fakeSources) DropUpload(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// fakeImportInbox records the notes about the end of an import.
+type fakeImportInbox struct {
+	done, failed []inboxUseCase.ImportEnd
+}
+
+func (f *fakeImportInbox) ExerciseImportDone(_ context.Context, e inboxUseCase.ImportEnd) error {
+	f.done = append(f.done, e)
+	return nil
+}
+
+func (f *fakeImportInbox) ExerciseImportFailed(_ context.Context, e inboxUseCase.ImportEnd) error {
+	f.failed = append(f.failed, e)
+	return nil
+}
+
 // importFixture is the exercise use case with the background import wired to fakes and a job table in memory.
 type importFixture struct {
 	uc      *exercise.ExerciseUseCase
@@ -204,6 +220,7 @@ type importFixture struct {
 	// failUpdates > 0: that many job writes fail first.
 	failUpdates int
 	updates     int
+	inbox       *fakeImportInbox
 }
 
 func newImportFixture(t *testing.T) *importFixture {
@@ -214,6 +231,8 @@ func newImportFixture(t *testing.T) *importFixture {
 	f := &importFixture{q: q, images: &fakeImages{}, sources: newFakeSources(), jobs: map[uuid.UUID]postgres.ExerciseImportJob{}, cipher: cipher, now: importJobT0}
 	f.uc = exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	f.uc.SetClock(func() time.Time { return f.now })
+	f.inbox = &fakeImportInbox{}
+	f.uc.SetImportInbox(f.inbox)
 	f.uc.SetArchiveImport(exercise.ArchiveImportDependencies{
 		Images: f.images, Sources: f.sources, Sealer: cipher,
 		Queue: func(_ context.Context, args jobsModel.ExerciseImportArgs) error {
@@ -883,4 +902,40 @@ func TestImportJobFailureKeepsProgress(t *testing.T) {
 	require.Equal(t, 1, view.Progress.ImagesDone)
 	require.Equal(t, 2, view.Progress.ImagesTotal)
 	require.Zero(t, view.Progress.TasksDone)
+}
+
+// The end of an import goes to the inbox of the user who started it: done with the count, failed once.
+func TestImportEndIsAnnouncedToTheStarter(t *testing.T) {
+	f := newImportFixture(t)
+	f.expectCreation(t)
+	bundleOfTwoImageTasks(t, f)
+	view := f.startAndRun(t)
+	require.Equal(t, exerciseModel.ImportJobDone, view.State, "error %+v", view.Error)
+	require.Equal(t, []inboxUseCase.ImportEnd{{User: importer, Created: 2, At: importJobT0}}, f.inbox.done)
+	require.Empty(t, f.inbox.failed)
+
+	g := newImportFixture(t)
+	g.images.failPushAt = 1
+	bundleOfTwoImageTasks(t, g)
+	require.Equal(t, exerciseModel.ImportJobFailed, g.startAndRun(t).State)
+	require.Equal(t, []inboxUseCase.ImportEnd{{User: importer, At: importJobT0}}, g.inbox.failed)
+	require.Empty(t, g.inbox.done)
+}
+
+// The caller's running imports are listed from the job table with their progress.
+func TestRunningArchiveImportsListsTheCallersRunningJobs(t *testing.T) {
+	f := newImportFixture(t)
+	jobID := uuid.FromStringOrNil("0192f0a0-0000-7000-8000-0000000000c9")
+	f.q.EXPECT().ListRunningExerciseImportJobs(gomock.Any(), postgres.ListRunningExerciseImportJobsParams{
+		CreatedBy: importer, StaleBefore: importJobT0.Add(-exerciseModel.ImportJobStaleAfter),
+	}).Return([]postgres.ExerciseImportJob{{
+		ID: jobID, CreatedBy: importer, State: "running", UpdatedAt: importJobT0, Stage: "images", ImagesDone: 1, ImagesTotal: 3, TasksTotal: 4,
+	}}, nil)
+	got, err := f.uc.RunningArchiveImports(context.Background(), importer)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, jobID, got[0].ID)
+	require.Equal(t, exerciseModel.ImportStageImages, got[0].Stage)
+	require.Equal(t, 3, got[0].Progress.ImagesTotal)
+	require.Equal(t, 4, got[0].Progress.TasksTotal)
 }
