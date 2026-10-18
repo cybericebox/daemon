@@ -364,12 +364,17 @@ type previewCandidate struct {
 }
 
 // listPreviewCatalogRows pages the catalog-scope tasks matching search; archived is "exclude" or "only".
-func (u *EventUseCase) listPreviewCatalogRows(ctx context.Context, search, archived string) ([]exerciseRepo.Listed, error) {
+// Users without exercises.read only see tasks they may already read.
+func (u *EventUseCase) listPreviewCatalogRows(ctx context.Context, user uuid.UUID, search, archived string) ([]exerciseRepo.Listed, error) {
+	visibility := exerciseRepo.Visibility{Scope: "catalog"}
+	if !rbac.HasPermissionInContext(ctx, rbac.PermExercisesRead) {
+		visibility.ViewerID = uuid.NullUUID{UUID: user, Valid: true}
+	}
 	var out []exerciseRepo.Listed
 	// Keyset pages hold rows strictly before the cursor: start after everything.
 	cursor, cursorID := cursorSentinelTime, maxUUID
 	for {
-		rows, err := u.exercises.ListCursor(ctx, exerciseRepo.ListParams{Search: search, Archived: archived, Visibility: exerciseRepo.Visibility{Scope: "catalog"}, CursorCreatedAt: cursor, CursorID: cursorID, Limit: previewCatalogPageSize})
+		rows, err := u.exercises.ListCursor(ctx, exerciseRepo.ListParams{Search: search, Archived: archived, Visibility: visibility, CursorCreatedAt: cursor, CursorID: cursorID, Limit: previewCatalogPageSize})
 		if err != nil {
 			return nil, err
 		}
@@ -403,8 +408,13 @@ func (u *EventUseCase) ListPreviewCatalog(ctx context.Context, event, user uuid.
 			eligible = append(eligible, previewCandidate{exerciseID: row.ID, name: row.Name, versionID: row.PublishedVersionID})
 		}
 	}
-	for _, archived := range []string{"exclude", "only"} {
-		rows, err := u.listPreviewCatalogRows(ctx, search, archived)
+	passes := []string{"exclude"}
+	if rbac.HasPermissionInContext(ctx, rbac.PermExercisesRead) {
+		// Archived tasks are listed for platform staff only.
+		passes = append(passes, "only")
+	}
+	for _, archived := range passes {
+		rows, err := u.listPreviewCatalogRows(ctx, user, search, archived)
 		if err != nil {
 			return nil, previewFailure(err)
 		}
