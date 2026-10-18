@@ -52,7 +52,9 @@ func (h *Handler) serveEventMedia(media eventMedia) gin.HandlerFunc {
 			response.AbortWithError(ctx, err)
 			return
 		}
-		tag := `"event-image-` + fileID.String() + `"`
+		// v2: browsers that stored the image under the old tag also stored a JSON Content-Type with it;
+		// a new tag makes them fetch the image again instead of getting a 304 for the broken copy.
+		tag := `"event-image-v2-` + fileID.String() + `"`
 		ctx.Header("ETag", tag)
 		if public {
 			ctx.Header("Cache-Control", "public, max-age=31536000, immutable")
@@ -61,7 +63,7 @@ func (h *Handler) serveEventMedia(media eventMedia) gin.HandlerFunc {
 		}
 		for _, line := range ctx.Request.Header.Values("If-None-Match") {
 			if response.ETagMatches(line, tag) {
-				ctx.AbortWithStatus(http.StatusNotModified)
+				response.AbortNotModified(ctx)
 				return
 			}
 		}
