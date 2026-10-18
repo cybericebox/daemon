@@ -1314,6 +1314,8 @@ type Querier interface {
 	ListRetiringEventLabs(ctx context.Context, limitVal int32) ([]EventTeamLab, error)
 	ListRetryableEmptyEventLabRevealBarriers(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
 	ListRevealSetLabs(ctx context.Context, arg ListRevealSetLabsParams) ([]EventTeamLab, error)
+	// The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
+	ListRunningExerciseImportJobs(ctx context.Context, arg ListRunningExerciseImportJobsParams) ([]ExerciseImportJob, error)
 	// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
 	ListSessionRevocationsSince(ctx context.Context, revokedAt time.Time) ([]SessionRevocation, error)
 	// scope_filter: 'platform' = platform banners, otherwise the Event id.

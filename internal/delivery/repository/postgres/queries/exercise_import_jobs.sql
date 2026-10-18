@@ -43,3 +43,12 @@ SET stage        = sqlc.arg(stage),
     updated_at   = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id)
   AND state = 'running';
+
+-- name: ListRunningExerciseImportJobs :many
+-- The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
+SELECT *
+FROM exercise_import_jobs
+WHERE created_by = sqlc.arg(created_by)
+  AND state = 'running'
+  AND updated_at > sqlc.arg(stale_before)
+ORDER BY created_at;

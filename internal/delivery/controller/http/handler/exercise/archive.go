@@ -417,6 +417,48 @@ type importJobError struct {
 	Context map[string]any `json:"Context,omitempty"`
 }
 
+// runningImport is one import of the caller that still runs.
+type runningImport struct {
+	JobID       string `json:"JobID"`
+	Stage       string `json:"Stage"`
+	ImagesDone  int    `json:"ImagesDone"`
+	ImagesTotal int    `json:"ImagesTotal"`
+	TasksDone   int    `json:"TasksDone"`
+	TasksTotal  int    `json:"TasksTotal"`
+	BytesPushed int64  `json:"BytesPushed"`
+	BytesTotal  int64  `json:"BytesTotal"`
+}
+
+// runningImportJobs godoc
+// @Summary      The caller's background task imports that still run
+// @Description  So a page on another device, or with cleared storage, can follow them (GET /exercises/import/jobs/{jobID}).
+// @Tags     exercises
+// @Produce  json
+// @Success  200  {object}  response.Response{data=[]runningImport}
+// @Router   /exercises/import/jobs [get]
+func (h *Handler) runningImportJobs(ctx *gin.Context) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	jobs, err := h.useCase.RunningArchiveImports(ctx, claims.UserID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	out := make([]runningImport, 0, len(jobs))
+	for _, job := range jobs {
+		out = append(out, runningImport{
+			JobID: job.ID.String(), Stage: string(job.Stage),
+			ImagesDone: job.Progress.ImagesDone, ImagesTotal: job.Progress.ImagesTotal,
+			TasksDone: job.Progress.TasksDone, TasksTotal: job.Progress.TasksTotal,
+			BytesPushed: job.Progress.BytesPushed, BytesTotal: job.Progress.BytesTotal,
+		})
+	}
+	response.AbortWithData(ctx, out)
+}
+
 type importJobResponse struct {
 	// State is running, done or failed.
 	State string `json:"State"`

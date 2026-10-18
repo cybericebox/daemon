@@ -15,6 +15,7 @@ import (
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	imageRegistryUseCase "github.com/cybericebox/daemon/internal/useCase/imageRegistry"
+	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 	appErr "github.com/cybericebox/daemon/pkg/err"
 	"github.com/cybericebox/daemon/pkg/ociregistry"
 	"github.com/cybericebox/daemon/pkg/secret"
@@ -249,6 +250,20 @@ func (u *ExerciseUseCase) ArchiveImportJob(ctx context.Context, id, user uuid.UU
 	return view, nil
 }
 
+// RunningArchiveImports lists the imports of user that still run, so a page opened on another device (or with a
+// cleared browser) can follow them. A running import silent for longer than its job may run has stopped and is left out.
+func (u *ExerciseUseCase) RunningArchiveImports(ctx context.Context, user uuid.UUID) ([]ImportJobView, error) {
+	jobs, err := u.exercises.ListRunningImportJobs(ctx, user, u.timeNow().Add(-exerciseModel.ImportJobStaleAfter))
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list the imports").Err()
+	}
+	views := make([]ImportJobView, len(jobs))
+	for i, job := range jobs {
+		views[i] = ImportJobView{ID: job.ID, State: exerciseModel.ImportJobRunning, Stage: job.Stage(u.timeNow()), Progress: job.Progress}
+	}
+	return views, nil
+}
+
 // RunArchiveImport is the background import (River job exercise_import): it reads the archive source where it lies,
 // imports it all or nothing and records done or failed. Only a failure to record the outcome is returned (River
 // retries then). The outcome is written on a context of its own, so an import cut off by its timeout still ends
@@ -276,7 +291,11 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 		}
 		job.Fail(failure, u.timeNow())
 		// Nothing was created: if the failure cannot be recorded, River may run the import again.
-		return u.writeImportJobRetrying(ctx, job)
+		if err = u.writeImportJobRetrying(ctx, job); err != nil {
+			return err
+		}
+		u.announceImport(ctx, job, false, 0)
+		return nil
 	}
 	ids := make([]uuid.UUID, len(created))
 	for i, view := range created {
@@ -291,7 +310,27 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 	if err = u.writeImportJobRetrying(ctx, job); err != nil {
 		log.Error().Err(err).Str("job", job.ID.String()).Msg("archive import: the finished import could not be recorded")
 	}
+	u.announceImport(ctx, job, true, len(ids))
 	return nil
+}
+
+// announceImport puts the end of the import into the inbox of the user who started it. Best effort: the outcome is
+// already recorded, so a delivery failure is logged, not returned.
+func (u *ExerciseUseCase) announceImport(ctx context.Context, job exerciseModel.ImportJob, done bool, created int) {
+	if u.importInbox == nil {
+		return
+	}
+	c := context.WithoutCancel(ctx)
+	end := inboxUseCase.ImportEnd{User: job.CreatedBy, Created: created, At: u.timeNow()}
+	var err error
+	if done {
+		err = u.importInbox.ExerciseImportDone(c, end)
+	} else {
+		err = u.importInbox.ExerciseImportFailed(c, end)
+	}
+	if err != nil {
+		log.Warn().Err(err).Str("job", job.ID.String()).Msg("archive import: the inbox note failed")
+	}
 }
 
 // importStateWrites is how often an import's outcome is written before giving up.
