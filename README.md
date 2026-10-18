@@ -125,7 +125,7 @@ Removed with no alias: `HTTP_SERVER_TLS_ENABLED`, `HTTP_SERVER_TLS_PORT` (now `H
 | `POSTGRES_MAX_CONNS` | `32` | Size of the main pool (requests and use cases, job handlers included). |
 | `POSTGRES_ACQUIRE_TIMEOUT` | `3s` | Longest a statement waits for a free connection of the main pool; past it the request is answered 503 with `Retry-After: 1`. A statement that got a connection runs as long as it needs. 100ms to 30s. |
 | `POSTGRES_MAX_CONN_LIFETIME` / `POSTGRES_MAX_CONN_IDLE_TIME` | `30m` / `5m` | A connection of either pool is replaced after this age / closed after this long unused. |
-| `POSTGRES_JOB_MAX_CONNS` | `8` | Size of the separate pool of the job queue (River: fetching, notifications, maintenance) and the session revocation poll, so requests cannot starve them and they cannot starve requests. At least 4, like `POSTGRES_MAX_CONNS`. |
+| `POSTGRES_JOB_MAX_CONNS` | `8` | Size of the separate pool of the job queue (River: fetching, notifications, maintenance) and the session revocation poll, so request queries cannot starve them and they cannot starve requests. Not fully isolated: a job enqueued by a request outside a transaction (a broadcast, a notification, an import) is inserted on this pool too, with no acquire bound; those inserts are short and the in-flight cap bounds how many run at once. An enqueue inside a unit of work uses its transaction on the main pool. At least 4, like `POSTGRES_MAX_CONNS`. |
 
 Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_MAX_CONNS` (40 by default), so N replicas need N × 40 + 20 (reserved for administration) ≤ the server's `max_connections`. The daemon logs this arithmetic at startup and warns when a single replica already does not fit.
 
