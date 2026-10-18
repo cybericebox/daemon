@@ -3,6 +3,7 @@ package exerciseRepo
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -33,6 +34,19 @@ func (r *Repository) GetImportJob(ctx context.Context, id uuid.UUID) (exerciseMo
 		return exerciseModel.ImportJob{}, err
 	}
 	return importJobFromRow(row), nil
+}
+
+// ListRunningImportJobs loads the imports of a user that still run (not silent since staleBefore).
+func (r *Repository) ListRunningImportJobs(ctx context.Context, user uuid.UUID, staleBefore time.Time) ([]exerciseModel.ImportJob, error) {
+	rows, err := r.q.ListRunningExerciseImportJobs(ctx, postgres.ListRunningExerciseImportJobsParams{CreatedBy: user, StaleBefore: staleBefore})
+	if err != nil {
+		return nil, err
+	}
+	jobs := make([]exerciseModel.ImportJob, len(rows))
+	for i, row := range rows {
+		jobs[i] = importJobFromRow(row)
+	}
+	return jobs, nil
 }
 
 // SaveImportJob writes the whole job (state, created tasks, error); it reports how many rows changed.

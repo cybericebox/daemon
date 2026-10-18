@@ -16004,6 +16004,41 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/import/jobs": {
+            "get": {
+                "description": "So a page on another device, or with cleared storage, can follow them (GET /exercises/import/jobs/{jobID}).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "The caller's background task imports that still run",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.runningImport"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/import/jobs/{jobID}": {
             "get": {
                 "description": "running → done (Exercises: the created tasks) or failed (Error: Code, Message, Context). Nothing is\ncreated unless the whole import succeeded. Only the user who started it sees it (404 otherwise).",
@@ -34143,6 +34178,35 @@ const docTemplate = `{
                 },
                 "ViaRef": {
                     "$ref": "#/definitions/exercise.networkIPRefDTO"
+                }
+            }
+        },
+        "exercise.runningImport": {
+            "type": "object",
+            "properties": {
+                "BytesPushed": {
+                    "type": "integer"
+                },
+                "BytesTotal": {
+                    "type": "integer"
+                },
+                "ImagesDone": {
+                    "type": "integer"
+                },
+                "ImagesTotal": {
+                    "type": "integer"
+                },
+                "JobID": {
+                    "type": "string"
+                },
+                "Stage": {
+                    "type": "string"
+                },
+                "TasksDone": {
+                    "type": "integer"
+                },
+                "TasksTotal": {
+                    "type": "integer"
                 }
             }
         },

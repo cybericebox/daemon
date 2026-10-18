@@ -55,6 +55,7 @@ type ExerciseUseCase struct {
 	elevations  IElevations // nil in narrow constructions: no approvals exist then
 	// fileGCGrace is the media GC grace window the per-task file store follows.
 	fileGCGrace    time.Duration
+	importInbox    IImportInbox    // nil until wired; the end of a background import is then not announced
 	elevationInbox IElevationInbox // nil until wired; elevation notifications are then skipped
 	// expiry schedules the end of a test lab's lease; nil: only the periodic sweep removes expired labs.
 	expiry ITestDeployExpiry
@@ -81,6 +82,18 @@ type ExerciseUseCase struct {
 type IProposalInbox interface {
 	ProposalSubmitted(ctx context.Context, p inboxUseCase.Proposal) error
 	ProposalDecided(ctx context.Context, p inboxUseCase.Proposal, approved bool, by uuid.UUID) error
+}
+
+// IImportInbox tells the user who started a background task import how it ended (satisfied by
+// inbox.RequestRouter).
+type IImportInbox interface {
+	ExerciseImportDone(ctx context.Context, e inboxUseCase.ImportEnd) error
+	ExerciseImportFailed(ctx context.Context, e inboxUseCase.ImportEnd) error
+}
+
+// SetImportInbox wires the import notifications after the dispatcher exists.
+func (u *ExerciseUseCase) SetImportInbox(inbox IImportInbox) {
+	u.importInbox = inbox
 }
 
 // SetProposalInbox wires the proposal inbox after the dispatcher exists.

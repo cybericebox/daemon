@@ -86,6 +86,7 @@ type (
 		QueueArchiveImport(ctx context.Context, in exerciseUseCase.QueueImportInput) (uuid.UUID, error)
 		ImportUploadedArchive(ctx context.Context, in exerciseUseCase.ImportUploadInput) (exerciseUseCase.ArchiveImportStart, error)
 		ArchiveImportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ImportJobView, error)
+		RunningArchiveImports(ctx context.Context, user uuid.UUID) ([]exerciseUseCase.ImportJobView, error)
 		// background export of tasks «з образами»
 		StartArchiveExport(ctx context.Context, in exerciseUseCase.StartExportInput) (uuid.UUID, error)
 		ArchiveExportJob(ctx context.Context, id, user uuid.UUID) (exerciseUseCase.ExportJobView, error)
@@ -182,6 +183,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// a task archive upload (purpose exercise-archive), read where its chunks lie; with images a background job
 		ex.POST("import/upload", long, h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchiveUpload)
 		// the background import's state, for the user who started it (same gate as the import)
+		ex.GET("import/jobs", h.prot.RequirePermission(rbac.PermExercisesWrite), h.runningImportJobs)
 		ex.GET("import/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importJob)
 		// the built-in example archive: same gate as the import it explains
 		ex.GET("import/example", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importExample)
