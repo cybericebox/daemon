@@ -39131,6 +39131,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": ""
                 },
+                "StartLeadMinutes": {
+                    "description": "StartLeadMinutes is how long before the event start the reservation begins (0 when the event has no schedule).",
+                    "type": "integer"
+                },
                 "TailGapMinutes": {
                     "type": "integer"
                 },
@@ -39219,18 +39223,23 @@ const docTemplate = `{
                     "type": "string",
                     "example": ""
                 },
+                "StartLeadMinutes": {
+                    "description": "StartLeadMinutes is how long before the event start the reservation begins (default: the planning lead).",
+                    "type": "integer"
+                },
                 "TailGapMinutes": {
                     "description": "TailGapMinutes is the gap after the event end; never shorter than the default (60), may be more.",
                     "type": "integer"
                 },
                 "Teams": {
+                    "description": "Teams is the maximum number of teams the reserve is granted for; it does not follow the registrations.",
                     "type": "integer"
                 },
                 "WindowEnd": {
                     "type": "string"
                 },
                 "WindowStart": {
-                    "description": "WindowStart and WindowEnd override the window; WindowEnd is the event end (the gap is added).",
+                    "description": "WindowStart and WindowEnd are an optional fixed window; each replaces its offset and is used as given.",
                     "type": "string"
                 }
             }

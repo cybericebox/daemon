@@ -26,7 +26,11 @@ type EventReservationInput struct {
 	Dynamic *Amount
 	// TailGap is the gap after the event end; never shorter than the default (1h), the admin may set more.
 	TailGap *time.Duration
-	// WindowStart and WindowEnd override the window; WindowEnd is the event end, the tail gap is added to it.
+	// StartLead is how long before the event start the reservation begins (default: the stand planning lead plus
+	// the readiness margin).
+	StartLead *time.Duration
+	// WindowStart and WindowEnd are an optional fixed window; each replaces its offset (StartLead / TailGap) and is
+	// the real boundary of the reservation, so the minimum tail does not apply to a fixed end.
 	WindowStart *time.Time
 	WindowEnd   *time.Time
 	// AllowConflicts keeps a reservation that does not fit by packing (it is marked not covered and the admin
@@ -36,16 +40,18 @@ type EventReservationInput struct {
 	DryRun bool
 }
 
-// eventWindow is the window of an event: from the stand deploy lead (plus the readiness margin) to the event end
-// plus the tail gap.
-func (u *ResourceCalendarUseCase) eventWindow(ctx context.Context, e eventModel.Event, in EventReservationInput, tail time.Duration) (calModel.Window, error) {
-	var start, end time.Time
+// eventWindow is the window of an event. By default it is relative to the event: StartLead before the start (the
+// stand planning lead plus the readiness margin when unset) to the event end plus the tail gap (never shorter than
+// the configured minimum). A fixed WindowStart / WindowEnd replaces the matching offset and is used as given. It
+// returns the lead and the tail as they are in the window, so the view can show them.
+func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReservationInput, lead, tail time.Duration) (calModel.Window, time.Duration, time.Duration, error) {
+	var start, end, eventStart, eventEnd time.Time
 	if e.Lifecycle.Configured {
-		// The deploy lead is computed by the stand engine from the workload; the window is planned with a fixed one.
-		lead := eventStandModel.PlanningLead
-		start = e.Lifecycle.StartAt.Add(-lead - u.cfg.LeadMargin)
+		eventStart = e.Lifecycle.StartAt
+		start = eventStart.Add(-lead)
 		if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil {
-			end = *finish
+			eventEnd = *finish
+			end = eventEnd.Add(max(tail, u.cfg.TailGap))
 		}
 	}
 	if in.WindowStart != nil {
@@ -55,9 +61,28 @@ func (u *ResourceCalendarUseCase) eventWindow(ctx context.Context, e eventModel.
 		end = *in.WindowEnd
 	}
 	if start.IsZero() || end.IsZero() {
-		return calModel.Window{}, calModel.ErrWindowInvalid.WithContext("reason", "the event has no schedule: set the window").Err()
+		return calModel.Window{}, 0, 0, calModel.ErrWindowInvalid.WithContext("reason", "the event has no schedule: set the window").Err()
 	}
-	return calModel.EventWindow(start, end, tail, u.cfg.TailGap)
+	w, err := calModel.NewWindow(start, end)
+	if err != nil {
+		return calModel.Window{}, 0, 0, err
+	}
+	if !eventStart.IsZero() {
+		lead = max(eventStart.Sub(w.Start), 0)
+	}
+	if !eventEnd.IsZero() {
+		tail = max(w.End.Sub(eventEnd), 0)
+	}
+	return w, lead, tail, nil
+}
+
+// startLead is how long before the event start the reservation begins; zero when the event has no schedule. It is
+// read from the window, so it needs no column of its own.
+func startLead(e eventModel.Event, r *calModel.Reservation) time.Duration {
+	if !e.Lifecycle.Configured {
+		return 0
+	}
+	return max(e.Lifecycle.StartAt.Sub(r.Window.Start), 0)
 }
 
 // SetEventReservation creates or updates the reservation of an event (a platform admin only). Size = the plan
@@ -96,8 +121,17 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 		}
 		teams, perTeam, device := need.Teams, need.PerTeam, need.LargestDevice
 		buffer, dynamic, tail := u.cfg.BufferPercent, Amount{}, u.cfg.TailGap
+		lead := eventStandModel.PlanningLead + u.cfg.LeadMargin
 		if existing != nil {
+			// Teams is the admin's maximum: the reserve is granted for it and does not follow the registrations.
+			teams = existing.Teams
 			buffer, dynamic, tail = existing.BufferPercent, existing.Dynamic, existing.TailGap
+			if l := startLead(e, existing); l > 0 {
+				lead = l
+			}
+		}
+		if in.StartLead != nil {
+			lead = *in.StartLead
 		}
 		if in.Teams != nil {
 			teams = *in.Teams
@@ -114,7 +148,7 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 		if in.TailGap != nil {
 			tail = *in.TailGap
 		}
-		window, wErr := u.eventWindow(ctx, e, in, tail)
+		window, lead, tail, wErr := u.eventWindow(e, in, lead, tail)
 		if wErr != nil {
 			return wErr
 		}
@@ -171,6 +205,7 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 		if planErr != nil {
 			return planErr
 		}
+		view.StartLead = startLead(e, r)
 		result = ReservationResult{Reservation: view, Conflicts: conflicts}
 		if !covered && !in.AllowConflicts {
 			ce := calModel.ErrReservationConflict.WithPublicContext("unplaced", r.Unplaced)
@@ -387,6 +422,9 @@ func (u *ResourceCalendarUseCase) GetEventResourceReservation(ctx context.Contex
 	}
 	view := u.reservationView(r, states, labels, alarms[r.ID])
 	view.Covered = r.Unplaced == 0 && len(conflicts) == 0
+	if e, eErr := u.events.GetByID(ctx, eventID); eErr == nil {
+		view.StartLead = startLead(e, r)
+	}
 	if u.usage != nil {
 		if usage, uErr := u.usage.Usage(ctx, now); uErr == nil {
 			view.Used = usage.ByEvent[eventID]

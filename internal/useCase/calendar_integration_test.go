@@ -62,7 +62,7 @@ func TestResourceCalendarAgainstARealDatabase(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Saved)
 	assert.True(t, res.Reservation.Covered)
-	assert.Equal(t, end.Add(time.Hour), res.Reservation.To, "the tail gap is added to the event end")
+	assert.Equal(t, end, res.Reservation.To, "a fixed window end is the real end")
 	require.Len(t, res.Reservation.Placement, 1)
 	assert.Equal(t, 4, res.Reservation.Placement[0].Units)
 
