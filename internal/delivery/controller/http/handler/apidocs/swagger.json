@@ -25229,6 +25229,9 @@
         "event.PreviewCatalogItem": {
             "type": "object",
             "properties": {
+                "Eligible": {
+                    "type": "boolean"
+                },
                 "ExerciseVersionID": {
                     "type": "string"
                 },
@@ -25239,6 +25242,9 @@
                     "type": "boolean"
                 },
                 "Name": {
+                    "type": "string"
+                },
+                "Reason": {
                     "type": "string"
                 },
                 "Variants": {
