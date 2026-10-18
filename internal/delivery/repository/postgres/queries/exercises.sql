@@ -46,7 +46,7 @@ SELECT sqlc.embed(exercises),
 FROM exercises
 WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text || '%'
     OR description ILIKE '%' || sqlc.arg(search)::text || '%')
-  AND (cardinality(sqlc.arg(tags)::text[]) = 0 OR tags && sqlc.arg(tags)::text[])
+  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR tags && sqlc.arg(tags)::text[])
   AND (CASE WHEN sqlc.arg(archived)::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
   AND (sqlc.arg(scope)::text = '' OR (sqlc.arg(scope)::text = 'catalog' AND scope = 0)
     OR (sqlc.arg(scope)::text = 'event' AND scope = 1))
@@ -66,7 +66,7 @@ SELECT count(*)
 FROM exercises
 WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text || '%'
     OR description ILIKE '%' || sqlc.arg(search)::text || '%')
-  AND (cardinality(sqlc.arg(tags)::text[]) = 0 OR tags && sqlc.arg(tags)::text[])
+  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR tags && sqlc.arg(tags)::text[])
   AND (CASE WHEN sqlc.arg(archived)::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
   AND (sqlc.arg(scope)::text = '' OR (sqlc.arg(scope)::text = 'catalog' AND scope = 0)
     OR (sqlc.arg(scope)::text = 'event' AND scope = 1))
@@ -88,7 +88,7 @@ WITH listed AS (SELECT id,
                 FROM exercises
                 WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text || '%'
                     OR description ILIKE '%' || sqlc.arg(search)::text || '%')
-                  AND (cardinality(sqlc.arg(tags)::text[]) = 0 OR tags && sqlc.arg(tags)::text[])
+                  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR tags && sqlc.arg(tags)::text[])
                   AND (CASE WHEN sqlc.arg(archived)::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
                   AND (sqlc.arg(scope)::text = '' OR (sqlc.arg(scope)::text = 'catalog' AND scope = 0)
                     OR (sqlc.arg(scope)::text = 'event' AND scope = 1))
@@ -124,7 +124,7 @@ WITH listed AS (SELECT exercise_status(draft_version_id, published_version_id, a
                 FROM exercises
                 WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text || '%'
                     OR description ILIKE '%' || sqlc.arg(search)::text || '%')
-                  AND (cardinality(sqlc.arg(tags)::text[]) = 0 OR tags && sqlc.arg(tags)::text[])
+                  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR tags && sqlc.arg(tags)::text[])
                   AND (CASE WHEN sqlc.arg(archived)::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
                   AND (sqlc.arg(scope)::text = '' OR (sqlc.arg(scope)::text = 'catalog' AND scope = 0)
                     OR (sqlc.arg(scope)::text = 'event' AND scope = 1))

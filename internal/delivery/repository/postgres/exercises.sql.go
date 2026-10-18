@@ -37,7 +37,7 @@ SELECT count(*)
 FROM exercises
 WHERE ($1::text = '' OR name ILIKE '%' || $1::text || '%'
     OR description ILIKE '%' || $1::text || '%')
-  AND (cardinality($2::text[]) = 0 OR tags && $2::text[])
+  AND (coalesce(cardinality($2::text[]), 0) = 0 OR tags && $2::text[])
   AND (CASE WHEN $3::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
   AND ($4::text = '' OR ($4::text = 'catalog' AND scope = 0)
     OR ($4::text = 'event' AND scope = 1))
@@ -81,7 +81,7 @@ WITH listed AS (SELECT exercise_status(draft_version_id, published_version_id, a
                 FROM exercises
                 WHERE ($3::text = '' OR name ILIKE '%' || $3::text || '%'
                     OR description ILIKE '%' || $3::text || '%')
-                  AND (cardinality($4::text[]) = 0 OR tags && $4::text[])
+                  AND (coalesce(cardinality($4::text[]), 0) = 0 OR tags && $4::text[])
                   AND (CASE WHEN $5::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
                   AND ($6::text = '' OR ($6::text = 'catalog' AND scope = 0)
                     OR ($6::text = 'event' AND scope = 1))
@@ -656,7 +656,7 @@ SELECT exercises.id, exercises.name, exercises.description, exercises.tags, exer
 FROM exercises
 WHERE ($2::text = '' OR name ILIKE '%' || $2::text || '%'
     OR description ILIKE '%' || $2::text || '%')
-  AND (cardinality($3::text[]) = 0 OR tags && $3::text[])
+  AND (coalesce(cardinality($3::text[]), 0) = 0 OR tags && $3::text[])
   AND (CASE WHEN $4::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
   AND ($5::text = '' OR ($5::text = 'catalog' AND scope = 0)
     OR ($5::text = 'event' AND scope = 1))
@@ -790,7 +790,7 @@ WITH listed AS (SELECT id,
                 FROM exercises
                 WHERE ($7::text = '' OR name ILIKE '%' || $7::text || '%'
                     OR description ILIKE '%' || $7::text || '%')
-                  AND (cardinality($8::text[]) = 0 OR tags && $8::text[])
+                  AND (coalesce(cardinality($8::text[]), 0) = 0 OR tags && $8::text[])
                   AND (CASE WHEN $9::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
                   AND ($10::text = '' OR ($10::text = 'catalog' AND scope = 0)
                     OR ($10::text = 'event' AND scope = 1))
