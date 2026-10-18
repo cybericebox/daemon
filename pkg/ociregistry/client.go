@@ -249,6 +249,53 @@ func (c *Client) PingPull(ctx context.Context) error {
 	return fmt.Errorf("ping: %w (status %d)", ErrUnreachable, resp.StatusCode)
 }
 
+// PingCredentials proves the registry accepts the account without naming a repository (an organizer secret may
+// hold a host only): the token or basic exchange runs with no scope, then GET /v2/ must answer 200. A revoked,
+// expired or wrong credential is ErrUnauthorized; an account that is valid but cannot read some repository still
+// passes. The repository of the Options is ignored.
+func (c *Client) PingCredentials(ctx context.Context) error {
+	var nopts []name.Option
+	if c.opts.Insecure {
+		nopts = append(nopts, name.Insecure)
+	}
+	reg, err := name.NewRegistry(c.opts.Host, nopts...)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrInvalidReference, c.scrub(err.Error()))
+	}
+	if !c.opts.Insecure && (c.opts.Username != "" || c.opts.Password != "") && reg.Scheme() == "http" {
+		return fmt.Errorf("%w: plain http registry host", ErrInvalidReference)
+	}
+	auth := authn.Anonymous
+	if c.opts.Username != "" || c.opts.Password != "" {
+		auth = authn.FromConfig(authn.AuthConfig{Username: c.opts.Username, Password: c.opts.Password})
+	}
+	base := c.opts.Transport
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	rt, err := transport.NewWithContext(ctx, reg, auth, base, nil)
+	if err != nil {
+		return c.wrap("ping", err)
+	}
+	hc := &http.Client{Transport: rt, CheckRedirect: c.checkRedirect}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reg.Scheme()+"://"+reg.RegistryStr()+"/v2/", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(hc, req, "ping")
+	if err != nil {
+		return err
+	}
+	defer drain(resp)
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	if s := classifyStatus(resp.StatusCode); s != nil {
+		return fmt.Errorf("ping: %w (status %d)", s, resp.StatusCode)
+	}
+	return fmt.Errorf("ping: %w (status %d)", ErrUnreachable, resp.StatusCode)
+}
+
 func (c *Client) head(ctx context.Context, url, accept, scope, op string) (bool, error) {
 	ok, _, err := c.headSize(ctx, url, accept, scope, op)
 	return ok, err

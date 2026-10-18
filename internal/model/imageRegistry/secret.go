@@ -24,6 +24,8 @@ type EventSecret struct {
 	ID, EventID                                       uuid.UUID
 	Host, RepositoryPrefix, Username, TokenCiphertext string
 	CreatedAt, UpdatedAt                              time.Time
+	// Check is the last result of the periodic credential check; Edit and SetToken leave it alone.
+	Check Check
 }
 
 var (

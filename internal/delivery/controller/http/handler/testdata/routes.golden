@@ -259,6 +259,7 @@ GET    /api/events/:id/manage/registry-secrets | gate: self | layers: imageRegis
 POST   /api/events/:id/manage/registry-secrets | gate: self | layers: imageRegistry.requireManage
 DELETE /api/events/:id/manage/registry-secrets/:secretId | gate: self | layers: imageRegistry.requireManage
 PUT    /api/events/:id/manage/registry-secrets/:secretId | gate: self | layers: imageRegistry.requireManage
+POST   /api/events/:id/manage/registry-secrets/:secretId/check | gate: self | layers: imageRegistry.requireManage
 GET    /api/events/:id/manage/resource-plan | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/resources | gate: self | layers: resourceCalendar.requireRead
 POST   /api/events/:id/manage/resources/change-requests | gate: self | layers: resourceCalendar.requireManage
@@ -542,6 +543,7 @@ PUT    /api/settings/archive-limits | gate: platform.settings.write | layers: -
 DELETE /api/settings/image-registry | gate: platform.settings.write | layers: -
 GET    /api/settings/image-registry | gate: platform.settings.read | layers: -
 PUT    /api/settings/image-registry | gate: platform.settings.write | layers: -
+POST   /api/settings/image-registry/check | gate: platform.settings.write | layers: -
 POST   /api/settings/image-registry/repositories | gate: platform.settings.write | layers: -
 GET    /api/settings/participant-preview | gate: platform.settings.read | layers: -
 PUT    /api/settings/participant-preview | gate: platform.settings.write | layers: -

@@ -213,7 +213,7 @@ func TestSettingsViewNeverCarriesATokenField(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	want := "Account,Configured,Provider,PullTokenSet,PushTokenSet,Repository,SecretsKeyMissing,UpdatedAt"
+	want := "Account,Configured,Provider,PullCheck,PullTokenSet,PushCheck,PushTokenSet,Repository,SecretsKeyMissing,UpdatedAt"
 	if strings.Join(keys, ",") != want {
 		t.Fatalf("view fields %v, want %s", keys, want)
 	}
