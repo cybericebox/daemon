@@ -1,7 +1,8 @@
-package response
+package response_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/pkg/err"
 	"github.com/cybericebox/daemon/pkg/overload"
 )
@@ -16,7 +18,9 @@ import (
 func overloadBody(t *testing.T, rec *httptest.ResponseRecorder) int {
 	t.Helper()
 	var body struct {
-		Status struct{ Code int }
+		Status struct {
+			Code int `json:"Code"`
+		} `json:"Status"`
 	}
 	if e := json.Unmarshal(rec.Body.Bytes(), &body); e != nil {
 		t.Fatal(e)
@@ -27,7 +31,7 @@ func overloadBody(t *testing.T, rec *httptest.ResponseRecorder) int {
 func TestAbortWithServiceOverloaded(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.GET("/busy", func(ctx *gin.Context) { AbortWithServiceOverloaded(ctx) })
+	router.GET("/busy", func(ctx *gin.Context) { response.AbortWithServiceOverloaded(ctx) })
 
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/busy", nil))
@@ -42,12 +46,13 @@ func TestAbortWithServiceOverloaded(t *testing.T) {
 func TestWithErrorHandlerMapsDBBusy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(WithErrorHandler)
+	router.Use(response.WithErrorHandler)
 	router.GET("/db", func(ctx *gin.Context) {
-		AbortWithError(ctx, err.ErrInternal.WithError(fmt.Errorf("load: %w", overload.ErrDBBusy)).Err())
+		wrapped := fmt.Errorf("load: %w", overload.ErrDBBusy)
+		response.AbortWithError(ctx, err.ErrInternal.WithError(wrapped).Err())
 	})
 	router.GET("/other", func(ctx *gin.Context) {
-		AbortWithError(ctx, err.ErrInternal.WithError(fmt.Errorf("boom")).Err())
+		response.AbortWithError(ctx, err.ErrInternal.WithError(errors.New("boom")).Err())
 	})
 
 	rec := httptest.NewRecorder()
