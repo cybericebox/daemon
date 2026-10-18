@@ -27,7 +27,10 @@ import (
 //     navigations, downloads and server-side fetches pass;
 //   - a write with a body must be application/json or multipart/form-data (the upload routes): a
 //     cross-origin form post cannot send JSON, and a body in another type never reaches a handler
-//     that reads JSON whatever its header says.
+//     that reads JSON whatever its header says. The one other type is application/octet-stream, and
+//     only on BinaryBodyRoutes (the handlers that read the raw body, the upload chunks): it is not a
+//     CORS-simple type, so a cross-origin form cannot send it without a preflight, which the CORS
+//     policy refuses for foreign origins.
 func OriginGuard(hosts config.HostsConfig) gin.HandlerFunc {
 	return OriginGuardWith(OriginPolicy{Hosts: hosts})
 }
@@ -65,7 +68,7 @@ func OriginGuardWith(policy OriginPolicy) gin.HandlerFunc {
 			refuse(ctx, "no-cors load of an authenticated URL")
 			return
 		}
-		if write && hasBody(ctx.Request) && !allowedBodyType(ctx.GetHeader("Content-Type")) {
+		if write && hasBody(ctx.Request) && !allowedBodyType(ctx.GetHeader("Content-Type"), BinaryBodyRoutes[ctx.FullPath()]) {
 			log.Warn().Str("method", ctx.Request.Method).Str("path", ctx.Request.URL.Path).
 				Str("contentType", ctx.GetHeader("Content-Type")).Msg("Request refused: the body is not JSON")
 			response.AbortWithUnsupportedMediaType(ctx)
@@ -94,10 +97,24 @@ func hasBody(r *http.Request) bool {
 	return r.ContentLength > 0 || (r.ContentLength == -1 && r.Body != nil && r.Body != http.NoBody)
 }
 
-func allowedBodyType(contentType string) bool {
+func allowedBodyType(contentType string, binary bool) bool {
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		return false
 	}
-	return mediaType == "application/json" || mediaType == "multipart/form-data"
+	return mediaType == "application/json" || mediaType == "multipart/form-data" ||
+		(binary && mediaType == "application/octet-stream")
+}
+
+// BinaryBodyRoutes are the route templates whose handler reads the raw request body (an upload chunk),
+// so application/octet-stream is accepted there and nowhere else. Keep this set and the routes that use
+// the RawBody middleware identical: a test in the handler package compares them.
+var BinaryBodyRoutes = map[string]bool{
+	"/api/exercises/uploads/:uploadID/chunks/:index": true,
+}
+
+// RawBody marks a route whose handler reads the raw request body (see BinaryBodyRoutes). It changes
+// nothing itself; the origin guard looks the route up in BinaryBodyRoutes.
+func RawBody(c *gin.Context) {
+	c.Next()
 }
