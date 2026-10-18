@@ -1,7 +1,9 @@
 package event
 
 import (
+	"bufio"
 	"io"
+	"mime"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -71,9 +73,39 @@ func (h *Handler) serveEventMedia(media eventMedia) gin.HandlerFunc {
 			return
 		}
 		defer func(r io.Closer) { _ = r.Close() }(reader)
+		body := bufio.NewReaderSize(reader, 512)
+		head, _ := body.Peek(512)
+		imageType, ok := eventImageType(contentType, head)
+		if !ok {
+			ctx.Header("ETag", "")
+			ctx.Header("Cache-Control", "private, no-store")
+			response.AbortWithNotFound(ctx)
+			return
+		}
 		ctx.Header("X-Content-Type-Options", "nosniff")
 		ctx.Header("Content-Disposition", media.disposition)
 		ctx.Header("Content-Security-Policy", media.csp)
-		ctx.DataFromReader(http.StatusOK, -1, contentType, reader, nil)
+		// Set explicitly: the API-wide JSON Content-Type is already on the response and
+		// DataFromReader never overrides a header that is present.
+		ctx.Header("Content-Type", imageType)
+		ctx.DataFromReader(http.StatusOK, -1, imageType, body, nil)
 	}
+}
+
+var eventImageTypes = map[string]bool{
+	"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true, "image/avif": true,
+	"image/bmp": true, "image/svg+xml": true, "image/x-icon": true, "image/vnd.microsoft.icon": true,
+}
+
+// eventImageType returns the image type to send: the stored one when it is an allowed image type,
+// otherwise the one detected from the first bytes. Anything that is not an image is refused.
+func eventImageType(stored string, head []byte) (string, bool) {
+	if mt, _, err := mime.ParseMediaType(stored); err == nil && eventImageTypes[mt] {
+		return mt, true
+	}
+	mt, _, err := mime.ParseMediaType(http.DetectContentType(head))
+	if err != nil || !eventImageTypes[mt] {
+		return "", false
+	}
+	return mt, true
 }
