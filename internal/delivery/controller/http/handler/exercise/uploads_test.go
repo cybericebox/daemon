@@ -216,11 +216,11 @@ func TestChunkedUpload_LargeExerciseArchiveNeedsTheRegistry(t *testing.T) {
 		r.ServeHTTP(w, req)
 		return w.Code, w.Body.String()
 	}
-	code, body := start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.MaxArchiveBytes+1))
+	code, body := start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.DefaultArchiveBytes+1))
 	if code != http.StatusConflict || !strings.Contains(body, "72801") || uc.started[0] != nil {
 		t.Fatalf("large archive without a registry: %d %s started=%v", code, body, uc.started)
 	}
-	code, _ = start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.MaxArchiveBytes))
+	code, _ = start(fmt.Sprintf(`{"Name":"tasks.zip","Size":%d,"Purpose":"exercise-archive"}`, exerciseModel.DefaultArchiveBytes))
 	if code != http.StatusOK || uc.purpose != mediaModel.UploadPurposeExerciseArchive || uc.required != 1 {
 		t.Fatalf("archive at the limit: %d %q, registry asked %d times", code, uc.purpose, uc.required)
 	}

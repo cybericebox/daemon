@@ -100,7 +100,7 @@ func TestParseExerciseArchive_JSONDocumentTooLarge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	_, err = ParseExerciseArchive(archive, "")
+	_, err = ParseExerciseArchive(archive, "", DefaultLimits())
 	if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) || !strings.Contains(err.Error(), "the document is too large") {
 		t.Fatalf("got %v, want the document-too-large error", err)
 	}

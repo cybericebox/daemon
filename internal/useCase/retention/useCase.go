@@ -53,11 +53,17 @@ type (
 		DeleteInactiveAccount(ctx context.Context, userID uuid.UUID, warnedAt time.Time) (bool, error)
 	}
 
+	// Policies give the retention policy in force (satisfied by *platformSettingsUseCase.PlatformSettingsUseCase):
+	// the periods saved in the platform settings over the env defaults.
+	Policies interface {
+		RetentionPolicy(ctx context.Context) (retentionModel.Policy, error)
+	}
+
 	Dependencies struct {
 		Store    Store
 		Notifier Notifier
 		Accounts AccountRemover
-		Policy   retentionModel.Policy
+		Policies Policies
 		// SignInURL is the ID sign-in page linked from the warning email.
 		SignInURL string
 		// Now is the clock; nil means time.Now.
@@ -68,7 +74,7 @@ type (
 		store     Store
 		notifier  Notifier
 		accounts  AccountRemover
-		policy    retentionModel.Policy
+		policies  Policies
 		signInURL string
 		now       func() time.Time
 	}
@@ -81,17 +87,22 @@ func New(deps Dependencies) *RetentionUseCase {
 	}
 	return &RetentionUseCase{
 		store: deps.Store, notifier: deps.Notifier, accounts: deps.Accounts,
-		policy: deps.Policy, signInURL: deps.SignInURL, now: now,
+		policies: deps.Policies, signInURL: deps.SignInURL, now: now,
 	}
 }
 
 // EnforceDataRetention purges every kind of data past its period, and the
 // residual personal data of deleted accounts. A failing step does not stop
-// the others; the run logs one line with the counts and returns the failures.
+// the others; the run logs one line with the counts and returns the failures. The policy is read once at the start
+// and holds for the whole run; without it nothing is purged.
 func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
+	policy, err := u.policies.RetentionPolicy(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the retention policy").Err()
+	}
 	started := u.now()
-	cut := u.policy.Cutoffs(started)
-	batch := u.policy.BatchSize
+	cut := policy.Cutoffs(started)
+	batch := policy.BatchSize
 	var errs []error
 	step := func(purge func(context.Context) (int64, error)) int64 {
 		n, err := drain(ctx, batch, purge)
@@ -145,7 +156,7 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 		return u.store.PurgeExpiredTemporalCodes(ctx, started, batch)
 	})
 
-	err := errors.Join(errs...)
+	err = errors.Join(errs...)
 	log.Info().Err(err).
 		Int64("sessions", sessions).
 		Int64("lab_observations", labObservations).
@@ -171,18 +182,23 @@ func (u *RetentionUseCase) EnforceDataRetention(ctx context.Context) error {
 // policy period and deletes the accounts still inactive a grace period after
 // the warning. Signing in again voids the warning. The deletion goes through
 // the deletion-request cascade; the next purge run removes the residual
-// personal data and keeps competition results under the anonymized tombstone.
+// personal data and keeps competition results under the anonymized tombstone. The policy is read once at the start
+// and holds for the whole run; without it nothing runs.
 func (u *RetentionUseCase) EnforceAccountInactivity(ctx context.Context) error {
+	policy, err := u.policies.RetentionPolicy(ctx)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to read the retention policy").Err()
+	}
 	started := u.now()
-	cut := u.policy.Cutoffs(started)
+	cut := policy.Cutoffs(started)
 
 	cleared, err := u.store.ClearReturnedInactivityWarnings(ctx)
 	var warned, deleted, kept int64
 	if err == nil {
-		warned, err = u.warnInactiveAccounts(ctx, started, cut.InactiveSince)
+		warned, err = u.warnInactiveAccounts(ctx, policy, started, cut.InactiveSince)
 	}
 	if err == nil {
-		deleted, kept, err = u.deleteWarnedAccounts(ctx, cut.WarnedBefore)
+		deleted, kept, err = u.deleteWarnedAccounts(ctx, policy, cut.WarnedBefore)
 	}
 
 	log.Info().Err(err).
@@ -201,11 +217,11 @@ func (u *RetentionUseCase) EnforceAccountInactivity(ctx context.Context) error {
 // warnInactiveAccounts queues the warning email, then records it. A failure
 // stops the run (the unmarked account is listed again next time), so an
 // account is never deleted without a queued warning.
-func (u *RetentionUseCase) warnInactiveAccounts(ctx context.Context, now, inactiveSince time.Time) (int64, error) {
-	deletionDate := u.policy.DeletionDate(now).Format(deletionDateLayout)
+func (u *RetentionUseCase) warnInactiveAccounts(ctx context.Context, policy retentionModel.Policy, now, inactiveSince time.Time) (int64, error) {
+	deletionDate := policy.DeletionDate(now).Format(deletionDateLayout)
 	var warned int64
 	for {
-		accounts, err := u.store.ListInactiveAccountsToWarn(ctx, inactiveSince, u.policy.BatchSize)
+		accounts, err := u.store.ListInactiveAccountsToWarn(ctx, inactiveSince, policy.BatchSize)
 		if err != nil {
 			return warned, err
 		}
@@ -223,7 +239,7 @@ func (u *RetentionUseCase) warnInactiveAccounts(ctx context.Context, now, inacti
 				warned++
 			}
 		}
-		if len(accounts) < int(u.policy.BatchSize) {
+		if len(accounts) < int(policy.BatchSize) {
 			return warned, nil
 		}
 	}
@@ -231,9 +247,9 @@ func (u *RetentionUseCase) warnInactiveAccounts(ctx context.Context, now, inacti
 
 // deleteWarnedAccounts deletes the accounts whose grace period is over. An
 // account whose owner signed in meanwhile is kept (and no longer listed).
-func (u *RetentionUseCase) deleteWarnedAccounts(ctx context.Context, warnedBefore time.Time) (deleted, kept int64, err error) {
+func (u *RetentionUseCase) deleteWarnedAccounts(ctx context.Context, policy retentionModel.Policy, warnedBefore time.Time) (deleted, kept int64, err error) {
 	for {
-		accounts, err := u.store.ListInactiveAccountsToDelete(ctx, warnedBefore, u.policy.BatchSize)
+		accounts, err := u.store.ListInactiveAccountsToDelete(ctx, warnedBefore, policy.BatchSize)
 		if err != nil {
 			return deleted, kept, err
 		}
@@ -248,7 +264,7 @@ func (u *RetentionUseCase) deleteWarnedAccounts(ctx context.Context, warnedBefor
 				kept++
 			}
 		}
-		if len(accounts) < int(u.policy.BatchSize) {
+		if len(accounts) < int(policy.BatchSize) {
 			return deleted, kept, nil
 		}
 	}

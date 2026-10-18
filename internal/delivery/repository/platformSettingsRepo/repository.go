@@ -1,7 +1,7 @@
 // Package platformSettingsRepo is the repository for the PlatformSetting
 // aggregate: it accepts and returns whole domain entities and keeps all sqlc
 // row mapping out of the business layer. Upsert is a single atomic statement
-// (key is UNIQUE), so no unit of work is needed.
+// (key is UNIQUE), so no unit of work is needed; Delete is a set operation.
 package platformSettingsRepo
 
 import (
@@ -16,6 +16,7 @@ type Queries interface {
 	GetPlatformSettingByKey(ctx context.Context, key string) (postgres.AppSetting, error)
 	ListPlatformSettings(ctx context.Context) ([]postgres.AppSetting, error)
 	UpsertPlatformSetting(ctx context.Context, arg postgres.UpsertPlatformSettingParams) (postgres.AppSetting, error)
+	DeletePlatformSettingByKey(ctx context.Context, key string) error
 }
 
 type Repository struct {
@@ -64,6 +65,11 @@ func (r *Repository) Upsert(ctx context.Context, s platformSettingsModel.Platfor
 		return platformSettingsModel.PlatformSetting{}, err
 	}
 	return toDomain(row), nil
+}
+
+// Delete removes the setting stored under key; a missing key is not an error.
+func (r *Repository) Delete(ctx context.Context, key string) error {
+	return r.q.DeletePlatformSettingByKey(ctx, key)
 }
 
 func toDomain(row postgres.AppSetting) platformSettingsModel.PlatformSetting {

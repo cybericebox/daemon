@@ -16,57 +16,50 @@ import (
 	"github.com/cybericebox/daemon/pkg/secret"
 )
 
-// exportUnder exports the fixture task (four distinct attachments of 7-20 bytes, a document of a few KiB) under the
-// limits in force.
-func exportUnder(t *testing.T) ([]byte, error) {
+// exportUnder exports the fixture task (four distinct attachments of 7-20 bytes, a document of a few KiB) under lim.
+func exportUnder(t *testing.T, lim exerciseModel.ArchiveLimits) ([]byte, error) {
 	t.Helper()
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	expectExport(t, q, exportExerciseID, "Експорт", exportFixtureVersions())
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
-	return uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
+	return uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, lim)
 }
 
 // The export refuses what the import would refuse: one set of limits for both.
 func TestExportExerciseArchive_EntryOverTheEntryCap(t *testing.T) {
-	exercise.SetArchiveLimits(t, 1<<20, 16, 1<<20, 1000)
-	_, err := exportUnder(t)
+	_, err := exportUnder(t, exercise.Limits(1<<20, 16, 1<<20, 1000))
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err(), "common.bin (20 bytes) is over a 16-byte entry cap")
 }
 
 func TestExportExerciseArchive_UnpackedOverTheTotal(t *testing.T) {
-	exercise.SetArchiveLimits(t, 1<<20, 1<<20, 64, 1000)
-	_, err := exportUnder(t)
+	_, err := exportUnder(t, exercise.Limits(1<<20, 1<<20, 64, 1000))
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err())
 }
 
 func TestExportExerciseArchive_TooManyEntries(t *testing.T) {
-	exercise.SetArchiveLimits(t, 1<<20, 1<<20, 1<<20, 4)
-	_, err := exportUnder(t)
+	_, err := exportUnder(t, exercise.Limits(1<<20, 1<<20, 1<<20, 4))
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err(), "four files, exercise.json and manifest.json are six entries")
 }
 
 func TestExportExerciseArchive_ArchiveOverTheCap(t *testing.T) {
-	exercise.SetArchiveLimits(t, 512, 1<<20, 1<<20, 1000)
-	_, err := exportUnder(t)
+	_, err := exportUnder(t, exercise.Limits(512, 1<<20, 1<<20, 1000))
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err())
 }
 
 // What the export writes within the limits, the import reads within the same limits.
 func TestExportExerciseArchive_WithinTheLimitsImports(t *testing.T) {
-	data, err := exportUnder(t)
+	data, err := exportUnder(t, exercise.DefaultLimits())
 	require.NoError(t, err)
-	exercise.SetArchiveLimits(t, int64(len(data)), 1<<20, 1<<20, 6)
-	_, err = exercise.ParseExerciseArchive(data, "")
+	_, err = exercise.ParseExerciseArchive(data, "", exercise.Limits(int64(len(data)), 1<<20, 1<<20, 6))
 	require.NoError(t, err)
 }
 
 func TestBundleExerciseArchives_OverTheLimits(t *testing.T) {
-	data, err := exportUnder(t)
+	data, err := exportUnder(t, exercise.DefaultLimits())
 	require.NoError(t, err)
 	items := []exercise.NamedArchive{{Name: "a", Archive: data}, {Name: "b", Archive: data}}
 	// Each task (six entries) fits; together they are 2 x 5 files and one root manifest.json.
-	exercise.SetArchiveLimits(t, 1<<20, 1<<20, 1<<20, 10)
-	_, err = exercise.BundleExerciseArchives(items, "")
+	_, err = exercise.BundleExerciseArchives(items, "", exercise.Limits(1<<20, 1<<20, 1<<20, 10))
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err())
 }
 
@@ -82,9 +75,9 @@ func TestExportThenImport_HighlyCompressibleFile(t *testing.T) {
 		q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 		expectExport(t, q, exportExerciseID, "Експорт", exportFixtureVersions())
 		uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: media, Cipher: cipher})
-		data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, opts)
+		data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, opts, exercise.DefaultLimits())
 		require.NoError(t, err)
-		parsed, err := exercise.ParseExerciseArchive(data, opts.Password)
+		parsed, err := exercise.ParseExerciseArchive(data, opts.Password, exercise.DefaultLimits())
 		require.NoError(t, err, "protected=%v", opts.IncludeSecrets)
 		found := false
 		for _, body := range parsed.Files {
@@ -110,11 +103,11 @@ func TestBuildArchive_StoresOnlyWhatWouldBreakTheRatio(t *testing.T) {
 	require.Equal(t, zip.Store, methods["zeros.bin"])
 	require.Equal(t, zip.Deflate, methods["log.txt"])
 	require.Equal(t, zip.Deflate, methods["manifest.json"])
-	_, err = exercise.ReadArchiveV1(bytes.NewReader(data))
+	_, err = exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 
 	protected, err := exercise.BuildProtectedArchiveV1(map[string][]byte{"zeros.bin": make([]byte, 2<<20)}, "pw")
 	require.NoError(t, err)
-	_, err = exercise.ReadProtectedArchiveV1(protected, "pw")
+	_, err = exercise.ReadProtectedArchiveV1(protected, "pw", exercise.DefaultLimits())
 	require.NoError(t, err)
 }

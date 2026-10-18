@@ -76,7 +76,7 @@ const (
 	// registry: it may be as large as an image archive.
 	UploadPurposeImageBlob UploadPurpose = "image-blob"
 	// UploadPurposeExerciseArchive is a task archive to import that may carry device images: it may be as large as
-	// exerciseModel.MaxArchiveWithImagesBytes and is read where its chunks lie, never assembled into a media file.
+	// the archive limit plus one image archive (exerciseModel.ArchiveLimits.WithImagesBytes) and is read where its chunks lie, never assembled into a media file.
 	UploadPurposeExerciseArchive UploadPurpose = "exercise-archive"
 )
 

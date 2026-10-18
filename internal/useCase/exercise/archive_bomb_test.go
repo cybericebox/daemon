@@ -41,14 +41,6 @@ func incompressible(n int) []byte {
 	return out[:n]
 }
 
-// withLimits runs a test under small archive limits, so it needs no hundreds of MiB.
-func withLimits(t *testing.T, small archiveLimits) {
-	t.Helper()
-	old := limits
-	limits = small
-	t.Cleanup(func() { limits = old })
-}
-
 func requireTooLarge(t *testing.T, err error, what string) {
 	t.Helper()
 	if !errors.Is(err, exerciseModel.ErrArchiveTooLarge.Err()) {
@@ -58,9 +50,9 @@ func requireTooLarge(t *testing.T, err error, what string) {
 
 // Import and export share one set of limits: the export's, a stored file of the default media cap.
 func TestArchiveLimitsAreTheExportLimits(t *testing.T) {
-	want := archiveLimits{Archive: 512 << 20, Entry: 512 << 20, Unpacked: 512 << 20, Entries: 1000}
-	if limits != want || MaxArchiveBytes != want.Archive || MaxArchiveEntryBytes != want.Entry || MaxArchiveUnpackedBytes != want.Unpacked || MaxArchiveEntries != want.Entries {
-		t.Fatalf("limits = %+v", limits)
+	want := Limits(512<<20, 512<<20, 512<<20, 1000)
+	if got := exerciseModel.DefaultArchiveLimits(); got != want {
+		t.Fatalf("limits = %+v", got)
 	}
 }
 
@@ -70,44 +62,43 @@ func TestAnArchiveThatExpandsFarBeyondItsSizeIsRefused(t *testing.T) {
 	if len(bomb) > 1<<20 {
 		t.Fatalf("the test archive should be tiny, it is %d bytes", len(bomb))
 	}
-	_, err := ReadArchiveV1(bytes.NewReader(bomb))
+	_, err := ReadArchiveV1(bytes.NewReader(bomb), DefaultLimits())
 	requireTooLarge(t, err, "a 48 MiB entry in a ~50 KB archive")
 }
 
 func TestAnEntryOverTheEntryCapIsRefused(t *testing.T) {
-	withLimits(t, archiveLimits{Archive: 8 << 20, Entry: 2 << 20, Unpacked: 8 << 20, Entries: 1000})
 	// Incompressible bytes, so the ratio check does not answer first.
-	_, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"a.bin": incompressible(3 << 20)})))
+	_, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"a.bin": incompressible(3 << 20)})), Limits(8<<20, 2<<20, 8<<20, 1000))
 	requireTooLarge(t, err, "an entry over the entry cap")
 }
 
 func TestAnArchiveWithTooManyEntriesIsRefused(t *testing.T) {
 	entries := map[string][]byte{}
-	for i := 0; i <= MaxArchiveEntries; i++ {
+	for i := 0; i <= exerciseModel.DefaultArchiveEntries; i++ {
 		entries[fmt.Sprintf("f%04d.txt", i)] = []byte("x")
 	}
-	_, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries)))
+	_, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries)), DefaultLimits())
 	requireTooLarge(t, err, "1001 entries")
 }
 
 func TestAnArchiveOverTheArchiveCapIsRefused(t *testing.T) {
-	withLimits(t, archiveLimits{Archive: 1 << 10, Entry: 1 << 20, Unpacked: 1 << 20, Entries: 1000})
-	_, err := ReadArchiveBytes(bytes.NewReader(make([]byte, 1<<10+1)))
+	lim := Limits(1<<10, 1<<20, 1<<20, 1000)
+	_, err := ReadArchiveBytes(bytes.NewReader(make([]byte, 1<<10+1)), lim.ArchiveBytes)
 	requireTooLarge(t, err, "an upload over the archive cap")
-	body, err := ReadArchiveBytes(bytes.NewReader(make([]byte, 1<<10)))
+	body, err := ReadArchiveBytes(bytes.NewReader(make([]byte, 1<<10)), lim.ArchiveBytes)
 	if err != nil || len(body) != 1<<10 {
 		t.Fatalf("an upload at the cap reads whole: %d %v", len(body), err)
 	}
 	big := zipOf(t, map[string][]byte{"a.bin": incompressible(2 << 10)})
-	_, err = ReadArchiveV1(bytes.NewReader(big))
+	_, err = ReadArchiveV1(bytes.NewReader(big), lim)
 	requireTooLarge(t, err, "a zip over the archive cap is refused, never cut")
-	_, err = ReadProtectedArchiveV1(big, "pw")
+	_, err = ReadProtectedArchiveV1(big, "pw", lim)
 	requireTooLarge(t, err, "a protected zip over the archive cap")
 }
 
 func TestTheUnpackedTotalIsCappedAndTheBytesActuallyReadCount(t *testing.T) {
-	withLimits(t, archiveLimits{Archive: 8 << 20, Entry: 1 << 20, Unpacked: 4 << 20, Entries: 1000})
-	var b archiveBudget
+	lim := Limits(8<<20, 1<<20, 4<<20, 1000)
+	b := newArchiveBudget(lim)
 	chunk := bytes.Repeat([]byte{1}, 1<<20)
 	for i := 0; i < 4; i++ { // 4 x 1 MiB: within the total
 		if _, err := b.read(bytes.NewReader(chunk)); err != nil {
@@ -117,7 +108,7 @@ func TestTheUnpackedTotalIsCappedAndTheBytesActuallyReadCount(t *testing.T) {
 	_, err := b.read(bytes.NewReader(chunk))
 	requireTooLarge(t, err, "the fifth chunk passes the total")
 	// The header can lie: a stream longer than the entry cap is refused, never silently cut.
-	var other archiveBudget
+	other := newArchiveBudget(lim)
 	_, err = other.read(bytes.NewReader(make([]byte, 1<<20+1)))
 	requireTooLarge(t, err, "an entry longer than the entry cap")
 }
@@ -127,7 +118,7 @@ func TestAnOrdinaryArchiveStillReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ReadArchiveV1(bytes.NewReader(files))
+	got, err := ReadArchiveV1(bytes.NewReader(files), DefaultLimits())
 	if err != nil || len(got) != 2 {
 		t.Fatalf("got %v err %v", len(got), err)
 	}

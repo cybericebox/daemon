@@ -212,7 +212,7 @@ func schemaArchive(t *testing.T, files map[string]string) []byte {
 }
 
 func TestParseExerciseArchive_Schema1JSON(t *testing.T) {
-	parsed, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "")
+	parsed, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "", DefaultLimits())
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -227,11 +227,11 @@ func TestParseExerciseArchive_Schema1JSON(t *testing.T) {
 func TestParseExerciseArchive_Schema1JSONWithComments(t *testing.T) {
 	commented := "// header\n{\n  \"schema\": \"cib-exercise/1\", /* brand/version */\n  \"exercise\": {\"name\": \"Тест-завдання\"}, // name\n" +
 		"  \"versions\": [{\"status\": \"draft\", \"variants\": [{\"tasks\": [{\"name\": \"Тест\", \"difficulty\": \"easy\"}]}]}]\n}"
-	plain, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "")
+	plain, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "", DefaultLimits())
 	if err != nil {
 		t.Fatalf("plain: %v", err)
 	}
-	withComments, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": commented}), "")
+	withComments, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": commented}), "", DefaultLimits())
 	if err != nil {
 		t.Fatalf("commented: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestParseExerciseArchive_Schema1JSONWithComments(t *testing.T) {
 
 func TestParseExerciseArchive_BothDocumentsRejected(t *testing.T) {
 	data := schemaArchive(t, map[string]string{"exercise.json": minimalDoc, "exercise.yaml": "schema: cib-exercise/1\n"})
-	_, err := ParseExerciseArchive(data, "")
+	_, err := ParseExerciseArchive(data, "", DefaultLimits())
 	if !errors.Is(err, exerciseModel.ErrArchiveBothDocuments.Err()) {
 		t.Fatalf("err = %v, want ErrArchiveBothDocuments", err)
 	}
@@ -267,7 +267,7 @@ func TestParseExerciseArchive_SchemaRequired(t *testing.T) {
 		"other":     `{"schema":"other/1","exercise":{"name":"x"}}`,
 		"old body":  `{"format":"cib-exercise/v1","Exercise":{"Name":"x"},"Versions":[]}`,
 	} {
-		_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": body}), "")
+		_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": body}), "", DefaultLimits())
 		if !errors.Is(err, exerciseModel.ErrArchiveSchemaUnsupported.Err()) {
 			t.Errorf("%s: err = %v, want ErrArchiveSchemaUnsupported", name, err)
 			continue

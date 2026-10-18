@@ -29,6 +29,16 @@ type (
 			ctx context.Context,
 			in platformSettingsUseCase.UpsertInput,
 		) (*platformSettingsModel.PlatformSetting, error)
+
+		GetRetentionSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		SaveRetentionSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
+		ResetRetentionSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		GetArchiveLimitSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		SaveArchiveLimitSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
+		ResetArchiveLimitSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		GetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
+		SaveTestRunSettings(ctx context.Context, in platformSettingsModel.Values) (platformSettingsUseCase.TypedView, error)
+		ResetTestRunSettings(ctx context.Context) (platformSettingsUseCase.TypedView, error)
 	}
 
 	// IProtection is the subset of the protection middleware this handler needs.
@@ -86,8 +96,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		settingsAPI.GET("", h.prot.RequirePermission(rbac.PermPlatformSettingsRead), h.listSettings)
 		settingsAPI.GET(":key", h.prot.RequirePermission(rbac.PermPlatformSettingsRead), h.getSetting)
 		settingsAPI.PUT(":key", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.upsertSetting)
-		settingsAPI.GET(":key/value", h.prot.RequirePermission(rbac.PermPlatformSettingsReadValue), h.getSetting)
+		settingsAPI.GET(":key/value", h.prot.RequirePermission(rbac.PermPlatformSettingsReadValue), h.getSettingValue)
 	}
+	h.initTyped(settingsAPI)
 }
 
 // ListSettings godoc
@@ -122,7 +133,7 @@ func (h *Handler) getSetting(ctx *gin.Context) {
 	response.AbortWithData(ctx, toResponse(s))
 }
 
-// GetSetting godoc
+// GetSettingValue godoc
 // @Summary  Get a setting value by key
 // @Tags     settings
 // @Produce  json

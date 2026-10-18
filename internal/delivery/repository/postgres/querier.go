@@ -289,6 +289,8 @@ type Querier interface {
 	// Removes the record of one tag only while its digest is still collectable (same predicate as IsDigestCollectable).
 	DeletePlatformImage(ctx context.Context, arg DeletePlatformImageParams) (int64, error)
 	DeletePlatformSMTPProvider(ctx context.Context, id uuid.UUID) (int64, error)
+	// Removes a stored setting; a typed setting then falls back to its defaults.
+	DeletePlatformSettingByKey(ctx context.Context, key string) error
 	DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error
 	DeleteSiteBanner(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteSolveIntegrityReview(ctx context.Context, arg DeleteSolveIntegrityReviewParams) (int64, error)

@@ -543,6 +543,9 @@ GET    /api/settings | gate: platform.settings.read | layers: -
 GET    /api/settings/:key | gate: platform.settings.read | layers: -
 PUT    /api/settings/:key | gate: platform.settings.write | layers: -
 GET    /api/settings/:key/value | gate: platform.settings.read.value(public) | layers: -
+DELETE /api/settings/archive-limits | gate: platform.settings.write | layers: -
+GET    /api/settings/archive-limits | gate: platform.settings.read | layers: -
+PUT    /api/settings/archive-limits | gate: platform.settings.write | layers: -
 DELETE /api/settings/image-registry | gate: platform.settings.write | layers: -
 GET    /api/settings/image-registry | gate: platform.settings.read | layers: -
 PUT    /api/settings/image-registry | gate: platform.settings.write | layers: -
@@ -550,6 +553,12 @@ POST   /api/settings/image-registry/repositories | gate: platform.settings.write
 GET    /api/settings/participant-preview | gate: platform.settings.read | layers: -
 PUT    /api/settings/participant-preview | gate: platform.settings.write | layers: -
 GET    /api/settings/participant-preview/catalog | gate: platform.settings.read | layers: -
+DELETE /api/settings/retention | gate: platform.settings.write | layers: -
+GET    /api/settings/retention | gate: platform.settings.read | layers: -
+PUT    /api/settings/retention | gate: platform.settings.write | layers: -
+DELETE /api/settings/test-runs | gate: platform.settings.write | layers: -
+GET    /api/settings/test-runs | gate: platform.settings.read | layers: -
+PUT    /api/settings/test-runs | gate: platform.settings.write | layers: -
 GET    /api/users | gate: users.read | layers: -
 DELETE /api/users/:userID | gate: users.delete | layers: -
 GET    /api/users/:userID | gate: users.read | layers: -

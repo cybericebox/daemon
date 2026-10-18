@@ -82,7 +82,7 @@ func (u *ResourceCalendarUseCase) eventPreviewRoom(ctx context.Context, s Store,
 	if !held.Add(needed).Within(r.Size) {
 		return TestLabRoom{}, nil, calModel.ErrNotEnoughReserved.Err()
 	}
-	until := now.Add(u.leaseOf(req.Lease))
+	until := now.Add(u.leaseOf(ctx, req.Lease))
 	if until.After(r.Window.End) {
 		until = r.Window.End
 	}

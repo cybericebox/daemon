@@ -513,11 +513,11 @@ func TestImportUploadedArchiveWithoutImagesIsSynchronous(t *testing.T) {
 	require.Equal(t, []uuid.UUID{archiveUpID}, f.sources.dropped)
 }
 
-// Without images the archive limits stay: an upload over MaxArchiveBytes is refused.
+// Without images the archive limits stay: an upload over the archive cap is refused.
 func TestImportUploadedArchiveWithoutImagesKeepsTheLimit(t *testing.T) {
 	f := newImportFixture(t)
 	b := zipOf(t, map[string][]byte{"exercise.json": imageTask("Plain")})
-	f.sources.stagePadded(archiveUpID, importer, exercise.MaxArchiveBytes+1-int64(len(b)), b, mediaModel.UploadPurposeExerciseArchive)
+	f.sources.stagePadded(archiveUpID, importer, exercise.DefaultLimits().ArchiveBytes+1-int64(len(b)), b, mediaModel.UploadPurposeExerciseArchive)
 	_, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveTooLarge.Err())
 }
@@ -732,10 +732,10 @@ func TestRunArchiveImportDoneWriteIsRetriedNotTheImport(t *testing.T) {
 func TestArchiveNamesImages(t *testing.T) {
 	with := zipOf(t, map[string][]byte{"exercise.json": imageTask("I", [2]string{"web", "images/web.tar"}), "images/web.tar": webImageTar})
 	without := zipOf(t, map[string][]byte{"exercise.json": imageTask("P", [2]string{"web", "nginx"})})
-	require.True(t, exercise.ArchiveNamesImages(with, ""))
-	require.False(t, exercise.ArchiveNamesImages(without, ""))
-	require.False(t, exercise.ArchiveNamesImages([]byte("not a zip"), ""))
-	_, err := exercise.ParseExerciseArchive(with, "")
+	require.True(t, exercise.ArchiveNamesImages(with, "", exercise.DefaultLimits()))
+	require.False(t, exercise.ArchiveNamesImages(without, "", exercise.DefaultLimits()))
+	require.False(t, exercise.ArchiveNamesImages([]byte("not a zip"), "", exercise.DefaultLimits()))
+	_, err := exercise.ParseExerciseArchive(with, "", exercise.DefaultLimits())
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveImageFileUnsupported.Err())
 }
 

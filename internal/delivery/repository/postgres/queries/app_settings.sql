@@ -18,3 +18,9 @@ WHERE key = $1;
 SELECT *
 FROM app_settings
 ORDER BY key;
+
+-- name: DeletePlatformSettingByKey :exec
+-- Removes a stored setting; a typed setting then falls back to its defaults.
+DELETE
+FROM app_settings
+WHERE key = $1;

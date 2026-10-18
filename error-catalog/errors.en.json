@@ -1,4 +1,12 @@
 {
+  "20102": "A setting value is missing",
+  "20103": "Unknown setting field",
+  "20104": "The setting value is out of range",
+  "20105": "The deletion grace must be shorter than the inactivity period",
+  "20106": "One file may not be larger than all files together",
+  "20107": "The longest test run may not be shorter than one lease",
+  "20108": "This setting is saved on its own settings tab",
+  "20109": "One archive file may not be larger than the file upload limit",
   "20205": "Invalid template status",
   "20206": "Template references unavailable notification variables",
   "20207": "Notification type is not available for event-scoped templates",

@@ -60,7 +60,7 @@ func TestToParsed_LinkedVariantKeepsOnlyOwnParts(t *testing.T) {
 		 "tasks":[{"id":"0192f0a0-0000-7000-8000-00000000b011","flag":["ICE{own-1}"],"attachments":[{"file":"files/own.txt","name":"мій.txt"}]},
 		          {"flag":["ICE{own-2}"]}]},
 		{"linked_to":1}]`, map[string]string{"files/base.txt": "base", "files/own.txt": "own"})
-	parsed, err := exercise.ParseExerciseArchive(archive, "")
+	parsed, err := exercise.ParseExerciseArchive(archive, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	variants := parsed.Versions[0].Variants
 	require.Len(t, variants, 3)
@@ -92,7 +92,7 @@ func TestToParsed_LinkedVariantKeepsOnlyOwnParts(t *testing.T) {
 // An id-less base is linked by the id the import gives it.
 func TestToParsed_LinkedToIdlessBase(t *testing.T) {
 	archive := linkedArchive(t, "draft", `[{"linked_to":2},{"tasks":[{"name":"t"}]}]`, nil)
-	parsed, err := exercise.ParseExerciseArchive(archive, "")
+	parsed, err := exercise.ParseExerciseArchive(archive, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	variants := parsed.Versions[0].Variants
 	require.NotEqual(t, uuid.Nil, variants[1].ID)
@@ -124,7 +124,7 @@ func TestDecodeArchiveV2_LinkedVariantForbiddenField(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			archive := linkedArchive(t, "draft", `[`+fullBase+`,`+tc.variant+`]`, map[string]string{"files/base.txt": "base"})
-			_, err := exercise.ParseExerciseArchive(archive, "")
+			_, err := exercise.ParseExerciseArchive(archive, "", exercise.DefaultLimits())
 			require.ErrorIs(t, err, exerciseModel.ErrArchiveLinkedVariantField.Err())
 			require.Equal(t, tc.field, errorContext(t, err)["field"])
 		})
@@ -145,7 +145,7 @@ func TestToParsed_LinkedToInvalid(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", tc.variants, nil), "")
+			_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", tc.variants, nil), "", exercise.DefaultLimits())
 			require.ErrorIs(t, err, exerciseModel.ErrArchiveLinkedToInvalid.Err())
 			ctx := errorContext(t, err)
 			require.Equal(t, tc.variant, ctx["variant"])
@@ -165,7 +165,7 @@ func TestToParsed_LinkedTaskCountMismatch(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[`+fullBase+`,`+tc.linked+`]`, files), "")
+			_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", `[`+fullBase+`,`+tc.linked+`]`, files), "", exercise.DefaultLimits())
 			require.ErrorIs(t, err, exerciseModel.ErrArchiveLinkedVariantField.Err())
 			require.Equal(t, tc.field, errorContext(t, err)["field"])
 		})
@@ -280,7 +280,7 @@ func exportLinked(t *testing.T) []byte {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	expectExport(t, q, exportExerciseID, "Експорт", linkedExportVersions())
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: exportFixtureMedia()})
-	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{})
+	data, err := uc.ExportExerciseArchive(context.Background(), exportExerciseID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
 	return data
 }
@@ -308,7 +308,7 @@ func TestExportExerciseArchive_LinkedVariantCompact(t *testing.T) {
 
 func TestExportThenImport_LinkedRoundTrip(t *testing.T) {
 	data := exportLinked(t)
-	parsed, err := exercise.ParseExerciseArchive(data, "")
+	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	for i := range parsed.Versions {
 		require.NoError(t, parsed.Versions[i].SyncLinkedVariants())
@@ -328,7 +328,7 @@ func TestToParsed_RepeatedVariantIDRejected(t *testing.T) {
 	variants := `[{"id":"` + linkedBaseID.String() + `","tasks":[{"name":"a"}]},
 		{"id":"` + linkedBaseID.String() + `","tasks":[{"name":"b"}]},
 		{"linked_to":2}]`
-	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variants, nil), "")
+	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variants, nil), "", exercise.DefaultLimits())
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
 	require.Contains(t, errorContext(t, err)["reason"], "versions[1].variants[2].id")
 }
@@ -336,7 +336,7 @@ func TestToParsed_RepeatedVariantIDRejected(t *testing.T) {
 // An invalid task id of the base is reported at the base, not as a mismatch of the linked task.
 func TestToParsed_LinkedTaskIDAgainstInvalidBaseID(t *testing.T) {
 	variants := `[{"linked_to":2,"tasks":[{"id":"` + linkedTaskOne.String() + `"}]},{"tasks":[{"id":"nope","name":"t"}]}]`
-	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variants, nil), "")
+	_, err := exercise.ParseExerciseArchive(linkedArchive(t, "draft", variants, nil), "", exercise.DefaultLimits())
 	require.ErrorIs(t, err, exerciseModel.ErrArchiveInvalid.Err())
 	require.Contains(t, errorContext(t, err)["reason"], "versions[1].variants[2].tasks[1].id")
 }
