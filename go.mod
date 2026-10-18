@@ -18,6 +18,7 @@ require (
 	github.com/metal-stack/go-ipam v1.15.2
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/minio/minio-go/v7 v7.3.0
+	github.com/quic-go/quic-go v0.63.0
 	github.com/riverqueue/river v0.48.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.48.0
 	github.com/riverqueue/river/rivertype v0.48.0
@@ -37,6 +38,7 @@ require (
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/text v0.42.0
+	golang.org/x/time v0.16.0
 	google.golang.org/api v0.300.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
@@ -138,7 +140,6 @@ require (
 	github.com/philhofer/fwd v1.2.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20260916203055-22a1a467d9f0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.63.0 // indirect
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/riverqueue/river/riverdriver v0.48.0 // indirect
 	github.com/riverqueue/river/rivershared v0.48.0 // indirect
@@ -180,7 +181,6 @@ require (
 	golang.org/x/arch v0.31.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/time v0.16.0 // indirect
 	golang.org/x/tools v0.50.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
