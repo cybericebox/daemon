@@ -43,12 +43,11 @@ type EventReservationInput struct {
 // eventWindow is the window of an event. By default it is relative to the event: StartLead before the start (the
 // stand planning lead plus the readiness margin when unset) to the event end plus the tail gap (never shorter than
 // the configured minimum). A fixed WindowStart / WindowEnd replaces the matching offset and is used as given. It
-// returns the lead and the tail as they are in the window, so the view can show them.
-func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReservationInput, lead, tail time.Duration) (calModel.Window, time.Duration, time.Duration, error) {
-	var start, end, eventStart, eventEnd time.Time
+// returns the tail as it is in the window, so the view can show it.
+func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReservationInput, lead, tail time.Duration) (calModel.Window, time.Duration, error) {
+	var start, end, eventEnd time.Time
 	if e.Lifecycle.Configured {
-		eventStart = e.Lifecycle.StartAt
-		start = eventStart.Add(-lead)
+		start = e.Lifecycle.StartAt.Add(-lead)
 		if finish := e.Lifecycle.EffectiveFinishAt(); finish != nil {
 			eventEnd = *finish
 			end = eventEnd.Add(max(tail, u.cfg.TailGap))
@@ -61,19 +60,16 @@ func (u *ResourceCalendarUseCase) eventWindow(e eventModel.Event, in EventReserv
 		end = *in.WindowEnd
 	}
 	if start.IsZero() || end.IsZero() {
-		return calModel.Window{}, 0, 0, calModel.ErrWindowInvalid.WithContext("reason", "the event has no schedule: set the window").Err()
+		return calModel.Window{}, 0, calModel.ErrWindowInvalid.WithContext("reason", "the event has no schedule: set the window").Err()
 	}
 	w, err := calModel.NewWindow(start, end)
 	if err != nil {
-		return calModel.Window{}, 0, 0, err
-	}
-	if !eventStart.IsZero() {
-		lead = max(eventStart.Sub(w.Start), 0)
+		return calModel.Window{}, 0, err
 	}
 	if !eventEnd.IsZero() {
 		tail = max(w.End.Sub(eventEnd), 0)
 	}
-	return w, lead, tail, nil
+	return w, tail, nil
 }
 
 // startLead is how long before the event start the reservation begins; zero when the event has no schedule. It is
@@ -148,7 +144,7 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 		if in.TailGap != nil {
 			tail = *in.TailGap
 		}
-		window, lead, tail, wErr := u.eventWindow(e, in, lead, tail)
+		window, tail, wErr := u.eventWindow(e, in, lead, tail)
 		if wErr != nil {
 			return wErr
 		}

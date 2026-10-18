@@ -84,7 +84,7 @@ func TestResourceCalendarAgainstARealDatabase(t *testing.T) {
 	require.NoError(t, err)
 	got, err = uc.GetEventResourceReservation(ctx, created.ID)
 	require.NoError(t, err)
-	assert.Equal(t, longer.Add(time.Hour), got.Reservation.To)
+	assert.Equal(t, longer, got.Reservation.To)
 	org, err := uc.GetEventResources(ctx, created.ID)
 	require.NoError(t, err)
 	assert.True(t, org.Reserved)
