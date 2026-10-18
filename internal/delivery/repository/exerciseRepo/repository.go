@@ -53,6 +53,7 @@ type Queries interface {
 	StartExerciseImportJob(ctx context.Context, arg postgres.StartExerciseImportJobParams) (postgres.ExerciseImportJob, error)
 	GetExerciseImportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseImportJob, error)
 	UpdateExerciseImportJob(ctx context.Context, arg postgres.UpdateExerciseImportJobParams) (int64, error)
+	UpdateExerciseImportJobProgress(ctx context.Context, arg postgres.UpdateExerciseImportJobProgressParams) (int64, error)
 	CreateExerciseExportJob(ctx context.Context, arg postgres.CreateExerciseExportJobParams) error
 	GetExerciseExportJob(ctx context.Context, id uuid.UUID) (postgres.ExerciseExportJob, error)
 	UpdateExerciseExportJob(ctx context.Context, arg postgres.UpdateExerciseExportJobParams) (int64, error)

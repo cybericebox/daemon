@@ -18,7 +18,9 @@ type ImportJob struct {
 	// ExerciseIDs are the tasks the import created (done only).
 	ExerciseIDs []uuid.UUID
 	// Error is what the user is told when the import failed: never a secret or an internal detail.
-	Error     *ImportJobError
+	Error *ImportJobError
+	// Progress is how far a running import has come (the stage and the counts the user sees).
+	Progress  ImportProgress
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -45,6 +47,29 @@ type ImportJobError struct {
 	Code    int            `json:"Code"`
 	Message string         `json:"Message"`
 	Context map[string]any `json:"Context,omitempty"`
+}
+
+// ImportStage is the step a running import is in; done and failed are the job states, reported as stages too.
+type ImportStage string
+
+const (
+	ImportStageUnpacking ImportStage = "unpacking"
+	ImportStageImages    ImportStage = "images"
+	ImportStageTasks     ImportStage = "tasks"
+	ImportStageDone      ImportStage = "done"
+	ImportStageFailed    ImportStage = "failed"
+)
+
+// ImportProgress is the progress of a running import: the stage and what is done of what is known so far (a total
+// is 0 until the stage that learns it). Bytes are the image bytes pushed to the registry, counted per finished image.
+type ImportProgress struct {
+	Stage       ImportStage
+	ImagesDone  int
+	ImagesTotal int
+	TasksDone   int
+	TasksTotal  int
+	BytesPushed int64
+	BytesTotal  int64
 }
 
 const (
@@ -78,16 +103,46 @@ func (j *ImportJob) Restart(now time.Time) bool {
 	if state, _ := j.Current(now); state != ImportJobFailed {
 		return false
 	}
-	j.State, j.Error, j.ExerciseIDs, j.UpdatedAt = ImportJobRunning, nil, nil, now
+	j.State, j.Error, j.ExerciseIDs, j.Progress, j.UpdatedAt = ImportJobRunning, nil, nil, ImportProgress{Stage: ImportStageUnpacking}, now
 	return true
+}
+
+// Report records the progress of a running import; a finished one keeps its outcome (false).
+func (j *ImportJob) Report(p ImportProgress, now time.Time) bool {
+	if j.State != ImportJobRunning {
+		return false
+	}
+	j.Progress, j.UpdatedAt = p, now
+	return true
+}
+
+// Stage is the stage as the user sees it now: done or failed once the import has ended (an interrupted one is
+// failed), otherwise the running stage (unpacking before any progress is recorded).
+func (j *ImportJob) Stage(now time.Time) ImportStage {
+	switch state, _ := j.Current(now); state {
+	case ImportJobDone:
+		return ImportStageDone
+	case ImportJobFailed:
+		return ImportStageFailed
+	}
+	if j.Progress.Stage == "" {
+		return ImportStageUnpacking
+	}
+	return j.Progress.Stage
 }
 
 // Finish records the created tasks.
 func (j *ImportJob) Finish(exerciseIDs []uuid.UUID, now time.Time) {
 	j.State, j.ExerciseIDs, j.Error, j.UpdatedAt = ImportJobDone, exerciseIDs, nil, now
+	j.Progress.Stage = ImportStageDone
+	j.Progress.ImagesDone, j.Progress.TasksDone, j.Progress.BytesPushed = j.Progress.ImagesTotal, len(exerciseIDs), j.Progress.BytesTotal
+	if j.Progress.TasksTotal < len(exerciseIDs) {
+		j.Progress.TasksTotal = len(exerciseIDs)
+	}
 }
 
 // Fail records the error the user is told.
 func (j *ImportJob) Fail(failure ImportJobError, now time.Time) {
 	j.State, j.Error, j.ExerciseIDs, j.UpdatedAt = ImportJobFailed, &failure, nil, now
+	j.Progress.Stage = ImportStageFailed
 }

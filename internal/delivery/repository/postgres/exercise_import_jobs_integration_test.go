@@ -37,6 +37,15 @@ func TestExerciseImportJobRoundTrip(t *testing.T) {
 		t.Fatalf("again %+v err %v", again, err)
 	}
 
+	progress := exerciseModel.ImportProgress{Stage: exerciseModel.ImportStageImages, ImagesDone: 1, ImagesTotal: 2, TasksTotal: 3, BytesPushed: 10, BytesTotal: 25}
+	stored.Report(progress, t0.Add(90*time.Second))
+	if n, saveErr := repo.SaveImportJobProgress(ctx, stored); saveErr != nil || n != 1 {
+		t.Fatalf("progress: %d %v", n, saveErr)
+	}
+	if got, getErr := repo.GetImportJob(ctx, first.ID); getErr != nil || got.Progress != progress || got.State != exerciseModel.ImportJobRunning || !got.UpdatedAt.Equal(t0.Add(90*time.Second)) {
+		t.Fatalf("progress job %+v err %v", got, getErr)
+	}
+
 	stored.Fail(exerciseModel.ImportJobError{Code: 70993, Message: "m", Context: map[string]any{"file": "images/web.tar"}}, t0.Add(2*time.Minute))
 	if n, saveErr := repo.SaveImportJob(ctx, stored); saveErr != nil || n != 1 {
 		t.Fatalf("save failed: %d %v", n, saveErr)
@@ -44,6 +53,16 @@ func TestExerciseImportJobRoundTrip(t *testing.T) {
 	got, err := repo.GetImportJob(ctx, first.ID)
 	if err != nil || got.State != exerciseModel.ImportJobFailed || got.Error == nil || got.Error.Code != 70993 || got.Error.Context["file"] != "images/web.tar" || !got.UpdatedAt.Equal(t0.Add(2*time.Minute)) {
 		t.Fatalf("failed job %+v err %v", got, err)
+	}
+
+	// A progress write never changes an ended job.
+	late := got
+	late.Progress.ImagesDone = 2
+	if n, progressErr := repo.SaveImportJobProgress(ctx, late); progressErr != nil || n != 0 {
+		t.Fatalf("progress of a failed job: %d %v", n, progressErr)
+	}
+	if again, getErr := repo.GetImportJob(ctx, first.ID); getErr != nil || again.Progress.ImagesDone != 1 {
+		t.Fatalf("failed job changed: %+v %v", again, getErr)
 	}
 
 	created := []uuid.UUID{uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000e1")}

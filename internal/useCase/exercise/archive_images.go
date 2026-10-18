@@ -339,20 +339,22 @@ func parseArchiveRead(read archiveRead) ([]ParsedExerciseArchive, error) {
 // importArchiveRead imports every task of an archive read with its image files, all or nothing: every task is
 // parsed and checked, every image file indexed and then pushed, and only then are the tasks created. A failure
 // while creating removes the tasks this import already created.
-func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRead, createdBy uuid.UUID) ([]ExerciseView, error) {
+func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRead, createdBy uuid.UUID, progress *importProgress) ([]ExerciseView, error) {
 	tasks, err := parseArchiveRead(read)
 	if err != nil {
 		return nil, err
 	}
+	progress.tasksTotal(ctx, len(tasks))
 	for i := range tasks {
 		if err = u.prepareImport(ctx, &tasks[i], read.protected); err != nil {
 			return nil, err
 		}
 	}
-	refs, err := u.pushArchiveImages(ctx, tasks, createdBy)
+	refs, err := u.pushArchiveImages(ctx, tasks, createdBy, progress)
 	if err != nil {
 		return nil, err
 	}
+	progress.stage(ctx, exerciseModel.ImportStageTasks)
 	for i := range tasks {
 		if err = replaceImageMarkers(tasks[i].Versions, refs); err != nil {
 			return nil, err
@@ -368,13 +370,14 @@ func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRea
 			return nil, storeErr
 		}
 		created = append(created, view)
+		progress.taskCreated(ctx)
 	}
 	return created, nil
 }
 
 // pushArchiveImages indexes every image file the tasks name (each once), then pushes each; it returns the platform
 // reference per marker. An image is named after the first device naming it.
-func (u *ExerciseUseCase) pushArchiveImages(ctx context.Context, tasks []ParsedExerciseArchive, createdBy uuid.UUID) (map[string]string, error) {
+func (u *ExerciseUseCase) pushArchiveImages(ctx context.Context, tasks []ParsedExerciseArchive, createdBy uuid.UUID, progress *importProgress) (map[string]string, error) {
 	var images []ParsedArchiveImage
 	seen := map[string]bool{}
 	for _, task := range tasks {
@@ -395,6 +398,11 @@ func (u *ExerciseUseCase) pushArchiveImages(ctx context.Context, tasks []ParsedE
 	if err := u.archiveImages.RequireImageUploads(ctx); err != nil {
 		return nil, err
 	}
+	var totalBytes int64
+	for _, image := range images {
+		totalBytes += image.file.Size
+	}
+	progress.images(ctx, len(images), totalBytes)
 	indexed := make([]*ociregistry.ImageArchive, len(images))
 	for i, image := range images {
 		archive, err := u.archiveImages.IndexImageArchive(image.file.open, image.file.Size)
@@ -413,6 +421,7 @@ func (u *ExerciseUseCase) pushArchiveImages(ctx context.Context, tasks []ParsedE
 			return nil, withImageFile(err, image.file.Name)
 		}
 		refs[image.Marker] = res.Reference
+		progress.imagePushed(ctx, image.file.Size)
 	}
 	return refs, nil
 }

@@ -81,8 +81,11 @@ type (
 
 	// ImportJobView is an import job as its user sees it.
 	ImportJobView struct {
-		ID          uuid.UUID
-		State       exerciseModel.ImportJobState
+		ID    uuid.UUID
+		State exerciseModel.ImportJobState
+		// Stage is unpacking, images or tasks while running, then done or failed; Progress holds the counts.
+		Stage       exerciseModel.ImportStage
+		Progress    exerciseModel.ImportProgress
 		ExerciseIDs []uuid.UUID
 		Error       *exerciseModel.ImportJobError
 	}
@@ -239,7 +242,7 @@ func (u *ExerciseUseCase) ArchiveImportJob(ctx context.Context, id, user uuid.UU
 		return ImportJobView{}, exerciseModel.ErrImportJobNotFound.Err()
 	}
 	state, failure := job.Current(u.timeNow())
-	view := ImportJobView{ID: job.ID, State: state, Error: failure}
+	view := ImportJobView{ID: job.ID, State: state, Stage: job.Stage(u.timeNow()), Progress: job.Progress, Error: failure}
 	if state == exerciseModel.ImportJobDone {
 		view.ExerciseIDs = job.ExerciseIDs
 	}
@@ -261,7 +264,9 @@ func (u *ExerciseUseCase) RunArchiveImport(ctx context.Context, args jobsModel.E
 	if job.State != exerciseModel.ImportJobRunning {
 		return nil
 	}
-	created, runErr := u.runArchiveImport(ctx, job, args.SealedPassword)
+	progress := u.newImportProgress(job)
+	created, runErr := u.runArchiveImport(ctx, job, args.SealedPassword, progress)
+	job = progress.job // the outcome is written with how far the import came
 	if runErr != nil {
 		log.Warn().Err(runErr).Str("job", job.ID.String()).Msg("archive import failed")
 		failure := importJobFailure(runErr)
@@ -314,7 +319,7 @@ func (u *ExerciseUseCase) writeImportJobRetrying(ctx context.Context, job exerci
 }
 
 // runArchiveImport opens the source and the password and imports the archive.
-func (u *ExerciseUseCase) runArchiveImport(ctx context.Context, job exerciseModel.ImportJob, sealedPassword string) ([]ExerciseView, error) {
+func (u *ExerciseUseCase) runArchiveImport(ctx context.Context, job exerciseModel.ImportJob, sealedPassword string, progress *importProgress) ([]ExerciseView, error) {
 	if u.archiveSources == nil {
 		return nil, model.ErrPlatform.WithMessage("Archive import is not wired").Err()
 	}
@@ -362,7 +367,7 @@ func (u *ExerciseUseCase) runArchiveImport(ctx context.Context, job exerciseMode
 	if err != nil {
 		return nil, err
 	}
-	return u.importArchiveRead(ctx, read, job.CreatedBy)
+	return u.importArchiveRead(ctx, read, job.CreatedBy, progress)
 }
 
 // importStateTimeout bounds one write of an import's outcome.

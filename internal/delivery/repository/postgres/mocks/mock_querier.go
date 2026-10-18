@@ -12493,6 +12493,21 @@ func (mr *MockQuerierMockRecorder) UpdateExerciseImportJob(ctx, arg any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExerciseImportJob", reflect.TypeOf((*MockQuerier)(nil).UpdateExerciseImportJob), ctx, arg)
 }
 
+// UpdateExerciseImportJobProgress mocks base method.
+func (m *MockQuerier) UpdateExerciseImportJobProgress(ctx context.Context, arg postgres.UpdateExerciseImportJobProgressParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateExerciseImportJobProgress", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateExerciseImportJobProgress indicates an expected call of UpdateExerciseImportJobProgress.
+func (mr *MockQuerierMockRecorder) UpdateExerciseImportJobProgress(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateExerciseImportJobProgress", reflect.TypeOf((*MockQuerier)(nil).UpdateExerciseImportJobProgress), ctx, arg)
+}
+
 // UpdateImageRegistryChecks mocks base method.
 func (m *MockQuerier) UpdateImageRegistryChecks(ctx context.Context, arg postgres.UpdateImageRegistryChecksParams) (int64, error) {
 	m.ctrl.T.Helper()

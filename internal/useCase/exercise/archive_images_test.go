@@ -51,6 +51,8 @@ type fakeImages struct {
 	failPushAt int // > 0: the n-th push fails with the registry refusal
 	pushes     []imageRegistryUseCase.PushArchiveInput
 	indexed    int
+	// onPush runs inside every push (a test moves its clock or reads the job there).
+	onPush func(n int)
 }
 
 func (f *fakeImages) RequireImageUploads(context.Context) error {
@@ -81,6 +83,9 @@ func (f *fakeImages) PushImageArchive(_ context.Context, in imageRegistryUseCase
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pushes = append(f.pushes, in)
+	if f.onPush != nil {
+		f.onPush(len(f.pushes))
+	}
 	if f.failPushAt == len(f.pushes) {
 		return imageRegistryUseCase.CreateImageResult{}, imageRegistryUseCase.Unavailable(ociregistry.ErrUnauthorized, "push")
 	}
@@ -187,6 +192,9 @@ type importFixture struct {
 	sources *fakeSources
 	queued  []jobsModel.ExerciseImportArgs
 	jobs    map[uuid.UUID]postgres.ExerciseImportJob
+	// progress are the throttled progress writes, in order; onCreate runs inside every task creation.
+	progress []postgres.UpdateExerciseImportJobProgressParams
+	onCreate func()
 	// written are the versions' variants as inserted; created the exercises.
 	written [][]byte
 	created []uuid.UUID
@@ -219,7 +227,10 @@ func newImportFixture(t *testing.T) *importFixture {
 				return j, nil
 			}
 		}
-		j := postgres.ExerciseImportJob(p)
+		j := postgres.ExerciseImportJob{
+			ID: p.ID, CreatedBy: p.CreatedBy, Source: p.Source, SourceID: p.SourceID, State: p.State,
+			ExerciseIds: p.ExerciseIds, Error: p.Error, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, Stage: "unpacking",
+		}
 		f.jobs[j.ID] = j
 		return j, nil
 	}).AnyTimes()
@@ -241,6 +252,19 @@ func newImportFixture(t *testing.T) *importFixture {
 		}
 		j := f.jobs[p.ID]
 		j.State, j.ExerciseIds, j.Error, j.UpdatedAt = p.State, p.ExerciseIds, p.Error, p.UpdatedAt
+		j.Stage, j.ImagesDone, j.ImagesTotal, j.TasksDone, j.TasksTotal = p.Stage, p.ImagesDone, p.ImagesTotal, p.TasksDone, p.TasksTotal
+		j.BytesPushed, j.BytesTotal = p.BytesPushed, p.BytesTotal
+		f.jobs[p.ID] = j
+		return 1, nil
+	}).AnyTimes()
+	q.EXPECT().UpdateExerciseImportJobProgress(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpdateExerciseImportJobProgressParams) (int64, error) {
+		j, ok := f.jobs[p.ID]
+		if !ok || j.State != "running" {
+			return 0, nil
+		}
+		f.progress = append(f.progress, p)
+		j.Stage, j.ImagesDone, j.ImagesTotal, j.TasksDone, j.TasksTotal = p.Stage, p.ImagesDone, p.ImagesTotal, p.TasksDone, p.TasksTotal
+		j.BytesPushed, j.BytesTotal, j.UpdatedAt = p.BytesPushed, p.BytesTotal, p.UpdatedAt
 		f.jobs[p.ID] = j
 		return 1, nil
 	}).AnyTimes()
@@ -255,6 +279,9 @@ func (f *importFixture) expectCreation(t *testing.T) {
 	f.q.EXPECT().CreateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.CreateExerciseParams) (postgres.Exercise, error) {
 			f.created = append(f.created, arg.ID)
+			if f.onCreate != nil {
+				f.onCreate()
+			}
 			return postgres.Exercise{ID: arg.ID, Name: arg.Name, CreatedAt: arg.CreatedAt, UpdatedAt: arg.UpdatedAt}, nil
 		}).AnyTimes()
 	f.q.EXPECT().InsertImportedExerciseVersion(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -755,4 +782,105 @@ func TestRunArchiveImportOutcomeRetryStopsWithTheContext(t *testing.T) {
 	began := time.Now()
 	require.Error(t, f.uc.RunArchiveImport(ctx, f.queued[0]), "an unrecorded failure goes back to River")
 	require.Less(t, time.Since(began), 10*time.Second, "no hour-long sleep after the context ended")
+}
+
+// bundleOfTwoImageTasks stages a bundle of two tasks, each with its own image file.
+func bundleOfTwoImageTasks(t *testing.T, f *importFixture) {
+	t.Helper()
+	f.sources.stage(archiveUpID, importer, zipOf(t, map[string][]byte{
+		"a/exercise.json":  imageTask("Task A", [2]string{"web", "images/web.tar"}),
+		"a/images/web.tar": webImageTar,
+		"b/exercise.json":  imageTask("Task B", [2]string{"tool", "img/tool.tar"}),
+		"b/img/tool.tar":   toolImageTar,
+	}), mediaModel.UploadPurposeExerciseArchive)
+}
+
+type progressStep struct {
+	stage                                          string
+	imagesDone, imagesTotal, tasksDone, tasksTotal int32
+}
+
+func stepsOf(writes []postgres.UpdateExerciseImportJobProgressParams) []progressStep {
+	out := make([]progressStep, len(writes))
+	for i, w := range writes {
+		out[i] = progressStep{w.Stage, w.ImagesDone, w.ImagesTotal, w.TasksDone, w.TasksTotal}
+	}
+	return out
+}
+
+// The job reports its stage and counts as it goes: the totals once known, an image or a task counted when it is
+// done, and the status read mid-run shows them. The clock moves 3 s per step, past the write interval.
+func TestImportJobReportsStageAndCounts(t *testing.T) {
+	f := newImportFixture(t)
+	f.expectCreation(t)
+	bundleOfTwoImageTasks(t, f)
+	var midRun exercise.ImportJobView
+	var jobID uuid.UUID
+	f.images.onPush = func(n int) {
+		f.now = f.now.Add(3 * time.Second)
+		if n == 2 {
+			v, err := f.uc.ArchiveImportJob(context.Background(), jobID, importer)
+			require.NoError(t, err)
+			midRun = v
+		}
+	}
+	f.onCreate = func() { f.now = f.now.Add(3 * time.Second) }
+	start, err := f.uc.ImportUploadedArchive(context.Background(), exercise.ImportUploadInput{UploadID: archiveUpID, CreatedBy: importer})
+	require.NoError(t, err)
+	jobID = start.JobID
+	require.NoError(t, f.uc.RunArchiveImport(context.Background(), f.queued[0]))
+
+	require.Equal(t, []progressStep{
+		{"unpacking", 0, 0, 0, 2},
+		{"images", 0, 2, 0, 2},
+		{"images", 1, 2, 0, 2},
+		{"images", 2, 2, 0, 2},
+		{"tasks", 2, 2, 0, 2},
+		{"tasks", 2, 2, 1, 2},
+		{"tasks", 2, 2, 2, 2},
+	}, stepsOf(f.progress))
+	last := f.progress[len(f.progress)-1]
+	require.Equal(t, last.BytesTotal, last.BytesPushed)
+	require.Positive(t, last.BytesTotal)
+
+	require.Equal(t, exerciseModel.ImportStageImages, midRun.Stage, "read while the second image is pushed")
+	require.Equal(t, 1, midRun.Progress.ImagesDone)
+	require.Equal(t, 2, midRun.Progress.ImagesTotal)
+	require.Equal(t, 2, midRun.Progress.TasksTotal)
+
+	done, err := f.uc.ArchiveImportJob(context.Background(), jobID, importer)
+	require.NoError(t, err)
+	require.Equal(t, exerciseModel.ImportStageDone, done.Stage)
+	require.Equal(t, 2, done.Progress.TasksDone)
+	require.Equal(t, 2, done.Progress.ImagesDone)
+}
+
+// Counts are throttled: with the clock standing still only the stage changes are written, never every count.
+func TestImportJobProgressIsThrottled(t *testing.T) {
+	f := newImportFixture(t)
+	f.expectCreation(t)
+	bundleOfTwoImageTasks(t, f)
+	view := f.startAndRun(t)
+	require.Equal(t, exerciseModel.ImportJobDone, view.State, "error %+v", view.Error)
+	require.Equal(t, []progressStep{
+		{"unpacking", 0, 0, 0, 2},
+		{"images", 0, 2, 0, 2},
+		{"tasks", 2, 2, 0, 2}, // the stage change writes the counts held back
+	}, stepsOf(f.progress))
+	require.Equal(t, exerciseModel.ImportStageDone, view.Stage)
+	require.Equal(t, 2, view.Progress.TasksDone, "the finished job carries the final counts")
+}
+
+// A failed import reads as failed and keeps how far it came; a progress write never revives an ended job.
+func TestImportJobFailureKeepsProgress(t *testing.T) {
+	f := newImportFixture(t)
+	f.images.failPushAt = 2
+	f.images.onPush = func(int) { f.now = f.now.Add(3 * time.Second) }
+	bundleOfTwoImageTasks(t, f)
+	view := f.startAndRun(t)
+	require.Equal(t, exerciseModel.ImportJobFailed, view.State)
+	require.Equal(t, exerciseModel.ImportStageFailed, view.Stage)
+	require.Equal(t, 1, view.Progress.ImagesDone)
+	require.Equal(t, 2, view.Progress.ImagesTotal)
+	require.Zero(t, view.Progress.TasksDone)
 }

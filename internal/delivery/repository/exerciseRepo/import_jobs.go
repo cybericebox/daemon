@@ -43,7 +43,26 @@ func (r *Repository) SaveImportJob(ctx context.Context, j exerciseModel.ImportJo
 	}
 	return r.q.UpdateExerciseImportJob(ctx, postgres.UpdateExerciseImportJobParams{
 		ID: j.ID, State: string(j.State), ExerciseIds: idsOrEmpty(j.ExerciseIDs), Error: failure, UpdatedAt: j.UpdatedAt,
+		Stage: stageOrDefault(j.Progress.Stage), ImagesDone: int32(j.Progress.ImagesDone), ImagesTotal: int32(j.Progress.ImagesTotal),
+		TasksDone: int32(j.Progress.TasksDone), TasksTotal: int32(j.Progress.TasksTotal),
+		BytesPushed: j.Progress.BytesPushed, BytesTotal: j.Progress.BytesTotal,
 	})
+}
+
+// SaveImportJobProgress writes only the progress of a running job; zero rows: the job has ended or is gone.
+func (r *Repository) SaveImportJobProgress(ctx context.Context, j exerciseModel.ImportJob) (int64, error) {
+	return r.q.UpdateExerciseImportJobProgress(ctx, postgres.UpdateExerciseImportJobProgressParams{
+		ID: j.ID, Stage: stageOrDefault(j.Progress.Stage), ImagesDone: int32(j.Progress.ImagesDone), ImagesTotal: int32(j.Progress.ImagesTotal),
+		TasksDone: int32(j.Progress.TasksDone), TasksTotal: int32(j.Progress.TasksTotal),
+		BytesPushed: j.Progress.BytesPushed, BytesTotal: j.Progress.BytesTotal, UpdatedAt: j.UpdatedAt,
+	})
+}
+
+func stageOrDefault(stage exerciseModel.ImportStage) string {
+	if stage == "" {
+		return string(exerciseModel.ImportStageUnpacking)
+	}
+	return string(stage)
 }
 
 func idsOrEmpty(ids []uuid.UUID) []uuid.UUID {
@@ -65,6 +84,10 @@ func importJobFromRow(row postgres.ExerciseImportJob) exerciseModel.ImportJob {
 	j := exerciseModel.ImportJob{
 		ID: row.ID, CreatedBy: row.CreatedBy, Source: exerciseModel.ImportSource(row.Source), SourceID: row.SourceID,
 		State: exerciseModel.ImportJobState(row.State), ExerciseIDs: row.ExerciseIds, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		Progress: exerciseModel.ImportProgress{
+			Stage: exerciseModel.ImportStage(row.Stage), ImagesDone: int(row.ImagesDone), ImagesTotal: int(row.ImagesTotal),
+			TasksDone: int(row.TasksDone), TasksTotal: int(row.TasksTotal), BytesPushed: row.BytesPushed, BytesTotal: row.BytesTotal,
+		},
 	}
 	if len(row.Error) > 0 {
 		var e exerciseModel.ImportJobError
