@@ -50,3 +50,13 @@ FROM event_registry_secrets s
 WHERE (e.finish_at IS NULL OR e.finish_at > sqlc.arg(now)::timestamptz)
   AND (e.archive_at IS NULL OR e.archive_at > sqlc.arg(now)::timestamptz)
 ORDER BY s.event_id, s.host, s.repository_prefix;
+
+-- name: ListEndedBrokenEventRegistrySecrets :many
+-- Secrets still marked broken whose event has finished or been archived: their alert is closed.
+SELECT s.*
+FROM event_registry_secrets s
+         JOIN events e ON e.id = s.event_id
+WHERE s.credential_check ->> 'state' = 'broken'
+  AND ((e.finish_at IS NOT NULL AND e.finish_at <= sqlc.arg(now)::timestamptz)
+    OR (e.archive_at IS NOT NULL AND e.archive_at <= sqlc.arg(now)::timestamptz))
+ORDER BY s.event_id, s.host, s.repository_prefix;

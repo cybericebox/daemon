@@ -159,7 +159,17 @@ func TestEventSecretCheckListingAndGuard(t *testing.T) {
 	if got := hosts(epNow.Add(31 * 24 * time.Hour)); len(got) != 0 {
 		t.Fatalf("an archived event is skipped: %v", got)
 	}
-	_ = b
+	// a broken secret of an ended event is listed for closing, one of a live event is not
+	for _, sec := range []imageRegistryModel.EventSecret{a, b} {
+		sec.Check = imageRegistryModel.Check{State: imageRegistryModel.CheckBroken, CheckedAt: epNow, Reason: imageRegistryModel.ReasonUnauthorized}
+		if stored, err := secrets.SaveCheck(ctx, sec); err != nil || !stored {
+			t.Fatal(err)
+		}
+	}
+	if ended, err := secrets.ListEndedBroken(ctx, epNow.Add(6*24*time.Hour)); err != nil || len(ended) != 1 || ended[0].ID != b.ID {
+		t.Fatalf("ended broken: %+v %v", ended, err)
+	}
+	a.Check = imageRegistryModel.Check{}
 
 	// the result is written while the secret is as it was checked, and dropped after an edit
 	check := imageRegistryModel.Check{State: imageRegistryModel.CheckBroken, CheckedAt: epNow.Add(time.Hour), Reason: imageRegistryModel.ReasonUnauthorized, AttemptedAt: epNow.Add(time.Hour)}

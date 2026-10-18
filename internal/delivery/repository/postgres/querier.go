@@ -707,6 +707,8 @@ type Querier interface {
 	ListEffectiveEventSignalNotificationSubscriptions(ctx context.Context, scopeEventID uuid.UUID) ([]ListEffectiveEventSignalNotificationSubscriptionsRow, error)
 	ListEmailBlockPresets(ctx context.Context) ([]NotificationEmailBlockPreset, error)
 	ListEmailTemplates(ctx context.Context, arg ListEmailTemplatesParams) ([]NotificationEmailTemplate, error)
+	// Secrets still marked broken whose event has finished or been archived: their alert is closed.
+	ListEndedBrokenEventRegistrySecrets(ctx context.Context, now time.Time) ([]EventRegistrySecret, error)
 	ListErrorGroups(ctx context.Context, arg ListErrorGroupsParams) ([]ErrorGroup, error)
 	ListErrorNotFound(ctx context.Context, arg ListErrorNotFoundParams) ([]ErrorNotFoundDaily, error)
 	ListErrorNotificationDeliveries(ctx context.Context, groupID uuid.UUID) ([]ErrorNotificationDelivery, error)

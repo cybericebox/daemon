@@ -31,6 +31,7 @@ type Queries interface {
 	DeleteEventRegistrySecret(ctx context.Context, arg postgres.DeleteEventRegistrySecretParams) (int64, error)
 	UpdateEventRegistrySecretCheck(ctx context.Context, arg postgres.UpdateEventRegistrySecretCheckParams) (int64, error)
 	ListEventRegistrySecretsToCheck(ctx context.Context, now time.Time) ([]postgres.ListEventRegistrySecretsToCheckRow, error)
+	ListEndedBrokenEventRegistrySecrets(ctx context.Context, now time.Time) ([]postgres.EventRegistrySecret, error)
 	GetEventByID(ctx context.Context, id uuid.UUID) (postgres.Event, error)
 
 	UpsertPlatformImage(ctx context.Context, arg postgres.UpsertPlatformImageParams) error

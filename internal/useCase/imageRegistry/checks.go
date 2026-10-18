@@ -71,6 +71,9 @@ func outcomeOf(err error) imageRegistryModel.Outcome {
 		return imageRegistryModel.Working()
 	case errors.Is(err, ociregistry.ErrUnauthorized):
 		return imageRegistryModel.Refused(imageRegistryModel.ReasonUnauthorized)
+	case errors.Is(err, ociregistry.ErrNotFound):
+		// a missing repository is a permanent configuration fault, not a passing trouble
+		return imageRegistryModel.Refused(imageRegistryModel.ReasonNotFound)
 	}
 	return imageRegistryModel.Inconclusive(ReasonOf(err))
 }
@@ -227,6 +230,7 @@ func (u *ImageRegistryUseCase) RunRegistryChecks(ctx context.Context) error {
 	} else if found && s.Configured() {
 		u.checkPlatform(ctx, s)
 	}
+	u.closeEndedAlerts(ctx)
 	secrets, err := u.secrets.ListToCheck(ctx, u.now())
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list the event registry secrets to check").Err()
@@ -238,4 +242,25 @@ func (u *ImageRegistryUseCase) RunRegistryChecks(ctx context.Context) error {
 		u.checkSecret(ctx, item.Secret, item.EventTag, item.EventName)
 	}
 	return nil
+}
+
+// closeEndedAlerts closes, without a note, the open alerts of secrets whose event has finished or been archived,
+// and forgets their broken state so the pass does it once.
+func (u *ImageRegistryUseCase) closeEndedAlerts(ctx context.Context) {
+	ended, err := u.secrets.ListEndedBroken(ctx, u.now())
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to list the registry secrets of ended events")
+		return
+	}
+	for _, s := range ended {
+		s.Check = imageRegistryModel.Check{}
+		stored, err := u.secrets.SaveCheck(ctx, s)
+		if err != nil || !stored {
+			if err != nil {
+				log.Warn().Err(err).Str("secret_id", s.ID.String()).Msg("Failed to clear the registry secret check of an ended event")
+			}
+			continue
+		}
+		u.closeAlert(ctx, eventSecretKey(s.ID))
+	}
 }
