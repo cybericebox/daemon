@@ -33741,6 +33741,13 @@ const docTemplate = `{
         "exercise.importJobResponse": {
             "type": "object",
             "properties": {
+                "BytesPushed": {
+                    "description": "BytesPushed of BytesTotal are the image bytes sent to the registry (counted per finished image).",
+                    "type": "integer"
+                },
+                "BytesTotal": {
+                    "type": "integer"
+                },
                 "Error": {
                     "description": "Error is why it failed (failed only).",
                     "allOf": [
@@ -33756,9 +33763,26 @@ const docTemplate = `{
                         "$ref": "#/definitions/exercise.exerciseResponse"
                     }
                 },
+                "ImagesDone": {
+                    "description": "The counts of the stage: what is done of what is known so far (a total is 0 until its stage is reached).",
+                    "type": "integer"
+                },
+                "ImagesTotal": {
+                    "type": "integer"
+                },
+                "Stage": {
+                    "description": "Stage is unpacking, images or tasks while running, then done or failed.",
+                    "type": "string"
+                },
                 "State": {
                     "description": "State is running, done or failed.",
                     "type": "string"
+                },
+                "TasksDone": {
+                    "type": "integer"
+                },
+                "TasksTotal": {
+                    "type": "integer"
                 }
             }
         },

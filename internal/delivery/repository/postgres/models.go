@@ -680,6 +680,13 @@ type ExerciseImportJob struct {
 	Error       []byte      `json:"error"`
 	CreatedAt   time.Time   `json:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at"`
+	Stage       string      `json:"stage"`
+	ImagesDone  int32       `json:"images_done"`
+	ImagesTotal int32       `json:"images_total"`
+	TasksDone   int32       `json:"tasks_done"`
+	TasksTotal  int32       `json:"tasks_total"`
+	BytesPushed int64       `json:"bytes_pushed"`
+	BytesTotal  int64       `json:"bytes_total"`
 }
 
 type ExerciseProposal struct {

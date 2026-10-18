@@ -187,10 +187,17 @@ func TestImportJobStatus(t *testing.T) {
 		t.Fatalf("failed: %d %s", w.Code, w.Body.String())
 	}
 
-	uc.archiveImport.job = exerciseUseCase.ImportJobView{ID: jobID, State: exerciseModel.ImportJobRunning}
+	uc.archiveImport.job = exerciseUseCase.ImportJobView{ID: jobID, State: exerciseModel.ImportJobRunning, Stage: exerciseModel.ImportStageImages, Progress: exerciseModel.ImportProgress{
+		Stage: exerciseModel.ImportStageImages, ImagesDone: 3, ImagesTotal: 7, TasksDone: 0, TasksTotal: 12, BytesPushed: 300, BytesTotal: 700,
+	}}
 	w = jsonRequest(r, http.MethodGet, "/api/exercises/import/jobs/"+jobID.String(), "")
 	if w.Code != http.StatusOK || w.Body.String() == "" || strings.Contains(w.Body.String(), `"Error"`) || !strings.Contains(w.Body.String(), `"State":"running"`) {
 		t.Fatalf("running: %d %s", w.Code, w.Body.String())
+	}
+	for _, want := range []string{`"Stage":"images"`, `"ImagesDone":3`, `"ImagesTotal":7`, `"TasksDone":0`, `"TasksTotal":12`, `"BytesPushed":300`, `"BytesTotal":700`} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("running progress lacks %s: %s", want, w.Body.String())
+		}
 	}
 
 	uc.archiveImport.jobErr = exerciseModel.ErrImportJobNotFound.Err()

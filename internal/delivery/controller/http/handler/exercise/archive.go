@@ -420,6 +420,16 @@ type importJobError struct {
 type importJobResponse struct {
 	// State is running, done or failed.
 	State string `json:"State"`
+	// Stage is unpacking, images or tasks while running, then done or failed.
+	Stage string `json:"Stage"`
+	// The counts of the stage: what is done of what is known so far (a total is 0 until its stage is reached).
+	ImagesDone  int `json:"ImagesDone"`
+	ImagesTotal int `json:"ImagesTotal"`
+	TasksDone   int `json:"TasksDone"`
+	TasksTotal  int `json:"TasksTotal"`
+	// BytesPushed of BytesTotal are the image bytes sent to the registry (counted per finished image).
+	BytesPushed int64 `json:"BytesPushed"`
+	BytesTotal  int64 `json:"BytesTotal"`
 	// Exercises are the created tasks (done only).
 	Exercises []exerciseResponse `json:"Exercises,omitempty"`
 	// Error is why it failed (failed only).
@@ -452,7 +462,12 @@ func (h *Handler) importJob(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	out := importJobResponse{State: string(job.State)}
+	out := importJobResponse{
+		State: string(job.State), Stage: string(job.Stage),
+		ImagesDone: job.Progress.ImagesDone, ImagesTotal: job.Progress.ImagesTotal,
+		TasksDone: job.Progress.TasksDone, TasksTotal: job.Progress.TasksTotal,
+		BytesPushed: job.Progress.BytesPushed, BytesTotal: job.Progress.BytesTotal,
+	}
 	if job.Error != nil {
 		out.Error = &importJobError{Code: job.Error.Code, Message: job.Error.Message, Context: job.Error.Context}
 	}
