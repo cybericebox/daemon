@@ -307,3 +307,51 @@ func TestDropUpload_RemovesChunksAndRow(t *testing.T) {
 		t.Fatalf("%d chunks left", len(st.objects))
 	}
 }
+
+// dropStorage cancels the request context when the promote starts (a client that went away mid-way) and fails the
+// promote if the context it is given is cancelled.
+type dropStorage struct {
+	*fakeStorage
+	cancel     context.CancelFunc
+	copyCtxErr error
+}
+
+func (d *dropStorage) Copy(ctx context.Context, src, dst string) error {
+	d.cancel()
+	d.copyCtxErr = ctx.Err()
+	if d.copyCtxErr != nil {
+		return d.copyCtxErr
+	}
+	return d.fakeStorage.Copy(ctx, src, dst)
+}
+
+// The promote does not depend on the client connection: a cancelled request context must not cancel it.
+func TestCompleteUpload_PromoteSurvivesACancelledClient(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	st := &dropStorage{fakeStorage: newFakeStorage(), cancel: cancel}
+	uc := media.NewMediaUseCase(media.Dependencies{Repo: q, Storage: st, Config: uploadCfg})
+	id, owner := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	payload := []byte("0123456789")
+	stored(st.fakeStorage, id, payload)
+	sum := sha256.Sum256(payload)
+	hexSum := hex.EncodeToString(sum[:])
+	q.EXPECT().GetMediaUpload(gomock.Any(), id).Return(row(id, owner, 10, 3), nil)
+	q.EXPECT().CreateFile(gomock.Any(), gomock.Any()).DoAndReturn(func(c context.Context, p postgres.CreateFileParams) (postgres.File, error) {
+		if c.Err() != nil {
+			t.Fatalf("the file row was written on a cancelled context: %v", c.Err())
+		}
+		return postgres.File{ID: p.ID, Name: p.Name, ContentHash: p.ContentHash, SizeBytes: p.SizeBytes}, nil
+	})
+	q.EXPECT().DeleteMediaUpload(gomock.Any(), id).Return(int64(1), nil)
+	if _, err := uc.CompleteUpload(ctx, id, owner, hexSum); err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if st.copyCtxErr != nil {
+		t.Fatalf("the promote saw a cancelled context: %v", st.copyCtxErr)
+	}
+	if string(st.objects[mediaModel.BlobKey(hexSum)]) != string(payload) {
+		t.Fatal("the blob must be promoted")
+	}
+}
