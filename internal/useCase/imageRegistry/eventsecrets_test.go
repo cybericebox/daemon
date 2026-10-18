@@ -127,7 +127,7 @@ func TestListEventSecretsNeverCarriesAToken(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if strings.Join(keys, ",") != "Host,ID,RepositoryPrefix,UpdatedAt,Username" {
+	if strings.Join(keys, ",") != "Check,Host,ID,RepositoryPrefix,UpdatedAt,Username" {
 		t.Fatalf("fields %v", keys)
 	}
 	if strings.Contains(string(b), secretToken) || strings.Contains(strings.ToLower(string(b)), "ciphertext") {

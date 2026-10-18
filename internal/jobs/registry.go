@@ -27,6 +27,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/lablifecycle"
 	"github.com/cybericebox/daemon/internal/jobs/mediagc"
 	"github.com/cybericebox/daemon/internal/jobs/notify"
+	"github.com/cybericebox/daemon/internal/jobs/registrycheck"
 	"github.com/cybericebox/daemon/internal/jobs/resourcecalendar"
 	"github.com/cybericebox/daemon/internal/jobs/resultchangegc"
 	"github.com/cybericebox/daemon/internal/jobs/signalprocessing"
@@ -67,6 +68,7 @@ type (
 		resourcecalendarJob.IUseCase
 		imageblobpushJob.IUseCase
 		imageregistrygcJob.IUseCase
+		registrycheckJob.IUseCase
 		exerciseimportJob.IUseCase
 		exerciseexportJob.IUseCase
 	}
@@ -77,6 +79,9 @@ type (
 		labLifecycleInterval time.Duration
 	}
 )
+
+// RegistryCheckInterval is the period of the check of the image registry credentials.
+const RegistryCheckInterval = 6 * time.Hour
 
 // DefaultLabSweepInterval is the period of the orphan lab group sweep when none is configured.
 const DefaultLabSweepInterval = 30 * time.Second
@@ -137,6 +142,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 	river.AddWorker(workers, resourcecalendarJob.NewWorker(wr.uc))
 	river.AddWorker(workers, imageblobpushJob.NewWorker(wr.uc))
 	river.AddWorker(workers, imageregistrygcJob.NewWorker(wr.uc))
+	river.AddWorker(workers, registrycheckJob.NewWorker(wr.uc))
 	river.AddWorker(workers, exerciseimportJob.NewWorker(wr.uc))
 	river.AddWorker(workers, exerciseexportJob.NewWorker(wr.uc))
 }
@@ -153,6 +159,11 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 		// Unused platform registry tags (no version uses them, older than a day), hourly, one pass at a time.
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 			return jobsModel.ImageRegistryGCArgs{}, standPassInsertOpts()
+		}, &river.PeriodicJobOpts{RunOnStart: true}),
+		// Registry credentials (platform push/pull tokens, organizer secrets of live events): authentication only,
+		// every 6 hours, one pass at a time, no retries (the next tick checks again).
+		river.NewPeriodicJob(river.PeriodicInterval(RegistryCheckInterval), func() (river.JobArgs, *river.InsertOpts) {
+			return jobsModel.RegistryCheckArgs{}, standPassInsertOpts()
 		}, &river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.IdempotencyGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(5*time.Minute), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.ResultChangeGCArgs{}, nil }, &river.PeriodicJobOpts{RunOnStart: true}),

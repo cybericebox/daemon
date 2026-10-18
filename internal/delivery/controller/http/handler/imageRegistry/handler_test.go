@@ -24,6 +24,7 @@ type fakeUseCase struct {
 	listed imageRegistryUseCase.ListRepositoriesInput
 	clears int
 
+	checks                int
 	secretEvent, secretID uuid.UUID
 	secretInput           imageRegistryUseCase.EventSecretInput
 	deletes               int
@@ -50,6 +51,14 @@ func (f *fakeUseCase) SaveImageRegistrySettings(_ context.Context, in imageRegis
 func (f *fakeUseCase) ListImageRegistryRepositories(_ context.Context, in imageRegistryUseCase.ListRepositoriesInput) ([]string, error) {
 	f.listed = in
 	return []string{"acme/platform"}, nil
+}
+
+func (f *fakeUseCase) CheckPlatformRegistry(context.Context) (imageRegistryUseCase.SettingsView, error) {
+	f.checks++
+	v := f.view()
+	at := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	v.PushCheck = imageRegistryUseCase.CheckView{State: "broken", CheckedAt: &at, Reason: "unauthorized", AttemptedAt: &at, Failure: "unreachable"}
+	return v, nil
 }
 
 func (f *fakeUseCase) ClearImageRegistrySettings(context.Context) error {
@@ -101,6 +110,7 @@ func TestRouteGates(t *testing.T) {
 		{http.MethodPut, "/api/settings/image-registry", saveBody, rbac.PermPlatformSettingsWrite},
 		{http.MethodDelete, "/api/settings/image-registry", "", rbac.PermPlatformSettingsWrite},
 		{http.MethodPost, "/api/settings/image-registry/repositories", listBody, rbac.PermPlatformSettingsWrite},
+		{http.MethodPost, "/api/settings/image-registry/check", "", rbac.PermPlatformSettingsWrite},
 	}
 	for _, r := range routes {
 		if w := do(newEngine(&fakeUseCase{}), r.method, r.path, r.body); w.Code != http.StatusForbidden {
@@ -150,5 +160,22 @@ func TestResponsesNeverCarryTheToken(t *testing.T) {
 
 	if w = do(engine, http.MethodDelete, "/api/settings/image-registry", ""); w.Code != http.StatusOK || uc.clears != 1 {
 		t.Fatalf("delete: %d clears %d", w.Code, uc.clears)
+	}
+}
+
+func TestCheckNowReturnsTheResultWithoutATokenField(t *testing.T) {
+	uc := &fakeUseCase{}
+	engine := newEngine(uc, rbac.PermPlatformSettingsWrite)
+	w := do(engine, http.MethodPost, "/api/settings/image-registry/check", "")
+	if w.Code != http.StatusOK || uc.checks != 1 {
+		t.Fatalf("check: %d %s", w.Code, w.Body)
+	}
+	for _, want := range []string{
+		`"PushCheck":{"State":"broken","CheckedAt":"2026-10-18T12:00:00Z","Reason":"unauthorized","AttemptedAt":"2026-10-18T12:00:00Z","Failure":"unreachable"}`,
+		`"PullCheck":{"State":"","CheckedAt":null,"Reason":"","AttemptedAt":null,"Failure":""}`,
+	} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Fatalf("body %s lacks %s", w.Body, want)
+		}
 	}
 }

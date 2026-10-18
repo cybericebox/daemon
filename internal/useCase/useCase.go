@@ -390,6 +390,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 	exerciseUC.SetProposalInbox(inboxRequests)
 	exerciseUC.SetElevationInbox(inboxRequests)
 	calendarUC.SetNotifier(inboxRequests)
+	// The periodic registry credential check tells the people who can fix a credential when it breaks or recovers.
+	imageRegistryUC.SetCheckNotifier(inboxRequests)
 	eventUC.SetEmailFooters(mailUC)
 	emailTemplateUC := emailUseCase.NewNotificationEmailTemplateUseCase(deps.Repo, mediaUC)
 	emailTemplateUC.SetFooterSource(mailUC)

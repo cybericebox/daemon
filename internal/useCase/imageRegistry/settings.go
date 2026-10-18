@@ -7,6 +7,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/model"
 	imageRegistryModel "github.com/cybericebox/daemon/internal/model/imageRegistry"
+	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 )
 
 type (
@@ -23,6 +24,9 @@ type (
 		// cannot be opened and new ones cannot be saved.
 		SecretsKeyMissing bool
 		UpdatedAt         *time.Time
+		// PushCheck and PullCheck are the last results of the periodic credential check (PullCheck is empty
+		// without a pull token: the push token pulls).
+		PushCheck, PullCheck CheckView
 	}
 
 	// SaveSettingsInput: an empty token keeps the stored one (when the provider
@@ -57,6 +61,8 @@ func (u *ImageRegistryUseCase) toView(s imageRegistryModel.Settings, found bool)
 		PullTokenSet:      u.open(s.PullTokenCiphertext, pullContext) != "",
 		SecretsKeyMissing: u.cipher == nil,
 		UpdatedAt:         &at,
+		PushCheck:         toCheckView(s.PushCheck),
+		PullCheck:         toCheckView(s.PullCheck),
 	}
 }
 
@@ -129,8 +135,13 @@ func (u *ImageRegistryUseCase) SaveImageRegistrySettings(ctx context.Context, in
 		next.ClearPullToken(now)
 	}
 
+	// both tokens were just proven by the pings above
+	next.Verified(pull != "", now)
 	if err := u.settings.Save(ctx, next); err != nil {
 		return SettingsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save the image registry settings").Err()
+	}
+	if found {
+		u.settled(ctx, prev, next, now)
 	}
 	return u.toView(next, true), nil
 }
@@ -171,7 +182,28 @@ func (u *ImageRegistryUseCase) ClearImageRegistrySettings(ctx context.Context) e
 	if err := u.settings.Delete(ctx); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to clear the image registry settings").Err()
 	}
+	u.closeAlert(ctx, keyPlatformPush)
+	u.closeAlert(ctx, keyPlatformPull)
 	return nil
+}
+
+// settled tells about the credentials a save has fixed: a token that was broken and has just been proven works
+// again; a pull token that was broken and is now removed leaves its alert closed without a note.
+func (u *ImageRegistryUseCase) settled(ctx context.Context, prev, next imageRegistryModel.Settings, now time.Time) {
+	label := next.Provider.RefHost() + "/" + next.Repository
+	alert := func(key string) inboxUseCase.RegistryCredentialAlert {
+		return inboxUseCase.RegistryCredentialAlert{Key: key, Kind: key, Label: label, At: now}
+	}
+	if prev.PushCheck.State == imageRegistryModel.CheckBroken {
+		u.notify(ctx, imageRegistryModel.TransitionRestored, alert(keyPlatformPush))
+	}
+	if prev.PullCheck.State == imageRegistryModel.CheckBroken {
+		if next.PullCheck.State == imageRegistryModel.CheckOK {
+			u.notify(ctx, imageRegistryModel.TransitionRestored, alert(keyPlatformPull))
+		} else {
+			u.closeAlert(ctx, keyPlatformPull)
+		}
+	}
 }
 
 // pushToken is the token to use: the given one, else the stored push token of

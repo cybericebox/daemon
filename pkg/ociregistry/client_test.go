@@ -312,3 +312,48 @@ func TestPlainHTTPHostIsRefusedWithCredentials(t *testing.T) {
 		}
 	}
 }
+
+// PingCredentials proves the account is accepted by the registry without naming a repository (an organizer
+// secret may hold a host only): a bad password is ErrUnauthorized, an account without repository access passes.
+func TestPingCredentialsChecksTheAccountOnly(t *testing.T) {
+	srv, _ := bearerFake(t)
+	ctx := context.Background()
+	anyRepo := func(user, pass string) *Client {
+		return New(Options{Host: hostOf(srv), Username: user, Password: pass, Insecure: true})
+	}
+
+	require.NoError(t, anyRepo("reader", fakePassword).PingCredentials(ctx))
+	require.NoError(t, anyRepo("stranger", fakePassword).PingCredentials(ctx))
+
+	err := anyRepo("reader", fakePassword+"x").PingCredentials(ctx)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	require.NotContains(t, err.Error(), fakePassword)
+	require.ErrorIs(t, anyRepo("nobody", fakePassword).PingCredentials(ctx), ErrUnauthorized)
+}
+
+func TestPingCredentialsClassifiesFailures(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		want   error
+	}{
+		"revoked":      {http.StatusUnauthorized, ErrUnauthorized},
+		"forbidden":    {http.StatusForbidden, ErrUnauthorized},
+		"server error": {http.StatusBadGateway, ErrUnreachable},
+		"throttled":    {http.StatusTooManyRequests, ErrRateLimited},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.status) }))
+			defer srv.Close()
+			err := New(Options{Host: hostOf(srv), Username: "u", Password: fakePassword, Insecure: true}).PingCredentials(context.Background())
+			require.ErrorIs(t, err, tc.want)
+			require.NotContains(t, err.Error(), fakePassword)
+		})
+	}
+}
+
+func TestPingCredentialsPlainHTTPHostIsRefusedWithCredentials(t *testing.T) {
+	srv := httptest.NewServer(registry.New())
+	defer srv.Close()
+	err := New(Options{Host: hostOf(srv), Username: "u", Password: fakePassword}).PingCredentials(context.Background())
+	require.ErrorIs(t, err, ErrInvalidReference)
+}

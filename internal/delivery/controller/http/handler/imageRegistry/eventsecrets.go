@@ -29,10 +29,12 @@ type eventSecretResponse struct {
 	RepositoryPrefix string    `json:"RepositoryPrefix"`
 	Username         string    `json:"Username"`
 	UpdatedAt        time.Time `json:"UpdatedAt"`
+	// Check is the last result of the periodic credential check.
+	Check checkResponse `json:"Check"`
 }
 
 func toSecretResponse(v imageRegistryUseCase.EventSecretView) eventSecretResponse {
-	return eventSecretResponse{ID: v.ID, Host: v.Host, RepositoryPrefix: v.RepositoryPrefix, Username: v.Username, UpdatedAt: v.UpdatedAt}
+	return eventSecretResponse{ID: v.ID, Host: v.Host, RepositoryPrefix: v.RepositoryPrefix, Username: v.Username, UpdatedAt: v.UpdatedAt, Check: toCheckResponse(v.Check)}
 }
 
 func (r eventSecretRequest) input() imageRegistryUseCase.EventSecretInput {
@@ -45,6 +47,7 @@ func (h *Handler) initEventSecrets(router *gin.RouterGroup) {
 	manage.POST("", h.requireManage, h.createEventSecret)
 	manage.PUT(":secretId", h.requireManage, h.updateEventSecret)
 	manage.DELETE(":secretId", h.requireManage, h.deleteEventSecret)
+	manage.POST(":secretId/check", h.requireManage, h.checkEventSecret)
 }
 
 // listEventSecrets godoc
@@ -128,6 +131,32 @@ func (h *Handler) updateEventSecret(ctx *gin.Context) {
 		return
 	}
 	v, err := h.useCase.UpdateEventRegistrySecret(ctx.Request.Context(), eventID, secretID, req.input())
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, toSecretResponse(v))
+}
+
+// checkEventSecret godoc
+// @Summary  Check a registry secret of the event now (authentication only) and return it with the result
+// @Tags     event-registry
+// @Produce  json
+// @Param    id        path  string  true  "Event ID"
+// @Param    secretId  path  string  true  "Secret ID"
+// @Success  200  {object}  response.Response{data=eventSecretResponse}
+// @Failure  404  {object}  response.Response  "no such secret in this event"
+// @Router   /events/{id}/manage/registry-secrets/{secretId}/check [post]
+func (h *Handler) checkEventSecret(ctx *gin.Context) {
+	eventID, ok := parseUUID(ctx, "id")
+	if !ok {
+		return
+	}
+	secretID, ok := parseUUID(ctx, "secretId")
+	if !ok {
+		return
+	}
+	v, err := h.useCase.CheckEventRegistrySecret(ctx.Request.Context(), eventID, secretID)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

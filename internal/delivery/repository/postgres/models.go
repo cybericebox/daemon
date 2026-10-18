@@ -451,6 +451,7 @@ type EventRegistrySecret struct {
 	TokenCiphertext  string    `json:"token_ciphertext"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+	CredentialCheck  []byte    `json:"credential_check"`
 }
 
 type EventResultChange struct {
@@ -761,6 +762,8 @@ type ImageRegistrySetting struct {
 	PushTokenCiphertext string    `json:"push_token_ciphertext"`
 	PullTokenCiphertext string    `json:"pull_token_ciphertext"`
 	UpdatedAt           time.Time `json:"updated_at"`
+	PushCheck           []byte    `json:"push_check"`
+	PullCheck           []byte    `json:"pull_check"`
 }
 
 type InfrastructureAgent struct {

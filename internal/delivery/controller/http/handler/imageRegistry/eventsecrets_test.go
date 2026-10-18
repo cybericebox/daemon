@@ -62,6 +62,15 @@ func (f *fakeUseCase) DeleteEventRegistrySecret(_ context.Context, eventID, secr
 	return nil
 }
 
+func (f *fakeUseCase) CheckEventRegistrySecret(_ context.Context, eventID, secretID uuid.UUID) (imageRegistryUseCase.EventSecretView, error) {
+	f.secretEvent, f.secretID = eventID, secretID
+	f.checks++
+	v := f.secretView()
+	at := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	v.Check = imageRegistryUseCase.CheckView{State: "ok", CheckedAt: &at, AttemptedAt: &at}
+	return v, nil
+}
+
 func secretsEngine(uc IUseCase) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
@@ -155,5 +164,26 @@ func TestArchivedEventRefusesSecretWrites(t *testing.T) {
 	}
 	if w := do(engine, http.MethodGet, base, ""); w.Code != http.StatusOK {
 		t.Errorf("read on an archived event: %d", w.Code)
+	}
+}
+
+func TestEventSecretCheckNowNeedsManageAndReturnsTheResult(t *testing.T) {
+	uc := &fakeUseCase{}
+	engine := secretsEngine(uc)
+	w := do(engine, http.MethodPost, "/api/events/"+evA.String()+"/manage/registry-secrets/"+secUID.String()+"/check", "")
+	if w.Code != http.StatusOK || uc.checks != 1 || uc.secretEvent != evA || uc.secretID != secUID {
+		t.Fatalf("check: %d %s", w.Code, w.Body)
+	}
+	if !strings.Contains(w.Body.String(), `"Check":{"State":"ok","CheckedAt":"2026-10-18T12:00:00Z","Reason":"","AttemptedAt":"2026-10-18T12:00:00Z","Failure":""}`) {
+		t.Fatalf("body %s", w.Body)
+	}
+	w = do(engine, http.MethodPost, "/api/events/"+evB.String()+"/manage/registry-secrets/"+secUID.String()+"/check", "")
+	if w.Code != http.StatusNotFound || uc.checks != 1 {
+		t.Fatalf("without manage: %d", w.Code)
+	}
+	// the list carries the last result too
+	w = do(engine, http.MethodGet, "/api/events/"+evA.String()+"/manage/registry-secrets", "")
+	if !strings.Contains(w.Body.String(), `"Check":{`) {
+		t.Fatalf("list lacks the check: %s", w.Body)
 	}
 }

@@ -7247,6 +7247,19 @@ definitions:
         description: State is one of the PodState* values.
         type: string
     type: object
+  imageRegistry.checkResponse:
+    properties:
+      AttemptedAt:
+        type: string
+      CheckedAt:
+        type: string
+      Failure:
+        type: string
+      Reason:
+        type: string
+      State:
+        type: string
+    type: object
   imageRegistry.eventExerciseImagesResponse:
     properties:
       EventExerciseID:
@@ -7273,6 +7286,10 @@ definitions:
     type: object
   imageRegistry.eventSecretResponse:
     properties:
+      Check:
+        allOf:
+        - $ref: '#/definitions/imageRegistry.checkResponse'
+        description: Check is the last result of the periodic credential check.
       Host:
         type: string
       ID:
@@ -7323,8 +7340,16 @@ definitions:
         type: boolean
       Provider:
         type: string
+      PullCheck:
+        $ref: '#/definitions/imageRegistry.checkResponse'
       PullTokenSet:
         type: boolean
+      PushCheck:
+        allOf:
+        - $ref: '#/definitions/imageRegistry.checkResponse'
+        description: |-
+          PushCheck and PullCheck are the last results of the periodic credential check (PullCheck is empty without
+          a pull token).
       PushTokenSet:
         type: boolean
       Repository:
@@ -17835,6 +17860,39 @@ paths:
         one
       tags:
       - event-registry
+  /events/{id}/manage/registry-secrets/{secretId}/check:
+    post:
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Secret ID
+        in: path
+        name: secretId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.eventSecretResponse'
+              type: object
+        "404":
+          description: no such secret in this event
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Check a registry secret of the event now (authentication only) and
+        return it with the result
+      tags:
+      - event-registry
   /events/{id}/manage/resource-plan:
     get:
       description: What the event reserves. Per attached task its totals (CPU, memory,
@@ -25640,6 +25698,28 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Save the platform image registry settings after checking the push token
         can push
+      tags:
+      - settings
+  /settings/image-registry/check:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/imageRegistry.settingsResponse'
+              type: object
+        "409":
+          description: the registry is not configured, or secret storage is not configured
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Check the platform registry tokens now (authentication only) and return
+        the settings with the results
       tags:
       - settings
   /settings/image-registry/repositories:
