@@ -3,6 +3,7 @@ package protection_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	adminAuditUseCase "github.com/cybericebox/daemon/internal/useCase/adminAudit"
 	authUseCase "github.com/cybericebox/daemon/internal/useCase/auth"
+	"github.com/cybericebox/daemon/pkg/overload"
 )
 
 // fakeUseCase is a hand-written stand-in for the auth use case: OpenSession fails with sessionErr (a garbage,
@@ -791,5 +793,37 @@ func TestNoCookie401TouchesNoDB(t *testing.T) {
 	sessionRouter(p, rbac.PermSelf).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/x", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("want 401, got %d %s", w.Code, w.Body.String())
+	}
+}
+
+// A caller that cannot be loaded because the database is busy is answered with the retryable 503 even on a
+// public-optional route: never a 200 with the anonymous view of a signed-in user.
+func TestSilentRouteDBBusyIs503NotAnonymous(t *testing.T) {
+	busy := model.ErrPlatform.WithError(fmt.Errorf("get access: %w", overload.ErrDBBusy)).Err()
+	uc := &fakeUseCase{sessionResult: okResult(), loadErr: busy}
+	p := protection.New(protection.Dependencies{UseCase: uc, Limiter: orderLimiter{uc}})
+	w := getWithCookie(sessionRouter(p, rbac.PermBannersView))
+	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "1" {
+		t.Fatalf("want 503 with Retry-After 1, got %d %q %s", w.Code, w.Header().Get("Retry-After"), w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "70432") {
+		t.Fatalf("want the DB-busy code 70432, got %s", w.Body.String())
+	}
+	if got := strings.Join(uc.calls, ","); got != "open,limit,load" {
+		t.Fatalf("calls %q: the request must not go on as anonymous", got)
+	}
+}
+
+// A replica that cannot trust its revocation list answers 503 on a public-optional route too, and keeps the
+// cookie.
+func TestSilentRouteStaleRevocationListIs503(t *testing.T) {
+	uc := &fakeUseCase{sessionErr: authModel.ErrAuthSessionsUnavailable.Err()}
+	p := protection.New(protection.Dependencies{UseCase: uc, Limiter: orderLimiter{uc}})
+	w := getWithCookie(sessionRouter(p, rbac.PermBannersView))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503, got %d", w.Code)
+	}
+	if findCookie(w, authModel.SessionCookie) != nil {
+		t.Fatal("the cookie must stay")
 	}
 }
