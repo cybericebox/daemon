@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	eventHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/event"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -54,7 +55,7 @@ var mediaRoutes = []string{"logo", "favicon", "preview-picture", "content-images
 func mediaRouter(u *mediaFake) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	router.Use(response.WithErrorHandler)
+	router.Use(middleware.ContentMiddleware, response.WithErrorHandler) // as in production: JSON is the default type
 	eventHandler.NewEventAPIHandler(u, allowEventCRUD{}).Init(router.Group("api"))
 	return router
 }
@@ -201,6 +202,28 @@ func TestEventMediaRefusesNonImages(t *testing.T) {
 			w := mediaGet(jsonDefaultRouter(u), route, uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String())
 			require.Equal(t, http.StatusNotFound, w.Code)
 			require.Empty(t, w.Header().Get("ETag"))
+		})
+	}
+}
+
+func TestEventMedia304HasNoContentTypeAndOldEtagsAreRefreshed(t *testing.T) {
+	for _, route := range mediaRoutes {
+		t.Run(route, func(t *testing.T) {
+			u := &mediaFake{public: true}
+			router := mediaRouter(u)
+			eventID, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			first := mediaGet(router, route, eventID.String(), fileID.String())
+			tag := first.Header().Get("ETag")
+			require.Equal(t, `"event-image-v2-`+fileID.String()+`"`, tag)
+
+			same := mediaGet(router, route, eventID.String(), fileID.String(), tag)
+			require.Equal(t, http.StatusNotModified, same.Code)
+			require.Empty(t, same.Header().Get("Content-Type"), "a 304 must not replace the stored image type")
+
+			// The tag sent before the Content-Type fix may sit in browsers next to a json-typed copy.
+			stale := mediaGet(router, route, eventID.String(), fileID.String(), `"event-image-`+fileID.String()+`"`)
+			require.Equal(t, http.StatusOK, stale.Code)
+			require.Equal(t, "image/png", stale.Header().Get("Content-Type"))
 		})
 	}
 }

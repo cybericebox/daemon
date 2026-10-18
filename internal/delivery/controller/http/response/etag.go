@@ -32,10 +32,17 @@ func AbortWithETagData(ctx *gin.Context, data any, freshFor time.Duration) {
 		ctx.Header("Cache-Control", "private, no-cache")
 	}
 	if ETagMatches(ctx.GetHeader("If-None-Match"), tag) {
-		ctx.AbortWithStatus(http.StatusNotModified)
+		AbortNotModified(ctx)
 		return
 	}
 	AbortWithData(ctx, data)
+}
+
+// AbortNotModified answers an empty 304. The API-wide JSON Content-Type is dropped: a 304 may update
+// the headers a cache stores, and it must not turn a stored image (or any other type) into JSON.
+func AbortNotModified(ctx *gin.Context) {
+	ctx.Writer.Header().Del("Content-Type")
+	ctx.AbortWithStatus(http.StatusNotModified)
 }
 
 // ETagMatches is the weak comparison of RFC 9110 §13.1.2 over a list.
