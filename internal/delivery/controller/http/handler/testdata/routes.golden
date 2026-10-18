@@ -424,7 +424,7 @@ GET    /api/exercises/test-labs/room | gate: self | layers: resourceCalendar.req
 POST   /api/exercises/uploads | gate: self | layers: -
 DELETE /api/exercises/uploads/:uploadID | gate: self | layers: -
 GET    /api/exercises/uploads/:uploadID | gate: self | layers: -
-PUT    /api/exercises/uploads/:uploadID/chunks/:index | gate: self | layers: -
+PUT    /api/exercises/uploads/:uploadID/chunks/:index | gate: self | layers: middleware.RawBody
 POST   /api/exercises/uploads/:uploadID/complete | gate: self | layers: -
 GET    /api/infrastructure/agents | gate: infrastructure.read | layers: -
 POST   /api/infrastructure/agents | gate: infrastructure.write | layers: -

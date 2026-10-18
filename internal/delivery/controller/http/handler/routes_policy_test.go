@@ -385,6 +385,30 @@ func TestPublicMediaRoutesMatchTheMiddlewareSet(t *testing.T) {
 	}
 }
 
+// The routes that accept application/octet-stream are exactly the ones that use middleware.RawBody (the
+// handlers that read the raw body), and they are writes.
+func TestBinaryBodyRoutesMatchTheMiddlewareSet(t *testing.T) {
+	used := map[string]bool{}
+	for _, s := range buildRoutePolicy(t) {
+		if hasLayer(s, "RawBody") {
+			if s.method != "PUT" && s.method != "POST" {
+				t.Errorf("%s %s: a raw body is a write", s.method, s.path)
+			}
+			used[s.path] = true
+		}
+	}
+	for path := range middleware.BinaryBodyRoutes {
+		if !used[path] {
+			t.Errorf("%s accepts octet-stream in middleware.BinaryBodyRoutes but the route does not use RawBody", path)
+		}
+	}
+	for path := range used {
+		if !middleware.BinaryBodyRoutes[path] {
+			t.Errorf("%s uses RawBody but is not in middleware.BinaryBodyRoutes (its chunks would get 415)", path)
+		}
+	}
+}
+
 // The origin guard's public reads are exactly the mounted GET routes that have no gate or only public
 // gates: nothing authenticated is exempt, and no public read is checked by mistake.
 func TestPublicReadRoutesMatchTheMountedRouter(t *testing.T) {
@@ -472,5 +496,36 @@ func TestUngatedPublicRoutesMatchTheMountedRouter(t *testing.T) {
 				route,
 			)
 		}
+	}
+}
+
+// Through the REAL router with the origin guard in front: a raw chunk upload (octet-stream) passes the guard
+// on the chunk route, and the same body type is still refused (415) on a JSON route, so the exercise
+// archive upload cannot break silently again. The gate is the probe protector, which stops the request
+// right after the guard, so no use case is needed.
+func TestChunkUploadPassesTheOriginGuardOnTheRealRouter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}
+	router := gin.New()
+	router.Use(middleware.OriginGuardWith(middleware.OriginPolicy{Hosts: hosts}))
+	NewAPIHandler(nil, probeProtector{}, config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: hosts}).Init(router)
+
+	do := func(method, path, contentType string) int {
+		req := httptest.NewRequest(method, path, strings.NewReader("raw-bytes"))
+		req.Header.Set("Origin", "https://exercises.example.test")
+		req.Header.Set("Content-Type", contentType)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+	const chunk = "/api/exercises/uploads/0190a1b2-0000-7000-8000-000000000000/chunks/0"
+	if got := do("PUT", chunk, "application/octet-stream"); got == 415 || got == 403 {
+		t.Errorf("octet-stream chunk through the guard: %d, want it to reach the route", got)
+	}
+	if got := do("PUT", chunk, "text/plain"); got != 415 {
+		t.Errorf("text/plain chunk: %d, want 415", got)
+	}
+	if got := do("PUT", "/api/events/0190a1b2-0000-7000-8000-000000000000", "application/octet-stream"); got != 415 {
+		t.Errorf("octet-stream to a JSON route: %d, want 415", got)
 	}
 }

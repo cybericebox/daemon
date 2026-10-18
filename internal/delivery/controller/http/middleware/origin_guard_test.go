@@ -308,3 +308,31 @@ func TestEventTagCache_BoundsTheLookups(t *testing.T) {
 		t.Fatal("a known tag must survive a flood")
 	}
 }
+
+// A raw upload chunk is application/octet-stream on the chunk route only: elsewhere it is still 415, and a
+// simple form type (text/plain) never passes on the chunk route either.
+func TestOriginGuard_OctetStreamOnlyOnBinaryBodyRoutes(t *testing.T) {
+	r := guardRouter()
+	chunk := "/api/exercises/uploads/:uploadID/chunks/:index"
+	r.PUT(chunk, func(c *gin.Context) { c.Status(http.StatusOK) })
+	do := func(method, path, ct string) int {
+		req := httptest.NewRequest(method, path, strings.NewReader("raw-bytes"))
+		req.Header.Set("Origin", "https://exercises.example.test")
+		req.Header.Set("Content-Type", ct)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	const chunkURL = "/api/exercises/uploads/abc/chunks/0"
+	if got := do("PUT", chunkURL, "application/octet-stream"); got != http.StatusOK {
+		t.Errorf("octet-stream to the chunk route: %d, want pass", got)
+	}
+	if got := do("PUT", chunkURL, "text/plain"); got != http.StatusUnsupportedMediaType {
+		t.Errorf("text/plain to the chunk route: %d, want 415", got)
+	}
+	for _, m := range writeMethods {
+		if got := do(m, "/x", "application/octet-stream"); got != http.StatusUnsupportedMediaType {
+			t.Errorf("octet-stream %s to another route: %d, want 415", m, got)
+		}
+	}
+}
