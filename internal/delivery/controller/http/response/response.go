@@ -147,7 +147,10 @@ func AbortWithTooManyRequests(ctx *gin.Context, wait time.Duration) {
 // envelope and Retry-After of one second.
 func AbortWithServiceOverloaded(ctx *gin.Context) {
 	ctx.Set(OverloadCtxKey, true)
-	AbortWithStatus(ctx, authModel.ErrServiceOverloaded.WithDetail(err.DetailRetryAfterSeconds, int64(1)).Err())
+	AbortWithStatus(
+		ctx,
+		authModel.ErrServiceOverloaded.WithDetail(err.DetailRetryAfterSeconds, int64(1)).Err(),
+	)
 }
 
 func AbortWithError(ctx *gin.Context, err error) {

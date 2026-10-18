@@ -86,7 +86,7 @@ func (wc *workerClient) Initialize(ctx context.Context, registry iWorkerRegistry
 			// Separate capacity also keeps durable operator/auth commands moving when default work stalls.
 			Queues: map[string]river.QueueConfig{
 				river.QueueDefault:           {MaxWorkers: wc.defaultWorkers},
-				jobsModel.NotifyDurableQueue: {MaxWorkers: 2},
+				jobsModel.NotifyDurableQueue: {MaxWorkers: jobsModel.NotifyDurableQueueWorkers},
 				jobsModel.ImagesQueue:        {MaxWorkers: jobsModel.ImagesQueueWorkers},
 			},
 			Workers:                     workers,

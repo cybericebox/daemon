@@ -89,7 +89,10 @@ func WithErrorHandler(ctx *gin.Context) {
 	// Pool saturation surfaces from any depth of use-case wrapping: answer it as a retryable 503, not an internal error.
 	if errors.Is(errFromContext, overload.ErrDBBusy) {
 		ctx.Set(OverloadCtxKey, true)
-		AbortWithStatus(ctx, authModel.ErrDatabaseBusy.WithDetail(err.DetailRetryAfterSeconds, int64(1)).Err())
+		AbortWithStatus(
+			ctx,
+			authModel.ErrDatabaseBusy.WithDetail(err.DetailRetryAfterSeconds, int64(1)).Err(),
+		)
 		return
 	}
 
