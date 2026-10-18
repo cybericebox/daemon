@@ -804,7 +804,8 @@ func TestSilentRouteDBBusyIs503NotAnonymous(t *testing.T) {
 	p := protection.New(protection.Dependencies{UseCase: uc, Limiter: orderLimiter{uc}})
 	w := getWithCookie(sessionRouter(p, rbac.PermBannersView))
 	if w.Code != http.StatusServiceUnavailable || w.Header().Get("Retry-After") != "1" {
-		t.Fatalf("want 503 with Retry-After 1, got %d %q %s", w.Code, w.Header().Get("Retry-After"), w.Body.String())
+		t.Fatalf("want 503 with Retry-After 1, got %d %q %s",
+			w.Code, w.Header().Get("Retry-After"), w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "70432") {
 		t.Fatalf("want the DB-busy code 70432, got %s", w.Body.String())
