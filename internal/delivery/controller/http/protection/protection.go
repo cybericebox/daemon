@@ -207,7 +207,8 @@ func (p *Protection) signInURL() string {
 // On success it injects the identity into the request context and re-issues the cookie when due. silent controls
 // the failure behavior: false (the permission requires authentication) aborts with the error's own status and the
 // X-Sign-In-URL header so the client can redirect; true (the permission is public-optional) lets the request
-// continue as an anonymous one. It reports false when the request was aborted.
+// continue as an anonymous one when the cookie is dead (a busy database or a stale revocation list still
+// aborts with its 503). It reports false when the request was aborted.
 func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	cookie := getCookie(ctx, authModel.SessionCookie)
 	if cookie == "" {
@@ -231,7 +232,7 @@ func (p *Protection) authenticate(ctx *gin.Context, silent bool) bool {
 	}
 	claims, err := p.useCase.LoadCaller(ctx.Request.Context(), pass)
 	if err != nil {
-		if silent {
+		if silent && isUnauthorized(err) {
 			return p.failedSilently(ctx, err)
 		}
 		return p.failed(ctx, err, false)
@@ -264,13 +265,16 @@ func (p *Protection) countAnonymous(ctx *gin.Context, public bool) bool {
 	return p.limiter == nil || p.limiter.CheckAnonymous(ctx, public)
 }
 
-// failed handles a cookie that did not pass: a dead cookie is cleared; a silent route goes on anonymous, any
-// other aborts with the error.
+// failed handles a cookie that did not pass: a dead cookie is cleared; on a silent route a dead cookie goes
+// on anonymous, any other aborts with the error. A failure that is not about the cookie (the revocation list
+// is stale, the database is busy) aborts on a silent route too: the caller may be signed in, and the
+// retryable 503 is better than a 200 with the anonymous view.
 func (p *Protection) failed(ctx *gin.Context, err error, silent bool) bool {
-	if isUnauthorized(err) {
+	unauthorized := isUnauthorized(err)
+	if unauthorized {
 		p.clearSessionCookie(ctx)
 	}
-	if silent {
+	if silent && unauthorized {
 		return p.failedSilently(ctx, err)
 	}
 	return p.refuse(ctx, err)
