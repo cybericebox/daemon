@@ -731,6 +731,8 @@ definitions:
     type: object
   event.PreviewCatalogItem:
     properties:
+      Eligible:
+        type: boolean
       ExerciseVersionID:
         type: string
       ID:
@@ -738,6 +740,8 @@ definitions:
       Infrastructure:
         type: boolean
       Name:
+        type: string
+      Reason:
         type: string
       Variants:
         items:
