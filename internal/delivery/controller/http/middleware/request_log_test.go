@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -185,7 +184,7 @@ func TestRequestLogRecordsRouteAndAnonymous(t *testing.T) {
 	r.Use(RequestLogger())
 	r.GET("/items/:id", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.GET("/me/:id", func(c *gin.Context) {
-		claims := rbac.Claims{UserID: uuid.Must(uuid.NewV7())}
+		claims := rbac.Claims{Role: rbac.RoleUser}
 		c.Request = c.Request.WithContext(
 			rbac.ContextWithCurrentUserSession(c.Request.Context(), claims),
 		)
@@ -260,5 +259,27 @@ func TestRequestLogSamplesRefusals(t *testing.T) {
 			got["level"] != "warn" {
 			t.Fatalf("next second's line %d: %v, want %+v", i, got, want)
 		}
+	}
+}
+
+// Sampling is per status and route: a flood of 401s on one route does not hide the 401 of another route.
+func TestRequestLogSamplesPerRoute(t *testing.T) {
+	_, zlOut := captureLogs(t)
+	gin.SetMode(gin.TestMode)
+	now := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+	r := gin.New()
+	r.Use(requestLogger(func() time.Time { return now }))
+	r.GET("/flood", func(c *gin.Context) { c.Status(http.StatusUnauthorized) })
+	r.GET("/rare", func(c *gin.Context) { c.Status(http.StatusUnauthorized) })
+	for range 50 {
+		serve(r, "/flood")
+	}
+	serve(r, "/rare")
+	routes := map[any]int{}
+	for _, line := range logLines(t, zlOut) {
+		routes[line["route"]]++
+	}
+	if routes["/flood"] != 1 || routes["/rare"] != 1 {
+		t.Fatalf("lines per route: %v", routes)
 	}
 }

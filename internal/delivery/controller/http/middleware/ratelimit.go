@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"sync"
 	"time"
 
@@ -62,6 +63,8 @@ type RateLimiter struct {
 	now       func() time.Time
 	lastSweep time.Time
 	observe   func(Bucket)
+	// ungated holds the "METHOD template" keys of UngatedPublicRoutes.
+	ungated map[string]bool
 }
 
 // Bucket names the budget a request is counted in.
@@ -79,7 +82,16 @@ type bucket struct {
 }
 
 func NewRateLimiter(cfg config.RateLimitConfig) *RateLimiter {
-	return &RateLimiter{cfg: cfg, users: map[uuid.UUID]*bucket{}, now: time.Now}
+	l := &RateLimiter{
+		cfg:     cfg,
+		users:   map[uuid.UUID]*bucket{},
+		now:     time.Now,
+		ungated: map[string]bool{},
+	}
+	for _, route := range UngatedPublicRoutes() {
+		l.ungated[route] = true
+	}
+	return l
 }
 
 // Observe calls fn with the bucket of every request counted from now on (tests see where a request went).
@@ -159,65 +171,82 @@ func RateLimitExemptRoutes() []string {
 	return routes
 }
 
-// ungatedPublicRoutes are the routes mounted without any permission gate (the public allowlist of
-// tools/checkroutes): no gate counts their requests, so the global middleware counts them in public itself.
-// Keyed "METHOD template"; a test in the handler package compares the set with the mounted router.
-var ungatedPublicRoutes = map[string]bool{
-	"POST /api/auth/sign-in":                true,
-	"POST /api/auth/sign-up":                true,
-	"GET /api/auth/setup":                   true,
-	"POST /api/auth/setup":                  true,
-	"POST /api/auth/password/reset-request": true,
-	"POST /api/auth/password/reset":         true,
-	"GET /api/auth/password/policy":         true,
-	"POST /api/auth/account/email/confirm":  true,
-	"GET /api/auth/avatar/:id":              true,
-	"GET /api/auth/google":                  true,
-	"GET /api/auth/google/register":         true,
-	"GET /api/auth/google/setup":            true,
-	"GET /api/auth/google/callback":         true,
-	"GET /api/events/upcoming":              true,
-}
-
-// UngatedPublicRoutes are the "METHOD template" keys of the routes without a gate, counted in public.
+// UngatedPublicRoutes are the "METHOD template" keys of the routes mounted without any permission gate (the
+// public allowlist of tools/checkroutes): no gate counts their requests, so the global middleware counts them
+// in public itself. A test in the handler package compares the list with the mounted router.
 func UngatedPublicRoutes() []string {
-	routes := make([]string, 0, len(ungatedPublicRoutes))
-	for route := range ungatedPublicRoutes {
-		routes = append(routes, route)
+	return []string{
+		"POST /api/auth/sign-in",
+		"POST /api/auth/sign-up",
+		"GET /api/auth/setup",
+		"POST /api/auth/setup",
+		"POST /api/auth/password/reset-request",
+		"POST /api/auth/password/reset",
+		"GET /api/auth/password/policy",
+		"POST /api/auth/account/email/confirm",
+		"GET /api/auth/avatar/:id",
+		"GET /api/auth/google",
+		"GET /api/auth/google/register",
+		"GET /api/auth/google/setup",
+		"GET /api/auth/google/callback",
+		"GET /api/events/upcoming",
 	}
-	return routes
 }
 
-const rateLimitCountedKey = "rateLimitCounted"
+const (
+	// rateLimitCountedKey marks a request that is counted (or, on the internal listener, exempt) in the
+	// anonymous buckets, or already counted in its user's bucket.
+	rateLimitCountedKey = "rateLimitCounted"
+	// rateLimitUserCountedKey marks a request counted in its user's bucket.
+	rateLimitUserCountedKey = "rateLimitUserCounted"
+)
 
 func (l *RateLimiter) refuse(ctx *gin.Context, wait time.Duration) {
 	response.AbortWithTooManyRequests(ctx, wait)
 }
 
-// Anonymous is the global middleware. A request with a session cookie is left to the permission gate, which
-// counts it once it knows who the caller is. Without a cookie: a path no route matches is counted in closed
-// and an ungated public route in public here; a gated route is left to its gate, the one place that knows
-// whether the route needs a session (closed) or not (public).
+// Anonymous is the global middleware, in front of the in-flight limiter: a request it refuses never takes a
+// slot nor has its body read. It counts every request without a session cookie, in the bucket of its route
+// (anonymousBucket), so the gate later finds it counted. A request with a cookie is counted here only where
+// no identity can ever be established (a path no route matches, an ungated route); elsewhere the gate counts
+// it once it knows who the caller is. The internal listener (in-cluster SSR: one trusted caller in front of
+// many visitors) is not counted in the anonymous buckets; the in-flight cap bounds it.
 func (l *RateLimiter) Anonymous(ctx *gin.Context) {
 	if exemptFromRateLimit[ctx.FullPath()] {
 		ctx.Next()
 		return
 	}
-	if cookie, err := ctx.Cookie(authModel.SessionCookie); err == nil && cookie != "" {
+	if OnInternalListener(ctx.Request.Context()) {
+		ctx.Set(rateLimitCountedKey, true)
 		ctx.Next()
 		return
 	}
-	switch {
-	case ctx.FullPath() == "":
-		if !l.countAnonymous(ctx, BucketClosed) {
-			return
-		}
-	case ungatedPublicRoutes[ctx.Request.Method+" "+ctx.FullPath()]:
-		if !l.countAnonymous(ctx, BucketPublic) {
-			return
-		}
+	if name, ok := l.anonymousBucket(ctx); ok && !l.countAnonymous(ctx, name) {
+		return
 	}
 	ctx.Next()
+}
+
+// anonymousBucket is the bucket the global middleware counts a request in; false leaves it to the gate (a
+// gated route, with a session cookie). Without a cookie: public on an ungated route and on a GET/HEAD of a
+// public read (PublicReadRoutes: the routes gated only by permissions RolePublic holds), closed on every other
+// route and on a path no route matches.
+func (l *RateLimiter) anonymousBucket(ctx *gin.Context) (Bucket, bool) {
+	path := ctx.FullPath()
+	switch {
+	case path == "":
+		return BucketClosed, true
+	case l.ungated[ctx.Request.Method+" "+path]:
+		return BucketPublic, true
+	}
+	if cookie, err := ctx.Cookie(authModel.SessionCookie); err == nil && cookie != "" {
+		return "", false
+	}
+	if method := ctx.Request.Method; (method == http.MethodGet || method == http.MethodHead) &&
+		PublicReadRoutes[path] {
+		return BucketPublic, true
+	}
+	return BucketClosed, true
 }
 
 // countAnonymous counts a request without identity in name, once per request; it aborts with 429 and returns
@@ -234,12 +263,18 @@ func (l *RateLimiter) countAnonymous(ctx *gin.Context, name Bucket) bool {
 	return true
 }
 
-// CheckUser counts the request of a caller the gate has identified in that user's bucket; it aborts with 429
+// CheckUser counts the request of a caller the gate has identified in that user's bucket, once per request
+// however many gates the route has (and the request is then not counted as anonymous too); it aborts with 429
 // and returns false when the bucket is empty.
 func (l *RateLimiter) CheckUser(ctx *gin.Context, userID uuid.UUID) bool {
 	if exemptFromRateLimit[ctx.FullPath()] {
 		return true
 	}
+	if _, counted := ctx.Get(rateLimitUserCountedKey); counted {
+		return true
+	}
+	ctx.Set(rateLimitUserCountedKey, true)
+	ctx.Set(rateLimitCountedKey, true)
 	if ok, wait := l.allowUser(userID); !ok {
 		l.refuse(ctx, wait)
 		return false
@@ -249,8 +284,8 @@ func (l *RateLimiter) CheckUser(ctx *gin.Context, userID uuid.UUID) bool {
 
 // CheckAnonymous counts a request the gate found without identity (no cookie, or one that did not open): in
 // public when the route serves callers without a session, in closed when it needs one, so the 401 that
-// follows costs a token of closed. A request already counted (a second gate on the route) is not counted
-// again. It aborts with 429 and returns false when the bucket is empty.
+// follows costs a token of closed. A request already counted (by the global middleware, by an earlier gate,
+// or in its user's bucket) is not counted again. It aborts with 429 and returns false when the bucket is empty.
 func (l *RateLimiter) CheckAnonymous(ctx *gin.Context, public bool) bool {
 	if exemptFromRateLimit[ctx.FullPath()] {
 		return true
