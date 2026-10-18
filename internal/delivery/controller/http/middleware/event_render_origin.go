@@ -8,11 +8,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// IsEventRenderRoute deliberately matches only the four new endpoints, including
-// their preflights (which have no matched Gin route template).
+// IsEventRenderRoute deliberately matches only the browser-facing grant endpoint, including
+// its preflight (which has no matched Gin route template). The server-to-server /api/render/*
+// routes see no browser and no Origin.
 func IsEventRenderRoute(path string) bool {
 	switch path {
-	case "/api/auth/event-render-key", "/api/events/self/render-grant", "/api/events/self/render-manifest", "/api/events/self/render-page":
+	case "/api/events/self/render-grant":
 		return true
 	}
 	return false

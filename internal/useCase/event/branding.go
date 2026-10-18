@@ -94,24 +94,6 @@ func (u *EventUseCase) RemoveEventLogo(ctx context.Context, eventID uuid.UUID) e
 	return u.brandMedia.ReplaceReferences(ctx, mediaModel.RefTypeEventLogo, eventID, nil)
 }
 
-func (u *EventUseCase) StreamEventLogo(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.requireMediaVisible(ctx, eventID); err != nil {
-		return nil, "", err
-	}
-	ids, err := u.brandMedia.GetReferences(ctx, mediaModel.RefTypeEventLogo, eventID)
-	if err != nil {
-		return nil, "", err
-	}
-	if len(ids) == 0 || ids[0] != fileID {
-		return nil, "", mediaModel.ErrFileNotFound.Err()
-	}
-	reader, file, err := u.brandMedia.StreamFile(ctx, fileID)
-	if err != nil {
-		return nil, "", err
-	}
-	return reader, file.ContentType, nil
-}
-
 func (u *EventUseCase) eventPreviewPictureURL(eventID, fileID uuid.UUID) (string, error) {
 	base, err := url.Parse(strings.TrimRight(u.publicAPIBaseURL, "/"))
 	if err != nil || base.Scheme != "https" || base.Host == "" {
@@ -190,45 +172,92 @@ func (u *EventUseCase) RemoveEventPreviewPicture(ctx context.Context, eventID, u
 	return nil
 }
 
-func (u *EventUseCase) StreamEventPreviewPicture(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.requireMediaVisible(ctx, eventID); err != nil {
-		return nil, "", err
-	}
-	ids, err := u.brandMedia.GetReferences(ctx, mediaModel.RefTypeEventPreviewPicture, eventID)
+// requireMediaVisible is the gate of the public media routes (logo, favicon, preview picture, page
+// images): they are public once the event is published. Before that the event does not exist for
+// anyone but its staff, whose own pages show the images while they are being set up. public tells which
+// of the two let the caller in.
+func (u *EventUseCase) requireMediaVisible(ctx context.Context, eventID uuid.UUID) (public bool, err error) {
+	e, err := u.events.GetByID(ctx, eventID)
 	if err != nil {
-		return nil, "", err
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return false, eventModel.ErrEventNotFound.Err()
+		}
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
-	if len(ids) == 0 || ids[0] != fileID {
-		return nil, "", mediaModel.ErrFileNotFound.Err()
+	phase := e.Lifecycle.Status(time.Now())
+	if phase != eventModel.LifecycleNotPublished && phase != eventModel.LifecycleWithdrawn {
+		return true, nil
 	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx)
+	if !ok {
+		return false, eventModel.ErrEventNotFound.Err()
+	}
+	if err = u.RequireReadEvent(ctx, eventID, claims.UserID); err != nil {
+		return false, eventModel.ErrEventNotFound.WithError(err).Err()
+	}
+	return false, nil
+}
+
+// EventMediaKind names a public event image; the file id in its URL is its version.
+type EventMediaKind string
+
+const (
+	EventMediaLogo           EventMediaKind = "logo"
+	EventMediaFavicon        EventMediaKind = "favicon"
+	EventMediaPreviewPicture EventMediaKind = "preview-picture"
+	EventMediaContentImage   EventMediaKind = "content-images"
+)
+
+func (k EventMediaKind) refType() (string, bool) {
+	switch k {
+	case EventMediaLogo:
+		return mediaModel.RefTypeEventLogo, true
+	case EventMediaFavicon:
+		return mediaModel.RefTypeEventFavicon, true
+	case EventMediaPreviewPicture:
+		return mediaModel.RefTypeEventPreviewPicture, true
+	case EventMediaContentImage:
+		return mediaModel.RefTypeEventContentImage, true
+	}
+	return "", false
+}
+
+// CheckEventMedia is the access half of serving an event image, answered from the database alone: the
+// event is visible to the caller and the file belongs to it. public is true when the event is published,
+// so the file's URL (its id is its version) may be cached for good; false when only staff may see it.
+// The bytes are opened afterwards by OpenEventMedia, so a conditional request never touches storage.
+func (u *EventUseCase) CheckEventMedia(ctx context.Context, kind EventMediaKind, eventID, fileID uuid.UUID) (bool, error) {
+	refType, ok := kind.refType()
+	if !ok {
+		return false, mediaModel.ErrFileNotFound.Err()
+	}
+	public, err := u.requireMediaVisible(ctx, eventID)
+	if err != nil {
+		return false, err
+	}
+	if u.brandMedia == nil {
+		return false, mediaModel.ErrMediaStorageNotConfigured.Err()
+	}
+	refs, err := u.brandMedia.GetReferences(ctx, refType, eventID)
+	if err != nil {
+		return false, err
+	}
+	if kind != EventMediaContentImage && len(refs) > 1 {
+		refs = refs[:1] // one current file; older ones are not served
+	}
+	for _, ref := range refs {
+		if ref == fileID {
+			return public, nil
+		}
+	}
+	return false, mediaModel.ErrFileNotFound.Err()
+}
+
+// OpenEventMedia opens the bytes of a file CheckEventMedia let through.
+func (u *EventUseCase) OpenEventMedia(ctx context.Context, fileID uuid.UUID) (io.ReadCloser, string, error) {
 	reader, file, err := u.brandMedia.StreamFile(ctx, fileID)
 	if err != nil {
 		return nil, "", err
 	}
 	return reader, file.ContentType, nil
-}
-
-// requireMediaVisible is the gate of the public media routes (logo, favicon, preview picture, page
-// images): they are public once the event is published. Before that the event does not exist for
-// anyone but its staff, whose own pages show the images while they are being set up.
-func (u *EventUseCase) requireMediaVisible(ctx context.Context, eventID uuid.UUID) error {
-	e, err := u.events.GetByID(ctx, eventID)
-	if err != nil {
-		if repositoryTools.IsObjectNotFoundError(err) {
-			return eventModel.ErrEventNotFound.Err()
-		}
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
-	}
-	phase := e.Lifecycle.Status(time.Now())
-	if phase != eventModel.LifecycleNotPublished && phase != eventModel.LifecycleWithdrawn {
-		return nil
-	}
-	claims, ok := rbac.CurrentUserSessionFromContext(ctx)
-	if !ok {
-		return eventModel.ErrEventNotFound.Err()
-	}
-	if err = u.RequireReadEvent(ctx, eventID, claims.UserID); err != nil {
-		return eventModel.ErrEventNotFound.WithError(err).Err()
-	}
-	return nil
 }

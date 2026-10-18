@@ -53,7 +53,9 @@ var publicRoutes = map[string]bool{
 	"GET google/callback":                true, // google oauth callback (state cookie double-submit)
 	"POST pub/account/email/confirm":     true, // authorized by the single-use emailed code itself
 	"GET pub/avatar/:id":                 true, // public avatar proxy (bucket stays private)
-	"GET ev/upcoming":                    true, // landing-page card of the nearest published event (public data only)
+	"GET server/key":                     true, // render secret (event-frontend server only)
+	"GET server/events/:tag/manifest":    true, // render secret (event-frontend server only)
+	"GET server/events/:tag/page":        true, // render secret (event-frontend server only)
 	"GET ev/:id/logo/:fileID":            true, // public image proxy verifies the file is this event's current logo
 	"GET ev/:id/favicon/:fileID":         true, // public image proxy verifies the file is this event's current favicon
 	"GET ev/:id/preview-picture/:fileID": true, // public image proxy verifies the file is this event's current preview

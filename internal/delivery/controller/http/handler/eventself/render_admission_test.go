@@ -15,7 +15,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/protection"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
-	"github.com/cybericebox/daemon/internal/model/rbac"
 	authUC "github.com/cybericebox/daemon/internal/useCase/auth"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -48,7 +47,7 @@ func (l *renderAdmissionLimiter) CheckAnonymous(ctx *gin.Context, public bool) b
 func TestRenderAdmissionBoundsForgedCookieConcurrencyAndReleasesCancellation(t *testing.T) {
 	const limit = 128
 	gin.SetMode(gin.TestMode)
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", API: "api.example.test", ID: "id.example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", API: "api.example.test", ID: "id.example.test", EventDomain: "example.test"}}
 	auth := &renderGarbageSession{}
 	limits := config.RateLimitConfig{
 		AnonBurst:       1,
@@ -127,17 +126,6 @@ func TestRenderAdmissionBoundsForgedCookieConcurrencyAndReleasesCancellation(t *
 			t.Fatal("overload was queued rather than refused")
 		}
 	}
-	// All four endpoints share this same bound, irrespective of cookie contents.
-	for _, path := range []string{"/api/auth/event-render-key", "/api/events/self/render-manifest", "/api/events/self/render-page?revision=r1"} {
-		req := httptest.NewRequest(http.MethodGet, path, nil)
-		req.Host = cfg.Hosts.API
-		req.Header.Set("Origin", "https://unknown.example.test")
-		req.AddCookie(&http.Cookie{Name: authModel.SessionCookie, Value: "garbage"})
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-		require.Equal(t, 429, rec.Code)
-		require.Equal(t, "1", rec.Header().Get("Retry-After"))
-	}
 	require.Equal(t, overloaded[0].Body.String(), overloaded[1].Body.String())
 	for _, header := range []string{"Cache-Control", "Vary", "Content-Type", "Retry-After"} {
 		require.Equal(t, overloaded[0].Header().Get(header), overloaded[1].Header().Get(header), header)
@@ -170,30 +158,41 @@ func TestRenderAdmissionBoundsForgedCookieConcurrencyAndReleasesCancellation(t *
 	}
 }
 
-type renderAdmissionGate struct{ calls atomic.Int32 }
-
-func (g *renderAdmissionGate) RequirePermission(rbac.Permission) gin.HandlerFunc {
-	return func(ctx *gin.Context) { g.calls.Add(1); ctx.Next() }
-}
-
-func TestRenderAdmissionSuccessReleasesWithoutDenialDelay(t *testing.T) {
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
-	gate := &renderAdmissionGate{}
-	h := NewEventRenderAPIHandler(&renderFake{public: true}, gate, cfg)
+func TestRenderAdmissionSuccessReleasesTheSlot(t *testing.T) {
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	h := NewEventRenderAPIHandler(&renderFake{public: true}, renderGate{}, cfg)
 	h.wait = func(context.Context, time.Duration) error { t.Fatal("success paid denial delay"); return nil }
 	r := gin.New()
 	h.Init(r.Group("api"))
 	for i := 0; i < 256; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/api/auth/event-render-key", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/render/key", nil)
+		req.Header.Set(renderSecretHeader, testRenderSecret)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
 		require.Equal(t, 200, rec.Code, "slot leaked at request %d", i)
 	}
-	// Canceled requests must never enter authentication or tenant-dependent work.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	req := httptest.NewRequest(http.MethodGet, "/api/auth/event-render-key", nil).WithContext(ctx)
-	rec := httptest.NewRecorder()
-	r.ServeHTTP(rec, req)
-	require.Equal(t, int32(256), gate.calls.Load(), "already canceled request entered authentication")
+}
+
+func TestRenderRoutesShareTheAdmissionBound(t *testing.T) {
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	h := NewEventRenderAPIHandler(&renderFake{public: true}, renderGate{}, cfg)
+	for len(h.admission) < cap(h.admission) {
+		h.admission <- struct{}{}
+	}
+	r := gin.New()
+	r.Use(response.WithErrorHandler)
+	h.Init(r.Group("api"))
+	for _, path := range []string{"/api/render/key", "/api/render/events/summer/manifest", "/api/render/events/summer/page?revision=r1"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set(renderSecretHeader, testRenderSecret)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		require.Equal(t, 429, rec.Code, path)
+		require.Equal(t, "1", rec.Header().Get("Retry-After"))
+		// Without the secret nothing reveals the bound: still a plain 404.
+		req = httptest.NewRequest(http.MethodGet, path, nil)
+		rec = httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		require.Equal(t, 404, rec.Code, path)
+	}
 }

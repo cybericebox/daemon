@@ -147,6 +147,7 @@ Connection budget: one replica opens up to `POSTGRES_MAX_CONNS` + `POSTGRES_JOB_
 | `SESSION_MAX_PER_USER` | `10` | Sessions one account keeps at once; signing in over the cap ends the oldest (0 = no cap). |
 | `SESSION_ABSOLUTE_TTL` | `168h` | A session ends this long after sign-in however busy it is (it caps every re-issued expiry). |
 | `SESSION_ENCRYPTION_KEY` | required | Secret. Seals the session cookie (AES-256-GCM): one 64-hex-char key, or a keyring of `id:hex` entries whose first key seals and every key opens (a rotation signs nobody out). Every replica must hold the same key. |
+| `RENDER_SECRET` | required | Secret, at least 32 characters. Shared with the event frontend server, the only caller of `/api/render/*` (event pages for server rendering). Without the `X-Render-Secret` header carrying it those routes answer 404. Every replica must hold the same value. |
 | `SESSION_REVOCATION_STALE_AFTER` | `30s` | How long the poll of the revoked-session list may keep failing before the replica refuses signed-in requests (503) rather than trust a stale list. |
 | `TEMPORAL_CODE_TTL` | `1h` | Lifetime of one-time codes (confirmation, reset). |
 | `PASSWORD_MIN_LENGTH`, `PASSWORD_MAX_LENGTH` | `8`, `72` | Password length bounds (bcrypt ignores bytes past 72). |

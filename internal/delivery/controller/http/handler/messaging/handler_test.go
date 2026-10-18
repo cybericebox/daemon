@@ -29,8 +29,10 @@ func (permProtection) RequirePermission(required rbac.Permission) gin.HandlerFun
 			response.AbortWithForbidden(ctx)
 			return
 		}
-		userID := uuid.Must(uuid.NewV7())
-		ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), rbac.Claims{UserID: userID}))
+		if ctx.GetHeader("X-Anonymous") == "" {
+			userID := uuid.Must(uuid.NewV7())
+			ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), rbac.Claims{UserID: userID}))
+		}
 		ctx.Next()
 	}
 }
@@ -83,7 +85,7 @@ func (f *fakeUseCase) UpdateSiteBanner(_ context.Context, scope *uuid.UUID, _ uu
 func (f *fakeUseCase) ListVisibleSiteBanners(_ context.Context, site string, eventID, userID *uuid.UUID) ([]siteBannerModel.Banner, error) {
 	f.visibleSites = append(f.visibleSites, site)
 	f.visibleE, f.visible = append(f.visibleE, eventID), append(f.visible, userID)
-	return []siteBannerModel.Banner{{ID: uuid.Must(uuid.NewV7()), Text: "Maintenance", Level: siteBannerModel.LevelWarning, Dismissible: true}}, nil
+	return []siteBannerModel.Banner{{ID: uuid.FromStringOrNil("0190a0b2-0000-7000-8000-000000000001"), Text: "Maintenance", Level: siteBannerModel.LevelWarning, Dismissible: true}}, nil
 }
 
 func do(t *testing.T, uc *fakeUseCase, method, path, perms, body string) *httptest.ResponseRecorder {

@@ -117,7 +117,7 @@ func limiterRouter(l *middleware.RateLimiter) *gin.Engine {
 	r.GET("/api/banners", h)
 	r.GET("/api/health", h)
 	r.GET("/api/events/:id/results/live", h)
-	r.GET("/api/events/upcoming", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/api/render/key", func(c *gin.Context) { c.Status(http.StatusOK) })
 	// Two gates on one route: the second must not count the request again.
 	r.GET("/api/twice", func(c *gin.Context) {
 		h(c)
@@ -319,7 +319,7 @@ func TestRateLimiterCountsEachRequestOnce(t *testing.T) {
 		user   string
 		want   []middleware.Bucket
 	}{
-		{"/api/events/upcoming", false, "", []middleware.Bucket{middleware.BucketPublic}},
+		{"/api/render/key", false, "", []middleware.Bucket{middleware.BucketPublic}},
 		{"/api/banners", false, "", []middleware.Bucket{middleware.BucketPublic}},
 		{"/api/x", false, "", []middleware.Bucket{middleware.BucketClosed}},
 		{"/api/twice", false, "", []middleware.Bucket{middleware.BucketClosed}},
@@ -327,7 +327,7 @@ func TestRateLimiterCountsEachRequestOnce(t *testing.T) {
 		{"/api/health", false, "", nil},
 		{"/api/events/1/results/live", false, "", nil},
 		{"/api/no-such-route", true, "", []middleware.Bucket{middleware.BucketClosed}},
-		{"/api/events/upcoming", true, "", []middleware.Bucket{middleware.BucketPublic}},
+		{"/api/render/key", true, "", []middleware.Bucket{middleware.BucketPublic}},
 		{"/api/x", true, user, []middleware.Bucket{middleware.BucketUser}},
 		{"/api/twice", true, user, []middleware.Bucket{middleware.BucketUser}},
 	} {
@@ -366,7 +366,7 @@ func TestRateLimiterSkipsAnonymousOnTheInternalListener(t *testing.T) {
 	seen := observed(l)
 	r := limiterRouter(l)
 	internal := middleware.WithInternalListener(context.Background())
-	paths := []string{"/api/banners", "/api/x", "/api/no-such-route", "/api/events/upcoming"}
+	paths := []string{"/api/banners", "/api/x", "/api/no-such-route", "/api/render/key"}
 	for range 5 {
 		for _, path := range paths {
 			w := limServe(internal, r, path, "10.0.0.5:1", "", false)

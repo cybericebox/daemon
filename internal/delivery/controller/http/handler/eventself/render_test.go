@@ -64,38 +64,82 @@ type renderGate struct{}
 func (renderGate) RequirePermission(rbac.Permission) gin.HandlerFunc {
 	return func(ctx *gin.Context) { ctx.Next() }
 }
-func TestRenderHTTPAnonymousAndScopedGrant(t *testing.T) {
+
+const testRenderSecret = "0123456789abcdef0123456789abcdef-render-secret"
+
+func TestRenderHTTPSecretOnlyNoOriginAndScopedGrant(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	id := uuid.Must(uuid.NewV4())
 	fake := &renderFake{id: id, public: true, revision: "r1"}
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
 	router := gin.New()
 	router.Use(response.WithErrorHandler)
 	NewEventRenderAPIHandler(fake, renderGate{}, cfg).Init(router.Group("api"))
-	request := func(path, origin, authorization string) *httptest.ResponseRecorder {
+	request := func(path, secret, authorization string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
-		r.Header.Set("Origin", origin)
-		r.Header.Set("Authorization", authorization)
+		if secret != "" {
+			r.Header.Set(renderSecretHeader, secret)
+		}
+		if authorization != "" {
+			r.Header.Set("Authorization", authorization)
+		}
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, r)
 		return w
 	}
-	require.Equal(t, 200, request("/api/auth/event-render-key", "", "").Code)
-	require.Equal(t, 200, request("/api/events/self/render-manifest", "https://summer.example.test", "").Code)
+	manifest := "/api/render/events/summer/manifest"
+	// Without the secret (or with a wrong one) the routes do not exist.
+	for _, path := range []string{"/api/render/key", manifest, "/api/render/events/summer/page?revision=r1"} {
+		require.Equal(t, 404, request(path, "", "").Code, path)
+		require.Equal(t, 404, request(path, "wrong", "").Code, path)
+		require.Equal(t, 404, request(path, testRenderSecret+"x", "").Code, path)
+	}
+	// No Origin header is needed or looked at.
+	require.Equal(t, 200, request("/api/render/key", testRenderSecret, "").Code)
+	require.Equal(t, 200, request(manifest, testRenderSecret, "").Code)
+	require.Equal(t, "private, no-store", request(manifest, testRenderSecret, "").Header().Get("Cache-Control"))
+	require.Equal(t, 404, request("/api/render/events/unknown/manifest", testRenderSecret, "").Code)
+	require.Equal(t, 404, request("/api/render/events/Bad_Tag/manifest", testRenderSecret, "").Code)
+	// The removed browser-style routes are gone.
+	require.Equal(t, 404, request("/api/events/self/render-manifest", testRenderSecret, "").Code)
+	require.Equal(t, 404, request("/api/events/self/render-page?revision=r1", testRenderSecret, "").Code)
+	require.Equal(t, 404, request("/api/auth/event-render-key", testRenderSecret, "").Code)
+	// A revision's page is immutable for the server cache.
+	page := request("/api/render/events/summer/page?revision=r1", testRenderSecret, "")
+	require.Equal(t, 200, page.Code)
+	require.Equal(t, "private, max-age=31536000, immutable", page.Header().Get("Cache-Control"))
+
 	fake.public = false
-	require.Equal(t, 404, request("/api/events/self/render-manifest", "https://summer.example.test", "").Code)
-	require.Equal(t, 404, request("/api/events/self/render-manifest", "https://unknown.example.test", "").Code)
+	require.Equal(t, 404, request(manifest, testRenderSecret, "").Code)
 	signer, err := eventrender.New(cfg.SessionEncryptionKey)
 	require.NoError(t, err)
 	token, _, err := signer.Issue("https://summer.example.test", id, uuid.Must(uuid.NewV4()), uuid.Must(uuid.NewV4()), true, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", time.Now())
 	require.NoError(t, err)
-	require.Equal(t, 200, request("/api/events/self/render-manifest", "https://summer.example.test", "EventRender "+token).Code)
+	require.Equal(t, 200, request(manifest, testRenderSecret, "EventRender "+token).Code)
 	require.True(t, fake.previewSeen)
-	require.Equal(t, 404, request("/api/events/self/render-manifest", "https://unknown.example.test", "EventRender "+token).Code)
-	require.Equal(t, 404, request("/api/events/self/render-manifest", "https://summer.example.test:444", "EventRender "+token).Code)
+	// A grant cannot be used without the secret, for another event, or for another audience.
+	require.Equal(t, 404, request(manifest, "", "EventRender "+token).Code)
+	require.Equal(t, 404, request("/api/render/events/other/manifest", testRenderSecret, "EventRender "+token).Code)
+	otherAudience, _, err := signer.Issue("https://other.example.test", id, uuid.Must(uuid.NewV4()), uuid.Must(uuid.NewV4()), true, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", time.Now())
+	require.NoError(t, err)
+	require.Equal(t, 404, request(manifest, testRenderSecret, "EventRender "+otherAudience).Code)
 	fake.revision = "r2"
-	require.Equal(t, 409, request("/api/events/self/render-page?revision=r1", "https://summer.example.test", "EventRender "+token).Code)
-	require.Equal(t, "private, no-store", request("/api/events/self/render-manifest", "https://summer.example.test", "").Header().Get("Cache-Control"))
+	pageGrant := request("/api/render/events/summer/page?revision=r1", testRenderSecret, "EventRender "+token)
+	require.Equal(t, 409, pageGrant.Code)
+}
+
+func TestRenderWithoutConfiguredSecretServesNothing(t *testing.T) {
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	router := gin.New()
+	router.Use(response.WithErrorHandler)
+	NewEventRenderAPIHandler(&renderFake{id: uuid.Must(uuid.NewV4()), public: true}, renderGate{}, cfg).Init(router.Group("api"))
+	for _, secret := range []string{"", "anything"} {
+		r := httptest.NewRequest(http.MethodGet, "/api/render/key", nil)
+		r.Header.Set(renderSecretHeader, secret)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, r)
+		require.Equal(t, 404, w.Code)
+	}
 }
 
 type renderIdentityGate struct{ identity *rbac.Claims }
@@ -113,7 +157,7 @@ func (g renderIdentityGate) RequirePermission(permission rbac.Permission) gin.Ha
 	}
 }
 func TestRenderGrantIssuanceRequiresAPISessionAndBoundedChallenge(t *testing.T) {
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
 	id := uuid.Must(uuid.NewV4())
 	identity := &rbac.Claims{UserID: uuid.Must(uuid.NewV4()), SessionID: uuid.Must(uuid.NewV4()), Role: rbac.RoleUser}
 	challenge := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -156,7 +200,7 @@ func TestRenderGrantIssuanceRequiresAPISessionAndBoundedChallenge(t *testing.T) 
 }
 
 func TestRenderPublicEventDoesNotIssueAGrant(t *testing.T) {
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
 	fake := &renderFake{id: uuid.Must(uuid.NewV4()), public: true}
 	identity := &rbac.Claims{UserID: uuid.Must(uuid.NewV4()), SessionID: uuid.Must(uuid.NewV4()), Role: rbac.RoleUser}
 	router := gin.New()
@@ -172,7 +216,7 @@ func TestRenderPublicEventDoesNotIssueAGrant(t *testing.T) {
 }
 
 func TestRenderGrantUnknownAndUnauthorizedStaffAreNeutral(t *testing.T) {
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
 	fake := &renderFake{id: uuid.Must(uuid.NewV4()), public: false}
 	identity := &rbac.Claims{UserID: uuid.Must(uuid.NewV4()), SessionID: uuid.Must(uuid.NewV4()), Role: rbac.RoleUser}
 	router := gin.New()

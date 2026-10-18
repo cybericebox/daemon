@@ -36,7 +36,7 @@ func (f *renderTagProbe) EventTagExists(_ context.Context, tag string) bool {
 }
 func TestRenderGlobalMiddlewareDenialsAndPreflightAreNeutral(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
 	identity := &rbac.Claims{UserID: uuid.Must(uuid.NewV4()), SessionID: uuid.Must(uuid.NewV4()), Role: rbac.RoleUser}
 	for _, who := range []*rbac.Claims{nil, identity} {
 		f := &deniedRenderCalls{renderFake: &renderFake{id: uuid.Must(uuid.NewV4())}}
@@ -45,7 +45,7 @@ func TestRenderGlobalMiddlewareDenialsAndPreflightAreNeutral(t *testing.T) {
 		r := gin.New()
 		r.Use(response.WithErrorHandler, middleware.HandleCORS(policy), middleware.OriginGuardWith(policy))
 		NewEventRenderAPIHandler(f, renderIdentityGate{who}, cfg).Init(r.Group("api"))
-		for _, path := range []string{"/api/auth/event-render-key", "/api/events/self/render-grant", "/api/events/self/render-manifest", "/api/events/self/render-page?revision=r1"} {
+		for _, path := range []string{"/api/events/self/render-grant"} {
 			for _, preflight := range []bool{false, true} {
 				var responses []*httptest.ResponseRecorder
 				for _, tag := range []string{"summer", "unknown"} {
@@ -89,7 +89,7 @@ func (f renderClockWork) RequireReadEvent(ctx context.Context, eventID, userID u
 	return f.renderFake.RequireReadEvent(ctx, eventID, userID)
 }
 func TestRenderDenialWaitsBeforeWritingAndRespectsCancellation(t *testing.T) {
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}}
 	identity := &rbac.Claims{UserID: uuid.Must(uuid.NewV4()), SessionID: uuid.Must(uuid.NewV4()), Role: rbac.RoleUser}
 	for _, tag := range []string{"summer", "unknown"} {
 		t.Run(tag, func(t *testing.T) {
@@ -125,8 +125,8 @@ func TestRenderDenialWaitsBeforeWritingAndRespectsCancellation(t *testing.T) {
 	h.wait = func(context.Context, time.Duration) error { t.Fatal("public success was delayed"); return nil }
 	r := gin.New()
 	h.Init(r.Group("api"))
-	req := httptest.NewRequest(http.MethodGet, "/api/events/self/render-manifest", nil)
-	req.Header.Set("Origin", "https://summer.example.test")
+	req := httptest.NewRequest(http.MethodGet, "/api/render/events/summer/manifest", nil)
+	req.Header.Set(renderSecretHeader, testRenderSecret)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	require.Equal(t, 200, rec.Code)
@@ -137,10 +137,10 @@ func TestRenderOriginsStayCanonicalAndLegacyPolicyKeepsExistenceCheck(t *testing
 	policy := middleware.OriginPolicy{Hosts: hosts, Tags: tags}
 	r := gin.New()
 	r.Use(middleware.HandleCORS(policy), middleware.OriginGuardWith(policy))
-	r.GET("/api/auth/event-render-key", func(c *gin.Context) { c.Status(200) })
+	r.GET("/api/events/self/render-grant", func(c *gin.Context) { c.Status(200) })
 	r.GET("/api/legacy-read", func(c *gin.Context) { c.Status(200) })
 	for _, origin := range []string{"https://summer.example.test:443", "https://summer.example.test/path", "https://summer.example.test.", "https://foreign.test", "http://summer.example.test", "null"} {
-		req := httptest.NewRequest(http.MethodGet, "/api/auth/event-render-key", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/events/self/render-grant", nil)
 		req.Header.Set("Origin", origin)
 		rec := httptest.NewRecorder()
 		r.ServeHTTP(rec, req)
@@ -160,6 +160,22 @@ func TestRenderOriginsStayCanonicalAndLegacyPolicyKeepsExistenceCheck(t *testing
 	}
 	require.Positive(t, tags.calls)
 }
+func TestRenderRoutesNeedNoOriginAndNoBrowserPolicy(t *testing.T) {
+	hosts := config.HostsConfig{Domain: "example.test", EventDomain: "example.test"}
+	tags := &renderTagProbe{}
+	policy := middleware.OriginPolicy{Hosts: hosts, Tags: tags}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: hosts}
+	r := gin.New()
+	r.Use(response.WithErrorHandler, middleware.HandleCORS(policy), middleware.OriginGuardWith(policy))
+	NewEventRenderAPIHandler(&renderFake{id: uuid.Must(uuid.NewV4()), public: true}, renderGate{}, cfg).Init(r.Group("api"))
+	req := httptest.NewRequest(http.MethodGet, "/api/render/events/summer/manifest", nil)
+	req.Header.Set(renderSecretHeader, testRenderSecret)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	require.Equal(t, 200, rec.Code)
+	require.Zero(t, tags.calls)
+}
+
 func TestRenderSignerInvalidConfigurationStopsInitialization(t *testing.T) {
 	require.Panics(t, func() {
 		NewEventRenderAPIHandler(nil, renderGate{}, config.AuthConfig{SessionEncryptionKey: "invalid"})
@@ -167,7 +183,7 @@ func TestRenderSignerInvalidConfigurationStopsInitialization(t *testing.T) {
 }
 
 func TestRenderGuestDenialThroughActualControllerPermissionMiddleware(t *testing.T) {
-	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", Hosts: config.HostsConfig{Domain: "example.test", API: "api.example.test", ID: "id.example.test", EventDomain: "example.test"}}
+	cfg := config.AuthConfig{SessionEncryptionKey: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", RenderSecret: testRenderSecret, Hosts: config.HostsConfig{Domain: "example.test", API: "api.example.test", ID: "id.example.test", EventDomain: "example.test"}}
 	// No cookie: the real permission gate must deny before an auth use-case call.
 	prot := protection.New(protection.Dependencies{Config: cfg})
 	policy := middleware.OriginPolicy{Hosts: cfg.Hosts, Tags: &renderTagProbe{}}

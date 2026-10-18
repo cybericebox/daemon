@@ -54,34 +54,6 @@ func (u *EventUseCase) UploadEventContentImage(ctx context.Context, eventID, use
 	return eventContentImageURL(eventID, file.ID), nil
 }
 
-func (u *EventUseCase) StreamEventContentImage(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.requireMediaVisible(ctx, eventID); err != nil {
-		return nil, "", err
-	}
-	if u.brandMedia == nil {
-		return nil, "", mediaModel.ErrMediaStorageNotConfigured.Err()
-	}
-	refs, err := u.brandMedia.GetReferences(ctx, mediaModel.RefTypeEventContentImage, eventID)
-	if err != nil {
-		return nil, "", err
-	}
-	found := false
-	for _, ref := range refs {
-		if ref == fileID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return nil, "", mediaModel.ErrFileNotFound.Err()
-	}
-	reader, file, err := u.brandMedia.StreamFile(ctx, fileID)
-	if err != nil {
-		return nil, "", err
-	}
-	return reader, file.ContentType, nil
-}
-
 func (u *EventUseCase) validateContentImageURLs(ctx context.Context, eventID uuid.UUID, document eventContentModel.Document) error {
 	var refs []uuid.UUID
 	// Custom banner images and partner logos must be this event's uploads.

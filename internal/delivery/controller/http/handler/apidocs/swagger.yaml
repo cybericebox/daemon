@@ -2923,27 +2923,6 @@ definitions:
       Recipient:
         type: string
     type: object
-  event.upcomingEventResponse:
-    properties:
-      FinishAt:
-        type: string
-      LogoURL:
-        type: string
-      Name:
-        type: string
-      Registration:
-        enum:
-        - open
-        - approval
-        - close
-        type: string
-      StartAt:
-        type: string
-      Tag:
-        type: string
-      URL:
-        type: string
-    type: object
   event.updateChallengeGroupRequest:
     properties:
       Name:
@@ -5463,14 +5442,6 @@ definitions:
         type: string
       TeamName:
         type: string
-    type: object
-  eventself.publicEventContentResponse:
-    properties:
-      Landing: {}
-      Live: {}
-      Variables:
-        additionalProperties: {}
-        type: object
     type: object
   eventself.publicEventInfoResponse:
     properties:
@@ -11923,23 +11894,6 @@ paths:
       summary: Stream a user's avatar from storage (public proxy)
       tags:
       - auth
-  /auth/event-render-key:
-    get:
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/eventrender.Key'
-              type: object
-      summary: Read the event common-page grant verification key
-      tags:
-      - auth
   /auth/google:
     get:
       parameters:
@@ -12638,29 +12592,6 @@ paths:
       summary: Update an event's config
       tags:
       - events
-  /events/{id}/content:
-    get:
-      parameters:
-      - description: event ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/eventself.publicEventContentResponse'
-              type: object
-      summary: Read published event landing content
-      tags:
-      - events-self
   /events/{id}/content/pages/{slug}:
     get:
       parameters:
@@ -20414,80 +20345,6 @@ paths:
       summary: Issue a 60-second host-bound common-page staff preview grant
       tags:
       - events-self
-  /events/self/render-manifest:
-    get:
-      parameters:
-      - description: published public page slug, empty for landing
-        in: query
-        name: page
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/eventself.eventRenderManifestResponse'
-              type: object
-      summary: Check common-page visibility and lightweight publication revision
-      tags:
-      - events-self
-  /events/self/render-page:
-    get:
-      parameters:
-      - description: published public page slug, empty for landing
-        in: query
-        name: page
-        type: string
-      - description: manifest revision
-        in: query
-        name: revision
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/eventself.eventRenderPageResponse'
-              type: object
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/response.Response'
-      summary: Read the published PUBLIC-only document and values for an exact revision
-      tags:
-      - events-self
-  /events/upcoming:
-    get:
-      description: 'Public (no auth). Currently always returns data: null — events
-        have no public visibility yet. Once they do: a running public event wins (earliest
-        start among started), otherwise the published public event with the nearest
-        future start. Cacheable for 60 seconds.'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            allOf:
-            - $ref: '#/definitions/response.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/event.upcomingEventResponse'
-              type: object
-      summary: Get the nearest public event for the platform landing page
-      tags:
-      - events
   /exercises:
     get:
       parameters:
@@ -25447,6 +25304,105 @@ paths:
       summary: Get a single notification type with its channels and template variables
       tags:
       - notification-catalog
+  /render/events/{tag}/manifest:
+    get:
+      parameters:
+      - description: render secret
+        in: header
+        name: X-Render-Secret
+        required: true
+        type: string
+      - description: event tag
+        in: path
+        name: tag
+        required: true
+        type: string
+      - description: published public page slug, empty for landing
+        in: query
+        name: page
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.eventRenderManifestResponse'
+              type: object
+      summary: Check common-page visibility and lightweight publication revision (event-frontend
+        server only)
+      tags:
+      - render
+  /render/events/{tag}/page:
+    get:
+      parameters:
+      - description: render secret
+        in: header
+        name: X-Render-Secret
+        required: true
+        type: string
+      - description: event tag
+        in: path
+        name: tag
+        required: true
+        type: string
+      - description: published public page slug, empty for landing
+        in: query
+        name: page
+        type: string
+      - description: manifest revision
+        in: query
+        name: revision
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventself.eventRenderPageResponse'
+              type: object
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Read the published PUBLIC-only document and values for an exact revision
+        (event-frontend server only)
+      tags:
+      - render
+  /render/key:
+    get:
+      parameters:
+      - description: render secret
+        in: header
+        name: X-Render-Secret
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/eventrender.Key'
+              type: object
+      summary: Read the event common-page grant verification key (event-frontend server
+        only)
+      tags:
+      - render
   /settings:
     get:
       produces:

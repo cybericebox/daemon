@@ -2,7 +2,6 @@ package event
 
 import (
 	"encoding/json"
-	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -130,27 +129,4 @@ func (h *Handler) saveEventAppearance(ctx *gin.Context) {
 		LogoURL    string         `json:"LogoURL"`
 		FaviconURL string         `json:"FaviconURL"`
 	}{Config: config, LogoURL: view.LogoURL, FaviconURL: view.FaviconURL})
-}
-
-func (h *Handler) streamEventFavicon(ctx *gin.Context) {
-	id, ok := parseEventID(ctx)
-	if !ok {
-		return
-	}
-	fileID, err := uuid.FromString(ctx.Param("fileID"))
-	if err != nil {
-		response.AbortWithNotFound(ctx)
-		return
-	}
-	reader, contentType, err := h.useCase.StreamEventFavicon(ctx.Request.Context(), id, fileID)
-	if err != nil {
-		response.AbortWithError(ctx, err)
-		return
-	}
-	defer func() { _ = reader.Close() }()
-	ctx.Header("X-Content-Type-Options", "nosniff")
-	ctx.Header("Content-Disposition", "inline; filename=event-favicon.png")
-	ctx.Header("Content-Security-Policy", "default-src 'none'; sandbox")
-	ctx.Header("Cache-Control", "private, no-store")
-	ctx.DataFromReader(http.StatusOK, -1, contentType, reader, nil)
 }
