@@ -8,6 +8,7 @@ import (
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	preview "github.com/cybericebox/daemon/internal/model/participantPreview"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 	event "github.com/cybericebox/daemon/internal/useCase/event"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/gofrs/uuid"
@@ -533,6 +534,9 @@ func TestPreviewGlobalCatalogListsIneligibleWithReasons(t *testing.T) {
 	published := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	valid := func(v uuid.UUID) uuid.NullUUID { return uuid.NullUUID{UUID: v, Valid: true} }
 	q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error) {
+		if p.ViewerID.Valid {
+			t.Errorf("an exercises.read caller must not be scoped to a viewer")
+		}
 		if p.Archived == "only" {
 			return []postgres.ListExercisesCursorRow{{Exercise: postgres.Exercise{ID: archivedEx, Name: "Archived", PublishedVersionID: valid(id())}}}, nil
 		}
@@ -547,7 +551,9 @@ func TestPreviewGlobalCatalogListsIneligibleWithReasons(t *testing.T) {
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), okVer).Return(postgres.ExerciseVersion{ID: okVer, ExerciseID: okEx, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: data}, nil).AnyTimes()
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), emptyVer).Return(postgres.ExerciseVersion{ID: emptyVer, ExerciseID: emptyEx, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: []byte("[]")}, nil).AnyTimes()
 	q.EXPECT().GetExerciseByID(gomock.Any(), okEx).Return(postgres.Exercise{ID: okEx, Name: "Ok"}, nil).AnyTimes()
-	items, err := uc.ListPreviewCatalog(context.Background(), uuid.Nil, id(), "")
+	admin := id()
+	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: admin, Role: rbac.RoleAdmin})
+	items, err := uc.ListPreviewCatalog(ctx, uuid.Nil, admin, "")
 	if err != nil || len(items) != 5 {
 		t.Fatalf("catalog = %v, err = %v", items, err)
 	}
@@ -585,5 +591,28 @@ func TestPreviewEventCatalogMarksNoCapacity(t *testing.T) {
 	items, err = f.uc.ListPreviewCatalog(context.Background(), f.event, f.user, "")
 	if err != nil || len(items) != 1 || !items[0].Eligible || items[0].Reason != "" {
 		t.Fatalf("items = %+v, err = %v", items, err)
+	}
+}
+
+// An organizer without exercises.read only lists what they may read and never sees archived tasks.
+func TestPreviewCatalogMutedListIsScopedToCaller(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	organizer := uuid.Must(uuid.NewV7())
+	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: organizer, Role: rbac.RoleUser})
+	calls := 0
+	q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error) {
+		calls++
+		if p.Archived == "only" {
+			t.Errorf("archived tasks must not be listed for a caller without exercises.read")
+		}
+		if !p.ViewerID.Valid || p.ViewerID.UUID != organizer {
+			t.Errorf("listing must be scoped to the caller, got %+v", p.ViewerID)
+		}
+		return nil, nil
+	}).AnyTimes()
+	items, err := uc.ListPreviewCatalog(ctx, uuid.Nil, organizer, "")
+	if err != nil || len(items) != 0 || calls == 0 {
+		t.Fatalf("items=%v err=%v calls=%d", items, err, calls)
 	}
 }
