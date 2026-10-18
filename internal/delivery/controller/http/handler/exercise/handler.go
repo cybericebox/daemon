@@ -14,6 +14,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/audit"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -170,7 +171,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// resumable chunked upload: chunks of at most 50 MiB through the API, in order
 		ex.POST("uploads", self, h.startUpload)
 		ex.GET("uploads/:uploadID", self, h.uploadStatus)
-		ex.PUT("uploads/:uploadID/chunks/:index", self, h.putUploadChunk)
+		ex.PUT("uploads/:uploadID/chunks/:index", self, middleware.RawBody, h.putUploadChunk)
 		ex.POST("uploads/:uploadID/complete", self, h.completeUpload)
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
 		// a ZIP archive that went up in chunks
