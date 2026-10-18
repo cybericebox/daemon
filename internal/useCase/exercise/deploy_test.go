@@ -488,6 +488,38 @@ func TestDeployVariantTest_CreatesTheAuthorsClientAtDeployAndKeepsItsConfig(t *t
 	}
 }
 
+func TestDeployVariantTest_WithVPNCreatesNoClientButTheAuthors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	variantID, versionID, ownerID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	topo := exerciseModel.Topology{VPN: exerciseModel.NetworkSpec{Enabled: true}, Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}
+	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: topo}})
+	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
+	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+		return postgres.ExerciseTestDeployment{ID: p.ID, GroupName: p.GroupName, CreatedBy: p.CreatedBy}, nil
+	})
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "wg-author-config"}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}})
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+		t.Fatal(err)
+	}
+	author := labBindingModel.ParticipantClientName(ownerID)
+	if !infra.deployedTopo.VPN.Enabled || infra.ensured != 1 || infra.client != author {
+		t.Fatalf("a VPN deploy asks for exactly the author's client: vpn=%v %q x%d", infra.deployedTopo.VPN.Enabled, infra.client, infra.ensured)
+	}
+	for _, c := range infra.deletedClients {
+		if !strings.HasSuffix(c, "/"+author) {
+			t.Fatalf("only the author's client is ever touched: %v", infra.deletedClients)
+		}
+	}
+	for _, p := range infra.policies {
+		if p.Name != author {
+			t.Fatalf("the group policy lists only the author's client: %+v", infra.policies)
+		}
+	}
+}
+
 func TestDeployTestStatus_NeverHandsOutThePlaceholderConfig(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)

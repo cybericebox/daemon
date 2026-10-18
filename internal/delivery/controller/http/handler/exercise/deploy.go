@@ -50,9 +50,8 @@ func solvedIDs(ids []uuid.UUID) []string {
 
 type (
 	deployResponse struct {
-		DeployID  string `json:"DeployID"`
-		Lab       string `json:"Lab"`
-		VPNClient string `json:"VPNClient,omitempty"`
+		DeployID string `json:"DeployID"`
+		Lab      string `json:"Lab"`
 		// Kind is "lab" or "static" (a test without devices: Lab is empty).
 		Kind string `json:"Kind"`
 		// Tasks are the flag-linked tasks to find in the lab; values are never returned.
@@ -84,7 +83,7 @@ type (
 		SolvedTaskIDs []string `json:"SolvedTaskIDs"`
 		// VPNLastHandshake is the client's last handshake; absent when it never connected.
 		VPNLastHandshake *time.Time `json:"VPNLastHandshake,omitempty"`
-		// VPNProbeURL is the tester page served inside the tunnel by the lab group's VPN pod; absent until known.
+		// VPNProbeURL is the probe page served inside the tunnel by the lab group's VPN pod; absent until known.
 		VPNProbeURL string `json:"VPNProbeURL,omitempty"`
 		// ExpiresAt is the end of the lease; Expired: it is over but the lab is not removed yet (it can only be ended).
 		ExpiresAt time.Time `json:"ExpiresAt"`
@@ -122,7 +121,7 @@ func deployHandleToResponse(h exerciseModel.DeployHandle) deployResponse {
 	if h.Static {
 		kind = exerciseModel.DeployKindStatic
 	}
-	out := deployResponse{DeployID: h.Group, Lab: h.Lab, VPNClient: h.VPNClient, Kind: kind}
+	out := deployResponse{DeployID: h.Group, Lab: h.Lab, Kind: kind}
 	for _, f := range h.Flags {
 		out.Tasks = append(out.Tasks, deployTaskResponse{TaskID: f.TaskID.String(), Name: f.Name})
 	}
