@@ -1,4 +1,4 @@
-package errorjournalJob_test
+package errorjournalJob //nolint:staticcheck // ST1003: the existing package name
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 
 	"github.com/riverqueue/river/rivertype"
 
-	errorjournalJob "github.com/cybericebox/daemon/internal/jobs/errorjournal"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	"github.com/cybericebox/daemon/pkg/overload"
 )
@@ -39,7 +38,7 @@ func TestHandleErrorSkipsABusyDatabaseUntilTheLastAttempt(t *testing.T) {
 	t.Cleanup(func() { errorJournal.SetReporter(nil) })
 
 	busy := fmt.Errorf("send: %w", overload.ErrDBBusy)
-	h := errorjournalJob.ErrorHandler{}
+	h := ErrorHandler{}
 	early := &rivertype.JobRow{Kind: "k", Attempt: 1, MaxAttempts: 5}
 	last := &rivertype.JobRow{Kind: "k", Attempt: 5, MaxAttempts: 5}
 
