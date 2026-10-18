@@ -13,101 +13,139 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
+	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/require"
 )
 
-type bannerStreamFake struct {
+type mediaFake struct {
 	eventHandler.IUseCase
-	streamErr error
-	calls     int
-	closed    int
+	public   bool
+	checkErr error
+	openErr  error
+	checks   int
+	opens    int
+	closed   int
 }
 
-type bannerReader struct {
+type mediaReader struct {
 	io.Reader
 	close func()
 }
 
-func (r bannerReader) Close() error { r.close(); return nil }
+func (r mediaReader) Close() error { r.close(); return nil }
 
-func (u *bannerStreamFake) stream(fileID uuid.UUID) (io.ReadCloser, string, error) {
-	u.calls++
-	if u.streamErr != nil {
-		return nil, "", u.streamErr
+func (u *mediaFake) CheckEventMedia(context.Context, eventUseCase.EventMediaKind, uuid.UUID, uuid.UUID) (bool, error) {
+	u.checks++
+	return u.public, u.checkErr
+}
+
+func (u *mediaFake) OpenEventMedia(_ context.Context, fileID uuid.UUID) (io.ReadCloser, string, error) {
+	u.opens++
+	if u.openErr != nil {
+		return nil, "", u.openErr
 	}
-	return bannerReader{Reader: strings.NewReader(fileID.String()), close: func() { u.closed++ }}, "image/png", nil
+	return mediaReader{Reader: strings.NewReader(fileID.String()), close: func() { u.closed++ }}, "image/png", nil
 }
 
-func (u *bannerStreamFake) StreamEventPreviewPicture(_ context.Context, _, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	return u.stream(fileID)
-}
+var mediaRoutes = []string{"logo", "favicon", "preview-picture", "content-images"}
 
-func (u *bannerStreamFake) StreamEventContentImage(_ context.Context, _, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	return u.stream(fileID)
-}
-
-func TestEventBannersRevalidatePrivatelyAfterAccessChecks(t *testing.T) {
+func mediaRouter(u *mediaFake) *gin.Engine {
 	gin.SetMode(gin.TestMode)
-	for _, route := range []string{"preview-picture", "content-images"} {
+	router := gin.New()
+	router.Use(response.WithErrorHandler)
+	eventHandler.NewEventAPIHandler(u, allowEventCRUD{}).Init(router.Group("api"))
+	return router
+}
+
+func mediaGet(router *gin.Engine, route, eventID, file string, tags ...string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(http.MethodGet, "/api/events/"+eventID+"/"+route+"/"+file, nil)
+	for _, tag := range tags {
+		request.Header.Add("If-None-Match", tag)
+	}
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, request)
+	return w
+}
+
+func TestEventMediaOfAPublishedEventIsImmutable(t *testing.T) {
+	for _, route := range mediaRoutes {
 		t.Run(route, func(t *testing.T) {
-			u := &bannerStreamFake{}
-			router := gin.New()
-			router.Use(response.WithErrorHandler)
-			eventHandler.NewEventAPIHandler(u, allowEventCRUD{}).Init(router.Group("api"))
+			u := &mediaFake{public: true}
+			router := mediaRouter(u)
 			eventID, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-			get := func(file string, tags ...string) *httptest.ResponseRecorder {
-				request := httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/"+route+"/"+file, nil)
-				for _, tag := range tags {
-					request.Header.Add("If-None-Match", tag)
-				}
-				w := httptest.NewRecorder()
-				router.ServeHTTP(w, request)
-				return w
-			}
-			first := get(fileID.String())
+			first := mediaGet(router, route, eventID.String(), fileID.String())
 			require.Equal(t, http.StatusOK, first.Code)
 			require.Equal(t, fileID.String(), first.Body.String())
+			require.Equal(t, "public, max-age=31536000, immutable", first.Header().Get("Cache-Control"))
+			require.Equal(t, "nosniff", first.Header().Get("X-Content-Type-Options"))
+			require.Equal(t, "image/png", first.Header().Get("Content-Type"))
+			require.Equal(t, 1, u.closed)
 			tag := first.Header().Get("ETag")
 			require.NotEmpty(t, tag)
-			require.NotContains(t, tag, "W/", "file UUID identifies immutable bytes")
+			require.NotContains(t, tag, "W/", "the file id identifies immutable bytes")
+		})
+	}
+}
+
+func TestEventMediaOfAHiddenEventRevalidatesAndNeverOpensStorageOn304(t *testing.T) {
+	for _, route := range mediaRoutes {
+		t.Run(route, func(t *testing.T) {
+			u := &mediaFake{public: false}
+			router := mediaRouter(u)
+			eventID, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			first := mediaGet(router, route, eventID.String(), fileID.String())
+			require.Equal(t, http.StatusOK, first.Code)
 			require.Equal(t, "private, no-cache, must-revalidate, no-transform", first.Header().Get("Cache-Control"))
-			require.Equal(t, "nosniff", first.Header().Get("X-Content-Type-Options"))
+			tag := first.Header().Get("ETag")
+			require.NotEmpty(t, tag)
+			require.Equal(t, 1, u.opens)
 			for _, tags := range [][]string{{tag}, {"W/" + tag}, {`"other", W/` + tag}, {"*"}, {`"other"`, tag}} {
-				before := u.calls
-				same := get(fileID.String(), tags...)
+				checks, opens := u.checks, u.opens
+				same := mediaGet(router, route, eventID.String(), fileID.String(), tags...)
 				require.Equal(t, http.StatusNotModified, same.Code)
 				require.Empty(t, same.Body.String())
 				require.Equal(t, tag, same.Header().Get("ETag"))
-				require.Equal(t, before+1, u.calls, "conditional requests still run admission and ownership checks")
-				require.Equal(t, u.calls, u.closed, "304 must close the opened stream")
+				require.Equal(t, checks+1, u.checks, "a conditional request still checks access in the database")
+				require.Equal(t, opens, u.opens, "a 304 must not open storage")
 			}
 			for _, nonmatch := range []string{`"other"`, "W/*"} {
-				fresh := get(fileID.String(), nonmatch)
+				fresh := mediaGet(router, route, eventID.String(), fileID.String(), nonmatch)
 				require.Equal(t, http.StatusOK, fresh.Code)
 				require.Equal(t, fileID.String(), fresh.Body.String())
 			}
 			changedID := uuid.Must(uuid.NewV7())
-			changed := get(changedID.String(), tag)
+			changed := mediaGet(router, route, eventID.String(), changedID.String(), tag)
 			require.Equal(t, http.StatusOK, changed.Code)
 			require.Equal(t, changedID.String(), changed.Body.String())
 			require.NotEqual(t, tag, changed.Header().Get("ETag"))
+		})
+	}
+}
+
+func TestEventMediaDeniedOrBrokenCarriesNoValidatorAndIsNeverCached(t *testing.T) {
+	for _, route := range mediaRoutes {
+		t.Run(route, func(t *testing.T) {
+			u := &mediaFake{public: true}
+			router := mediaRouter(u)
+			eventID, fileID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 			for _, denied := range []error{eventModel.ErrEventNotFound.Err(), mediaModel.ErrFileNotFound.Err()} {
-				u.streamErr = denied
-				for _, condition := range []string{tag, "*"} {
-					failure := get(fileID.String(), condition)
+				u.checkErr = denied
+				for _, condition := range []string{`"event-image-` + fileID.String() + `"`, "*"} {
+					failure := mediaGet(router, route, eventID.String(), fileID.String(), condition)
 					require.Equal(t, http.StatusNotFound, failure.Code)
 					require.Empty(t, failure.Header().Get("ETag"))
 					require.Equal(t, "private, no-store", failure.Header().Get("Cache-Control"))
 				}
 			}
-			u.streamErr = errors.New("storage unavailable")
-			unavailable := get(fileID.String(), "*")
+			u.checkErr = nil
+			u.openErr = errors.New("storage unavailable")
+			unavailable := mediaGet(router, route, eventID.String(), fileID.String())
 			require.Equal(t, http.StatusInternalServerError, unavailable.Code)
 			require.Empty(t, unavailable.Header().Get("ETag"))
 			require.Equal(t, "private, no-store", unavailable.Header().Get("Cache-Control"))
-			malformed := get("invalid", "*")
+			malformed := mediaGet(router, route, eventID.String(), "invalid", "*")
 			require.Equal(t, http.StatusNotFound, malformed.Code)
 			require.Equal(t, "private, no-store", malformed.Header().Get("Cache-Control"))
 		})

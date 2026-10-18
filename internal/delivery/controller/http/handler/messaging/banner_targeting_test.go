@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 )
 
@@ -77,9 +80,35 @@ func TestPublicBannerContextAndPayload(t *testing.T) {
 					t.Fatalf("public response exposes %s", field)
 				}
 			}
-			if w.Header().Get("Cache-Control") != "no-store" {
-				t.Fatal("public banners must not be cached across sessions")
+			// A signed-in caller's answer is revalidated on every use.
+			if w.Header().Get("Cache-Control") != "private, no-cache" || w.Header().Get("ETag") == "" {
+				t.Fatalf("signed-in banners: cache=%q etag=%q", w.Header().Get("Cache-Control"), w.Header().Get("ETag"))
 			}
 		})
+	}
+}
+
+func TestAnonymousBannersAreFreshBrieflyAndRevalidatedByETag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(response.WithErrorHandler)
+	NewMessagingAPIHandler(&fakeUseCase{}, permProtection{}).Init(router.Group("/api"))
+	get := func(ifNoneMatch string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/banners?site=main", nil)
+		req.Header.Set("X-Anonymous", "1")
+		if ifNoneMatch != "" {
+			req.Header.Set("If-None-Match", ifNoneMatch)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	first := get("")
+	tag := first.Header().Get("ETag")
+	if first.Code != http.StatusOK || tag == "" || first.Header().Get("Cache-Control") != "private, max-age=30" || first.Header().Get("Vary") != "Cookie" {
+		t.Fatalf("anonymous banners: %d cache=%q vary=%q etag=%q", first.Code, first.Header().Get("Cache-Control"), first.Header().Get("Vary"), tag)
+	}
+	if same := get(tag); same.Code != http.StatusNotModified || same.Body.Len() != 0 {
+		t.Fatalf("unchanged banners: %d", same.Code)
 	}
 }

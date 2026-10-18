@@ -166,24 +166,6 @@ func (u *EventUseCase) EventFaviconURL(ctx context.Context, eventID uuid.UUID) (
 	return fmt.Sprintf("/api/events/%s/favicon/%s", eventID, ids[0]), nil
 }
 
-func (u *EventUseCase) StreamEventFavicon(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error) {
-	if err := u.requireMediaVisible(ctx, eventID); err != nil {
-		return nil, "", err
-	}
-	ids, err := u.brandMedia.GetReferences(ctx, mediaModel.RefTypeEventFavicon, eventID)
-	if err != nil {
-		return nil, "", err
-	}
-	if len(ids) == 0 || ids[0] != fileID {
-		return nil, "", mediaModel.ErrFileNotFound.Err()
-	}
-	reader, file, err := u.brandMedia.StreamFile(ctx, fileID)
-	if err != nil {
-		return nil, "", err
-	}
-	return reader, file.ContentType, nil
-}
-
 // SaveEventGeneral applies the complete General form. An invalid draft never
 // changes public state; compensating writes restore the old values if a later
 // repository operation fails.

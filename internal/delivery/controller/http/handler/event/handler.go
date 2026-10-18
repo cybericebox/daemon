@@ -1,6 +1,5 @@
 // Package event is the HTTP delivery layer of the platform event tenancy:
-// admin-only routes gated per-permission (events.*), plus the single public
-// GET /events/upcoming read used by the platform landing page.
+// admin-only routes gated per-permission (events.*), plus the public event images.
 package event
 
 import (
@@ -101,15 +100,13 @@ type (
 		UploadEventBrandDraft(ctx context.Context, eventID, userID uuid.UUID, kind string, reader io.Reader, size int64) (uuid.UUID, error)
 		SaveEventGeneral(ctx context.Context, eventID, userID uuid.UUID, input eventUseCase.EventGeneralInput) (eventUseCase.EventGeneralView, error)
 		SaveEventAppearance(ctx context.Context, eventID, userID uuid.UUID, input eventUseCase.EventAppearanceInput) (eventUseCase.EventAppearanceView, error)
-		StreamEventFavicon(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error)
+		CheckEventMedia(ctx context.Context, kind eventUseCase.EventMediaKind, eventID, fileID uuid.UUID) (bool, error)
+		OpenEventMedia(ctx context.Context, fileID uuid.UUID) (io.ReadCloser, string, error)
 		UploadEventLogo(ctx context.Context, eventID, userID uuid.UUID, reader io.Reader, size int64) (string, error)
 		RemoveEventLogo(ctx context.Context, eventID uuid.UUID) error
-		StreamEventLogo(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error)
 		UploadEventPreviewPicture(ctx context.Context, eventID, userID uuid.UUID, reader io.Reader, size int64) (string, error)
 		RemoveEventPreviewPicture(ctx context.Context, eventID, userID uuid.UUID) error
-		StreamEventPreviewPicture(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error)
 		UploadEventContentImage(ctx context.Context, eventID, userID uuid.UUID, reader io.Reader, size int64) (string, error)
-		StreamEventContentImage(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, string, error)
 		GetParticipantForm(ctx context.Context, eventID uuid.UUID) (eventUseCase.ParticipantFormView, error)
 		GetTeamFields(ctx context.Context, eventID uuid.UUID) (eventUseCase.ParticipantFormView, error)
 		GetParticipantStaffFields(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.StaffFieldsView, error)
@@ -235,12 +232,10 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	ev := router.Group("events")
 	{
 		ev.GET("", h.prot.RequirePermission(rbac.PermEventsRead), h.list)
-		// Public: anonymous landing-page card (allowlisted in tools/checkroutes).
-		ev.GET("upcoming", h.upcoming)
-		ev.GET(":id/logo/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventLogo)
-		ev.GET(":id/favicon/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventFavicon)
-		ev.GET(":id/preview-picture/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventPreviewPicture)
-		ev.GET(":id/content-images/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.streamEventContentImage)
+		ev.GET(":id/logo/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(logoMedia))
+		ev.GET(":id/favicon/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(faviconMedia))
+		ev.GET(":id/preview-picture/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(previewMedia))
+		ev.GET(":id/content-images/:fileID", h.prot.RequirePermission(rbac.PermEventContentRead), middleware.PublicMedia, h.serveEventMedia(contentMedia))
 		ev.POST("", h.prot.RequirePermission(rbac.PermEventsWrite), h.create)
 
 		ev.GET(":id", h.prot.RequirePermission(rbac.PermEventsRead), h.get)

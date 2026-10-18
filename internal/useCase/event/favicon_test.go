@@ -40,7 +40,7 @@ func TestFaviconPNGIsPublishedOnlyAfterAppearanceSave(t *testing.T) {
 	url, err := u.EventFaviconURL(ctx, eventID)
 	require.NoError(t, err)
 	require.Equal(t, wantURL, url, "a subsequent event-info read must keep the saved reference")
-	reader, mime, err := u.StreamEventFavicon(ctx, eventID, fileID)
+	reader, mime, err := streamMedia(u, event.EventMediaFavicon)(ctx, eventID, fileID)
 	require.NoError(t, err)
 	require.Equal(t, "image/png", mime)
 	require.NoError(t, reader.Close())
@@ -50,7 +50,7 @@ func TestFaviconPNGIsPublishedOnlyAfterAppearanceSave(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, saved.FaviconURL)
 	require.Empty(t, media.faviconRefs)
-	_, _, err = u.StreamEventFavicon(ctx, eventID, fileID)
+	_, _, err = streamMedia(u, event.EventMediaFavicon)(ctx, eventID, fileID)
 	require.ErrorIs(t, err, mediaModel.ErrFileNotFound.Err(), "removed icons are no longer served")
 }
 

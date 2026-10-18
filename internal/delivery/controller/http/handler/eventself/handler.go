@@ -51,10 +51,8 @@ type (
 		GetEventInfo(ctx context.Context, eventID uuid.UUID) (eventUseCase.EventInfoView, error)
 		GetApprovedParticipantInfo(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.ParticipantEventInfoView, error)
 		RequireReadEvent(ctx context.Context, eventID, userID uuid.UUID) error
-		GetPublicEventContent(ctx context.Context, eventID uuid.UUID, access eventUseCase.ContentAccess) (eventUseCase.PublicEventContentView, error)
 		ListNavigationPages(ctx context.Context, eventID uuid.UUID, access eventUseCase.ContentAccess) ([]eventUseCase.NavigationPageView, error)
 		GetPublicEventPage(ctx context.Context, eventID uuid.UUID, slug string, access eventUseCase.ContentAccess) (eventUseCase.PublicEventPageView, error)
-		RequirePublicEventPage(ctx context.Context, eventID uuid.UUID, slug string) error
 		GetJoinInfo(ctx context.Context, eventID, userID uuid.UUID) (eventUseCase.JoinInfoView, error)
 		GetParticipantForm(ctx context.Context, eventID uuid.UUID) (eventUseCase.ParticipantFormView, error)
 		SubmitParticipantForm(ctx context.Context, eventID, userID uuid.UUID, in eventUseCase.SubmitParticipantFormInput) (eventUseCase.ParticipantFormAnswerView, error)
@@ -178,14 +176,8 @@ func (h *Handler) Init(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
 	}
 	content := router.Group("events/:id/content", h.prot.RequirePermission(rbac.PermEventContentRead))
 	{
-		content.GET("", h.publicContent)
-		content.GET("document", h.publicContentDocument)
-		content.GET("values", h.publicContentValues)
 		content.GET("pages", h.visiblePages)
 		content.GET("pages/:slug", h.publicPage)
-		content.GET("pages/:slug/access", h.publicPageAccess)
-		content.GET("pages/:slug/document", h.publicPageDocument)
-		content.GET("pages/:slug/values", h.publicPageValues)
 	}
 	teamResults := router.Group("events/:id/results", h.prot.RequirePermission(rbac.PermSelf), h.touchPresence)
 	{
@@ -232,7 +224,7 @@ func (h *Handler) publicInfo(ctx *gin.Context) {
 			return
 		}
 	}
-	response.AbortWithData(ctx, toPublicEventInfoResponse(v))
+	response.AbortWithETagData(ctx, toPublicEventInfoResponse(v), anonymousFreshFor(ctx))
 }
 
 // pendingForms godoc

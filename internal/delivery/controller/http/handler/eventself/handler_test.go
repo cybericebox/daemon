@@ -18,7 +18,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventResultRepo"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
-	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
@@ -78,9 +77,8 @@ type fakeUseCase struct {
 	joinTeam     func(context.Context, uuid.UUID, uuid.UUID, string) error
 	results      func(context.Context, uuid.UUID, eventUseCase.ResultsAccess) (eventUseCase.ResultsSnapshotView, error)
 	live         func(context.Context, uuid.UUID, eventUseCase.ResultsAccess, int64) (eventUseCase.LiveResultsReplay, error)
-	content      func(context.Context, uuid.UUID, eventUseCase.ContentAccess) (eventUseCase.PublicEventContentView, error)
+	nav          func(context.Context, uuid.UUID, eventUseCase.ContentAccess) ([]eventUseCase.NavigationPageView, error)
 	page         func(context.Context, uuid.UUID, string, eventUseCase.ContentAccess) (eventUseCase.PublicEventPageView, error)
-	pageAccess   func(context.Context, uuid.UUID, string) error
 	getOwnForm   func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (eventUseCase.EventFormView, error)
 	attachment   func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 	solves       func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) ([]eventUseCase.ChallengeSolveView, error)
@@ -290,13 +288,10 @@ func TestPublicInfo_OnlyExposesPublishedIdentityAndTheme(t *testing.T) {
 		t.Fatalf("unpublished event leaked to non-manager: %d %s", w.Code, w.Body.String())
 	}
 }
-func (f fakeUseCase) GetPublicEventContent(ctx context.Context, eventID uuid.UUID, access eventUseCase.ContentAccess) (eventUseCase.PublicEventContentView, error) {
-	if f.content != nil {
-		return f.content(ctx, eventID, access)
+func (f fakeUseCase) ListNavigationPages(ctx context.Context, eventID uuid.UUID, access eventUseCase.ContentAccess) ([]eventUseCase.NavigationPageView, error) {
+	if f.nav != nil {
+		return f.nav(ctx, eventID, access)
 	}
-	return eventUseCase.PublicEventContentView{}, nil
-}
-func (fakeUseCase) ListNavigationPages(context.Context, uuid.UUID, eventUseCase.ContentAccess) ([]eventUseCase.NavigationPageView, error) {
 	return nil, nil
 }
 func (f fakeUseCase) GetPublicEventPage(ctx context.Context, eventID uuid.UUID, slug string, access eventUseCase.ContentAccess) (eventUseCase.PublicEventPageView, error) {
@@ -304,13 +299,6 @@ func (f fakeUseCase) GetPublicEventPage(ctx context.Context, eventID uuid.UUID, 
 		return f.page(ctx, eventID, slug, access)
 	}
 	return eventUseCase.PublicEventPageView{}, nil
-}
-
-func (f fakeUseCase) RequirePublicEventPage(ctx context.Context, eventID uuid.UUID, slug string) error {
-	if f.pageAccess != nil {
-		return f.pageAccess(ctx, eventID, slug)
-	}
-	return nil
 }
 
 func (f fakeUseCase) GetJoinInfo(context.Context, uuid.UUID, uuid.UUID) (eventUseCase.JoinInfoView, error) {
@@ -474,107 +462,70 @@ func TestResultsSnapshot_AllowsAnonymousRequest(t *testing.T) {
 	}
 }
 
-func TestPublicContent_UsesOptionalSessionAccess(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	eventID := uuid.Must(uuid.NewV7())
-	h := NewEventSelfAPIHandler(fakeUseCase{content: func(_ context.Context, gotEventID uuid.UUID, access eventUseCase.ContentAccess) (eventUseCase.PublicEventContentView, error) {
-		if gotEventID != eventID || access.UserID != nil || access.Role != rbac.RolePublic {
-			t.Fatalf("unexpected content access: event=%s access=%#v", gotEventID, access)
-		}
-		return eventUseCase.PublicEventContentView{Variables: map[string]any{"event.name": "Games"}}, nil
-	}}, nil)
+func publicGet(h *Handler, handler gin.HandlerFunc, path string, claims *rbac.Claims, ifNoneMatch string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(w)
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/content", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: eventID.String()}}
-	h.publicContent(ctx)
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"event.name"`) {
-		t.Fatalf("unexpected response: %d %s", w.Code, w.Body.String())
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	if claims != nil {
+		request = request.WithContext(rbac.ContextWithCurrentUserSession(request.Context(), *claims))
+	}
+	if ifNoneMatch != "" {
+		request.Header.Set("If-None-Match", ifNoneMatch)
+	}
+	ctx.Request = request
+	ctx.Params = gin.Params{{Key: "id", Value: uuid.Must(uuid.NewV7()).String()}}
+	handler(ctx)
+	return w
+}
+
+func TestNavigationList_ETagAnd304AndAnonymousFreshness(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	title := "Rules"
+	h := NewEventSelfAPIHandler(fakeUseCase{nav: func(_ context.Context, _ uuid.UUID, access eventUseCase.ContentAccess) ([]eventUseCase.NavigationPageView, error) {
+		return []eventUseCase.NavigationPageView{{Slug: "rules", Title: title}}, nil
+	}}, nil)
+
+	first := publicGet(h, h.visiblePages, "/api/events/x/content/pages", nil, "")
+	tag := first.Header().Get("ETag")
+	if first.Code != http.StatusOK || tag == "" || first.Header().Get("Cache-Control") != "private, max-age=30" {
+		t.Fatalf("anonymous: %d etag=%q cache=%q", first.Code, tag, first.Header().Get("Cache-Control"))
+	}
+	if same := publicGet(h, h.visiblePages, "/api/events/x/content/pages", nil, tag); same.Code != http.StatusNotModified || same.Body.Len() != 0 {
+		t.Fatalf("unchanged: %d body=%q", same.Code, same.Body.String())
+	}
+	staff := publicGet(h, h.visiblePages, "/api/events/x/content/pages", &rbac.Claims{UserID: uuid.Must(uuid.NewV7()), Role: rbac.RoleUser}, "")
+	if staff.Header().Get("Cache-Control") != "private, no-cache" {
+		t.Fatalf("signed in must always revalidate, got %q", staff.Header().Get("Cache-Control"))
+	}
+	title = "Other"
+	if changed := publicGet(h, h.visiblePages, "/api/events/x/content/pages", nil, tag); changed.Code != http.StatusOK || changed.Header().Get("ETag") == tag {
+		t.Fatalf("changed list must be sent again: %d", changed.Code)
 	}
 }
 
-func TestPublicContentDocumentAndValuesAreSeparate(t *testing.T) {
+func TestPublicInfo_ETagAnd304AndAnonymousFreshness(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	eventID := uuid.Must(uuid.NewV7())
-	h := NewEventSelfAPIHandler(fakeUseCase{content: func(_ context.Context, gotEventID uuid.UUID, access eventUseCase.ContentAccess) (eventUseCase.PublicEventContentView, error) {
-		if gotEventID != eventID || access.UserID != nil || access.Role != rbac.RolePublic {
-			t.Fatalf("unexpected public content access: event=%s access=%#v", gotEventID, access)
-		}
-		return eventUseCase.PublicEventContentView{
-			Landing:   eventContentModel.Document{Blocks: []eventContentModel.Block{{ID: "intro", Type: eventContentModel.BlockSection, Label: "Welcome"}}},
-			Variables: map[string]any{"event.name": "Games"},
-		}, nil
+	h := NewEventSelfAPIHandler(fakeUseCase{info: func(context.Context, uuid.UUID) (eventUseCase.EventInfoView, error) {
+		return eventUseCase.EventInfoView{Status: eventModel.LifecyclePublished}, nil
 	}}, nil)
-	for _, tc := range []struct {
-		name, path, want, absent string
-		handler                  gin.HandlerFunc
-	}{
-		{name: "document", path: "/document", want: `"Landing"`, absent: `"Variables"`, handler: h.publicContentDocument},
-		{name: "values", path: "/values", want: `"event.name"`, absent: `"Landing"`, handler: h.publicContentValues},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			ctx, _ := gin.CreateTestContext(w)
-			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/content"+tc.path, nil)
-			ctx.Params = gin.Params{{Key: "id", Value: eventID.String()}}
-			tc.handler(ctx)
-			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), tc.want) || strings.Contains(w.Body.String(), tc.absent) {
-				t.Fatalf("unexpected %s response: %d %s", tc.name, w.Code, w.Body.String())
-			}
-		})
+	get := func(ifNoneMatch string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(w)
+		request := httptest.NewRequest(http.MethodGet, "/api/events/self/public-info", nil)
+		if ifNoneMatch != "" {
+			request.Header.Set("If-None-Match", ifNoneMatch)
+		}
+		ctx.Request = request.WithContext(middleware.ContextWithEventTenant(request.Context(), middleware.EventTenant{EventID: uuid.Must(uuid.NewV7()), Tag: "summer", Public: true}))
+		h.publicInfo(ctx)
+		return w
 	}
-}
-
-func TestPublicPageDocumentAndValuesUsePublicAudience(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	eventID := uuid.Must(uuid.NewV7())
-	h := NewEventSelfAPIHandler(fakeUseCase{page: func(_ context.Context, gotEventID uuid.UUID, slug string, access eventUseCase.ContentAccess) (eventUseCase.PublicEventPageView, error) {
-		if gotEventID != eventID || slug != "rules" || access.UserID != nil || access.Role != rbac.RolePublic {
-			t.Fatalf("unexpected page access: event=%s slug=%q access=%#v", gotEventID, slug, access)
-		}
-		return eventUseCase.PublicEventPageView{
-			Page:      eventUseCase.EventPageView{Slug: "rules", Title: "Rules", Visibility: eventContentModel.PageVisibilityPublic},
-			Variables: map[string]any{"event.name": "Games"},
-		}, nil
-	}}, nil)
-	for _, tc := range []struct {
-		name, path, want, absent string
-		handler                  gin.HandlerFunc
-	}{
-		{name: "document", path: "/document", want: `"Page"`, absent: `"Variables"`, handler: h.publicPageDocument},
-		{name: "values", path: "/values", want: `"event.name"`, absent: `"Page"`, handler: h.publicPageValues},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			ctx, _ := gin.CreateTestContext(w)
-			ctx.Request = httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/content/pages/rules"+tc.path, nil)
-			ctx.Params = gin.Params{{Key: "id", Value: eventID.String()}, {Key: "slug", Value: "rules"}}
-			tc.handler(ctx)
-			if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), tc.want) || strings.Contains(w.Body.String(), tc.absent) {
-				t.Fatalf("unexpected %s response: %d %s", tc.name, w.Code, w.Body.String())
-			}
-		})
+	first := get("")
+	tag := first.Header().Get("ETag")
+	if first.Code != http.StatusOK || tag == "" || first.Header().Get("Cache-Control") != "private, max-age=30" {
+		t.Fatalf("first: %d etag=%q cache=%q", first.Code, tag, first.Header().Get("Cache-Control"))
 	}
-}
-
-func TestPublicPageAccessChecksCurrentVisibilityWithoutContent(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	eventID := uuid.Must(uuid.NewV7())
-	checked := false
-	h := NewEventSelfAPIHandler(fakeUseCase{pageAccess: func(_ context.Context, gotEventID uuid.UUID, slug string) error {
-		checked = true
-		if gotEventID != eventID || slug != "rules" {
-			t.Fatalf("unexpected page access: event=%s slug=%q", gotEventID, slug)
-		}
-		return nil
-	}}, nil)
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/events/"+eventID.String()+"/content/pages/rules/access", nil)
-	ctx.Params = gin.Params{{Key: "id", Value: eventID.String()}, {Key: "slug", Value: "rules"}}
-	h.publicPageAccess(ctx)
-	if !checked || w.Code != http.StatusNoContent || w.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("unexpected access response: checked=%v code=%d headers=%v", checked, w.Code, w.Header())
+	if same := get(tag); same.Code != http.StatusNotModified || same.Body.Len() != 0 {
+		t.Fatalf("unchanged: %d", same.Code)
 	}
 }
 
