@@ -4,6 +4,6 @@ package overload
 
 import "errors"
 
-// ErrDBBusy: no database connection became free within the acquire timeout. The HTTP error handler answers
-// 503 with Retry-After for any error chain that contains it.
+// ErrDBBusy means no database connection became free within the acquire timeout. The HTTP error handler
+// answers 503 with Retry-After for any error chain that contains it.
 var ErrDBBusy = errors.New("database connection pool busy")

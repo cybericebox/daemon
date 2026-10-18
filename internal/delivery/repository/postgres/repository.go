@@ -1,3 +1,4 @@
+// Package postgres is the PostgreSQL repository: the connection pools, the sqlc queries and the unit of work.
 package postgres
 
 import (

@@ -23,64 +23,57 @@ const (
 	percent           = 100
 )
 
-// transferRoutes are the route templates of uploads (a per-route LimitBody), downloads, exports and media
-// streams: slow by nature, they take transfer slots of the in-flight limiter, never general ones.
-var transferRoutes = map[string]bool{
-	// uploads
-	"/api/auth/account/avatar":                                               true,
-	"/api/events/self/answer-files":                                          true,
-	"/api/events/:id/manage/answer-files":                                    true,
-	"/api/events/:id/manage/logo":                                            true,
-	"/api/events/:id/manage/preview-picture":                                 true,
-	"/api/events/:id/manage/content-images":                                  true,
-	"/api/events/:id/manage/content/live/logos":                              true,
-	"/api/events/:id/manage/brand-drafts/:kind":                              true,
-	"/api/events/:id/manage/notification-templates/email/:templateID/images": true,
-	"/api/notifications/templates/email/images":                              true,
-	"/api/exercises/files":                                                   true,
-	"/api/exercises/import":                                                  true,
-	"/api/exercises/uploads/:uploadID/chunks/:index":                         true,
-	// file downloads
-	"/api/exercises/files/:fileID":                                                                   true,
-	"/api/exercises/files/:fileID/chunks/:index":                                                     true,
-	"/api/events/self/answer-files/:fileID":                                                          true,
-	"/api/events/:id/manage/answer-files/:fileID":                                                    true,
-	"/api/events/:id/teams/challenges/:challengeID/files/:fileID":                                    true,
-	"/api/events/:id/manage/participant-preview/selections/:selectionID/tasks/:taskID/files/:fileID": true,
-	"/api/events/:id/manage/labs/moderators/challenges/:challengeID/files/:fileID":                   true,
-	// exports
-	"/api/analytics/events/export.csv":                              true,
-	"/api/analytics/infrastructure/export.csv":                      true,
-	"/api/analytics/mail/export.csv":                                true,
-	"/api/analytics/overview/export.csv":                            true,
-	"/api/analytics/tasks/export.csv":                               true,
-	"/api/analytics/users/export.csv":                               true,
-	"/api/events/:id/manage/analytics/communications/export.csv":    true,
-	"/api/events/:id/manage/analytics/integrity/export.csv":         true,
-	"/api/events/:id/manage/analytics/overview/export.csv":          true,
-	"/api/events/:id/manage/analytics/participants/export.csv":      true,
-	"/api/events/:id/manage/analytics/progress/inactive/export.csv": true,
-	"/api/events/:id/manage/analytics/progress/matrix/export.csv":   true,
-	"/api/events/:id/manage/analytics/stands/export.csv":            true,
-	"/api/events/:id/manage/analytics/tasks/export.csv":             true,
-	"/api/events/:id/manage/analytics/usage/export.csv":             true,
-	"/api/events/:id/manage/analytics/report/export.zip":            true,
-	"/api/events/:id/manage/results/export.csv":                     true,
-	"/api/events/:id/manage/solution-attempts/export.csv":           true,
-	// media streamed from the object store
-	"/api/auth/avatar/:id":                                               true,
-	"/api/events/:id/logo/:fileID":                                       true,
-	"/api/events/:id/favicon/:fileID":                                    true,
-	"/api/events/:id/preview-picture/:fileID":                            true,
-	"/api/events/:id/content-images/:fileID":                             true,
-	"/api/notifications/templates/email/images/:fileID":                  true,
-	"/api/events/:id/manage/notification-templates/email/images/:fileID": true,
-}
-
-// TransferRoutes are the route templates that take transfer slots (a test checks each one is mounted).
+// TransferRoutes are the route templates of uploads (a per-route LimitBody), downloads, exports and media
+// streams: slow by nature, they take transfer slots of the in-flight limiter, never general ones (a test
+// checks each one is mounted).
 func TransferRoutes() []string {
-	routes := make([]string, 0, len(transferRoutes))
-	for route := range transferRoutes {
+	routes := []string{
+		// uploads
+		"/api/auth/account/avatar",
+		"/api/events/self/answer-files",
+		"/api/events/:id/manage/answer-files",
+		"/api/events/:id/manage/logo",
+		"/api/events/:id/manage/preview-picture",
+		"/api/events/:id/manage/content-images",
+		"/api/events/:id/manage/content/live/logos",
+		"/api/events/:id/manage/brand-drafts/:kind",
+		"/api/events/:id/manage/notification-templates/email/:templateID/images",
+		"/api/notifications/templates/email/images",
+		"/api/exercises/files",
+		"/api/exercises/import",
+		"/api/exercises/uploads/:uploadID/chunks/:index",
+		// file downloads
+		"/api/exercises/files/:fileID",
+		"/api/exercises/files/:fileID/chunks/:index",
+		"/api/events/self/answer-files/:fileID",
+		"/api/events/:id/manage/answer-files/:fileID",
+		"/api/events/:id/teams/challenges/:challengeID/files/:fileID",
+		"/api/events/:id/manage/participant-preview/selections/:selectionID/tasks/:taskID/files/:fileID",
+		"/api/events/:id/manage/labs/moderators/challenges/:challengeID/files/:fileID",
+		// exports
+		"/api/analytics/events/export.csv",
+		"/api/analytics/infrastructure/export.csv",
+		"/api/analytics/mail/export.csv",
+		"/api/analytics/overview/export.csv",
+		"/api/analytics/tasks/export.csv",
+		"/api/analytics/users/export.csv",
+		"/api/events/:id/manage/analytics/communications/export.csv",
+		"/api/events/:id/manage/analytics/integrity/export.csv",
+		"/api/events/:id/manage/analytics/overview/export.csv",
+		"/api/events/:id/manage/analytics/participants/export.csv",
+		"/api/events/:id/manage/analytics/progress/inactive/export.csv",
+		"/api/events/:id/manage/analytics/progress/matrix/export.csv",
+		"/api/events/:id/manage/analytics/stands/export.csv",
+		"/api/events/:id/manage/analytics/tasks/export.csv",
+		"/api/events/:id/manage/analytics/usage/export.csv",
+		"/api/events/:id/manage/analytics/report/export.zip",
+		"/api/events/:id/manage/results/export.csv",
+		"/api/events/:id/manage/solution-attempts/export.csv",
+		// media streamed from the object store (and the public media of PublicMediaRoutes)
+		"/api/notifications/templates/email/images/:fileID",
+		"/api/events/:id/manage/notification-templates/email/images/:fileID",
+	}
+	for route := range PublicMediaRoutes {
 		routes = append(routes, route)
 	}
 	return routes
@@ -130,6 +123,9 @@ type InflightLimiter struct {
 	wait       time.Duration
 	now        func() time.Time
 
+	// transfers holds TransferRoutes.
+	transfers map[string]bool
+
 	mu       sync.Mutex
 	sessions map[string]*sessionSlots
 
@@ -153,6 +149,10 @@ func NewInflightLimiter(
 		perSession: cfg.PerSession,
 		sessionKey: sessionKey,
 		sessions:   map[string]*sessionSlots{},
+		transfers:  map[string]bool{},
+	}
+	for _, route := range TransferRoutes() {
+		l.transfers[route] = true
 	}
 	sizes := [inflightClasses]int{
 		inflightGeneral:   cfg.Max,
@@ -184,7 +184,7 @@ func (l *InflightLimiter) Handle(ctx *gin.Context) {
 	switch {
 	case exemptFromRateLimit[path]:
 		class, wait = inflightStreams, 0
-	case transferRoutes[path]:
+	case l.transfers[path]:
 		class = inflightTransfers
 	}
 	slots := l.slots[class]

@@ -40,6 +40,9 @@ func (NotifyArgs) Kind() string { return "notify" }
 // Old notify workers only consume default and would cancel these envelopes as missing legacy payloads.
 const NotifyDurableQueue = "notify_durable_v1"
 
+// NotifyDurableQueueWorkers is how many durable notification jobs run at once on one replica.
+const NotifyDurableQueueWorkers = 2
+
 func (a NotifyArgs) InsertOpts() river.InsertOpts {
 	if a.JournalDeliveryID != nil || a.AuthDeliveryID != nil {
 		return river.InsertOpts{Queue: NotifyDurableQueue}
