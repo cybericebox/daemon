@@ -24,7 +24,8 @@ func TestGrantPurposeBoundedAndStable(t *testing.T) {
 	challenge := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	token, exp, err := signer.Issue("https://summer.example.test", eventID, userID, sid, true, challenge, now)
 	require.NoError(t, err)
-	require.Equal(t, now.Add(time.Minute).Unix(), exp)
+	require.Equal(t, 5*time.Minute, MaxLifetime)
+	require.Equal(t, now.Add(5*time.Minute).Unix(), exp)
 	claims, err := replica.Verify(token, "https://summer.example.test", eventID, now)
 	require.NoError(t, err)
 	require.True(t, claims.Preview)
@@ -36,7 +37,7 @@ func TestGrantPurposeBoundedAndStable(t *testing.T) {
 	}{
 		{"wrong host", "https://other.example.test", eventID, now},
 		{"wrong event", "https://summer.example.test", uuid.Must(uuid.NewV4()), now},
-		{"expired", "https://summer.example.test", eventID, now.Add(time.Minute)},
+		{"expired", "https://summer.example.test", eventID, now.Add(5 * time.Minute)},
 		{"future issued", "https://summer.example.test", eventID, now.Add(-time.Second)},
 	} {
 		t.Run(tc.name, func(t *testing.T) { _, err := signer.Verify(token, tc.aud, tc.event, tc.at); require.Error(t, err) })
@@ -78,7 +79,7 @@ func TestGrantRejectsSignedWrongPurposeAndMalformedClaims(t *testing.T) {
 		name, key string
 		value     any
 	}{
-		{"issuer", "iss", "session"}, {"scope", "scope", "*"}, {"subject UUID", "sub", "not-a-uuid"}, {"nil session", "sid", uuid.Nil.String()}, {"long lifetime", "exp", now.Add(61 * time.Second).Unix()}, {"missing issued", "iat", nil}, {"missing expiry", "exp", nil}, {"invalid challenge", "challenge", "bad"}, {"audience array", "aud", []string{"https://summer.example.test"}}, {"invalid preview", "preview", "true"}, {"zero lifetime", "exp", now.Unix()},
+		{"issuer", "iss", "session"}, {"scope", "scope", "*"}, {"subject UUID", "sub", "not-a-uuid"}, {"nil session", "sid", uuid.Nil.String()}, {"long lifetime", "exp", now.Add(5*time.Minute + time.Second).Unix()}, {"missing issued", "iat", nil}, {"missing expiry", "exp", nil}, {"invalid challenge", "challenge", "bad"}, {"audience array", "aud", []string{"https://summer.example.test"}}, {"invalid preview", "preview", "true"}, {"zero lifetime", "exp", now.Unix()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			payload := map[string]any{}
@@ -129,7 +130,7 @@ func TestSessionKeyringCompatibilityAndRotation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = rotated.Verify(token, "https://summer.example.test", eventID, now)
 	require.NoError(t, err)
-	_, err = rotated.Verify(token, "https://summer.example.test", eventID, now.Add(time.Minute))
+	_, err = rotated.Verify(token, "https://summer.example.test", eventID, now.Add(5*time.Minute))
 	require.Error(t, err)
 	_, err = primary.Verify(token, "https://summer.example.test", eventID, now)
 	require.Error(t, err)

@@ -20,7 +20,7 @@ import (
 const Type = "cib-event-render+jwt"
 const Issuer = "cybericebox:event-render"
 const Scope = "common-pages"
-const MaxLifetime = 60 * time.Second
+const MaxLifetime = 5 * time.Minute
 const maxTokenBytes = 4096
 
 var errInvalid = errors.New("invalid event render grant")
