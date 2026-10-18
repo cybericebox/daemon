@@ -32,7 +32,9 @@ type ReservationView struct {
 	BufferPercent int
 	Dynamic       Amount
 	TailGap       time.Duration
-	Size          Amount
+	// StartLead is how long before the event start the reservation begins.
+	StartLead time.Duration
+	Size      Amount
 
 	Placement []ShareView
 	Unplaced  int

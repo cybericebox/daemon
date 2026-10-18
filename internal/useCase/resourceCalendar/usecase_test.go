@@ -191,7 +191,7 @@ func TestChangeRequestApprovalExtendsTheReservation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, calModel.ChangeApproved, decided.Status)
 	r, _ := h.store.GetEventReservation(ctx, h.event.ID)
-	assert.Equal(t, end.Add(time.Hour), r.Window.End, "the 1h gap still applies on top of the longer window")
+	assert.Equal(t, end, r.Window.End, "the requested end is the real end of the reservation (what the organizer reads as «Діє до»)")
 	assert.Equal(t, []bool{true}, h.notifier.decided)
 	_, err = h.uc.DecideResourceChangeRequest(ctx, view.ID, false, "", uuid.Nil, false)
 	assert.True(t, is(err, calModel.ErrChangeRequestDecided))
@@ -656,4 +656,45 @@ func TestCheckTestLabRoom_WithoutLeaseTakesTheSavedLease(t *testing.T) {
 	want, err = h.uc.CheckTestLabRoom(ctx, owner, lab, Amount{}, 4*time.Hour)
 	require.NoError(t, err)
 	assert.Equal(t, want, long, "the proposed window is computed for the saved 4 hours")
+}
+
+func TestReserveKeepsMaxTeamsWhenRegistrationsGrow(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{Teams: ptr(6)}, uuid.Nil)
+	require.NoError(t, err)
+	// The plan now counts more teams (registrations grew): the reserve stays at the admin's maximum.
+	h.planner.need.Teams = 12
+	res, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{BufferPercent: ptr(10)}, uuid.Nil)
+	require.NoError(t, err)
+	assert.Equal(t, 6, res.Reservation.Teams)
+	assert.Equal(t, int64(6*1000*110/100), res.Reservation.Size.CPUMillicores)
+}
+
+func TestWindowRelativeToTheEventByOffsets(t *testing.T) {
+	h := newHarness(t)
+	res, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID,
+		EventReservationInput{StartLead: ptr(2 * time.Hour), TailGap: ptr(3 * time.Hour)}, uuid.Nil)
+	require.NoError(t, err)
+	assert.Equal(t, time.Date(2026, 10, 5, 6, 0, 0, 0, time.UTC), res.Reservation.From)
+	assert.Equal(t, time.Date(2026, 10, 5, 15, 0, 0, 0, time.UTC), res.Reservation.To)
+	assert.Equal(t, 2*time.Hour, res.Reservation.StartLead)
+	assert.Equal(t, 3*time.Hour, res.Reservation.TailGap)
+
+	got, err := h.uc.GetEventResourceReservation(context.Background(), h.event.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Hour, got.Reservation.StartLead)
+}
+
+func TestFixedWindowReplacesTheOffsets(t *testing.T) {
+	h := newHarness(t)
+	from := time.Date(2026, 10, 5, 5, 30, 0, 0, time.UTC)
+	to := time.Date(2026, 10, 5, 12, 30, 0, 0, time.UTC)
+	res, err := h.uc.SetEventResourceReservation(context.Background(), h.event.ID,
+		EventReservationInput{StartLead: ptr(2 * time.Hour), TailGap: ptr(3 * time.Hour), WindowStart: &from, WindowEnd: &to}, uuid.Nil)
+	require.NoError(t, err)
+	assert.Equal(t, from, res.Reservation.From)
+	assert.Equal(t, to, res.Reservation.To, "a fixed end is the real end: no minimum tail is added")
+	assert.Equal(t, 150*time.Minute, res.Reservation.StartLead)
+	assert.Equal(t, 30*time.Minute, res.Reservation.TailGap)
 }

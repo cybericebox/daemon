@@ -59,7 +59,9 @@ type reservationDTO struct {
 	BufferPercent  int       `json:"BufferPercent"`
 	Dynamic        amountDTO `json:"Dynamic"`
 	TailGapMinutes int       `json:"TailGapMinutes"`
-	Size           amountDTO `json:"Size"`
+	// StartLeadMinutes is how long before the event start the reservation begins (0 when the event has no schedule).
+	StartLeadMinutes int       `json:"StartLeadMinutes"`
+	Size             amountDTO `json:"Size"`
 
 	Placement []shareDTO `json:"Placement"`
 	Unplaced  int        `json:"Unplaced"`
@@ -74,7 +76,7 @@ func reservation(v calUseCase.ReservationView) reservationDTO {
 	out := reservationDTO{
 		PerTeamSnapshotQuotaBytes: v.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: v.DynamicSnapshotQuotaBytes, SizeSnapshotQuotaBytes: v.SizeSnapshotQuotaBytes, ID: v.ID, Kind: string(v.Kind), EventID: v.EventID, EventName: v.EventName, EventTag: v.EventTag, OwnerID: v.OwnerID,
 		From: v.From, To: v.To, Teams: v.Teams, PerTeam: amount(v.PerTeam), LargestDevice: amount(v.LargestDevice), BufferPercent: v.BufferPercent,
-		Dynamic: amount(v.Dynamic), TailGapMinutes: int(v.TailGap / time.Minute), Size: amount(v.Size), Placement: make([]shareDTO, 0, len(v.Placement)),
+		Dynamic: amount(v.Dynamic), TailGapMinutes: int(v.TailGap / time.Minute), StartLeadMinutes: int(v.StartLead / time.Minute), Size: amount(v.Size), Placement: make([]shareDTO, 0, len(v.Placement)),
 		Unplaced: v.Unplaced, Covered: v.Covered, Used: amount(v.Used), Alarms: make([]alarmDTO, 0, len(v.Alarms)),
 	}
 	for _, s := range v.Placement {
@@ -210,17 +212,20 @@ func reservationResult(v calUseCase.ReservationResult) reservationResultDTO {
 // event gives the teams and the size per team, the settings give the buffer and the gap, the event gives the
 // window.
 type setReservationRequest struct {
-	PerTeamSnapshotQuotaBytes *int64     `json:"PerTeamSnapshotQuotaBytes,string" swaggertype:"string"`
-	DynamicSnapshotQuotaBytes *int64     `json:"DynamicSnapshotQuotaBytes,string" swaggertype:"string"`
-	Teams                     *int       `json:"Teams"`
-	PerTeam                   *amountDTO `json:"PerTeam"`
+	PerTeamSnapshotQuotaBytes *int64 `json:"PerTeamSnapshotQuotaBytes,string" swaggertype:"string"`
+	DynamicSnapshotQuotaBytes *int64 `json:"DynamicSnapshotQuotaBytes,string" swaggertype:"string"`
+	// Teams is the maximum number of teams the reserve is granted for; it does not follow the registrations.
+	Teams   *int       `json:"Teams"`
+	PerTeam *amountDTO `json:"PerTeam"`
 	// BufferPercent overrides the default buffer (0).
 	BufferPercent *int `json:"BufferPercent"`
 	// Dynamic is the estimate for tasks that appear later.
 	Dynamic *amountDTO `json:"Dynamic"`
 	// TailGapMinutes is the gap after the event end; never shorter than the default (60), may be more.
 	TailGapMinutes *int `json:"TailGapMinutes"`
-	// WindowStart and WindowEnd override the window; WindowEnd is the event end (the gap is added).
+	// StartLeadMinutes is how long before the event start the reservation begins (default: the planning lead).
+	StartLeadMinutes *int `json:"StartLeadMinutes"`
+	// WindowStart and WindowEnd are an optional fixed window; each replaces its offset and is used as given.
 	WindowStart *time.Time `json:"WindowStart"`
 	WindowEnd   *time.Time `json:"WindowEnd"`
 	// AllowConflicts keeps a reservation that does not fit by packing (it is then not covered).
@@ -237,6 +242,10 @@ func (r setReservationRequest) model() calUseCase.EventReservationInput {
 	if r.TailGapMinutes != nil {
 		d := time.Duration(*r.TailGapMinutes) * time.Minute
 		in.TailGap = &d
+	}
+	if r.StartLeadMinutes != nil {
+		d := time.Duration(*r.StartLeadMinutes) * time.Minute
+		in.StartLead = &d
 	}
 	return in
 }
