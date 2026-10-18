@@ -34,7 +34,7 @@ type ReservationView struct {
 	TailGap       time.Duration
 	// StartLead is how long before the event start the reservation begins.
 	StartLead time.Duration
-	Size          Amount
+	Size      Amount
 
 	Placement []ShareView
 	Unplaced  int
