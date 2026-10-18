@@ -1391,7 +1391,7 @@ func TestEveryRouteRequiresPermission(t *testing.T) {
 
 func TestDeployVariant_Returns200(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
-	uc := &fakeUC{deployHandle: exerciseModel.DeployHandle{Group: "t-123", Lab: "lab", VPNClient: "tester"}}
+	uc := &fakeUC{deployHandle: exerciseModel.DeployHandle{Group: "t-123", Lab: "lab"}}
 	r := newEngine(uc, uid)
 
 	ex := uuid.Must(uuid.NewV7())
@@ -1407,14 +1407,13 @@ func TestDeployVariant_Returns200(t *testing.T) {
 	}
 	var env struct {
 		Data struct {
-			DeployID  string
-			VPNClient string
+			DeployID string
 		}
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
 		t.Fatal(err)
 	}
-	if env.Data.DeployID != "t-123" || env.Data.VPNClient != "tester" {
+	if env.Data.DeployID != "t-123" {
 		t.Errorf("deploy response wrong: %+v", env.Data)
 	}
 }

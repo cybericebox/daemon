@@ -385,9 +385,6 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 
 	handle := exerciseModel.DeployHandle{Group: deploy.ID.String(), Lab: deploy.LabName}
 	handle.Flags = deployFlags
-	if topo.VPN.Enabled {
-		handle.VPNClient = "tester"
-	}
 	return handle, nil
 }
 
@@ -645,7 +642,7 @@ func (u *ExerciseUseCase) withOwnerLock(ctx context.Context, owner uuid.UUID, wa
 }
 
 // DeployTestStatus returns the current runtime status of a test deploy, keyed by
-// the group id from DeployVariantTest. Once the lab is up and a tester VPN config
+// the group id from DeployVariantTest. Once the lab is up and the author's VPN config
 // exists, it is persisted for the caller under the test scope (best-effort: the
 // config is also returned inline, so a store hiccup must not break polling).
 func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
@@ -686,7 +683,7 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 	if expired {
 		status.Phase, status.Removing = exerciseModel.DeployPhaseRemoving, true
 	}
-	// The agent's own view of the shared tester client carries the key placeholder and
+	// The agent's own view of a client carries the key placeholder and
 	// no access; only the author's config, stored with this deploy, is ever handed out.
 	status.VPNConfig = ""
 	status.SolvedTasks = deploy.Solved
@@ -707,7 +704,7 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 		status.VPNLastHandshake = handshake
 		status.VPNConnected = time.Since(handshake) <= vpnConnectedWindow
 	}
-	// The tester page address is a hint too: the same gateway the event path derives from the group's client subnet.
+	// The probe page address is a hint too: the same gateway the event path derives from the group's client subnet.
 	if status.Ready {
 		if reader, ok := u.infra.(vpnSubnetReader); ok {
 			if subnet, subErr := reader.GetVPNClientSubnet(ctx, deploy.GroupName); subErr == nil {

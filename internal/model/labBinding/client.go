@@ -18,7 +18,7 @@ func ParticipantClientName(userID uuid.UUID) string {
 }
 
 // ParseParticipantClientName is the inverse of ParticipantClientName. The
-// boolean is false for any other client (the shared "tester", staff clients).
+// boolean is false for any other client (staff clients).
 func ParseParticipantClientName(name string) (uuid.UUID, bool) {
 	rest, ok := strings.CutPrefix(name, ParticipantClientPrefix)
 	if !ok {

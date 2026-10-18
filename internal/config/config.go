@@ -409,7 +409,7 @@ type (
 	}
 
 	// VPNConfig seals the stored VPN client configs (participants' and test deploys'
-	// tester keys). Empty key disables VPN config storage; an invalid one is fatal.
+	// keys). Empty key disables VPN config storage; an invalid one is fatal.
 	VPNConfig struct {
 		SecretsKey string `env:"SECRETS_KEY"` // 64 hex chars → AES-256
 	}
