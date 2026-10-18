@@ -13,7 +13,7 @@ import (
 
 func rezipWithOldManifest(t *testing.T, original []byte, edited string, body []byte) []byte {
 	t.Helper()
-	files, err := ReadArchiveV1(bytes.NewReader(original))
+	files, err := ReadArchiveV1(bytes.NewReader(original), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestReadArchiveV1_WithoutManifest(t *testing.T) {
 	if _, ok := unzipRaw(t, data)["manifest.json"]; ok {
 		t.Fatal("BuildArchiveNoManifest must not write manifest.json")
 	}
-	files, err := ReadArchiveV1(bytes.NewReader(data))
+	files, err := ReadArchiveV1(bytes.NewReader(data), DefaultLimits())
 	if err != nil || len(files) != 2 {
 		t.Fatalf("files %d err %v", len(files), err)
 	}
@@ -71,7 +71,7 @@ func TestReadArchiveV1_ChecksumMismatchHint(t *testing.T) {
 		t.Fatal(err)
 	}
 	edited := rezipWithOldManifest(t, original, "files/a.txt", []byte("changed"))
-	_, err = ReadArchiveV1(bytes.NewReader(edited))
+	_, err = ReadArchiveV1(bytes.NewReader(edited), DefaultLimits())
 	if !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
 		t.Fatalf("err = %v", err)
 	}
@@ -88,12 +88,12 @@ func TestReadArchiveV1_FolderManifestCoversItsFolder(t *testing.T) {
 	for name, body := range raw {
 		nested["task/"+name] = body
 	}
-	files, err := ReadArchiveV1(bytes.NewReader(zipOf(t, nested)))
+	files, err := ReadArchiveV1(bytes.NewReader(zipOf(t, nested)), DefaultLimits())
 	if err != nil || len(files) != 2 {
 		t.Fatalf("files %d err %v", len(files), err)
 	}
 	nested["task/files/a.txt"] = []byte("changed")
-	if _, err = ReadArchiveV1(bytes.NewReader(zipOf(t, nested))); !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
+	if _, err = ReadArchiveV1(bytes.NewReader(zipOf(t, nested)), DefaultLimits()); !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -104,7 +104,7 @@ func TestParseExerciseArchive_MismatchWithPassword(t *testing.T) {
 		t.Fatal(err)
 	}
 	edited := rezipWithOldManifest(t, original, "files/a.txt", []byte("changed"))
-	_, err = ParseExerciseArchive(edited, "x")
+	_, err = ParseExerciseArchive(edited, "x", DefaultLimits())
 	if !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
 		t.Fatalf("err = %v, want the mismatch error, not a password hint", err)
 	}
@@ -123,21 +123,21 @@ func TestReadProtectedArchive_WithoutManifest(t *testing.T) {
 	if err = zw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	files, err := ReadProtectedArchiveV1(out.Bytes(), "pw")
+	files, err := ReadProtectedArchiveV1(out.Bytes(), "pw", DefaultLimits())
 	if err != nil || len(files) != 1 {
 		t.Fatalf("files %d err %v", len(files), err)
 	}
 }
 
 func TestReadArchiveV1_LimitsStillApply(t *testing.T) {
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"../x": []byte("x")}))); !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
+	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{"../x": []byte("x")})), DefaultLimits()); !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
 		t.Fatalf("an unsafe path must be refused without a manifest: %v", err)
 	}
 	entries := map[string][]byte{}
-	for i := 0; i <= MaxArchiveEntries; i++ {
+	for i := 0; i <= exerciseModel.DefaultArchiveEntries; i++ {
 		entries[fmt.Sprintf("f%04d.txt", i)] = []byte("x")
 	}
-	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries))); !errors.Is(err, exerciseModel.ErrArchiveTooLarge.Err()) {
+	if _, err := ReadArchiveV1(bytes.NewReader(zipOf(t, entries)), DefaultLimits()); !errors.Is(err, exerciseModel.ErrArchiveTooLarge.Err()) {
 		t.Fatalf("1001 entries must be refused without a manifest: %v", err)
 	}
 }
@@ -149,7 +149,7 @@ func TestReadArchiveV1_NestedManifestNamedAttachmentSurvives(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		files, err := ReadArchiveV1(bytes.NewReader(data))
+		files, err := ReadArchiveV1(bytes.NewReader(data), DefaultLimits())
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -162,7 +162,7 @@ func TestReadArchiveV1_NestedManifestNamedAttachmentSurvives(t *testing.T) {
 func TestReadArchiveV1_ManifestListingAMissingFileIsAMismatch(t *testing.T) {
 	manifest := []byte(`{"version":1,"checksums":{"gone.txt":"` + hashBytes([]byte("x")) + `"}}`)
 	data := zipOf(t, map[string][]byte{"a.txt": []byte("a"), "manifest.json": manifest})
-	if _, err := ReadArchiveV1(bytes.NewReader(data)); !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
+	if _, err := ReadArchiveV1(bytes.NewReader(data), DefaultLimits()); !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -170,7 +170,7 @@ func TestReadArchiveV1_ManifestListingAMissingFileIsAMismatch(t *testing.T) {
 func TestReadArchiveV1_EntryNotListedInManifestIsAcceptedUnverified(t *testing.T) {
 	manifest := []byte(`{"version":1,"checksums":{"a.txt":"` + hashBytes([]byte("a")) + `"}}`)
 	data := zipOf(t, map[string][]byte{"a.txt": []byte("a"), "extra.txt": []byte("b"), "manifest.json": manifest})
-	files, err := ReadArchiveV1(bytes.NewReader(data))
+	files, err := ReadArchiveV1(bytes.NewReader(data), DefaultLimits())
 	if err != nil || len(files) != 2 || string(files["extra.txt"]) != "b" {
 		t.Fatalf("files %d err %v", len(files), err)
 	}

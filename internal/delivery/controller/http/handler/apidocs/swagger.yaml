@@ -6828,8 +6828,8 @@ definitions:
       Purpose:
         description: |-
           Purpose "image-blob" uploads one blob of a container image (the file limit is then 10 GiB, an image
-          archive's); "exercise-archive" a task archive to import with POST /exercises/import/upload (up to 512 MiB +
-          10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.
+          archive's); "exercise-archive" a task archive to import with POST /exercises/import/upload (up to the archive
+          limit + 10 GiB: it may carry device images; never completed into a file); empty for an ordinary file.
         enum:
         - image-blob
         - exercise-archive
@@ -9709,6 +9709,14 @@ definitions:
       Role:
         type: string
     type: object
+  platformSettings.saveTypedRequest:
+    properties:
+      Values:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+    type: object
   platformSettings.settingResponse:
     properties:
       CreatedAt:
@@ -9723,6 +9731,46 @@ definitions:
         type: string
       Value:
         type: object
+    type: object
+  platformSettings.typedFieldResponse:
+    properties:
+      Default:
+        type: integer
+      InPrivacyPolicy:
+        description: InPrivacyPolicy marks a period published in the Privacy Policy.
+        type: boolean
+      Key:
+        type: string
+      Kind:
+        description: Kind is duration (seconds), size (bytes) or count.
+        enum:
+        - duration
+        - size
+        - count
+        type: string
+      Max:
+        type: integer
+      Min:
+        type: integer
+      Value:
+        type: integer
+    type: object
+  platformSettings.typedSettingResponse:
+    properties:
+      Custom:
+        description: 'Custom: a value is saved; false: the defaults apply.'
+        type: boolean
+      Fields:
+        items:
+          $ref: '#/definitions/platformSettings.typedFieldResponse'
+        type: array
+      Ignored:
+        description: |-
+          Ignored: a value is saved but does not apply (it no longer validates or does not parse), so the defaults are
+          in force; reset or save again.
+        type: boolean
+      UpdatedAt:
+        type: string
     type: object
   platformSettings.upsertSettingRequest:
     properties:
@@ -22107,7 +22155,7 @@ paths:
       - application/json
       description: |-
         The archive is read where its chunks lie. Without device image files the tasks are created at once:
-        200 with the created tasks (the archive limits apply: 512 MiB). With image files (`image: {file: …}`)
+        200 with the created tasks (the archive limits of the platform settings apply). With image files (`image: {file: …}`)
         the import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import
         per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
         platform image registry is not configured or failing; 409 70993 when the upload is not a complete
@@ -22199,7 +22247,7 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
       summary: Import an exercise ZIP archive that went up in chunks (completed into
-        a file, at most 512 MiB)
+        a file, at most the archive limit)
       tags:
       - exercises
   /exercises/proposals:
@@ -22415,7 +22463,7 @@ paths:
         in: query
         name: deviceMemory
         type: integer
-      - description: how long it will run (default 120)
+      - description: 'how long it will run (default: the saved test-run lease)'
         in: query
         name: leaseMinutes
         type: integer
@@ -22462,8 +22510,9 @@ paths:
           schema:
             $ref: '#/definitions/response.Response'
         "409":
-          description: Purpose image-blob, or exercise-archive over 512 MiB, while
-            the platform image registry is not configured (72801) or failing (72802)
+          description: Purpose image-blob, or exercise-archive over the archive limit
+            (platform settings, 512 MiB by default), while the platform image registry
+            is not configured (72801) or failing (72802)
           schema:
             $ref: '#/definitions/response.Response'
       summary: Start a resumable chunked file upload
@@ -25505,6 +25554,70 @@ paths:
       summary: Get a setting value by key
       tags:
       - settings
+  /settings/archive-limits:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: 'Remove the saved archive limits: the defaults apply again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: Get the task archive limits (bytes, entries) in force, with defaults
+        and bounds
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: every limit, integer bytes or entries
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save every task archive limit; a missing or unknown field, a value
+        out of bounds or one file over all files together is a 400 (Context.field)
+      tags:
+      - settings
   /settings/image-registry:
     delete:
       produces:
@@ -25671,6 +25784,134 @@ paths:
       summary: List published preview exercise variants
       tags:
       - participant-preview
+  /settings/retention:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: 'Remove the saved retention periods: the defaults apply again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: Get the data retention periods (seconds) in force, with defaults and
+        bounds
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: every period, integer seconds
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save every data retention period (seconds); a missing or unknown field,
+        a value out of bounds or a grace not shorter than the inactivity period is
+        a 400 (Context.field)
+      tags:
+      - settings
+  /settings/test-runs:
+    delete:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: the defaults
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: 'Remove the saved test run leases: the defaults apply again'
+      tags:
+      - settings
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+      summary: Get the test run leases (seconds) in force, with defaults and bounds
+      tags:
+      - settings
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Lease and LeaseMax, integer seconds
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/platformSettings.saveTypedRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/platformSettings.typedSettingResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Save both test run leases; a missing or unknown field, a value out
+        of bounds or a longest run under one lease is a 400 (Context.field)
+      tags:
+      - settings
   /users:
     get:
       parameters:

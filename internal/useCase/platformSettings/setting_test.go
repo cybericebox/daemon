@@ -27,7 +27,8 @@ func setup(t *testing.T) (
 	t.Helper()
 	ctrl := gomock.NewController(t)
 	repo := postgresMocks.NewMockQuerier(ctrl)
-	uc := NewPlatformSettingsUseCase(Dependencies{Repo: repo})
+	retention, testRuns := typedDefaults()
+	uc := NewPlatformSettingsUseCase(Dependencies{Repo: repo, RetentionDefaults: retention, TestRunDefaults: testRuns})
 	return ctrl, repo, uc
 }
 

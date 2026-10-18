@@ -80,7 +80,7 @@ func TestImportArchive_MissingStatusIsArchiveInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, importErr := exerciseUseCase.ParseExerciseArchive(archive, "")
+	_, importErr := exerciseUseCase.ParseExerciseArchive(archive, "", exerciseModel.DefaultArchiveLimits())
 	if importErr == nil {
 		t.Fatal("a version without status must not parse")
 	}

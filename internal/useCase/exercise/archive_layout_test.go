@@ -106,7 +106,7 @@ func TestExpandExerciseArchiveBundle_RootManifestDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imports, err := ExpandExerciseArchiveBundle(bundle, "")
+	imports, err := ExpandExerciseArchiveBundle(bundle, "", DefaultLimits())
 	if err != nil {
 		t.Fatalf("a bundle with a root manifest must expand: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestExpandExerciseArchiveBundle_RootManifestDropped(t *testing.T) {
 		t.Fatalf("imports = %d, want 2", len(imports))
 	}
 	for _, item := range imports {
-		files, readErr := ReadArchiveV1(bytes.NewReader(item.Archive))
+		files, readErr := ReadArchiveV1(bytes.NewReader(item.Archive), DefaultLimits())
 		if readErr != nil {
 			t.Fatal(readErr)
 		}
@@ -170,7 +170,7 @@ func TestReadArchive_SymlinkEntryRejected(t *testing.T) {
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ReadArchiveV1(bytes.NewReader(buf.Bytes()))
+	_, err := ReadArchiveV1(bytes.NewReader(buf.Bytes()), DefaultLimits())
 	assertSymlinkRejected(t, err)
 }
 
@@ -193,7 +193,7 @@ func TestReadProtectedArchive_SymlinkEntryRejected(t *testing.T) {
 	if err := zw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ReadProtectedArchiveV1(buf.Bytes(), "pw")
+	_, err := ReadProtectedArchiveV1(buf.Bytes(), "pw", DefaultLimits())
 	assertSymlinkRejected(t, err)
 }
 
@@ -209,7 +209,7 @@ func assertSymlinkRejected(t *testing.T, err error) {
 
 func TestReadArchive_DirectoryEntriesSkipped(t *testing.T) {
 	data := zipOf(t, map[string][]byte{"task/": nil, "task/exercise.yaml": []byte(layoutDoc)})
-	files, err := ReadArchiveV1(bytes.NewReader(data))
+	files, err := ReadArchiveV1(bytes.NewReader(data), DefaultLimits())
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestReadArchive_DirectoryEntriesSkipped(t *testing.T) {
 		t.Fatalf("files = %v", files)
 	}
 	for _, name := range []string{"../", "./"} {
-		_, err = ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{name: nil, "exercise.yaml": []byte(layoutDoc)})))
+		_, err = ReadArchiveV1(bytes.NewReader(zipOf(t, map[string][]byte{name: nil, "exercise.yaml": []byte(layoutDoc)})), DefaultLimits())
 		if !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
 			t.Fatalf("%s: want ErrArchivePathInvalid, got %v", name, err)
 		}
@@ -239,7 +239,7 @@ func TestToParsed_NFDFileNameLinkedByNFC(t *testing.T) {
 		"exercise.yaml": taskWithAttachments(`{file: "` + nfc + `"}`),
 		nfd:             []byte("й"),
 	})
-	parsed, err := ParseExerciseArchive(data, "")
+	parsed, err := ParseExerciseArchive(data, "", DefaultLimits())
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestToParsed_NFDFileNameLinkedByNFC(t *testing.T) {
 
 func TestReadArchive_NFCCollisionRejected(t *testing.T) {
 	data := zipOf(t, map[string][]byte{"\u0438\u0306.txt": []byte("a"), "\u0439.txt": []byte("b"), "exercise.yaml": []byte(layoutDoc)})
-	if _, err := ReadArchiveV1(bytes.NewReader(data)); !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
+	if _, err := ReadArchiveV1(bytes.NewReader(data), DefaultLimits()); !errors.Is(err, exerciseModel.ErrArchivePathInvalid.Err()) {
 		t.Fatalf("want ErrArchivePathInvalid, got %v", err)
 	}
 }
@@ -291,7 +291,7 @@ func parseLayout(t *testing.T, files map[string][]byte) (ParsedExerciseArchive, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ParseExerciseArchive(data, "")
+	return ParseExerciseArchive(data, "", DefaultLimits())
 }
 
 func TestToParsed_AttachmentByPathAnyFolder(t *testing.T) {
@@ -426,7 +426,7 @@ func TestExpandExerciseArchiveBundle_SplitsAnyDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imports, err := ExpandExerciseArchiveBundle(bundle, "")
+	imports, err := ExpandExerciseArchiveBundle(bundle, "", DefaultLimits())
 	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}
@@ -434,11 +434,11 @@ func TestExpandExerciseArchiveBundle_SplitsAnyDepth(t *testing.T) {
 		t.Fatalf("want 2 imports, got %d", len(imports))
 	}
 	for _, item := range imports {
-		if _, parseErr := ParseExerciseArchive(item.Archive, item.Password); parseErr != nil {
+		if _, parseErr := ParseExerciseArchive(item.Archive, item.Password, DefaultLimits()); parseErr != nil {
 			t.Fatalf("parse import: %v", parseErr)
 		}
 	}
-	if _, err = ExpandExerciseArchiveBundle(mustBuild(t, map[string][]byte{"a/exercise.yaml": []byte(layoutDoc), "notes.txt": []byte("n")}), ""); !errors.Is(err, exerciseModel.ErrArchiveFileUnlinked.Err()) {
+	if _, err = ExpandExerciseArchiveBundle(mustBuild(t, map[string][]byte{"a/exercise.yaml": []byte(layoutDoc), "notes.txt": []byte("n")}), "", DefaultLimits()); !errors.Is(err, exerciseModel.ErrArchiveFileUnlinked.Err()) {
 		t.Fatalf("stray file: want ErrArchiveFileUnlinked, got %v", err)
 	}
 }
@@ -448,7 +448,7 @@ func TestExpandExerciseArchiveBundle_ProtectedRepack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imports, err := ExpandExerciseArchiveBundle(bundle, "pw")
+	imports, err := ExpandExerciseArchiveBundle(bundle, "pw", DefaultLimits())
 	if err != nil || len(imports) != 2 {
 		t.Fatalf("expand: %v %d", err, len(imports))
 	}
@@ -456,7 +456,7 @@ func TestExpandExerciseArchiveBundle_ProtectedRepack(t *testing.T) {
 		if item.Password != "pw" {
 			t.Fatalf("password not kept: %+v", item)
 		}
-		if _, readErr := ReadProtectedArchiveV1(item.Archive, "pw"); readErr != nil {
+		if _, readErr := ReadProtectedArchiveV1(item.Archive, "pw", DefaultLimits()); readErr != nil {
 			t.Fatalf("repacked archive is not protected: %v", readErr)
 		}
 	}
@@ -476,12 +476,12 @@ func TestReadArchive_ManifestListingNFDName(t *testing.T) {
 	doc := taskWithAttachments(`{file: "files/й.txt"}`)
 	manifest := `{"version":1,"checksums":{"exercise.yaml":"` + hashBytes(doc) + `","` + nfd + `":"` + hashBytes([]byte("й")) + `"}}`
 	data := zipOf(t, map[string][]byte{"exercise.yaml": doc, nfd: []byte("й"), "manifest.json": []byte(manifest)})
-	if _, err := ParseExerciseArchive(data, ""); err != nil {
+	if _, err := ParseExerciseArchive(data, "", DefaultLimits()); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	broken := `{"version":1,"checksums":{"` + nfd + `":"` + hashBytes([]byte("other")) + `"}}`
 	data = zipOf(t, map[string][]byte{"exercise.yaml": doc, nfd: []byte("й"), "manifest.json": []byte(broken)})
-	_, err := ParseExerciseArchive(data, "")
+	_, err := ParseExerciseArchive(data, "", DefaultLimits())
 	if !errors.Is(err, exerciseModel.ErrArchiveChecksumMismatch.Err()) || publicContext(t, err)["file"] != "files/й.txt" {
 		t.Fatalf("want mismatch naming the NFC file, got %v", err)
 	}

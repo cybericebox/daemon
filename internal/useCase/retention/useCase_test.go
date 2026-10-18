@@ -143,17 +143,103 @@ func (r *fakeRemover) DeleteInactiveAccount(_ context.Context, id uuid.UUID, _ t
 	return true, nil
 }
 
+// policySource is the platform settings source: the policy in force, or a failure to read it.
+type policySource struct {
+	policy retentionModel.Policy
+	err    error
+	calls  int
+}
+
+func (s *policySource) RetentionPolicy(context.Context) (retentionModel.Policy, error) {
+	s.calls++
+	return s.policy, s.err
+}
+
 func newUC(store *fakeStore, notifier *fakeNotifier, remover *fakeRemover, batch int32) *retention.RetentionUseCase {
 	policy := retentionModel.DefaultPolicy()
 	policy.BatchSize = batch
+	return newUCWith(store, notifier, remover, &policySource{policy: policy})
+}
+
+func newUCWith(store *fakeStore, notifier *fakeNotifier, remover *fakeRemover, policies *policySource) *retention.RetentionUseCase {
 	if store.cutoffs == nil {
 		store.cutoffs = map[string]time.Time{}
 	}
 	return retention.New(retention.Dependencies{
-		Store: store, Notifier: notifier, Accounts: remover, Policy: policy,
+		Store: store, Notifier: notifier, Accounts: remover, Policies: policies,
 		SignInURL: "https://id.example.test/sign-in",
 		Now:       func() time.Time { return now },
 	})
+}
+
+// A period saved in the platform settings applies on the next pass: the policy is read once per pass.
+func TestEnforceDataRetention_UsesThePolicyInForce(t *testing.T) {
+	policy := retentionModel.DefaultPolicy()
+	policy.DeliveryLog = 3 * 24 * time.Hour
+	source := &policySource{policy: policy}
+	store := &fakeStore{purged: map[string][]int64{}}
+	uc := newUCWith(store, &fakeNotifier{}, &fakeRemover{}, source)
+
+	if err := uc.EnforceDataRetention(context.Background()); err != nil {
+		t.Fatalf("EnforceDataRetention: %v", err)
+	}
+	if want := now.Add(-3 * 24 * time.Hour); !store.cutoffs["dispatches"].Equal(want) {
+		t.Fatalf("dispatches cutoff: got %s, want %s", store.cutoffs["dispatches"], want)
+	}
+	if source.calls != 1 {
+		t.Fatalf("the policy is read once per pass, read %d times", source.calls)
+	}
+
+	policy.DeliveryLog = 5 * 24 * time.Hour
+	source.policy = policy
+	if err := uc.EnforceDataRetention(context.Background()); err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	if want := now.Add(-5 * 24 * time.Hour); !store.cutoffs["dispatches"].Equal(want) {
+		t.Fatalf("the next pass takes the new period: got %s, want %s", store.cutoffs["dispatches"], want)
+	}
+}
+
+// Without the policy no pass runs: nothing is purged, warned or deleted.
+func TestRetention_PolicyErrorPurgesNothing(t *testing.T) {
+	store := &fakeStore{
+		purged:   map[string][]int64{},
+		toWarn:   [][]retentionModel.InactiveAccount{{{UserID: uuid.Must(uuid.NewV7())}}},
+		toDelete: [][]retentionModel.WarnedAccount{{{UserID: uuid.Must(uuid.NewV7())}}},
+	}
+	notifier, remover := &fakeNotifier{}, &fakeRemover{}
+	uc := newUCWith(store, notifier, remover, &policySource{err: errors.New("db down")})
+
+	if err := uc.EnforceDataRetention(context.Background()); err == nil {
+		t.Fatal("a pass without the policy must fail")
+	}
+	if err := uc.EnforceAccountInactivity(context.Background()); err == nil {
+		t.Fatal("an inactivity pass without the policy must fail")
+	}
+	if len(store.cutoffs) != 0 || store.clearCall != 0 || len(notifier.to) != 0 || len(remover.removed) != 0 {
+		t.Fatalf("nothing may run: cutoffs=%v cleared=%d sent=%v removed=%v", store.cutoffs, store.clearCall, notifier.to, remover.removed)
+	}
+}
+
+// The inactivity pass takes its periods and batch size from the policy in force.
+func TestEnforceAccountInactivity_UsesThePolicyInForce(t *testing.T) {
+	policy := retentionModel.DefaultPolicy()
+	policy.InactiveAccount, policy.InactivityGrace = 200*24*time.Hour, 10*24*time.Hour
+	store := &fakeStore{}
+	notifier := &fakeNotifier{}
+	store.toWarn = [][]retentionModel.InactiveAccount{{{UserID: uuid.Must(uuid.NewV7()), FirstName: "Ann"}}}
+	uc := newUCWith(store, notifier, &fakeRemover{}, &policySource{policy: policy})
+
+	if err := uc.EnforceAccountInactivity(context.Background()); err != nil {
+		t.Fatalf("EnforceAccountInactivity: %v", err)
+	}
+	want := policy.Cutoffs(now)
+	if !store.cutoffs["inactive_since"].Equal(want.InactiveSince) || !store.cutoffs["warned_before"].Equal(want.WarnedBefore) {
+		t.Fatalf("inactivity cutoffs: %+v", store.cutoffs)
+	}
+	if got := notifier.sent[0].DeletionDate; got != policy.DeletionDate(now).Format("02.01.2006") {
+		t.Fatalf("deletion date: %s", got)
+	}
 }
 
 func TestEnforceDataRetention_DrainsBatchesWithPolicyCutoffs(t *testing.T) {

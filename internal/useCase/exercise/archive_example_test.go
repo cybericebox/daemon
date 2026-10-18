@@ -178,7 +178,7 @@ func TestExampleArchive_StartsWithSchema(t *testing.T) {
 func TestExampleArchive_ImportsCleanly(t *testing.T) {
 	archive, err := exercise.ExampleArchive()
 	require.NoError(t, err)
-	imports, err := exercise.ExpandExerciseArchiveBundle(archive, "")
+	imports, err := exercise.ExpandExerciseArchiveBundle(archive, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Len(t, imports, 1)
 
@@ -397,7 +397,7 @@ func parsedContent(t *testing.T, files map[string][]byte) string {
 	t.Helper()
 	archive, err := exercise.BuildArchiveNoManifest(files)
 	require.NoError(t, err)
-	parsed, err := exercise.ParseExerciseArchive(archive, "")
+	parsed, err := exercise.ParseExerciseArchive(archive, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	out, err := json.Marshal(struct {
 		Exercise exerciseModel.Exercise

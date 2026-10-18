@@ -75,6 +75,8 @@ func (h *Handler) export(ctx *gin.Context) {
 		h.startImageExport(ctx, claims.UserID, req)
 		return
 	}
+	// One set of archive limits for every task of the export and the bundle.
+	lim := h.useCase.ArchiveLimits(ctx)
 	items := make([]exerciseUseCase.NamedArchive, 0, len(req.IDs))
 	for _, id := range req.IDs {
 		exercise, err := h.useCase.GetExercise(ctx, id)
@@ -82,7 +84,7 @@ func (h *Handler) export(ctx *gin.Context) {
 			response.AbortWithError(ctx, err)
 			return
 		}
-		archive, err := h.useCase.ExportExerciseArchive(ctx, id, exerciseUseCase.ExportOptions{IncludeSecrets: req.IncludeSecrets, Password: req.Password})
+		archive, err := h.useCase.ExportExerciseArchive(ctx, id, exerciseUseCase.ExportOptions{IncludeSecrets: req.IncludeSecrets, Password: req.Password}, lim)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
@@ -96,7 +98,7 @@ func (h *Handler) export(ctx *gin.Context) {
 			password = req.Password
 		}
 		// One zip, one folder per task, one root manifest.json.
-		bundle, err := exerciseUseCase.BundleExerciseArchives(items, password)
+		bundle, err := exerciseUseCase.BundleExerciseArchives(items, password, lim)
 		if err != nil {
 			response.AbortWithError(ctx, err)
 			return
@@ -218,7 +220,9 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	middleware.LimitBody(ctx, exerciseUseCase.MaxArchiveBytes+multipartOverheadSlack)
+	// One set of archive limits for the whole import.
+	lim := h.useCase.ArchiveLimits(ctx)
+	middleware.LimitBody(ctx, lim.ArchiveBytes+multipartOverheadSlack)
 	file, err := ctx.FormFile("archive")
 	if err != nil {
 		response.AbortWithBadRequest(ctx, err)
@@ -230,13 +234,13 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		return
 	}
 	defer func() { _ = input.Close() }()
-	contents, err := exerciseUseCase.ReadArchiveBytes(input)
+	contents, err := exerciseUseCase.ReadArchiveBytes(input, lim.ArchiveBytes)
 	if err != nil {
 		abortArchiveError(ctx, err)
 		return
 	}
 	password := ctx.PostForm("password")
-	if exerciseUseCase.ArchiveNamesImages(contents, password) {
+	if exerciseUseCase.ArchiveNamesImages(contents, password, lim) {
 		// Images need the platform registry: refuse before anything is stored.
 		if err = h.useCase.RequireImageUploads(ctx); err != nil {
 			response.AbortWithError(ctx, err)
@@ -252,7 +256,7 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: stored.ID, Password: password, CreatedBy: claims.UserID})
 		return
 	}
-	h.importContents(ctx, claims.UserID, contents, password)
+	h.importContents(ctx, claims.UserID, contents, password, lim)
 }
 
 // importExample godoc
@@ -286,7 +290,7 @@ type importUploadedRequest struct {
 }
 
 // importUploadedArchive godoc
-// @Summary      Import an exercise ZIP archive that went up in chunks (completed into a file, at most 512 MiB)
+// @Summary      Import an exercise ZIP archive that went up in chunks (completed into a file, at most the archive limit)
 // @Description  200 with the created tasks; an archive naming device image files is imported in the background:
 // @Description  202 {JobID} (see GET /exercises/import/jobs/{jobID}). Larger archives use POST /exercises/import/upload.
 // @Tags     exercises
@@ -324,16 +328,18 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 		return
 	}
 	defer func() { _ = reader.Close() }()
-	contents, err := exerciseUseCase.ReadArchiveBytes(reader)
+	// One set of archive limits for the whole import.
+	lim := h.useCase.ArchiveLimits(ctx)
+	contents, err := exerciseUseCase.ReadArchiveBytes(reader, lim.ArchiveBytes)
 	if err != nil {
 		abortArchiveError(ctx, err)
 		return
 	}
-	if exerciseUseCase.ArchiveNamesImages(contents, req.Password) {
+	if exerciseUseCase.ArchiveNamesImages(contents, req.Password, lim) {
 		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: req.FileID, Password: req.Password, CreatedBy: claims.UserID})
 		return
 	}
-	h.importContents(ctx, claims.UserID, contents, req.Password)
+	h.importContents(ctx, claims.UserID, contents, req.Password, lim)
 }
 
 // importJobStarted is the answer of an import that runs in the background (an archive naming device image files):
@@ -361,7 +367,7 @@ type importUploadRequest struct {
 // importArchiveUpload godoc
 // @Summary      Import a task archive uploaded in chunks (Purpose exercise-archive)
 // @Description  The archive is read where its chunks lie. Without device image files the tasks are created at once:
-// @Description  200 with the created tasks (the archive limits apply: 512 MiB). With image files (`image: {file: …}`)
+// @Description  200 with the created tasks (the archive limits of the platform settings apply). With image files (`image: {file: …}`)
 // @Description  the import runs in the background: 202 {JobID}; poll GET /exercises/import/jobs/{jobID}. One import
 // @Description  per upload: asking again returns the same job (a failed one runs again). 409 72801/72802 when the
 // @Description  platform image registry is not configured or failing; 409 70993 when the upload is not a complete
@@ -464,9 +470,9 @@ func (h *Handler) importJob(ctx *gin.Context) {
 	response.AbortWithData(ctx, out)
 }
 
-// importContents expands the archive bytes and imports every exercise in them.
-func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents []byte, password string) {
-	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, password)
+// importContents expands the archive bytes and imports every exercise in them, all under lim.
+func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents []byte, password string, lim exerciseModel.ArchiveLimits) {
+	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, password, lim)
 	if err != nil {
 		abortArchiveError(ctx, err)
 		return
@@ -474,7 +480,7 @@ func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents
 	created := make([]exerciseResponse, 0, len(imports))
 	for _, item := range imports {
 		view, importErr := h.useCase.ImportExerciseArchive(ctx, exerciseUseCase.ImportExerciseInput{
-			Archive: item.Archive, Password: item.Password, CreatedBy: createdBy,
+			Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, Limits: lim,
 		})
 		if importErr != nil {
 			response.AbortWithError(ctx, importErr)

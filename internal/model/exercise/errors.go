@@ -10,7 +10,8 @@ import (
 // `make lint-errors`. Each var has exactly one non-test call site; the
 // validation helpers below are structured so every rule fails in one place.
 //
-// ExerciseObjectCode — next free detail code: 100
+// ExerciseObjectCode — no free detail code left: 1–99 are taken and 100+ would spill into the next object's full
+// codes, so a new exercise error needs a new object code.
 var (
 	// multi-site: covers all read paths plus the optimistic-lock re-read
 	// discrimination (row gone) — one public "not found" fact shared across

@@ -3,6 +3,8 @@ package exercise
 import (
 	"testing"
 	"time"
+
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
 
 // EnvSecretContext lets the external tests seal a secret the way the use case does.
@@ -23,11 +25,13 @@ var (
 	NormalizeContentIDs = normalizeContentIDs
 )
 
-// SetArchiveLimits runs one test under small archive limits (archive, one entry, all entries unpacked, entries).
-func SetArchiveLimits(t testing.TB, archive, entry, unpacked int64, entries int) {
-	old := limits
-	limits = archiveLimits{Archive: archive, Entry: entry, Unpacked: unpacked, Entries: entries}
-	t.Cleanup(func() { limits = old })
+// DefaultLimits are the default archive limits, for the tests that read or write an archive under them.
+func DefaultLimits() exerciseModel.ArchiveLimits { return exerciseModel.DefaultArchiveLimits() }
+
+// Limits are small archive limits (archive, one entry, all entries unpacked, entries), so a test needs no hundreds
+// of MiB.
+func Limits(archive, entry, unpacked int64, entries int) exerciseModel.ArchiveLimits {
+	return exerciseModel.ArchiveLimits{ArchiveBytes: archive, EntryBytes: entry, UnpackedBytes: unpacked, Entries: entries}
 }
 
 // SetImportStateRetryDelay shortens the wait between writes of an import's outcome.

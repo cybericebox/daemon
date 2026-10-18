@@ -41,7 +41,7 @@ func TestYAMLToJSON_SpaceHashNeedsQuotes(t *testing.T) {
 
 func TestParseExerciseArchive_YAMLUnquotedHashBreaksFlag(t *testing.T) {
 	doc := "schema: cib-exercise/1\nexercise: {name: T}\nversions:\n  - status: draft\n    variants:\n      - tasks:\n          - name: A\n            difficulty: easy\n            flag: ICE{a #b}\n"
-	_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "")
+	_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "", DefaultLimits())
 	ctx := requireInvalid(t, err)
 	if reason, _ := ctx["reason"].(string); !strings.Contains(reason, "flag") {
 		t.Fatalf("reason = %q, want the flag validation", reason)
@@ -116,11 +116,11 @@ versions:
 `
 
 func TestParseExerciseArchive_YAMLSchema1(t *testing.T) {
-	fromJSON, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "")
+	fromJSON, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.json": minimalDoc}), "", DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
-	fromYAML, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": minimalYAML}), "")
+	fromYAML, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": minimalYAML}), "", DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestParseExerciseArchive_YAMLSchema1(t *testing.T) {
 }
 
 func TestParseExerciseArchive_YAMLWithoutSchemaRejected(t *testing.T) {
-	_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": "exercise:\n  name: T\n"}), "")
+	_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": "exercise:\n  name: T\n"}), "", DefaultLimits())
 	if !errors.Is(err, exerciseModel.ErrArchiveSchemaUnsupported.Err()) {
 		t.Fatalf("err = %v", err)
 	}
@@ -140,7 +140,7 @@ func TestParseExerciseArchive_YAMLWithoutSchemaRejected(t *testing.T) {
 
 func TestParseExerciseArchive_UnquotedNumberForStringField(t *testing.T) {
 	doc := "schema: cib-exercise/1\nexercise: {name: T}\nversions:\n  - status: draft\n    variants:\n      - tasks:\n          - name: A\n            difficulty: easy\n            image: 1.10\n"
-	_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "")
+	_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "", DefaultLimits())
 	ctx := requireInvalid(t, err)
 	if !strings.Contains(ctx["reason"].(string), "image") {
 		t.Fatalf("reason = %v", ctx["reason"])
@@ -207,7 +207,7 @@ func TestYAMLToJSON_EmptyDocument(t *testing.T) {
 func TestParseExerciseArchive_NumberFormsFailIntFields(t *testing.T) {
 	for _, value := range []string{"1e3", "99999999999999999999", "1.5"} {
 		doc := "schema: cib-exercise/1\nexercise: {name: T}\nversions:\n  - status: draft\n    variants:\n      - index: " + value + "\n        tasks:\n          - name: A\n            difficulty: easy\n"
-		_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "")
+		_, err := ParseExerciseArchive(schemaArchive(t, map[string]string{"exercise.yaml": doc}), "", DefaultLimits())
 		reason, _ := requireInvalid(t, err)["reason"].(string)
 		if !strings.Contains(reason, "index") || strings.Contains(reason, "unknown") {
 			t.Fatalf("%s: reason = %q", value, reason)

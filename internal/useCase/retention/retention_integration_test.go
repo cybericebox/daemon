@@ -89,7 +89,7 @@ VALUES ($1, $2, 1, $3, $4, 1, 'ZeroCool')`, event.ID, dormant, t0, team.ID)
 		Store:     retentionRepo.New(db.Queries),
 		Notifier:  notifier,
 		Accounts:  auth.NewAuthUseCase(auth.Dependencies{Repo: db.Queries, Notifier: notifier}),
-		Policy:    retentionModel.DefaultPolicy(),
+		Policies:  &policySource{policy: retentionModel.DefaultPolicy()},
 		SignInURL: "https://id.example.test/sign-in",
 		Now:       func() time.Time { return clock },
 	})

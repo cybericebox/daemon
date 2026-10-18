@@ -12,6 +12,18 @@ import (
 	"github.com/gofrs/uuid"
 )
 
+const deletePlatformSettingByKey = `-- name: DeletePlatformSettingByKey :exec
+DELETE
+FROM app_settings
+WHERE key = $1
+`
+
+// Removes a stored setting; a typed setting then falls back to its defaults.
+func (q *Queries) DeletePlatformSettingByKey(ctx context.Context, key string) error {
+	_, err := q.db.Exec(ctx, deletePlatformSettingByKey, key)
+	return err
+}
+
 const getPlatformSettingByKey = `-- name: GetPlatformSettingByKey :one
 SELECT id, key, value, created_at, updated_at, required_permission
 FROM app_settings

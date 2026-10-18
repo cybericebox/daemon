@@ -32,6 +32,12 @@ import (
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	// limits are the archive limits in force (nil: the defaults); limitReads counts the reads, exportLimits and
+	// imports are what the archive calls got.
+	limits                *exerciseModel.ArchiveLimits
+	limitReads            int
+	exportLimits          []exerciseModel.ArchiveLimits
+	imports               []exerciseUseCase.ImportExerciseInput
 	archiveExport         archiveExportCalls
 	elevation             exerciseUseCase.ElevationView
 	elevationReason       string
@@ -271,10 +277,19 @@ func (f *fakeUC) CheckTestFlag(_ context.Context, _, _, taskID uuid.UUID, flag s
 func (f *fakeUC) OpenTestDeployLink(_ context.Context, _, _ uuid.UUID, _ string, _ int32) (labaccess.Link, error) {
 	return f.sessionLink, f.err
 }
-func (f *fakeUC) ExportExerciseArchive(_ context.Context, _ uuid.UUID, _ exerciseUseCase.ExportOptions) ([]byte, error) {
+func (f *fakeUC) ArchiveLimits(context.Context) exerciseModel.ArchiveLimits {
+	f.limitReads++
+	if f.limits != nil {
+		return *f.limits
+	}
+	return exerciseModel.DefaultArchiveLimits()
+}
+func (f *fakeUC) ExportExerciseArchive(_ context.Context, _ uuid.UUID, _ exerciseUseCase.ExportOptions, lim exerciseModel.ArchiveLimits) ([]byte, error) {
+	f.exportLimits = append(f.exportLimits, lim)
 	return f.exportedArchive, f.err
 }
-func (f *fakeUC) ImportExerciseArchive(_ context.Context, _ exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error) {
+func (f *fakeUC) ImportExerciseArchive(_ context.Context, in exerciseUseCase.ImportExerciseInput) (exerciseUseCase.ExerciseView, error) {
+	f.imports = append(f.imports, in)
 	return f.exerciseView, f.err
 }
 
@@ -712,7 +727,7 @@ func TestExport_ReturnsStoredFile(t *testing.T) {
 	if file.FileID == "" || file.Chunks < 2 || file.ChunkSize != 64 || file.Size != int64(len(archive)) {
 		t.Fatalf("unexpected answer: %+v (zip is %d bytes)", file, len(archive))
 	}
-	if _, err = exerciseUseCase.ReadArchiveV1(bytes.NewReader(body)); err != nil {
+	if _, err = exerciseUseCase.ReadArchiveV1(bytes.NewReader(body), exerciseModel.DefaultArchiveLimits()); err != nil {
 		t.Fatalf("chunks do not reassemble to a valid zip: %v", err)
 	}
 }
@@ -762,7 +777,7 @@ func TestExportSeveralExercises_UsesFoldersInsteadOfNestedArchives(t *testing.T)
 	if file.Name != "exercises.cybericebox.zip" {
 		t.Fatalf("unexpected bundle name %q", file.Name)
 	}
-	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(bundle))
+	files, err := exerciseUseCase.ReadArchiveV1(bytes.NewReader(bundle), exerciseModel.DefaultArchiveLimits())
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
 	}

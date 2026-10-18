@@ -21,7 +21,7 @@ import (
 func TestArchiveV1_RoundTripAndChecksum(t *testing.T) {
 	data, err := exercise.BuildArchiveV1(map[string][]byte{"exercise.json": []byte(`{"name":"web"}`), "files/a.txt": []byte("payload")})
 	require.NoError(t, err)
-	got, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	got, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Equal(t, []byte("payload"), got["files/a.txt"])
 }
@@ -32,10 +32,10 @@ func TestProtectedZipArchive_RoundTripRejectsWrongPassword(t *testing.T) {
 		"files/a.txt":   []byte("private attachment"),
 	}, "strong password")
 	require.NoError(t, err)
-	restored, err := exercise.ReadProtectedArchiveV1(protected, "strong password")
+	restored, err := exercise.ReadProtectedArchiveV1(protected, "strong password", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Equal(t, []byte("private attachment"), restored["files/a.txt"])
-	_, err = exercise.ReadProtectedArchiveV1(protected, "wrong")
+	_, err = exercise.ReadProtectedArchiveV1(protected, "wrong", exercise.DefaultLimits())
 	require.Error(t, err)
 }
 
@@ -46,11 +46,11 @@ func TestExpandExerciseArchiveBundle_RestoresFolderArchives(t *testing.T) {
 		"second/exercise.json": []byte(`{"schema":"cib-exercise/1"}`),
 	})
 	require.NoError(t, err)
-	imports, err := exercise.ExpandExerciseArchiveBundle(bundle, "")
+	imports, err := exercise.ExpandExerciseArchiveBundle(bundle, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Len(t, imports, 2)
 	for _, item := range imports {
-		files, readErr := exercise.ReadArchiveV1(bytes.NewReader(item.Archive))
+		files, readErr := exercise.ReadArchiveV1(bytes.NewReader(item.Archive), exercise.DefaultLimits())
 		require.NoError(t, readErr)
 		require.Contains(t, files, "exercise.json")
 	}
@@ -133,9 +133,9 @@ func TestExportExerciseArchive_OmitsRegenerateFlags(t *testing.T) {
 	}, nil)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
-	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{})
+	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
-	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.NotContains(t, string(files["exercise.json"]), "RegenerateFlagsOnPublish")
 }
@@ -150,9 +150,9 @@ func TestExportExerciseArchive_IncludesLabel(t *testing.T) {
 	}, nil)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
-	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{})
+	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
-	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 	var doc struct {
 		Versions []struct {
@@ -256,12 +256,12 @@ func TestExportExerciseArchive_IsImportableSchema1(t *testing.T) {
 	}, nil)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 
-	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{})
+	data, err := uc.ExportExerciseArchive(context.Background(), exID, exercise.ExportOptions{}, exercise.DefaultLimits())
 	require.NoError(t, err)
-	files, err := exercise.ReadArchiveV1(bytes.NewReader(data))
+	files, err := exercise.ReadArchiveV1(bytes.NewReader(data), exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(string(files["exercise.json"]), "{\n  \"schema\": \"cib-exercise/1\","))
-	parsed, err := exercise.ParseExerciseArchive(data, "")
+	parsed, err := exercise.ParseExerciseArchive(data, "", exercise.DefaultLimits())
 	require.NoError(t, err)
 	require.Equal(t, "portable", parsed.Exercise.Name)
 }

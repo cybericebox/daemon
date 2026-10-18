@@ -598,7 +598,7 @@ func queryInt64(ctx *gin.Context, name string) int64 {
 //	@Param			memory			query		int	true	"laboratory memory, bytes"
 //	@Param			deviceCpu		query		int	false	"largest device CPU, millicores"
 //	@Param			deviceMemory	query		int	false	"largest device memory, bytes"
-//	@Param			leaseMinutes	query		int	false	"how long it will run (default 120)"
+//	@Param			leaseMinutes	query		int	false	"how long it will run (default: the saved test-run lease)"
 //	@Success		200				{object}	response.Response{data=testLabRoomDTO}
 //	@Router			/exercises/test-labs/room [get]
 func (h *Handler) testLabRoom(ctx *gin.Context) {

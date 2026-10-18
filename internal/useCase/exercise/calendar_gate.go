@@ -27,7 +27,7 @@ type TestLabGate interface {
 func (u *ExerciseUseCase) SetTestLabGate(g TestLabGate) { u.testLabGate = g }
 
 // admitTestLab asks the calendar for room for the laboratory of this topology; the hold is keyed by the deploy id.
-func (u *ExerciseUseCase) admitTestLab(ctx context.Context, id, owner uuid.UUID, topo exerciseModel.Topology) error {
+func (u *ExerciseUseCase) admitTestLab(ctx context.Context, id, owner uuid.UUID, topo exerciseModel.Topology, lease time.Duration) error {
 	if u.testLabGate == nil {
 		return nil
 	}
@@ -37,17 +37,17 @@ func (u *ExerciseUseCase) admitTestLab(ctx context.Context, id, owner uuid.UUID,
 		largest = largest.Max(d.Amount)
 	}
 	_, err := u.testLabGate.AdmitTestLab(ctx, calendarUseCase.TestLabRequest{
-		ID: id, Owner: owner, Size: policy.Total(topo).Amount, LargestDevice: largest, Lease: u.testDeployTTL(),
+		ID: id, Owner: owner, Size: policy.Total(topo).Amount, LargestDevice: largest, Lease: lease,
 	})
 	return err
 }
 
 // admitStaticTest asks the calendar to admit a static test, which reserves nothing.
-func (u *ExerciseUseCase) admitStaticTest(ctx context.Context, id, owner uuid.UUID) error {
+func (u *ExerciseUseCase) admitStaticTest(ctx context.Context, id, owner uuid.UUID, lease time.Duration) error {
 	if u.testLabGate == nil {
 		return nil
 	}
-	_, err := u.testLabGate.AdmitTestLab(ctx, calendarUseCase.TestLabRequest{ID: id, Owner: owner, Static: true, Lease: u.testDeployTTL()})
+	_, err := u.testLabGate.AdmitTestLab(ctx, calendarUseCase.TestLabRequest{ID: id, Owner: owner, Static: true, Lease: lease})
 	return err
 }
 
@@ -72,13 +72,13 @@ func eventPreviewTestGroup(eventID, owner uuid.UUID) string {
 	hash := sha256.Sum256(append(eventID.Bytes(), owner.Bytes()...))
 	return fmt.Sprintf("tp-%x", hash[:16])
 }
-func (u *ExerciseUseCase) eventPreviewLabRequest(eventID, id, owner uuid.UUID, group string, topo exerciseModel.Topology) calendarUseCase.EventTestLabRequest {
+func (u *ExerciseUseCase) eventPreviewLabRequest(eventID, id, owner uuid.UUID, group string, topo exerciseModel.Topology, lease time.Duration) calendarUseCase.EventTestLabRequest {
 	policy := u.Policy()
 	var largest calendarUseCase.Amount
 	for _, d := range policy.Devices(topo) {
 		largest = largest.Max(d.Amount)
 	}
-	return calendarUseCase.EventTestLabRequest{EventID: eventID, Group: group, TestLabRequest: calendarUseCase.TestLabRequest{ID: id, Owner: owner, Size: policy.Total(topo).Amount, LargestDevice: largest, Lease: u.testDeployTTL()}}
+	return calendarUseCase.EventTestLabRequest{EventID: eventID, Group: group, TestLabRequest: calendarUseCase.TestLabRequest{ID: id, Owner: owner, Size: policy.Total(topo).Amount, LargestDevice: largest, Lease: lease}}
 }
 func (u *ExerciseUseCase) EventPreviewAllocated(ctx context.Context, eventID uuid.UUID) (bool, error) {
 	gate, ok := u.testLabGate.(eventTestLabGate)
@@ -103,7 +103,7 @@ func (u *ExerciseUseCase) CanStartEventPreview(ctx context.Context, eventID, ver
 	if !known {
 		return false, nil
 	}
-	req := u.eventPreviewLabRequest(eventID, uuid.Nil, uuid.Nil, "", variant.Topology)
+	req := u.eventPreviewLabRequest(eventID, uuid.Nil, uuid.Nil, "", variant.Topology, u.testRunLeases(ctx).Lease)
 	req.GroupOverhead = overhead
 	room, err := gate.CheckEventTestLabRoom(ctx, req)
 	if err != nil {

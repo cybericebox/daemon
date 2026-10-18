@@ -2576,6 +2576,20 @@ func (mr *MockQuerierMockRecorder) DeletePlatformSMTPProvider(ctx, id any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePlatformSMTPProvider", reflect.TypeOf((*MockQuerier)(nil).DeletePlatformSMTPProvider), ctx, id)
 }
 
+// DeletePlatformSettingByKey mocks base method.
+func (m *MockQuerier) DeletePlatformSettingByKey(ctx context.Context, key string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeletePlatformSettingByKey", ctx, key)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeletePlatformSettingByKey indicates an expected call of DeletePlatformSettingByKey.
+func (mr *MockQuerierMockRecorder) DeletePlatformSettingByKey(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeletePlatformSettingByKey", reflect.TypeOf((*MockQuerier)(nil).DeletePlatformSettingByKey), ctx, key)
+}
+
 // DeleteResourceTestLabHold mocks base method.
 func (m *MockQuerier) DeleteResourceTestLabHold(ctx context.Context, id uuid.UUID) error {
 	m.ctrl.T.Helper()
