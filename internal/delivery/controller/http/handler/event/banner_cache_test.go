@@ -151,3 +151,56 @@ func TestEventMediaDeniedOrBrokenCarriesNoValidatorAndIsNeverCached(t *testing.T
 		})
 	}
 }
+
+type typedMediaFake struct {
+	mediaFake
+	stored string
+	body   []byte
+}
+
+func (u *typedMediaFake) OpenEventMedia(context.Context, uuid.UUID) (io.ReadCloser, string, error) {
+	return io.NopCloser(strings.NewReader(string(u.body))), u.stored, nil
+}
+
+var pngBytes = append([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}, make([]byte, 600)...)
+
+func jsonDefaultRouter(u eventHandler.IUseCase) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(response.WithErrorHandler, func(ctx *gin.Context) { ctx.Header("Content-Type", "application/json") })
+	eventHandler.NewEventAPIHandler(u, allowEventCRUD{}).Init(router.Group("api"))
+	return router
+}
+
+func TestEventMediaContentTypeIsAlwaysTheImageType(t *testing.T) {
+	cases := []struct{ name, stored, want string }{
+		{"empty stored type is detected", "", "image/png"},
+		{"stored image type wins", "image/x-icon", "image/x-icon"},
+		{"stored json is ignored", "application/json", "image/png"},
+		{"stored type with parameters", "image/png; charset=binary", "image/png"},
+	}
+	for _, route := range mediaRoutes {
+		for _, c := range cases {
+			t.Run(route+"/"+c.name, func(t *testing.T) {
+				u := &typedMediaFake{mediaFake: mediaFake{public: true}, stored: c.stored, body: pngBytes}
+				router := jsonDefaultRouter(u)
+				w := mediaGet(router, route, uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String())
+				require.Equal(t, http.StatusOK, w.Code)
+				require.Equal(t, c.want, w.Header().Get("Content-Type"))
+				require.NotContains(t, w.Header().Get("Content-Type"), "json")
+				require.Equal(t, pngBytes, w.Body.Bytes())
+			})
+		}
+	}
+}
+
+func TestEventMediaRefusesNonImages(t *testing.T) {
+	for _, route := range mediaRoutes {
+		t.Run(route, func(t *testing.T) {
+			u := &typedMediaFake{mediaFake: mediaFake{public: true}, stored: "application/json", body: []byte(`{"a":1}`)}
+			w := mediaGet(jsonDefaultRouter(u), route, uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String())
+			require.Equal(t, http.StatusNotFound, w.Code)
+			require.Empty(t, w.Header().Get("ETag"))
+		})
+	}
+}
