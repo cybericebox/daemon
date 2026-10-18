@@ -379,7 +379,7 @@ func (h *Handler) listChangeRequests(ctx *gin.Context) {
 // decideChangeRequest godoc
 //
 //	@Summary		Approve or reject a resource change request
-//	@Description	Approving extends the existing reservation (size, estimate, window; the tail gap still applies on top of a later end) and places it again keeping every team that still fits. If it no longer fits by packing it is refused with 409 unless AllowConflicts is set (the reservation is then not covered and an alarm is raised). Nothing is moved automatically. Requires infrastructure.write.
+//	@Description	Approving extends the existing reservation (size, estimate, window; a requested end is the real end of the reservation) and places it again keeping every team that still fits. If it no longer fits by packing it is refused with 409 unless AllowConflicts is set (the reservation is then not covered and an alarm is raised). Nothing is moved automatically. Requires infrastructure.write.
 //	@Tags			infrastructure
 //	@Accept			json
 //	@Produce		json
@@ -551,7 +551,7 @@ func (h *Handler) getEventResources(ctx *gin.Context) {
 // requestChange godoc
 //
 //	@Summary		Ask for a change of the event's resources (organizer)
-//	@Description	Sends the platform admin a request to change the event's reservation: the size, the window (the tail gap still applies on top of a later end) and/or the estimate for future dynamic tasks, with a reason. One request waits at a time (409 while one is pending); extending the existing reservation is the way. 404 when the event has no reservation. The admin approves or rejects it; the organizer is told the outcome.
+//	@Description	Sends the platform admin a request to change the event's reservation: the size, the window (a requested end is the real end of the reservation) and/or the estimate for future dynamic tasks, with a reason. One request waits at a time (409 while one is pending); extending the existing reservation is the way. 404 when the event has no reservation. The admin approves or rejects it; the organizer is told the outcome.
 //	@Tags			events
 //	@Accept			json
 //	@Produce		json
