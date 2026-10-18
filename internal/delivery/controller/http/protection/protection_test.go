@@ -763,10 +763,18 @@ func TestAnonymousRequestCountedInTheBucketOfTheRoute(t *testing.T) {
 	}
 }
 
-// authNoDB is the real auth use case over a Querier mock without expectations: any query fails the test.
-type authNoDB struct{ *authUseCase.AuthUseCase }
+// authNoDB is the real auth use case over a Querier mock without expectations: any query, and any audit
+// write, fails the test.
+type authNoDB struct {
+	*authUseCase.AuthUseCase
 
-func (authNoDB) RecordAdminAction(context.Context, adminAuditUseCase.Entry) error { return nil }
+	t *testing.T
+}
+
+func (a authNoDB) RecordAdminAction(context.Context, adminAuditUseCase.Entry) error {
+	a.t.Error("the 401 path wrote an audit entry")
+	return nil
+}
 
 // A cookie-less request to a route that needs a session is refused with 401 without one database query.
 func TestNoCookie401TouchesNoDB(t *testing.T) {
@@ -777,7 +785,7 @@ func TestNoCookie401TouchesNoDB(t *testing.T) {
 		Config: config.AuthConfig{SessionIdleTTL: time.Hour},
 	})
 	p := protection.New(
-		protection.Dependencies{UseCase: authNoDB{uc}, Limiter: orderLimiter{&fakeUseCase{}}},
+		protection.Dependencies{UseCase: authNoDB{uc, t}, Limiter: orderLimiter{&fakeUseCase{}}},
 	)
 	w := httptest.NewRecorder()
 	sessionRouter(p, rbac.PermSelf).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/x", nil))

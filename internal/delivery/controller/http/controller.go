@@ -1,3 +1,4 @@
+// Package http is the HTTP controller: the router, its global middleware chain and the listeners.
 package http
 
 import (
@@ -133,8 +134,8 @@ func NewController(deps Dependencies) *Controller {
 	// (with credentials) must run before any route handling.
 	originPolicy := newOriginPolicy(deps)
 	router.Use(middleware.HandleCORS(originPolicy), middleware.OriginGuardWith(originPolicy),
-		// General request limiter (after CORS, so a 429 stays readable by the page): cookie-less requests to
-		// unknown paths and ungated routes here, the rest in the permission gate.
+		// General request limiter (after CORS, so a 429 stays readable by the page): every cookie-less request
+		// here, in its route's anonymous bucket; signed-in ones in the permission gate.
 		limiter.Anonymous,
 		// In-flight limiter: after CORS (its 503 stays readable by the page) and after the origin guard and the
 		// anonymous limit (a refused request never takes a slot); before the handlers and the database.
