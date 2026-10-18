@@ -715,3 +715,33 @@ func TestExerciseVersionCopies_KeepLinks(t *testing.T) {
 	}
 	requireLinked("restored draft", restored)
 }
+
+// TestExerciseRepoListCursor_NilTagsAndEventIDs guards the callers that leave
+// Tags/EventIDs unset (platform participant preview catalog): a nil slice is
+// sent as SQL NULL, and cardinality(NULL) = 0 is NULL, which hid every row.
+func TestExerciseRepoListCursor_NilTagsAndEventIDs(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	a := mustCreateExerciseFull(t, repo, "Fallen package", "", nil, itNow)
+	b := mustCreateExerciseFull(t, repo, "Comm log", "", []string{"web"}, itNow.Add(time.Minute))
+
+	rows, err := repo.ListCursor(ctx, exerciseRepo.ListParams{
+		Archived: "exclude", Visibility: exerciseRepo.Visibility{Scope: "catalog"},
+		CursorCreatedAt: itCursorSentinelTime, CursorID: itMaxUUID, Limit: 100,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0].ID != b.ID || rows[1].ID != a.ID {
+		t.Fatalf("nil Tags/EventIDs must not filter rows, got %d rows", len(rows))
+	}
+	page, err := repo.ListPage(ctx, exerciseRepo.PageParams{Archived: "exclude", Visibility: exerciseRepo.Visibility{Scope: "catalog"}, SortBy: "name", SortDir: "asc", Limit: 10})
+	if err != nil || len(page) != 2 {
+		t.Fatalf("ListPage with nil tags: %d rows err=%v", len(page), err)
+	}
+	n, err := repo.Count(ctx, "", nil, "exclude", exerciseRepo.Visibility{Scope: "catalog"})
+	if err != nil || n != 2 {
+		t.Fatalf("Count with nil tags: %d err=%v", n, err)
+	}
+}
