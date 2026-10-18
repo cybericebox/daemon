@@ -45,13 +45,12 @@ const (
 )
 
 // DeployHandle identifies a deployed variant lab. The group name doubles as the
-// externally visible deploy id; the lab and VPN-client names are conventional,
+// externally visible deploy id; the lab name is conventional,
 // so the status/teardown paths reconstruct the handle from the group alone.
 type DeployHandle struct {
 	Group     string
 	Lab       string
 	Namespace string
-	VPNClient string // empty when the variant needs no VPN
 	// Flags are the values injected into the linked devices of a test deploy,
 	// one per flag-linked task, so the author can compare them.
 	Flags []DeployFlag
@@ -77,7 +76,7 @@ type LabDeployStatus struct {
 	InternetCIDR  string
 	Devices       []LabDeployedDevice
 	Access        []LabAccess
-	// VPNConfig is the tester's WireGuard config, present once a VPN-enabled lab
+	// VPNConfig is the author's WireGuard config, present once a VPN-enabled lab
 	// has provisioned its client. Empty for labs without VPN or before it is ready.
 	VPNConfig string
 	// Queue is the place in the operator's scheduler queue; nil for a lab the scheduler does not track.
@@ -94,7 +93,7 @@ type LabDeployStatus struct {
 	CPUMillicores, MemoryBytes int64
 	UsageAvailable             bool
 	VPNLastHandshake           time.Time
-	// VPNProbeURL is the tester page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.
+	// VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.
 	VPNProbeURL string
 	// SolvedTasks are the tasks the author has already checked correctly; filled by the use case.
 	SolvedTasks []uuid.UUID

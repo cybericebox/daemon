@@ -32933,9 +32933,6 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exercise.deployTaskResponse"
                     }
-                },
-                "VPNClient": {
-                    "type": "string"
                 }
             }
         },
@@ -33011,7 +33008,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "VPNProbeURL": {
-                    "description": "VPNProbeURL is the tester page served inside the tunnel by the lab group's VPN pod; absent until known.",
+                    "description": "VPNProbeURL is the probe page served inside the tunnel by the lab group's VPN pod; absent until known.",
                     "type": "string"
                 }
             }
@@ -34658,7 +34655,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "vpnconfig": {
-                    "description": "VPNConfig is the tester's WireGuard config, present once a VPN-enabled lab\nhas provisioned its client. Empty for labs without VPN or before it is ready.",
+                    "description": "VPNConfig is the author's WireGuard config, present once a VPN-enabled lab\nhas provisioned its client. Empty for labs without VPN or before it is ready.",
                     "type": "string"
                 },
                 "vpnconnected": {
@@ -34669,7 +34666,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "vpnprobeURL": {
-                    "description": "VPNProbeURL is the tester page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.",
+                    "description": "VPNProbeURL is the probe page the group's VPN pod serves inside the tunnel; empty when unknown. Filled by the use case.",
                     "type": "string"
                 }
             }

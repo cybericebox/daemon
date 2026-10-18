@@ -28,8 +28,8 @@ const CoverageTolerance = 150 * time.Second
 
 // UserFromSubject returns the user of a LabGroupClient name. Both the VPN and
 // the web proxy report the client (group, client, lab), so the surface does not
-// change the mapping. Anything that is not a participant client (the shared
-// «tester» client, a staff client of a group the platform does not count) is
+// change the mapping. Anything that is not a participant client (a staff client of a
+// group the platform does not count, a client left over from an older version) is
 // not attributable.
 func UserFromSubject(_ Surface, subject string) (uuid.UUID, bool) {
 	return labBindingModel.ParseParticipantClientName(subject)

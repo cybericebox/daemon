@@ -281,8 +281,8 @@ func TestDeployLabSendsVariantOnceWithLabelsDeployGroupAndAllVariablesAsLabEnv(t
 	if len(variant.GetEnv()) != 0 || len(item.GetEnv()) != 1 || item.GetEnv()[0].GetDevice() != "web" || item.GetEnv()[0].GetVars()["FLAG"] != "ICE{x}" || item.GetEnv()[0].GetVars()["MODE"] != "ctf" {
 		t.Fatalf("variables = variant %v item %v", variant.GetEnv(), item.GetEnv())
 	}
-	if len(f.createCl.GetItems()) != 1 || f.createCl.GetItems()[0].GetName() != deployVPNClient {
-		t.Fatalf("a VPN topology gets the tester client: %+v", f.createCl)
+	if f.createCl != nil {
+		t.Fatalf("a VPN deploy creates no client: callers ask for their own with EnsureLabClient: %+v", f.createCl)
 	}
 }
 

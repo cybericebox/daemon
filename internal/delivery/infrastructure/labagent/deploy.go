@@ -20,11 +20,11 @@ import (
 )
 
 // Conventional names within a deploy: the lab group name is the caller's deploy
-// id, and the lab and VPN-client names are fixed so status/teardown reconstruct
-// the whole handle from the group alone.
+// id, and the lab name is fixed so status/teardown reconstruct the whole handle
+// from the group alone. A deploy creates no VPN client: callers ask for their own
+// with EnsureLabClient.
 const (
-	deployLabName   = "lab"
-	deployVPNClient = "tester"
+	deployLabName = "lab"
 	// deployVariantID names the one variant a single-lab deploy sends.
 	deployVariantID = "v"
 )
@@ -104,21 +104,6 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	}
 	if err = oneResult("create lab", res.GetResults()); err != nil {
 		return err
-	}
-	if topo.VPN.Enabled {
-		cl, clErr := c.CreateLabGroupClients(ctx, &labpb.CreateLabGroupClientsRequest{
-			Labels: c.requestLabels(),
-			Items:  []*labpb.LabGroupClientItem{{LabGroup: group, Name: deployVPNClient}},
-		})
-		if clErr != nil {
-			return agentErr("create vpn client", clErr)
-		}
-		if len(cl.GetResults()) != 1 {
-			return fmt.Errorf("create vpn client: %d results for 1 item", len(cl.GetResults()))
-		}
-		if err = oneResult("create vpn client", []*labpb.ItemResult{cl.GetResults()[0].GetResult()}); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -232,8 +217,8 @@ func (c *Client) GetVPNClientSubnet(ctx context.Context, group string) (string, 
 }
 
 // EnsureLabClient creates one named WireGuard client in an existing lab group and returns its
-// config. Event runtime callers derive the name from a participant id, so no two people ever
-// receive the shared test-deploy "tester" credential. The agent returns the private key only in
+// config. Callers derive the name from a participant or author id, so no two people ever
+// share a credential. The agent returns the private key only in
 // the answer of the create call: a client that already exists cannot give its config again.
 //
 // A client that already exists (its config was lost before the caller stored it) is deleted and
