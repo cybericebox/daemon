@@ -4,6 +4,7 @@ package errorjournalJob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -12,6 +13,7 @@ import (
 
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
+	"github.com/cybericebox/daemon/pkg/overload"
 )
 
 // ErrorHandler is River's error handler: it reports to the installed error journal reporter. It never changes how a
@@ -22,6 +24,11 @@ func (ErrorHandler) HandleError(_ context.Context, job *rivertype.JobRow, err er
 	// A job that used its last attempt is discarded: that is the one to tell people about. An earlier failure is
 	// recorded, and told only when its fingerprint is new.
 	final := job.Attempt >= job.MaxAttempts
+	// A busy database is protection working under load, like the 503 of a request: River retries the job, and
+	// only the attempt that discards it is a fault worth recording.
+	if !final && errors.Is(err, overload.ErrDBBusy) {
+		return nil
+	}
 	rule := errorJournal.NotifyNew
 	if final {
 		rule = errorJournal.NotifyAlways
