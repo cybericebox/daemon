@@ -23,11 +23,11 @@ const (
 	percent           = 100
 )
 
-// TransferRoutes are the route templates of uploads (a per-route LimitBody), downloads, exports and media
-// streams: slow by nature, they take transfer slots of the in-flight limiter, never general ones (a test
-// checks each one is mounted).
+// TransferRoutes are the route templates of uploads (a per-route LimitBody), downloads, exports and the
+// editors' media streams: slow by nature, they take transfer slots of the in-flight limiter, never general
+// ones (a test checks each one is mounted). The public media (PublicMediaRoutes) have a class of their own.
 func TransferRoutes() []string {
-	routes := []string{
+	return []string{
 		// uploads
 		"/api/auth/account/avatar",
 		"/api/events/self/answer-files",
@@ -69,14 +69,10 @@ func TransferRoutes() []string {
 		"/api/events/:id/manage/analytics/report/export.zip",
 		"/api/events/:id/manage/results/export.csv",
 		"/api/events/:id/manage/solution-attempts/export.csv",
-		// media streamed from the object store (and the public media of PublicMediaRoutes)
+		// editors' media streamed from the object store
 		"/api/notifications/templates/email/images/:fileID",
 		"/api/events/:id/manage/notification-templates/email/images/:fileID",
 	}
-	for route := range PublicMediaRoutes {
-		routes = append(routes, route)
-	}
-	return routes
 }
 
 type internalListenerKey struct{}
@@ -99,6 +95,7 @@ const (
 	inflightGeneral inflightClass = iota
 	inflightStreams
 	inflightTransfers
+	inflightMedia
 	inflightClasses
 )
 
@@ -109,18 +106,21 @@ type sessionSlots struct {
 	users int
 }
 
-// InflightLimiter bounds the requests a replica serves at once, in three classes with their own slots:
-// live streams, transfers and everything else (unmatched paths included). /api/health is never limited.
+// InflightLimiter bounds the requests a replica serves at once, in four classes with their own slots:
+// live streams, transfers, public media (page images: short, but never retried by the browser) and
+// everything else (unmatched paths included). /api/health is never limited.
 // Inside the general class, anonymous requests share a part of the slots and one session may hold only a
 // few at once, so neither unauthenticated clients nor one account can take them all; the internal listener
-// is held to the general cap only. A request over a cap waits up to the configured wait (streams never wait)
-// and is then refused with the overload 503. In memory, per replica.
+// is held to the general cap only. A request over a cap waits (streams never do) and is then refused with the
+// overload 503: up to Wait for a general or transfer slot, up to SubcapWait for its session's or the
+// anonymous share's slot and for a media slot. In memory, per replica.
 type InflightLimiter struct {
 	slots      [inflightClasses]chan struct{} // nil: that cap is off
 	anon       chan struct{}                  // nil: no anonymous share
 	perSession int                            // 0: no per-session cap
 	sessionKey func(*gin.Context) (string, bool)
 	wait       time.Duration
+	subcapWait time.Duration
 	now        func() time.Time
 
 	// transfers holds TransferRoutes.
@@ -134,6 +134,7 @@ type InflightLimiter struct {
 	rejected        [inflightClasses]atomic.Int64
 	rejectedAnon    atomic.Int64
 	rejectedSession atomic.Int64
+	dbBusy          atomic.Int64 // DB-busy 503s (no connection within the acquire timeout)
 	lastReport      atomic.Int64 // unix nanoseconds of the last summary
 }
 
@@ -145,6 +146,7 @@ func NewInflightLimiter(
 ) *InflightLimiter {
 	l := &InflightLimiter{
 		wait:       cfg.Wait,
+		subcapWait: cfg.SubcapWait,
 		now:        time.Now,
 		perSession: cfg.PerSession,
 		sessionKey: sessionKey,
@@ -158,6 +160,7 @@ func NewInflightLimiter(
 		inflightGeneral:   cfg.Max,
 		inflightStreams:   cfg.StreamsMax,
 		inflightTransfers: cfg.TransfersMax,
+		inflightMedia:     cfg.MediaMax,
 	}
 	for class, size := range sizes {
 		if size > 0 {
@@ -180,10 +183,13 @@ func (l *InflightLimiter) Handle(ctx *gin.Context) {
 		ctx.Next()
 		return
 	}
+	defer l.countDBBusy(ctx)
 	class, wait := inflightGeneral, l.wait
 	switch {
 	case exemptFromRateLimit[path]:
 		class, wait = inflightStreams, 0
+	case PublicMediaRoutes[path]:
+		class, wait = inflightMedia, l.subcapWait
 	case l.transfers[path]:
 		class = inflightTransfers
 	}
@@ -203,7 +209,12 @@ func (l *InflightLimiter) Handle(ctx *gin.Context) {
 			defer leave()
 		}
 		if sub != nil {
-			if !l.admit(ctx, w, sub, class, counter) {
+			// The sub-cap has its own, longer budget: waiting for one's own session slot holds no general one,
+			// and a page's burst of parallel requests must not be refused for being a burst.
+			sw := &waiter{done: ctx.Request.Context().Done(), wait: l.subcapWait}
+			admitted := l.admit(ctx, sw, sub, class, counter)
+			sw.stop()
+			if !admitted {
 				return
 			}
 			defer func() { <-sub }()
@@ -387,16 +398,23 @@ func (l *InflightLimiter) report() {
 		counts[class] = l.rejected[class].Swap(0)
 		peaks[class] = l.peak[class].Swap(l.inflight[class].Load())
 	}
+	var rejected int64
+	for _, n := range counts {
+		rejected += n
+	}
 	log.Warn().
-		Int64("rejected", counts[inflightGeneral]+counts[inflightStreams]+counts[inflightTransfers]).
+		Int64("rejected", rejected).
 		Int64("rejected_general", counts[inflightGeneral]).
 		Int64("rejected_anonymous", l.rejectedAnon.Swap(0)).
 		Int64("rejected_per_session", l.rejectedSession.Swap(0)).
 		Int64("rejected_streams", counts[inflightStreams]).
 		Int64("rejected_transfers", counts[inflightTransfers]).
+		Int64("rejected_media", counts[inflightMedia]).
+		Int64("db_busy", l.dbBusy.Swap(0)).
 		Int64("peak_general", peaks[inflightGeneral]).
 		Int64("peak_streams", peaks[inflightStreams]).
 		Int64("peak_transfers", peaks[inflightTransfers]).
+		Int64("peak_media", peaks[inflightMedia]).
 		Msg("In-flight limit refused requests")
 }
 
@@ -406,5 +424,13 @@ func (l *InflightLimiter) anyRejected() bool {
 			return true
 		}
 	}
-	return false
+	return l.dbBusy.Load() > 0
+}
+
+// countDBBusy counts a request answered with the DB-busy 503 (its error is stored, the outer error handler
+// writes it), for the summary line.
+func (l *InflightLimiter) countDBBusy(ctx *gin.Context) {
+	if response.IsDBBusy(ctx) {
+		l.dbBusy.Add(1)
+	}
 }

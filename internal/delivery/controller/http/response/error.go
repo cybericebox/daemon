@@ -27,6 +27,13 @@ func IsOverload(ctx *gin.Context) bool {
 	return ok
 }
 
+// IsDBBusy reports whether the request ends with the DB-busy 503: its stored error comes from a database
+// call that found no free connection in time. It works before WithErrorHandler has written the response.
+func IsDBBusy(ctx *gin.Context) bool {
+	stored := getErrorFromContext(ctx)
+	return stored != nil && errors.Is(stored, overload.ErrDBBusy)
+}
+
 func getErrorFromContext(ctx context.Context) err.Error {
 	errFromContext := ctx.Value(ErrorCtxKey)
 
