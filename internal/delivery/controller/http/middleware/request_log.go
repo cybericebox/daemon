@@ -46,13 +46,17 @@ func consoleLine(p gin.LogFormatterParams) string {
 // for 4xx, error for 5xx, with gin's collected errors when there are any. Each
 // line names the route template (empty for a path no route matches) and
 // whether the caller was anonymous. The refusals a flood produces in bulk (401,
-// 429 and the overload 503) are sampled, see refusalSampler.
+// 429 and the overload 503) are sampled per status and route, see refusalSampler.
 func RequestLogger() gin.HandlerFunc {
 	return requestLogger(time.Now)
 }
 
 func requestLogger(now func() time.Time) gin.HandlerFunc {
-	sampler := &refusalSampler{now: now, last: map[int]time.Time{}, suppressed: map[int]int{}}
+	sampler := &refusalSampler{
+		now:        now,
+		last:       map[sampleKey]time.Time{},
+		suppressed: map[sampleKey]int{},
+	}
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
@@ -65,7 +69,7 @@ func requestLogger(now func() time.Time) gin.HandlerFunc {
 		suppressed := 0
 		if sampled(c, status) {
 			var write bool
-			if write, suppressed = sampler.admit(status); !write {
+			if write, suppressed = sampler.admit(sampleKey{status, c.FullPath()}); !write {
 				return
 			}
 			level = zerolog.WarnLevel
@@ -106,27 +110,33 @@ func sampled(c *gin.Context, status int) bool {
 	return false
 }
 
-// refusalSampler writes at most one line per status per second: the first; the rest are counted and the
-// count goes on the next written line of that status.
+// sampleKey groups the sampled lines: a status on a route template (the set is finite, so are the maps).
+type sampleKey struct {
+	status int
+	route  string
+}
+
+// refusalSampler writes at most one line per status and route per second: the first; the rest are counted
+// and the count goes on the next written line of that status and route.
 type refusalSampler struct {
 	mu         sync.Mutex
 	now        func() time.Time
-	last       map[int]time.Time
-	suppressed map[int]int
+	last       map[sampleKey]time.Time
+	suppressed map[sampleKey]int
 }
 
-// admit says whether the line of status is written, and how many lines of status were dropped before it.
-func (s *refusalSampler) admit(status int) (bool, int) {
+// admit says whether the line of key is written, and how many lines of key were dropped before it.
+func (s *refusalSampler) admit(key sampleKey) (bool, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	if last, ok := s.last[status]; ok && now.Sub(last) < time.Second {
-		s.suppressed[status]++
+	if last, ok := s.last[key]; ok && now.Sub(last) < time.Second {
+		s.suppressed[key]++
 		return false, 0
 	}
-	s.last[status] = now
-	dropped := s.suppressed[status]
-	delete(s.suppressed, status)
+	s.last[key] = now
+	dropped := s.suppressed[key]
+	delete(s.suppressed, key)
 	return true, dropped
 }
 
