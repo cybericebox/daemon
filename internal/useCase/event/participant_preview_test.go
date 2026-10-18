@@ -8,6 +8,7 @@ import (
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	preview "github.com/cybericebox/daemon/internal/model/participantPreview"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 	event "github.com/cybericebox/daemon/internal/useCase/event"
 	"github.com/cybericebox/daemon/pkg/labaccess"
 	"github.com/gofrs/uuid"
@@ -516,9 +517,56 @@ func TestPreviewGlobalCatalogStartsFromSentinelCursor(t *testing.T) {
 	}).AnyTimes()
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), version).Return(postgres.ExerciseVersion{ID: version, ExerciseID: exercise, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: data}, nil).AnyTimes()
 	q.EXPECT().GetExerciseByID(gomock.Any(), exercise).Return(postgres.Exercise{ID: exercise, Name: "Catalog"}, nil).AnyTimes()
-	items, err := uc.ListPreviewCatalog(context.Background(), uuid.Nil, uuid.Must(uuid.NewV7()), "")
+	items, err := uc.ListPreviewCatalog(adminCtx(), uuid.Nil, uuid.Must(uuid.NewV7()), "")
 	if err != nil || len(items) != 1 {
 		t.Fatalf("catalog = %v, err = %v", items, err)
+	}
+}
+
+func adminCtx() context.Context {
+	return rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RoleAdmin})
+}
+
+// A caller without exercises.read only gets tasks the repository lets them read: the query is scoped to them and the
+// archived pass never runs, so another owner's restricted or archived task never reaches them.
+func TestPreviewGlobalCatalogScopesRowsToCaller(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	caller := uuid.Must(uuid.NewV7())
+	foreign := uuid.Must(uuid.NewV7())
+	q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error) {
+		if p.Archived == "only" {
+			t.Errorf("archived pass ran for a caller without exercises.read")
+		}
+		if !p.ViewerID.Valid || p.ViewerID.UUID != caller {
+			return []postgres.ListExercisesCursorRow{{Exercise: postgres.Exercise{ID: foreign, Name: "Foreign restricted"}}}, nil
+		}
+		return nil, nil
+	}).AnyTimes()
+	organizer := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{UserID: caller, Role: rbac.RoleUser})
+	items, err := uc.ListPreviewCatalog(organizer, uuid.Nil, caller, "")
+	if err != nil || len(items) != 0 {
+		t.Fatalf("catalog = %v, err = %v", items, err)
+	}
+}
+
+// An admin lists every task with no viewer restriction, archived ones included, muted with their reasons.
+func TestPreviewGlobalCatalogAdminSeesEverything(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	draft, archived := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().ListExercisesCursor(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error) {
+		if p.ViewerID.Valid {
+			t.Errorf("admin query is restricted to a viewer")
+		}
+		if p.Archived == "only" {
+			return []postgres.ListExercisesCursorRow{{Exercise: postgres.Exercise{ID: archived, Name: "Archived"}}}, nil
+		}
+		return []postgres.ListExercisesCursorRow{{Exercise: postgres.Exercise{ID: draft, Name: "Draft"}}}, nil
+	}).AnyTimes()
+	items, err := uc.ListPreviewCatalog(adminCtx(), uuid.Nil, uuid.Must(uuid.NewV7()), "")
+	if err != nil || len(items) != 2 || items[0].Reason != event.PreviewReasonNotPublished || items[1].Reason != event.PreviewReasonArchived {
+		t.Fatalf("catalog = %+v, err = %v", items, err)
 	}
 }
 
@@ -547,7 +595,7 @@ func TestPreviewGlobalCatalogListsIneligibleWithReasons(t *testing.T) {
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), okVer).Return(postgres.ExerciseVersion{ID: okVer, ExerciseID: okEx, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: data}, nil).AnyTimes()
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), emptyVer).Return(postgres.ExerciseVersion{ID: emptyVer, ExerciseID: emptyEx, Status: "published", PublishedAt: pgtype.Timestamptz{Time: published, Valid: true}, Variants: []byte("[]")}, nil).AnyTimes()
 	q.EXPECT().GetExerciseByID(gomock.Any(), okEx).Return(postgres.Exercise{ID: okEx, Name: "Ok"}, nil).AnyTimes()
-	items, err := uc.ListPreviewCatalog(context.Background(), uuid.Nil, id(), "")
+	items, err := uc.ListPreviewCatalog(adminCtx(), uuid.Nil, id(), "")
 	if err != nil || len(items) != 5 {
 		t.Fatalf("catalog = %v, err = %v", items, err)
 	}

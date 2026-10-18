@@ -363,13 +363,25 @@ type previewCandidate struct {
 	reason     string
 }
 
-// listPreviewCatalogRows pages the catalog-scope tasks matching search; archived is "exclude" or "only".
-func (u *EventUseCase) listPreviewCatalogRows(ctx context.Context, search, archived string) ([]exerciseRepo.Listed, error) {
+// previewCatalogVisibility lists catalog tasks the way the task catalog does: only what the caller may read, unless
+// the caller holds exercises.read and sees every task.
+func previewCatalogVisibility(ctx context.Context, user uuid.UUID) exerciseRepo.Visibility {
+	v := exerciseRepo.Visibility{Scope: "catalog"}
+	if !rbac.HasPermissionInContext(ctx, rbac.PermExercisesRead) {
+		v.ViewerID = uuid.NullUUID{UUID: user, Valid: true}
+	}
+	return v
+}
+
+// listPreviewCatalogRows pages the catalog-scope tasks matching search that the caller may read; archived is
+// "exclude" or "only".
+func (u *EventUseCase) listPreviewCatalogRows(ctx context.Context, user uuid.UUID, search, archived string) ([]exerciseRepo.Listed, error) {
 	var out []exerciseRepo.Listed
+	visibility := previewCatalogVisibility(ctx, user)
 	// Keyset pages hold rows strictly before the cursor: start after everything.
 	cursor, cursorID := cursorSentinelTime, maxUUID
 	for {
-		rows, err := u.exercises.ListCursor(ctx, exerciseRepo.ListParams{Search: search, Archived: archived, Visibility: exerciseRepo.Visibility{Scope: "catalog"}, CursorCreatedAt: cursor, CursorID: cursorID, Limit: previewCatalogPageSize})
+		rows, err := u.exercises.ListCursor(ctx, exerciseRepo.ListParams{Search: search, Archived: archived, Visibility: visibility, CursorCreatedAt: cursor, CursorID: cursorID, Limit: previewCatalogPageSize})
 		if err != nil {
 			return nil, err
 		}
@@ -403,8 +415,13 @@ func (u *EventUseCase) ListPreviewCatalog(ctx context.Context, event, user uuid.
 			eligible = append(eligible, previewCandidate{exerciseID: row.ID, name: row.Name, versionID: row.PublishedVersionID})
 		}
 	}
-	for _, archived := range []string{"exclude", "only"} {
-		rows, err := u.listPreviewCatalogRows(ctx, search, archived)
+	passes := []string{"exclude"}
+	if rbac.HasPermissionInContext(ctx, rbac.PermExercisesRead) {
+		// Archived tasks are for staff who can read every task.
+		passes = append(passes, "only")
+	}
+	for _, archived := range passes {
+		rows, err := u.listPreviewCatalogRows(ctx, user, search, archived)
 		if err != nil {
 			return nil, previewFailure(err)
 		}
