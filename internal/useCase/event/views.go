@@ -833,8 +833,11 @@ type ManageResultsView struct {
 	Revision    int64
 	GeneratedAt time.Time
 	Freeze      ResultsFreezeView
-	Counts      ManageResultsCountsView
-	Teams       []ManageResultsTeamView
+	// ParticipantsSee: the participants read the board now (the event runs or
+	// finished and its results are not hidden).
+	ParticipantsSee bool
+	Counts          ManageResultsCountsView
+	Teams           []ManageResultsTeamView
 }
 
 type ManageResultsCountsView struct {

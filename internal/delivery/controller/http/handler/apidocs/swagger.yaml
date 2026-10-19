@@ -1888,6 +1888,8 @@ definitions:
         $ref: '#/definitions/event.resultsFreezeStateResponse'
       GeneratedAt:
         type: string
+      ParticipantsSee:
+        type: boolean
       Revision:
         type: integer
       Teams:

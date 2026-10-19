@@ -27295,6 +27295,9 @@ const docTemplate = `{
                 "GeneratedAt": {
                     "type": "string"
                 },
+                "ParticipantsSee": {
+                    "type": "boolean"
+                },
                 "Revision": {
                     "type": "integer"
                 },
