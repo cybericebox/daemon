@@ -1238,3 +1238,35 @@ func TestDeployTestStatus_ProbeURLFromTheGroupsClientSubnetOnlyWhenReady(t *test
 		})
 	}
 }
+
+// A test lab the cluster has not started yet when its lease ends (withdrawn and queued again) is not removed: its lease
+// restarts from now, the calendar hold follows, and the next end is scheduled.
+func TestEndExpiredTestDeploy_WaitingLabGetsAFreshLease(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	owner := uuid.Must(uuid.NewV7())
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	row, id := removingRow(owner)
+	row.CreatedAt, row.ExpiresAt = now.Add(-2*time.Hour), now.Add(-time.Second)
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil).AnyTimes()
+	var extended time.Time
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.ExtendOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+			extended = arg.ExpiresAt
+			row.ExpiresAt = arg.ExpiresAt
+			return row, nil
+		})
+	infra := &presenceInfra{fakeInfra: &fakeInfra{status: exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseQueued,
+		Queue: &exerciseModel.LabQueue{Position: 1, Length: 1, Reason: exerciseModel.QueueReasonWithdrawn, Attempt: 2}}}, groupExists: true}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	uc.SetClock(func() time.Time { return now })
+	if err := uc.EndExpiredTestDeploy(context.Background(), owner, id); err != nil {
+		t.Fatalf("end: %v", err)
+	}
+	if infra.destroyed != "" {
+		t.Fatal("a lab waiting for the cluster must not be removed")
+	}
+	if !extended.After(now) {
+		t.Fatalf("lease extended to %v, want after %v", extended, now)
+	}
+}

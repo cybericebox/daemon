@@ -313,7 +313,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 			return exerciseModel.DeployHandle{}, err
 		}
 	}
-	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(lease)}
+	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(lease), Length: lease}
 
 	if eventID != nil {
 		deploy.GroupName = eventPreviewTestGroup(*eventID, ownerID)
@@ -1018,6 +1018,9 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 		if u.infra == nil {
 			return false, infraModel.ErrInfrastructureUnavailable.Err()
 		}
+		if extended, err := u.leaseWhileStarting(ctx, repo, deploy); err != nil || extended {
+			return false, err
+		}
 		return false, u.endTestLab(ctx, repo, deploy, true)
 	})
 	return err
@@ -1060,6 +1063,10 @@ func (u *ExerciseUseCase) TestRunEnding(ctx context.Context, owner, deployID uui
 	}
 	if deploy.EndingAt != nil {
 		return nil
+	}
+	// A run the cluster has not run for its length yet gets its end moved instead of the notice.
+	if moved, mErr := u.leaseWhileStarting(ctx, u.testDeploys, deploy); mErr != nil || moved {
+		return mErr
 	}
 	if err = u.testDeploys.SetEndingAt(ctx, deployID, owner, &endsAt); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the ending of a test deploy").Err()
@@ -1104,6 +1111,44 @@ func (u *ExerciseUseCase) EndTestDeployByReservation(ctx context.Context, owner,
 		}
 	}
 	return err
+}
+
+// leaseWhileStarting moves the end of a platform test lab's lease (and its cluster reservation) later when the lab did not
+// run its chosen length: the lease counts only while the lab runs (exerciseModel.TestLeaseEnd), within the hard limit. It
+// runs at the reservation's ending notice and at the lease's end. A lab whose status cannot be read ends as before; an
+// event preview lab keeps the end of its event's reservation.
+func (u *ExerciseUseCase) leaseWhileStarting(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) (bool, error) {
+	if deploy.EventID != nil || deploy.IsStatic() || u.infra == nil {
+		return false, nil
+	}
+	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
+	if err != nil {
+		return false, nil
+	}
+	now := u.timeNow()
+	leases := u.testRunLeases(ctx)
+	var limit time.Time
+	if !deploy.CreatedAt.IsZero() {
+		limit = deploy.CreatedAt.Add(leases.Max)
+	}
+	length := deploy.Length
+	if length <= 0 {
+		length = leases.Lease // a row made before the run length was kept
+	}
+	due, extend := exerciseModel.TestLeaseEnd(status, length, limit, now)
+	if !extend || !due.After(deploy.ExpiresAt) {
+		return false, nil
+	}
+	value, err := repo.ExtendOwned(ctx, deploy.ID, deploy.CreatedBy, due)
+	if err != nil {
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to move the end of a test lab lease").Err()
+	}
+	if u.testLabGate != nil {
+		// Best effort, like an extension by the author: the hold follows the lease.
+		_ = u.testLabGate.ExtendTestLab(ctx, deploy.ID, deploy.CreatedBy, calendarUseCase.Amount{}, value.ExpiresAt)
+	}
+	u.scheduleTestDeployExpiry(ctx, value)
+	return true, nil
 }
 
 // CleanupExpiredTestDeploys removes the Labs whose persisted lease expired (and, with the last
