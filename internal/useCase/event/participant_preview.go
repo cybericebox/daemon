@@ -31,7 +31,6 @@ import (
 // PreviewTestLabs grants only the existing owned test-lab operations. The public
 // author endpoints retain their independent author-write authorization.
 type PreviewTestLabs interface {
-	EventPreviewAllocated(context.Context, uuid.UUID) (bool, error)
 	DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, time.Duration) (exerciseModel.DeployHandle, error)
 	CanStartEventPreview(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (bool, error)
 	PreviewDeployStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error)
@@ -46,8 +45,8 @@ type PreviewSelection struct {
 	Name              string    `json:"Name"`
 	VariantIndex      int32     `json:"VariantIndex"`
 	VariantPosition   int       `json:"VariantPosition"`
-	// Reason is set when the task stays listed but cannot run now: a dynamic task without infrastructure
-	// (no_infrastructure) or without an active, placed resource reservation (no_reservation).
+	// Reason is set when the task stays listed but cannot run in this event: a dynamic task on an event
+	// without infrastructure (no_infrastructure). Capacity never hides a task: it is taken at launch.
 	Reason string `json:"Reason,omitempty"`
 }
 type PreviewSettings struct {
@@ -118,7 +117,7 @@ func (u *EventUseCase) previewVersion(ctx context.Context, event, versionID, var
 	if err != nil {
 		return version, entry, variant, err
 	}
-	if reason, e := u.previewCapacityReason(ctx, event, variant, false); e != nil || reason == PreviewReasonNoInfrastructure {
+	if reason, e := u.previewInfrastructureReason(ctx, event, variant); e != nil || reason != "" {
 		if e == nil {
 			e = previewUnavailable()
 		}
@@ -127,9 +126,10 @@ func (u *EventUseCase) previewVersion(ctx context.Context, event, versionID, var
 	return version, entry, variant, nil
 }
 
-// previewCapacityReason says why a dynamic variant cannot run in the event now: no_infrastructure, or (when
-// allocation is asked) no_reservation. Static variants and the platform defaults (no event) always can.
-func (u *EventUseCase) previewCapacityReason(ctx context.Context, event uuid.UUID, variant exerciseModel.Variant, allocation bool) (string, error) {
+// previewInfrastructureReason says why a dynamic variant cannot run in the event at all: no_infrastructure. Capacity
+// is never asked here: a preview lab takes the starting staff member's test lease at launch. Static variants and the
+// platform defaults (no event) always can.
+func (u *EventUseCase) previewInfrastructureReason(ctx context.Context, event uuid.UUID, variant exerciseModel.Variant) (string, error) {
 	if event == uuid.Nil || len(variant.Topology.Devices) == 0 {
 		return "", nil
 	}
@@ -139,19 +139,6 @@ func (u *EventUseCase) previewCapacityReason(ctx context.Context, event uuid.UUI
 	}
 	if !ev.InfrastructureAllowed {
 		return PreviewReasonNoInfrastructure, nil
-	}
-	if !allocation {
-		return "", nil
-	}
-	if u.previewLabs == nil {
-		return PreviewReasonNoReservation, nil
-	}
-	allocated, err := u.previewLabs.EventPreviewAllocated(ctx, event)
-	if err != nil {
-		return "", err
-	}
-	if !allocated {
-		return PreviewReasonNoReservation, nil
 	}
 	return "", nil
 }
@@ -207,7 +194,7 @@ func (u *EventUseCase) validatePreviewSelections(ctx context.Context, event uuid
 			return nil, nil, err
 		}
 		id := selectionIdentity(item.ExerciseVersionID, item.VariantID)
-		reason, err := u.previewCapacityReason(ctx, event, variant, true)
+		reason, err := u.previewInfrastructureReason(ctx, event, variant)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -282,7 +269,7 @@ func (u *EventUseCase) previewSelectionViews(ctx context.Context, event uuid.UUI
 		if err != nil {
 			continue
 		}
-		reason, err := u.previewCapacityReason(ctx, event, variant, true)
+		reason, err := u.previewInfrastructureReason(ctx, event, variant)
 		if err != nil {
 			continue
 		}
@@ -317,12 +304,14 @@ func (u *EventUseCase) GetPreviewSettings(ctx context.Context, event, user uuid.
 	if config.GroupName != nil {
 		name = *config.GroupName
 	}
+	// A dynamic preview takes the starting staff member's test lease, so only the event's infrastructure switch matters.
 	allocated := false
 	if u.previewLabs != nil {
-		allocated, err = u.previewLabs.EventPreviewAllocated(ctx, event)
-		if err != nil {
-			return PreviewSettings{}, err
+		ev, e := u.events.GetByID(ctx, event)
+		if e != nil {
+			return PreviewSettings{}, e
 		}
+		allocated = ev.InfrastructureAllowed
 	}
 	return PreviewSettings{Inherit: config.Inherit, Selections: selected, EffectiveSelections: effective, GroupName: name, GroupNameOverride: config.GroupName, DefaultSelections: u.previewSelectionViews(ctx, event, defaults.Selections), DefaultGroupName: defaults.GroupName, DynamicAllocated: allocated}, nil
 }
@@ -397,7 +386,6 @@ const (
 	PreviewReasonNoPreviewVariant       = "no_preview_variant"
 	PreviewReasonNoCapacity             = "no_capacity"
 	PreviewReasonNoInfrastructure       = "no_infrastructure"
-	PreviewReasonNoReservation          = "no_reservation"
 	previewCatalogPageSize        int32 = 100
 )
 
@@ -569,6 +557,30 @@ func previewTask(variant exerciseModel.Variant, id uuid.UUID) (exerciseModel.Tas
 
 // withPreviewRun serializes one event/user's mutations across daemon replicas.
 // The existing laboratory engine owns its independent lease even if this transaction fails.
+// previewLeaseEnd is when a run's lab really ends: the test lease counts only while the lab runs, so the engine may
+// have moved it later than the run row says. A run without a lab, or a lab the engine no longer lists, keeps its row.
+func (u *EventUseCase) previewLeaseEnd(ctx context.Context, user uuid.UUID, run preview.Run) time.Time {
+	if !run.DeployID.Valid || u.previewLabs == nil {
+		return run.ExpiresAt
+	}
+	leases, ok := u.previewLabs.(interface {
+		ListTestDeploys(context.Context, uuid.UUID, uuid.UUID) ([]exerciseModel.TestDeploy, error)
+	})
+	if !ok {
+		return run.ExpiresAt
+	}
+	rows, err := leases.ListTestDeploys(ctx, user, uuid.Nil)
+	if err != nil {
+		return run.ExpiresAt
+	}
+	for _, deploy := range rows {
+		if deploy.ID == run.DeployID.UUID && deploy.ExpiresAt.After(run.ExpiresAt) {
+			return deploy.ExpiresAt
+		}
+	}
+	return run.ExpiresAt
+}
+
 func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selection uuid.UUID, create bool, length time.Duration, fn func(context.Context, *preview.Run, exerciseModel.Variant) error) (PreviewRunView, error) {
 	item, variant, err := u.selectedPreview(ctx, event, user, selection)
 	if err != nil {
@@ -597,6 +609,9 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 	}
 	now := time.Now()
 	dynamic := len(variant.Topology.Devices) > 0
+	if !missing {
+		run.ExpiresAt = u.previewLeaseEnd(txCtx, user, run)
+	}
 	if !missing && !run.ExpiresAt.After(now) {
 		// Cleanup the old lease before reserving a replacement; cleanup remains owned.
 		if run.DeployID.Valid && u.previewLabs != nil {
@@ -644,7 +659,7 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 			}
 			createdDeploy = id
 			run.DeployID = uuid.NullUUID{UUID: id, Valid: true}
-			// Match the engine lease, including the event reservation's earlier end.
+			// Match the engine lease (the starting staff member's test run).
 			if leases, ok := u.previewLabs.(interface {
 				ListTestDeploys(context.Context, uuid.UUID, uuid.UUID) ([]exerciseModel.TestDeploy, error)
 			}); ok {
@@ -773,21 +788,15 @@ func (u *EventUseCase) PreviewBoard(ctx context.Context, event, user uuid.UUID) 
 		if e != nil {
 			continue
 		}
-		if len(variant.Topology.Devices) > 0 {
-			if u.previewLabs == nil {
-				continue
-			}
-			allocated, allocErr := u.previewLabs.EventPreviewAllocated(ctx, event)
-			if allocErr != nil {
-				return PreviewBoard{}, allocErr
-			}
-			if !allocated {
-				continue
-			}
+		if len(variant.Topology.Devices) > 0 && u.previewLabs == nil {
+			continue
 		}
 		selection := selectionIdentity(item.ExerciseVersionID, item.VariantID)
 		run, e := store.Get(ctx, event, user, selection)
 		var active *preview.Run
+		if e == nil {
+			run.ExpiresAt = u.previewLeaseEnd(ctx, user, run)
+		}
 		if e == nil && run.ExpiresAt.After(out.ServerNow) {
 			active = &run
 		} else if e != nil && !repositoryTools.IsObjectNotFoundError(e) {

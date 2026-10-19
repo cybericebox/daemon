@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
@@ -55,46 +54,12 @@ func (g *eventPreviewGate) ReleaseEventTestLab(_ context.Context, eventID, id uu
 func (g *eventPreviewGate) ExtendEventTestLab(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time) (time.Time, error) {
 	return g.until, g.err
 }
-func TestEventPreviewDeployRequiresScopedGateAndPersistsBoundedScope(t *testing.T) {
-	q, variantID, versionID, owner := gateFixture(t)
-	eventID := uuid.Must(uuid.NewV7())
-	g := &eventPreviewGate{until: time.Now().Add(time.Minute)}
-	infra := &eventPreviewInfra{fakeInfra: fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "event-config"}}}
-	vpn := &fakeVPNStore{}
-	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: vpn})
-	u.SetTestLabGate(g)
-	var written postgres.CreateExerciseTestDeployParams
-	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
-		written = p
-		return postgres.ExerciseTestDeployment{ID: p.ID, EventID: p.EventID, GroupName: p.GroupName, CreatedBy: p.CreatedBy, ExpiresAt: p.ExpiresAt}, nil
-	})
-	_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, versionID, variantID, 0)
-	require.NoError(t, err)
-	require.True(t, written.EventID.Valid)
-	require.Equal(t, eventID, written.EventID.UUID)
-	require.Equal(t, g.until, written.ExpiresAt)
-	require.Regexp(t, `^tp-[a-f0-9]{32}$`, written.GroupName)
-	require.Equal(t, eventID, g.req.EventID)
-	require.Equal(t, written.GroupName, g.req.Group)
-	require.Empty(t, g.admitted)
-	require.Equal(t, eventID, vpn.ref.UUID)
-}
-func TestEventPreviewDeployCannotFallbackToAuthorGate(t *testing.T) {
-	q, variantID, versionID, owner := gateFixture(t)
-	g := &fakeGate{}
-	infra := &fakeInfra{}
-	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	u.SetTestLabGate(g)
-	_, err := u.DeployEventPreviewVariantTest(context.Background(), uuid.Must(uuid.NewV7()), owner, versionID, variantID, 0)
-	require.Error(t, err)
-	require.Empty(t, g.admitted)
-	require.Zero(t, infra.deployCalls)
-}
 
-func TestEventPreviewCleanupNeverTouchesAuthorsOtherGroup(t *testing.T) {
+// A preview lab started before previews ran on the author's lease keeps its event path until it ends.
+func TestLegacyEventPreviewCleanupNeverTouchesAuthorsOtherGroup(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	owner, eventID, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	preview := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, EventID: uuid.NullUUID{UUID: eventID, Valid: true}, GroupName: "tp-isolated", LabName: "preview", ExpiresAt: time.Now().Add(time.Hour)}
+	preview := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, EventID: uuid.NullUUID{UUID: eventID, Valid: true}, GroupName: legacyPreviewGroup(eventID, owner), LabName: "preview", ExpiresAt: time.Now().Add(time.Hour)}
 	author := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), CreatedBy: owner, GroupName: "tu-author", LabName: "author", ExpiresAt: time.Now().Add(time.Hour)}
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(preview, nil)
 	ended := preview
@@ -110,15 +75,15 @@ func TestEventPreviewCleanupNeverTouchesAuthorsOtherGroup(t *testing.T) {
 	require.NoError(t, u.DestroyDeployTest(context.Background(), owner, id))
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(ended, nil)
 	require.NoError(t, u.CheckTestDeployRemoved(context.Background(), owner, id, 1))
-	require.Equal(t, "tp-isolated", infra.destroyed)
+	require.Equal(t, legacyPreviewGroup(eventID, owner), infra.destroyed)
 	require.Empty(t, infra.deletedLabs)
 	require.Equal(t, eventID, gate.releaseEvent)
 	require.Equal(t, []uuid.NullUUID{{UUID: eventID, Valid: true}}, store.deleted)
 }
-func TestEventPreviewRenewFailsClosedWithoutEventAllocation(t *testing.T) {
+func TestLegacyEventPreviewRenewFailsClosedWithoutEventAllocation(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	owner, eventID, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	row := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, EventID: uuid.NullUUID{UUID: eventID, Valid: true}, ExpiresAt: time.Now().Add(time.Hour)}
+	row := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, EventID: uuid.NullUUID{UUID: eventID, Valid: true}, GroupName: legacyPreviewGroup(eventID, owner), ExpiresAt: time.Now().Add(time.Hour)}
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil).Times(2)
 	gate := &eventPreviewGate{fakeGate: fakeGate{err: calModel.ErrNotEnoughReserved.Err()}}
 	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
@@ -149,56 +114,7 @@ func (i *eventPreviewPresenceInfra) LabExists(context.Context, string, string) (
 func (i *eventPreviewPresenceInfra) LabGroupExists(context.Context, string) (bool, error) {
 	return i.exists, nil
 }
-func TestEventPreviewFailedLaunchKeepsAllocationUntilNativeDeletion(t *testing.T) {
-	q, variant, version, owner := gateFixture(t)
-	eventID := uuid.Must(uuid.NewV7())
-	gate := &eventPreviewGate{until: time.Now().Add(time.Hour)}
-	infra := &eventPreviewPresenceInfra{eventPreviewInfra: eventPreviewInfra{fakeInfra: fakeInfra{deployErr: errors.New("creation failed")}}, exists: true}
-	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	u.SetTestLabGate(gate)
-	var saved postgres.ExerciseTestDeployment
-	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
-		saved = postgres.ExerciseTestDeployment{ID: p.ID, CreatedBy: p.CreatedBy, EventID: p.EventID, GroupName: p.GroupName, ExpiresAt: p.ExpiresAt}
-		return saved, nil
-	})
-	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.ExtendOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
-		saved.ExpiresAt = p.ExpiresAt
-		return saved, nil
-	})
-	_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, version, variant, 0)
-	require.Error(t, err)
-	require.Empty(t, gate.released)
-	require.False(t, saved.ExpiresAt.After(time.Now()))
-}
 
-func TestEventPreviewExercisesReuseSingleEventOwnerGroupAndClient(t *testing.T) {
-	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
-	owner, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	var rows []postgres.ExerciseTestDeployment
-	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).DoAndReturn(func(context.Context, uuid.UUID) ([]postgres.ExerciseTestDeployment, error) { return rows, nil }).AnyTimes()
-	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
-		row := postgres.ExerciseTestDeployment{ID: p.ID, EventID: p.EventID, CreatedBy: p.CreatedBy, GroupName: p.GroupName, LabName: p.LabName, VersionID: p.VersionID, VariantID: p.VariantID, CreatedAt: p.CreatedAt, ExpiresAt: p.ExpiresAt}
-		rows = append(rows, row)
-		return row, nil
-	}).Times(2)
-	infra := &eventPreviewInfra{fakeInfra: fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "one-event-owner-config"}}}
-	gate := &eventPreviewGate{until: time.Now().Add(time.Hour)}
-	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}, FlagConfig: config.ExerciseConfig{MaxActiveTestDeploys: 3}})
-	u.SetTestLabGate(gate)
-	for range 2 {
-		version, variant := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-		encoded, _ := json.Marshal([]exerciseModel.Variant{{ID: variant, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
-		q.EXPECT().GetExerciseVersionByID(gomock.Any(), version).Return(postgres.ExerciseVersion{ID: version, Variants: encoded}, nil).AnyTimes()
-		_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, version, variant, 0)
-		require.NoError(t, err)
-	}
-	require.Len(t, rows, 2)
-	require.Equal(t, rows[0].GroupName, rows[1].GroupName)
-	require.NotEqual(t, rows[0].LabName, rows[1].LabName)
-	require.Equal(t, 1, infra.ensured)
-	require.Equal(t, []string{rows[0].LabName, rows[1].LabName}, infra.policies[0].AllowedLabs)
-	require.Equal(t, int64(130), gate.req.GroupOverhead.CPUMillicores)
-}
 func TestStaticEventPreviewEligibilityNeedsNoInfrastructureOrCalendar(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	eventID, version, variant := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
@@ -213,10 +129,10 @@ func TestStaticEventPreviewEligibilityNeedsNoInfrastructureOrCalendar(t *testing
 func (g *eventPreviewGate) EventPreviewCleanupCandidates(context.Context) ([]calModel.TestLabHold, error) {
 	return g.candidates, nil
 }
-func TestEventPreviewReleaseFailureRetainsDeploymentForRetry(t *testing.T) {
+func TestLegacyEventPreviewReleaseFailureRetainsDeploymentForRetry(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	owner, eventID, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	row := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, EventID: uuid.NullUUID{UUID: eventID, Valid: true}, GroupName: "tp-retry", ExpiresAt: time.Now().Add(-time.Hour)}
+	row := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, EventID: uuid.NullUUID{UUID: eventID, Valid: true}, GroupName: legacyPreviewGroup(eventID, owner), ExpiresAt: time.Now().Add(-time.Hour)}
 	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil).Times(2)
 	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return([]postgres.ExerciseTestDeployment{row}, nil).Times(2)
 	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
@@ -326,36 +242,6 @@ type previewCommitFailureWorker struct {
 func (w previewCommitFailureWorker) UnitOfWork(ctx context.Context) (context.Context, testDeployRepo.Queries, postgres.UoW, error) {
 	return ctx, w.q, w.unit, nil
 }
-func TestEventPreviewCommitFailureHasDurableOrphanCleanupBeforeLeaseExpiry(t *testing.T) {
-	q, variant, version, owner := gateFixture(t)
-	eventID := uuid.Must(uuid.NewV7())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	unit := &previewCommitFailureUnit{err: context.Canceled, cancel: cancel}
-	gate := &eventPreviewGate{until: time.Now().Add(time.Hour), keepCandidate: true}
-	infra := &previewRecoveryInfra{eventPreviewInfra: eventPreviewInfra{fakeInfra: fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "preview"}}}, groupExists: true, labExists: true}
-	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}, DeployUoW: previewCommitFailureWorker{q: q, unit: unit}})
-	u.SetTestLabGate(gate)
-	q.EXPECT().LockExerciseTestDeploysOf(gomock.Any(), owner.String()).Return(nil)
-	// The orphan sweep is a job: it takes the author's lock without waiting.
-	q.EXPECT().TryLockExerciseTestDeploysOf(gomock.Any(), owner.String()).Return(true, nil)
-	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
-		return postgres.ExerciseTestDeployment{ID: p.ID, CreatedBy: p.CreatedBy, EventID: p.EventID, GroupName: p.GroupName, ExpiresAt: p.ExpiresAt}, nil
-	})
-	_, err := u.DeployEventPreviewVariantTest(ctx, eventID, owner, version, variant, 0)
-	require.Error(t, err)
-	require.ErrorIs(t, ctx.Err(), context.Canceled)
-	require.Equal(t, 1, infra.deployCalls)
-	require.Empty(t, gate.released)
-	require.Len(t, gate.candidates, 1)
-	require.True(t, gate.candidates[0].ExpiresAt.After(time.Now()))
-	q.EXPECT().ListExpiredExerciseTestDeploys(gomock.Any(), gomock.Any()).Return(nil, nil)
-	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{}, pgx.ErrNoRows)
-	require.NoError(t, u.CleanupExpiredTestDeploys(ctx))
-	require.Equal(t, gate.req.Group, infra.destroyed)
-	require.NoError(t, infra.cleanupCtxErr)
-	require.Equal(t, []uuid.UUID{gate.req.ID}, gate.released)
-}
 func TestEventPreviewOrphanSweepLeavesCommittedDeploymentAlone(t *testing.T) {
 	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
 	eventID, owner, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
@@ -371,4 +257,70 @@ func TestEventPreviewOrphanSweepLeavesCommittedDeploymentAlone(t *testing.T) {
 	require.Empty(t, infra.destroyed)
 	require.Empty(t, infra.deletedLabs)
 	require.Empty(t, gate.released)
+}
+
+func legacyPreviewGroup(eventID, owner uuid.UUID) string {
+	hash := sha256.Sum256(append(eventID.Bytes(), owner.Bytes()...))
+	return fmt.Sprintf("tp-%x", hash[:16])
+}
+
+// A preview lab is the starting staff member's test run: a short lease of the platform's test capacity in their
+// own test group, with their own VPN config; the event's reservation is never asked.
+func TestEventPreviewDeployTakesTheStartersTestLease(t *testing.T) {
+	q, variantID, versionID, owner := gateFixture(t)
+	eventID := uuid.Must(uuid.NewV7())
+	gate := &eventPreviewGate{}
+	infra := &eventPreviewInfra{fakeInfra: fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "author-config"}}}
+	vpn := &fakeVPNStore{}
+	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: vpn})
+	u.SetTestLabGate(gate)
+	var written postgres.CreateExerciseTestDeployParams
+	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+		written = p
+		return postgres.ExerciseTestDeployment{ID: p.ID, EventID: p.EventID, GroupName: p.GroupName, CreatedBy: p.CreatedBy, ExpiresAt: p.ExpiresAt}, nil
+	})
+	before := time.Now()
+	_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, versionID, variantID, 30*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, gate.admitted, 1)
+	require.Equal(t, owner, gate.admitted[0].Owner)
+	require.Equal(t, 30*time.Minute, gate.admitted[0].Lease)
+	require.Equal(t, written.ID, gate.admitted[0].ID)
+	require.True(t, written.EventID.Valid)
+	require.Equal(t, eventID, written.EventID.UUID)
+	require.Equal(t, "tu-"+owner.String(), written.GroupName)
+	require.WithinDuration(t, before.Add(30*time.Minute), written.ExpiresAt, 5*time.Second)
+	require.False(t, vpn.ref.Valid, "the preview uses the author's own VPN config")
+	require.Equal(t, uuid.Nil, gate.releaseEvent)
+}
+
+// Without free test capacity the launch is refused with the calendar's clear «no free resources» error and
+// nothing is created.
+func TestEventPreviewDeployWithoutRoomSaysNoFreeResources(t *testing.T) {
+	q, variantID, versionID, owner := gateFixture(t)
+	noRoom := calModel.ErrNoTestLabRoom.Err()
+	gate := &eventPreviewGate{fakeGate: fakeGate{err: noRoom}}
+	infra := &fakeInfra{}
+	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	u.SetTestLabGate(gate)
+	_, err := u.DeployEventPreviewVariantTest(context.Background(), uuid.Must(uuid.NewV7()), owner, versionID, variantID, 0)
+	require.ErrorIs(t, err, noRoom)
+	require.Zero(t, infra.deployCalls)
+}
+
+// The preview lease ends like a studio test run: the lab is removed and the run's room is released.
+func TestEventPreviewLeaseEndRemovesTheLabAndReleasesTheRun(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	owner, eventID, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	row := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, EventID: uuid.NullUUID{UUID: eventID, Valid: true}, GroupName: "tu-" + owner.String(), LabName: "preview", ExpiresAt: time.Now().Add(-time.Minute)}
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil).AnyTimes()
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return([]postgres.ExerciseTestDeployment{row}, nil).AnyTimes()
+	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+	gate := &eventPreviewGate{}
+	infra := &eventPreviewInfra{}
+	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}})
+	u.SetTestLabGate(gate)
+	require.NoError(t, u.EndExpiredTestDeploy(context.Background(), owner, id))
+	require.Equal(t, []uuid.UUID{id}, gate.released)
+	require.Equal(t, uuid.Nil, gate.releaseEvent, "no event hold is touched")
 }

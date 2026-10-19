@@ -784,8 +784,8 @@ definitions:
         type: string
       Reason:
         description: |-
-          Reason is set when the task stays listed but cannot run now: a dynamic task without infrastructure
-          (no_infrastructure) or without an active, placed resource reservation (no_reservation).
+          Reason is set when the task stays listed but cannot run in this event: a dynamic task on an event
+          without infrastructure (no_infrastructure). Capacity never hides a task: it is taken at launch.
         type: string
       VariantID:
         type: string
