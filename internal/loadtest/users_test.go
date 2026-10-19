@@ -112,23 +112,32 @@ func TestCreateThenDeleteTouchesOnlyTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	other, err := svc.Create(ctx, "other", 2)
+	other, err := svc.Create(ctx, "other", 2, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	file, err := svc.Create(ctx, "run1", 5)
+	file, err := svc.Create(ctx, "run1", 5, 3)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if len(file.Accounts) != 5 || file.CookieName != "__Host-session" || !file.CookieExpiresAt.Equal(now.Add(12*time.Hour)) {
+	if len(file.Accounts) != 8 || file.CookieName != "__Host-session" || !file.CookieExpiresAt.Equal(now.Add(12*time.Hour)) {
 		t.Fatalf("file = %+v", file)
 	}
-	if n := countUsers(t, db, `email LIKE 'lt-run1-%@loadtest.invalid' AND status = 'active' AND email_confirmed AND role = 'user'`); n != 5 {
+	if n := countUsers(t, db, `email LIKE 'lt-run1-%@loadtest.invalid' AND status = 'active' AND email_confirmed AND role = 'user'`); n != 8 {
 		t.Fatalf("active confirmed users = %d, want 5", n)
 	}
 
 	seen := map[string]bool{}
-	for _, account := range file.Accounts {
+	for i, account := range file.Accounts {
+		if manual := i >= 5; account.Manual != manual || (manual && account.Cookie != "") || (!manual && account.Cookie == "") {
+			t.Fatalf("account %d: manual=%v cookie set=%v", i+1, account.Manual, account.Cookie != "")
+		}
+		if account.Manual {
+			if err = pwCheck(db, account.Email, account.Password); err != nil {
+				t.Fatalf("password of manual %s: %v", account.Email, err)
+			}
+			continue
+		}
 		if seen[account.Password] {
 			t.Fatal("passwords must be distinct")
 		}
@@ -146,29 +155,32 @@ func TestCreateThenDeleteTouchesOnlyTheRun(t *testing.T) {
 		}
 	}
 
-	if _, err = svc.Create(ctx, "run1", 1); err == nil {
+	if _, err = svc.Create(ctx, "run1", 1, 0); err == nil {
 		t.Fatal("a second create for the same run must be refused")
 	}
 
 	dry, err := svc.Delete(ctx, "run1", true)
-	if err != nil || dry.Deleted != 5 {
+	if err != nil || dry.Deleted != 8 {
 		t.Fatalf("dry run = %+v %v", dry, err)
 	}
-	if n := countUsers(t, db, `email LIKE 'lt-run1-%' AND status = 'active'`); n != 5 {
+	if n := countUsers(t, db, `email LIKE 'lt-run1-%' AND status = 'active'`); n != 8 {
 		t.Fatalf("a dry run must change nothing, active = %d", n)
 	}
 
 	report, err := svc.Delete(ctx, "run1", false)
-	if err != nil || report.Deleted != 5 || len(report.Kept) != 0 {
+	if err != nil || report.Deleted != 8 || len(report.Kept) != 0 {
 		t.Fatalf("delete = %+v %v", report, err)
 	}
 	if n := countUsers(t, db, `email LIKE 'lt-run1-%'`); n != 0 {
 		t.Fatalf("addresses of the run left: %d", n)
 	}
-	if n := countUsers(t, db, `status = 'deleted' AND deleted_at IS NOT NULL`); n != 5 {
+	if n := countUsers(t, db, `status = 'deleted' AND deleted_at IS NOT NULL`); n != 8 {
 		t.Fatalf("soft-deleted = %d, want 5", n)
 	}
 	for _, account := range file.Accounts {
+		if account.Manual {
+			continue
+		}
 		var revoked int
 		ticket, _ := codec.Open(account.Cookie, now)
 		if err = db.Pool.QueryRow(ctx, `SELECT count(*) FROM session_revocations WHERE session_id = $1`, ticket.SessionID).Scan(&revoked); err != nil || revoked != 1 {
@@ -187,7 +199,7 @@ func TestCreateThenDeleteTouchesOnlyTheRun(t *testing.T) {
 		t.Fatalf("a second delete must be a no-op, got %+v %v", again, err)
 	}
 	// The address is free again: the run id can be reused.
-	if _, err = svc.Create(ctx, "run1", 1); err != nil {
+	if _, err = svc.Create(ctx, "run1", 1, 0); err != nil {
 		t.Fatalf("re-create after delete: %v", err)
 	}
 }
@@ -206,8 +218,8 @@ func TestCreateRejectsBadInput(t *testing.T) {
 	for _, tc := range []struct {
 		run   string
 		count int
-	}{{"Bad-Run", 3}, {"ok1", 0}, {"ok1", loadtest.MaxUsers + 1}} {
-		if _, err := svc.Create(ctx, tc.run, tc.count); err == nil {
+	}{{"Bad-Run", 3}, {"ok1", 0}, {"ok1", loadtest.MaxUsers + 1}, {"ok1", 0}} {
+		if _, err := svc.Create(ctx, tc.run, tc.count, 0); err == nil {
 			t.Errorf("Create(%q, %d) must fail", tc.run, tc.count)
 		}
 	}

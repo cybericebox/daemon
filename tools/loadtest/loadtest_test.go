@@ -322,3 +322,12 @@ func TestSessionCookieIsEscapedOnTheWire(t *testing.T) {
 		t.Fatalf("cookieFrom = %q, want %q", back, sealed)
 	}
 }
+
+func TestManualAccountsAreNeverUsed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.json")
+	_ = os.WriteFile(path, []byte(`{"accounts":[{"n":1,"email":"a","cookie":"c"},{"n":2,"email":"m","manual":true}]}`), 0o600)
+	accounts, err := readCreds(path)
+	if err != nil || len(accounts) != 1 || accounts[0].Email != "a" {
+		t.Fatalf("accounts = %+v, %v", accounts, err)
+	}
+}
