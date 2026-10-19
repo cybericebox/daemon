@@ -140,10 +140,10 @@ func TestExplicitCPUBurstsAboveRequest(t *testing.T) {
 }
 
 func TestCPULimitIsCappedAtOneCore(t *testing.T) {
-	assert.EqualValues(t, 60, cpuLimitFor(15))
-	assert.EqualValues(t, 1000, cpuLimitFor(250))
-	assert.EqualValues(t, 1000, cpuLimitFor(251))
-	assert.EqualValues(t, 4000, cpuLimitFor(4000), "a limit never sits below its request")
+	assert.EqualValues(t, 60, CPULimitFor(15))
+	assert.EqualValues(t, 1000, CPULimitFor(250))
+	assert.EqualValues(t, 1000, CPULimitFor(251))
+	assert.EqualValues(t, 4000, CPULimitFor(4000), "a limit never sits below its request")
 }
 
 func TestTotalsCountOnlyContainers(t *testing.T) {
