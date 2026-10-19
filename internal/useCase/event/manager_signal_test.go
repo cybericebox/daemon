@@ -27,6 +27,7 @@ func TestSetEventManagerPublishesSignalForAssigneeInSameTransaction(t *testing.T
 		SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
 	})
 	eventID, assigneeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows)
 	now := time.Now()
 	q.EXPECT().GetUserByID(gomock.Any(), assigneeID).Return(postgres.User{ID: assigneeID, Role: "user"}, nil)
 	q.EXPECT().GetEventManager(gomock.Any(), postgres.GetEventManagerParams{EventID: eventID, UserID: assigneeID}).Return(postgres.EventManager{}, pgx.ErrNoRows)
@@ -56,6 +57,7 @@ func TestSetEventManagerSameRoleDoesNotNotifyAgain(t *testing.T) {
 		SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
 	})
 	eventID, assigneeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows)
 	now := time.Now()
 	q.EXPECT().GetEventManager(gomock.Any(), postgres.GetEventManagerParams{EventID: eventID, UserID: assigneeID}).Return(postgres.EventManager{EventID: eventID, UserID: assigneeID, Role: int16(eventManagerModel.RoleManager), CreatedAt: now}, nil)
 	view, err := uc.SetEventManager(context.Background(), eventID, event.SetEventManagerInput{UserID: assigneeID, Role: int16(eventManagerModel.RoleManager)})
@@ -76,6 +78,7 @@ func TestSetEventManagerRejectsViewerRoleForPlatformStaff(t *testing.T) {
 				SignalPublishers: func(event.IRepository) event.SignalPublisher { return publisher },
 			})
 			eventID, adminID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows)
 			q.EXPECT().GetUserByID(gomock.Any(), adminID).Return(postgres.User{ID: adminID, Role: role}, nil)
 			_, err := uc.SetEventManager(context.Background(), eventID, event.SetEventManagerInput{UserID: adminID, Role: int16(eventManagerModel.RoleViewer)})
 			require.ErrorIs(t, err, eventManagerModel.ErrEventManagerViewerRedundant.Err())
@@ -92,6 +95,7 @@ func TestSetEventManagerAllowsWriteRoleForPlatformAdmin(t *testing.T) {
 		SignalPublishers: func(event.IRepository) event.SignalPublisher { return &recordingSignalPublisher{} },
 	})
 	eventID, adminID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows)
 	now := time.Now()
 	q.EXPECT().GetEventManager(gomock.Any(), postgres.GetEventManagerParams{EventID: eventID, UserID: adminID}).Return(postgres.EventManager{}, pgx.ErrNoRows)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "spring", Name: "Spring CTF", AvailableFrom: now, ArchiveAt: pgtype.Timestamptz{Time: now.Add(time.Hour), Valid: true}}, nil)

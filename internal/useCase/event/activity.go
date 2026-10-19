@@ -39,6 +39,11 @@ func (u *EventUseCase) recordActivity(ctx context.Context, a eventActivityModel.
 	}
 }
 
+// recordVPNConfigDownload logs who was handed which lab VPN config of the event.
+func (u *EventUseCase) recordVPNConfigDownload(ctx context.Context, eventID, userID uuid.UUID, config eventActivityModel.VPNConfigType) {
+	u.recordActivity(ctx, eventActivityModel.VPNConfigDownloaded(eventID, userID, config, time.Now()))
+}
+
 // OpenOwnChallenge records that the participant opened a task of the team's
 // board (time on task, engagement). At most one row per user and task per
 // eventActivityModel.TaskOpenWindow: repeats inside the window return at

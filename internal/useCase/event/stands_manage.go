@@ -14,6 +14,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -483,6 +484,7 @@ func (u *EventUseCase) GetModeratorsVPNConfig(ctx context.Context, eventID, user
 			return "", err
 		}
 	}
+	u.recordVPNConfigDownload(ctx, eventID, userID, eventActivityModel.VPNConfigModerator)
 	return config, nil
 }
 

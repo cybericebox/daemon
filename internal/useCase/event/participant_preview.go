@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -33,7 +34,7 @@ type PreviewTestLabs interface {
 	EventPreviewAllocated(context.Context, uuid.UUID) (bool, error)
 	DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (exerciseModel.DeployHandle, error)
 	CanStartEventPreview(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (bool, error)
-	DeployTestStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error)
+	PreviewDeployStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error)
 	CheckTestFlag(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) (bool, error)
 	OpenTestDeployLink(context.Context, uuid.UUID, uuid.UUID, string, int32) (labaccess.Link, error)
 	DestroyDeployTest(context.Context, uuid.UUID, uuid.UUID) error
@@ -802,7 +803,20 @@ func (u *EventUseCase) PreviewLabStatus(ctx context.Context, event, user, select
 	if !run.DeployID.Valid || u.previewLabs == nil {
 		return exerciseModel.LabDeployStatus{}, previewUnavailable()
 	}
-	return u.previewLabs.DeployTestStatus(ctx, user, run.DeployID.UUID)
+	return u.previewLabs.PreviewDeployStatus(ctx, user, run.DeployID.UUID)
+}
+
+// PreviewVPNConfig hands out the owned preview lab's VPN config and logs the
+// download. The status route never carries the config.
+func (u *EventUseCase) PreviewVPNConfig(ctx context.Context, event, user, selection uuid.UUID) (string, error) {
+	status, err := u.PreviewLabStatus(ctx, event, user, selection)
+	if err != nil {
+		return "", err
+	}
+	if status.VPNConfig != "" {
+		u.recordVPNConfigDownload(ctx, event, user, eventActivityModel.VPNConfigPreview)
+	}
+	return status.VPNConfig, nil
 }
 func (u *EventUseCase) PreviewProxyLink(ctx context.Context, event, user, selection uuid.UUID, device string, port int32) (labaccess.Link, error) {
 	run, err := u.ownedPreviewRun(ctx, event, user, selection)

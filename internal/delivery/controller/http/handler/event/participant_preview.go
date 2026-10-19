@@ -40,6 +40,7 @@ type previewUseCase interface {
 	PreviewSolves(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (eventUseCase.ChallengeSolvesPage, error)
 	StreamPreviewFile(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 	PreviewLabStatus(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error)
+	PreviewVPNConfig(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (string, error)
 	PreviewProxyLink(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string, int32) (labaccess.Link, error)
 	EndPreviewRun(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 }
@@ -269,8 +270,9 @@ func (h *Handler) previewVPN(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := h.useCase.PreviewLabStatus(ctx.Request.Context(), event, user, selection)
-	previewReply(ctx, struct{ Config string }{v.VPNConfig}, e)
+	ctx.Header("Cache-Control", "private, no-store")
+	config, e := h.useCase.PreviewVPNConfig(ctx.Request.Context(), event, user, selection)
+	previewReply(ctx, struct{ Config string }{config}, e)
 }
 
 // previewProxy godoc

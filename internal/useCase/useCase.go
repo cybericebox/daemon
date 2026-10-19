@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/errorJournalRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventActivityRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	eventFormRepo "github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
@@ -270,6 +271,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Settings:    platformSettingsUC,
 		},
 	)
+	exerciseUC.SetVPNConfigAudit(eventActivityRepo.New(deps.Repo))
 	// A task archive upload may be as large as the archive limit in force plus one image archive.
 	mediaUC.SetArchiveUploadLimit(func(ctx context.Context) int64 { return exerciseUC.ArchiveLimits(ctx).WithImagesBytes() })
 

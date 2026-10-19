@@ -84,3 +84,13 @@ func TestActivityBuilders(t *testing.T) {
 		t.Fatalf("attempt rejected: %+v", rejected)
 	}
 }
+
+func TestVPNConfigDownloadedNamesWhoEventAndConfigType(t *testing.T) {
+	eventID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, config := range []eventActivityModel.VPNConfigType{eventActivityModel.VPNConfigModerator, eventActivityModel.VPNConfigParticipant, eventActivityModel.VPNConfigPreview, eventActivityModel.VPNConfigDeploy} {
+		a := eventActivityModel.VPNConfigDownloaded(eventID, userID, config, at)
+		if a.Kind != eventActivityModel.KindVPNConfigDownloaded || a.EventID != eventID || a.UserID != userID || !a.At.Equal(at) || a.Data["config"] != string(config) {
+			t.Fatalf("%s: %+v", config, a)
+		}
+	}
+}

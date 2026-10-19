@@ -424,6 +424,7 @@
   "71417": "The laboratory does not offer device state persistence",
   "71419": "No laboratory can run this task within its resource limits",
   "71502": "Secret storage is not configured",
+  "71607": "An approved participant of the event cannot manage it",
   "71706": "Event team is full",
   "71708": "Event is not configured for team participation",
   "71710": "Team roster is frozen after the event start; only a moderator can change it",

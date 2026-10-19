@@ -14,6 +14,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
@@ -48,6 +49,8 @@ type ExerciseUseCase struct {
 	settings    ISettings
 	sessions    ITestSessions  // nil when no proxy key is configured
 	proposals   IProposalInbox // nil until wired; proposal inbox requests are then skipped
+	// vpnAudit logs the config downloads of event-scoped deploys; nil: not logged.
+	vpnAudit IVPNConfigAudit
 	// resources is the platform's device resources settings (zero: the owner's defaults, see Policy).
 	resources resourcesModel.Policy
 	// testLabGate admits a test laboratory into the resource calendar; nil: no check.
@@ -75,6 +78,17 @@ type ExerciseUseCase struct {
 	exportFiles   IExportFiles
 	exportQueue   ExportJobQueue
 	exportSealer  secret.Sealer
+}
+
+// IVPNConfigAudit is the event activity log port the deploy status route logs
+// VPN config downloads to (satisfied by *eventActivityRepo.Repository).
+type IVPNConfigAudit interface {
+	AppendOnce(ctx context.Context, a eventActivityModel.Activity, window time.Duration) (bool, error)
+}
+
+// SetVPNConfigAudit wires the audit of VPN config downloads after construction.
+func (u *ExerciseUseCase) SetVPNConfigAudit(a IVPNConfigAudit) {
+	u.vpnAudit = a
 }
 
 // IProposalInbox turns catalog proposals into inbox requests for platform
