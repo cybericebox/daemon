@@ -177,6 +177,11 @@ type Detail struct {
 	ChallengeCount            int32
 	PublishedCount            int32
 	HasAttempts               bool
+	// The pinned version: the average difficulty (nil: none), the subtask count (nil: no variant) and the
+	// subtask names of the fixed variant of a fixed attachment, else of the first one.
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
 }
 
 func (r *Repository) Details(ctx context.Context, eventID uuid.UUID) ([]Detail, error) {
@@ -193,7 +198,20 @@ func (r *Repository) Details(ctx context.Context, eventID uuid.UUID) ([]Detail, 
 			VersionNumber: row.VersionNumber, LatestVersionNumber: row.LatestVersionNumber, ForkedFromExerciseID: row.ForkedFromExerciseID,
 			ForkedFromVersionID: row.ForkedFromVersionID, SourceName: row.SourceName, SourceLatestVersionID: row.SourceLatestVersionID,
 			SourceVersionNumber: row.SourceVersionNumber, SourceLatestVersionNumber: row.SourceLatestVersionNumber, Infrastructure: row.Infrastructure,
-			VariantCount: row.VariantCount, ChallengeCount: row.ChallengeCount, PublishedCount: row.PublishedCount, HasAttempts: row.HasAttempts})
+			VariantCount: row.VariantCount, ChallengeCount: row.ChallengeCount, PublishedCount: row.PublishedCount, HasAttempts: row.HasAttempts,
+			TaskNames: row.TaskNames})
+		item := &out[len(out)-1]
+		if item.TaskNames == nil {
+			item.TaskNames = []string{}
+		}
+		if row.HasAvgDifficulty {
+			avg := row.AvgDifficulty
+			item.AvgDifficulty = &avg
+		}
+		if row.HasTaskCount {
+			count := len(row.TaskNames)
+			item.TaskCount = &count
+		}
 	}
 	return out, nil
 }

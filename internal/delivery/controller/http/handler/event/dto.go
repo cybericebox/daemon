@@ -583,6 +583,12 @@ type eventExerciseResponse struct {
 	// FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags
 	// were reused after every value was given, so two teams may get the same flag.
 	FlagsMayRepeat bool `json:"FlagsMayRepeat"`
+	// The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:
+	// none), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,
+	// else of the first.
+	AvgDifficulty *float64 `json:"AvgDifficulty"`
+	TaskCount     *int     `json:"TaskCount"`
+	TaskNames     []string `json:"TaskNames"`
 }
 
 // eventResourceTotalsResponse: container devices, their blocks, CPU in millicores, memory in bytes.
@@ -962,7 +968,8 @@ func (r updateEventChallengeRelationsRequest) toInput() eventUseCase.UpdateEvent
 func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResponse {
 	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt, StageID: v.StageID,
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
-		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts}
+		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
+		AvgDifficulty: v.AvgDifficulty, TaskCount: v.TaskCount, TaskNames: nonNilStrings(v.TaskNames)}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
 	out.FlagsMayRepeat = v.FlagsMayRepeat
 	if out.Scope == "" {

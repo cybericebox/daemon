@@ -26559,6 +26559,10 @@ const docTemplate = `{
         "event.eventExerciseResponse": {
             "type": "object",
             "properties": {
+                "AvgDifficulty": {
+                    "description": "The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:\nnone), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,\nelse of the first.",
+                    "type": "number"
+                },
                 "ChallengeCount": {
                     "type": "integer"
                 },
@@ -26638,6 +26642,15 @@ const docTemplate = `{
                 },
                 "SupersededAt": {
                     "type": "string"
+                },
+                "TaskCount": {
+                    "type": "integer"
+                },
+                "TaskNames": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "UpdateAvailable": {
                     "type": "boolean"
