@@ -72,6 +72,14 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 		Display: ResultsDisplayView{ChartEnabled: settings.ChartEnabled, ChartTeams: settings.ChartTeams, RowsLimit: settings.RowsLimit}}
 	if !liveScreen {
 		view.Scoreboard, view.Timeline = presentResults(entries, timeline, settings, own)
+	} else {
+		// The facts block of the screen: the same public number as the
+		// landing variable event.availableChallengeCount.
+		statistics, statErr := u.eventChallenges.ContentStatistics(ctx, eventID, nil)
+		if statErr != nil {
+			return ResultsSnapshotView{}, model.ErrPlatform.WithError(statErr).WithMessage("Failed to count event tasks").Err()
+		}
+		view.Tasks = &statistics.PublishedChallengeCount
 	}
 	if !showRealNames {
 		maskRealNames(view.Scoreboard, own)

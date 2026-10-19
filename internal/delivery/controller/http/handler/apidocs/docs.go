@@ -32466,6 +32466,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/eventself.scoreboardEntryResponse"
                     }
                 },
+                "Tasks": {
+                    "description": "Tasks: the published tasks count, only on the live screen (view=live).",
+                    "type": "integer"
+                },
                 "Timeline": {
                     "type": "array",
                     "items": {

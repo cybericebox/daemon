@@ -33,6 +33,9 @@ func liveBoardNames(t *testing.T, visibility eventConfigModel.Visibility, access
 		{TeamID: uuid.Must(uuid.NewV7()), TeamName: "Frost", Points: 200},
 	}, nil)
 	q.EXPECT().ListEventScoreTimeline(gomock.Any(), postgres.ListEventScoreTimelineParams{EventID: eventID}).Return(nil, nil)
+	if liveScreen {
+		q.EXPECT().GetEventContentStatistics(gomock.Any(), gomock.Any()).Return(postgres.GetEventContentStatisticsRow{}, nil)
+	}
 	got, err := uc.GetResultsSnapshot(context.Background(), eventID, access, liveScreen)
 	if err != nil {
 		t.Fatalf("GetResultsSnapshot: %v", err)
