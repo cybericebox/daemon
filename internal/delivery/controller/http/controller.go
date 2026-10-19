@@ -140,6 +140,8 @@ func NewController(deps Dependencies) *Controller {
 		// In-flight limiter: after CORS (its 503 stays readable by the page) and after the origin guard and the
 		// anonymous limit (a refused request never takes a slot); before the handlers and the database.
 		middleware.NewInflightLimiter(deps.Inflight, prot.SessionKey).Handle,
+		// The body type of a write of unknown length (HTTP/3): it reads the body, so it runs after the limiters.
+		middleware.BodyTypeGuard,
 		middleware.ContentMiddleware)
 
 	RegisterHealth(router)

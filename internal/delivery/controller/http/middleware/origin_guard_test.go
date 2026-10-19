@@ -3,6 +3,7 @@ package middleware_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,12 +20,13 @@ type knownTags map[string]bool
 
 func (k knownTags) EventTagExists(_ context.Context, tag string) bool { return k[tag] }
 
-func guardRouter() *gin.Engine {
+func guardRouter(after ...gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	hosts := config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test",
 		Exercises: "exercises.example.test", EventDomain: "events.example.test"}
 	r := gin.New()
 	r.Use(middleware.OriginGuardWith(middleware.OriginPolicy{Hosts: hosts, Tags: knownTags{"ctf": true}}))
+	r.Use(after...)
 	ok := func(c *gin.Context) { c.Status(http.StatusOK) }
 	for _, m := range []string{"GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"} {
 		r.Handle(m, "/x", ok)
@@ -334,5 +336,69 @@ func TestOriginGuard_OctetStreamOnlyOnBinaryBodyRoutes(t *testing.T) {
 		if got := do(m, "/x", "application/octet-stream"); got != http.StatusUnsupportedMediaType {
 			t.Errorf("octet-stream %s to another route: %d, want 415", m, got)
 		}
+	}
+}
+
+// Over HTTP/3 the length of every request without a content-length header is -1 and the body is always a
+// stream: a bodyless write must pass, a real body is still checked and reaches the handler intact.
+func TestOriginGuard_UnknownLength(t *testing.T) {
+	r := guardRouter(middleware.BodyTypeGuard)
+	var got string
+	var gotLen int64
+	r.Handle("POST", "/read", func(c *gin.Context) {
+		b, _ := io.ReadAll(c.Request.Body)
+		got, gotLen = string(b), c.Request.ContentLength
+		c.Status(http.StatusOK)
+	})
+	cases := []struct {
+		name, method, path, body, ct string
+		want                         int
+		wantBody                     string
+		wantLen                      int64
+	}{
+		{"DELETE empty", "DELETE", "/x", "", "", http.StatusOK, "", 0},
+		{"POST empty", "POST", "/read", "", "", http.StatusOK, "", 0},
+		{"non-JSON body", "POST", "/x", "a=b", "text/plain", http.StatusUnsupportedMediaType, "", 0},
+		{"non-JSON body no type", "DELETE", "/x", "a=b", "", http.StatusUnsupportedMediaType, "", 0},
+		{"JSON body", "POST", "/read", `{"name":"stage","n":[1,2,3]}`, jsonType, http.StatusOK, `{"name":"stage","n":[1,2,3]}`, -1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, gotLen = "", -2
+			req := httptest.NewRequest(tc.method, tc.path, io.NopCloser(strings.NewReader(tc.body)))
+			req.ContentLength = -1
+			req.Header.Set("Origin", "https://exercises.example.test")
+			if tc.ct != "" {
+				req.Header.Set("Content-Type", tc.ct)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != tc.want {
+				t.Fatalf("status %d, want %d", w.Code, tc.want)
+			}
+			if tc.path == "/read" && (got != tc.wantBody || gotLen != tc.wantLen) {
+				t.Errorf("handler saw %q (length %d), want %q (length %d)", got, gotLen, tc.wantBody, tc.wantLen)
+			}
+		})
+	}
+}
+
+// The chunk route keeps accepting a raw body of unknown length.
+func TestOriginGuard_UnknownLengthChunk(t *testing.T) {
+	r := guardRouter(middleware.BodyTypeGuard)
+	var got string
+	r.PUT("/api/exercises/uploads/:uploadID/chunks/:index", func(c *gin.Context) {
+		b, _ := io.ReadAll(c.Request.Body)
+		got = string(b)
+		c.Status(http.StatusOK)
+	})
+	req := httptest.NewRequest("PUT", "/api/exercises/uploads/abc/chunks/0", io.NopCloser(strings.NewReader("raw-bytes")))
+	req.ContentLength = -1
+	req.Header.Set("Origin", "https://exercises.example.test")
+	req.Header.Set("Content-Type", "application/octet-stream")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || got != "raw-bytes" {
+		t.Fatalf("status %d body %q", w.Code, got)
 	}
 }
