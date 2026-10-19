@@ -54,10 +54,7 @@ func (h *Handler) signIn(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	meta := authModel.SessionMetadata{
-		UserAgent: ctx.Request.UserAgent(),
-		IP:        ctx.ClientIP(),
-	}
+	meta := sessionMetadata(ctx)
 	cookie, redirect, err := h.useCase.SignIn(
 		ctx.Request.Context(),
 		req.Email,
@@ -143,4 +140,15 @@ func (h *Handler) revokeOtherSessions(ctx *gin.Context) {
 		return
 	}
 	response.AbortWithSuccess(ctx)
+}
+
+// sessionMetadata is what a new session records about the request. The address is gin's ClientIP, which is
+// trusted: X-Forwarded-For counts only from a TRUSTED_PROXIES peer and CF-Connecting-IP only on a verified
+// Cloudflare connection (controller.originClientIP). A non-public result (the ingress, a pod, a NAT) is the
+// infrastructure, not the client: it is not stored (authModel.SessionIP).
+func sessionMetadata(ctx *gin.Context) authModel.SessionMetadata {
+	return authModel.SessionMetadata{
+		UserAgent: ctx.Request.UserAgent(),
+		IP:        authModel.SessionIP(ctx.ClientIP()),
+	}
 }

@@ -136,7 +136,7 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 	ctx.SetSameSite(http.SameSiteLaxMode)
 	ctx.SetCookie(oauthIntentCookie, "", -1, oauthCookiePath, "", true, true)
 
-	meta := authModel.SessionMetadata{UserAgent: ctx.Request.UserAgent(), IP: ctx.ClientIP()}
+	meta := sessionMetadata(ctx)
 
 	switch intent {
 	case "register":
