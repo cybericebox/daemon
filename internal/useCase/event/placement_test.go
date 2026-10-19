@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -204,4 +205,44 @@ func TestResourcePlanIsAPlanningErrorWhenTheTeamSizeIsAboveTheVPNMaximum(t *test
 	require.NoError(t, err)
 	assert.True(t, plan.Group.TooLarge)
 	assert.True(t, plan.NoAgentFits)
+}
+
+// Without a team limit the plan reserves for the teams it will deploy for: the regular teams that exist
+// now and the moderators team once. An event with only the moderators team plans for exactly one team.
+func TestResourcePlanCountsTheModeratorsTeamOnceWithoutALimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		regular int64
+		want    int
+	}{
+		{"only the moderators team", 0, 1},
+		{"two teams and the moderators", 2, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			q := postgresMocks.NewMockQuerier(ctrl)
+			eventID := uuid.Must(uuid.NewV7())
+			team := int16(eventConfigModel.ParticipationTeam)
+			q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(postgres.EventConfig{
+				EventID: eventID, Participation: pgtype.Int2{Int16: team, Valid: true}, MaxTeamSize: 4,
+			}, nil)
+			q.EXPECT().CountEventTeams(gomock.Any(), eventID).Return(tc.regular, nil)
+			now := time.Now().UTC()
+			q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{LifecycleConfigured: true, ID: eventID, Tag: "event", Name: "Event",
+				CreatedAt: now.Add(-time.Hour), AvailableFrom: now.Add(-time.Hour), JoinPolicy: 1, PublishAt: now.Add(-time.Hour), StartAt: now.Add(time.Hour),
+				UpdatedAt: pgtype.Timestamptz{Time: now, Valid: true}}, nil)
+			q.EXPECT().ListEventExercises(gomock.Any(), eventID).Return(nil, nil)
+			q.EXPECT().ListVersionVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+			q.EXPECT().ListEventExerciseDetails(gomock.Any(), eventID).Return(nil, nil).AnyTimes()
+			q.EXPECT().ListEventLabAllocations(gomock.Any(), eventID).Return(nil, nil).AnyTimes()
+			q.EXPECT().ListEventGroupAllocations(gomock.Any(), eventID).Return(nil, nil).AnyTimes()
+			q.EXPECT().ListUnaccountedEventLabStarts(gomock.Any()).Return(nil, nil).AnyTimes()
+			u := NewEventUseCase(Dependencies{Repo: q})
+			u.SetAllocationAccounting(true)
+			plan, err := u.GetResourcePlan(context.Background(), eventID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, plan.Teams)
+			assert.Equal(t, "current", plan.TeamsBasis)
+		})
+	}
 }
