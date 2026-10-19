@@ -6171,6 +6171,162 @@ const docTemplate = `{
                 }
             }
         },
+        "/events/{id}/manage/exercises/bulk/detach": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Remove 1..200 sets from the event; each set as the single detach would (Confirm for attempted sets)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sets",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.bulkExerciseDetachRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.bulkExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/exercises/bulk/scoring": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Give every task of 1..200 sets the same local scoring (null: the event's); each set as the single action would",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sets and scoring",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.bulkExerciseScoringRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.bulkExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/exercises/bulk/visibility": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Show or hide 1..200 sets on the participant board; each set as the single action would",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sets and visibility",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.bulkExerciseVisibilityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.bulkExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/exercises/{exerciseID}": {
             "delete": {
                 "produces": [
@@ -25988,6 +26144,82 @@ const docTemplate = `{
                 },
                 "UserID": {
                     "type": "string"
+                }
+            }
+        },
+        "event.bulkExerciseDetachRequest": {
+            "type": "object",
+            "properties": {
+                "Confirm": {
+                    "type": "boolean"
+                },
+                "ExerciseIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "event.bulkExerciseItemResponse": {
+            "type": "object",
+            "properties": {
+                "Changed": {
+                    "type": "boolean"
+                },
+                "Code": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Message": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.bulkExerciseResponse": {
+            "type": "object",
+            "properties": {
+                "Changed": {
+                    "type": "integer"
+                },
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.bulkExerciseItemResponse"
+                    }
+                },
+                "Skipped": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.bulkExerciseScoringRequest": {
+            "type": "object",
+            "properties": {
+                "ExerciseIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Override": {
+                    "$ref": "#/definitions/event.updateScoringProfileRequest"
+                }
+            }
+        },
+        "event.bulkExerciseVisibilityRequest": {
+            "type": "object",
+            "properties": {
+                "ExerciseIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Published": {
+                    "type": "boolean"
                 }
             }
         },

@@ -188,6 +188,7 @@
   "21801": "Event, exercise, and version identifiers are required",
   "21802": "Event exercise variant mode is invalid",
   "21807": "Replacement version belongs to a different exercise",
+  "21814": "Select from 1 to 200 exercises",
   "21901": "Event exercise and task identifiers are required",
   "21902": "Event challenge points must be positive",
   "21904": "Challenge order must contain every board challenge exactly once",
