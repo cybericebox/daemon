@@ -44,7 +44,7 @@ type ResourceAlarm struct {
 func (r *RequestRouter) resourceChangeVars(ctx context.Context, c ResourceChange) (map[string]any, error) {
 	vars := map[string]any{
 		"change_id": c.ID.String(), "event_id": c.EventID.String(), "event_name": c.EventName, "event_tag": c.EventTag,
-		"reason": c.Reason, "decision_note": c.DecisionNote, "summary": c.Summary, "requester_name": "",
+		"reason": c.Reason, "decision_note": c.DecisionNote, "summary": c.Summary, "requester_name": "", "admin_url": r.adminURL,
 	}
 	if c.RequestedBy != uuid.Nil {
 		requester, err := r.profile(ctx, c.RequestedBy)
@@ -106,7 +106,7 @@ func (r *RequestRouter) ResourceAlarmRaised(ctx context.Context, a ResourceAlarm
 	}
 	vars := map[string]any{
 		"alarm_id": a.ID.String(), "alarm_kind": inappdefaults.AlarmReason(inappdefaults.UK, string(a.Kind)), "event_id": a.EventID.String(), "event_name": a.EventName, "event_tag": a.EventTag,
-		"agent_name": a.AgentName, "units": strconv.Itoa(a.Units),
+		"agent_name": a.AgentName, "units": strconv.Itoa(a.Units), "admin_url": r.adminURL,
 	}
 	meta := inboxModel.NewMeta(inboxModel.TypeResourceAlarmRaised, inboxModel.RoleAdmin, inboxModel.ResourceAlarmRef(a.ID)).Raised(a.RaisedAt)
 	return r.fanOut(ctx, admins, inboxModel.TypeResourceAlarmRaised, vars, meta)

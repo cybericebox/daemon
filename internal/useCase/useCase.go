@@ -388,6 +388,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 	// Inbox requests that reach every person who may act on them (Event
 	// managers, platform admins) and close for all of them on decision.
 	inboxRequests := inboxUseCase.NewRequestRouter(deps.Repo, notificationDispatcher)
+	inboxRequests.SetAdminURL(deps.AuthConfig.Hosts.AdminURL("/"))
 	eventUC.SetStandInbox(inboxRequests)
 	exerciseUC.SetProposalInbox(inboxRequests)
 	exerciseUC.SetElevationInbox(inboxRequests)

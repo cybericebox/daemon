@@ -61,12 +61,14 @@ func TestRequestRouter_ResourceAlarmGoesToEveryAdminAndEscalationReplacesTheCopy
 	}).AnyTimes()
 	repo.EXPECT().ListSuperAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin1, admin2}, nil).Times(2)
 
+	router.SetAdminURL("https://admin.example.org/")
 	a := inboxUseCase.ResourceAlarm{ID: alarmID, Kind: "not_connected", EventName: "CTF", AgentName: "main", Units: 3, Stage: 2, RaisedAt: time.Now()}
 	require.NoError(t, router.ResourceAlarmRaised(context.Background(), a))
 	require.Len(t, notifier.sent, 2)
 	assert.Equal(t, notificationTypes.NotificationType(inboxModel.TypeResourceAlarmRaised), notifier.sent[0].typ)
 	assert.Equal(t, "3", notifier.sent[0].vars["units"])
 	assert.Equal(t, "агент не на звʼязку", notifier.sent[0].vars["alarm_kind"], "the reason is text, never the raw enum")
+	assert.Equal(t, "https://admin.example.org/", notifier.sent[0].vars["admin_url"], "the link variable of the template")
 	assert.True(t, notifier.sent[0].options.Inbox.ActionRequired)
 	assert.Equal(t, inboxModel.ResourceAlarmRef(alarmID), notifier.sent[0].options.Inbox.SubjectRef)
 
