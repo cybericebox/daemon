@@ -20,7 +20,9 @@ import (
 // token in ?token= opens this event's published layout and the staff live
 // board, read-only. Nothing else is reachable with it.
 func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
-	known := func(ctx context.Context, token string, now time.Time) bool { return h.useCase.IsActiveLiveScreenToken(ctx, token, now) }
+	known := func(ctx context.Context, token string, now time.Time) bool {
+		return h.useCase.IsActiveLiveScreenToken(ctx, token, now)
+	}
 	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), newLiveScreenLimiter(known).middleware, resolveTenant)
 	screen.GET("", h.liveScreen)
 	screen.GET("results", h.liveScreenAccess, h.resultsSnapshot)
