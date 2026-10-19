@@ -670,6 +670,9 @@ type Querier interface {
 	IssueEventLiveScreenLink(ctx context.Context, arg IssueEventLiveScreenLinkParams) error
 	ListActiveBannersByUser(ctx context.Context, arg ListActiveBannersByUserParams) ([]ListActiveBannersByUserRow, error)
 	ListActiveFutureTimedEventFormAssignments(ctx context.Context, eventID uuid.UUID) ([]EventFormAssignment, error)
+	// The token hashes of every working link: the screen limiter gives only
+	// these links their own request budget.
+	ListActiveLiveScreenTokenHashes(ctx context.Context, now pgtype.Timestamptz) ([]ListActiveLiveScreenTokenHashesRow, error)
 	ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]ResourceTestLabHold, error)
 	// What a replica loads before it serves: the revocations whose cookies could still be alive.
 	ListActiveSessionRevocations(ctx context.Context) ([]SessionRevocation, error)

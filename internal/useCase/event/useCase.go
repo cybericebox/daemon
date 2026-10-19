@@ -202,6 +202,7 @@ type EventUseCase struct {
 	eventChallenges          *eventChallengeRepo.Repository
 	content                  *eventContentRepo.Repository
 	liveScreens              *liveScreenRepo.Repository
+	liveScreenTokens         *liveScreenTokenSet
 	teamChallenges           *teamChallengeRepo.Repository
 	attempts                 *challengeAttemptRepo.Repository
 	idempotency              *requestIdempotencyRepo.Repository
@@ -371,6 +372,7 @@ func NewEventUseCase(deps Dependencies) *EventUseCase {
 		eventChallenges:          eventChallengeRepo.New(deps.Repo),
 		content:                  eventContentRepo.New(deps.Repo),
 		liveScreens:              liveScreenRepo.New(deps.Repo),
+		liveScreenTokens:         &liveScreenTokenSet{},
 		teamChallenges:           teamChallengeRepo.New(deps.Repo),
 		attempts:                 challengeAttemptRepo.New(deps.Repo),
 		idempotency:              requestIdempotencyRepo.New(deps.Repo),

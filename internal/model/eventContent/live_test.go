@@ -78,6 +78,8 @@ func TestLiveTimerSourceLabelAndSize(t *testing.T) {
 		{"source": json.RawMessage(`"freeze"`), "label": json.RawMessage(`"До заморожування"`), "labelSize": json.RawMessage(`"l"`)},
 		{"source": json.RawMessage(`"custom"`), "target": json.RawMessage(`"2026-10-01T18:00:00Z"`)},
 		{"label": json.RawMessage(`""`), "labelSize": json.RawMessage(`"s"`)},
+		{"source": json.RawMessage(`"stage-end"`)},
+		{"source": json.RawMessage(`"stage-next"`)},
 	}
 	for _, props := range valid {
 		if err := timerLayout(props).Validate(); err != nil {
@@ -196,6 +198,44 @@ func TestLiveFormatsAutoAndCustom(t *testing.T) {
 	for name, layout := range invalid {
 		if err := layout.Validate(); err == nil {
 			t.Fatalf("%s accepted", name)
+		}
+	}
+}
+
+func TestLiveTablePinnedRowsAndStageSubtitle(t *testing.T) {
+	tableLayout := func(props map[string]json.RawMessage) LiveLayout {
+		layout := widgetLayout("table", props)
+		layout.Widgets[0].H = 3
+		return layout
+	}
+	for _, value := range []string{"0", "3", "5"} {
+		if err := tableLayout(map[string]json.RawMessage{"pinTop": json.RawMessage(value)}).Validate(); err != nil {
+			t.Fatalf("pinTop %s rejected: %v", value, err)
+		}
+	}
+	for _, value := range []string{"4", "-1", `"3"`} {
+		if err := tableLayout(map[string]json.RawMessage{"pinTop": json.RawMessage(value)}).Validate(); err == nil {
+			t.Fatalf("pinTop %s accepted", value)
+		}
+	}
+	if err := widgetLayout("title", map[string]json.RawMessage{"subtitleStage": json.RawMessage(`true`)}).Validate(); err != nil {
+		t.Fatalf("stage subtitle rejected: %v", err)
+	}
+}
+
+func TestLiveSafeArea(t *testing.T) {
+	for _, value := range []float64{0, 2.5, 5} {
+		layout := DefaultLiveLayout()
+		layout.Screen.SafeArea = value
+		if err := layout.Validate(); err != nil {
+			t.Fatalf("safe area %v rejected: %v", value, err)
+		}
+	}
+	for _, value := range []float64{1, 10, -2.5} {
+		layout := DefaultLiveLayout()
+		layout.Screen.SafeArea = value
+		if err := layout.Validate(); err == nil {
+			t.Fatalf("safe area %v accepted", value)
 		}
 	}
 }

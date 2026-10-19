@@ -98,6 +98,40 @@ func (q *Queries) IssueEventLiveScreenLink(ctx context.Context, arg IssueEventLi
 	return err
 }
 
+const listActiveLiveScreenTokenHashes = `-- name: ListActiveLiveScreenTokenHashes :many
+SELECT token_hash, expires_at
+FROM event_live_screen_links
+WHERE revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > $1)
+`
+
+type ListActiveLiveScreenTokenHashesRow struct {
+	TokenHash []byte             `json:"token_hash"`
+	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
+}
+
+// The token hashes of every working link: the screen limiter gives only
+// these links their own request budget.
+func (q *Queries) ListActiveLiveScreenTokenHashes(ctx context.Context, now pgtype.Timestamptz) ([]ListActiveLiveScreenTokenHashesRow, error) {
+	rows, err := q.db.Query(ctx, listActiveLiveScreenTokenHashes, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveLiveScreenTokenHashesRow{}
+	for rows.Next() {
+		var i ListActiveLiveScreenTokenHashesRow
+		if err := rows.Scan(&i.TokenHash, &i.ExpiresAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const revokeEventLiveScreenLinks = `-- name: RevokeEventLiveScreenLinks :execrows
 UPDATE event_live_screen_links
 SET revoked_at = $1

@@ -1,6 +1,7 @@
 // Package liveScreenRepo stores the event's screen link (hashed token). An
 // event has at most one unrevoked link: Issue revokes any previous one and
-// inserts the new one in one statement; Revoke is a narrow set operation.
+// inserts the new one in one statement; Revoke is a narrow set operation;
+// ActiveTokenHashes is a query-side read for the screen request limiter.
 package liveScreenRepo
 
 import (
@@ -19,6 +20,7 @@ type Queries interface {
 	GetEventLiveScreenLinkByTokenHash(context.Context, []byte) (postgres.EventLiveScreenLink, error)
 	IssueEventLiveScreenLink(context.Context, postgres.IssueEventLiveScreenLinkParams) error
 	RevokeEventLiveScreenLinks(context.Context, postgres.RevokeEventLiveScreenLinksParams) (int64, error)
+	ListActiveLiveScreenTokenHashes(context.Context, pgtype.Timestamptz) ([]postgres.ListActiveLiveScreenTokenHashesRow, error)
 }
 
 type Repository struct{ q Queries }
@@ -73,4 +75,18 @@ func (r *Repository) Issue(ctx context.Context, link eventContentModel.LiveScree
 // Revoke leaves the event without a working link.
 func (r *Repository) Revoke(ctx context.Context, eventID uuid.UUID, now time.Time) (int64, error) {
 	return r.q.RevokeEventLiveScreenLinks(ctx, postgres.RevokeEventLiveScreenLinksParams{EventID: eventID, RevokedAt: pgtype.Timestamptz{Time: now, Valid: true}})
+}
+
+// ActiveTokenHashes maps the token hash of every working link to its expiry
+// (nil = none): a read-side shape for the screen request limiter.
+func (r *Repository) ActiveTokenHashes(ctx context.Context, now time.Time) (map[string]*time.Time, error) {
+	rows, err := r.q.ListActiveLiveScreenTokenHashes(ctx, pgtype.Timestamptz{Time: now, Valid: true})
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*time.Time, len(rows))
+	for _, row := range rows {
+		out[string(row.TokenHash)] = optionalTime(row.ExpiresAt)
+	}
+	return out, nil
 }

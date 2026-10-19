@@ -5110,6 +5110,22 @@ definitions:
         items:
           type: integer
         type: array
+      Stages:
+        description: |-
+          Stages in the event order; the screen timer counts to the current
+          stage end or the next stage start. Empty for an event without stages.
+        items:
+          $ref: '#/definitions/eventself.liveScreenStageResponse'
+        type: array
+    type: object
+  eventself.liveScreenStageResponse:
+    properties:
+      ClosesAt:
+        type: string
+      Name:
+        type: string
+      OpensAt:
+        type: string
     type: object
   eventself.manualLabRequest:
     properties:
