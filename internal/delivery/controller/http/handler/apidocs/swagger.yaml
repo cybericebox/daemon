@@ -1403,11 +1403,11 @@ definitions:
         type: string
       FixedVariantIndex:
         type: integer
-      FlagsMayRepeat:
-        description: |-
-          FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags
-          were reused after every value was given, so two teams may get the same flag.
-        type: boolean
+      FlagsRepeat:
+        allOf:
+        - $ref: '#/definitions/event.flagsRepeatResponse'
+        description: 'FlagsRepeat: two teams may get the same flag of the set; null
+          when they cannot.'
       Fork:
         $ref: '#/definitions/event.eventExerciseForkResponse'
       HasAttempts:
@@ -1716,6 +1716,19 @@ definitions:
       State:
         description: 'State is computed from time: upcoming | open | closed.'
         type: string
+    type: object
+  event.flagsRepeatResponse:
+    properties:
+      Flags:
+        type: integer
+      Reason:
+        enum:
+        - limit
+        - teams
+        - repeated
+        type: string
+      Teams:
+        type: integer
     type: object
   event.hintCostRequest:
     properties:

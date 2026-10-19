@@ -26584,9 +26584,13 @@ const docTemplate = `{
                 "FixedVariantIndex": {
                     "type": "integer"
                 },
-                "FlagsMayRepeat": {
-                    "description": "FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags\nwere reused after every value was given, so two teams may get the same flag.",
-                    "type": "boolean"
+                "FlagsRepeat": {
+                    "description": "FlagsRepeat: two teams may get the same flag of the set; null when they cannot.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.flagsRepeatResponse"
+                        }
+                    ]
                 },
                 "Fork": {
                     "$ref": "#/definitions/event.eventExerciseForkResponse"
@@ -27030,6 +27034,25 @@ const docTemplate = `{
                 "State": {
                     "description": "State is computed from time: upcoming | open | closed.",
                     "type": "string"
+                }
+            }
+        },
+        "event.flagsRepeatResponse": {
+            "type": "object",
+            "properties": {
+                "Flags": {
+                    "type": "integer"
+                },
+                "Reason": {
+                    "type": "string",
+                    "enum": [
+                        "limit",
+                        "teams",
+                        "repeated"
+                    ]
+                },
+                "Teams": {
+                    "type": "integer"
                 }
             }
         },
