@@ -649,6 +649,8 @@ type Querier interface {
 	HasActiveEventLabRuntimeSelection(ctx context.Context, arg HasActiveEventLabRuntimeSelectionParams) (bool, error)
 	HasEventLabRetentionPin(ctx context.Context, arg HasEventLabRetentionPinParams) (bool, error)
 	HasIncompleteRequiredEventFormDelivery(ctx context.Context, arg HasIncompleteRequiredEventFormDeliveryParams) (bool, error)
+	// Whether any notification (open or closed) was ever delivered for the subject: an alert raised once per subject.
+	InboxSubjectExists(ctx context.Context, subjectRef string) (bool, error)
 	InsertErrorSample(ctx context.Context, arg InsertErrorSampleParams) error
 	InsertEventRegistrySecret(ctx context.Context, arg InsertEventRegistrySecretParams) error
 	// The first lifecycle transition captures the population. A retry must return

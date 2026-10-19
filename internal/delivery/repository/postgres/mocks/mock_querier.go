@@ -5628,6 +5628,21 @@ func (mr *MockQuerierMockRecorder) HasIncompleteRequiredEventFormDelivery(ctx, a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasIncompleteRequiredEventFormDelivery", reflect.TypeOf((*MockQuerier)(nil).HasIncompleteRequiredEventFormDelivery), ctx, arg)
 }
 
+// InboxSubjectExists mocks base method.
+func (m *MockQuerier) InboxSubjectExists(ctx context.Context, subjectRef string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InboxSubjectExists", ctx, subjectRef)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InboxSubjectExists indicates an expected call of InboxSubjectExists.
+func (mr *MockQuerierMockRecorder) InboxSubjectExists(ctx, subjectRef any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InboxSubjectExists", reflect.TypeOf((*MockQuerier)(nil).InboxSubjectExists), ctx, subjectRef)
+}
+
 // InsertErrorSample mocks base method.
 func (m *MockQuerier) InsertErrorSample(ctx context.Context, arg postgres.InsertErrorSampleParams) error {
 	m.ctrl.T.Helper()

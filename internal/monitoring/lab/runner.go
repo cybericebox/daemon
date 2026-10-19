@@ -48,7 +48,8 @@ type Runner struct {
 	agentID string
 	lockKey int64
 	// capacity receives every capacity the agent reports (its tenant view); a failure is logged, never fatal.
-	capacity CapacitySink
+	capacity    CapacitySink
+	withdrawals WithdrawalSink
 	// seen hears every message that carries no capacity (a heartbeat), so the agent stays "seen" while idle.
 	seen SeenSink
 	// features receives what the agent says the tenant can use (first message, then on change).
@@ -272,6 +273,11 @@ func (r *Runner) persist(ctx context.Context, update *labpb.MonitoringUpdate) er
 		})
 		if err != nil {
 			return err
+		}
+	}
+	if r.withdrawals != nil {
+		if found := repeatedWithdrawals(update); len(found) > 0 {
+			r.withdrawals(ctx, found)
 		}
 	}
 	if reports := update.GetTraffic(); len(reports) > 0 && r.traffic != nil {

@@ -413,6 +413,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 	exerciseUC.SetTestLabNotifier(inboxRequests)
 	// The periodic registry credential check tells the people who can fix a credential when it breaks or recovers.
 	imageRegistryUC.SetCheckNotifier(inboxRequests)
+	// A group of labs a cluster withdrew again and again (no node in time) is a request to the platform admins.
+	agentsUC.SetWithdrawalNotifier(inboxRequests)
 	eventUC.SetEmailFooters(mailUC)
 	emailTemplateUC := emailUseCase.NewNotificationEmailTemplateUseCase(deps.Repo, mediaUC)
 	emailTemplateUC.SetFooterSource(mailUC)
