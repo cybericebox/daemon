@@ -229,3 +229,122 @@ func TestViewerReadsVersionsWithoutFlags(t *testing.T) {
 		})
 	}
 }
+
+// The internal notes (AdminNote, Variants[].Note) reach only full access: admins and the owner event's
+// owners/managers (Access.Flags). An event viewer and a published-only reader of a catalog task get them blank,
+// on the version, the working copy and the history list.
+func TestNotesOnlyForFullAccess(t *testing.T) {
+	exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	version := exerciseUseCase.VersionView{
+		ID:         versionID,
+		ExerciseID: exerciseID,
+		Status:     "published",
+		AdminNote:  "ADMIN_NOTE_TEXT",
+		Variants: []exerciseModel.Variant{
+			{
+				Note: "VARIANT_NOTE_TEXT",
+				Tasks: []exerciseModel.Task{
+					{
+						ID:         uuid.Must(uuid.NewV7()),
+						Name:       "Find it",
+						Difficulty: exerciseModel.DifficultyEasy,
+					},
+				},
+			},
+		},
+	}
+	list := []exerciseUseCase.VersionListItem{
+		{ID: versionID, Status: "published", AdminNote: "ADMIN_NOTE_TEXT", VariantCount: 1},
+	}
+	for _, tc := range []struct {
+		name   string
+		access exerciseUseCase.Access
+		notes  bool
+		paths  []string
+	}{
+		{name: "platform admin or event moderator", access: exerciseUseCase.Access{Full: true, Flags: true}, notes: true, paths: []string{"/draft", "/versions/" + versionID.String(), "/versions"}},
+		{name: "event viewer", access: exerciseUseCase.Access{Full: true}, notes: false, paths: []string{"/draft", "/versions/" + versionID.String(), "/versions"}},
+		{name: "published-only reader", access: exerciseUseCase.Access{}, notes: false, paths: []string{"/versions/" + versionID.String()}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, path := range tc.paths {
+				access := tc.access
+				body := readNotesPath(
+					t,
+					&fakeUC{versionView: version, versionList: list, access: &access},
+					exerciseID,
+					path,
+				)
+				if got := strings.Contains(body, "ADMIN_NOTE_TEXT"); got != tc.notes {
+					t.Fatalf("%s: admin note shown=%t, want %t: %s", path, got, tc.notes, body)
+				}
+				if got := strings.Contains(
+					body,
+					"VARIANT_NOTE_TEXT",
+				); path != "/versions" &&
+					got != tc.notes {
+					t.Fatalf("%s: variant note shown=%t, want %t: %s", path, got, tc.notes, body)
+				}
+			}
+			if version.AdminNote == "" || version.Variants[0].Note == "" ||
+				list[0].AdminNote == "" {
+				t.Fatal("the redaction changed the use case's view")
+			}
+		})
+	}
+}
+
+func readNotesPath(t *testing.T, uc *fakeUC, exerciseID uuid.UUID, path string) string {
+	t.Helper()
+	w := httptest.NewRecorder()
+	engineAs(
+		uc,
+		rbac.RoleUser,
+	).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exerciseID.String()+path, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("%s: status %d body %s", path, w.Code, w.Body.String())
+	}
+	return w.Body.String()
+}
+
+// A reader without full access (a published-only reader of a catalog task) never learns about the working copy:
+// the card carries no draft and no «unpublished changes» (ES3); full access keeps both.
+func TestCardWorkingCopyOnlyForFullAccess(t *testing.T) {
+	exerciseID, draftID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, tc := range []struct {
+		name   string
+		access exerciseUseCase.Access
+		shown  bool
+	}{
+		{name: "full access", access: exerciseUseCase.Access{Full: true, Flags: true}, shown: true},
+		{name: "published-only reader", access: exerciseUseCase.Access{}, shown: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			access := tc.access
+			uc := &fakeUC{
+				exerciseView: exerciseUseCase.ExerciseView{
+					ID:             exerciseID,
+					Name:           "card",
+					HasChanges:     true,
+					DraftVersionID: &draftID,
+				},
+				access: &access,
+			}
+			w := httptest.NewRecorder()
+			engineAs(
+				uc,
+				rbac.RoleUser,
+			).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exerciseID.String(), nil))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status %d body %s", w.Code, w.Body.String())
+			}
+			body := w.Body.String()
+			if got := strings.Contains(body, `"HasChanges":true`); got != tc.shown {
+				t.Fatalf("changes shown=%t, want %t: %s", got, tc.shown, body)
+			}
+			if got := strings.Contains(body, draftID.String()); got != tc.shown {
+				t.Fatalf("draft id shown=%t, want %t: %s", got, tc.shown, body)
+			}
+		})
+	}
+}

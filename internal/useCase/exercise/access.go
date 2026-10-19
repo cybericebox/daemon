@@ -162,6 +162,19 @@ func WithoutFlags(v VersionView) VersionView {
 	return v
 }
 
+// WithoutNotes is the version with the internal notes blanked (AdminNote, every Variants[].Note): they are for full
+// access only, i.e. admins and the owner event's owners/managers (Access.Flags). The view's own variants are never
+// mutated.
+func WithoutNotes(v VersionView) VersionView {
+	variants := make([]exerciseModel.Variant, len(v.Variants))
+	copy(variants, v.Variants)
+	for i := range variants {
+		variants[i].Note = ""
+	}
+	v.AdminNote, v.Variants = "", variants
+	return v
+}
+
 // RequireTestLabAuthor lets through who may run a test deploy: exercises.write, or a manage membership of an
 // event that has infrastructure. The test-lab room check and bookings are for these authors only.
 func (u *ExerciseUseCase) RequireTestLabAuthor(ctx context.Context, actor Actor) error {

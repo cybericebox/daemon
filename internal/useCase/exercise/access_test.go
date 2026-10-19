@@ -216,3 +216,18 @@ func TestWithoutFlags(t *testing.T) {
 		t.Fatalf("copy %+v original %+v", out, v)
 	}
 }
+
+// WithoutNotes blanks the exercise note and every variant note in a copy; the original keeps them.
+func TestWithoutNotes(t *testing.T) {
+	v := exercise.VersionView{
+		AdminNote: "admin",
+		Variants:  []exerciseModel.Variant{{Note: "first"}, {Note: "second"}},
+	}
+	out := exercise.WithoutNotes(v)
+	if out.AdminNote != "" || out.Variants[0].Note != "" || out.Variants[1].Note != "" {
+		t.Fatalf("notes left: %+v", out)
+	}
+	if v.AdminNote != "admin" || v.Variants[0].Note != "first" || v.Variants[1].Note != "second" {
+		t.Fatalf("original changed: %+v", v)
+	}
+}
