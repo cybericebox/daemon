@@ -625,6 +625,7 @@ func mapPodScheduling(p *labpb.PodScheduling) *exerciseModel.PodScheduling {
 	out := &exerciseModel.PodScheduling{
 		State: podState(p.GetState()), QueuedAt: unixMilli(p.GetQueuedUnixMs()),
 		DispatchedAt: unixMilli(p.GetDispatchedUnixMs()), StartedAt: unixMilli(p.GetStartedUnixMs()),
+		Withdrawals: p.GetWithdrawals(), RetryAfter: unixMilli(p.GetRetryAfterUnixMs()),
 	}
 	if f := p.GetFailure(); f != nil {
 		out.Failure = &exerciseModel.PodFailure{Reason: f.GetReason(), Message: f.GetMessage(), RestartCount: f.GetRestartCount(), At: unixMilli(f.GetAtUnixMs())}
