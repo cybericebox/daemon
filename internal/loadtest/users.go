@@ -71,6 +71,9 @@ type Account struct {
 	Email    string    `json:"email"`
 	Password string    `json:"password"`
 	UserID   uuid.UUID `json:"userId"`
+	// Manual marks an account kept for a person: the load tool never touches it. It has no session; the owner
+	// signs in with the password and goes through the event registration in the browser.
+	Manual bool `json:"manual,omitempty"`
 	// Cookie is the sealed session cookie value (name Cookie name in the file header). It lets a
 	// load tool skip the captcha-protected sign-in.
 	Cookie string `json:"cookie"`
@@ -135,12 +138,12 @@ func (s *Service) logf(format string, args ...any) {
 
 // Create makes count confirmed users for the run, each with an open session, and returns the
 // credentials. A run that already has accounts is refused: a new run id keeps cleanup exact.
-func (s *Service) Create(ctx context.Context, run string, count int) (File, error) {
+func (s *Service) Create(ctx context.Context, run string, count, manual int) (File, error) {
 	if err := ValidateRun(run); err != nil {
 		return File{}, err
 	}
-	if count < 1 || count > MaxUsers {
-		return File{}, fmt.Errorf("count must be 1..%d", MaxUsers)
+	if count < 1 || manual < 0 || count+manual > MaxUsers {
+		return File{}, fmt.Errorf("count must be at least 1 and count plus manual at most %d", MaxUsers)
 	}
 	if _, err := s.users.GetByEmail(ctx, Email(run, 1)); err == nil {
 		return File{}, fmt.Errorf("run %q already has accounts; delete them or pick another run id", run)
@@ -150,18 +153,18 @@ func (s *Service) Create(ctx context.Context, run string, count int) (File, erro
 
 	now := s.now()
 	file := File{Run: run, CreatedAt: now, CookieName: authModel.SessionCookie, CookieExpiresAt: now.Add(s.cfg.Lifetimes.Idle)}
-	for n := 1; n <= count; n++ {
-		account, err := s.createOne(ctx, run, n, now)
+	for n := 1; n <= count+manual; n++ {
+		account, err := s.createOne(ctx, run, n, now, n > count)
 		if err != nil {
-			return file, fmt.Errorf("account %d of %d: %w", n, count, err)
+			return file, fmt.Errorf("account %d of %d: %w", n, count+manual, err)
 		}
 		file.Accounts = append(file.Accounts, account)
 	}
-	s.logf("created %d accounts for run %s", count, run)
+	s.logf("created %d accounts (%d manual) for run %s", count+manual, manual, run)
 	return file, nil
 }
 
-func (s *Service) createOne(ctx context.Context, run string, n int, now time.Time) (Account, error) {
+func (s *Service) createOne(ctx context.Context, run string, n int, now time.Time, manual bool) (Account, error) {
 	email := Email(run, n)
 	plain, err := seed.GeneratePassword(s.cfg.Complexity)
 	if err != nil {
@@ -182,6 +185,9 @@ func (s *Service) createOne(ctx context.Context, run string, n int, now time.Tim
 	}
 	if affected, updateErr := s.users.Update(ctx, created, expected); updateErr != nil || affected == 0 {
 		return Account{}, fmt.Errorf("activate user: affected=%d err=%v", affected, updateErr)
+	}
+	if manual {
+		return Account{N: n, Email: email, Password: plain, UserID: created.ID, Manual: true}, nil
 	}
 	session, err := s.sessions.Create(ctx, authModel.NewSession(created.ID, authModel.SessionMetadata{UserAgent: "cybericebox-loadtest/" + run}, s.cfg.Lifetimes.Idle, now))
 	if err != nil {

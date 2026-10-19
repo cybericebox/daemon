@@ -1,6 +1,6 @@
 // Command loadtest-users creates and removes the accounts of a load-test run.
 //
-//	loadtest-users create --run <id> --count <n> --out <file|->
+//	loadtest-users create --run <id> --count <n> [--manual 3] --out <file|->
 //	loadtest-users delete --run <id> [--dry-run]
 //
 // It reads the same environment as the daemon and runs inside the backend pod (kubectl exec) or a
@@ -39,7 +39,8 @@ func run(args []string) error {
 	command := args[0]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	runID := fs.String("run", "", "run id: 3-20 characters of a-z and 0-9")
-	count := fs.Int("count", 0, "create: how many accounts")
+	count := fs.Int("count", 0, "create: how many accounts for the load script")
+	manual := fs.Int("manual", 3, "create: extra accounts kept for a person, marked manual, never used by the script")
 	out := fs.String("out", "", "create: credentials file, or - for stdout")
 	dryRun := fs.Bool("dry-run", false, "delete: list what would be removed")
 	if err := fs.Parse(args[1:]); err != nil {
@@ -82,7 +83,7 @@ func run(args []string) error {
 		_, err = svc.Delete(ctx, *runID, *dryRun)
 		return err
 	}
-	file, err := svc.Create(ctx, *runID, *count)
+	file, err := svc.Create(ctx, *runID, *count, *manual)
 	if err != nil {
 		return err
 	}

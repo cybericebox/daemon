@@ -212,7 +212,14 @@ func readCreds(path string) ([]account, error) {
 	if err = json.Unmarshal(raw, &file); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	return file.Accounts, nil
+	// Manual accounts belong to a person: the script never signs them in, registers them or adds them to a team.
+	var out []account
+	for _, a := range file.Accounts {
+		if !a.Manual {
+			out = append(out, a)
+		}
+	}
+	return out, nil
 }
 
 func readFlags(path string) (map[string]string, error) {

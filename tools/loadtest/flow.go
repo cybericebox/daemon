@@ -17,6 +17,7 @@ type account struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Cookie   string `json:"cookie"`
+	Manual   bool   `json:"manual"`
 }
 
 // team is one load-test team. The first member is the captain: creates the team, shares the join
