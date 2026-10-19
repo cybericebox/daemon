@@ -12,6 +12,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/limits"
+	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 )
@@ -29,6 +30,15 @@ func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.Hand
 type liveScreenResponse struct {
 	Event  publicEventInfoResponse `json:"Event"`
 	Layout json.RawMessage         `json:"Layout"`
+	// Stages in the event order; the screen timer counts to the current
+	// stage end or the next stage start. Empty for an event without stages.
+	Stages []liveScreenStageResponse `json:"Stages"`
+}
+
+type liveScreenStageResponse struct {
+	Name     string    `json:"Name"`
+	OpensAt  time.Time `json:"OpensAt"`
+	ClosesAt time.Time `json:"ClosesAt"`
 }
 
 // liveScreen godoc
@@ -54,7 +64,11 @@ func (h *Handler) liveScreen(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, liveScreenResponse{Event: toPublicEventInfoResponse(v.Event), Layout: layout})
+	stages := make([]liveScreenStageResponse, 0, len(v.Stages))
+	for _, stage := range v.Stages {
+		stages = append(stages, liveScreenStageResponse{Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt})
+	}
+	response.AbortWithData(ctx, liveScreenResponse{Event: toPublicEventInfoResponse(v.Event), Layout: layout, Stages: stages})
 }
 
 // liveScreenAccess turns a valid screen link into the read-only staff view
@@ -121,6 +135,10 @@ func newWindowLimiter(limit int, window time.Duration) *windowLimiter {
 	return &windowLimiter{limit: limit, window: window, counts: map[string]int{}}
 }
 
+// liveScreenLimiterKeys bounds the keys of one window: past it, new keys
+// share one bucket, so a flood of made-up tokens cannot grow the map.
+const liveScreenLimiterKeys = 1024
+
 // allow counts one request of key in the current fixed window.
 func (l *windowLimiter) allow(key string, now time.Time) (bool, time.Duration) {
 	l.mu.Lock()
@@ -128,14 +146,18 @@ func (l *windowLimiter) allow(key string, now time.Time) (bool, time.Duration) {
 	if now.Sub(l.start) >= l.window {
 		l.start, l.counts = now, map[string]int{}
 	}
+	if _, known := l.counts[key]; !known && len(l.counts) >= liveScreenLimiterKeys {
+		key = ""
+	}
 	l.counts[key]++
 	return l.counts[key] <= l.limit, l.window - now.Sub(l.start)
 }
 
 func (l *windowLimiter) middleware(ctx *gin.Context) {
+	// Malformed tokens can never open a screen: they all share one bucket.
 	token := ctx.Query("token")
-	if len(token) > 128 {
-		token = token[:128]
+	if !eventContentModel.LiveScreenTokenWellFormed(token) {
+		token = ""
 	}
 	if ok, wait := l.allow(token, time.Now()); !ok {
 		response.AbortWithTooManyRequests(ctx, wait)

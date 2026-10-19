@@ -66,6 +66,9 @@ type LiveScreen struct {
 	Height    int     `json:"height"`
 	Anchor    string  `json:"anchor"`
 	TextScale float64 `json:"textScale"`
+	// SafeArea is the margin around the canvas, in % of each side, for TVs
+	// that crop the picture edges (overscan): 0, 2.5 or 5.
+	SafeArea float64 `json:"safeArea,omitempty"`
 }
 
 type LiveGrid struct {
@@ -89,12 +92,12 @@ func DefaultLiveLayout() LiveLayout {
 		Screen: LiveScreen{Width: 1920, Height: 1080, Anchor: "full", TextScale: 1},
 		Grid:   LiveGrid{Cols: 12, Rows: 8},
 		Widgets: []LiveWidget{
-			{ID: "title", Type: "title", X: 1, Y: 1, W: 10, H: 1, Props: map[string]json.RawMessage{}},
+			{ID: "title", Type: "title", X: 1, Y: 1, W: 9, H: 1, Props: map[string]json.RawMessage{}},
 			{ID: "chart", Type: "chart", X: 1, Y: 2, W: 8, H: 6, Props: map[string]json.RawMessage{}},
 			{ID: "table", Type: "table", X: 9, Y: 2, W: 4, H: 6, Props: map[string]json.RawMessage{}},
 			{ID: "organizers", Type: "logos", X: 1, Y: 8, W: 3, H: 1, Props: map[string]json.RawMessage{"mode": json.RawMessage(`"fixed"`), "title": json.RawMessage(`"Організатори"`)}},
 			{ID: "partners", Type: "logos", X: 4, Y: 8, W: 9, H: 1, Props: map[string]json.RawMessage{"mode": json.RawMessage(`"carousel"`), "title": json.RawMessage(`"Партнери"`)}},
-			{ID: "timer", Type: "timer", X: 11, Y: 1, W: 2, H: 1, Props: map[string]json.RawMessage{}},
+			{ID: "timer", Type: "timer", X: 10, Y: 1, W: 3, H: 1, Props: map[string]json.RawMessage{}},
 		},
 	}
 }
@@ -116,10 +119,10 @@ var liveMinimums = map[string]liveSize{
 }
 
 var livePropTypes = map[string]map[string]string{
-	"title":        {"subtitle": "text"},
+	"title":        {"subtitle": "text", "subtitleStage": "boolean"},
 	"timer":        {"format": "timer-format", "showLabel": "boolean", "showSeconds": "boolean", "source": "timer-source", "target": "time", "label": "short-text", "labelSize": "label-size"},
 	"chart":        {"lines": "lines"},
-	"table":        {"rowsPerPage": "rows", "pageSeconds": "seconds"},
+	"table":        {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top"},
 	"ad_table":     {"columns": "text-list"},
 	"logos":        {"mode": "logo-mode", "title": "text", "logos": "logo-list", "items": "logo-items", "color": "logo-color", "speed": "speed", "paused": "boolean"},
 	"solves":       {"rows": "rows"},
@@ -161,6 +164,9 @@ func (l LiveLayout) validate(minGrid int) error {
 	}
 	if l.Screen.TextScale < 0.8 || l.Screen.TextScale > 1.5 {
 		return errors.New("live text scale is invalid")
+	}
+	if l.Screen.SafeArea != 0 && l.Screen.SafeArea != 2.5 && l.Screen.SafeArea != 5 {
+		return errors.New("live safe area is invalid")
 	}
 	if l.Grid.Cols < minGrid || l.Grid.Cols > 48 || l.Grid.Rows < minGrid || l.Grid.Rows > 32 {
 		return errors.New("live grid size is invalid")
@@ -233,6 +239,11 @@ func (w LiveWidget) validateProps() error {
 		case "lines", "rows", "seconds":
 			var value int
 			if json.Unmarshal(raw, &value) != nil || value < 1 || value > 60 || kind == "lines" && (value < 5 || value > 10) {
+				return fmt.Errorf("invalid number property %q", key)
+			}
+		case "pin-top":
+			var value int
+			if json.Unmarshal(raw, &value) != nil || value != 0 && value != 3 && value != 5 {
 				return fmt.Errorf("invalid number property %q", key)
 			}
 		case "timer-format", "logo-mode", "speed", "timer-source", "label-size", "logo-color":
@@ -378,7 +389,7 @@ func liveEnumValue(kind, value string) bool {
 	case "speed":
 		return value == "slow" || value == "normal" || value == "fast"
 	case "timer-source":
-		return value == "auto" || value == "start" || value == "finish" || value == "freeze" || value == "custom"
+		return value == "auto" || value == "start" || value == "finish" || value == "freeze" || value == "custom" || value == "stage-end" || value == "stage-next"
 	case "label-size":
 		return value == "s" || value == "m" || value == "l"
 	case "logo-color":
