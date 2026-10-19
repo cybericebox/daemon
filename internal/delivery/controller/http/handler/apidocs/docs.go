@@ -9833,7 +9833,7 @@ const docTemplate = `{
         },
         "/events/{id}/manage/notification-types": {
             "get": {
-                "description": "Event-scoped types with their channels and template variables (name, description, sample value). Drives the variable hints and the in-app preview of the template editors.",
+                "description": "Event-scoped types with their channels and template variables (name, description, sample value). The sample values are this event's own data (name, site links, times); only recipient data is a placeholder. Drives the variable hints and the in-app preview of the template editors.",
                 "produces": [
                     "application/json"
                 ],

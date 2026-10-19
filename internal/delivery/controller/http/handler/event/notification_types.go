@@ -21,14 +21,21 @@ type notificationTypeResponse struct {
 
 // listNotificationTypes godoc
 // @Summary List the notification types an Event can configure
-// @Description Event-scoped types with their channels and template variables (name, description, sample value). Drives the variable hints and the in-app preview of the template editors.
+// @Description Event-scoped types with their channels and template variables (name, description, sample value). The sample values are this event's own data (name, site links, times); only recipient data is a placeholder. Drives the variable hints and the in-app preview of the template editors.
 // @Tags events
 // @Produce json
 // @Param id path string true "event ID"
 // @Success 200 {object} response.Response{data=[]notificationTypeResponse}
 // @Router /events/{id}/manage/notification-types [get]
 func (h *Handler) listNotificationTypes(ctx *gin.Context) {
-	if _, ok := parseEventID(ctx); !ok {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	// The sample values are the event's own (its name, site links, times): the in-app preview shows them.
+	values, err := h.useCase.EventPreviewValues(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
 		return
 	}
 	out := make([]notificationTypeResponse, 0)
@@ -41,7 +48,11 @@ func (h *Handler) listNotificationTypes(ctx *gin.Context) {
 			item.Channels = append(item.Channels, string(channel))
 		}
 		for _, d := range notificationTypes.Descriptors(info.Type) {
-			item.Variables = append(item.Variables, notificationVariableResponse{Name: d.Name, Description: d.Description, Default: d.Default})
+			sample := d.Default
+			if value, found := values[d.Name]; found {
+				sample = value
+			}
+			item.Variables = append(item.Variables, notificationVariableResponse{Name: d.Name, Description: d.Description, Default: sample})
 		}
 		out = append(out, item)
 	}

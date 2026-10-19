@@ -19,6 +19,7 @@ import (
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
 	notificationModel "github.com/cybericebox/daemon/internal/model/notification"
 	"github.com/cybericebox/daemon/internal/model/notification/branding"
+	"github.com/cybericebox/daemon/internal/useCase/event"
 	emailUseCase "github.com/cybericebox/daemon/internal/useCase/notification/channels/email"
 )
 
@@ -176,4 +177,27 @@ func TestPreviewEventEmail_RejectsForeignImage(t *testing.T) {
 		Body:             json.RawMessage(`[{"type":"image","file_id":"` + foreign.String() + `"}]`),
 	})
 	require.True(t, notificationModel.ErrTemplateImageInvalid.Err().Is(err), "got %v", err)
+}
+
+// The preview shows the event's own name and site links; only the recipient stays a placeholder, and a value sent
+// with the draft still wins.
+func TestPreviewEventEmail_UsesTheEventsOwnData(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, Media: newTemplateMediaFake(), EventDomain: "cybericebox.com"})
+	eventID := uuid.Must(uuid.NewV7())
+
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(rollingEventRow(eventID, time.Now().UTC()), nil).AnyTimes()
+	q.EXPECT().ListEmailBlockPresets(gomock.Any()).Return(nil, nil)
+
+	out, err := uc.PreviewEventEmail(context.Background(), eventID, emailUseCase.PreviewInput{
+		NotificationType: "participant.approval_registration.approved",
+		Subject:          "{{.event_name}}: {{.user_name}}",
+		Preheader:        "{{.event_url}} {{.user_email}}",
+		Body:             json.RawMessage(`[]`),
+		Values:           map[string]string{"user_email": "ada@example.com"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Event: Імʼя учасника", out.Subject)
+	require.Equal(t, "https://event.cybericebox.com/ ada@example.com", out.Preheader)
 }
