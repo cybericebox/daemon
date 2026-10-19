@@ -32116,9 +32116,6 @@ const docTemplate = `{
                 "BlockingFields": {
                     "type": "boolean"
                 },
-                "CaptainID": {
-                    "type": "string"
-                },
                 "ExtraFields": {
                     "type": "object",
                     "additionalProperties": {}

@@ -22,17 +22,18 @@ type participationSolveResponse struct {
 	FirstBlood     bool       `json:"FirstBlood"`
 }
 
+// UserID is omitted for the other members unless the caller is the captain.
 type participationMemberResponse struct {
-	UserID          uuid.UUID `json:"UserID"`
-	Name            string    `json:"Name"`
-	Role            int16     `json:"Role"`
-	JoinedAt        time.Time `json:"JoinedAt"`
-	Points          int64     `json:"Points"`
-	Solves          int32     `json:"Solves"`
-	FirstBloods     int32     `json:"FirstBloods"`
-	Attempts        int64     `json:"Attempts"`
-	CorrectAttempts int64     `json:"CorrectAttempts"`
-	Hints           int64     `json:"Hints"`
+	UserID          *uuid.UUID `json:"UserID,omitempty"`
+	Name            string     `json:"Name"`
+	Role            int16      `json:"Role"`
+	JoinedAt        time.Time  `json:"JoinedAt"`
+	Points          int64      `json:"Points"`
+	Solves          int32      `json:"Solves"`
+	FirstBloods     int32      `json:"FirstBloods"`
+	Attempts        int64      `json:"Attempts"`
+	CorrectAttempts int64      `json:"CorrectAttempts"`
+	Hints           int64      `json:"Hints"`
 }
 
 type participationTeamResponse struct {
@@ -58,8 +59,13 @@ type participationStatsResponse struct {
 }
 
 func toParticipationMemberResponse(v eventUseCase.ParticipationMemberView) participationMemberResponse {
-	return participationMemberResponse{UserID: v.UserID, Name: v.Name, Role: v.Role, JoinedAt: v.JoinedAt, Points: v.Points, Solves: v.Solves, FirstBloods: v.FirstBloods,
+	out := participationMemberResponse{Name: v.Name, Role: v.Role, JoinedAt: v.JoinedAt, Points: v.Points, Solves: v.Solves, FirstBloods: v.FirstBloods,
 		Attempts: v.Attempts, CorrectAttempts: v.CorrectAttempts, Hints: v.Hints}
+	if v.UserID != uuid.Nil {
+		id := v.UserID
+		out.UserID = &id
+	}
+	return out
 }
 
 func toParticipationStatsResponse(v eventUseCase.ParticipationStatsView) participationStatsResponse {
