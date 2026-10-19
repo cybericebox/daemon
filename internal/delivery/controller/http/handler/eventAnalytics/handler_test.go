@@ -30,6 +30,9 @@ type fakeUseCase struct {
 	sensitive bool
 	people    bool
 	usage     eventAnalyticsUseCase.UsageView
+	usageTeam *uuid.UUID
+	usageFrom *time.Time
+	usageTo   *time.Time
 }
 
 func (f *fakeUseCase) RequireEventAnalytics(_ context.Context, _ uuid.UUID, _ rbac.Claims, level eventAnalyticsUseCase.Level) error {
@@ -46,7 +49,8 @@ func (f *fakeUseCase) GetEventAnalyticsOverview(_ context.Context, _ uuid.UUID, 
 	return f.overview, nil
 }
 
-func (f *fakeUseCase) GetEventAnalyticsUsage(context.Context, uuid.UUID, *uuid.UUID, *time.Time, *time.Time) (eventAnalyticsUseCase.UsageView, error) {
+func (f *fakeUseCase) GetEventAnalyticsUsage(_ context.Context, _ uuid.UUID, team *uuid.UUID, from, to *time.Time) (eventAnalyticsUseCase.UsageView, error) {
+	f.usageTeam, f.usageFrom, f.usageTo = team, from, to
 	return f.usage, nil
 }
 
@@ -226,5 +230,23 @@ func TestAccessReportsThePeopleLevel(t *testing.T) {
 	}
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &body) != nil || !body.Data.People {
 		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
+	}
+}
+
+// A viewer with the totals only always gets them for the whole event: a team or a narrow period would single out
+// one person. The people access keeps both filters.
+func TestUsageTotalsIgnoreTheFiltersWithoutThePeopleAccess(t *testing.T) {
+	team := uuid.Must(uuid.NewV7())
+	for _, people := range []bool{false, true} {
+		uc := &fakeUseCase{people: people, usage: eventAnalyticsUseCase.UsageView{Available: true}}
+		w := serve(t, uc, "/api/events/"+uuid.Must(uuid.NewV7()).String()+"/manage/analytics/usage?team="+team.String()+
+			"&from=2026-10-19T10:00:00Z&to=2026-10-19T10:05:00Z")
+		if w.Code != http.StatusOK {
+			t.Fatalf("people=%v: status = %d body = %s", people, w.Code, w.Body.String())
+		}
+		filtered := uc.usageTeam != nil && uc.usageFrom != nil && uc.usageTo != nil
+		if filtered != people || (!people && (uc.usageTeam != nil || uc.usageFrom != nil || uc.usageTo != nil)) {
+			t.Fatalf("people=%v: team=%v from=%v to=%v", people, uc.usageTeam, uc.usageFrom, uc.usageTo)
+		}
 	}
 }
