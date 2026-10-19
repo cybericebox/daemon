@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"mime"
 	"net/http"
 
@@ -68,14 +71,37 @@ func OriginGuardWith(policy OriginPolicy) gin.HandlerFunc {
 			refuse(ctx, "no-cors load of an authenticated URL")
 			return
 		}
-		if write && hasBody(ctx.Request) && !allowedBodyType(ctx.GetHeader("Content-Type"), BinaryBodyRoutes[ctx.FullPath()]) {
-			log.Warn().Str("method", ctx.Request.Method).Str("path", ctx.Request.URL.Path).
-				Str("contentType", ctx.GetHeader("Content-Type")).Msg("Request refused: the body is not JSON")
-			response.AbortWithUnsupportedMediaType(ctx)
+		// An unknown length (-1, HTTP/3) is judged by BodyTypeGuard, after the limiters: peeking the body
+		// reads from the client, which a refused or throttled request must never cost.
+		if write && ctx.Request.ContentLength != -1 && !bodyTypeAllowed(ctx) {
 			return
 		}
 		ctx.Next()
 	}
+}
+
+// BodyTypeGuard is the body type rule of OriginGuard for a write of unknown length (-1: HTTP/3 reports it
+// for every request without a content-length header, even a bodyless DELETE). It goes after the rate and
+// in-flight limiters, because it reads the first byte of the body to tell whether there is one.
+func BodyTypeGuard(ctx *gin.Context) {
+	if isWrite(ctx.Request.Method) && ctx.Request.ContentLength == -1 {
+		settleBodyLength(ctx.Request)
+		if !bodyTypeAllowed(ctx) {
+			return
+		}
+	}
+	ctx.Next()
+}
+
+// bodyTypeAllowed aborts with 415 a write whose body is not JSON, multipart, or raw on a binary route.
+func bodyTypeAllowed(ctx *gin.Context) bool {
+	if !hasBody(ctx.Request) || allowedBodyType(ctx.GetHeader("Content-Type"), BinaryBodyRoutes[ctx.FullPath()]) {
+		return true
+	}
+	log.Warn().Str("method", ctx.Request.Method).Str("path", ctx.Request.URL.Path).
+		Str("contentType", ctx.GetHeader("Content-Type")).Msg("Request refused: the body is not JSON")
+	response.AbortWithUnsupportedMediaType(ctx)
+	return false
 }
 
 func isWrite(method string) bool {
@@ -94,8 +120,43 @@ func refuse(ctx *gin.Context, reason string) {
 }
 
 func hasBody(r *http.Request) bool {
-	return r.ContentLength > 0 || (r.ContentLength == -1 && r.Body != nil && r.Body != http.NoBody)
+	return r.ContentLength != 0 && r.Body != nil && r.Body != http.NoBody
 }
+
+// peekedBody returns the peeked byte to the stream while Close still closes the original body.
+type peekedBody struct {
+	io.Reader
+	io.Closer
+}
+
+// settleBodyLength resolves an unknown length (-1). Over HTTP/3 the server reports -1 for every request
+// without a content-length header and always attaches a stream body, so a bodyless DELETE or POST looks
+// like it has a body. One byte is read to tell: EOF at once means no body (NoBody, length 0, so the
+// handlers' ContentLength != 0 checks hold too); otherwise the byte is put back in front of the rest.
+func settleBodyLength(r *http.Request) {
+	if r.ContentLength != -1 || r.Body == nil || r.Body == http.NoBody {
+		return
+	}
+	var first [1]byte
+	n, err := io.ReadFull(r.Body, first[:])
+	if n == 0 && errors.Is(err, io.EOF) {
+		_ = r.Body.Close()
+		r.Body = http.NoBody
+		r.ContentLength = 0
+		return
+	}
+	// A body, or a read error that the handler meets again through the stream.
+	rest := io.Reader(r.Body)
+	if n == 0 {
+		rest = errReader{err}
+	}
+	r.Body = peekedBody{Reader: io.MultiReader(bytes.NewReader(first[:n]), rest), Closer: r.Body}
+}
+
+// errReader is a reader that always fails with its error.
+type errReader struct{ err error }
+
+func (e errReader) Read([]byte) (int, error) { return 0, e.err }
 
 func allowedBodyType(contentType string, binary bool) bool {
 	mediaType, _, err := mime.ParseMediaType(contentType)
