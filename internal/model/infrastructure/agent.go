@@ -98,6 +98,15 @@ type AgentFeatures struct {
 	Limits      LimitsFeature         `json:"limits"`
 	// TenantQuota is the cluster owner's limit for this platform; the calendar's capacity comes from it.
 	TenantQuota TenantQuotaFeature `json:"tenant_quota"`
+	// Reservations is how the agent's reservations work.
+	Reservations ReservationsFeature `json:"reservations"`
+}
+
+// ReservationsFeature: every group and lab runs under a reservation (Required), and a reservation turns Ending
+// NoticeSeconds before its end.
+type ReservationsFeature struct {
+	Required      bool  `json:"required"`
+	NoticeSeconds int64 `json:"ending_notice_seconds"`
 }
 
 // TenantQuotaFeature is the tenant quota; Has* false means no limit on that resource.

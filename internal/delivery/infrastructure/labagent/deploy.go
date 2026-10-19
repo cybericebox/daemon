@@ -536,8 +536,11 @@ func oneResult(op string, results []*labpb.ItemResult) error {
 		return &infraModel.TerminatingError{
 			Message:    fmt.Sprintf("%s: %s", op, r.GetError()),
 			RetryAfter: infraModel.TerminatingRetryAfter,
-			Err:        errors.New(r.GetError()),
+			Err:        reasonErr(r),
 		}
+	}
+	if infraModel.ReasonError(r.GetReason()) != nil {
+		return fmt.Errorf("%s: %w", op, reasonErr(r))
 	}
 	return fmt.Errorf("%s: %s", op, r.GetError())
 }

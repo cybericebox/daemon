@@ -31,6 +31,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -333,6 +334,13 @@ func NewUseCase(deps Dependencies) *UseCase {
 	exerciseUC.SetTestLabGate(calendarUC)
 	// A room check naming no lease answers for the lease in force (the platform settings), like the admission.
 	calendarUC.SetTestLabLease(exerciseUC.TestLabLease)
+	// The calendar's reservations are split per agent and sent to the agents' reservation API.
+	if port, ok := deps.LabAgent.(interface {
+		infraModel.ReservationPort
+		ReservationNotice(agentID uuid.UUID) time.Duration
+	}); ok {
+		calendarUC.SetClusterReservations(port, port.ReservationNotice)
+	}
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.
 	if deps.LabAgent != nil {
 		labJobs := deps.EnqueuerFactory.NewEnqueuer()
