@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -98,7 +99,8 @@ func (a *api) do(ctx context.Context, rq request) result {
 		req.Header.Set("Origin", rq.Origin)
 	}
 	if rq.Cookie != "" {
-		req.Header.Set("Cookie", sessionCookie+"="+rq.Cookie)
+		// The daemon unescapes the value (gin), so the sealed ticket travels query-escaped, as its Set-Cookie writes it.
+		req.Header.Set("Cookie", sessionCookie+"="+url.QueryEscape(rq.Cookie))
 	}
 	for k, v := range rq.Header {
 		req.Header.Set(k, v)
@@ -171,6 +173,9 @@ func newUUID() string {
 func cookieFrom(h http.Header) string {
 	for _, c := range (&http.Response{Header: h}).Cookies() {
 		if c.Name == sessionCookie {
+			if plain, err := url.QueryUnescape(c.Value); err == nil {
+				return plain
+			}
 			return c.Value
 		}
 	}

@@ -106,13 +106,14 @@ func (m *metrics) recordLab(l labTime) {
 	m.mu.Unlock()
 }
 
-// window returns the totals of the last d, for the live progress line and the abort rule.
+// window returns the totals of the last d, for the live progress line and the abort rule. The buckets are whole
+// minutes, so it covers the current minute and the d/minute before it (between d and d+1 minute of history).
 func (m *metrics) window(d time.Duration) (requests, errors, throttled int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	current := int(time.Since(m.start) / time.Minute)
 	span := max(int(d/time.Minute), 1)
-	for minute := current - span + 1; minute <= current; minute++ {
+	for minute := current - span; minute <= current; minute++ {
 		if b := m.minutes[minute]; b != nil {
 			requests += b.requests
 			errors += b.errors

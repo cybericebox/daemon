@@ -97,7 +97,7 @@ func parseFlags(args []string) (config, error) {
 	fs.DurationVar(&c.thinkMin, "think-min", 8*time.Second, "shortest think time between actions")
 	fs.DurationVar(&c.thinkMax, "think-max", 45*time.Second, "longest think time between actions")
 	fs.DurationVar(&c.labPoll, "lab-poll", 5*time.Second, "lab and stand poll interval")
-	fs.DurationVar(&c.resultsPoll, "results-poll", 15*time.Second, "scoreboard poll interval")
+	fs.DurationVar(&c.resultsPoll, "results-poll", 30*time.Second, "scoreboard poll interval (the event site polls every 30 s)")
 	fs.DurationVar(&c.warmPoll, "warm-poll", 30*time.Second, "poll interval before the start")
 	fs.Float64Var(&c.correctRatio, "correct-ratio", 0.35, "chance that an attempt on a task with a known flag submits it")
 	fs.IntVar(&c.maxWrong, "max-wrong", 3, "wrong flags one participant sends per task")
@@ -430,9 +430,9 @@ func (r *runner) monitor(ctx context.Context, cancel context.CancelFunc, logf fu
 		case <-tick.C:
 		}
 		requests, errs, throttled := r.m.window(time.Minute)
-		logf("last minute: %d requests, %d errors, %d throttled (429)", requests, errs, throttled)
+		logf("recent minutes: %d requests, %d errors, %d throttled (429)", requests, errs, throttled)
 		if r.cfg.abortErrorRate > 0 && requests >= 200 && float64(errs+throttled)/float64(requests) > r.cfg.abortErrorRate {
-			logf("ABORT: %.0f%% of the last minute failed (limit %.0f%%)", pct(errs+throttled, requests), r.cfg.abortErrorRate*100)
+			logf("ABORT: %.0f%% of the recent requests failed (limit %.0f%%)", pct(errs+throttled, requests), r.cfg.abortErrorRate*100)
 			cancel()
 			return
 		}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -297,5 +298,27 @@ func TestAbortRuleStopsAFailingRun(t *testing.T) {
 	m.observe("GET /y", 409, time.Millisecond, true)
 	if _, errs, _ = m.window(time.Minute); errs != 300 {
 		t.Fatal("an expected 4xx must not count as an error")
+	}
+}
+
+// The sealed ticket is base64 with «+», «/» and «=»; the daemon reads the cookie query-unescaped, so the
+// header must carry the escaped form or the ticket is garbage there.
+func TestSessionCookieIsEscapedOnTheWire(t *testing.T) {
+	const sealed = "ab+cd/ef=="
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, _ := r.Cookie(sessionCookie)
+		got = c.Value
+		http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: url.QueryEscape(sealed)})
+		_, _ = w.Write([]byte(`{"Status":{"Code":0},"Data":{}}`))
+	}))
+	defer server.Close()
+	a := newAPI(server.URL, "", false, newMetrics(time.Now()), 1)
+	res := a.do(context.Background(), request{Method: "GET", Path: "/x", Cookie: sealed})
+	if url.QueryEscape(sealed) != got {
+		t.Fatalf("wire value = %q, want %q", got, url.QueryEscape(sealed))
+	}
+	if back := cookieFrom(res.Header); back != sealed {
+		t.Fatalf("cookieFrom = %q, want %q", back, sealed)
 	}
 }
