@@ -456,10 +456,17 @@ func testLabMeta(deploy exerciseModel.TestDeploy) infraModel.LabMeta {
 			infraModel.LabelVersion: deploy.VersionID.String(),
 		},
 		GroupLabels: map[string]string{infraModel.LabelKind: infraModel.KindTest},
+		// The lab runs under its own run (or the booking it was admitted in); the author's shared group under the
+		// author's group part.
+		Reservation:      infraModel.ReservationRef{TestDeployID: &deploy.ID},
+		GroupReservation: infraModel.ReservationRef{OwnerID: &deploy.CreatedBy},
 	}
 	if deploy.EventID != nil {
 		meta.Labels[infraModel.LabelEvent] = deploy.EventID.String()
 		meta.GroupLabels[infraModel.LabelEvent] = deploy.EventID.String()
+		// A preview runs inside the event reservation, under the organizer's preview unit.
+		preview := infraModel.ReservationRef{EventID: deploy.EventID, Unit: calModel.PreviewUnit(deploy.CreatedBy)}
+		meta.Reservation, meta.GroupReservation = preview, preview
 	}
 	return meta
 }

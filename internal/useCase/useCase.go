@@ -341,6 +341,11 @@ func NewUseCase(deps Dependencies) *UseCase {
 	}); ok {
 		calendarUC.SetClusterReservations(port, port.ReservationNotice)
 	}
+	// Placement follows the parts: a new group goes to the agent of its reservation's unit and every group and lab
+	// carries its part id.
+	if fleet, ok := deps.LabAgent.(interface{ SetPartResolver(infraModel.PartResolver) }); ok {
+		fleet.SetPartResolver(calendarUC)
+	}
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.
 	if deps.LabAgent != nil {
 		labJobs := deps.EnqueuerFactory.NewEnqueuer()

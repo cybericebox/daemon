@@ -426,3 +426,34 @@ func TestReconcilePendingLabAccess_AwaitingReservationStillRevokesOnExistingGrou
 		}
 	}
 }
+
+// reservationWaitInfra answers EnsureVPNGroup with err and remembers the reservation it was asked to create under.
+type reservationWaitInfra struct {
+	recordingLabAccessInfra
+	ref infraModel.ReservationRef
+}
+
+func (i *reservationWaitInfra) EnsureVPNGroup(ctx context.Context, group string) error {
+	i.ref, _ = infraModel.GroupReservationFrom(ctx)
+	return i.err
+}
+
+// A team's group is created under the team's unit of the event reservation; while that part is not on its agent the
+// team waits (no error, the revision stays dirty).
+func TestTeamGroupWaitsOnClusterReservation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	infra := &reservationWaitInfra{recordingLabAccessInfra: recordingLabAccessInfra{err: fmt.Errorf("deploy: %w", infraModel.ErrNoClusterReservation)}}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: infra})
+	eventID, teamID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, AppliedRevision: 1, UpdatedAt: time.Now(), RuntimeOpen: true, VpnEnabled: true}}, nil)
+	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{userID}, nil)
+	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil)
+
+	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
+		t.Fatalf("a missing cluster reservation is a wait, got %v", err)
+	}
+	if infra.ref.EventID == nil || *infra.ref.EventID != eventID || infra.ref.Unit != "team:"+teamID.String() {
+		t.Fatalf("the group must run under the team's unit, got %+v", infra.ref)
+	}
+}

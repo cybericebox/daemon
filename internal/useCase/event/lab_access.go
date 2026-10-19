@@ -164,9 +164,15 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 		if err = u.admitGroupAllocation(ctx, sync.EventID, sync.TeamID); err != nil {
 			return err
 		}
-		if err = u.infra.EnsureVPNGroup(u.withPlacementNeed(ctx, sync.EventID), group); err != nil {
+		// The group runs under the team's part of the event reservation, on that part's agent.
+		groupCtx := infraModel.WithGroupReservation(u.withPlacementNeed(ctx, sync.EventID), teamReservation(sync.EventID, sync.TeamID))
+		if err = u.infra.EnsureVPNGroup(groupCtx, group); err != nil {
 			if errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
 				return err
+			}
+			if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) {
+				// The team's part is not on its agent yet, or is full for now: a wait, not a fault.
+				return errors.Join(infraModel.ErrGroupNotReady, err)
 			}
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to ensure team VPN group").Err()
 		}
