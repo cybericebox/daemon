@@ -41,6 +41,9 @@ type LiveScene struct {
 	Formats map[string]LiveFormat `json:"formats,omitempty"`
 }
 
+// liveWidgetsTotal bounds the widgets of all scenes of one layout.
+const liveWidgetsTotal = 96
+
 // liveSceneKeys are the states with a scene of their own besides «running».
 var liveSceneKeys = map[string]bool{"before": true, "frozen": true, "finished": true}
 
@@ -118,7 +121,7 @@ func DefaultLiveLayout() LiveLayout {
 	}
 	return LiveLayout{
 		Version: 1, Theme: "dark", Aspect: "16:9", RefreshSeconds: LiveRefreshDefault,
-		Screen: LiveScreen{Width: 1920, Height: 1080, Anchor: "full", TextScale: 1},
+		Screen: LiveScreen{Width: 1920, Height: 1080, Anchor: "full", TextScale: 1, SafeArea: 2.5},
 		Grid:   LiveGrid{Cols: 12, Rows: 8},
 		Widgets: []LiveWidget{
 			{ID: "title", Type: "title", X: 1, Y: 1, W: 9, H: 1, Props: props()},
@@ -131,7 +134,7 @@ func DefaultLiveLayout() LiveLayout {
 		// The default show: «Перед стартом» → this board → «Підсумки».
 		Scenes: map[string]LiveScene{
 			"before": {Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{
-				{ID: "before-title", Type: "title", X: 1, Y: 1, W: 8, H: 2, Props: props()},
+				{ID: "before-title", Type: "title", X: 1, Y: 1, W: 8, H: 2, Props: props("subtitleStage", `true`)},
 				{ID: "before-timer", Type: "timer", X: 1, Y: 3, W: 8, H: 3, Props: props("align", `"left"`)},
 				{ID: "before-facts", Type: "facts", X: 1, Y: 6, W: 8, H: 2, Props: props("items", `["teams","tasks","start"]`)},
 				{ID: "before-qr", Type: "qr", X: 9, Y: 1, W: 4, H: 7, Props: props("value", `"/"`, "caption", `"Сайт заходу"`)},
@@ -232,6 +235,15 @@ func (l LiveLayout) validate(minGrid int) error {
 	}
 	if err := validateLiveCanvas(l.Aspect, l.Grid, l.Widgets, l.Formats, minGrid); err != nil {
 		return err
+	}
+	// Every scene of a layout together stays within liveWidgetsTotal: the
+	// layout rides along every autosave and every screen load.
+	total := len(l.Widgets)
+	for _, scene := range l.Scenes {
+		total += len(scene.Widgets)
+	}
+	if total > liveWidgetsTotal {
+		return errors.New("too many live widgets in all scenes")
 	}
 	for key, scene := range l.Scenes {
 		if !liveSceneKeys[key] {

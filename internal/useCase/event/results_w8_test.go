@@ -362,3 +362,46 @@ func TestGetResultsSnapshotOfAnUnpublishedEventIsNotFound(t *testing.T) {
 		t.Fatalf("an anonymous read of an unpublished event must be not-found, got %v", err)
 	}
 }
+
+// The task count belongs to the live screen only; the results page neither
+// reads nor sends it.
+func TestGetResultsSnapshotPageHasNoTaskCount(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	eventID := uuid.Must(uuid.NewV7())
+	now := time.Now().UTC()
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(frozenConfig(eventID, now, 1000), nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
+	q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 1, UpdatedAt: now}, nil)
+	q.EXPECT().ListEventScoreboard(gomock.Any(), postgres.ListEventScoreboardParams{EventID: eventID}).Return(nil, nil)
+	q.EXPECT().ListEventScoreTimeline(gomock.Any(), postgres.ListEventScoreTimelineParams{EventID: eventID}).Return(nil, nil)
+	q.EXPECT().GetEventContentStatistics(gomock.Any(), gomock.Any()).Times(0)
+
+	got, err := uc.GetResultsSnapshot(context.Background(), eventID, event.ResultsAccess{Role: rbac.RoleSuperAdmin}, false)
+	if err != nil || got.Tasks != nil {
+		t.Fatalf("page tasks = %v, %v", got.Tasks, err)
+	}
+}
+
+// A failed task count drops only that fact: the live board is still served.
+func TestGetResultsSnapshotLiveScreenSurvivesTaskCountFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q})
+	eventID := uuid.Must(uuid.NewV7())
+	now := time.Now().UTC()
+	cfg := frozenConfig(eventID, now, 1)
+	cfg.ResultsLiveFreeze = false
+	q.EXPECT().GetEventConfig(gomock.Any(), eventID).Return(cfg, nil)
+	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(startedEvent(eventID, now), nil)
+	q.EXPECT().GetEventResultRevision(gomock.Any(), eventID).Return(postgres.GetEventResultRevisionRow{Revision: 1, UpdatedAt: now}, nil)
+	q.EXPECT().ListEventScoreboard(gomock.Any(), postgres.ListEventScoreboardParams{EventID: eventID}).Return([]postgres.ListEventScoreboardRow{{TeamID: uuid.Must(uuid.NewV7())}}, nil)
+	q.EXPECT().ListEventScoreTimeline(gomock.Any(), postgres.ListEventScoreTimelineParams{EventID: eventID}).Return(nil, nil)
+	q.EXPECT().GetEventContentStatistics(gomock.Any(), gomock.Any()).Return(postgres.GetEventContentStatisticsRow{}, errors.New("db down"))
+
+	got, err := uc.GetResultsSnapshot(context.Background(), eventID, event.ResultsAccess{Role: rbac.RoleSuperAdmin}, true)
+	if err != nil || got.Tasks != nil || len(got.Scoreboard) != 1 {
+		t.Fatalf("live screen = tasks %v rows %d, %v", got.Tasks, len(got.Scoreboard), err)
+	}
+}
