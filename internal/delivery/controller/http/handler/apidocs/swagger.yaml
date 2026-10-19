@@ -7320,6 +7320,13 @@ definitions:
     type: object
   exerciseModel.LabQueue:
     properties:
+      attempt:
+        description: |-
+          Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and
+          when the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the
+          earliest dispatch of such a pod. Zero when unknown (FillQueueDetails).
+        format: int32
+        type: integer
       group:
         description: Group is the deploy group of the lab (the task for event labs);
           empty for an independent lab.
@@ -7346,6 +7353,10 @@ definitions:
         type: integer
       reason:
         type: string
+      retryAt:
+        type: string
+      waitingSince:
+        type: string
     type: object
   exerciseModel.PodFailure:
     properties:
@@ -7367,11 +7378,23 @@ definitions:
         $ref: '#/definitions/exerciseModel.PodFailure'
       queuedAt:
         type: string
+      retryAfter:
+        type: string
+      scheduledAt:
+        description: 'ScheduledAt is when the pod got its node; zero: no node yet,
+          or not known.'
+        type: string
       startedAt:
         type: string
       state:
         description: State is one of the PodState* values.
         type: string
+      withdrawals:
+        description: |-
+          Withdrawals is how often in a row the pod's group was withdrawn (not every pod got a node in time); RetryAfter is when
+          the cluster sends it again (zero: no wait).
+        format: int32
+        type: integer
     type: object
   imageRegistry.checkResponse:
     properties:
@@ -8261,6 +8284,8 @@ definitions:
     type: object
   labview.QueueResponse:
     properties:
+      Attempt:
+        type: integer
       Length:
         type: integer
       Message:
@@ -8272,6 +8297,10 @@ definitions:
       Position:
         type: integer
       Reason:
+        type: string
+      RetryAt:
+        type: string
+      WaitingSince:
         type: string
     type: object
   labview.SchedulingResponse:
@@ -8350,13 +8379,21 @@ definitions:
     type: object
   labview.StandQueueResponse:
     properties:
+      Attempt:
+        type: integer
       Length:
+        type: integer
+      NodeStartingLabs:
         type: integer
       Position:
         type: integer
       QueuedLabs:
         type: integer
       Reason:
+        type: string
+      RetryAt:
+        type: string
+      WaitingSince:
         type: string
     type: object
   labview.StatusResponse:

@@ -613,6 +613,7 @@ func mapLabStatus(l *labpb.Lab) exerciseModel.LabDeployStatus {
 			Device: a.GetDevice(), Port: a.GetPort(), Protocol: a.GetProtocol(), URL: a.GetUrl(),
 		})
 	}
+	out.FillQueueDetails()
 	return out
 }
 

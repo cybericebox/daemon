@@ -493,7 +493,7 @@ func TestDeviceActionErrorsMapToTheirHTTPStatuses(t *testing.T) {
 func TestStandAndTestLabDetailExposeQueueSnapshotAndWarnings(t *testing.T) {
 	router := newRouter(&fakeUseCase{}, newProtection())
 	body := do(router, http.MethodGet, "/api/infrastructure/stands/"+uuid.Must(uuid.NewV7()).String()+"/"+uuid.Must(uuid.NewV7()).String()+"/detail").Body.String()
-	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":2,"Length":5,"Reason":"InFlightLimit","Message":"","Pods":0,"Pending":0}`, `"ImageWarning":"web:latest"`, `"SizeBytes":7`, `"Rescue":true`, `"ChallengeName":"Web"`} {
+	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":2,"Length":5,"Reason":"InFlightLimit","Message":"","Pods":0,"Pending":0,"Attempt":0,"RetryAt":null,"WaitingSince":null}`, `"ImageWarning":"web:latest"`, `"SizeBytes":7`, `"Rescue":true`, `"ChallengeName":"Web"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stand detail lacks %s: %s", want, body)
 		}

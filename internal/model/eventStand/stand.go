@@ -147,9 +147,10 @@ func Classify(status exerciseModel.LabDeployStatus, deployedAt, now time.Time) (
 		}
 	}
 	// A lab waiting in the operator's scheduler queue is paced on purpose, not stuck: while it is
-	// Queued or some of its pods are not dispatched yet, nothing times out, and the timeout counts
-	// from the last dispatch.
-	if status.Phase == exerciseModel.DeployPhaseQueued || (status.Queue != nil && status.Queue.Pending > 0) {
+	// Queued (a withdrawn lab waiting for its retry too) or some of its pods are not dispatched yet,
+	// or its sent pods wait for a node (the operator withdraws the group at its node timeout), nothing
+	// times out. The timeout counts from the last dispatch.
+	if status.Phase == exerciseModel.DeployPhaseQueued || (status.Queue != nil && (status.Queue.Pending > 0 || status.Queue.Reason == exerciseModel.QueueReasonNodeStarting)) {
 		return OutcomeWaiting, ""
 	}
 	for _, device := range status.Devices {
