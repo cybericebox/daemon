@@ -17,14 +17,14 @@ import (
 
 	"github.com/gofrs/uuid"
 
-	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/delivery/repository/sessionRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/delivery/repository/userRepo"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	userModel "github.com/cybericebox/daemon/internal/model/user"
-	sessionPkg "github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/internal/seed"
+	sessionPkg "github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/pkg/password"
 )
 
@@ -103,7 +103,7 @@ type Sessions interface {
 
 // Config is what the service needs from the platform configuration.
 type Config struct {
-	Lifetimes sessionPkg.Lifetimes
+	Lifetimes  sessionPkg.Lifetimes
 	Complexity password.ComplexityConfig
 }
 
