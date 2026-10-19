@@ -64,6 +64,9 @@ type notificationResponse struct {
 	Resolution *string    `json:"Resolution" enums:"approved,rejected,fixed,resolved,expired,withdrawn"`
 	// ResolvedBy is the person who resolved it (null for system resolutions).
 	ResolvedBy *resolvedByResponse `json:"ResolvedBy"`
+	// Resolvable is true when the recipient may close this open request by hand (the resolve endpoint accepts it).
+	// Clients show «Вирішено» from it instead of keeping their own list of types.
+	Resolvable bool `json:"Resolvable"`
 }
 
 type resolvedByResponse struct {
@@ -107,6 +110,7 @@ func toResponse(n inboxModel.InAppNotification) notificationResponse {
 		CreatedAt: n.CreatedAt,
 		Type:      n.Type, Category: string(n.Category), ActionRequired: n.ActionRequired,
 		ResolvedAt: n.ResolvedAt,
+		Resolvable: n.IsOpenRequest() && inboxModel.ManuallyResolvable(n.Type),
 	}
 	if n.ResolvedAt != nil {
 		out.Resolution = &n.Resolution
