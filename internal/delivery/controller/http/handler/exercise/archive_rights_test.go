@@ -13,6 +13,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
 	exerciseHandler "github.com/cybericebox/daemon/internal/delivery/controller/http/handler/exercise"
@@ -188,5 +189,43 @@ func TestList_TableFilters(t *testing.T) {
 		if bad.Code != http.StatusBadRequest {
 			t.Fatalf("%s: status %d", query, bad.Code)
 		}
+	}
+}
+
+// An event viewer reads their event's tasks without the hidden flags: the working copy and every version; whoever
+// may see flags (owner/manager, exercises.read) gets them.
+func TestViewerReadsVersionsWithoutFlags(t *testing.T) {
+	exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	version := exerciseUseCase.VersionView{ID: versionID, ExerciseID: exerciseID, Status: "published", Variants: []exerciseModel.Variant{{
+		Tasks: []exerciseModel.Task{{ID: uuid.Must(uuid.NewV7()), Name: "Find it", Difficulty: exerciseModel.DifficultyEasy, Flag: []string{"ICE{secret}"}, DeviceFlagVar: "SECRET_FLAG_VAR"}},
+	}}}
+	for _, tc := range []struct {
+		name   string
+		access exerciseUseCase.Access
+		flags  bool
+	}{
+		{name: "event viewer", access: exerciseUseCase.Access{Full: true}, flags: false},
+		{name: "event moderator", access: exerciseUseCase.Access{Full: true, Flags: true}, flags: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, path := range []string{"/draft", "/versions/" + versionID.String()} {
+				access := tc.access
+				uc := &fakeUC{versionView: version, access: &access}
+				w := httptest.NewRecorder()
+				engineAs(uc, rbac.RoleUser).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/"+exerciseID.String()+path, nil))
+				if w.Code != http.StatusOK {
+					t.Fatalf("%s: status %d body %s", path, w.Code, w.Body.String())
+				}
+				if got := strings.Contains(w.Body.String(), "SECRET_FLAG_VAR"); got != tc.flags {
+					t.Fatalf("%s: flag env var shown=%t, want %t", path, got, tc.flags)
+				}
+				if got := strings.Contains(w.Body.String(), "ICE{secret}"); got != tc.flags {
+					t.Fatalf("%s: flag shown=%t, want %t: %s", path, got, tc.flags, w.Body.String())
+				}
+				if version.Variants[0].Tasks[0].Flag == nil {
+					t.Fatal("the redaction changed the use case's view")
+				}
+			}
+		})
 	}
 }
