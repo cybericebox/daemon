@@ -53,6 +53,8 @@ type (
 		Exposure       *labExposure   `json:"exposure,omitempty"`
 		// Persistence is the per-device state-persistence request; immutable once the lab exists.
 		Persistence *labPersistence `json:"persistence,omitempty"`
+		// WaitReadyFile: the device is Ready only once /run/ready exists inside the container.
+		WaitReadyFile bool `json:"waitReadyFile,omitempty"`
 	}
 
 	labPersistence struct {
@@ -184,6 +186,7 @@ func buildDevice(d exerciseModel.Device, labName string) labDevice {
 		Type:           string(d.Type),
 		Image:          d.Image,
 		SecurityPreset: string(d.SecurityPreset),
+		WaitReadyFile:  d.WaitReadyFile,
 	}
 	if d.Resources != nil {
 		out.Resources = &labResources{

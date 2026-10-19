@@ -362,3 +362,15 @@ func TestToParsed_UnknownEnumNamesRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestDecodeArchiveV2_WaitReadyFileRoundTrips(t *testing.T) {
+	doc := mustDecodeV2(t, v2Header+`"exercise":{"name":"Sample"},"versions":[{"status":"published","variants":[{"tasks":[{"name":"t","difficulty":"hard","hints":[{"text":"h","level":"steps"}]}],"topology":{"devices":[{"name":"web","type":"container","wait_ready_file":true},{"name":"db","type":"container"}],"connections":[]}}]}]}`)
+	parsed, err := doc.toParsed(nil)
+	if err != nil {
+		t.Fatalf("toParsed: %v", err)
+	}
+	devices := parsed.Versions[0].Variants[0].Topology.Devices
+	if !devices[0].WaitReadyFile || devices[1].WaitReadyFile {
+		t.Fatalf("import = %v / %v", devices[0].WaitReadyFile, devices[1].WaitReadyFile)
+	}
+}
