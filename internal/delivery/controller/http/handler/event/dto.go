@@ -580,15 +580,22 @@ type eventExerciseResponse struct {
 	Resources     eventResourceRangeResponse `json:"Resources"`
 	ResourceHeavy bool                       `json:"ResourceHeavy"`
 	NoAgentFits   bool                       `json:"NoAgentFits"`
-	// FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags
-	// were reused after every value was given, so two teams may get the same flag.
-	FlagsMayRepeat bool `json:"FlagsMayRepeat"`
+	// FlagsRepeat: two teams may get the same flag of the set; null when they cannot.
+	FlagsRepeat *flagsRepeatResponse `json:"FlagsRepeat"`
 	// The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:
 	// none), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,
 	// else of the first.
 	AvgDifficulty *float64 `json:"AvgDifficulty"`
 	TaskCount     *int     `json:"TaskCount"`
 	TaskNames     []string `json:"TaskNames"`
+}
+
+// flagsRepeatResponse: the smallest flag pool of a set (Flags) against the teams that draw from it (Teams: the
+// team limit, or the teams that exist now with the moderators team), and why flags may repeat.
+type flagsRepeatResponse struct {
+	Flags  int64  `json:"Flags"`
+	Teams  int    `json:"Teams"`
+	Reason string `json:"Reason" enums:"limit,teams,repeated"`
 }
 
 // eventResourceTotalsResponse: container devices, their blocks, CPU in millicores, memory in bytes.
@@ -971,7 +978,9 @@ func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResp
 		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
 		AvgDifficulty: v.AvgDifficulty, TaskCount: v.TaskCount, TaskNames: nonNilStrings(v.TaskNames)}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
-	out.FlagsMayRepeat = v.FlagsMayRepeat
+	if v.FlagsRepeat != nil {
+		out.FlagsRepeat = &flagsRepeatResponse{Flags: v.FlagsRepeat.Flags, Teams: v.FlagsRepeat.Teams, Reason: v.FlagsRepeat.Reason}
+	}
 	if out.Scope == "" {
 		out.Scope = "catalog"
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/flagFilterRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/teamChallengeRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -209,9 +210,12 @@ func (u *EventUseCase) rebuildEventFlagFilters(ctx context.Context, repo IReposi
 	return nil
 }
 
-// decorateFlagWarnings marks the attachments whose flags may repeat: a task
-// variant with candidates has fewer outputs than the team capacity, or its
-// filter was reset. It is advisory: a failed read only logs.
+// decorateFlagWarnings marks the attachments whose flags may repeat. A pool of
+// distinct flags is drawn without repeats until every flag is given, so a set
+// warns only when its smallest pool is below the teams that draw from it: the
+// team limit when the event has one, else the teams that exist now (with the
+// moderators team), or when a pool was already used up and restarted. It is
+// advisory: a failed read only logs.
 func (u *EventUseCase) decorateFlagWarnings(ctx context.Context, eventID uuid.UUID, items []EventExerciseView) {
 	if len(items) == 0 || u.repo == nil {
 		return
@@ -221,7 +225,16 @@ func (u *EventUseCase) decorateFlagWarnings(ctx context.Context, eventID uuid.UU
 		if err != nil {
 			return err
 		}
-		capacity := flagfilter.Capacity(config.MaxTeams)
+		teams := flagTeams{Limit: config.MaxTeams != nil && *config.MaxTeams > 0}
+		if teams.Limit {
+			teams.Count = int(*config.MaxTeams)
+		} else {
+			count, countErr := eventTeamRepo.New(u.repo).Count(ctx, eventID)
+			if countErr != nil {
+				return countErr
+			}
+			teams.Count = int(count) + 1
+		}
 		filters := flagFilterRepo.New(u.repo)
 		resets, err := filters.Resets(ctx, eventID)
 		if err != nil {
@@ -236,7 +249,7 @@ func (u *EventUseCase) decorateFlagWarnings(ctx context.Context, eventID uuid.UU
 			return err
 		}
 		for i := range items {
-			items[i].FlagsMayRepeat = flagsMayRepeat(items[i].ID, candidates[items[i].ExerciseVersionID], capacity, resets)
+			items[i].FlagsRepeat = flagsRepeat(items[i].ID, candidates[items[i].ExerciseVersionID], teams, resets)
 		}
 		return nil
 	}()
@@ -245,19 +258,47 @@ func (u *EventUseCase) decorateFlagWarnings(ctx context.Context, eventID uuid.UU
 	}
 }
 
-func flagsMayRepeat(eventExerciseID uuid.UUID, variants []map[uuid.UUID][]string, capacity int, resets map[flagFilterRepo.Key]int) bool {
+// flagTeams is how many teams draw flags: the event's team limit (Limit) or the
+// teams that exist now.
+type flagTeams struct {
+	Count int
+	Limit bool
+}
+
+// flagsRepeat reports the smallest flag pool of a set that is used up or smaller than the teams, or nil
+// when no team can repeat a flag. A used-up pool wins over a merely small one.
+func flagsRepeat(eventExerciseID uuid.UUID, variants []map[uuid.UUID][]string, teams flagTeams, resets map[flagFilterRepo.Key]int) *FlagsRepeatView {
+	var out *FlagsRepeatView
 	for variant, tasks := range variants {
 		for taskID, flags := range tasks {
 			if len(flags) == 0 {
 				continue
 			}
-			if resets[flagFilterRepo.Key{EventExerciseID: eventExerciseID, VariantIndex: int32(variant), TaskID: taskID}] > 0 {
-				return true
+			set, err := flagpattern.ParseSet(flags)
+			if err != nil {
+				continue
 			}
-			if set, err := flagpattern.ParseSet(flags); err == nil && flagfilter.SmallSet(set, capacity) {
-				return true
+			repeated := resets[flagFilterRepo.Key{EventExerciseID: eventExerciseID, VariantIndex: int32(variant), TaskID: taskID}] > 0
+			if !repeated && !flagfilter.SmallSet(set, teams.Count) {
+				continue
+			}
+			size := set.Size()
+			if !size.IsInt64() {
+				continue
+			}
+			reason := FlagsRepeatTeams
+			switch {
+			case repeated:
+				reason = FlagsRepeatRepeated
+			case teams.Limit:
+				reason = FlagsRepeatLimit
+			}
+			candidate := &FlagsRepeatView{Flags: size.Int64(), Teams: teams.Count, Reason: reason}
+			isRepeated := func(v *FlagsRepeatView) bool { return v.Reason == FlagsRepeatRepeated }
+			if out == nil || (isRepeated(candidate) && !isRepeated(out)) || (isRepeated(candidate) == isRepeated(out) && candidate.Flags < out.Flags) {
+				out = candidate
 			}
 		}
 	}
-	return false
+	return out
 }

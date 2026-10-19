@@ -218,7 +218,7 @@ func TestFlagFilters_IssueDistinctAndRebuildOnTeamLimitChange(t *testing.T) {
 	}
 	warned := map[uuid.UUID]bool{}
 	for _, item := range items {
-		warned[item.ID] = item.FlagsMayRepeat
+		warned[item.ID] = item.FlagsRepeat != nil
 	}
 	if !warned[small] || warned[large] {
 		t.Fatalf("flag warnings = %v (small %s, large %s)", warned, small, large)
