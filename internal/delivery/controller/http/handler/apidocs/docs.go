@@ -31760,6 +31760,27 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                },
+                "Stages": {
+                    "description": "Stages in the event order; the screen timer counts to the current\nstage end or the next stage start. Empty for an event without stages.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/eventself.liveScreenStageResponse"
+                    }
+                }
+            }
+        },
+        "eventself.liveScreenStageResponse": {
+            "type": "object",
+            "properties": {
+                "ClosesAt": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                },
+                "OpensAt": {
+                    "type": "string"
                 }
             }
         },

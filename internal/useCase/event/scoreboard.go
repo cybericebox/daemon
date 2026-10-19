@@ -53,7 +53,7 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 	freeze := policy.freeze(now, liveScreen)
 	cutoff := freeze.cutoff()
 	own := policy.ownTeam()
-	showRealNames := policy.mayShowRealNames()
+	showRealNames := policy.mayShowRealNamesOn(liveScreen)
 	scores := revisionScores{u: u, revision: revision.Revision}
 	entries, err := u.rankedScoreboard(ctx, scores, eventID, cutoff, own)
 	if err != nil {

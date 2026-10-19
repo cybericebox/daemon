@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -29,11 +30,20 @@ type IssuedLiveScreenLinkView struct {
 	Token string
 }
 
-// LiveScreenView is what a screen link opens: the event identity and the
-// published live layout.
+// LiveScreenView is what a screen link opens: the event identity, the
+// published live layout and the stages the timer counts by.
 type LiveScreenView struct {
 	Event  EventInfoView
 	Layout eventContentModel.LiveLayout
+	Stages []LiveScreenStageView
+}
+
+// LiveScreenStageView is a stage as the live screen timer needs it: its name
+// and window, in the event order.
+type LiveScreenStageView struct {
+	Name     string
+	OpensAt  time.Time
+	ClosesAt time.Time
 }
 
 // LiveScreenResultsAccess is how a valid screen link reads results: the
@@ -143,5 +153,18 @@ func (u *EventUseCase) GetLiveScreen(ctx context.Context, eventID uuid.UUID, tok
 	if err != nil {
 		return LiveScreenView{}, err
 	}
-	return LiveScreenView{Event: info, Layout: editor.Published}, nil
+	stages, err := u.stages.List(ctx, eventID)
+	if err != nil {
+		return LiveScreenView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list event stages").Err()
+	}
+	return LiveScreenView{Event: info, Layout: editor.Published, Stages: toLiveScreenStages(stages)}, nil
+}
+
+func toLiveScreenStages(stages []eventModel.Stage) []LiveScreenStageView {
+	out := make([]LiveScreenStageView, 0, len(stages))
+	for _, stage := range stages {
+		out = append(out, LiveScreenStageView{Name: stage.Name, OpensAt: stage.OpensAt, ClosesAt: stage.ClosesAt})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].OpensAt.Before(out[j].OpensAt) })
+	return out
 }

@@ -86,6 +86,16 @@ func (p resultsPolicy) mayShowRealNames() bool {
 	return false
 }
 
+// mayShowRealNamesOn is mayShowRealNames for a view: the live screen is shown
+// to the audience in the hall, so it follows the public rule (real names only
+// when the participants are public), whoever opened it.
+func (p resultsPolicy) mayShowRealNamesOn(liveScreen bool) bool {
+	if liveScreen {
+		return p.cfg.ParticipantsVisibility == eventConfigModel.VisibilityPublic
+	}
+	return p.mayShowRealNames()
+}
+
 // ownTeam is the approved reader's team, nil for guests and moderators.
 func (p resultsPolicy) ownTeam() *uuid.UUID {
 	if !p.approved() {

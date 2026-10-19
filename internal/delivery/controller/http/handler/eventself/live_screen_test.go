@@ -1,7 +1,10 @@
 package eventself
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"fmt"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +39,9 @@ func (f fakeUseCase) GetLiveScreen(ctx context.Context, eventID uuid.UUID, token
 	if err := f.ResolveLiveScreenToken(ctx, eventID, token); err != nil {
 		return eventUseCase.LiveScreenView{}, err
 	}
-	return eventUseCase.LiveScreenView{Event: eventUseCase.EventInfoView{EventID: eventID, Name: "Screen"}, Layout: eventContentModel.DefaultLiveLayout()}, nil
+	opens := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
+	return eventUseCase.LiveScreenView{Event: eventUseCase.EventInfoView{EventID: eventID, Name: "Screen"}, Layout: eventContentModel.DefaultLiveLayout(),
+		Stages: []eventUseCase.LiveScreenStageView{{Name: "Етап 1", OpensAt: opens, ClosesAt: opens.Add(2 * time.Hour)}}}, nil
 }
 
 func screenRouter(h *Handler, next gin.HandlerFunc) *gin.Engine {
@@ -146,11 +151,12 @@ func TestScreenLinkIsRejectedOnEveryOtherEndpoint(t *testing.T) {
 	}
 }
 
-func TestLiveScreenReturnsTheEventAndLayout(t *testing.T) {
+func TestLiveScreenReturnsTheEventLayoutAndStages(t *testing.T) {
 	router := screenRouter(NewEventSelfAPIHandler(fakeUseCase{}, nil), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/live-screen?token="+fakeScreenToken, nil))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Name":"Screen"`) || !strings.Contains(w.Body.String(), `"widgets"`) {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Name":"Screen"`) || !strings.Contains(w.Body.String(), `"widgets"`) ||
+		!strings.Contains(w.Body.String(), `"Stages":[{"Name":"Етап 1","OpensAt":"2026-10-19T10:00:00Z","ClosesAt":"2026-10-19T12:00:00Z"}]`) {
 		t.Fatalf("live screen = %d %s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
@@ -190,10 +196,35 @@ func TestLiveScreenLimiterKeysOnTheLinkNotTheAddress(t *testing.T) {
 		r.ServeHTTP(w, req)
 		return w.Code
 	}
-	if get("a") != http.StatusOK || get("b") != http.StatusOK {
+	a, b := screenToken(1), screenToken(2)
+	if get(a) != http.StatusOK || get(b) != http.StatusOK {
 		t.Fatal("two links behind one address have separate budgets")
 	}
-	if get("a") != http.StatusTooManyRequests {
+	if get(a) != http.StatusTooManyRequests {
 		t.Fatal("a second request of the same link is over the limit of 1")
+	}
+	// Malformed tokens never open a screen: they share one budget.
+	if get("junk-1") != http.StatusOK || get("junk-2") != http.StatusTooManyRequests {
+		t.Fatal("malformed tokens must share one budget")
+	}
+}
+
+// screenToken is a well-formed (32-byte) token that no link has.
+func screenToken(fill byte) string {
+	return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 32))
+}
+
+// Past the key bound, new links share one bucket: made-up tokens cannot grow the map.
+func TestWindowLimiterBoundsItsKeys(t *testing.T) {
+	limiter := newWindowLimiter(1, time.Minute)
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < liveScreenLimiterKeys+50; i++ {
+		limiter.allow(fmt.Sprintf("key-%d", i), now)
+	}
+	if len(limiter.counts) > liveScreenLimiterKeys+1 {
+		t.Fatalf("limiter keeps %d keys", len(limiter.counts))
+	}
+	if ok, _ := limiter.allow("key-0", now); ok {
+		t.Fatal("a known key keeps its own count")
 	}
 }
