@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -101,17 +102,93 @@ func TestIssueAndRevokeRefreshTheKnownLinks(t *testing.T) {
 	}
 }
 
-// A failed read keeps the last known set.
-func TestFailedReadKeepsTheKnownLinks(t *testing.T) {
+// A failed read keeps the last known set, does not count as fresh, and the
+// next attempt comes after the attempt bound.
+func TestFailedReadKeepsTheKnownLinksAndRetriesAfterTheBound(t *testing.T) {
+	uc, q := liveScreenUseCase(t)
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	working, later := randomScreenToken(t), randomScreenToken(t)
+	rows := func(tokens ...string) []postgres.ListActiveLiveScreenTokenHashesRow {
+		out := make([]postgres.ListActiveLiveScreenTokenHashesRow, 0, len(tokens))
+		for _, token := range tokens {
+			out = append(out, postgres.ListActiveLiveScreenTokenHashesRow{TokenHash: eventContentModel.HashLiveScreenToken(token)})
+		}
+		return out
+	}
+	gomock.InOrder(
+		q.EXPECT().ListActiveLiveScreenTokenHashes(gomock.Any(), gomock.Any()).Return(rows(working), nil),
+		q.EXPECT().ListActiveLiveScreenTokenHashes(gomock.Any(), gomock.Any()).Return(nil, errors.New("database is down")),
+		q.EXPECT().ListActiveLiveScreenTokenHashes(gomock.Any(), gomock.Any()).Return(rows(working, later), nil),
+	)
+	ctx := context.Background()
+	if !uc.IsActiveLiveScreenToken(ctx, working, now) {
+		t.Fatal("the working link must be known")
+	}
+	// Past the TTL the read fails: the old set stays.
+	if !uc.IsActiveLiveScreenToken(ctx, working, now.Add(31*time.Second)) {
+		t.Fatal("the working link stays known through a failed read")
+	}
+	// Within the attempt bound no new read happens.
+	if uc.IsActiveLiveScreenToken(ctx, later, now.Add(33*time.Second)) {
+		t.Fatal("no read yet within the attempt bound")
+	}
+	// After the bound the set is read again: the failure did not count as fresh.
+	if !uc.IsActiveLiveScreenToken(ctx, later, now.Add(37*time.Second)) {
+		t.Fatal("the next attempt after the bound must load the new link")
+	}
+}
+
+// A request that is cancelled does not spoil the read it triggered.
+func TestCancelledRequestDoesNotPoisonTheKnownLinks(t *testing.T) {
 	uc, q := liveScreenUseCase(t)
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	working := randomScreenToken(t)
-	gomock.InOrder(
-		q.EXPECT().ListActiveLiveScreenTokenHashes(gomock.Any(), gomock.Any()).Return([]postgres.ListActiveLiveScreenTokenHashesRow{{TokenHash: eventContentModel.HashLiveScreenToken(working)}}, nil),
-		q.EXPECT().ListActiveLiveScreenTokenHashes(gomock.Any(), gomock.Any()).Return(nil, errors.New("database is down")),
-	)
-	ctx := context.Background()
-	if !uc.IsActiveLiveScreenToken(ctx, working, now) || !uc.IsActiveLiveScreenToken(ctx, working, now.Add(31*time.Second)) {
-		t.Fatal("the working link stays known through a failed read")
+	q.EXPECT().ListActiveLiveScreenTokenHashes(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ pgtype.Timestamptz) ([]postgres.ListActiveLiveScreenTokenHashesRow, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return []postgres.ListActiveLiveScreenTokenHashesRow{{TokenHash: eventContentModel.HashLiveScreenToken(working)}}, nil
+	}).Times(1)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if !uc.IsActiveLiveScreenToken(cancelled, working, now) {
+		t.Fatal("a cancelled request must still load the set")
+	}
+	if !uc.IsActiveLiveScreenToken(context.Background(), working, now.Add(time.Second)) {
+		t.Fatal("the loaded set serves the next request")
+	}
+}
+
+// Concurrent requests with an empty cache share one database read.
+func TestConcurrentMissesShareOneRead(t *testing.T) {
+	uc, q := liveScreenUseCase(t)
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	working := randomScreenToken(t)
+	release := make(chan struct{})
+	q.EXPECT().ListActiveLiveScreenTokenHashes(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, pgtype.Timestamptz) ([]postgres.ListActiveLiveScreenTokenHashesRow, error) {
+		<-release
+		return []postgres.ListActiveLiveScreenTokenHashesRow{{TokenHash: eventContentModel.HashLiveScreenToken(working)}}, nil
+	}).Times(1)
+	var wg sync.WaitGroup
+	results := make(chan bool, 40)
+	for i := 0; i < 40; i++ {
+		token := working
+		if i%2 == 1 {
+			token = randomScreenToken(t)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- uc.IsActiveLiveScreenToken(context.Background(), token, now) == (token == working)
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	close(results)
+	for ok := range results {
+		if !ok {
+			t.Fatal("a request got the wrong answer")
+		}
 	}
 }
