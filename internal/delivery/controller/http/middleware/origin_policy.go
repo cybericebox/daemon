@@ -221,7 +221,6 @@ var PublicReadRoutes = map[string]bool{
 	"/api/events/self/live-screen/results":      true,
 	"/api/events/self/live-screen/results/live": true,
 	"/api/events/self/public-info":              true,
-	"/api/settings/:key/value":                  true,
 }
 
 func originHost(origin string) string {

@@ -22,11 +22,10 @@ const (
 
 	// PermPlatformSettings is the platform.settings.* namespace parent. Held by no
 	// role today (super_admin reaches platform settings via "*"); kept for the hierarchy.
-	PermPlatformSettings          Permission = "platform.settings"
-	PermPlatformSettingsRead      Permission = "platform.settings.read"
-	PermPlatformSettingsReadValue Permission = "platform.settings.read.value"
-	PermPlatformSettingsWrite     Permission = "platform.settings.write"
-	PermPlatformAuditRead         Permission = "platform.audit.read"
+	PermPlatformSettings      Permission = "platform.settings"
+	PermPlatformSettingsRead  Permission = "platform.settings.read"
+	PermPlatformSettingsWrite Permission = "platform.settings.write"
+	PermPlatformAuditRead     Permission = "platform.audit.read"
 	// PermPlatformErrors is the platform error journal parent. Held by no role: the journal (errors, 404
 	// statistics, notification settings) is for super admins, who reach it via "*".
 	PermPlatformErrors      Permission = "platform.errors"
@@ -152,7 +151,7 @@ var rolePermissionsSet = map[Role]permissionSet{
 	RoleAdmin:       newRolePerms(PermUsers, PermEventsRead, PermEventsWrite, PermExercisesRead, PermExercisesWrite, PermExercisesPublish, PermExercisesDelete, PermExercisesExport, PermPlatformAuditRead, PermEventsSolutionAttemptsRead, PermEventsSolutionAttemptsWrite).InheritRoles(RoleUser),
 	RoleAdminViewer: newRolePerms(PermUsersRead, PermEventsRead, PermExercisesRead, PermEventsSolutionAttemptsRead).InheritRoles(RoleUser),
 	RoleUser:        newRolePerms(PermNotificationsSelf, PermSelf).InheritRoles(RolePublic),
-	RolePublic:      newRolePerms(PermPlatformSettingsReadValue, PermEventResultsRead, PermEventContentRead, PermBannersView),
+	RolePublic:      newRolePerms(PermEventResultsRead, PermEventContentRead, PermBannersView),
 }
 
 var rolePermissions = map[Role][]Permission{}
@@ -214,13 +213,26 @@ func CanAssignRole(caller, target Role) bool {
 	return true
 }
 
-// roleRank orders the stored roles by privilege.
-var roleRank = map[Role]int{RoleUser: 0, RoleAdminViewer: 1, RoleAdmin: 2, RoleSuperAdmin: 3}
+// roleLevel orders the stored roles for account management: admin and admin_viewer are one level (neither manages the
+// other), a super_admin is above both. Unknown roles have no level (fail-closed).
+var roleLevel = map[Role]int{RoleUser: 0, RoleAdminViewer: 1, RoleAdmin: 1, RoleSuperAdmin: 2}
 
-// CanSetRole reports whether caller may give target to an account whose role is current ("" for a
-// new account): CanAssignRole, and only a super_admin may RAISE anyone to admin or above. An admin
-// can lower another admin (admin -> admin_viewer, user) and keep an admin an admin, but never makes
-// one: admin rights are not handed out by admins.
+// CanManageAccount reports whether caller may change the role of, block or delete an account whose role is target:
+// only a HIGHER role manages a role. A super_admin manages every account (the last-super-admin guard is the use
+// case's); an admin manages only regular users, never another admin, admin_viewer or super_admin.
+func CanManageAccount(caller, target Role) bool {
+	if caller == RoleSuperAdmin {
+		return true
+	}
+	callerLevel, ok := roleLevel[caller]
+	targetLevel, known := roleLevel[target]
+	return ok && known && callerLevel > targetLevel && CanAssignRole(caller, target)
+}
+
+// CanSetRole reports whether caller may give target to an account whose role is current ("" for a new account):
+// CanAssignRole, and below super_admin the account must be one the caller manages and the new role must stay below the
+// caller's own level. So only a super_admin invites or promotes anyone to admin_viewer, admin or super_admin; an admin
+// gives only the user role.
 func CanSetRole(caller, current, target Role) bool {
 	if !CanAssignRole(caller, target) {
 		return false
@@ -228,7 +240,10 @@ func CanSetRole(caller, current, target Role) bool {
 	if caller == RoleSuperAdmin {
 		return true
 	}
-	return !(roleRank[target] >= roleRank[RoleAdmin] && roleRank[target] > roleRank[current])
+	if current != "" && !CanManageAccount(caller, current) {
+		return false
+	}
+	return CanManageAccount(caller, target)
 }
 
 // PermissionStrings returns the held permission set for a role as plain

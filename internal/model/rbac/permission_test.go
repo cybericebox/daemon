@@ -186,29 +186,54 @@ func TestCanSetRole(t *testing.T) {
 		caller, current, target Role
 		want                    bool
 	}{
-		// a super_admin sets anything but is the only one who makes admins
+		// a super_admin sets anything, and is the only one who makes admins and viewers
 		{RoleSuperAdmin, RoleUser, RoleAdmin, true},
 		{RoleSuperAdmin, RoleAdmin, RoleSuperAdmin, true},
-		// an admin never raises anyone to admin or above
+		{RoleSuperAdmin, "", RoleAdminViewer, true},
+		{RoleSuperAdmin, RoleAdmin, RoleUser, true},
+		// an admin never raises anyone to its own level or above, a new account included
 		{RoleAdmin, RoleUser, RoleAdmin, false},
-		{RoleAdmin, RoleAdminViewer, RoleAdmin, false},
-		{RoleAdmin, "", RoleAdmin, false}, // a new account (invitation)
+		{RoleAdmin, RoleUser, RoleAdminViewer, false},
+		{RoleAdmin, "", RoleAdmin, false},
+		{RoleAdmin, "", RoleAdminViewer, false},
 		{RoleAdmin, RoleAdmin, RoleSuperAdmin, false},
-		// an admin lowers another admin, or leaves one as it is
-		{RoleAdmin, RoleAdmin, RoleAdminViewer, true},
-		{RoleAdmin, RoleAdmin, RoleUser, true},
-		{RoleAdmin, RoleAdmin, RoleAdmin, true},
-		// below admin an admin may set freely
-		{RoleAdmin, RoleUser, RoleAdminViewer, true},
+		// an admin never touches an account of its own level: no demotion of another admin or viewer
+		{RoleAdmin, RoleAdmin, RoleAdminViewer, false},
+		{RoleAdmin, RoleAdmin, RoleUser, false},
+		{RoleAdmin, RoleAdmin, RoleAdmin, false},
+		{RoleAdmin, RoleAdminViewer, RoleUser, false},
+		{RoleAdmin, RoleSuperAdmin, RoleUser, false},
+		// an admin gives only the user role
 		{RoleAdmin, "", RoleUser, true},
-		{RoleAdmin, RoleAdminViewer, RoleUser, true},
-		// those without the permissions cannot grant anything above their own
-		{RoleAdminViewer, RoleUser, RoleAdminViewer, true},
+		{RoleAdmin, RoleUser, RoleUser, true},
+		// those without the permissions grant nothing at or above their own level
+		{RoleAdminViewer, RoleUser, RoleAdminViewer, false},
 		{RoleUser, RoleUser, RoleAdminViewer, false},
 	}
 	for _, c := range cases {
 		if got := CanSetRole(c.caller, c.current, c.target); got != c.want {
 			t.Errorf("CanSetRole(%q,%q,%q)=%v want %v", c.caller, c.current, c.target, got, c.want)
 		}
+	}
+}
+
+func TestCanManageAccount(t *testing.T) {
+	roles := []Role{RoleSuperAdmin, RoleAdmin, RoleAdminViewer, RoleUser}
+	// Only a higher role manages a role; admin and admin_viewer are one level.
+	want := map[Role]map[Role]bool{
+		RoleSuperAdmin:  {RoleSuperAdmin: true, RoleAdmin: true, RoleAdminViewer: true, RoleUser: true},
+		RoleAdmin:       {RoleSuperAdmin: false, RoleAdmin: false, RoleAdminViewer: false, RoleUser: true},
+		RoleAdminViewer: {RoleSuperAdmin: false, RoleAdmin: false, RoleAdminViewer: false, RoleUser: true},
+		RoleUser:        {RoleSuperAdmin: false, RoleAdmin: false, RoleAdminViewer: false, RoleUser: false},
+	}
+	for _, caller := range roles {
+		for _, target := range roles {
+			if got := CanManageAccount(caller, target); got != want[caller][target] {
+				t.Errorf("CanManageAccount(%q,%q)=%v want %v", caller, target, got, want[caller][target])
+			}
+		}
+	}
+	if CanManageAccount(RoleAdmin, Role("unknown")) || CanManageAccount(Role("unknown"), RoleUser) {
+		t.Error("an unknown role must neither manage nor be managed")
 	}
 }

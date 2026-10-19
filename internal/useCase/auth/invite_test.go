@@ -97,11 +97,58 @@ func TestInviteUser_IncompleteAccount_Reinvites(t *testing.T) {
 			}
 			return 1, nil
 		})
-	if err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "inc@b.test", rbac.RoleAdminViewer, "A", "B"); err != nil {
+	if err := uc.InviteUser(inviteCtx(rbac.RoleSuperAdmin), "inc@b.test", rbac.RoleAdminViewer, "A", "B"); err != nil {
 		t.Fatalf("re-invite: %v", err)
 	}
 	if notifier.calls != 1 {
 		t.Fatalf("want 1 notify, got %d", notifier.calls)
+	}
+}
+
+// Only a higher role manages a role: an admin invites only users; admin_viewer, admin and super_admin come from a
+// super_admin.
+func TestInviteUser_RoleByCaller(t *testing.T) {
+	cases := []struct {
+		caller, role rbac.Role
+		allowed      bool
+	}{
+		{rbac.RoleSuperAdmin, rbac.RoleSuperAdmin, true},
+		{rbac.RoleSuperAdmin, rbac.RoleAdmin, true},
+		{rbac.RoleSuperAdmin, rbac.RoleAdminViewer, true},
+		{rbac.RoleSuperAdmin, rbac.RoleUser, true},
+		{rbac.RoleAdmin, rbac.RoleSuperAdmin, false},
+		{rbac.RoleAdmin, rbac.RoleAdmin, false},
+		{rbac.RoleAdmin, rbac.RoleAdminViewer, false},
+		{rbac.RoleAdmin, rbac.RoleUser, true},
+	}
+	for _, c := range cases {
+		t.Run(string(c.caller)+"->"+string(c.role), func(t *testing.T) {
+			uc, repo, _ := newInviteUC(t)
+			if c.allowed {
+				// Past the role check the address is looked up; an existing active account ends the call there.
+				repo.EXPECT().GetUserByEmail(gomock.Any(), "x@b.test").Return(postgres.User{ID: uuid.Must(uuid.NewV7()), Status: string(userModel.UserStatusActive)}, nil)
+			}
+			err := uc.InviteUser(inviteCtx(c.caller), "x@b.test", c.role, "A", "B")
+			if c.allowed != !errors.Is(err, authModel.ErrCannotAssignRole.Err()) {
+				t.Fatalf("allowed=%v, err=%v", c.allowed, err)
+			}
+		})
+	}
+}
+
+// An admin's re-invitation of an incomplete admin_viewer account would demote it: refused.
+func TestInviteUser_AdminCannotReinviteHigherAccount(t *testing.T) {
+	uc, repo, notifier := newInviteUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetUserByEmail(gomock.Any(), "inc@b.test").Return(postgres.User{ID: uid, Role: string(rbac.RoleAdminViewer), Status: string(userModel.UserStatusIncomplete)}, nil)
+	repo.EXPECT().DeleteUserProviders(gomock.Any(), uid).Return(int64(0), nil).AnyTimes()
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(rbac.RoleAdminViewer), Status: string(userModel.UserStatusIncomplete)}, nil)
+	err := uc.InviteUser(inviteCtx(rbac.RoleAdmin), "inc@b.test", rbac.RoleUser, "A", "B")
+	if !errors.Is(err, authModel.ErrCannotAssignRole.Err()) {
+		t.Fatalf("want ErrCannotAssignRole, got %v", err)
+	}
+	if notifier.calls != 0 {
+		t.Fatalf("no invitation may be sent, got %d", notifier.calls)
 	}
 }
 
