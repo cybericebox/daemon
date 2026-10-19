@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
@@ -286,6 +287,48 @@ func TestWindowResetAndJunkFloodKeepWorkingLinksServed(t *testing.T) {
 		}
 		if ok, _ := limiter.allow("link:"+link, at.Add(time.Second)); !ok {
 			t.Fatalf("minute %d: the working link was refused", minute)
+		}
+	}
+}
+
+// unpublishedResolver resolves every tag to one non-public event.
+type unpublishedResolver struct{ eventID uuid.UUID }
+
+func (r unpublishedResolver) ResolveEventByTag(context.Context, string, time.Time) (middleware.EventTenant, error) {
+	return middleware.EventTenant{EventID: r.eventID, Tag: "khctf", Public: false}, nil
+}
+
+func (unpublishedResolver) RequireReadEvent(context.Context, uuid.UUID, uuid.UUID) error {
+	return errors.New("no session expected")
+}
+
+// A screen link opens its own unpublished event with no session; a link of
+// another event, a bad, expired or revoked one, or none gets the same bare 404
+// as an unknown host.
+func TestScreenLinkOpensItsOwnUnpublishedEventOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := NewEventSelfAPIHandler(fakeUseCase{}, nil)
+	serve := func(eventID uuid.UUID, origin, token string) *httptest.ResponseRecorder {
+		r := gin.New()
+		resolve := middleware.ResolveEventTenant(unpublishedResolver{eventID: eventID}, config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"})
+		r.GET("/api/events/self/live-screen", h.liveScreenGate, resolve, h.liveScreen)
+		req := httptest.NewRequest(http.MethodGet, "/api/events/self/live-screen?token="+token, nil)
+		req.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	if w := serve(fakeScreenEvent, "https://khctf.example.test", fakeScreenToken); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Name":"Screen"`) {
+		t.Fatalf("own link on the unpublished event = %d %s", w.Code, w.Body.String())
+	}
+	unknownHost := serve(fakeScreenEvent, "https://elsewhere.invalid", fakeScreenToken)
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"a valid link on another event's site": serve(uuid.Must(uuid.NewV7()), "https://other.example.test", fakeScreenToken),
+		"an expired, revoked or unknown link":  serve(fakeScreenEvent, "https://khctf.example.test", "revoked-token"),
+		"no link":                              serve(fakeScreenEvent, "https://khctf.example.test", ""),
+	} {
+		if w.Code != http.StatusNotFound || w.Body.String() != unknownHost.Body.String() {
+			t.Fatalf("%s = %d %q, want the unknown host answer %d %q", name, w.Code, w.Body.String(), unknownHost.Code, unknownHost.Body.String())
 		}
 	}
 }
