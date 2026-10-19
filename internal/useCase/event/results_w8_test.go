@@ -13,6 +13,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
+	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	challengeAttemptModel "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
@@ -278,6 +279,7 @@ func TestAnnulSolveRejectsEveryAcceptedAttemptInOneTransaction(t *testing.T) {
 	first, second := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	var decided []uuid.UUID
 	gomock.InOrder(
+		q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{ID: teamID, EventID: eventID}).Return(postgres.EventTeam{ID: teamID, EventID: eventID}, nil),
 		q.EXPECT().LockEventTeamChallenge(gomock.Any(), postgres.LockEventTeamChallengeParams{EventID: eventID, EventTeamID: teamID, EventChallengeID: challengeID}).Return(teamChallengeID, nil),
 		q.EXPECT().ListEffectiveCorrectAttemptIDs(gomock.Any(), teamChallengeID).Return([]uuid.UUID{first, second}, nil),
 		q.EXPECT().CreateChallengeAttemptDecision(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateChallengeAttemptDecisionParams) (postgres.ChallengeAttemptDecision, error) {
@@ -309,9 +311,28 @@ func TestAnnulSolveWithoutAcceptedAttemptIsAConflict(t *testing.T) {
 	q := newFormGateMock(ctrl)
 	unit := &testUoW{}
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	q.EXPECT().GetEventTeamByID(gomock.Any(), gomock.Any()).Return(postgres.EventTeam{}, nil)
 	q.EXPECT().LockEventTeamChallenge(gomock.Any(), gomock.Any()).Return(uuid.Nil, pgx.ErrNoRows)
 
 	_, err := uc.AnnulSolve(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), "reason", uuid.Must(uuid.NewV7()))
+	if !errors.Is(err, challengeAttemptModel.ErrNothingToAnnul.Err()) || unit.saved {
+		t.Fatalf("err = %v, saved %v", err, unit.saved)
+	}
+}
+
+// A manager of one event passing a team of another event gets «nothing to annul», and no row of that team (its
+// lab admission, its labs, its team challenge) is locked: the ownership check runs before every lock.
+func TestAnnulSolveChecksTheTeamBelongsToTheEventBeforeLocking(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	unit := &testUoW{}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: unit}})
+	eventID, foreignTeam, challengeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().ListEventPreviewResourceHolds(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	q.EXPECT().GetEventTeamByID(gomock.Any(), postgres.GetEventTeamByIDParams{ID: foreignTeam, EventID: eventID}).Return(postgres.EventTeam{}, pgx.ErrNoRows)
+	// Any lock (LockEventTeamForLabAdmission, GetEventTeamLabForChallenge, LockEventTeamChallenge) fails the test as an unexpected call.
+
+	_, err := uc.AnnulSolve(context.Background(), eventID, foreignTeam, challengeID, "reason", uuid.Must(uuid.NewV7()))
 	if !errors.Is(err, challengeAttemptModel.ErrNothingToAnnul.Err()) || unit.saved {
 		t.Fatalf("err = %v, saved %v", err, unit.saved)
 	}

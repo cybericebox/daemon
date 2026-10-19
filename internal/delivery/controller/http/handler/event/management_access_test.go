@@ -114,6 +114,40 @@ func TestSolutionAttemptsShowAnswersToManagersOnly(t *testing.T) {
 	}
 }
 
+func (u *accessContractUC) GetManageResults(context.Context, uuid.UUID) (eventUseCase.ManageResultsView, error) {
+	return eventUseCase.ManageResultsView{}, nil
+}
+
+// Owner decision (2026-10-19): a viewer (observer) reads the results on the screen but exports nothing; owners and
+// write moderators keep the CSV.
+func TestResultsExportIsForManagersOnly(t *testing.T) {
+	actor, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	url := "/api/events/" + eventID.String() + "/manage/results/export.csv"
+	for _, tc := range []struct {
+		name      string
+		readErr   error
+		manageErr error
+		status    int
+	}{
+		{name: "manager", status: http.StatusOK},
+		{name: "viewer", manageErr: eventManagerModel.ErrEventManagementForbidden.Err(), status: http.StatusForbidden},
+		{name: "not a member", readErr: eventManagerModel.ErrEventManagementForbidden.Err(), manageErr: eventManagerModel.ErrEventManagementForbidden.Err(), status: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u := &accessContractUC{readErr: tc.readErr, manageErr: tc.manageErr}
+			router := testEventCRUDRouter(&eventCRUDContractUC{IUseCase: u}, actor)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+			if w.Code != tc.status {
+				t.Fatalf("status=%d, want %d: %s", w.Code, tc.status, w.Body.String())
+			}
+			if tc.status == http.StatusOK && !strings.HasPrefix(w.Header().Get("Content-Type"), "text/csv") {
+				t.Fatalf("manager gets no CSV: %q", w.Header().Get("Content-Type"))
+			}
+		})
+	}
+}
+
 func TestSolutionAttemptsExportRequiresManageAccess(t *testing.T) {
 	actor, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	u := &accessContractUC{manageErr: eventManagerModel.ErrEventManagementForbidden.Err()}

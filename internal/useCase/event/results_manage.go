@@ -10,6 +10,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/challengeAttemptRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventResultRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/mailRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -201,6 +202,15 @@ func (u *EventUseCase) AnnulSolve(ctx context.Context, eventID, teamID, challeng
 		return AnnulSolveView{}, err
 	}
 	defer unit.Restore()
+	// The team must be this event's before any row is locked: a team of another event gets the same answer as a
+	// team without a solve, and its admission and lab rows are never held by this event's managers. The check is a
+	// plain read, so the lock order (lab, then team challenge) stays as everywhere else.
+	if _, err = eventTeamRepo.New(txRepo).GetByID(txCtx, eventID, teamID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return AnnulSolveView{}, challengeAttemptModel.ErrNothingToAnnul.Err()
+		}
+		return AnnulSolveView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get team").Err()
+	}
 	if _, err = lockChallengeLabInTransaction(txCtx, txRepo, teamID, challengeID); err != nil {
 		return AnnulSolveView{}, err
 	}
