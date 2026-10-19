@@ -117,6 +117,7 @@ func TestSetEventManagerAllowsAPendingParticipant(t *testing.T) {
 // recordingLabClientInfra records the lab clients deleted by the access cleanup.
 type recordingLabClientInfra struct {
 	earlyVPNInfra
+
 	deleted []string
 }
 
@@ -140,7 +141,7 @@ func TestDemotingAModeratorToViewerDropsTheLabClient(t *testing.T) {
 		Return(postgres.EventManager{EventID: eventID, UserID: userID, Role: int16(eventManagerModel.RoleManager), CreatedAt: now}, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "t", Name: "n", AvailableFrom: now}, nil)
 	q.EXPECT().UpsertEventManager(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a postgres.UpsertEventManagerParams) (postgres.EventManager, error) {
-		return postgres.EventManager{EventID: a.EventID, UserID: a.UserID, Role: a.Role, CreatedAt: a.CreatedAt}, nil
+		return postgres.EventManager(a), nil
 	})
 	q.EXPECT().GetModeratorsTeam(gomock.Any(), eventID).Return(postgres.EventTeam{ID: teamID, EventID: eventID, Moderators: true}, nil)
 	_, err := uc.SetEventManager(context.Background(), eventID, event.SetEventManagerInput{UserID: userID, Role: int16(eventManagerModel.RoleViewer)})
@@ -161,7 +162,7 @@ func TestPromotingOrKeepingARoleKeepsTheLabClient(t *testing.T) {
 	q.EXPECT().GetEventManager(gomock.Any(), gomock.Any()).Return(postgres.EventManager{EventID: eventID, UserID: userID, Role: int16(eventManagerModel.RoleViewer), CreatedAt: now}, nil)
 	q.EXPECT().GetEventByID(gomock.Any(), eventID).Return(postgres.Event{ID: eventID, Tag: "t", Name: "n", AvailableFrom: now}, nil)
 	q.EXPECT().UpsertEventManager(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, a postgres.UpsertEventManagerParams) (postgres.EventManager, error) {
-		return postgres.EventManager{EventID: a.EventID, UserID: a.UserID, Role: a.Role, CreatedAt: a.CreatedAt}, nil
+		return postgres.EventManager(a), nil
 	})
 	_, err := uc.SetEventManager(context.Background(), eventID, event.SetEventManagerInput{UserID: userID, Role: int16(eventManagerModel.RoleManager)})
 	require.NoError(t, err)

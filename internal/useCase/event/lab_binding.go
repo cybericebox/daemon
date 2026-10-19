@@ -3,7 +3,6 @@ package event
 import (
 	"context"
 	"fmt"
-	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"sync"
 	"time"
@@ -15,6 +14,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
