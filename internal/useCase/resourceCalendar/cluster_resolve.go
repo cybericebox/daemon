@@ -55,6 +55,18 @@ func (u *ResourceCalendarUseCase) resolveUnit(ctx context.Context, ref infraMode
 		if err != nil {
 			return platformErr(err, "Failed to read the units of a reservation")
 		}
+		// A group that lives on an agent without a part of this reservation (made before the reservations, or by
+		// the old placement) does not pin its unit there: the unit follows the placement, and the fleet refuses the
+		// mismatch, so such a group is recreated.
+		if pinned != nil {
+			parts, pErr := s.PartsOfCalendar(ctx, r.ID)
+			if pErr != nil {
+				return platformErr(pErr, "Failed to read the cluster reservation parts")
+			}
+			if !hasPartOn(parts, *pinned) {
+				pinned = nil
+			}
+		}
 		a, placed := units[ref.Unit]
 		switch {
 		case placed && pinned != nil && a != *pinned:
@@ -157,11 +169,26 @@ func (u *ResourceCalendarUseCase) resolveOwnPart(ctx context.Context, find func(
 	return part.AgentID, part.ID, nil
 }
 
-// livePart returns the part once the agent holds it: a part that is missing or was never confirmed is sent once.
+// hasPartOn reports a live part of the reservation on the agent.
+func hasPartOn(parts []calModel.Part, agent uuid.UUID) bool {
+	for _, p := range parts {
+		if p.AgentID == agent && !p.Retired() {
+			return true
+		}
+	}
+	return false
+}
+
+// livePart returns the part once the agent holds it: a part that is missing or was never confirmed is sent once. A
+// part that ended, or whose window has passed, takes no new work: ErrReservationEnded, which callers treat as closed
+// (a wait for stands), never as a failure.
 func (u *ResourceCalendarUseCase) livePart(ctx context.Context, agent uuid.UUID, find func() (calModel.Part, bool, error), send func() error) (calModel.Part, error) {
 	p, ok, err := find()
 	if err != nil {
 		return calModel.Part{}, err
+	}
+	if ok && (p.Status.Phase == calModel.PartEnded || !p.Window.End.After(u.now().UTC())) {
+		return calModel.Part{}, infraModel.ErrReservationEnded
 	}
 	if ok && p.SyncedRev > 0 {
 		return p, nil

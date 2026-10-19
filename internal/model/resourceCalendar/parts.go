@@ -81,6 +81,9 @@ type Part struct {
 	ShrinkHeld bool
 	// Forced: the desired state was forced by an admin past the shrink guard.
 	Forced bool
+	// RetireHeld: the part is no longer in the placement, but labs still run in it, so it stays until they are gone
+	// (or the admin forces the change, or the reservation is canceled).
+	RetireHeld bool
 
 	Status PartStatus
 
@@ -179,6 +182,11 @@ func shareAmount(r *Reservation, units int) Amount {
 // retired); a part on an agent that still has a share keeps its id and is updated in place (keep), a new share
 // gets a new part (add), and a part whose share went to zero, or every part of a canceled reservation, is retired.
 func SplitCalendar(r *Reservation, existing []Part, newID func() uuid.UUID, now time.Time) (keep, add, retire []Part) {
+	// A reservation whose window has passed gets no new part: its existing parts end with the window (the sync
+	// retires them), so nothing is created again behind them.
+	if r.Active() && !r.Window.End.After(now) {
+		return existing, nil, nil
+	}
 	byAgent := map[uuid.UUID]int{}
 	for i, p := range existing {
 		byAgent[p.AgentID] = i
@@ -194,6 +202,7 @@ func SplitCalendar(r *Reservation, existing []Part, newID func() uuid.UUID, now 
 			if i, ok := byAgent[sh.AgentID]; ok {
 				p := existing[i]
 				p.SetDesired(r.Window, amount, now)
+				p.RetireHeld = false
 				keep = append(keep, p)
 				continue
 			}
@@ -219,14 +228,7 @@ func AssignUnit(shares []Share, assigned map[string]uuid.UUID, unit string) (uui
 	if a, ok := assigned[unit]; ok {
 		return a, nil
 	}
-	if strings.HasPrefix(unit, previewUnitPrefix) {
-		for _, sh := range shares {
-			if sh.Units > 0 {
-				return sh.AgentID, nil
-			}
-		}
-		return uuid.Nil, ErrUnitNotPlaced.Err()
-	}
+	preview := strings.HasPrefix(unit, previewUnitPrefix)
 	used := map[uuid.UUID]int{}
 	for u, a := range assigned {
 		if !strings.HasPrefix(u, previewUnitPrefix) {
@@ -234,7 +236,7 @@ func AssignUnit(shares []Share, assigned map[string]uuid.UUID, unit string) (uui
 		}
 	}
 	for _, sh := range shares {
-		if used[sh.AgentID] < sh.Units {
+		if (preview && sh.Units > 0) || (!preview && used[sh.AgentID] < sh.Units) {
 			return sh.AgentID, nil
 		}
 	}

@@ -46,6 +46,8 @@ type (
 		EventEnded bool
 		EndsAt     time.Time
 		Reason     string
+		// At is when the calendar acts on it (its clock).
+		At time.Time
 	}
 
 	// ReservationNotice is an event reservation part people hear about.
@@ -98,12 +100,15 @@ func (u *ResourceCalendarUseCase) ObserveClusterReservations(ctx context.Context
 		}
 		seen[p.ID] = true
 		next := statusOf(r, now)
+		// An end earlier than the desired one is drift: the part is sent again, its notice is not recorded.
+		if drifted(p, next, r) {
+			resync = true
+			continue
+		}
 		if err = u.store.Observe(ctx, p.ID, next); err != nil {
 			return platformErr(err, "Failed to record the status of a cluster reservation")
 		}
-		if u.transition(ctx, p, next, r, now) {
-			resync = true
-		}
+		u.transition(ctx, p, next, r, now)
 	}
 	if snapshot {
 		for _, p := range parts {
@@ -114,16 +119,10 @@ func (u *ResourceCalendarUseCase) ObserveClusterReservations(ctx context.Context
 	}
 	for _, id := range deleted {
 		p, ok := byID[id]
-		if !ok || p.Retired() || p.Status.Phase == calModel.PartEnded {
-			continue // a delete we asked for, or an end already acted on
+		if !ok || p.Status.Phase == calModel.PartEnded {
+			continue // an end already acted on
 		}
-		ended := p.Status
-		ended.Phase = calModel.PartEnded
-		ended.ObservedAt = &now
-		if err = u.store.Observe(ctx, p.ID, ended); err != nil {
-			return platformErr(err, "Failed to record the end of a cluster reservation")
-		}
-		u.ended(ctx, p, now)
+		u.finishPart(ctx, p, now)
 	}
 	if resync {
 		if err = u.SyncAgent(ctx, agentID); err != nil {
@@ -133,29 +132,29 @@ func (u *ResourceCalendarUseCase) ObserveClusterReservations(ctx context.Context
 	return nil
 }
 
-// transition acts on a change of a part's phase; true asks for the agent to be synced again (drift).
-func (u *ResourceCalendarUseCase) transition(ctx context.Context, p calModel.Part, next calModel.PartStatus, r infraModel.ClusterReservation, now time.Time) bool {
+// drifted reports an ending notice for an end earlier than the desired one (an update the agent missed).
+func drifted(p calModel.Part, next calModel.PartStatus, r infraModel.ClusterReservation) bool {
+	return next.Phase == calModel.PartEnding && p.Status.Phase != calModel.PartEnding && next.EndingReason == EndingWindowClosing &&
+		!p.Retired() && p.Window.End.After(r.To.Add(driftTolerance))
+}
+
+// transition acts once on a change of a part's phase: the ending notice, a reduced amount, the end.
+func (u *ResourceCalendarUseCase) transition(ctx context.Context, p calModel.Part, next calModel.PartStatus, r infraModel.ClusterReservation, now time.Time) {
 	prev := p.Status
-	if next.Phase == calModel.PartEnding && (prev.Phase != calModel.PartEnding || prev.EndingReason != next.EndingReason) {
-		if next.EndingReason == EndingWindowClosing && !p.Retired() && p.Window.End.After(r.To.Add(driftTolerance)) {
-			return true
-		}
-		if !p.Retired() {
-			u.ending(ctx, p, next, r.To, now)
-		}
+	if next.Phase == calModel.PartEnding && prev.Phase != calModel.PartEnding && !p.Retired() {
+		u.ending(ctx, p, next, r.To, now)
 	}
 	if next.Exceeded && !prev.Exceeded && !p.Retired() {
 		u.reduced(ctx, p, next, now)
 	}
-	if next.Phase == calModel.PartEnded && prev.Phase != calModel.PartEnded && !p.Retired() {
-		u.ended(ctx, p, now)
+	if next.Phase == calModel.PartEnded && prev.Phase != calModel.PartEnded {
+		u.finishPart(ctx, p, now)
 	}
-	return false
 }
 
 // notice builds what the listeners and the notifier need about a part.
 func (u *ResourceCalendarUseCase) notice(ctx context.Context, p calModel.Part, endsAt time.Time, reason string, now time.Time) (PartNotice, *ReservationNotice) {
-	n := PartNotice{Part: p, EndsAt: endsAt, Reason: reason}
+	n := PartNotice{Part: p, EndsAt: endsAt, Reason: reason, At: now}
 	if p.CalendarID == nil || u.events == nil {
 		return n, nil
 	}

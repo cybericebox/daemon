@@ -169,3 +169,16 @@ func TestPartSyncState(t *testing.T) {
 		t.Fatal("old revision marked the new one synced")
 	}
 }
+
+func TestSplitAddsNothingAfterTheWindow(t *testing.T) {
+	r := eventReservation(Amount{CPUMillicores: 1000, MemoryBytes: 1000}, 1, Share{AgentID: agentA, Units: 1})
+	_, first, _ := SplitCalendar(r, nil, seqIDs(), partsNow)
+	after := r.Window.End.Add(time.Minute)
+	keep, add, retire := SplitCalendar(r, first, seqIDs(), after)
+	if len(add) != 0 || len(retire) != 0 || len(keep) != 1 || keep[0].DesiredRev != first[0].DesiredRev {
+		t.Fatalf("after the window: keep %v add %v retire %v", keep, add, retire)
+	}
+	if _, add, _ = SplitCalendar(r, nil, seqIDs(), after); len(add) != 0 {
+		t.Fatal("a part is created for a window that has passed")
+	}
+}

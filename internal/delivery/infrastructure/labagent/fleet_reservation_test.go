@@ -18,6 +18,8 @@ type fakeResolver struct {
 	parts  map[string]uuid.UUID
 	calls  []*uuid.UUID
 	failed error
+	// moved answers this agent even for a pinned ref (the part is elsewhere).
+	moved *uuid.UUID
 }
 
 func refKey(ref infraModel.ReservationRef) string {
@@ -38,6 +40,9 @@ func (r *fakeResolver) Resolve(_ context.Context, ref infraModel.ReservationRef,
 	agent := r.agent
 	if pinned != nil {
 		agent = *pinned
+	}
+	if r.moved != nil {
+		agent = *r.moved
 	}
 	return agent, r.parts[refKey(ref)], nil
 }
@@ -98,4 +103,19 @@ func TestFleetKeepsExistingPlacement(t *testing.T) {
 		require.NotNil(t, pinned, "a placed group resolves its part on its own agent")
 		assert.Equal(t, f.am.ID, *pinned)
 	}
+}
+
+// A group placed before its reservation, on another agent than the reservation's part, is not run under that part:
+// the group must be recreated.
+func TestPlacedGroupOnAnotherAgentIsAMismatch(t *testing.T) {
+	f := newFleetFixture(t)
+	f.store.groups = map[string]uuid.UUID{"e-1-t-1": f.am.ID}
+	f.a.groups = append(f.a.groups, readyGroup()...)
+	other := f.bm.ID
+	f.fleet.SetPartResolver(&fakeResolver{agent: f.bm.ID, moved: &other, parts: map[string]uuid.UUID{"team:1": uuid.Must(uuid.NewV7())}})
+	ref := teamRef("team:1")
+	err := f.fleet.DeployLab(context.Background(), "e-1-t-1", "c-1", infraModel.LabMeta{Reservation: ref, GroupReservation: ref}, exerciseModel.Topology{})
+	assert.ErrorIs(t, err, infraModel.ErrPlacementMismatch)
+	assert.Nil(t, f.a.createLabs)
+	assert.Nil(t, f.b.createLabs)
 }

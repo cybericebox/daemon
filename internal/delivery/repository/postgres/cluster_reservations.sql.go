@@ -57,7 +57,7 @@ func (q *Queries) DeleteClusterReservation(ctx context.Context, id uuid.UUID) er
 }
 
 const getClusterReservation = `-- name: GetClusterReservation :one
-SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations WHERE id = $1
+SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations WHERE id = $1
 `
 
 func (q *Queries) GetClusterReservation(ctx context.Context, id uuid.UUID) (ClusterReservation, error) {
@@ -82,6 +82,7 @@ func (q *Queries) GetClusterReservation(ctx context.Context, id uuid.UUID) (Clus
 		&i.SyncFailedSince,
 		&i.ShrinkHeld,
 		&i.Forced,
+		&i.RetireHeld,
 		&i.Phase,
 		&i.NoticeAt,
 		&i.EndsNoticeAt,
@@ -99,7 +100,7 @@ func (q *Queries) GetClusterReservation(ctx context.Context, id uuid.UUID) (Clus
 }
 
 const getClusterReservationOfTestGroup = `-- name: GetClusterReservationOfTestGroup :one
-SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
+SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
 WHERE owner_id = $1 AND source = 'test_group' AND retire_at IS NULL
 ORDER BY created_at DESC
 LIMIT 1
@@ -127,6 +128,7 @@ func (q *Queries) GetClusterReservationOfTestGroup(ctx context.Context, ownerID 
 		&i.SyncFailedSince,
 		&i.ShrinkHeld,
 		&i.Forced,
+		&i.RetireHeld,
 		&i.Phase,
 		&i.NoticeAt,
 		&i.EndsNoticeAt,
@@ -144,7 +146,7 @@ func (q *Queries) GetClusterReservationOfTestGroup(ctx context.Context, ownerID 
 }
 
 const getClusterReservationOfTestRun = `-- name: GetClusterReservationOfTestRun :one
-SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations WHERE test_deploy_id = $1 AND source = 'test_run' AND retire_at IS NULL
+SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations WHERE test_deploy_id = $1 AND source = 'test_run' AND retire_at IS NULL
 `
 
 func (q *Queries) GetClusterReservationOfTestRun(ctx context.Context, testDeployID uuid.NullUUID) (ClusterReservation, error) {
@@ -169,6 +171,7 @@ func (q *Queries) GetClusterReservationOfTestRun(ctx context.Context, testDeploy
 		&i.SyncFailedSince,
 		&i.ShrinkHeld,
 		&i.Forced,
+		&i.RetireHeld,
 		&i.Phase,
 		&i.NoticeAt,
 		&i.EndsNoticeAt,
@@ -240,7 +243,7 @@ func (q *Queries) ListClusterReservationUnits(ctx context.Context, calendarReser
 }
 
 const listClusterReservationsOfAgent = `-- name: ListClusterReservationsOfAgent :many
-SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations WHERE agent_id = $1 ORDER BY starts_at, id
+SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations WHERE agent_id = $1 ORDER BY starts_at, id
 `
 
 // Every part of one agent, retired ones included (they are deleted on the agent at the next sync).
@@ -272,6 +275,7 @@ func (q *Queries) ListClusterReservationsOfAgent(ctx context.Context, agentID uu
 			&i.SyncFailedSince,
 			&i.ShrinkHeld,
 			&i.Forced,
+			&i.RetireHeld,
 			&i.Phase,
 			&i.NoticeAt,
 			&i.EndsNoticeAt,
@@ -296,7 +300,7 @@ func (q *Queries) ListClusterReservationsOfAgent(ctx context.Context, agentID uu
 }
 
 const listClusterReservationsOfCalendar = `-- name: ListClusterReservationsOfCalendar :many
-SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
+SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
 WHERE calendar_reservation_id = $1 AND source = 'calendar' AND retire_at IS NULL
 ORDER BY created_at, id
 `
@@ -329,6 +333,7 @@ func (q *Queries) ListClusterReservationsOfCalendar(ctx context.Context, calenda
 			&i.SyncFailedSince,
 			&i.ShrinkHeld,
 			&i.Forced,
+			&i.RetireHeld,
 			&i.Phase,
 			&i.NoticeAt,
 			&i.EndsNoticeAt,
@@ -353,7 +358,7 @@ func (q *Queries) ListClusterReservationsOfCalendar(ctx context.Context, calenda
 }
 
 const listClusterReservationsOfCalendars = `-- name: ListClusterReservationsOfCalendars :many
-SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
+SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
 WHERE calendar_reservation_id = ANY($1::uuid[]) AND source = 'calendar'
 ORDER BY created_at, id
 `
@@ -387,6 +392,7 @@ func (q *Queries) ListClusterReservationsOfCalendars(ctx context.Context, ids []
 			&i.SyncFailedSince,
 			&i.ShrinkHeld,
 			&i.Forced,
+			&i.RetireHeld,
 			&i.Phase,
 			&i.NoticeAt,
 			&i.EndsNoticeAt,
@@ -411,7 +417,7 @@ func (q *Queries) ListClusterReservationsOfCalendars(ctx context.Context, ids []
 }
 
 const listClusterReservationsOfTestRuns = `-- name: ListClusterReservationsOfTestRuns :many
-SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
+SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations
 WHERE source = 'test_run' AND retire_at IS NULL AND agent_id = $1 AND owner_id = $2
 ORDER BY starts_at, id
 `
@@ -450,6 +456,7 @@ func (q *Queries) ListClusterReservationsOfTestRuns(ctx context.Context, arg Lis
 			&i.SyncFailedSince,
 			&i.ShrinkHeld,
 			&i.Forced,
+			&i.RetireHeld,
 			&i.Phase,
 			&i.NoticeAt,
 			&i.EndsNoticeAt,
@@ -474,7 +481,7 @@ func (q *Queries) ListClusterReservationsOfTestRuns(ctx context.Context, arg Lis
 }
 
 const listUnsyncedClusterReservationAgents = `-- name: ListUnsyncedClusterReservationAgents :many
-SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL OR shrink_held
+SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL OR shrink_held OR retire_held
 `
 
 // (a part holding back a shrink is sent again: the admin may force it, or the labs may be gone.)
@@ -590,15 +597,15 @@ func (q *Queries) ReleaseClusterReservationUnit(ctx context.Context, arg Release
 const saveClusterReservation = `-- name: SaveClusterReservation :exec
 
 INSERT INTO cluster_reservations (id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at,
-                                  cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, forced, retire_at,
+                                  cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, forced, retire_held, retire_at,
                                   created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6,
         $7, $8, $9, $10, $11, $12,
-        $13, $14, $15, $16, $17, $18)
+        $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (id) DO UPDATE
 SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, cpu_millicores = EXCLUDED.cpu_millicores,
     memory_bytes = EXCLUDED.memory_bytes, desired_rev = GREATEST(cluster_reservations.desired_rev, EXCLUDED.desired_rev),
-    forced = EXCLUDED.forced, retire_at = EXCLUDED.retire_at, updated_at = EXCLUDED.updated_at
+    forced = EXCLUDED.forced, retire_held = EXCLUDED.retire_held, retire_at = EXCLUDED.retire_at, updated_at = EXCLUDED.updated_at
 `
 
 type SaveClusterReservationParams struct {
@@ -617,6 +624,7 @@ type SaveClusterReservationParams struct {
 	SyncedAt              pgtype.Timestamptz `json:"synced_at"`
 	SyncError             string             `json:"sync_error"`
 	Forced                bool               `json:"forced"`
+	RetireHeld            bool               `json:"retire_held"`
 	RetireAt              pgtype.Timestamptz `json:"retire_at"`
 	CreatedAt             time.Time          `json:"created_at"`
 	UpdatedAt             time.Time          `json:"updated_at"`
@@ -643,6 +651,7 @@ func (q *Queries) SaveClusterReservation(ctx context.Context, arg SaveClusterRes
 		arg.SyncedAt,
 		arg.SyncError,
 		arg.Forced,
+		arg.RetireHeld,
 		arg.RetireAt,
 		arg.CreatedAt,
 		arg.UpdatedAt,

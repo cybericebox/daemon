@@ -74,7 +74,7 @@ func partFrom(row postgres.ClusterReservation) calModel.Part {
 		Window:     calModel.Window{Start: row.StartsAt.UTC(), End: row.EndsAt.UTC()},
 		Amount:     calModel.Amount{CPUMillicores: row.CpuMillicores, MemoryBytes: row.MemoryBytes},
 		DesiredRev: row.DesiredRev, SyncedRev: row.SyncedRev, SyncedAt: timePtr(row.SyncedAt), SyncError: row.SyncError,
-		SyncReason: row.SyncReason, SyncFailedSince: timePtr(row.SyncFailedSince), ShrinkHeld: row.ShrinkHeld, Forced: row.Forced,
+		SyncReason: row.SyncReason, SyncFailedSince: timePtr(row.SyncFailedSince), ShrinkHeld: row.ShrinkHeld, Forced: row.Forced, RetireHeld: row.RetireHeld,
 		Status: calModel.PartStatus{
 			Phase: row.Phase, NoticeAt: timePtr(row.NoticeAt), EndsAt: timePtr(row.EndsNoticeAt), EndingReason: row.EndingReason,
 			Used:   calModel.Amount{CPUMillicores: row.UsedCpuMillicores, MemoryBytes: row.UsedMemoryBytes},
@@ -99,7 +99,7 @@ func (r *Repository) SavePart(ctx context.Context, p calModel.Part) error {
 		ID: p.ID, AgentID: p.AgentID, Source: string(p.Source),
 		CalendarReservationID: nullUUID(p.CalendarID), TestDeployID: nullUUID(p.TestDeployID), OwnerID: nullUUID(p.OwnerID),
 		StartsAt: p.Window.Start, EndsAt: p.Window.End, CpuMillicores: p.Amount.CPUMillicores, MemoryBytes: p.Amount.MemoryBytes,
-		DesiredRev: p.DesiredRev, SyncedRev: p.SyncedRev, SyncedAt: tstz(p.SyncedAt), SyncError: p.SyncError, Forced: p.Forced,
+		DesiredRev: p.DesiredRev, SyncedRev: p.SyncedRev, SyncedAt: tstz(p.SyncedAt), SyncError: p.SyncError, Forced: p.Forced, RetireHeld: p.RetireHeld,
 		RetireAt: tstz(p.RetireAt), CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	})
 }
