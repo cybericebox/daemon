@@ -197,6 +197,8 @@ type EventStatView struct {
 	InUse         Amount
 	Free          Amount
 	Covered       bool
+	// Upcoming: the window has not started yet.
+	Upcoming bool
 }
 
 // StatsView is the calendar statistics now.
