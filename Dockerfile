@@ -18,6 +18,8 @@ RUN GOWORK=off go mod download
 COPY . .
 COPY ./internal/delivery/repository/postgres/migrations /build/migrations
 RUN GOWORK=off CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags '-s -w' -o app ./cmd/daemon
+# Operator tool for load tests (docs/loadtest/RUNBOOK.md): creates and removes marked test accounts. Not run by the service.
+RUN GOWORK=off CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags '-s -w' -o loadtest-users ./cmd/loadtest-users
 
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 # Runtime Laboratory distribution identity stays separate from SDK source.
@@ -37,6 +39,7 @@ COPY --from=builder /build/migrations /app/migrations
 
 # the built binary
 COPY --from=builder /build/app /app/app
+COPY --from=builder /build/loadtest-users /app/loadtest-users
 
 USER 10001:10001
 ENTRYPOINT ["/app/app"]
