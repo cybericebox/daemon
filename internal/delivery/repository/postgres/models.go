@@ -761,18 +761,19 @@ type ExerciseResourceElevation struct {
 }
 
 type ExerciseTestDeployment struct {
-	ID        uuid.UUID          `json:"id"`
-	GroupName string             `json:"group_name"`
-	VersionID uuid.UUID          `json:"version_id"`
-	VariantID uuid.UUID          `json:"variant_id"`
-	CreatedBy uuid.UUID          `json:"created_by"`
-	CreatedAt time.Time          `json:"created_at"`
-	ExpiresAt time.Time          `json:"expires_at"`
-	Flags     []byte             `json:"flags"`
-	Solved    []byte             `json:"solved"`
-	LabName   string             `json:"lab_name"`
-	EventID   uuid.NullUUID      `json:"event_id"`
-	EndingAt  pgtype.Timestamptz `json:"ending_at"`
+	ID         uuid.UUID          `json:"id"`
+	GroupName  string             `json:"group_name"`
+	VersionID  uuid.UUID          `json:"version_id"`
+	VariantID  uuid.UUID          `json:"variant_id"`
+	CreatedBy  uuid.UUID          `json:"created_by"`
+	CreatedAt  time.Time          `json:"created_at"`
+	ExpiresAt  time.Time          `json:"expires_at"`
+	Flags      []byte             `json:"flags"`
+	Solved     []byte             `json:"solved"`
+	LabName    string             `json:"lab_name"`
+	EventID    uuid.NullUUID      `json:"event_id"`
+	EndingAt   pgtype.Timestamptz `json:"ending_at"`
+	RunSeconds pgtype.Int4        `json:"run_seconds"`
 }
 
 type ExerciseVersion struct {

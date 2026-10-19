@@ -12,6 +12,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
+	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/useCase/exercise"
 )
 
@@ -78,5 +79,37 @@ func TestFailedEndIsNotToldAsEnded(t *testing.T) {
 	}
 	if len(notices.ended) != 0 {
 		t.Fatalf("a failed end is not told, got %v", notices.ended)
+	}
+}
+
+// The ending notice of a run the cluster has not started yet (waiting for a node) moves the end instead: the lease counts
+// only while the lab runs, so the run gets its chosen length from now, the reservation follows, and no notice goes out.
+func TestTestRunEndingOfAWaitingLabMovesTheEnd(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	owner, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	row := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, GroupName: "tu-1", LabName: "l-1", CreatedAt: now.Add(-25 * time.Minute),
+		ExpiresAt: now.Add(5 * time.Minute), RunSeconds: pgtype.Int4{Int32: 1800, Valid: true}}
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	var moved time.Time
+	q.EXPECT().ExtendOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, arg postgres.ExtendOwnedExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
+			moved = arg.ExpiresAt
+			row.ExpiresAt = arg.ExpiresAt
+			return row, nil
+		})
+	notices := &labNotices{}
+	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseProvisioning, Queue: &exerciseModel.LabQueue{Reason: exerciseModel.QueueReasonNodeStarting}}}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+	uc.SetClock(func() time.Time { return now })
+	uc.SetTestLabNotifier(notices)
+	if err := uc.TestRunEnding(context.Background(), owner, id, now.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if !moved.Equal(now.Add(30 * time.Minute)) {
+		t.Fatalf("end moved to %v, want %v", moved, now.Add(30*time.Minute))
+	}
+	if len(notices.ending) != 0 {
+		t.Fatalf("no ending notice for a moved run, got %v", notices.ending)
 	}
 }

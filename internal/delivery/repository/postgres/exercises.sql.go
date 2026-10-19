@@ -931,7 +931,7 @@ ORDER BY
     array_position(ARRAY ['none', 'draft_only', 'changed', 'published', 'archived'], listed.status) END ASC,
   CASE WHEN $2::text = 'status' AND $3::text = 'desc' THEN
     array_position(ARRAY ['none', 'draft_only', 'changed', 'published', 'archived'], listed.status) END DESC,
-  -- Unnamed authors and tasks without a difficulty come last in both directions.
+  -- Unnamed authors and tasks without a difficulty or a variant come last in both directions.
   CASE WHEN $2::text = 'author' THEN listed.author_name = '' END ASC,
   CASE WHEN $2::text = 'author' AND $3::text = 'asc' THEN lower(listed.author_name) END ASC,
   CASE WHEN $2::text = 'author' AND $3::text = 'desc' THEN lower(listed.author_name) END DESC,

@@ -70,10 +70,13 @@ func toDomain(v postgres.ExerciseTestDeployment) exerciseModel.TestDeploy {
 		at := v.EndingAt.Time.UTC()
 		out.EndingAt = &at
 	}
+	if v.RunSeconds.Valid {
+		out.Length = time.Duration(v.RunSeconds.Int32) * time.Second
+	}
 	return out
 }
 func (r *Repository) Create(ctx context.Context, v exerciseModel.TestDeploy) (exerciseModel.TestDeploy, error) {
-	row, e := r.q.CreateExerciseTestDeploy(ctx, postgres.CreateExerciseTestDeployParams{EventID: deployEventRef(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags)})
+	row, e := r.q.CreateExerciseTestDeploy(ctx, postgres.CreateExerciseTestDeployParams{EventID: deployEventRef(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags), RunSeconds: runSeconds(v.Length)})
 	return toDomain(row), e
 }
 func (r *Repository) GetOwned(ctx context.Context, id, owner uuid.UUID) (exerciseModel.TestDeploy, error) {
@@ -175,4 +178,12 @@ func (r *Repository) SetEndingAt(ctx context.Context, id, owner uuid.UUID, at *t
 	}
 	_, err := r.q.SetExerciseTestDeployEndingAt(ctx, postgres.SetExerciseTestDeployEndingAtParams{ID: id, CreatedBy: owner, EndingAt: value})
 	return err
+}
+
+// runSeconds stores the run length; zero (a row made before it was kept, a static test) stores none.
+func runSeconds(d time.Duration) pgtype.Int4 {
+	if d <= 0 {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: int32(d / time.Second), Valid: true}
 }
