@@ -431,6 +431,9 @@ type deviceDTO struct {
 	External   *externalDTO   `json:"External,omitempty"`
 	// Persistence is absent when the device keeps no state.
 	Persistence *persistenceDTO `json:"Persistence,omitempty"`
+	// WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port
+	// published through the web proxy is checked automatically either way. Container devices only.
+	WaitReadyFile bool `json:"WaitReadyFile,omitempty"`
 }
 
 type endpointDTO struct {
@@ -786,7 +789,7 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 		VisualRender: d.VisualRender,
 	}
 	for _, dev := range d.Devices {
-		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset}
+		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
 		if dev.Resources != nil {
 			domainDev.Resources = &exerciseModel.DeviceResources{
 				CPURequest: dev.Resources.CPURequest, MemoryRequest: dev.Resources.MemoryRequest,
@@ -903,7 +906,7 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	}
 	for _, dev := range t.Devices {
 		id := dev.ID
-		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset}
+		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
 		for _, iface := range dev.Interfaces {
 			dtoIface := interfaceDTO{
 				Name: iface.Name, MAC: iface.MAC,

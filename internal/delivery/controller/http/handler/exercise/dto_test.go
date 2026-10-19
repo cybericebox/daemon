@@ -153,3 +153,22 @@ func TestVariantDTO_LinkedToRoundTrip(t *testing.T) {
 		t.Fatalf("an independent variant has no LinkedTo/CopyOf key: %s %v", raw, err)
 	}
 }
+
+func TestTopologyDTOCarriesDeviceWaitReadyFileBothWays(t *testing.T) {
+	in := topologyDTO{Devices: []deviceDTO{
+		{Name: "web", Type: "container", WaitReadyFile: true},
+		{Name: "db", Type: "container"},
+	}}
+	domain := in.toDomain()
+	if !domain.Devices[0].WaitReadyFile || domain.Devices[1].WaitReadyFile {
+		t.Fatalf("domain = %v / %v", domain.Devices[0].WaitReadyFile, domain.Devices[1].WaitReadyFile)
+	}
+	out := topologyToDTO(domain)
+	if !out.Devices[0].WaitReadyFile || out.Devices[1].WaitReadyFile {
+		t.Fatalf("dto = %v / %v", out.Devices[0].WaitReadyFile, out.Devices[1].WaitReadyFile)
+	}
+	raw, err := json.Marshal(out.Devices[1])
+	if err != nil || strings.Contains(string(raw), "WaitReadyFile") {
+		t.Fatalf("an unset flag is omitted: %s %v", raw, err)
+	}
+}

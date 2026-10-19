@@ -33971,6 +33971,10 @@ const docTemplate = `{
                 },
                 "Type": {
                     "type": "string"
+                },
+                "WaitReadyFile": {
+                    "description": "WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port\npublished through the web proxy is checked automatically either way. Container devices only.",
+                    "type": "boolean"
                 }
             }
         },

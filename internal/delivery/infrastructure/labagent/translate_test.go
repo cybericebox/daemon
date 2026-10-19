@@ -319,3 +319,19 @@ func TestBuildLabSpec_PersistenceAndNoVariablesInTheSpec(t *testing.T) {
 		t.Fatalf("a device without persistence must not carry the key: %s", plain)
 	}
 }
+
+func TestBuildLabSpec_WaitReadyFile(t *testing.T) {
+	on := exerciseModel.Device{Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx", WaitReadyFile: true}
+	off := exerciseModel.Device{Name: "db", Type: exerciseModel.DeviceTypeContainer, Image: "pg"}
+	b, _, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{on, off}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	devices := decode(t, b).Devices
+	if !devices[0].WaitReadyFile || devices[1].WaitReadyFile {
+		t.Fatalf("waitReadyFile = %v / %v", devices[0].WaitReadyFile, devices[1].WaitReadyFile)
+	}
+	if !strings.Contains(string(b), `"waitReadyFile":true`) || strings.Count(string(b), "waitReadyFile") != 1 {
+		t.Fatalf("only the device that asks carries the key: %s", b)
+	}
+}

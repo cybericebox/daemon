@@ -130,6 +130,10 @@ type (
 		External       *ExternalAccess  `json:"external,omitempty"` // exposure: web
 		// Persistence keeps the device's writable layer across an unplanned restart; nil = off.
 		Persistence *DevicePersistence `json:"persistence,omitempty"`
+		// WaitReadyFile makes the device Ready only once the application has created /run/ready inside the
+		// container. A port published through the web proxy is checked automatically either way. Off by
+		// default, so exercises saved before it keep their behaviour.
+		WaitReadyFile bool `json:"wait_ready_file,omitempty"`
 	}
 
 	// DevicePersistence is the state-persistence policy of a device, set at creation and
@@ -234,7 +238,7 @@ func (t Topology) validateStructure() error {
 		if d.Type.IsForwarding() && strings.TrimSpace(d.Name) == "" {
 			return ErrDeviceDisplayNameInvalid.WithContext("device", d.Name).Err()
 		}
-		if !d.Type.Valid() || (d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.EnvVars) > 0 || d.External != nil || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
+		if !d.Type.Valid() || (d.Type.IsForwarding() && (len(d.Interfaces) > 0 || d.Image != "" || len(d.EnvVars) > 0 || d.External != nil || d.WaitReadyFile || d.SecurityPreset != "" || d.Resources != nil || d.ResourcePreset != "")) {
 			return ErrDeviceTypeInvalid.WithContext("device", d.Name).Err()
 		}
 		if reason := invalidPersistence(d); reason != "" {
