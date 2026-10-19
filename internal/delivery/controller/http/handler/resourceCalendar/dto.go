@@ -263,6 +263,9 @@ type setReservationRequest struct {
 	WindowEnd   *time.Time `json:"WindowEnd"`
 	// AllowConflicts keeps a reservation that does not fit by packing (it is then not covered).
 	AllowConflicts bool `json:"AllowConflicts"`
+	// ForceShrink sends a smaller size or an earlier end to the cluster even while labs run in it (the labs that do
+	// not fit are deleted after the notice); without it such a shrink is held back while they run.
+	ForceShrink bool `json:"ForceShrink"`
 	// DryRun only reports what would happen.
 	DryRun bool `json:"DryRun"`
 }
@@ -270,7 +273,7 @@ type setReservationRequest struct {
 func (r setReservationRequest) model() calUseCase.EventReservationInput {
 	in := calUseCase.EventReservationInput{
 		PerTeamSnapshotQuotaBytes: r.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: r.DynamicSnapshotQuotaBytes, Teams: r.Teams, PerTeam: r.PerTeam.model(), BufferPercent: r.BufferPercent, Dynamic: r.Dynamic.model(),
-		WindowStart: r.WindowStart, WindowEnd: r.WindowEnd, AllowConflicts: r.AllowConflicts, DryRun: r.DryRun,
+		WindowStart: r.WindowStart, WindowEnd: r.WindowEnd, AllowConflicts: r.AllowConflicts, ForceShrink: r.ForceShrink, DryRun: r.DryRun,
 	}
 	if r.TailGapMinutes != nil {
 		d := time.Duration(*r.TailGapMinutes) * time.Minute

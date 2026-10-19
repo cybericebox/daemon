@@ -474,9 +474,10 @@ func (q *Queries) ListClusterReservationsOfTestRuns(ctx context.Context, arg Lis
 }
 
 const listUnsyncedClusterReservationAgents = `-- name: ListUnsyncedClusterReservationAgents :many
-SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL
+SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL OR shrink_held
 `
 
+// (a part holding back a shrink is sent again: the admin may force it, or the labs may be gone.)
 func (q *Queries) ListUnsyncedClusterReservationAgents(ctx context.Context) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, listUnsyncedClusterReservationAgents)
 	if err != nil {

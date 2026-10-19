@@ -39993,6 +39993,10 @@ const docTemplate = `{
                     "type": "string",
                     "example": ""
                 },
+                "ForceShrink": {
+                    "description": "ForceShrink sends a smaller size or an earlier end to the cluster even while labs run in it (the labs that do\nnot fit are deleted after the notice); without it such a shrink is held back while they run.",
+                    "type": "boolean"
+                },
                 "PerTeam": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
                 },

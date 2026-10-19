@@ -272,7 +272,7 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 			if !ok {
 				return calModel.ErrReservationNotFound.Err()
 			}
-			if uErr = u.splitParts(ctx, s, r, allowConflicts, now); uErr != nil {
+			if uErr = u.splitParts(ctx, s, r, false, now); uErr != nil {
 				return uErr
 			}
 			raised, uErr = u.reconcileReservation(ctx, s, r, states, now)

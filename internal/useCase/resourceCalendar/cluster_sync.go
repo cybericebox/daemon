@@ -88,14 +88,15 @@ func (u *ResourceCalendarUseCase) splitParts(ctx context.Context, s Store, r *ca
 	if err != nil {
 		return platformErr(err, "Failed to read the cluster reservation parts")
 	}
-	before := make(map[uuid.UUID]int64, len(existing))
+	before := make(map[uuid.UUID]calModel.Part, len(existing))
 	for _, p := range existing {
-		before[p.ID] = p.DesiredRev
+		before[p.ID] = p
 	}
 	keep, add, retire := calModel.SplitCalendar(r, existing, u.newPartID, now)
 	for _, group := range [][]calModel.Part{keep, add, retire} {
 		for _, p := range group {
-			if rev, ok := before[p.ID]; ok && rev == p.DesiredRev {
+			// An unchanged part is saved again only when the admin now forces the shrink it holds back.
+			if old, ok := before[p.ID]; ok && old.DesiredRev == p.DesiredRev && !(forced && old.ShrinkHeld && !old.Forced) {
 				continue
 			}
 			p.Forced = forced
