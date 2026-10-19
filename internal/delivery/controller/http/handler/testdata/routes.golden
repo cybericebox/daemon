@@ -151,6 +151,9 @@ POST   /api/events/:id/manage/exercises/:exerciseID/revert | gate: self | layers
 PUT    /api/events/:id/manage/exercises/:exerciseID/stage | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/update | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/exercises/:exerciseID/visibility | gate: self | layers: event.requireManage
+POST   /api/events/:id/manage/exercises/bulk/detach | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/exercises/bulk/scoring | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/exercises/bulk/visibility | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/forms | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/forms | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/forms/:formID | gate: self | layers: event.requireRead

@@ -33,6 +33,8 @@ var (
 					WithMessage("Only a catalog exercise can be forked, and only a fork can be reverted").WithDetailCode(12)
 	ErrEventExerciseStandsRunning = err.ErrConflict.WithObjectCode(model.EventExerciseObjectCode).
 					WithMessage("Teams are running this exercise: confirm to recreate their stands").WithDetailCode(13)
+	ErrEventExerciseBulkSize = err.ErrInvalidData.WithObjectCode(model.EventExerciseObjectCode).
+					WithMessage("Select from 1 to 200 exercises").WithDetailCode(14)
 )
 
 // ContextTeams is the public error context listing the teams (ID and name) whose running stands an update would recreate.

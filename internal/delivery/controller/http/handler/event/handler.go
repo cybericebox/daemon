@@ -17,6 +17,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
@@ -172,6 +173,9 @@ type (
 		ReorderChallengeGroups(ctx context.Context, eventID uuid.UUID, in eventUseCase.ReorderChallengeGroupsInput) error
 		ReorderGroupChallenges(ctx context.Context, eventID uuid.UUID, in eventUseCase.ReorderGroupChallengesInput) error
 		SetEventExerciseVisibility(ctx context.Context, eventID, eventExerciseID uuid.UUID, published bool) error
+		BulkSetEventExerciseVisibility(ctx context.Context, eventID uuid.UUID, ids []uuid.UUID, published bool) ([]eventUseCase.BulkExerciseResult, error)
+		BulkSetEventExerciseScoring(ctx context.Context, eventID uuid.UUID, ids []uuid.UUID, override *eventModel.ScoringProfile) ([]eventUseCase.BulkExerciseResult, error)
+		BulkDetachEventExercises(ctx context.Context, eventID uuid.UUID, ids []uuid.UUID, confirmed bool, by uuid.UUID) ([]eventUseCase.BulkExerciseResult, error)
 		SetEventExerciseStage(ctx context.Context, eventID, eventExerciseID uuid.UUID, stageID *uuid.UUID) (eventUseCase.EventExerciseView, error)
 		ListEventStages(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.EventStageView, error)
 		CreateEventStage(ctx context.Context, eventID uuid.UUID, in eventUseCase.CreateStageInput) (eventUseCase.EventStageView, error)
@@ -392,6 +396,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("exercises/:exerciseID/fork", h.requireManage, h.forkEventExercise)
 		manage.POST("exercises/:exerciseID/revert", h.requireManage, h.revertEventExercise)
 		manage.DELETE("exercises/:exerciseID", h.requireManage, h.detachEventExercise)
+		manage.PUT("exercises/bulk/visibility", h.requireManage, h.bulkSetEventExerciseVisibility)
+		manage.PUT("exercises/bulk/scoring", h.requireManage, h.bulkSetEventExerciseScoring)
+		manage.POST("exercises/bulk/detach", h.requireManage, h.bulkDetachEventExercises)
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID/hints", h.requireManage, h.updateChallengeHintCosts)
 		manage.GET("hint-unlocks", h.requireRead, h.listHintUnlocks)
 		manage.GET("exercises/:exerciseID/challenges", h.requireRead, h.listEventChallenges)

@@ -988,6 +988,55 @@ definitions:
       UserID:
         type: string
     type: object
+  event.bulkExerciseDetachRequest:
+    properties:
+      Confirm:
+        type: boolean
+      ExerciseIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  event.bulkExerciseItemResponse:
+    properties:
+      Changed:
+        type: boolean
+      Code:
+        type: integer
+      ID:
+        type: string
+      Message:
+        type: string
+    type: object
+  event.bulkExerciseResponse:
+    properties:
+      Changed:
+        type: integer
+      Results:
+        items:
+          $ref: '#/definitions/event.bulkExerciseItemResponse'
+        type: array
+      Skipped:
+        type: integer
+    type: object
+  event.bulkExerciseScoringRequest:
+    properties:
+      ExerciseIDs:
+        items:
+          type: string
+        type: array
+      Override:
+        $ref: '#/definitions/event.updateScoringProfileRequest'
+    type: object
+  event.bulkExerciseVisibilityRequest:
+    properties:
+      ExerciseIDs:
+        items:
+          type: string
+        type: array
+      Published:
+        type: boolean
+    type: object
   event.bulkUpdateChallengeScoringRequest:
     properties:
       ChallengeIDs:
@@ -15484,6 +15533,102 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Show or hide every task of one set on the participant board (a set
         is all-or-nothing)
+      tags:
+      - events
+  /events/{id}/manage/exercises/bulk/detach:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: sets
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkExerciseDetachRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkExerciseResponse'
+              type: object
+      summary: Remove 1..200 sets from the event; each set as the single detach would
+        (Confirm for attempted sets)
+      tags:
+      - events
+  /events/{id}/manage/exercises/bulk/scoring:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: sets and scoring
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkExerciseScoringRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkExerciseResponse'
+              type: object
+      summary: 'Give every task of 1..200 sets the same local scoring (null: the event''s);
+        each set as the single action would'
+      tags:
+      - events
+  /events/{id}/manage/exercises/bulk/visibility:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: sets and visibility
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkExerciseVisibilityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkExerciseResponse'
+              type: object
+      summary: Show or hide 1..200 sets on the participant board; each set as the
+        single action would
       tags:
       - events
   /events/{id}/manage/forms:
