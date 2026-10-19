@@ -17,6 +17,7 @@ type resourceChangePayload struct {
 	RequesterName string `var:"requester_name" desc:"Organizer full name (email when unnamed)" default:"Jane Doe"`
 	Reason        string `var:"reason" desc:"Organizer reason" default:"More teams joined"`
 	Summary       string `var:"summary" desc:"What the organizer asks for" default:"size 8 / 16Gi; until 2026-10-05 18:00 UTC"`
+	AdminURL      string `var:"admin_url" desc:"Admin site root, ends with a slash" default:"https://admin.example.org/"`
 	DecisionNote  string `var:"decision_note" desc:"Admin note (decisions only)" default:""`
 	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`
 	UserEmail     string `var:"user_email" desc:"Recipient email" default:"admin@example.org"`
@@ -40,6 +41,7 @@ type resourceAlarmPayload struct {
 	EventName     string `var:"event_name" desc:"Event name" default:"Cyber ICE Box CTF"`
 	EventTag      string `var:"event_tag" desc:"Event short tag" default:"ctf-2026"`
 	AgentName     string `var:"agent_name" desc:"Laboratory agent name (empty when none)" default:"main"`
+	AdminURL      string `var:"admin_url" desc:"Admin site root, ends with a slash" default:"https://admin.example.org/"`
 	Units         string `var:"units" desc:"Teams affected" default:"3"`
 	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`
 	UserEmail     string `var:"user_email" desc:"Recipient email" default:"admin@example.org"`
