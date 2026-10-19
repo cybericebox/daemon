@@ -199,3 +199,43 @@ func TestResolveEventTenant_MissingOrInvalidOrigin_404(t *testing.T) {
 		})
 	}
 }
+
+// A route's private event gate admits a non-public event without a session
+// only for that very event; every refusal is the bare 404 of an unknown host.
+func TestResolveEventTenant_PrivateEventGate(t *testing.T) {
+	eventID, otherID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	resolver := &fakeEventResolver{tenant: middleware.EventTenant{EventID: eventID, Tag: "spring", Public: false}}
+	gin.SetMode(gin.TestMode)
+	serve := func(gate middleware.PrivateEventGate, origin string) *httptest.ResponseRecorder {
+		r := gin.New()
+		if gate != nil {
+			r.Use(func(c *gin.Context) {
+				c.Request = c.Request.WithContext(middleware.ContextWithPrivateEventGate(c.Request.Context(), gate))
+				c.Next()
+			})
+		}
+		r.Use(middleware.ResolveEventTenant(resolver, config.HostsConfig{Main: "example.test", API: "api.example.test", ID: "id.example.test", Admin: "admin.example.test", Exercises: "exercises.example.test", EventDomain: "example.test"}))
+		r.GET("/api/events/self/live-screen", func(c *gin.Context) { c.String(http.StatusOK, "screen") })
+		req := httptest.NewRequest(http.MethodGet, "/api/events/self/live-screen", nil)
+		req.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	forEvent := func(want uuid.UUID) middleware.PrivateEventGate {
+		return func(_ context.Context, id uuid.UUID) bool { return id == want }
+	}
+	if w := serve(forEvent(eventID), "https://spring.example.test"); w.Code != http.StatusOK {
+		t.Fatalf("link of this event = %d", w.Code)
+	}
+	unknownHost := serve(nil, "https://elsewhere.invalid")
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"link of another event":   serve(forEvent(otherID), "https://spring.example.test"),
+		"invalid or revoked link": serve(func(context.Context, uuid.UUID) bool { return false }, "https://spring.example.test"),
+		"no gate, no session":     serve(nil, "https://spring.example.test"),
+	} {
+		if w.Code != http.StatusNotFound || w.Body.String() != unknownHost.Body.String() || w.Header().Get("Content-Type") != unknownHost.Header().Get("Content-Type") {
+			t.Fatalf("%s = %d %q, want the unknown host answer %d %q", name, w.Code, w.Body.String(), unknownHost.Code, unknownHost.Body.String())
+		}
+	}
+}

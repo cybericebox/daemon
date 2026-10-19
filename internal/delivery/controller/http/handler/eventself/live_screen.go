@@ -23,10 +23,23 @@ func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.Hand
 	known := func(ctx context.Context, token string, now time.Time) bool {
 		return h.useCase.IsActiveLiveScreenToken(ctx, token, now)
 	}
-	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), newLiveScreenLimiter(known).middleware, resolveTenant)
+	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), newLiveScreenLimiter(known).middleware, h.liveScreenGate, resolveTenant)
 	screen.GET("", h.liveScreen)
 	screen.GET("results", h.liveScreenAccess, h.resultsSnapshot)
 	screen.GET("results/live", h.liveScreenAccess, h.liveResults)
+}
+
+// liveScreenGate lets a working screen link of the event open it before
+// publication (no session on a projector PC): the tenant middleware admits a
+// non-public event only when the link resolves to that very event; a token
+// of another event, an expired or a revoked one stays a bare 404.
+func (h *Handler) liveScreenGate(ctx *gin.Context) {
+	token := ctx.Request.URL.Query().Get("token")
+	gate := func(c context.Context, eventID uuid.UUID) bool {
+		return token != "" && h.useCase.ResolveLiveScreenToken(c, eventID, token) == nil
+	}
+	ctx.Request = ctx.Request.WithContext(middleware.ContextWithPrivateEventGate(ctx.Request.Context(), gate))
+	ctx.Next()
 }
 
 type liveScreenResponse struct {
