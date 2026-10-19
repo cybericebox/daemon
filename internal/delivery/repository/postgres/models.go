@@ -53,6 +53,42 @@ type ChallengeAttemptDecision struct {
 	DecidedAt          time.Time `json:"decided_at"`
 }
 
+type ClusterReservation struct {
+	ID                    uuid.UUID          `json:"id"`
+	AgentID               uuid.UUID          `json:"agent_id"`
+	Source                string             `json:"source"`
+	CalendarReservationID uuid.NullUUID      `json:"calendar_reservation_id"`
+	TestDeployID          uuid.NullUUID      `json:"test_deploy_id"`
+	OwnerID               uuid.NullUUID      `json:"owner_id"`
+	StartsAt              time.Time          `json:"starts_at"`
+	EndsAt                time.Time          `json:"ends_at"`
+	CpuMillicores         int64              `json:"cpu_millicores"`
+	MemoryBytes           int64              `json:"memory_bytes"`
+	DesiredRev            int64              `json:"desired_rev"`
+	SyncedRev             int64              `json:"synced_rev"`
+	SyncedAt              pgtype.Timestamptz `json:"synced_at"`
+	SyncError             string             `json:"sync_error"`
+	Phase                 string             `json:"phase"`
+	NoticeAt              pgtype.Timestamptz `json:"notice_at"`
+	EndsNoticeAt          pgtype.Timestamptz `json:"ends_notice_at"`
+	EndingReason          string             `json:"ending_reason"`
+	UsedCpuMillicores     int64              `json:"used_cpu_millicores"`
+	UsedMemoryBytes       int64              `json:"used_memory_bytes"`
+	GroupCount            int32              `json:"group_count"`
+	Exceeded              bool               `json:"exceeded"`
+	ObservedAt            pgtype.Timestamptz `json:"observed_at"`
+	RetireAt              pgtype.Timestamptz `json:"retire_at"`
+	CreatedAt             time.Time          `json:"created_at"`
+	UpdatedAt             time.Time          `json:"updated_at"`
+}
+
+type ClusterReservationUnit struct {
+	CalendarReservationID uuid.UUID `json:"calendar_reservation_id"`
+	UnitKey               string    `json:"unit_key"`
+	AgentID               uuid.UUID `json:"agent_id"`
+	AssignedAt            time.Time `json:"assigned_at"`
+}
+
 // Platform error journal: one row per fingerprint (kind + route template / job kind + normalized message)
 type ErrorGroup struct {
 	ID          uuid.UUID `json:"id"`
