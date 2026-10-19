@@ -5282,8 +5282,6 @@ definitions:
         type: boolean
       BlockingFields:
         type: boolean
-      CaptainID:
-        type: string
       ExtraFields:
         additionalProperties: {}
         type: object
