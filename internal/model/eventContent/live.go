@@ -26,7 +26,26 @@ type LiveLayout struct {
 	// Formats are the other screen shapes: «auto» derives them from this
 	// layout, «custom» places the same widgets on its own grid.
 	Formats map[string]LiveFormat `json:"formats,omitempty"`
+	// Scenes are the layouts of the other event states: «before» the start,
+	// «frozen» while the results freeze, «finished» after the finish. This
+	// layout is the «running» scene; a state without its own scene shows it.
+	// The screen settings (theme, aspect, screen, refresh) are shared.
+	Scenes map[string]LiveScene `json:"scenes,omitempty"`
 }
+
+// LiveScene is the canvas of one event state: its own grid, widgets and
+// screen shapes, checked by the same rules as the running layout.
+type LiveScene struct {
+	Grid    LiveGrid              `json:"grid"`
+	Widgets []LiveWidget          `json:"widgets"`
+	Formats map[string]LiveFormat `json:"formats,omitempty"`
+}
+
+// liveWidgetsTotal bounds the widgets of all scenes of one layout.
+const liveWidgetsTotal = 96
+
+// liveSceneKeys are the states with a scene of their own besides «running».
+var liveSceneKeys = map[string]bool{"before": true, "frozen": true, "finished": true}
 
 // LiveFormat is the layout of one screen shape besides the base.
 type LiveFormat struct {
@@ -87,17 +106,49 @@ type LiveWidget struct {
 }
 
 func DefaultLiveLayout() LiveLayout {
+	props := func(pairs ...string) map[string]json.RawMessage {
+		out := make(map[string]json.RawMessage, len(pairs)/2)
+		for i := 0; i+1 < len(pairs); i += 2 {
+			out[pairs[i]] = json.RawMessage(pairs[i+1])
+		}
+		return out
+	}
+	organizers := func(id string) LiveWidget {
+		return LiveWidget{ID: id, Type: "logos", X: 1, Y: 8, W: 3, H: 1, Props: props("mode", `"fixed"`, "title", `"Організатори"`)}
+	}
+	partners := func(id string) LiveWidget {
+		return LiveWidget{ID: id, Type: "logos", X: 4, Y: 8, W: 9, H: 1, Props: props("mode", `"carousel"`, "title", `"Партнери"`)}
+	}
 	return LiveLayout{
 		Version: 1, Theme: "dark", Aspect: "16:9", RefreshSeconds: LiveRefreshDefault,
-		Screen: LiveScreen{Width: 1920, Height: 1080, Anchor: "full", TextScale: 1},
+		Screen: LiveScreen{Width: 1920, Height: 1080, Anchor: "full", TextScale: 1, SafeArea: 2.5},
 		Grid:   LiveGrid{Cols: 12, Rows: 8},
 		Widgets: []LiveWidget{
-			{ID: "title", Type: "title", X: 1, Y: 1, W: 9, H: 1, Props: map[string]json.RawMessage{}},
-			{ID: "chart", Type: "chart", X: 1, Y: 2, W: 8, H: 6, Props: map[string]json.RawMessage{}},
-			{ID: "table", Type: "table", X: 9, Y: 2, W: 4, H: 6, Props: map[string]json.RawMessage{}},
-			{ID: "organizers", Type: "logos", X: 1, Y: 8, W: 3, H: 1, Props: map[string]json.RawMessage{"mode": json.RawMessage(`"fixed"`), "title": json.RawMessage(`"Організатори"`)}},
-			{ID: "partners", Type: "logos", X: 4, Y: 8, W: 9, H: 1, Props: map[string]json.RawMessage{"mode": json.RawMessage(`"carousel"`), "title": json.RawMessage(`"Партнери"`)}},
-			{ID: "timer", Type: "timer", X: 10, Y: 1, W: 3, H: 1, Props: map[string]json.RawMessage{}},
+			{ID: "title", Type: "title", X: 1, Y: 1, W: 9, H: 1, Props: props()},
+			{ID: "chart", Type: "chart", X: 1, Y: 2, W: 8, H: 6, Props: props()},
+			{ID: "table", Type: "table", X: 9, Y: 2, W: 4, H: 6, Props: props()},
+			organizers("organizers"),
+			partners("partners"),
+			{ID: "timer", Type: "timer", X: 10, Y: 1, W: 3, H: 1, Props: props()},
+		},
+		// The default show: «Перед стартом» → this board → «Підсумки».
+		Scenes: map[string]LiveScene{
+			"before": {Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{
+				{ID: "before-title", Type: "title", X: 1, Y: 1, W: 8, H: 2, Props: props("subtitleStage", `true`)},
+				{ID: "before-timer", Type: "timer", X: 1, Y: 3, W: 8, H: 3, Props: props("align", `"left"`)},
+				{ID: "before-facts", Type: "facts", X: 1, Y: 6, W: 8, H: 2, Props: props("items", `["teams","tasks","start"]`)},
+				{ID: "before-qr", Type: "qr", X: 9, Y: 1, W: 4, H: 7, Props: props("value", `"/"`, "caption", `"Сайт заходу"`)},
+				organizers("before-organizers"),
+				partners("before-partners"),
+			}},
+			"finished": {Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{
+				{ID: "finished-title", Type: "title", X: 1, Y: 1, W: 9, H: 1, Props: props("subtitle", `"Підсумки"`)},
+				{ID: "finished-timer", Type: "timer", X: 10, Y: 1, W: 3, H: 1, Props: props()},
+				{ID: "finished-podium", Type: "podium", X: 1, Y: 2, W: 12, H: 3, Props: props()},
+				{ID: "finished-table", Type: "table", X: 1, Y: 5, W: 12, H: 3, Props: props("columns", `2`, "offset", `3`, "limit", `8`, "rowsPerPage", `4`, "showCaption", `false`)},
+				organizers("finished-organizers"),
+				partners("finished-partners"),
+			}},
 		},
 	}
 }
@@ -116,19 +167,33 @@ var liveMinimums = map[string]liveSize{
 	"title": {3, 1}, "timer": {2, 1}, "chart": {4, 3},
 	"table": {3, 3}, "ad_table": {6, 4}, "logos": {2, 1},
 	"solves": {3, 2}, "announcement": {3, 1}, "qr": {1, 1},
+	"podium": {4, 2}, "facts": {3, 1}, "stages": {3, 2}, "clock": {2, 1},
 }
 
+// liveCommonProps are the settings every widget has: its text size (K3) and
+// its caption, shown or not and with an own text (K4).
+var liveCommonProps = map[string]string{"textSize": "text-size", "showCaption": "boolean", "caption": "short-text"}
+
 var livePropTypes = map[string]map[string]string{
-	"title":        {"subtitle": "text", "subtitleStage": "boolean"},
-	"timer":        {"format": "timer-format", "showLabel": "boolean", "showSeconds": "boolean", "source": "timer-source", "target": "time", "label": "short-text", "labelSize": "label-size"},
+	"title": {"subtitle": "text", "subtitleStage": "boolean", "showLogo": "boolean", "align": "align"},
+	"timer": {"format": "timer-format", "showLabel": "boolean", "showSeconds": "boolean", "source": "timer-source", "target": "time", "label": "short-text", "labelSize": "label-size",
+		"digits": "timer-digits", "atZero": "timer-zero", "zeroText": "short-text", "lastMinutes": "last-minutes", "align": "align"},
 	"chart":        {"lines": "lines"},
-	"table":        {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top"},
+	"table":        {"rowsPerPage": "rows", "pageSeconds": "seconds", "pinTop": "pin-top", "columns": "table-columns", "limit": "limit", "offset": "table-offset"},
 	"ad_table":     {"columns": "text-list"},
-	"logos":        {"mode": "logo-mode", "title": "text", "logos": "logo-list", "items": "logo-items", "color": "logo-color", "speed": "speed", "paused": "boolean"},
-	"solves":       {"rows": "rows"},
-	"announcement": {"text": "text"},
+	"logos":        {"mode": "logo-mode", "title": "text", "logos": "logo-list", "items": "logo-items", "color": "logo-color", "speed": "speed", "paused": "boolean", "rows": "logo-rows"},
+	"solves":       {"rows": "rows", "mode": "solves-mode"},
+	"announcement": {"text": "text", "align": "align"},
 	"qr":           {"url": "url", "value": "qr-value", "caption": "short-text"},
+	"podium":       {"showPoints": "boolean"},
+	"facts":        {"items": "fact-list"},
+	"stages":       {"showDone": "boolean"},
+	"clock":        {"showSeconds": "boolean", "label": "short-text", "align": "align"},
 }
+
+// liveFactKeys are the numbers a facts widget can show; all come from the
+// live results, the event and its stages.
+var liveFactKeys = map[string]bool{"teams": true, "tasks": true, "solves": true, "solvedTasks": true, "firstBlood": true, "start": true, "finish": true}
 
 // Validate is the write-side check for a layout a manager saves or publishes.
 func (l LiveLayout) Validate() error {
@@ -168,18 +233,45 @@ func (l LiveLayout) validate(minGrid int) error {
 	if l.Screen.SafeArea != 0 && l.Screen.SafeArea != 2.5 && l.Screen.SafeArea != 5 {
 		return errors.New("live safe area is invalid")
 	}
-	if l.Grid.Cols < minGrid || l.Grid.Cols > 48 || l.Grid.Rows < minGrid || l.Grid.Rows > 32 {
-		return errors.New("live grid size is invalid")
-	}
-	if err := l.validateFormats(minGrid); err != nil {
+	if err := validateLiveCanvas(l.Aspect, l.Grid, l.Widgets, l.Formats, minGrid); err != nil {
 		return err
 	}
-	if len(l.Widgets) > 48 {
+	// Every scene of a layout together stays within liveWidgetsTotal: the
+	// layout rides along every autosave and every screen load.
+	total := len(l.Widgets)
+	for _, scene := range l.Scenes {
+		total += len(scene.Widgets)
+	}
+	if total > liveWidgetsTotal {
+		return errors.New("too many live widgets in all scenes")
+	}
+	for key, scene := range l.Scenes {
+		if !liveSceneKeys[key] {
+			return fmt.Errorf("live scene %q is not an event state", key)
+		}
+		if err := validateLiveCanvas(l.Aspect, scene.Grid, scene.Widgets, scene.Formats, minGrid); err != nil {
+			return fmt.Errorf("live scene %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// validateLiveCanvas checks one scene: its grid, its widgets inside it at
+// least their minimum size and without overlaps, their settings, and its
+// other screen shapes.
+func validateLiveCanvas(aspect string, grid LiveGrid, widgets []LiveWidget, formats map[string]LiveFormat, minGrid int) error {
+	if grid.Cols < minGrid || grid.Cols > 48 || grid.Rows < minGrid || grid.Rows > 32 {
+		return errors.New("live grid size is invalid")
+	}
+	if err := validateLiveFormats(aspect, widgets, formats, minGrid); err != nil {
+		return err
+	}
+	if len(widgets) > 48 {
 		return errors.New("too many live widgets")
 	}
-	ids := make(map[string]bool, len(l.Widgets))
+	ids := make(map[string]bool, len(widgets))
 	occupied := make(map[int]bool)
-	for _, widget := range l.Widgets {
+	for _, widget := range widgets {
 		if widget.ID == "" || len(widget.ID) > 64 || ids[widget.ID] {
 			return errors.New("live widget IDs must be unique and non-empty")
 		}
@@ -188,12 +280,12 @@ func (l LiveLayout) validate(minGrid int) error {
 		if !ok {
 			return fmt.Errorf("live widget %q has an unsupported type", widget.ID)
 		}
-		if widget.W < minimum.w || widget.H < minimum.h || widget.X < 1 || widget.Y < 1 || widget.X+widget.W-1 > l.Grid.Cols || widget.Y+widget.H-1 > l.Grid.Rows {
+		if widget.W < minimum.w || widget.H < minimum.h || widget.X < 1 || widget.Y < 1 || widget.X+widget.W-1 > grid.Cols || widget.Y+widget.H-1 > grid.Rows {
 			return fmt.Errorf("live widget %q is outside the grid or smaller than allowed", widget.ID)
 		}
 		for y := widget.Y; y < widget.Y+widget.H; y++ {
 			for x := widget.X; x < widget.X+widget.W; x++ {
-				cell := y*l.Grid.Cols + x
+				cell := y*grid.Cols + x
 				if occupied[cell] {
 					return fmt.Errorf("live widget %q overlaps another widget", widget.ID)
 				}
@@ -214,6 +306,9 @@ func (w LiveWidget) validateProps() error {
 	allowed := livePropTypes[w.Type]
 	for key, raw := range w.Props {
 		kind, ok := allowed[key]
+		if !ok {
+			kind, ok = liveCommonProps[key]
+		}
 		if !ok {
 			return fmt.Errorf("unsupported property %q", key)
 		}
@@ -241,12 +336,24 @@ func (w LiveWidget) validateProps() error {
 			if json.Unmarshal(raw, &value) != nil || value < 1 || value > 60 || kind == "lines" && (value < 5 || value > 10) {
 				return fmt.Errorf("invalid number property %q", key)
 			}
-		case "pin-top":
+		case "pin-top", "table-columns", "table-offset", "logo-rows", "last-minutes", "limit":
 			var value int
-			if json.Unmarshal(raw, &value) != nil || value != 0 && value != 3 && value != 5 {
+			if json.Unmarshal(raw, &value) != nil || !liveNumberChoice(kind, value) {
 				return fmt.Errorf("invalid number property %q", key)
 			}
-		case "timer-format", "logo-mode", "speed", "timer-source", "label-size", "logo-color":
+		case "fact-list":
+			var values []string
+			if json.Unmarshal(raw, &values) != nil || len(values) < 1 || len(values) > 6 {
+				return fmt.Errorf("invalid list property %q", key)
+			}
+			seen := make(map[string]bool, len(values))
+			for _, value := range values {
+				if !liveFactKeys[value] || seen[value] {
+					return fmt.Errorf("invalid list property %q", key)
+				}
+				seen[value] = true
+			}
+		case "timer-format", "logo-mode", "speed", "timer-source", "label-size", "logo-color", "text-size", "align", "timer-digits", "timer-zero", "solves-mode":
 			var value string
 			if json.Unmarshal(raw, &value) != nil || !liveEnumValue(kind, value) {
 				return fmt.Errorf("invalid choice property %q", key)
@@ -281,16 +388,17 @@ func (w LiveWidget) validateProps() error {
 	return nil
 }
 
-// validateFormats: a format is another shape than the base; «auto» holds
-// nothing, «custom» places existing widgets on its own grid within the grid,
-// at least their minimum size, once each and without overlaps.
-func (l LiveLayout) validateFormats(minGrid int) error {
-	types := make(map[string]string, len(l.Widgets))
-	for _, widget := range l.Widgets {
+// validateLiveFormats: a format is another shape than the base; «auto»
+// holds nothing, «custom» places existing widgets of its scene on its own
+// grid within the grid, at least their minimum size, once each and without
+// overlaps.
+func validateLiveFormats(aspect string, widgets []LiveWidget, formats map[string]LiveFormat, minGrid int) error {
+	types := make(map[string]string, len(widgets))
+	for _, widget := range widgets {
 		types[widget.ID] = widget.Type
 	}
-	for key, format := range l.Formats {
-		if !liveFormatKeys[key] || key == l.Aspect {
+	for key, format := range formats {
+		if !liveFormatKeys[key] || key == aspect {
 			return fmt.Errorf("live format %q is not another screen shape", key)
 		}
 		switch format.Mode {
@@ -394,6 +502,36 @@ func liveEnumValue(kind, value string) bool {
 		return value == "s" || value == "m" || value == "l"
 	case "logo-color":
 		return value == "original" || value == "mono"
+	case "text-size":
+		return value == "s" || value == "m" || value == "l" || value == "xl"
+	case "align":
+		return value == "left" || value == "center" || value == "right"
+	case "timer-digits":
+		return value == "full" || value == "compact" || value == "words"
+	case "timer-zero":
+		return value == "word" || value == "text" || value == "hide"
+	case "solves-mode":
+		return value == "recent" || value == "first"
+	default:
+		return false
+	}
+}
+
+// liveNumberChoice: the whole-number settings with a fixed set of values.
+func liveNumberChoice(kind string, value int) bool {
+	switch kind {
+	case "pin-top":
+		return value == 0 || value == 3 || value == 5
+	case "table-columns":
+		return value == 1 || value == 2
+	case "table-offset":
+		return value == 0 || value == 3
+	case "logo-rows":
+		return value >= 1 && value <= 3
+	case "last-minutes":
+		return value == 0 || value == 1 || value == 3 || value == 5 || value == 10 || value == 15
+	case "limit":
+		return value >= 0 && value <= 60
 	default:
 		return false
 	}

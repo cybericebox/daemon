@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/scoreboardRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
@@ -72,6 +73,16 @@ func (u *EventUseCase) GetResultsSnapshot(ctx context.Context, eventID uuid.UUID
 		Display: ResultsDisplayView{ChartEnabled: settings.ChartEnabled, ChartTeams: settings.ChartTeams, RowsLimit: settings.RowsLimit}}
 	if !liveScreen {
 		view.Scoreboard, view.Timeline = presentResults(entries, timeline, settings, own)
+	} else {
+		// The facts block of the screen: the same public number as the
+		// landing variable event.availableChallengeCount. A failed count only
+		// drops that fact; the board itself is read.
+		statistics, statErr := u.eventChallenges.ContentStatistics(ctx, eventID, nil)
+		if statErr != nil {
+			log.Warn().Err(statErr).Stringer("event_id", eventID).Msg("live results: task count failed")
+		} else {
+			view.Tasks = &statistics.PublishedChallengeCount
+		}
 	}
 	if !showRealNames {
 		maskRealNames(view.Scoreboard, own)

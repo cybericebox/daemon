@@ -2,6 +2,7 @@ package eventContentModel
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -237,5 +238,192 @@ func TestLiveSafeArea(t *testing.T) {
 		if err := layout.Validate(); err == nil {
 			t.Fatalf("safe area %v accepted", value)
 		}
+	}
+}
+
+func TestDefaultLiveLayoutIsValidAndChainsTheScenes(t *testing.T) {
+	layout := DefaultLiveLayout()
+	if err := layout.Validate(); err != nil {
+		t.Fatalf("default layout rejected: %v", err)
+	}
+	// The default show: «Перед стартом» → the running board → «Підсумки».
+	if _, ok := layout.Scenes["before"]; !ok {
+		t.Fatal("the default layout must have a before-start scene")
+	}
+	if _, ok := layout.Scenes["finished"]; !ok {
+		t.Fatal("the default layout must have a finished scene")
+	}
+	if _, ok := layout.Scenes["frozen"]; ok {
+		t.Fatal("the frozen state shows the running board by default")
+	}
+}
+
+func sceneLayout(key string, scene LiveScene) LiveLayout {
+	layout := DefaultLiveLayout()
+	layout.Scenes = map[string]LiveScene{key: scene}
+	return layout
+}
+
+func TestLiveScenesFollowTheCanvasRules(t *testing.T) {
+	podium := LiveWidget{ID: "p", Type: "podium", X: 1, Y: 1, W: 12, H: 4, Props: map[string]json.RawMessage{}}
+	for _, key := range []string{"before", "frozen", "finished"} {
+		if err := sceneLayout(key, LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{podium}}).Validate(); err != nil {
+			t.Fatalf("scene %s rejected: %v", key, err)
+		}
+	}
+	// An empty scene is a valid blank screen.
+	if err := sceneLayout("frozen", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}}).Validate(); err != nil {
+		t.Fatalf("empty scene rejected: %v", err)
+	}
+	invalid := map[string]LiveLayout{
+		"running is the layout itself": sceneLayout("running", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}}),
+		"unknown state":                sceneLayout("lunch", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}}),
+		"no grid":                      sceneLayout("before", LiveScene{Widgets: []LiveWidget{podium}}),
+		"outside the grid":             sceneLayout("before", LiveScene{Grid: LiveGrid{Cols: 8, Rows: 8}, Widgets: []LiveWidget{podium}}),
+		"overlap": sceneLayout("before", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{podium,
+			{ID: "q", Type: "qr", X: 2, Y: 2, W: 1, H: 1, Props: map[string]json.RawMessage{}}}}),
+		"repeated id": sceneLayout("before", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{podium,
+			{ID: "p", Type: "qr", X: 1, Y: 6, W: 1, H: 1, Props: map[string]json.RawMessage{}}}}),
+		"bad props": sceneLayout("finished", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{
+			{ID: "p", Type: "podium", X: 1, Y: 1, W: 12, H: 4, Props: map[string]json.RawMessage{"showPoints": json.RawMessage(`"yes"`)}}}}),
+		"format of another scene's widget": sceneLayout("before", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{podium},
+			Formats: map[string]LiveFormat{"4:3": {Mode: "custom", Grid: &LiveGrid{Cols: 8, Rows: 10}, Placements: []LivePlacement{{ID: "chart", X: 1, Y: 1, W: 8, H: 4}}}}}),
+		"format of the base shape": sceneLayout("before", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Formats: map[string]LiveFormat{"16:9": {Mode: "auto"}}}),
+	}
+	for name, layout := range invalid {
+		if err := layout.Validate(); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
+	}
+	// A scene's custom format places that scene's own widgets.
+	ok := sceneLayout("before", LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{podium},
+		Formats: map[string]LiveFormat{"4:3": {Mode: "custom", Grid: &LiveGrid{Cols: 8, Rows: 10}, Placements: []LivePlacement{{ID: "p", X: 1, Y: 1, W: 8, H: 4}}}}})
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("scene format rejected: %v", err)
+	}
+}
+
+func TestLiveNewWidgetsAndMinimums(t *testing.T) {
+	valid := []LiveWidget{
+		{ID: "podium", Type: "podium", X: 1, Y: 1, W: 4, H: 2, Props: map[string]json.RawMessage{"showPoints": json.RawMessage(`false`)}},
+		{ID: "facts", Type: "facts", X: 5, Y: 1, W: 3, H: 1, Props: map[string]json.RawMessage{"items": json.RawMessage(`["teams","tasks","solves","solvedTasks","firstBlood","start"]`)}},
+		{ID: "stages", Type: "stages", X: 5, Y: 2, W: 3, H: 2, Props: map[string]json.RawMessage{"showDone": json.RawMessage(`false`)}},
+		{ID: "clock", Type: "clock", X: 8, Y: 1, W: 2, H: 1, Props: map[string]json.RawMessage{"showSeconds": json.RawMessage(`true`), "label": json.RawMessage(`"Київ"`), "align": json.RawMessage(`"center"`)}},
+	}
+	layout := DefaultLiveLayout()
+	layout.Widgets = valid
+	if err := layout.Validate(); err != nil {
+		t.Fatalf("new widgets rejected: %v", err)
+	}
+	for _, widget := range []LiveWidget{
+		{ID: "w", Type: "podium", X: 1, Y: 1, W: 3, H: 2},
+		{ID: "w", Type: "facts", X: 1, Y: 1, W: 2, H: 1},
+		{ID: "w", Type: "stages", X: 1, Y: 1, W: 3, H: 1},
+		{ID: "w", Type: "clock", X: 1, Y: 1, W: 1, H: 1},
+	} {
+		small := DefaultLiveLayout()
+		small.Widgets = []LiveWidget{widget}
+		if err := small.Validate(); err == nil {
+			t.Fatalf("%s below its minimum accepted", widget.Type)
+		}
+	}
+	for _, props := range []map[string]json.RawMessage{
+		{"items": json.RawMessage(`[]`)},
+		{"items": json.RawMessage(`["teams","teams"]`)},
+		{"items": json.RawMessage(`["salary"]`)},
+		{"items": json.RawMessage(`["teams","tasks","solves","solvedTasks","firstBlood","start","finish"]`)},
+		{"items": json.RawMessage(`"teams"`)},
+	} {
+		if err := widgetLayout("facts", props).Validate(); err == nil {
+			t.Fatalf("facts %v accepted", props)
+		}
+	}
+}
+
+func TestLiveCommonWidgetSettings(t *testing.T) {
+	for _, kind := range []string{"title", "timer", "chart", "table", "logos", "solves", "announcement", "qr", "podium", "facts", "stages", "clock"} {
+		props := map[string]json.RawMessage{"textSize": json.RawMessage(`"xl"`), "showCaption": json.RawMessage(`false`), "caption": json.RawMessage(`"Рейтинг"`)}
+		layout := widgetLayout(kind, props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err != nil {
+			t.Fatalf("%s common settings rejected: %v", kind, err)
+		}
+	}
+	for _, props := range []map[string]json.RawMessage{
+		{"textSize": json.RawMessage(`"xxl"`)},
+		{"textSize": json.RawMessage(`1.2`)},
+		{"showCaption": json.RawMessage(`"no"`)},
+		{"caption": json.RawMessage(`"` + strings.Repeat("я", 61) + `"`)},
+	} {
+		if err := widgetLayout("chart", map[string]json.RawMessage(props)).Validate(); err == nil {
+			t.Fatalf("chart %v accepted", props)
+		}
+	}
+}
+
+func TestLiveBlockSettings(t *testing.T) {
+	type check struct {
+		kind  string
+		props map[string]json.RawMessage
+	}
+	valid := []check{
+		{"timer", map[string]json.RawMessage{"digits": json.RawMessage(`"words"`), "atZero": json.RawMessage(`"text"`), "zeroText": json.RawMessage(`"Час вийшов"`), "lastMinutes": json.RawMessage(`5`), "align": json.RawMessage(`"left"`)}},
+		{"timer", map[string]json.RawMessage{"digits": json.RawMessage(`"compact"`), "atZero": json.RawMessage(`"hide"`), "lastMinutes": json.RawMessage(`0`)}},
+		{"table", map[string]json.RawMessage{"columns": json.RawMessage(`2`), "limit": json.RawMessage(`8`), "offset": json.RawMessage(`3`)}},
+		{"table", map[string]json.RawMessage{"columns": json.RawMessage(`1`), "limit": json.RawMessage(`0`), "offset": json.RawMessage(`0`)}},
+		{"solves", map[string]json.RawMessage{"mode": json.RawMessage(`"first"`)}},
+		{"title", map[string]json.RawMessage{"showLogo": json.RawMessage(`false`), "align": json.RawMessage(`"center"`)}},
+		{"announcement", map[string]json.RawMessage{"align": json.RawMessage(`"left"`)}},
+		{"logos", map[string]json.RawMessage{"rows": json.RawMessage(`3`)}},
+	}
+	for _, item := range valid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err != nil {
+			t.Fatalf("%s %v rejected: %v", item.kind, item.props, err)
+		}
+	}
+	invalid := []check{
+		{"timer", map[string]json.RawMessage{"digits": json.RawMessage(`"roman"`)}},
+		{"timer", map[string]json.RawMessage{"atZero": json.RawMessage(`"explode"`)}},
+		{"timer", map[string]json.RawMessage{"lastMinutes": json.RawMessage(`7`)}},
+		{"timer", map[string]json.RawMessage{"zeroText": json.RawMessage(`"` + strings.Repeat("я", 61) + `"`)}},
+		{"table", map[string]json.RawMessage{"columns": json.RawMessage(`3`)}},
+		{"table", map[string]json.RawMessage{"limit": json.RawMessage(`61`)}},
+		{"table", map[string]json.RawMessage{"limit": json.RawMessage(`-1`)}},
+		{"table", map[string]json.RawMessage{"offset": json.RawMessage(`1`)}},
+		{"solves", map[string]json.RawMessage{"mode": json.RawMessage(`"all"`)}},
+		{"announcement", map[string]json.RawMessage{"align": json.RawMessage(`"justify"`)}},
+		{"logos", map[string]json.RawMessage{"rows": json.RawMessage(`4`)}},
+		// Settings of one type are not accepted on another.
+		{"chart", map[string]json.RawMessage{"columns": json.RawMessage(`2`)}},
+		{"qr", map[string]json.RawMessage{"align": json.RawMessage(`"left"`)}},
+	}
+	for _, item := range invalid {
+		layout := widgetLayout(item.kind, item.props)
+		layout.Widgets[0].H = 3
+		if err := layout.Validate(); err == nil {
+			t.Fatalf("%s %v accepted", item.kind, item.props)
+		}
+	}
+}
+
+func TestLiveWidgetsOfAllScenesAreBounded(t *testing.T) {
+	canvas := func(count int) LiveScene {
+		widgets := make([]LiveWidget, 0, count)
+		for i := range count {
+			widgets = append(widgets, LiveWidget{ID: fmt.Sprintf("w%d", i), Type: "qr", X: i%12 + 1, Y: i/12 + 1, W: 1, H: 1, Props: map[string]json.RawMessage{}})
+		}
+		return LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: widgets}
+	}
+	layout := DefaultLiveLayout()
+	layout.Widgets = canvas(48).Widgets
+	layout.Scenes = map[string]LiveScene{"before": canvas(48)}
+	if err := layout.Validate(); err != nil {
+		t.Fatalf("96 widgets rejected: %v", err)
+	}
+	layout.Scenes["finished"] = canvas(1)
+	if err := layout.Validate(); err == nil {
+		t.Fatal("97 widgets in all scenes accepted")
 	}
 }
