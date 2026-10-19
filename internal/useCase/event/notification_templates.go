@@ -263,17 +263,23 @@ func (u *EventUseCase) RollbackEventEmailTemplate(ctx context.Context, eventID, 
 }
 
 // PreviewEventEmail renders an Event email template draft (saved or not) with
-// the brand of this Event, through the same composition as dispatch. Only
+// the brand and the data of this Event (eventPreviewValues), through the same composition as dispatch. Only
 // Event-scoped types can be previewed here; nothing is persisted. Images are
 // embedded as data: URIs; every uploaded image the draft renders (presets
 // included) must be usable by this Event (ErrTemplateImageInvalid otherwise).
 func (u *EventUseCase) PreviewEventEmail(ctx context.Context, eventID uuid.UUID, in emailUseCase.PreviewInput) (emailUseCase.PreviewOutput, error) {
-	if err := u.ensureEvent(ctx, eventID); err != nil {
+	values, err := u.EventPreviewValues(ctx, eventID)
+	if err != nil {
 		return emailUseCase.PreviewOutput{}, err
 	}
 	if !notificationTypes.IsEventScoped(notificationTypes.NotificationType(in.NotificationType)) {
 		return emailUseCase.PreviewOutput{}, notificationModel.ErrTemplateTypeNotEventScoped.Err()
 	}
+	// The event's own data first; values sent with the draft still win.
+	for name, value := range in.Values {
+		values[name] = value
+	}
+	in.Values = values
 	return emailUseCase.Preview(ctx, u.emailTemplates, u.emailImages, u.emailFooters,
 		&emailUseCase.EventPreviewScope{EventID: eventID, Source: u.emailTemplates, Brands: u}, in)
 }

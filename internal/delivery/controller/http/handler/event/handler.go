@@ -199,6 +199,7 @@ type (
 		PublishEventEmailTemplate(ctx context.Context, eventID, templateID, updatedBy uuid.UUID) (emailModel.EmailTemplate, error)
 		RollbackEventEmailTemplate(ctx context.Context, eventID, sourceID, updatedBy uuid.UUID) (emailModel.EmailTemplate, error)
 		PreviewEventEmail(ctx context.Context, eventID uuid.UUID, in emailUseCase.PreviewInput) (emailUseCase.PreviewOutput, error)
+		EventPreviewValues(ctx context.Context, eventID uuid.UUID) (map[string]string, error)
 		ListEventEmailPresets(ctx context.Context, eventID uuid.UUID) ([]emailModel.BlockPreset, error)
 		StreamEventEmailImage(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 		UploadEventEmailImage(ctx context.Context, eventID, templateID, userID uuid.UUID, reader io.Reader, name string) (mediaModel.File, error)
