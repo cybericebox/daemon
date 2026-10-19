@@ -90,7 +90,7 @@ func AttachmentDownloaded(eventID, userID, teamID, challengeID, fileID uuid.UUID
 	}
 }
 
-// VPNConfigDownloaded: the user was handed a WireGuard config of the event's
+// VPNConfigDownloaded logs that the user was handed a WireGuard config of the event's
 // lab (who, event, config type). The config itself is never logged.
 func VPNConfigDownloaded(eventID, userID uuid.UUID, config VPNConfigType, at time.Time) Activity {
 	return Activity{

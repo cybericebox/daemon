@@ -662,6 +662,9 @@ func (u *ExerciseUseCase) PreviewDeployStatus(ctx context.Context, userID, deplo
 	return status, err
 }
 
+// vpnAuditWriteTimeout bounds one activity log write, which outlives the poll that caused it.
+const vpnAuditWriteTimeout = 5 * time.Second
+
 // recordVPNConfigDownload logs a config delivered by the polled status route:
 // one row per user and deploy in eventActivityModel.VPNConfigWindow. A failed
 // write never fails the poll.
@@ -671,7 +674,7 @@ func (u *ExerciseUseCase) recordVPNConfigDownload(ctx context.Context, eventID, 
 	}
 	a := eventActivityModel.VPNConfigDownloaded(eventID, userID, eventActivityModel.VPNConfigDeploy, u.timeNow())
 	a.SubjectID = &deployID
-	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), vpnAuditWriteTimeout)
 	defer cancel()
 	if _, err := u.vpnAudit.AppendOnce(writeCtx, a, eventActivityModel.VPNConfigWindow); err != nil {
 		log.Warn().Err(err).Stringer("event_id", eventID).Msg("event activity: vpn config download not logged")

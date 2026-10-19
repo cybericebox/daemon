@@ -13,6 +13,7 @@ import (
 
 type previewVPNUC struct {
 	accessContractUC
+
 	config string
 	err    error
 }
