@@ -133,42 +133,18 @@ func isRequestCancellation(c *gin.Context) bool {
 	found := false
 	if value, ok := c.Get(response.ErrorCtxKey); ok {
 		err, ok := value.(error)
-		if !ok || !onlyCancellation(err) {
+		if !ok || !response.OnlyCancellation(err) {
 			return false
 		}
 		found = true
 	}
 	for _, err := range c.Errors {
-		if !onlyCancellation(err.Err) {
+		if !response.OnlyCancellation(err.Err) {
 			return false
 		}
 		found = true
 	}
 	return found
-}
-
-// Inspect every branch of a joined error: cancellation must not hide a simultaneous server fault.
-func onlyCancellation(err error) bool {
-	if err == context.Canceled {
-		return true
-	}
-	switch wrapped := err.(type) {
-	case interface{ Unwrap() []error }:
-		children := wrapped.Unwrap()
-		if len(children) == 0 {
-			return false
-		}
-		for _, child := range children {
-			if !onlyCancellation(child) {
-				return false
-			}
-		}
-		return true
-	case interface{ Unwrap() error }:
-		return onlyCancellation(wrapped.Unwrap())
-	default:
-		return false
-	}
 }
 
 func base(c *gin.Context, rid, route string, status int) errorJournal.Event {

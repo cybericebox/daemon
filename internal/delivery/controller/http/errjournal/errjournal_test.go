@@ -83,10 +83,12 @@ func TestRequestCancellationIsNotAPlatformFault(t *testing.T) {
 		ginError  bool
 		extra     error
 		wantEvent bool
+		// wantCode is the answer to the departed client: 499 for a pure cancellation, otherwise 500.
+		wantCode int
 	}{
-		{name: "request canceled", request: context.Canceled, failure: context.Canceled},
-		{name: "wrapped request canceled", request: context.Canceled, failure: fmt.Errorf("fetch banners: %w", context.Canceled)},
-		{name: "domain-wrapped request canceled", request: context.Canceled, failure: model.ErrPlatform.WithError(context.Canceled).Err()},
+		{name: "request canceled", request: context.Canceled, failure: context.Canceled, wantCode: 499},
+		{name: "wrapped request canceled", request: context.Canceled, failure: fmt.Errorf("fetch banners: %w", context.Canceled), wantCode: 499},
+		{name: "domain-wrapped request canceled", request: context.Canceled, failure: model.ErrPlatform.WithError(context.Canceled).Err(), wantCode: 499},
 		{name: "gin request canceled", request: context.Canceled, failure: context.Canceled, ginError: true},
 		{name: "gin cancellation and server fault", request: context.Canceled, failure: context.Canceled, ginError: true, extra: errors.New("database failed"), wantEvent: true},
 		{name: "dependency canceled with active request", failure: context.Canceled, wantEvent: true},
@@ -125,7 +127,11 @@ func TestRequestCancellationIsNotAPlatformFault(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
-			require.Equal(t, http.StatusInternalServerError, w.Code, "classification does not change the HTTP response")
+			want := tc.wantCode
+			if want == 0 {
+				want = http.StatusInternalServerError
+			}
+			require.Equal(t, want, w.Code, "a pure cancellation of a departed client is 499; any other fault stays 500")
 			if tc.wantEvent {
 				require.Len(t, sink.events, 1)
 				require.Equal(t, errorJournal.KindHTTP5xx, sink.events[0].Kind)

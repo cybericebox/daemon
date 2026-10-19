@@ -355,6 +355,8 @@
   "70428": "Too many attempts, try again later",
   "70431": "Server is overloaded, try again in a few seconds",
   "70432": "Server is busy, try again in a few seconds",
+  "70433": "Database is temporarily unavailable, try again in a few seconds",
+  "70434": "Request was cancelled",
   "70904": "Exercise was modified concurrently",
   "70905": "Exercise has no draft version",
   "70906": "Exercise already has a draft version",

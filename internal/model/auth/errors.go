@@ -8,6 +8,9 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 )
 
+// StatusClientClosedRequest is the non-standard 499 the access log uses for a request the client abandoned.
+const StatusClientClosedRequest = 499
+
 // Error-code convention (enforced by `make lint-errors`):
 //   - one Err* var = one call site in non-test code = unique DetailCode within
 //     the object code; exceptions are documented as multi-site with a category:
@@ -18,7 +21,7 @@ import (
 //     ErrObjectNotFound→404, ...), so "the same fact" needing two statuses is
 //     two different error vars by definition.
 //
-// AuthObjectCode — next free detail code: 33.
+// AuthObjectCode — next free detail code: 35.
 var (
 	// 401
 	// multi-site (category A): sign-in must be timing- and error-
@@ -134,6 +137,18 @@ var (
 	ErrDatabaseBusy = err.ErrConflict.WithObjectCode(model.AuthObjectCode).
 			WithMessage("Server is busy, try again in a few seconds").WithDetailCode(32).
 			WithHTTPCode(http.StatusServiceUnavailable)
+	// ErrDatabaseUnavailable: the database cannot be reached or ended the connection (restart, failover, 57P01,
+	// connection lost) (HTTP 503). The fault stays in the error journal, unlike the busy pool.
+	//nolint:gochecknoglobals,mnd // the error registry: one var per code, parsed by tools/errorcatalog
+	ErrDatabaseUnavailable = err.ErrConflict.WithObjectCode(model.AuthObjectCode).
+				WithMessage("Database is temporarily unavailable, try again in a few seconds").WithDetailCode(33).
+				WithHTTPCode(http.StatusServiceUnavailable)
+	// ErrRequestCancelled: the client closed the request before the answer (HTTP 499, nginx convention); nobody
+	// reads the body, it only keeps the access log truthful.
+	//nolint:gochecknoglobals,mnd // the error registry: one var per code, parsed by tools/errorcatalog
+	ErrRequestCancelled = err.ErrConflict.WithObjectCode(model.AuthObjectCode).
+				WithMessage("Request was cancelled").WithDetailCode(34).
+				WithHTTPCode(StatusClientClosedRequest)
 	ErrAuthInvalidEmail = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 				WithMessage("Invalid email address").WithDetailCode(26)
 )
