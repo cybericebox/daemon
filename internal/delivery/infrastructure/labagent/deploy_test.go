@@ -539,6 +539,20 @@ func TestMapLabStatusFillsTheNodeWait(t *testing.T) {
 	}
 }
 
+// A withdrawn lab carries the attempt and the retry time of its pods.
+func TestMapLabStatusMapsWithdrawalAndNodeTime(t *testing.T) {
+	got := mapLabStatus(&labpb.Lab{Status: &labpb.LabStatus{Phase: "Queued", Scheduling: &labpb.Scheduling{Position: 1, Length: 1, Reason: "Withdrawn", Pods: 2, Pending: 2}, Devices: []*labpb.LabDeviceStatus{
+		{Name: "a", Scheduling: &labpb.PodScheduling{State: labpb.PodState_POD_STATE_QUEUED, Withdrawals: 2, RetryAfterUnixMs: 1792400060000}},
+		{Name: "b", Scheduling: &labpb.PodScheduling{State: labpb.PodState_POD_STATE_QUEUED, Withdrawals: 1}},
+	}}})
+	if got.Queue == nil || got.Queue.Attempt != 2 || !got.Queue.RetryAt.Equal(time.UnixMilli(1792400060000)) {
+		t.Fatalf("queue = %+v", got.Queue)
+	}
+	if p := got.Devices[1].Scheduling; p.Withdrawals != 1 || !p.RetryAfter.IsZero() {
+		t.Fatalf("scheduling = %+v", p)
+	}
+}
+
 func TestKeyUpkeepCallsTheAgentAndTreatsAGoneKeyAsRemoved(t *testing.T) {
 	f := &fakeAgent{}
 	c := newClient(f)
