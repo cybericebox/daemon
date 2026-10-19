@@ -96,7 +96,8 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		settingsAPI.GET("", h.prot.RequirePermission(rbac.PermPlatformSettingsRead), h.listSettings)
 		settingsAPI.GET(":key", h.prot.RequirePermission(rbac.PermPlatformSettingsRead), h.getSetting)
 		settingsAPI.PUT(":key", h.prot.RequirePermission(rbac.PermPlatformSettingsWrite), h.upsertSetting)
-		settingsAPI.GET(":key/value", h.prot.RequirePermission(rbac.PermPlatformSettingsReadValue), h.getSettingValue)
+		// No public site reads platform settings: every route, the bare value included, is for platform administrators.
+		settingsAPI.GET(":key/value", h.prot.RequirePermission(rbac.PermPlatformSettingsRead), h.getSettingValue)
 	}
 	h.initTyped(settingsAPI)
 }

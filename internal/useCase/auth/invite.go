@@ -84,6 +84,12 @@ func (u *AuthUseCase) inviteUser(ctx context.Context, emailAddr string, role rba
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to reset provider links").Err()
 		}
 		if err := u.mutateUser(ctx, userID, func(user *userModel.User) error {
+			// A re-invitation rewrites the role of the existing account: the caller must manage that account too, so
+			// an admin cannot turn an invited admin or viewer into a user this way.
+			caller, ok := rbac.CurrentUserSessionFromContext(ctx)
+			if !ok || !rbac.CanSetRole(caller.Role, user.Role, role) {
+				return authModel.ErrCannotAssignRole.Err()
+			}
 			return user.ChangeRole(role, time.Now())
 		}); err != nil {
 			return err

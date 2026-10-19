@@ -11,7 +11,7 @@ import (
 // typed value carries the public context `field` (and `min`/`max` for a range)
 // so the admin form shows the error under that field.
 //
-// SettingObjectCode — next free detail code: 10
+// SettingObjectCode — next free detail code: 11
 var (
 	ErrSettingNotFound = err.ErrObjectNotFound.WithObjectCode(model.SettingObjectCode).
 				WithMessage("Setting not found").
@@ -45,4 +45,7 @@ var (
 	// (MEDIA_MAX_UPLOAD_BYTES): an attachment that size could not be stored.
 	ErrArchiveEntryOverMediaLimit = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
 					WithMessage("One archive file may not be larger than the file upload limit").WithDetailCode(9)
+	// ErrSettingAccessInvalid: a setting's read access is one of the known levels (ReadPermissions), never a free string.
+	ErrSettingAccessInvalid = err.ErrInvalidData.WithObjectCode(model.SettingObjectCode).
+				WithMessage("Unknown setting access level").WithDetailCode(10)
 )

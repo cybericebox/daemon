@@ -538,7 +538,7 @@ GET    /api/render/key | gate: - | layers: eventself.(*EventRenderHandler).requi
 GET    /api/settings | gate: platform.settings.read | layers: -
 GET    /api/settings/:key | gate: platform.settings.read | layers: -
 PUT    /api/settings/:key | gate: platform.settings.write | layers: -
-GET    /api/settings/:key/value | gate: platform.settings.read.value(public) | layers: -
+GET    /api/settings/:key/value | gate: platform.settings.read | layers: -
 DELETE /api/settings/archive-limits | gate: platform.settings.write | layers: -
 GET    /api/settings/archive-limits | gate: platform.settings.read | layers: -
 PUT    /api/settings/archive-limits | gate: platform.settings.write | layers: -

@@ -125,7 +125,7 @@ func TestUpsertSetting_WithPermission_Returns200(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-// GET settings/:key/value answers the value only: the value permission (held by the public role) never sees the
+// GET settings/:key/value (administrators only) answers the value only, never the
 // key's metadata (its required permission, timestamps).
 func TestGetSettingValue_AnswersTheValueOnly(t *testing.T) {
 	uc := &fakeUseCase{got: &platformSettingsModel.PlatformSetting{Key: "theme", Value: json.RawMessage(`{"a":1}`), RequiredPermission: "x.y"}}
