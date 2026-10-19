@@ -698,3 +698,31 @@ func TestFixedWindowReplacesTheOffsets(t *testing.T) {
 	assert.Equal(t, 150*time.Minute, res.Reservation.StartLead)
 	assert.Equal(t, 30*time.Minute, res.Reservation.TailGap)
 }
+
+// An agent counts as connected for AGENT_FRESH after its last seen time: heartbeats that keep the time moving keep
+// an idle agent connected for as long as they last, a stream gone for longer drops it.
+func TestAgentConnectedFollowsTheLastSeenTime(t *testing.T) {
+	h := newHarness(t)
+	fresh := DefaultConfig().AgentFresh
+	seenAt := func(id byte, at time.Time) {
+		h.agents.records[id-1].CapacitySeenAt = &at
+	}
+	connected := func(at time.Time) map[string]bool {
+		states, err := h.uc.agentStates(context.Background(), at)
+		require.NoError(t, err)
+		out := map[string]bool{}
+		for _, s := range states {
+			out[s.Name] = s.Connected
+		}
+		return out
+	}
+
+	// Agent a is heard every 5 minutes (the rewrite throttle of heartbeats) for 20 minutes and then goes quiet.
+	for at := time.Duration(0); at <= 20*time.Minute; at += 5 * time.Minute {
+		seenAt(1, now0.Add(at))
+	}
+	assert.True(t, connected(now0.Add(20 * time.Minute))["a"], "an idle agent heard 20 minutes in is connected")
+	assert.False(t, connected(now0.Add(20 * time.Minute))["b"], "an agent last seen 20 minutes ago is not")
+	assert.True(t, connected(now0.Add(20*time.Minute + fresh))["a"])
+	assert.False(t, connected(now0.Add(20*time.Minute + fresh + time.Second))["a"], "a stream gone for longer than AGENT_FRESH is disconnected")
+}

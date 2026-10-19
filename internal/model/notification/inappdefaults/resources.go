@@ -19,3 +19,28 @@ func init() {
 		Template{"resources.alarm.raised", "Resource reservation not covered", "Event «{{.event_name}}»: the resource reservation cannot be served ({{.alarm_kind}}, teams: {{.units}}). Check the resource calendar.", ""},
 	)
 }
+
+// alarmReasons is the wording of every readiness alarm kind in the alarm notification, which prints it where its
+// text says why the reservation is not covered. Keys are the values of resourceCalendar.AlarmKind.
+var alarmReasons = map[Lang]map[string]string{
+	UK: {
+		"not_placed":    "не вміщається на жоден агент",
+		"agent_lost":    "агент недоступний",
+		"agent_shrunk":  "агент зменшив місткість",
+		"not_connected": "агент не на звʼязку",
+	},
+	EN: {
+		"not_placed":    "fits no agent",
+		"agent_lost":    "agent is gone",
+		"agent_shrunk":  "agent capacity dropped",
+		"not_connected": "agent is not connected",
+	},
+}
+
+// AlarmReason is the human text of a readiness alarm kind in the language; an unknown kind is returned as it is.
+func AlarmReason(lang Lang, kind string) string {
+	if text, ok := alarmReasons[lang][kind]; ok {
+		return text
+	}
+	return kind
+}

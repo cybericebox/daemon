@@ -2,6 +2,7 @@ package resourceCalendarUseCase
 
 import (
 	"context"
+	"time"
 
 	"github.com/gofrs/uuid"
 
@@ -51,6 +52,19 @@ func (u *ResourceCalendarUseCase) HasEventReservation(ctx context.Context, event
 		return false, platformErr(err, "Failed to read the event reservation")
 	}
 	return true, nil
+}
+
+// EventReservationStart tells when the window of the event's active reservation starts; found is false when
+// the event has none. Admission is refused before that moment, so the event waits for it.
+func (u *ResourceCalendarUseCase) EventReservationStart(ctx context.Context, eventID uuid.UUID) (time.Time, bool, error) {
+	r, err := u.store.GetEventReservation(ctx, eventID)
+	if err != nil {
+		if notFound(err) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, platformErr(err, "Failed to read the event reservation")
+	}
+	return r.Window.Start, true, nil
 }
 
 // HoldsStorageForAllTeams checks configured logical snapshot quotas. Measured
