@@ -24353,6 +24353,9 @@ const docTemplate = `{
                 "HasPassword": {
                     "type": "boolean"
                 },
+                "ID": {
+                    "type": "string"
+                },
                 "LastName": {
                     "type": "string"
                 },

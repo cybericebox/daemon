@@ -37,6 +37,7 @@ type SetupContext struct {
 
 // AccountInfo is the signed-in user's account view.
 type AccountInfo struct {
+	ID             uuid.UUID
 	FirstName      string
 	LastName       string
 	Email          string

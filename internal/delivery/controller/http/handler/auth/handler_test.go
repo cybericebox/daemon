@@ -118,8 +118,11 @@ func (f *fakeUC) LinkGoogleToSetupFromOAuth(_ context.Context, _, _, _ string) (
 }
 
 // slice 4a fakeUC method stubs — account self-management
+const fakeAccountID = "0192f0a0-0000-7000-8000-000000000001"
+
 func (f *fakeUC) GetAccount(_ context.Context, _ uuid.UUID) (*authUseCase.AccountInfo, error) {
 	return &authUseCase.AccountInfo{
+		ID:          uuid.Must(uuid.FromString(fakeAccountID)),
 		Email:       "a@b.test",
 		Providers:   []string{"google"},
 		HasPassword: true,
@@ -605,6 +608,18 @@ func TestGetAccount_Returns200(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", w.Code)
+	}
+	// The id frontend keys the profile drafts of a tab by the account id.
+	var body struct {
+		Data struct {
+			ID string `json:"ID"`
+		} `json:"Data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Data.ID != fakeAccountID {
+		t.Fatalf("account ID = %q, want %q", body.Data.ID, fakeAccountID)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 )
 
 type accountResponse struct {
+	ID             uuid.UUID `json:"ID"`
 	FirstName      string    `json:"FirstName"`
 	LastName       string    `json:"LastName"`
 	Email          string    `json:"Email"`
@@ -66,9 +67,16 @@ func (h *Handler) getAccount(ctx *gin.Context) {
 		return
 	}
 	response.AbortWithData(ctx, accountResponse{
-		FirstName: acc.FirstName, LastName: acc.LastName, Email: acc.Email, Picture: acc.Picture,
-		EmailConfirmed: acc.EmailConfirmed, Role: acc.Role, Providers: acc.Providers,
-		HasPassword: acc.HasPassword, CreatedAt: acc.CreatedAt,
+		ID:             acc.ID,
+		FirstName:      acc.FirstName,
+		LastName:       acc.LastName,
+		Email:          acc.Email,
+		Picture:        acc.Picture,
+		EmailConfirmed: acc.EmailConfirmed,
+		Role:           acc.Role,
+		Providers:      acc.Providers,
+		HasPassword:    acc.HasPassword,
+		CreatedAt:      acc.CreatedAt,
 	})
 }
 
