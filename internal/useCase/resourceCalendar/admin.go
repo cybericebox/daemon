@@ -221,6 +221,19 @@ func (u *ResourceCalendarUseCase) GetResourceCalendarStats(ctx context.Context) 
 			ids = append(ids, r.ID)
 		}
 	}
+	// The events list holds every reservation that has not ended: one whose window has not started yet is
+	// listed too (Upcoming), or its event would look like it had none.
+	coming, err := u.store.ListEndingAfter(ctx, now)
+	if err != nil {
+		return StatsView{}, platformErr(err, "Failed to read the upcoming reservations")
+	}
+	sortReservations(coming)
+	ids = ids[:0]
+	for _, r := range coming {
+		if r.EventID != nil {
+			ids = append(ids, r.ID)
+		}
+	}
 	labels, err := u.store.Labels(ctx, ids)
 	if err != nil {
 		return StatsView{}, platformErr(err, "Failed to read the event names")
@@ -232,7 +245,7 @@ func (u *ResourceCalendarUseCase) GetResourceCalendarStats(ctx context.Context) 
 			inConflict[id] = true
 		}
 	}
-	for _, r := range rs {
+	for _, r := range coming {
 		if r.EventID == nil {
 			continue
 		}
@@ -240,8 +253,9 @@ func (u *ResourceCalendarUseCase) GetResourceCalendarStats(ctx context.Context) 
 		view.Events = append(view.Events, EventStatView{
 			ReservationID: r.ID, EventID: *r.EventID, EventName: labels[r.ID].EventName, EventTag: labels[r.ID].EventTag,
 			From: r.Window.Start, To: r.Window.End, Allocated: r.Size, InUse: used,
-			Free:    Amount{CPUMillicores: max(r.Size.CPUMillicores-used.CPUMillicores, 0), MemoryBytes: max(r.Size.MemoryBytes-used.MemoryBytes, 0)},
-			Covered: r.Unplaced == 0 && !inConflict[r.ID],
+			Free:     Amount{CPUMillicores: max(r.Size.CPUMillicores-used.CPUMillicores, 0), MemoryBytes: max(r.Size.MemoryBytes-used.MemoryBytes, 0)},
+			Covered:  r.Unplaced == 0 && !inConflict[r.ID],
+			Upcoming: now.Before(r.Window.Start),
 		})
 	}
 	holds, err := u.store.ActiveHolds(ctx, now)

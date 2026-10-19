@@ -726,3 +726,22 @@ func TestAgentConnectedFollowsTheLastSeenTime(t *testing.T) {
 	assert.True(t, connected(now0.Add(20*time.Minute + fresh))["a"])
 	assert.False(t, connected(now0.Add(20*time.Minute + fresh + time.Second))["a"], "a stream gone for longer than AGENT_FRESH is disconnected")
 }
+
+func TestStatsListsAReservationWhoseWindowHasNotStarted(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	_, err := h.uc.SetEventResourceReservation(ctx, h.event.ID, EventReservationInput{}, uuid.Nil)
+	require.NoError(t, err)
+	st, err := h.uc.GetResourceCalendarStats(ctx) // now 6:00, the window starts at 7:00
+	require.NoError(t, err)
+	require.Len(t, st.Events, 1)
+	assert.Equal(t, h.event.ID, st.Events[0].EventID)
+	assert.True(t, st.Events[0].Upcoming)
+	assert.Zero(t, st.Agents[0].Allocated.CPUMillicores, "the room allocated now is still only what runs now")
+
+	h.clock = time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	st, err = h.uc.GetResourceCalendarStats(ctx)
+	require.NoError(t, err)
+	require.Len(t, st.Events, 1)
+	assert.False(t, st.Events[0].Upcoming)
+}
