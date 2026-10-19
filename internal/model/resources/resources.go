@@ -322,18 +322,18 @@ const (
 	maxCPULimitMillicores = 1000
 )
 
-// cpuLimitFor is the CPU limit of a request: cpuBurstFactor times it, capped at one core (a request already above the
+// CPULimitFor is the CPU limit of a request: cpuBurstFactor times it, capped at one core (a request already above the
 // cap keeps itself as the limit, a limit never sits below its request).
-func cpuLimitFor(requestMillicores int64) int64 {
+func CPULimitFor(requestMillicores int64) int64 {
 	return max(requestMillicores, min(requestMillicores*cpuBurstFactor, maxCPULimitMillicores))
 }
 
 // Explicit is the resources the backend sends to the agent, always set: requests are the preset, the memory limit
-// equals the request, the CPU limit bursts above it (see cpuLimitFor).
+// equals the request, the CPU limit bursts above it (see CPULimitFor).
 func (p Policy) Explicit(d exerciseModel.Device) *exerciseModel.DeviceResources {
 	a := p.Resolve(d)
 	cpu := resource.NewMilliQuantity(a.CPUMillicores, resource.DecimalSI).String()
-	cpuLimit := resource.NewMilliQuantity(cpuLimitFor(a.CPUMillicores), resource.DecimalSI).String()
+	cpuLimit := resource.NewMilliQuantity(CPULimitFor(a.CPUMillicores), resource.DecimalSI).String()
 	mem := resource.NewQuantity(a.MemoryBytes, resource.BinarySI).String()
 	return &exerciseModel.DeviceResources{CPURequest: cpu, CPULimit: cpuLimit, MemoryRequest: mem, MemoryLimit: mem}
 }
