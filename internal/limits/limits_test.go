@@ -15,7 +15,7 @@ func TestDefaultsAreTheDocumentedOnes(t *testing.T) {
 	if c.AccountMailGap != time.Minute || c.AccountMailPerHour != 3 || c.EmailChangesPerHour != 5 {
 		t.Fatalf("mail defaults: %+v", c)
 	}
-	if c.AccountActions != 20 || c.LiveScreenPerMinute != 120 {
+	if c.AccountActions != 20 || c.LiveScreenPerMinute != 600 {
 		t.Fatalf("request defaults: %+v", c)
 	}
 	if c.StreamsPerUser != 8 || c.StreamsPerScreen != 10 || c.StreamsAnonymousPerEvent != 500 || c.AttemptStreamsPerUser != 6 || c.ErrorStreamsPerUser != 3 {

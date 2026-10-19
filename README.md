@@ -362,7 +362,7 @@ The `RETENTION_*` periods (all but `RETENTION_BATCH_SIZE`) are defaults: periods
 | `LIMIT_STREAMS_ANONYMOUS_PER_EVENT` | `500` | Open live-result streams of all anonymous readers of one event together. |
 | `LIMIT_ATTEMPT_STREAMS_PER_USER` | `6` | Open attempts-journal streams per account. |
 | `LIMIT_ERROR_STREAMS_PER_USER` | `3` | Open error-journal streams per super admin. |
-| `LIMIT_LIVE_SCREEN_PER_MINUTE` | `120` | Requests per minute of one screen link. |
+| `LIMIT_LIVE_SCREEN_PER_MINUTE` | `600` | Requests per minute of one screen link, shared by every screen opened with it; unknown tokens share one such budget. |
 | `RETENTION_SESSION_AFTER_EXPIRY` | `2160h` | Sessions after expiry. |
 | `RETENTION_LAB_TELEMETRY` | `2160h` | Lab telemetry. |
 | `RETENTION_DELIVERY_LOG` | `4320h` | Mail delivery log. |
