@@ -114,6 +114,7 @@ func setCORSHeaders(ctx *gin.Context, origin string) {
 
 func setPreflightHeaders(ctx *gin.Context) {
 	ctx.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
-	ctx.Header("Access-Control-Allow-Headers", "Content-Type")
+	// X-Live-Screen-Token: the live screen sends its link token as a header, not in the URL.
+	ctx.Header("Access-Control-Allow-Headers", "Content-Type, X-Live-Screen-Token")
 	ctx.Header("Access-Control-Max-Age", strconv.Itoa(int(preflightMaxAge.Seconds())))
 }

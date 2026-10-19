@@ -515,6 +515,11 @@ func (h *Handler) resultsSnapshot(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	// A screen link's answer is never stored (liveScreenNoStore): no ETag revalidation either.
+	if _, isScreen := ctx.Request.Context().Value(liveScreenTokenKey{}).(string); isScreen {
+		response.AbortWithData(ctx, toResultsSnapshotResponse(result))
+		return
+	}
 	// The results page polls: an unchanged snapshot answers 304.
 	abortWithETagData(ctx, toResultsSnapshotResponse(result))
 }

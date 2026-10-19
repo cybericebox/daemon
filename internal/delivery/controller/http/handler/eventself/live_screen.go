@@ -23,10 +23,32 @@ func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.Hand
 	known := func(ctx context.Context, token string, now time.Time) bool {
 		return h.useCase.IsActiveLiveScreenToken(ctx, token, now)
 	}
-	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), newLiveScreenLimiter(known).middleware, h.liveScreenGate, resolveTenant)
+	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), liveScreenNoStore, newLiveScreenLimiter(known).middleware, h.liveScreenGate, resolveTenant)
 	screen.GET("", h.liveScreen)
 	screen.GET("results", h.liveScreenAccess, h.resultsSnapshot)
 	screen.GET("results/live", h.liveScreenAccess, h.liveResults)
+}
+
+// LiveScreenTokenHeader carries the screen link token: the event site's
+// server and the screen's own JSON calls send it here, so it stays out of
+// URLs. The query parameter remains for the results stream (EventSource
+// cannot send headers); the request log never writes query values.
+const LiveScreenTokenHeader = "X-Live-Screen-Token"
+
+// liveScreenToken is the token of a screen request: the header, else ?token=.
+func liveScreenToken(ctx *gin.Context) string {
+	if token := ctx.GetHeader(LiveScreenTokenHeader); token != "" {
+		return token
+	}
+	return ctx.Request.URL.Query().Get("token")
+}
+
+// liveScreenNoStore: an answer opened with a token is for that screen only;
+// nothing on the way may keep it, and the page never sends its address on.
+func liveScreenNoStore(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "private, no-store")
+	ctx.Header("Referrer-Policy", "no-referrer")
+	ctx.Next()
 }
 
 // liveScreenGate lets a working screen link of the event open it before
@@ -34,7 +56,7 @@ func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.Hand
 // non-public event only when the link resolves to that very event; a token
 // of another event, an expired or a revoked one stays a bare 404.
 func (h *Handler) liveScreenGate(ctx *gin.Context) {
-	token := ctx.Request.URL.Query().Get("token")
+	token := liveScreenToken(ctx)
 	gate := func(c context.Context, eventID uuid.UUID) bool {
 		return token != "" && h.useCase.ResolveLiveScreenToken(c, eventID, token) == nil
 	}
@@ -60,7 +82,8 @@ type liveScreenStageResponse struct {
 // @Summary Open the live screen with a screen link
 // @Tags events-self
 // @Produce json
-// @Param token query string true "screen link token"
+// @Param X-Live-Screen-Token header string false "screen link token (or ?token=)"
+// @Param token query string false "screen link token, for clients that cannot send the header"
 // @Success 200 {object} response.Response{data=liveScreenResponse}
 // @Router /events/self/live-screen [get]
 func (h *Handler) liveScreen(ctx *gin.Context) {
@@ -69,7 +92,7 @@ func (h *Handler) liveScreen(ctx *gin.Context) {
 		response.AbortWithNotFound(ctx)
 		return
 	}
-	v, err := h.useCase.GetLiveScreen(ctx, tenant.EventID, ctx.Query("token"))
+	v, err := h.useCase.GetLiveScreen(ctx, tenant.EventID, liveScreenToken(ctx))
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -97,7 +120,7 @@ func (h *Handler) liveScreenAccess(ctx *gin.Context) {
 	}
 	// Read the raw query: ctx.Query would cache it before it is rewritten.
 	query := ctx.Request.URL.Query()
-	token := query.Get("token")
+	token := liveScreenToken(ctx)
 	if err := h.useCase.ResolveLiveScreenToken(ctx, tenant.EventID, token); err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -174,7 +197,7 @@ const unknownScreenBucket = ""
 
 func (l *windowLimiter) middleware(ctx *gin.Context) {
 	now := time.Now()
-	token := ctx.Query("token")
+	token := liveScreenToken(ctx)
 	key := unknownScreenBucket
 	if l.known != nil && l.known(ctx.Request.Context(), token, now) {
 		key = "link:" + token

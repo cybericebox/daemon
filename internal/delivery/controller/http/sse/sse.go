@@ -52,7 +52,10 @@ func Heartbeat(w io.Writer, flusher http.Flusher) {
 // WriteHeaders starts the event-stream response.
 func WriteHeaders(ctx *gin.Context) {
 	ctx.Header("Content-Type", "text/event-stream")
-	ctx.Header("Cache-Control", "no-cache")
+	// A route that already forbids storing (a screen link stream) keeps its stricter header.
+	if ctx.Writer.Header().Get("Cache-Control") == "" {
+		ctx.Header("Cache-Control", "no-cache")
+	}
 	ctx.Header("Connection", "keep-alive")
 	ctx.Status(http.StatusOK)
 	// Send the headers now: EventSource only fires "open" once it sees them, so a

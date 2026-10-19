@@ -48,3 +48,23 @@ func TestResultsSnapshot_ETagAnswersUnchangedPollsWith304(t *testing.T) {
 		t.Fatalf("changed results must be sent again: %d etag=%q", changed.Code, changed.Header().Get("ETag"))
 	}
 }
+
+// A screen link's snapshot is not revalidated: no ETag, and the no-store of
+// the screen routes stays.
+func TestResultsSnapshot_ScreenLinkGetsNoETag(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	eventID := uuid.Must(uuid.NewV7())
+	h := NewEventSelfAPIHandler(fakeUseCase{results: func(context.Context, uuid.UUID, eventUseCase.ResultsAccess) (eventUseCase.ResultsSnapshotView, error) {
+		return eventUseCase.ResultsSnapshotView{Revision: 3}, nil
+	}}, nil)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/events/self/live-screen/results", nil)
+	ctx.Request = ctx.Request.WithContext(context.WithValue(ctx.Request.Context(), liveScreenTokenKey{}, "token"))
+	ctx.Params = gin.Params{{Key: "id", Value: eventID.String()}}
+	ctx.Header("Cache-Control", "private, no-store")
+	h.resultsSnapshot(ctx)
+	if w.Code != http.StatusOK || w.Header().Get("ETag") != "" || w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("screen snapshot: %d etag=%q cache=%q", w.Code, w.Header().Get("ETag"), w.Header().Get("Cache-Control"))
+	}
+}

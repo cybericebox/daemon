@@ -349,9 +349,9 @@ POST   /api/events/self/invitation/decline | gate: self | layers: middleware.Res
 POST   /api/events/self/join | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/join/info | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 POST   /api/events/self/join/invitation/accept | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
-GET    /api/events/self/live-screen | gate: events.content.read(public) | layers: eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func
-GET    /api/events/self/live-screen/results | gate: events.content.read(public) | layers: eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
-GET    /api/events/self/live-screen/results/live | gate: events.content.read(public) | layers: eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
+GET    /api/events/self/live-screen | gate: events.content.read(public) | layers: eventself.liveScreenNoStore,eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func
+GET    /api/events/self/live-screen/results | gate: events.content.read(public) | layers: eventself.liveScreenNoStore,eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
+GET    /api/events/self/live-screen/results/live | gate: events.content.read(public) | layers: eventself.liveScreenNoStore,eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
 GET    /api/events/self/participant-answers | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 PUT    /api/events/self/participant-answers | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/participant-form | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence

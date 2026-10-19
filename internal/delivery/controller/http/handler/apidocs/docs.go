@@ -2502,10 +2502,15 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "screen link token",
+                        "description": "screen link token (or ?token=)",
+                        "name": "X-Live-Screen-Token",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen link token, for clients that cannot send the header",
                         "name": "token",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     }
                 ],
                 "responses": {

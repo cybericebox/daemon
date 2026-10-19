@@ -20824,10 +20824,13 @@ paths:
   /events/self/live-screen:
     get:
       parameters:
-      - description: screen link token
+      - description: screen link token (or ?token=)
+        in: header
+        name: X-Live-Screen-Token
+        type: string
+      - description: screen link token, for clients that cannot send the header
         in: query
         name: token
-        required: true
         type: string
       produces:
       - application/json
