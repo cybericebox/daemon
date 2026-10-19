@@ -45,6 +45,20 @@ func ContextWithEventTenant(ctx context.Context, tenant EventTenant) context.Con
 	return context.WithValue(ctx, eventTenantCtxKey{}, tenant)
 }
 
+type privateEventGateKey struct{}
+
+// PrivateEventGate admits a request to a non-public tenant event without a
+// session: it is true only for proof bound to that very event (a working
+// screen link of it).
+type PrivateEventGate func(ctx context.Context, eventID uuid.UUID) bool
+
+// ContextWithPrivateEventGate lets the routes that set it admit a non-public
+// event when gate passes for it. A refusal is the same bare 404 as any other
+// unresolved tenant, so nothing tells a valid token of another event apart.
+func ContextWithPrivateEventGate(ctx context.Context, gate PrivateEventGate) context.Context {
+	return context.WithValue(ctx, privateEventGateKey{}, gate)
+}
+
 // EventTenantFromContext returns the request's resolved tenant event and
 // whether one is present (fail-closed — callers reject when absent).
 func EventTenantFromContext(ctx context.Context) (EventTenant, bool) {
@@ -97,7 +111,8 @@ func ResolveEventTenant(resolver EventResolver, hosts config.HostsConfig) gin.Ha
 			response.AbortWithError(ctx, err)
 			return
 		}
-		if !tenant.Public {
+		gate, gated := ctx.Request.Context().Value(privateEventGateKey{}).(PrivateEventGate)
+		if !tenant.Public && !(gated && gate(ctx.Request.Context(), tenant.EventID)) {
 			claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 			if !ok {
 				response.AbortWithNotFound(ctx)
