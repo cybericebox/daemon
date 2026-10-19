@@ -30,3 +30,11 @@ UPDATE event_live_screen_links
 SET revoked_at = sqlc.arg(revoked_at)
 WHERE event_id = sqlc.arg(event_id)
   AND revoked_at IS NULL;
+
+-- name: ListActiveLiveScreenTokenHashes :many
+-- The token hashes of every working link: the screen limiter gives only
+-- these links their own request budget.
+SELECT token_hash, expires_at
+FROM event_live_screen_links
+WHERE revoked_at IS NULL
+  AND (expires_at IS NULL OR expires_at > sqlc.arg(now));

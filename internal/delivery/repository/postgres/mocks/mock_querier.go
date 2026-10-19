@@ -5848,6 +5848,21 @@ func (mr *MockQuerierMockRecorder) ListActiveFutureTimedEventFormAssignments(ctx
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveFutureTimedEventFormAssignments", reflect.TypeOf((*MockQuerier)(nil).ListActiveFutureTimedEventFormAssignments), ctx, eventID)
 }
 
+// ListActiveLiveScreenTokenHashes mocks base method.
+func (m *MockQuerier) ListActiveLiveScreenTokenHashes(ctx context.Context, now pgtype.Timestamptz) ([]postgres.ListActiveLiveScreenTokenHashesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActiveLiveScreenTokenHashes", ctx, now)
+	ret0, _ := ret[0].([]postgres.ListActiveLiveScreenTokenHashesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActiveLiveScreenTokenHashes indicates an expected call of ListActiveLiveScreenTokenHashes.
+func (mr *MockQuerierMockRecorder) ListActiveLiveScreenTokenHashes(ctx, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActiveLiveScreenTokenHashes", reflect.TypeOf((*MockQuerier)(nil).ListActiveLiveScreenTokenHashes), ctx, now)
+}
+
 // ListActiveResourceTestLabHolds mocks base method.
 func (m *MockQuerier) ListActiveResourceTestLabHolds(ctx context.Context, now time.Time) ([]postgres.ResourceTestLabHold, error) {
 	m.ctrl.T.Helper()

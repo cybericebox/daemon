@@ -3,6 +3,7 @@ package eventself
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"errors"
@@ -27,6 +28,10 @@ import (
 var fakeScreenEvent = uuid.Must(uuid.NewV7())
 
 const fakeScreenToken = "valid-screen-token"
+
+func (fakeUseCase) IsActiveLiveScreenToken(_ context.Context, token string, _ time.Time) bool {
+	return token == fakeScreenToken
+}
 
 func (fakeUseCase) ResolveLiveScreenToken(_ context.Context, eventID uuid.UUID, token string) error {
 	if eventID != fakeScreenEvent || token != fakeScreenToken {
@@ -184,47 +189,84 @@ func TestWindowLimiter(t *testing.T) {
 	}
 }
 
+// limiterRouter serves /screen behind a limiter of `limit` per minute that
+// knows the given working links.
+func limiterRouter(limit int, links ...string) *gin.Engine {
+	gin.SetMode(gin.TestMode)
+	working := map[string]bool{}
+	for _, link := range links {
+		working[link] = true
+	}
+	limiter := newWindowLimiter(limit, time.Minute)
+	limiter.known = func(_ context.Context, token string, _ time.Time) bool { return working[token] }
+	r := gin.New()
+	r.GET("/screen", limiter.middleware, func(c *gin.Context) { c.Status(http.StatusOK) })
+	return r
+}
+
+func screenGet(r *gin.Engine, token string) int {
+	req := httptest.NewRequest(http.MethodGet, "/screen?token="+token, nil)
+	req.RemoteAddr = "203.0.113.5:1234"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w.Code
+}
+
 // The limiter counts per screen link, never per client address.
 func TestLiveScreenLimiterKeysOnTheLinkNotTheAddress(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.GET("/screen", newWindowLimiter(1, time.Minute).middleware, func(c *gin.Context) { c.Status(http.StatusOK) })
-	get := func(token string) int {
-		req := httptest.NewRequest(http.MethodGet, "/screen?token="+token, nil)
-		req.RemoteAddr = "203.0.113.5:1234"
-		w := httptest.NewRecorder()
-		r.ServeHTTP(w, req)
-		return w.Code
-	}
 	a, b := screenToken(1), screenToken(2)
-	if get(a) != http.StatusOK || get(b) != http.StatusOK {
+	r := limiterRouter(1, a, b)
+	if screenGet(r, a) != http.StatusOK || screenGet(r, b) != http.StatusOK {
 		t.Fatal("two links behind one address have separate budgets")
 	}
-	if get(a) != http.StatusTooManyRequests {
+	if screenGet(r, a) != http.StatusTooManyRequests {
 		t.Fatal("a second request of the same link is over the limit of 1")
 	}
-	// Malformed tokens never open a screen: they share one budget.
-	if get("junk-1") != http.StatusOK || get("junk-2") != http.StatusTooManyRequests {
-		t.Fatal("malformed tokens must share one budget")
+	// Tokens that are no working link share one budget.
+	if screenGet(r, "junk-1") != http.StatusOK || screenGet(r, screenToken(3)) != http.StatusTooManyRequests {
+		t.Fatal("unknown tokens must share one budget")
 	}
 }
 
-// screenToken is a well-formed (32-byte) token that no link has.
+// screenToken is a well-formed (32-byte) token.
 func screenToken(fill byte) string {
 	return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 32))
 }
 
-// Past the key bound, new links share one bucket: made-up tokens cannot grow the map.
-func TestWindowLimiterBoundsItsKeys(t *testing.T) {
+// Made-up tokens neither grow the counts nor push a working link into the
+// shared budget: after 2000 random tokens (and the shared budget spent) the
+// link keeps its own.
+func TestRandomTokensCannotTakeAWorkingLinksBudget(t *testing.T) {
+	link := screenToken(7)
+	r := limiterRouter(5, link)
+	random := make([]byte, 32)
+	for i := 0; i < 2000; i++ {
+		if _, err := rand.Read(random); err != nil {
+			t.Fatal(err)
+		}
+		screenGet(r, base64.RawURLEncoding.EncodeToString(random))
+	}
+	if screenGet(r, screenToken(9)) != http.StatusTooManyRequests {
+		t.Fatal("the shared budget of unknown tokens is spent")
+	}
+	for i := 0; i < 5; i++ {
+		if code := screenGet(r, link); code != http.StatusOK {
+			t.Fatalf("request %d of the working link = %d", i+1, code)
+		}
+	}
+}
+
+func TestWindowLimiterKeepsOnlyTheSharedAndLinkKeys(t *testing.T) {
+	link := screenToken(7)
 	limiter := newWindowLimiter(1, time.Minute)
-	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < liveScreenLimiterKeys+50; i++ {
-		limiter.allow(fmt.Sprintf("key-%d", i), now)
+	limiter.known = func(_ context.Context, token string, _ time.Time) bool { return token == link }
+	r := gin.New()
+	r.GET("/screen", limiter.middleware, func(c *gin.Context) { c.Status(http.StatusOK) })
+	for i := 0; i < 100; i++ {
+		screenGet(r, fmt.Sprintf("token-%d", i))
 	}
-	if len(limiter.counts) > liveScreenLimiterKeys+1 {
-		t.Fatalf("limiter keeps %d keys", len(limiter.counts))
-	}
-	if ok, _ := limiter.allow("key-0", now); ok {
-		t.Fatal("a known key keeps its own count")
+	screenGet(r, link)
+	if len(limiter.counts) != 2 {
+		t.Fatalf("limiter keeps %d keys, want the shared one and the link", len(limiter.counts))
 	}
 }

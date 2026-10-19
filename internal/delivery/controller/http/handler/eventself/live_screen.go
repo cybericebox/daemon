@@ -12,7 +12,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	"github.com/cybericebox/daemon/internal/limits"
-	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 )
@@ -21,7 +20,8 @@ import (
 // token in ?token= opens this event's published layout and the staff live
 // board, read-only. Nothing else is reachable with it.
 func (h *Handler) initLiveScreen(router *gin.RouterGroup, resolveTenant gin.HandlerFunc) {
-	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), newLiveScreenLimiter().middleware, resolveTenant)
+	known := func(ctx context.Context, token string, now time.Time) bool { return h.useCase.IsActiveLiveScreenToken(ctx, token, now) }
+	screen := router.Group("events/self/live-screen", h.prot.RequirePermission(rbac.PermEventContentRead), newLiveScreenLimiter(known).middleware, resolveTenant)
 	screen.GET("", h.liveScreen)
 	screen.GET("results", h.liveScreenAccess, h.resultsSnapshot)
 	screen.GET("results/live", h.liveScreenAccess, h.liveResults)
@@ -117,10 +117,15 @@ func resultsAccess(ctx *gin.Context, eventID uuid.UUID) eventUseCase.ResultsAcce
 	return access
 }
 
-// liveScreenLimiter bounds requests per screen link (never per client address): a screen polls a few
-// times a minute, far below the limit. Built when the routes are, from the configured limit.
-func newLiveScreenLimiter() *windowLimiter {
-	return newWindowLimiter(limits.Get().LiveScreenPerMinute, time.Minute)
+// liveScreenLimiter bounds requests per screen link (never per client
+// address): a screen polls a few times a minute, far below the limit. Only
+// a working link has its own budget; every unknown or malformed token
+// shares one, so made-up tokens can neither grow the counts nor take a real
+// screen's budget. Built when the routes are, from the configured limit.
+func newLiveScreenLimiter(known func(ctx context.Context, token string, now time.Time) bool) *windowLimiter {
+	limiter := newWindowLimiter(limits.Get().LiveScreenPerMinute, time.Minute)
+	limiter.known = known
+	return limiter
 }
 
 type windowLimiter struct {
@@ -129,37 +134,37 @@ type windowLimiter struct {
 	window time.Duration
 	start  time.Time
 	counts map[string]int
+	known  func(ctx context.Context, token string, now time.Time) bool
 }
 
 func newWindowLimiter(limit int, window time.Duration) *windowLimiter {
 	return &windowLimiter{limit: limit, window: window, counts: map[string]int{}}
 }
 
-// liveScreenLimiterKeys bounds the keys of one window: past it, new keys
-// share one bucket, so a flood of made-up tokens cannot grow the map.
-const liveScreenLimiterKeys = 1024
-
-// allow counts one request of key in the current fixed window.
+// allow counts one request of key in the current fixed window. The counts
+// start over with each window, so a link that stopped working leaves them
+// within a minute.
 func (l *windowLimiter) allow(key string, now time.Time) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if now.Sub(l.start) >= l.window {
 		l.start, l.counts = now, map[string]int{}
 	}
-	if _, known := l.counts[key]; !known && len(l.counts) >= liveScreenLimiterKeys {
-		key = ""
-	}
 	l.counts[key]++
 	return l.counts[key] <= l.limit, l.window - now.Sub(l.start)
 }
 
+// unknownScreenBucket is the shared budget of every token that is not a working link.
+const unknownScreenBucket = ""
+
 func (l *windowLimiter) middleware(ctx *gin.Context) {
-	// Malformed tokens can never open a screen: they all share one bucket.
+	now := time.Now()
 	token := ctx.Query("token")
-	if !eventContentModel.LiveScreenTokenWellFormed(token) {
-		token = ""
+	key := unknownScreenBucket
+	if l.known != nil && l.known(ctx.Request.Context(), token, now) {
+		key = "link:" + token
 	}
-	if ok, wait := l.allow(token, time.Now()); !ok {
+	if ok, wait := l.allow(key, now); !ok {
 		response.AbortWithTooManyRequests(ctx, wait)
 		return
 	}
