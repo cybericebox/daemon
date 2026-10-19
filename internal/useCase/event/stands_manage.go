@@ -21,7 +21,9 @@ import (
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 	labMonitoringModel "github.com/cybericebox/daemon/internal/model/labMonitoring"
 	participantModel "github.com/cybericebox/daemon/internal/model/participant"
+	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	teamChallengeModel "github.com/cybericebox/daemon/internal/model/teamChallenge"
+	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 )
 
 // StandsView is the moderator «Стенди» read model.
@@ -55,6 +57,15 @@ type StandTeamView struct {
 	// Launch is how many of the stand's labs wait in the launch queue (and the place of the best one)
 	// and whether an image is pulled by tag; from the current monitoring state, no agent calls.
 	Launch labMonitoringModel.Launch
+	// ReservationEndsAt is when the team's cluster reservation deletes its labs (its ending notice);
+	// ReservationEnded: it ended and the labs were deleted. Staff only.
+	ReservationEndsAt *time.Time
+	ReservationEnded  bool
+}
+
+// unitReservations reads where the reservation of each team of an event stands (the calendar's optional part).
+type unitReservations interface {
+	EventUnitReservations(ctx context.Context, eventID uuid.UUID) (map[string]calendarUseCase.UnitReservation, error)
 }
 
 type StandLabView struct {
@@ -137,8 +148,20 @@ func (u *EventUseCase) GetEventStands(ctx context.Context, eventID uuid.UUID) (S
 			launchByTeam[group.EventTeamID] = launch
 		}
 	}
+	// The reservation of each team: its ending notice and its end (optional, like the queue).
+	reserved := map[string]calendarUseCase.UnitReservation{}
+	if source, ok := u.resourceGate.(unitReservations); ok {
+		if got, rErr := source.EventUnitReservations(ctx, eventID); rErr == nil {
+			reserved = got
+		} else {
+			log.Warn().Err(rErr).Msg("Failed to read the reservations of the stands")
+		}
+	}
 	for _, team := range teams {
 		item := toStandTeamView(team)
+		if state, ok := reserved[calModel.TeamUnit(team.TeamID)]; ok {
+			item.ReservationEndsAt, item.ReservationEnded = state.EndsAt, state.Ended
+		}
 		if team.Moderators {
 			ready, readinessErr := u.vpnGroupReady(ctx, eventID, team.TeamID)
 			if readinessErr != nil {

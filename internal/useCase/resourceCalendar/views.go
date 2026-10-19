@@ -44,6 +44,29 @@ type ReservationView struct {
 	Used Amount
 	// Alarms are the open readiness alarms of the reservation.
 	Alarms []AlarmView
+	// Parts are the reservation as the agents hold it: one cluster reservation per agent of the placement.
+	Parts []PartView
+}
+
+// PartView is one part of a reservation on one agent: what was sent, what the agent reports and whether it got it.
+type PartView struct {
+	ID        uuid.UUID
+	AgentID   uuid.UUID
+	AgentName string
+	From, To  time.Time
+	Amount    Amount
+	// Used and Groups are what runs in the part, as the agent last said; Phase is Pending, Active, Ending, Ended
+	// or empty before the first report; EndsAt is when its groups are deleted once the ending is announced.
+	Used   Amount
+	Groups int
+	Phase  string
+	EndsAt *time.Time
+	// Synced: the agent holds the last change; SyncError says why not; ShrinkHeld: a shrink waits for the labs.
+	Synced     bool
+	SyncError  string
+	ShrinkHeld bool
+	// Retiring: the part is no longer wanted and is being removed from its agent.
+	Retiring bool
 }
 
 // AgentCapacityView is the capacity of one agent as the calendar uses it.

@@ -142,3 +142,21 @@ func TestDeletedKeyActsAsEnded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, calModel.PartEnded, got.Status.Phase)
 }
+
+func TestEventUnitReservationsForStaff(t *testing.T) {
+	h, _, _ := observeHarness(t)
+	res := setEvent(t, h, EventReservationInput{})
+	team := uuid.Must(uuid.NewV7())
+	agent, _, err := h.uc.Resolve(context.Background(), infraModel.ReservationRef{EventID: &h.event.ID, Unit: calModel.TeamUnit(team)}, nil)
+	require.NoError(t, err)
+	got, err := h.uc.EventUnitReservations(context.Background(), h.event.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got, "an active part says nothing")
+	p := partsOf(t, h, res.Reservation.ID)[agent]
+	endsAt := p.Window.End
+	require.NoError(t, h.uc.ObserveClusterReservations(context.Background(), agent, false, []infraModel.ClusterReservation{listed(p, calModel.PartEnding, EndingWindowClosing, 1, &endsAt)}, nil))
+	got, err = h.uc.EventUnitReservations(context.Background(), h.event.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got[calModel.TeamUnit(team)].EndsAt)
+	assert.Equal(t, endsAt, *got[calModel.TeamUnit(team)].EndsAt)
+}

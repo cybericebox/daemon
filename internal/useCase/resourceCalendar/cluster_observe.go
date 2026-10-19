@@ -214,3 +214,54 @@ func (u *ResourceCalendarUseCase) ended(ctx context.Context, p calModel.Part, no
 		u.cluster.listener.PartEnded(ctx, n)
 	}
 }
+
+// UnitReservation is where the reservation of one unit of an event stands: EndsAt while its part gives the ending
+// notice, Ended once the part ended.
+type UnitReservation struct {
+	EndsAt *time.Time
+	Ended  bool
+}
+
+// EventUnitReservations is the reservation state of every placed unit of an event (by unit key: TeamUnit), for the
+// staff view of the stands. Units on a part that is neither ending nor ended are left out.
+func (u *ResourceCalendarUseCase) EventUnitReservations(ctx context.Context, eventID uuid.UUID) (map[string]UnitReservation, error) {
+	r, err := u.store.GetEventReservation(ctx, eventID)
+	if err != nil {
+		if notFound(err) {
+			return map[string]UnitReservation{}, nil
+		}
+		return nil, platformErr(err, "Failed to read the event reservation")
+	}
+	units, err := u.store.Units(ctx, r.ID)
+	if err != nil {
+		return nil, platformErr(err, "Failed to read the units of the reservation")
+	}
+	parts, err := u.store.PartsOfCalendars(ctx, []uuid.UUID{r.ID})
+	if err != nil {
+		return nil, platformErr(err, "Failed to read the cluster reservation parts")
+	}
+	byAgent := map[uuid.UUID]calModel.Part{}
+	for _, p := range parts {
+		if !p.Retired() {
+			byAgent[p.AgentID] = p
+		}
+	}
+	out := map[string]UnitReservation{}
+	for unit, agent := range units {
+		p, ok := byAgent[agent]
+		if !ok {
+			continue
+		}
+		switch p.Status.Phase {
+		case calModel.PartEnded:
+			out[unit] = UnitReservation{Ended: true}
+		case calModel.PartEnding:
+			endsAt := p.Window.End
+			if p.Status.EndsAt != nil {
+				endsAt = *p.Status.EndsAt
+			}
+			out[unit] = UnitReservation{EndsAt: &endsAt}
+		}
+	}
+	return out, nil
+}

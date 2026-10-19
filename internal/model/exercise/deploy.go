@@ -115,6 +115,8 @@ type LabDeployStatus struct {
 	Expired   bool
 	// Removing: the lab is being removed (its lease is over); the row goes once the agent no longer has it.
 	Removing bool
+	// EndingAt is when the run's reservation deletes the lab (its ending notice); nil until the notice.
+	EndingAt *time.Time
 }
 
 // LabDeployedDevice is one materialised device's readiness. Reason is the

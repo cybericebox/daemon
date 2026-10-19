@@ -515,3 +515,30 @@ func inStates(states []agentState, id uuid.UUID) bool {
 	}
 	return false
 }
+
+// partViews are the parts of reservations for the admin, by reservation.
+func (u *ResourceCalendarUseCase) partViews(ctx context.Context, ids []uuid.UUID, states []agentState) (map[uuid.UUID][]PartView, error) {
+	out := map[uuid.UUID][]PartView{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	parts, err := u.store.PartsOfCalendars(ctx, ids)
+	if err != nil {
+		return nil, platformErr(err, "Failed to read the cluster reservation parts")
+	}
+	names := map[uuid.UUID]string{}
+	for _, s := range states {
+		names[s.ID] = s.Name
+	}
+	for _, p := range parts {
+		if p.CalendarID == nil {
+			continue
+		}
+		out[*p.CalendarID] = append(out[*p.CalendarID], PartView{
+			ID: p.ID, AgentID: p.AgentID, AgentName: names[p.AgentID], From: p.Window.Start, To: p.Window.End, Amount: p.Amount,
+			Used: p.Status.Used, Groups: p.Status.Groups, Phase: p.Status.Phase, EndsAt: p.Status.EndsAt,
+			Synced: p.Synced(), SyncError: p.SyncError, ShrinkHeld: p.ShrinkHeld, Retiring: p.Retired(),
+		})
+	}
+	return out, nil
+}

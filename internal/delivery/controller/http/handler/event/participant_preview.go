@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"time"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -34,7 +35,7 @@ type previewUseCase interface {
 	PutPreviewDefaults(context.Context, eventUseCase.PreviewSettingsInput) (eventUseCase.PreviewSettings, error)
 	ListPreviewCatalog(context.Context, uuid.UUID, uuid.UUID, string) ([]eventUseCase.PreviewCatalogItem, error)
 	PreviewBoard(context.Context, uuid.UUID, uuid.UUID) (eventUseCase.PreviewBoard, error)
-	StartPreviewRun(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (eventUseCase.PreviewRunView, error)
+	StartPreviewRun(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Duration) (eventUseCase.PreviewRunView, error)
 	SubmitPreviewFlag(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, string) (eventUseCase.SubmitChallengeResult, error)
 	UnlockPreviewHint(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (eventUseCase.OwnHintView, error)
 	PreviewSolves(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (eventUseCase.ChallengeSolvesPage, error)
@@ -210,6 +211,7 @@ func (h *Handler) previewBoard(ctx *gin.Context) {
 // @Tags participant-preview
 // @Param id path string true "Event ID"
 // @Param selectionID path string true "selectionID"
+// @Param request body previewStartRequest false "the chosen run length"
 // @Success 200 {object} response.Response{data=eventUseCase.PreviewRunView}
 // @Router /events/{id}/manage/participant-preview/selections/{selectionID}/start [post]
 func (h *Handler) startPreview(ctx *gin.Context) {
@@ -217,7 +219,14 @@ func (h *Handler) startPreview(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	v, e := h.useCase.StartPreviewRun(ctx.Request.Context(), event, user, selection)
+	var in previewStartRequest
+	if ctx.Request.ContentLength != 0 {
+		if err := ctx.ShouldBindJSON(&in); err != nil || in.LeaseMinutes < 0 {
+			response.AbortWithBadRequest(ctx)
+			return
+		}
+	}
+	v, e := h.useCase.StartPreviewRun(ctx.Request.Context(), event, user, selection, time.Duration(in.LeaseMinutes)*time.Minute)
 	previewReply(ctx, v, e)
 }
 
@@ -423,4 +432,11 @@ func (h *Handler) endPreviewRuns(ctx *gin.Context) {
 		return
 	}
 	ctx.Status(http.StatusNoContent)
+}
+
+// previewStartRequest is the optional body of a preview start.
+type previewStartRequest struct {
+	// LeaseMinutes is the run length of the preview's test laboratory: one of the offered lengths; 0 or absent takes
+	// the lease in force.
+	LeaseMinutes int `json:"LeaseMinutes"`
 }

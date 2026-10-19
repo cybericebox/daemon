@@ -153,8 +153,17 @@ func (u *ResourceCalendarUseCase) GetResourceCalendarTimeline(ctx context.Contex
 			inConflict[id] = true
 		}
 	}
+	allIDs := make([]uuid.UUID, 0, len(rs))
+	for _, r := range rs {
+		allIDs = append(allIDs, r.ID)
+	}
+	parts, err := u.partViews(ctx, allIDs, states)
+	if err != nil {
+		return TimelineView{}, err
+	}
 	for _, r := range rs {
 		v := u.reservationView(r, states, labels, alarms[r.ID])
+		v.Parts = parts[r.ID]
 		v.Covered = r.Unplaced == 0 && !inConflict[r.ID]
 		if r.EventID != nil {
 			v.Used = usage.ByEvent[*r.EventID]

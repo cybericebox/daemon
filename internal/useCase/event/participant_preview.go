@@ -525,7 +525,7 @@ func previewTask(variant exerciseModel.Variant, id uuid.UUID) (exerciseModel.Tas
 
 // withPreviewRun serializes one event/user's mutations across daemon replicas.
 // The existing laboratory engine owns its independent lease even if this transaction fails.
-func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selection uuid.UUID, create bool, fn func(context.Context, *preview.Run, exerciseModel.Variant) error) (PreviewRunView, error) {
+func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selection uuid.UUID, create bool, length time.Duration, fn func(context.Context, *preview.Run, exerciseModel.Variant) error) (PreviewRunView, error) {
 	item, variant, err := u.selectedPreview(ctx, event, user, selection)
 	if err != nil {
 		return PreviewRunView{}, err
@@ -590,7 +590,7 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 			if u.previewLabs == nil {
 				return PreviewRunView{}, infraUnavailable()
 			}
-			handle, e := u.previewLabs.DeployEventPreviewVariantTest(txCtx, event, user, item.ExerciseVersionID, item.VariantID, 0)
+			handle, e := u.previewLabs.DeployEventPreviewVariantTest(txCtx, event, user, item.ExerciseVersionID, item.VariantID, length)
 			if e != nil {
 				return PreviewRunView{}, e
 			}
@@ -637,12 +637,15 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 	committed = true
 	return PreviewRunView{ID: run.ID, SelectionID: selection, ExpiresAt: run.ExpiresAt, Dynamic: dynamic}, nil
 }
-func (u *EventUseCase) StartPreviewRun(ctx context.Context, event, user, selection uuid.UUID) (PreviewRunView, error) {
-	return u.withPreviewRun(ctx, event, user, selection, true, nil)
+
+// StartPreviewRun starts (or reuses) the organizer's preview run; length is the run length of its test laboratory
+// (one of the offered ones; zero takes the lease in force).
+func (u *EventUseCase) StartPreviewRun(ctx context.Context, event, user, selection uuid.UUID, length time.Duration) (PreviewRunView, error) {
+	return u.withPreviewRun(ctx, event, user, selection, true, length, nil)
 }
 func (u *EventUseCase) SubmitPreviewFlag(ctx context.Context, event, user, selection, taskID uuid.UUID, flag string) (SubmitChallengeResult, error) {
 	var result SubmitChallengeResult
-	_, err := u.withPreviewRun(ctx, event, user, selection, false, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
+	_, err := u.withPreviewRun(ctx, event, user, selection, false, 0, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
 		task, e := previewTask(variant, taskID)
 		if e != nil {
 			return e
@@ -681,7 +684,7 @@ func previewHints(task exerciseModel.Task, run *preview.Run) []OwnHintView {
 }
 func (u *EventUseCase) UnlockPreviewHint(ctx context.Context, event, user, selection, taskID, hintID uuid.UUID) (OwnHintView, error) {
 	var result OwnHintView
-	_, err := u.withPreviewRun(ctx, event, user, selection, false, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
+	_, err := u.withPreviewRun(ctx, event, user, selection, false, 0, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
 		task, e := previewTask(variant, taskID)
 		if e != nil {
 			return e

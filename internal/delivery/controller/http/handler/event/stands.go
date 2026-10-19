@@ -67,6 +67,10 @@ type standTeamResponse struct {
 	Queue *labview.StandQueueResponse `json:"Queue"`
 	// ImageWarning: an image of the stand is pulled by tag, not pinned to a digest.
 	ImageWarning bool `json:"ImageWarning"`
+	// ReservationEndsAt is when the team's resource reservation deletes its labs (the ending notice); null before.
+	ReservationEndsAt *time.Time `json:"ReservationEndsAt"`
+	// ReservationEnded: the team's reservation ended and its labs were deleted.
+	ReservationEnded bool `json:"ReservationEnded"`
 }
 
 type standLabResponse struct {
@@ -136,7 +140,8 @@ func toStandsResponse(v eventUseCase.StandsView) standsResponse {
 func toStandTeamResponse(v eventUseCase.StandTeamView) standTeamResponse {
 	out := standTeamResponse{TeamID: v.TeamID, TeamName: v.TeamName, Moderators: v.Moderators, Status: v.Status.String(),
 		Reason: v.Reason, UpdatedAt: v.UpdatedAt, Generation: v.Generation, Labs: make([]standLabResponse, 0, len(v.Labs)),
-		Queue: labview.StandQueue(v.Launch), ImageWarning: v.Launch.ImageWarning}
+		Queue: labview.StandQueue(v.Launch), ImageWarning: v.Launch.ImageWarning,
+		ReservationEndsAt: v.ReservationEndsAt, ReservationEnded: v.ReservationEnded}
 	for _, lab := range v.Labs {
 		out.Labs = append(out.Labs, standLabResponse{ChallengeID: lab.ChallengeID, ChallengeName: lab.ChallengeName, Status: labReadinessString(lab.Readiness), Reason: lab.Reason})
 	}

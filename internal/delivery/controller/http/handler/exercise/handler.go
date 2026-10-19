@@ -74,6 +74,7 @@ type (
 		ListVersions(ctx context.Context, exerciseID uuid.UUID) ([]exerciseUseCase.VersionListItem, error)
 		// deploy (per-variant test)
 		DeployVariantTest(ctx context.Context, userID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error)
+		TestRunLengths(ctx context.Context) (allowed []int, defaultMinutes int)
 		DeployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error)
 		DestroyDeployTest(ctx context.Context, userID, deployID uuid.UUID) error
 		ResetTestDeployDevice(ctx context.Context, userID, deployID uuid.UUID, device string) error
@@ -225,6 +226,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// extend and destroy are owner-scoped in the use case; creating one
 		// is authorized per exercise (h.deploy).
 		ex.GET("deploys", self, h.listDeploys)
+		ex.GET("test-runs/lengths", self, h.testRunLengths)
 		ex.GET("deploys/:deployID", self, h.deployStatus)
 		ex.POST("deploys/:deployID/extend", self, h.extendDeploy)
 		ex.POST("deploys/:deployID/link", self, h.deployLink)

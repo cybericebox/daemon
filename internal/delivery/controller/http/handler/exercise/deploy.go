@@ -30,6 +30,8 @@ type deployListItem struct {
 	Tasks []deployTaskResponse `json:"Tasks"`
 	// SolvedTaskIDs are the tasks the author has already checked correctly.
 	SolvedTaskIDs []string `json:"SolvedTaskIDs"`
+	// EndingAt is when the run's reservation deletes the lab unless it is extended (its ending notice); null before.
+	EndingAt *time.Time `json:"EndingAt"`
 }
 
 func deployListItemOf(d exerciseModel.TestDeploy) deployListItem {
@@ -37,7 +39,7 @@ func deployListItemOf(d exerciseModel.TestDeploy) deployListItem {
 	for _, f := range d.Flags {
 		tasks = append(tasks, deployTaskResponse{TaskID: f.TaskID.String(), Name: f.Name})
 	}
-	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, Expired: d.Expired, Removing: d.Removing, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Kind: d.Kind(), Tasks: tasks}
+	return deployListItem{SolvedTaskIDs: solvedIDs(d.Solved), DeployID: d.ID.String(), ExpiresAt: d.ExpiresAt, CreatedAt: d.CreatedAt, Expired: d.Expired, Removing: d.Removing, ExerciseID: d.ExerciseID.String(), VersionID: d.VersionID.String(), VariantID: d.VariantID.String(), Lab: d.LabName, Kind: d.Kind(), Tasks: tasks, EndingAt: d.EndingAt}
 }
 
 func solvedIDs(ids []uuid.UUID) []string {
@@ -90,6 +92,23 @@ type (
 		Expired   bool      `json:"Expired"`
 		// Removing: the lab is being removed (Phase is "Removing"); the answer stays 200 until it is gone, then 404.
 		Removing bool `json:"Removing"`
+		// EndingAt is when the run's reservation deletes the lab unless it is extended (its ending notice); null before.
+		EndingAt *time.Time `json:"EndingAt"`
+	}
+
+	// deployRequest is the optional body of a test deploy.
+	deployRequest struct {
+		// LeaseMinutes is the run length the author chose: one of the lengths offered (GET /exercises/test-runs/lengths);
+		// 0 or absent takes the lease in force.
+		LeaseMinutes int `json:"LeaseMinutes"`
+	}
+
+	// testRunLengthsResponse are the run lengths an author may choose when starting a test laboratory.
+	testRunLengthsResponse struct {
+		// AllowedMinutes are the offered lengths, shortest first.
+		AllowedMinutes []int `json:"AllowedMinutes"`
+		// DefaultMinutes is the length taken when none is chosen (the lease in force).
+		DefaultMinutes int `json:"DefaultMinutes"`
 	}
 
 	deployDeviceResponse struct {
@@ -136,7 +155,7 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 	out.SolvedTaskIDs = solvedIDs(s.SolvedTasks)
 	out.VPNConnected = s.VPNConnected
 	out.VPNProbeURL = s.VPNProbeURL
-	out.ExpiresAt, out.Expired, out.Removing = s.ExpiresAt, s.Expired, s.Removing
+	out.ExpiresAt, out.Expired, out.Removing, out.EndingAt = s.ExpiresAt, s.Expired, s.Removing, s.EndingAt
 	if !s.VPNLastHandshake.IsZero() {
 		t := s.VPNLastHandshake
 		out.VPNLastHandshake = &t
@@ -157,9 +176,11 @@ func deployStatusToResponse(s exerciseModel.LabDeployStatus) deployStatusRespons
 // @Param    id         path  string  true  "exercise id"
 // @Param    versionID  path  string  true  "version id"
 // @Param    variantID  path  string  true  "variant id"
+// @Param    request    body  deployRequest  false  "the chosen run length"
 // @Success  200  {object}  response.Response{data=deployResponse}
 // @Failure  400  {object}  response.Response
 // @Failure  409  {object}  response.Response
+// @Failure  503  {object}  response.Response
 // @Router   /exercises/{id}/versions/{versionID}/variants/{variantID}/deploy [post]
 func (h *Handler) deploy(ctx *gin.Context) {
 	versionID, err := uuid.FromString(ctx.Param("versionID"))
@@ -185,7 +206,14 @@ func (h *Handler) deploy(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	handle, err := h.useCase.DeployVariantTest(ctx, claims.UserID, versionID, variantID, 0)
+	var in deployRequest
+	if ctx.Request.ContentLength != 0 {
+		if err = ctx.ShouldBindJSON(&in); err != nil || in.LeaseMinutes < 0 {
+			response.AbortWithBadRequest(ctx)
+			return
+		}
+	}
+	handle, err := h.useCase.DeployVariantTest(ctx, claims.UserID, versionID, variantID, time.Duration(in.LeaseMinutes)*time.Minute)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
@@ -463,4 +491,15 @@ func (h *Handler) rescueDeployDevice(ctx *gin.Context) {
 		return
 	}
 	response.AbortWithData(ctx, gin.H{})
+}
+
+// testRunLengths godoc
+// @Summary  The run lengths an author may choose for a test laboratory
+// @Tags     exercises
+// @Produce  json
+// @Success  200  {object}  response.Response{data=testRunLengthsResponse}
+// @Router   /exercises/test-runs/lengths [get]
+func (h *Handler) testRunLengths(ctx *gin.Context) {
+	allowed, def := h.useCase.TestRunLengths(ctx)
+	response.AbortWithData(ctx, testRunLengthsResponse{AllowedMinutes: allowed, DefaultMinutes: def})
 }
