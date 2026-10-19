@@ -55,7 +55,7 @@ func TestDefaults_TitlesMatchEmailHeadings(t *testing.T) {
 // Every readiness alarm kind has a human text in both languages, and the default alarm template never prints
 // the raw enum.
 func TestAlarmReason_CoversEveryKind(t *testing.T) {
-	kinds := []calModel.AlarmKind{calModel.AlarmNotPlaced, calModel.AlarmAgentLost, calModel.AlarmAgentShrunk, calModel.AlarmNotConnected}
+	kinds := []calModel.AlarmKind{calModel.AlarmNotPlaced, calModel.AlarmAgentLost, calModel.AlarmAgentShrunk, calModel.AlarmNotConnected, calModel.AlarmClusterSyncFailed, calModel.AlarmClusterShrinkHeld}
 	for _, lang := range []inappdefaults.Lang{inappdefaults.UK, inappdefaults.EN} {
 		seen := map[string]bool{}
 		for _, kind := range kinds {
@@ -68,4 +68,20 @@ func TestAlarmReason_CoversEveryKind(t *testing.T) {
 	}
 	require.Equal(t, "не вміщається на жоден агент", inappdefaults.AlarmReason(inappdefaults.UK, "not_placed"))
 	require.Equal(t, "fits no agent", inappdefaults.AlarmReason(inappdefaults.EN, "not_placed"))
+}
+
+// Every cluster reservation notice has its text in Ukrainian and in English.
+func TestTemplatesBothLanguages(t *testing.T) {
+	for _, typ := range []string{"resources.reservation.ending", "resources.reservation.reduced", "testlab.ending", "testlab.ended"} {
+		for _, lang := range []inappdefaults.Lang{inappdefaults.UK, inappdefaults.EN} {
+			found := false
+			for _, tpl := range inappdefaults.All(lang) {
+				if tpl.Type == typ {
+					found = tpl.Title != "" && tpl.Body != ""
+				}
+			}
+			require.True(t, found, "%s %s", typ, lang)
+		}
+		require.True(t, inappdefaults.StartupSeeded[typ], typ)
+	}
 }

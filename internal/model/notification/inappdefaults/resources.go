@@ -24,16 +24,20 @@ func init() {
 // text says why the reservation is not covered. Keys are the values of resourceCalendar.AlarmKind.
 var alarmReasons = map[Lang]map[string]string{
 	UK: {
-		"not_placed":    "не вміщається на жоден агент",
-		"agent_lost":    "агент недоступний",
-		"agent_shrunk":  "агент зменшив місткість",
-		"not_connected": "агент не на звʼязку",
+		"not_placed":          "не вміщається на жоден агент",
+		"agent_lost":          "агент недоступний",
+		"agent_shrunk":        "агент зменшив місткість",
+		"not_connected":       "агент не на звʼязку",
+		"cluster_sync_failed": "резерв не передано в кластер",
+		"cluster_shrink_held": "зменшення резерву відкладено: у ньому ще працюють лабораторії",
 	},
 	EN: {
-		"not_placed":    "fits no agent",
-		"agent_lost":    "agent is gone",
-		"agent_shrunk":  "agent capacity dropped",
-		"not_connected": "agent is not connected",
+		"not_placed":          "fits no agent",
+		"agent_lost":          "agent is gone",
+		"agent_shrunk":        "agent capacity dropped",
+		"not_connected":       "agent is not connected",
+		"cluster_sync_failed": "the reservation did not reach the cluster",
+		"cluster_shrink_held": "the shrink is held back: labs still run in the reservation",
 	},
 }
 

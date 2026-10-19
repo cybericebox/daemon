@@ -409,6 +409,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 	exerciseUC.SetElevationInbox(inboxRequests)
 	exerciseUC.SetImportInbox(inboxRequests)
 	calendarUC.SetNotifier(inboxRequests)
+	// An author hears about the ending and the end of a test laboratory's reservation.
+	exerciseUC.SetTestLabNotifier(inboxRequests)
 	// The periodic registry credential check tells the people who can fix a credential when it breaks or recovers.
 	imageRegistryUC.SetCheckNotifier(inboxRequests)
 	eventUC.SetEmailFooters(mailUC)

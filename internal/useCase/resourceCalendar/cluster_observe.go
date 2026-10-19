@@ -9,6 +9,7 @@ import (
 
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
+	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 )
 
 // Ending reasons the agent gives.
@@ -48,14 +49,7 @@ type (
 	}
 
 	// ReservationNotice is an event reservation part people hear about.
-	ReservationNotice struct {
-		ReservationID uuid.UUID
-		EventID       uuid.UUID
-		EventName     string
-		EventTag      string
-		AgentID       uuid.UUID
-		EndsAt        time.Time
-	}
+	ReservationNotice = inboxUseCase.ReservationNotice
 )
 
 // SetPartListener wires what acts on the ending and the end of parts (the test labs, the event stands).
