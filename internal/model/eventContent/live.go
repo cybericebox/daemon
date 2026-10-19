@@ -119,6 +119,8 @@ func DefaultLiveLayout() LiveLayout {
 	partners := func(id string) LiveWidget {
 		return LiveWidget{ID: id, Type: "logos", X: 4, Y: 8, W: 9, H: 1, Props: props("mode", `"carousel"`, "title", `"Партнери"`)}
 	}
+	// One screen for all event states (no Scenes): the organizer may give each
+	// state its own screen in the editor.
 	return LiveLayout{
 		Version: 1, Theme: "dark", Aspect: "16:9", RefreshSeconds: LiveRefreshDefault,
 		Screen: LiveScreen{Width: 1920, Height: 1080, Anchor: "full", TextScale: 1, SafeArea: 2.5},
@@ -130,25 +132,6 @@ func DefaultLiveLayout() LiveLayout {
 			organizers("organizers"),
 			partners("partners"),
 			{ID: "timer", Type: "timer", X: 10, Y: 1, W: 3, H: 1, Props: props()},
-		},
-		// The default show: «Перед стартом» → this board → «Підсумки».
-		Scenes: map[string]LiveScene{
-			"before": {Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{
-				{ID: "before-title", Type: "title", X: 1, Y: 1, W: 8, H: 2, Props: props("subtitleStage", `true`)},
-				{ID: "before-timer", Type: "timer", X: 1, Y: 3, W: 8, H: 3, Props: props("align", `"left"`)},
-				{ID: "before-facts", Type: "facts", X: 1, Y: 6, W: 8, H: 2, Props: props("items", `["teams","tasks","start"]`)},
-				{ID: "before-qr", Type: "qr", X: 9, Y: 1, W: 4, H: 7, Props: props("value", `"/"`, "caption", `"Сайт заходу"`)},
-				organizers("before-organizers"),
-				partners("before-partners"),
-			}},
-			"finished": {Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: []LiveWidget{
-				{ID: "finished-title", Type: "title", X: 1, Y: 1, W: 9, H: 1, Props: props("subtitle", `"Підсумки"`)},
-				{ID: "finished-timer", Type: "timer", X: 10, Y: 1, W: 3, H: 1, Props: props()},
-				{ID: "finished-podium", Type: "podium", X: 1, Y: 2, W: 12, H: 3, Props: props()},
-				{ID: "finished-table", Type: "table", X: 1, Y: 5, W: 12, H: 3, Props: props("columns", `2`, "offset", `3`, "limit", `8`, "rowsPerPage", `4`, "showCaption", `false`)},
-				organizers("finished-organizers"),
-				partners("finished-partners"),
-			}},
 		},
 	}
 }

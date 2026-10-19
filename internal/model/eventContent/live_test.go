@@ -241,20 +241,13 @@ func TestLiveSafeArea(t *testing.T) {
 	}
 }
 
-func TestDefaultLiveLayoutIsValidAndChainsTheScenes(t *testing.T) {
+func TestDefaultLiveLayoutIsOneScreenForAllStates(t *testing.T) {
 	layout := DefaultLiveLayout()
 	if err := layout.Validate(); err != nil {
 		t.Fatalf("default layout rejected: %v", err)
 	}
-	// The default show: «Перед стартом» → the running board → «Підсумки».
-	if _, ok := layout.Scenes["before"]; !ok {
-		t.Fatal("the default layout must have a before-start scene")
-	}
-	if _, ok := layout.Scenes["finished"]; !ok {
-		t.Fatal("the default layout must have a finished scene")
-	}
-	if _, ok := layout.Scenes["frozen"]; ok {
-		t.Fatal("the frozen state shows the running board by default")
+	if layout.Scenes != nil {
+		t.Fatalf("the default layout shows one screen in every state, got scenes %v", layout.Scenes)
 	}
 }
 
