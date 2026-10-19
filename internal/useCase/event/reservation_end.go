@@ -8,8 +8,11 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabGroupRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
+	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 )
 
 // groupLocator says which agent holds a lab group (the fleet).
@@ -105,6 +108,62 @@ func (u *EventUseCase) ReservationPartEnded(ctx context.Context, eventID, agentI
 		if mErr := u.labBindings.MarkGroupDestroyed(ctx, eventID, group); mErr != nil {
 			errs = append(errs, model.ErrPlatform.WithError(mErr).WithMessage("Failed to record the labs of an ended reservation").Err())
 		}
+		if eErr := u.endLifecyclesWithReservation(ctx, group); eErr != nil {
+			errs = append(errs, eErr)
+		}
 	}
 	return errors.Join(errs...)
+}
+
+// endLifecyclesWithReservation settles the lifecycle of a team group the cluster deleted with its reservation, and of
+// every lab in it: the lifecycle stops chasing them (no start, no stop, no failure) and they hold nothing.
+func (u *EventUseCase) endLifecyclesWithReservation(ctx context.Context, group string) error {
+	if !u.lifecycleControls || u.uow == nil {
+		return nil
+	}
+	_, teamID, ok := labBindingModel.ParseGroupName(group)
+	if !ok {
+		return nil
+	}
+	txCtx, q, unit, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer unit.Restore()
+	now := time.Now().UTC()
+	labs := eventLabRepo.New(q)
+	if err = labs.LockAdmission(txCtx, teamID); err != nil && !repositoryTools.IsObjectNotFoundError(err) {
+		return err
+	}
+	groups := eventLabGroupRepo.New(q)
+	children, err := groups.LockChildren(txCtx, teamID)
+	if err != nil {
+		return err
+	}
+	for _, l := range children {
+		if l.Ref.Group != group {
+			continue
+		}
+		expected := l.Revision
+		if !l.EndWithReservation(uuid.Must(uuid.NewV7()), now) {
+			continue
+		}
+		if _, err = labs.Update(txCtx, l, expected); err != nil {
+			return err
+		}
+	}
+	g, err := groups.Lock(txCtx, teamID)
+	switch {
+	case repositoryTools.IsObjectNotFoundError(err):
+	case err != nil:
+		return err
+	case g.Name == group:
+		expected := g.Revision
+		if g.EndWithReservation(uuid.Must(uuid.NewV7()), now) {
+			if _, err = groups.Update(txCtx, g, expected); err != nil {
+				return err
+			}
+		}
+	}
+	return unit.Save()
 }

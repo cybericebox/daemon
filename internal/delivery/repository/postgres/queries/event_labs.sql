@@ -69,8 +69,10 @@ SELECT lab.materialized AND lab.objective_count>0
  ) AS complete FROM event_team_labs lab WHERE lab.id=sqlc.arg(id);
 
 -- name: ListDirtyEventTeamLabs :many
+-- A lab the cluster deleted with its reservation (Deleted, retirement Deleted, no retirement target) is settled.
 SELECT * FROM event_team_labs
 WHERE next_attempt_at<=sqlc.arg(now)
+ AND NOT (desired_state='Deleted' AND actual_state='Deleted' AND retirement_state='Deleted' AND retirement_stop_target IS NULL)
  AND NOT COALESCE((desired_state='Stopped' AND actual_state='Stopped' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'ReleasedAt' IS NOT NULL AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
  AND NOT COALESCE((desired_state='Deleted' AND actual_state='Deleted' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'StorageState'='Deleted' AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
 ORDER BY next_attempt_at,id LIMIT sqlc.arg(limit_val);

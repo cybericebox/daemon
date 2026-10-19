@@ -89,6 +89,9 @@ type StorageBudget struct {
 }
 
 func (l *Lab) HeldCompute() Compute {
+	if l.EndedWithReservation() {
+		return Compute{}
+	}
 	if l.DesiredState == "Deleted" && l.RetirementStopTarget != nil && l.RetirementStopTarget.ExpectedUID == l.AgentUID && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil && l.AccessFenced && l.FailureCode == "" && (l.SnapshotMode == "skip" || l.SnapshotState == "Succeeded") {
 		return Compute{}
 	}

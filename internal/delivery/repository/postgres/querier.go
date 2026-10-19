@@ -706,6 +706,7 @@ type Querier interface {
 	// The live test-run parts of an author's runs on one agent (the group part covers them).
 	ListClusterReservationsOfTestRuns(ctx context.Context, arg ListClusterReservationsOfTestRunsParams) ([]ClusterReservation, error)
 	ListDirtyEventLabAccessSyncs(ctx context.Context, limitVal int32) ([]ListDirtyEventLabAccessSyncsRow, error)
+	// A lab the cluster deleted with its reservation (Deleted, retirement Deleted, no retirement target) is settled.
 	ListDirtyEventTeamLabs(ctx context.Context, arg ListDirtyEventTeamLabsParams) ([]EventTeamLab, error)
 	ListDispatchTargets(ctx context.Context, dispatchID uuid.UUID) ([]NotificationDispatchTarget, error)
 	ListDispatchTargetsByDispatches(ctx context.Context, dispatchIds []uuid.UUID) ([]NotificationDispatchTarget, error)
