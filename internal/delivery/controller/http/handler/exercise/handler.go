@@ -383,7 +383,7 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 // @Param    page      query  int       false  "1-based page; selects offset pagination"
 // @Param    pageSize  query  int       false  "page size"
 // @Param    status    query  []string  false  "published, changed, draft_only, archived or none, repeated or comma-separated: any of them; archived with others lists both (offset pages only)"  collectionFormat(multi)
-// @Param    sortBy    query  string    false  "name, tags, status, author, difficulty or updated (offset pages only)"
+// @Param    sortBy    query  string    false  "name, tags, status, author, difficulty, subtasks or updated (offset pages only)"
 // @Param    sortDir   query  string    false  "asc or desc (offset pages only)"
 // @Param    archived  query  string    false  "exclude (default) or only; status=archived implies only"
 // @Param    scope     query  string    false  "catalog, event, or empty for both"

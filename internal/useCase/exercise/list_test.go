@@ -207,6 +207,7 @@ func TestListExercises_TableFilters(t *testing.T) {
 		{name: "out of range bounds are none", filter: exercise.ExercisesFilter{DifficultyMin: -1, DifficultyMax: 7, SortBy: "author"},
 			wantStatuses: []string{}, wantArchived: "exclude", wantSort: "author"},
 		{name: "unknown sort", filter: exercise.ExercisesFilter{SortBy: "flag"}, wantStatuses: []string{}, wantArchived: "exclude", wantSort: "updated"},
+		{name: "subtasks sort", filter: exercise.ExercisesFilter{SortBy: "subtasks"}, wantStatuses: []string{}, wantArchived: "exclude", wantSort: "subtasks"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
@@ -231,7 +232,7 @@ func TestListExercises_TableFilters(t *testing.T) {
 						t.Fatalf("sort %q", arg.SortBy)
 					}
 					return []postgres.ListExercisesPageRow{
-						{Exercise: withLevel, Status: "published", AuthorName: "Ada Lovelace", HasAvgDifficulty: true, AvgDifficulty: 3.5},
+						{Exercise: withLevel, Status: "published", AuthorName: "Ada Lovelace", HasAvgDifficulty: true, AvgDifficulty: 3.5, HasTaskCount: true, TaskCount: 4},
 						{Exercise: without, Status: "published"},
 					}, nil
 				})
@@ -245,10 +246,10 @@ func TestListExercises_TableFilters(t *testing.T) {
 				t.Fatal(err)
 			}
 			first, second := res.Exercises[0], res.Exercises[1]
-			if first.AuthorName != "Ada Lovelace" || first.AvgDifficulty == nil || *first.AvgDifficulty != 3.5 {
+			if first.AuthorName != "Ada Lovelace" || first.AvgDifficulty == nil || *first.AvgDifficulty != 3.5 || first.TaskCount == nil || *first.TaskCount != 4 {
 				t.Fatalf("row with a difficulty: %+v", first)
 			}
-			if second.AvgDifficulty != nil || second.AuthorName != "" {
+			if second.AvgDifficulty != nil || second.AuthorName != "" || second.TaskCount != nil {
 				t.Fatalf("row without a difficulty: %+v", second)
 			}
 		})

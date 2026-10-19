@@ -80,6 +80,14 @@ WITH listed AS (SELECT e.id,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        $2::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
+                       -- Subtasks of the first variant (the same content as the difficulty); NULL without a variant.
+                       CASE
+                           WHEN jsonb_typeof(version.variants -> 0) = 'object'
+                               THEN CASE
+                                        WHEN jsonb_typeof(version.variants -> 0 -> 'tasks') = 'array'
+                                            THEN jsonb_array_length(version.variants -> 0 -> 'tasks')
+                                        ELSE 0 END
+                           END AS task_count,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The content the catalog describes: the published version, else the working copy (as infrastructure).
@@ -869,6 +877,14 @@ WITH listed AS (SELECT e.id,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        $6::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
+                       -- Subtasks of the first variant (the same content as the difficulty); NULL without a variant.
+                       CASE
+                           WHEN jsonb_typeof(version.variants -> 0) = 'object'
+                               THEN CASE
+                                        WHEN jsonb_typeof(version.variants -> 0 -> 'tasks') = 'array'
+                                            THEN jsonb_array_length(version.variants -> 0 -> 'tasks')
+                                        ELSE 0 END
+                           END AS task_count,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The content the catalog describes: the published version, else the working copy (as infrastructure).
@@ -899,7 +915,9 @@ WITH listed AS (SELECT e.id,
 SELECT exercises.id, exercises.name, exercises.description, exercises.tags, exercises.created_at, exercises.created_by, exercises.updated_at, exercises.updated_by, exercises.draft_version_id, exercises.published_version_id, exercises.archived_at, exercises.scope, exercises.owner_event_id, exercises.access_level, exercises.origin_event_id, exercises.forked_from_exercise_id, exercises.forked_from_version_id, listed.status, listed.author_name,
        -- NULL scans badly into float64: the flag says whether there is one.
        (listed.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
-       COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty
+       COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty,
+       (listed.task_count IS NOT NULL)::boolean      AS has_task_count,
+       COALESCE(listed.task_count, 0)::int           AS task_count
 FROM listed
 JOIN exercises USING (id)
 WHERE (coalesce(cardinality($1::text[]), 0) = 0 OR listed.status = ANY ($1::text[]))
@@ -917,6 +935,8 @@ ORDER BY
   CASE WHEN $2::text = 'author' THEN listed.author_name = '' END ASC,
   CASE WHEN $2::text = 'author' AND $3::text = 'asc' THEN lower(listed.author_name) END ASC,
   CASE WHEN $2::text = 'author' AND $3::text = 'desc' THEN lower(listed.author_name) END DESC,
+  CASE WHEN $2::text = 'subtasks' AND $3::text = 'asc' THEN listed.task_count END ASC NULLS LAST,
+  CASE WHEN $2::text = 'subtasks' AND $3::text = 'desc' THEN listed.task_count END DESC NULLS LAST,
   CASE WHEN $2::text = 'difficulty' AND $3::text = 'asc' THEN listed.avg_difficulty END ASC NULLS LAST,
   CASE WHEN $2::text = 'difficulty' AND $3::text = 'desc' THEN listed.avg_difficulty END DESC NULLS LAST,
   CASE WHEN $2::text = 'updated' AND $3::text = 'asc' THEN updated_at END ASC,
@@ -951,6 +971,8 @@ type ListExercisesPageRow struct {
 	AuthorName       string   `json:"author_name"`
 	HasAvgDifficulty bool     `json:"has_avg_difficulty"`
 	AvgDifficulty    float64  `json:"avg_difficulty"`
+	HasTaskCount     bool     `json:"has_task_count"`
+	TaskCount        int32    `json:"task_count"`
 }
 
 // status is the single derived catalog status (exercise_status); the working
@@ -1008,6 +1030,8 @@ func (q *Queries) ListExercisesPage(ctx context.Context, arg ListExercisesPagePa
 			&i.AuthorName,
 			&i.HasAvgDifficulty,
 			&i.AvgDifficulty,
+			&i.HasTaskCount,
+			&i.TaskCount,
 		); err != nil {
 			return nil, err
 		}

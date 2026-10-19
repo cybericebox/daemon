@@ -52,6 +52,8 @@ type ExerciseListItem struct {
 	// AvgDifficulty is the mean level (1 elementary … 6 insane) of the subtasks of the first variant of the
 	// published version, else the working copy; nil without one (page lists only).
 	AvgDifficulty *float64
+	// TaskCount is the number of subtasks of that same first variant; nil without a variant (page lists only).
+	TaskCount *int
 
 	ExerciseScopeView
 }

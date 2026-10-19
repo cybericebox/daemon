@@ -161,9 +161,18 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	if row := byName["Hard crypto"]; row.AuthorName != "" || row.AvgDifficulty == nil || *row.AvgDifficulty != 5.5 {
 		t.Fatalf("an author without a name, the working copy of a draft-only task: %+v", row)
 	}
-	if row := byName["No content"]; row.AvgDifficulty != nil {
-		t.Fatalf("no version, no difficulty: %+v", row)
+	if row := byName["No content"]; row.AvgDifficulty != nil || row.TaskCount != nil {
+		t.Fatalf("no version, no difficulty, no subtask count: %+v", row)
 	}
+	// Subtasks of the first variant of the published version (2), not of the working copy (1).
+	if row := byName["Easy web"]; row.TaskCount == nil || *row.TaskCount != 2 {
+		t.Fatalf("subtask count of the published version: %+v", row.TaskCount)
+	}
+	if row := byName["Hard crypto"]; row.TaskCount == nil || *row.TaskCount != 2 {
+		t.Fatalf("subtask count of a draft-only task: %+v", row.TaskCount)
+	}
+	// Sorted by subtasks: none last in both directions; ties keep the newest first.
+	expect("subtasks ascending", list(exerciseRepo.PageParams{SortBy: "subtasks", SortDir: "asc"}), "Hard crypto", "Easy web", "No content", "Legacy web")
 
 	expect("author", list(exerciseRepo.PageParams{AuthorIDs: []uuid.UUID{ada}}), "Easy web", "Legacy web")
 	expect("authors", list(exerciseRepo.PageParams{AuthorIDs: []uuid.UUID{ada, bob}}), "Easy web", "Hard crypto", "Legacy web", "No content")
@@ -191,6 +200,9 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 	// The generated column follows every save of the working copy.
 	save(hard.ID, levels(exerciseModel.DifficultyElementary), itNow.Add(time.Hour))
 	expect("kept current", list(exerciseRepo.PageParams{DifficultyMax: 1}), "Hard crypto")
+	if rows := list(exerciseRepo.PageParams{DifficultyMax: 1}); rows[0].TaskCount == nil || *rows[0].TaskCount != 1 {
+		t.Fatalf("subtask count follows the working copy: %+v", rows[0].TaskCount)
+	}
 
 	authors, err := repo.ListAuthors(ctx, "", nil, uuid.NullUUID{}, 10)
 	if err != nil || len(authors) != 2 || authors[0].ID != bob || authors[0].Count != 3 || authors[1].Name != "Ada Lovelace" {
@@ -205,6 +217,39 @@ func TestListExercisesPage_TableFilters(t *testing.T) {
 		t.Fatalf("by ids: %+v err=%v", chosen, err)
 	}
 }
+
+// TestListExercisesPage_SubtaskCountEdgeCases: a variant without subtasks counts 0, a version without variants has
+// no count, and only the first variant counts.
+func TestListExercisesPage_SubtaskCountEdgeCases(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	for _, tc := range []struct {
+		name     string
+		variants []exerciseModel.Variant
+		want     *int
+	}{
+		{name: "no variants", variants: []exerciseModel.Variant{}},
+		{name: "empty variant", variants: []exerciseModel.Variant{{Index: 0}}, want: intPtr(0)},
+		{name: "first variant only", variants: append(levels(exerciseModel.DifficultyEasy, exerciseModel.DifficultyHard, exerciseModel.DifficultyMedium),
+			levels(exerciseModel.DifficultyEasy)[0]), want: intPtr(3)},
+	} {
+		e := mustCreateExerciseFull(t, repo, tc.name, "", nil, itNow)
+		if _, err := repo.UpsertDraft(ctx, e.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: tc.variants}, itNow, uuid.NullUUID{}); err != nil {
+			t.Fatal(err)
+		}
+		rows, err := repo.ListPage(ctx, exerciseRepo.PageParams{Search: tc.name, Archived: "exclude", SortBy: "name", SortDir: "asc", Limit: 5})
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("%s: rows=%d err=%v", tc.name, len(rows), err)
+		}
+		got := rows[0].TaskCount
+		if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+			t.Fatalf("%s: count %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func intPtr(v int) *int { return &v }
 
 // TestListAuthors_ViewerSeesOnlyReadable: a moderator learns only the authors of tasks they may read.
 func TestListAuthors_ViewerSeesOnlyReadable(t *testing.T) {

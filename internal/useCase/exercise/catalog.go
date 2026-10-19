@@ -235,7 +235,7 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 	if f.Page > 0 {
 		sortBy := f.SortBy
 		switch sortBy {
-		case "name", "tags", "status", "updated", "author", "difficulty":
+		case "name", "tags", "status", "updated", "author", "difficulty", "subtasks":
 		default:
 			sortBy = "updated"
 		}
@@ -261,7 +261,7 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 		items := make([]ExerciseListItem, 0, len(exercises))
 		for _, e := range exercises {
 			item := toExerciseListItem(e.Exercise, e.Status)
-			item.AuthorName, item.AvgDifficulty = e.AuthorName, e.AvgDifficulty
+			item.AuthorName, item.AvgDifficulty, item.TaskCount = e.AuthorName, e.AvgDifficulty, e.TaskCount
 			items = append(items, item)
 		}
 		total, err := u.exercises.CountPage(ctx, params)

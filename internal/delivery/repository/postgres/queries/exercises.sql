@@ -89,6 +89,14 @@ WITH listed AS (SELECT e.id,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        sqlc.narg(viewer_id)::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
+                       -- Subtasks of the first variant (the same content as the difficulty); NULL without a variant.
+                       CASE
+                           WHEN jsonb_typeof(version.variants -> 0) = 'object'
+                               THEN CASE
+                                        WHEN jsonb_typeof(version.variants -> 0 -> 'tasks') = 'array'
+                                            THEN jsonb_array_length(version.variants -> 0 -> 'tasks')
+                                        ELSE 0 END
+                           END AS task_count,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The content the catalog describes: the published version, else the working copy (as infrastructure).
@@ -119,7 +127,9 @@ WITH listed AS (SELECT e.id,
 SELECT sqlc.embed(exercises), listed.status, listed.author_name,
        -- NULL scans badly into float64: the flag says whether there is one.
        (listed.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
-       COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty
+       COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty,
+       (listed.task_count IS NOT NULL)::boolean      AS has_task_count,
+       COALESCE(listed.task_count, 0)::int           AS task_count
 FROM listed
 JOIN exercises USING (id)
 WHERE (coalesce(cardinality(sqlc.arg(statuses)::text[]), 0) = 0 OR listed.status = ANY (sqlc.arg(statuses)::text[]))
@@ -133,10 +143,12 @@ ORDER BY
     array_position(ARRAY ['none', 'draft_only', 'changed', 'published', 'archived'], listed.status) END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'desc' THEN
     array_position(ARRAY ['none', 'draft_only', 'changed', 'published', 'archived'], listed.status) END DESC,
-  -- Unnamed authors and tasks without a difficulty come last in both directions.
+  -- Unnamed authors and tasks without a difficulty or a variant come last in both directions.
   CASE WHEN sqlc.arg(sort_by)::text = 'author' THEN listed.author_name = '' END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'author' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(listed.author_name) END ASC,
   CASE WHEN sqlc.arg(sort_by)::text = 'author' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(listed.author_name) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'subtasks' AND sqlc.arg(sort_dir)::text = 'asc' THEN listed.task_count END ASC NULLS LAST,
+  CASE WHEN sqlc.arg(sort_by)::text = 'subtasks' AND sqlc.arg(sort_dir)::text = 'desc' THEN listed.task_count END DESC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'difficulty' AND sqlc.arg(sort_dir)::text = 'asc' THEN listed.avg_difficulty END ASC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'difficulty' AND sqlc.arg(sort_dir)::text = 'desc' THEN listed.avg_difficulty END DESC NULLS LAST,
   CASE WHEN sqlc.arg(sort_by)::text = 'updated' AND sqlc.arg(sort_dir)::text = 'asc' THEN updated_at END ASC,
@@ -149,6 +161,14 @@ WITH listed AS (SELECT e.id,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        sqlc.narg(viewer_id)::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
+                       -- Subtasks of the first variant (the same content as the difficulty); NULL without a variant.
+                       CASE
+                           WHEN jsonb_typeof(version.variants -> 0) = 'object'
+                               THEN CASE
+                                        WHEN jsonb_typeof(version.variants -> 0 -> 'tasks') = 'array'
+                                            THEN jsonb_array_length(version.variants -> 0 -> 'tasks')
+                                        ELSE 0 END
+                           END AS task_count,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The content the catalog describes: the published version, else the working copy (as infrastructure).
