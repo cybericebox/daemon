@@ -227,6 +227,9 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 			}
 		}
 		result.Saved = true
+		if err = u.splitParts(ctx, s, r, in.AllowConflicts, now); err != nil {
+			return err
+		}
 		raised, err = u.reconcileReservation(ctx, s, r, states, now)
 		return err
 	})
@@ -234,6 +237,7 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 		return ReservationResult{}, err
 	}
 	u.emit(ctx, raised)
+	u.pushParts(ctx)
 	return result, nil
 }
 
@@ -302,6 +306,9 @@ func (u *ResourceCalendarUseCase) DeleteEventResourceReservation(ctx context.Con
 		if _, err = s.UpdateReservation(ctx, r); err != nil {
 			return platformErr(err, "Failed to cancel the event reservation")
 		}
+		if err = u.splitParts(ctx, s, r, false, now); err != nil {
+			return err
+		}
 		closed, err = u.reconcileReservation(ctx, s, r, nil, now)
 		return err
 	})
@@ -309,6 +316,7 @@ func (u *ResourceCalendarUseCase) DeleteEventResourceReservation(ctx context.Con
 		return err
 	}
 	u.emit(ctx, closed)
+	u.pushParts(ctx)
 	return nil
 }
 
@@ -351,6 +359,9 @@ func (u *ResourceCalendarUseCase) ReplanResourceReservation(ctx context.Context,
 			return platformErr(err, "Failed to save the reservation")
 		}
 		result.Saved = true
+		if err = u.splitParts(ctx, s, r, allowConflicts, now); err != nil {
+			return err
+		}
 		raised, err = u.reconcileReservation(ctx, s, r, states, now)
 		return err
 	})
@@ -358,6 +369,7 @@ func (u *ResourceCalendarUseCase) ReplanResourceReservation(ctx context.Context,
 		return ReservationResult{}, err
 	}
 	u.emit(ctx, raised)
+	u.pushParts(ctx)
 	return result, nil
 }
 

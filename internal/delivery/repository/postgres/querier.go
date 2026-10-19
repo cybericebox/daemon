@@ -1460,7 +1460,8 @@ type Querier interface {
 	LockResourceCalendar(ctx context.Context) error
 	// Open requests become read but stay open: only their decision closes them.
 	MarkAllInAppReadByUser(ctx context.Context, arg MarkAllInAppReadByUserParams) error
-	// The agent's answer for a revision: a confirmation never lowers synced_rev; a failure keeps it and records why.
+	// The agent's answer for a revision: a confirmation never lowers synced_rev and clears the failure; a failure keeps
+	// synced_rev, records why and keeps the time the failures started.
 	MarkClusterReservationSynced(ctx context.Context, arg MarkClusterReservationSyncedParams) error
 	// Claims the message of a group: only when nobody sent one since the cutoff. Returns the number of occurrences
 	// since that last message (and resets it); no row means another replica was first.

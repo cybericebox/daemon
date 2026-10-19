@@ -96,6 +96,20 @@ func (u *ResourceCalendarUseCase) causes(ctx context.Context, s Store, r *calMod
 			out = append(out, cause{kind: calModel.AlarmNotConnected, units: probe.Unplaced, short: times(probe.Unplaced), stage: stage})
 		}
 	}
+	parts, err := s.PartsOfCalendar(ctx, r.ID)
+	if err != nil {
+		return nil, platformErr(err, "Failed to read the cluster reservation parts")
+	}
+	seen := map[string]bool{}
+	for _, c := range out {
+		seen[string(c.kind)+":"+derefID(c.agent).String()] = true
+	}
+	for _, c := range partCauses(parts, now) {
+		if key := string(c.kind) + ":" + derefID(c.agent).String(); !seen[key] {
+			seen[key] = true
+			out = append(out, c)
+		}
+	}
 	return out, nil
 }
 
@@ -272,6 +286,9 @@ func (u *ResourceCalendarUseCase) ReconcileResourceCalendar(ctx context.Context)
 						return platformErr(uErr, "Failed to save the completed placement")
 					}
 				}
+			}
+			if sErr := u.splitParts(ctx, s, fresh, false, now); sErr != nil {
+				return sErr
 			}
 			var rErr error
 			events, rErr = u.reconcileReservation(ctx, s, fresh, states, now)

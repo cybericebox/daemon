@@ -5,21 +5,27 @@
 
 -- name: SaveClusterReservation :exec
 INSERT INTO cluster_reservations (id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at,
-                                  cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, retire_at,
+                                  cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, forced, retire_at,
                                   created_at, updated_at)
 VALUES (sqlc.arg(id), sqlc.arg(agent_id), sqlc.arg(source), sqlc.narg(calendar_reservation_id), sqlc.narg(test_deploy_id), sqlc.narg(owner_id),
         sqlc.arg(starts_at), sqlc.arg(ends_at), sqlc.arg(cpu_millicores), sqlc.arg(memory_bytes), sqlc.arg(desired_rev), sqlc.arg(synced_rev),
-        sqlc.narg(synced_at), sqlc.arg(sync_error), sqlc.narg(retire_at), sqlc.arg(created_at), sqlc.arg(updated_at))
+        sqlc.narg(synced_at), sqlc.arg(sync_error), sqlc.arg(forced), sqlc.narg(retire_at), sqlc.arg(created_at), sqlc.arg(updated_at))
 ON CONFLICT (id) DO UPDATE
 SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, cpu_millicores = EXCLUDED.cpu_millicores,
     memory_bytes = EXCLUDED.memory_bytes, desired_rev = GREATEST(cluster_reservations.desired_rev, EXCLUDED.desired_rev),
-    retire_at = EXCLUDED.retire_at, updated_at = EXCLUDED.updated_at;
+    forced = EXCLUDED.forced, retire_at = EXCLUDED.retire_at, updated_at = EXCLUDED.updated_at;
 
 -- name: MarkClusterReservationSynced :exec
--- The agent's answer for a revision: a confirmation never lowers synced_rev; a failure keeps it and records why.
+-- The agent's answer for a revision: a confirmation never lowers synced_rev and clears the failure; a failure keeps
+-- synced_rev, records why and keeps the time the failures started.
 UPDATE cluster_reservations
-SET synced_rev = GREATEST(synced_rev, sqlc.arg(synced_rev)), synced_at = sqlc.arg(synced_at), sync_error = sqlc.arg(sync_error),
-    updated_at = sqlc.arg(synced_at)
+SET synced_rev        = CASE WHEN sqlc.arg(ok)::bool THEN GREATEST(synced_rev, sqlc.arg(synced_rev)) ELSE synced_rev END,
+    synced_at         = CASE WHEN sqlc.arg(ok)::bool THEN sqlc.arg(at)::timestamptz ELSE synced_at END,
+    sync_error        = sqlc.arg(sync_error),
+    sync_reason       = sqlc.arg(sync_reason),
+    sync_failed_since = CASE WHEN sqlc.arg(ok)::bool THEN NULL ELSE COALESCE(sync_failed_since, sqlc.arg(at)::timestamptz) END,
+    shrink_held       = sqlc.arg(shrink_held),
+    updated_at        = sqlc.arg(at)::timestamptz
 WHERE id = sqlc.arg(id);
 
 -- name: ObserveClusterReservation :exec

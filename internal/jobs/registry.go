@@ -9,6 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/jobs/accountinactivity"
 	"github.com/cybericebox/daemon/internal/jobs/agentmaintenance"
 	"github.com/cybericebox/daemon/internal/jobs/broadcastsend"
+	"github.com/cybericebox/daemon/internal/jobs/clusterreservations"
 	"github.com/cybericebox/daemon/internal/jobs/dataretention"
 	"github.com/cybericebox/daemon/internal/jobs/errorjournal"
 	"github.com/cybericebox/daemon/internal/jobs/eventanalytics"
@@ -66,6 +67,7 @@ type (
 		eventanalyticsJob.IUseCase
 		errorjournalJob.IUseCase
 		resourcecalendarJob.IUseCase
+		clusterreservationsJob.IUseCase
 		imageblobpushJob.IUseCase
 		imageregistrygcJob.IUseCase
 		registrycheckJob.IUseCase
@@ -82,6 +84,9 @@ type (
 
 // RegistryCheckInterval is the period of the check of the image registry credentials.
 const RegistryCheckInterval = 6 * time.Hour
+
+// ClusterReservationsInterval is the period of the reconcile of the cluster reservations with the agents.
+const ClusterReservationsInterval = 5 * time.Minute
 
 // DefaultLabSweepInterval is the period of the orphan lab group sweep when none is configured.
 const DefaultLabSweepInterval = 30 * time.Second
@@ -133,6 +138,7 @@ func (wr *workerRegistry) RegisterAll(workers *river.Workers) {
 		river.AddWorker(workers, labgroupsweepJob.NewWorker(wr.uc))
 		river.AddWorker(workers, labaccesssyncJob.NewWorker(wr.uc))
 		river.AddWorker(workers, lablifecycleJob.NewWorker(wr.uc))
+		river.AddWorker(workers, clusterreservationsJob.NewWorker(wr.uc))
 	}
 	river.AddWorker(workers, signalprocessingJob.NewWorker(wr.uc))
 	river.AddWorker(workers, dataretentionJob.NewWorker(wr.uc))
@@ -209,6 +215,11 @@ func (wr *workerRegistry) PeriodicJobs() []*river.PeriodicJob {
 	if wr.laboratoriesEnabled {
 		jobs = append(jobs,
 			river.NewPeriodicJob(river.PeriodicInterval(wr.labLifecycleInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.LabLifecycleArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),
+			// Cluster reservations: every agent holds exactly the parts of the calendar. Changes are pushed at once;
+			// this pass (every 5 minutes, one at a time) retries what failed and deletes orphans.
+			river.NewPeriodicJob(river.PeriodicInterval(ClusterReservationsInterval), func() (river.JobArgs, *river.InsertOpts) {
+				return jobsModel.ClusterReservationsArgs{}, standPassInsertOpts()
+			}, &river.PeriodicJobOpts{RunOnStart: true}),
 			// Test labs end at their lease through a scheduled TestDeployExpiryArgs job; this sweep is the safety
 			// net (a lost job, a restart before the insert) and retries the labs whose agent deletion failed.
 			river.NewPeriodicJob(river.PeriodicInterval(labTeardownInterval), func() (river.JobArgs, *river.InsertOpts) { return jobsModel.TestDeployGCArgs{}, standPassInsertOpts() }, &river.PeriodicJobOpts{RunOnStart: true}),

@@ -129,3 +129,92 @@ func TestResourceCalendarAgainstARealDatabase(t *testing.T) {
 	assert.Equal(t, int64(500), stats.TestLabsHeld.CPUMillicores)
 	require.NoError(t, uc.ReleaseTestLab(ctx, lab))
 }
+
+// recordingPort is an agent reservation API that remembers what each agent holds.
+type recordingPort struct {
+	held map[uuid.UUID]map[uuid.UUID]infraModel.ClusterReservation
+}
+
+func (p *recordingPort) at(agent uuid.UUID) map[uuid.UUID]infraModel.ClusterReservation {
+	if p.held[agent] == nil {
+		p.held[agent] = map[uuid.UUID]infraModel.ClusterReservation{}
+	}
+	return p.held[agent]
+}
+
+func (p *recordingPort) ListReservations(_ context.Context, agent uuid.UUID) ([]infraModel.ClusterReservation, error) {
+	var out []infraModel.ClusterReservation
+	for _, r := range p.at(agent) {
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+func (p *recordingPort) put(agent uuid.UUID, rs []infraModel.ClusterReservation) ([]infraModel.ItemOutcome, error) {
+	var out []infraModel.ItemOutcome
+	for _, r := range rs {
+		p.at(agent)[r.ID] = r
+		out = append(out, infraModel.ItemOutcome{ID: r.ID, OK: true})
+	}
+	return out, nil
+}
+
+func (p *recordingPort) CreateReservations(_ context.Context, agent uuid.UUID, rs []infraModel.ClusterReservation) ([]infraModel.ItemOutcome, error) {
+	return p.put(agent, rs)
+}
+
+func (p *recordingPort) UpdateReservations(_ context.Context, agent uuid.UUID, rs []infraModel.ClusterReservation) ([]infraModel.ItemOutcome, error) {
+	return p.put(agent, rs)
+}
+
+func (p *recordingPort) DeleteReservations(_ context.Context, agent uuid.UUID, ids []uuid.UUID) ([]infraModel.ItemOutcome, error) {
+	var out []infraModel.ItemOutcome
+	for _, id := range ids {
+		delete(p.at(agent), id)
+		out = append(out, infraModel.ItemOutcome{ID: id, OK: true})
+	}
+	return out, nil
+}
+
+// An event reservation saved through the real store becomes a part on its agent in the same transaction, and the
+// part is sent after the commit.
+func TestSyncAfterSetEventReservation(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	now := time.Date(2026, 10, 5, 6, 0, 0, 0, time.UTC)
+	creator, err := userRepo.New(db.Queries).Create(ctx, userModel.NewIncompleteUser(uuid.Must(uuid.NewV7()), "cluster-sync@test.test", now))
+	require.NoError(t, err)
+	ev, err := eventModel.NewEvent("clustersync", "Cluster sync", now, now.Add(30*24*time.Hour), creator.ID, now)
+	require.NoError(t, err)
+	created, err := eventRepo.New(db.Queries).Create(ctx, ev)
+	require.NoError(t, err)
+	seen := now
+	cpu, mem := int64(10000), int64(64<<30)
+	agentA := infraModel.AgentRecord{AgentRegistration: infraModel.AgentRegistration{ID: uuid.Must(uuid.NewV7()), Name: "a", Enabled: true, CapacityCPUMillicores: &cpu, CapacityMemoryBytes: &mem, CapacitySeenAt: &seen}}
+	store := resourceCalendarRepo.New(db.Queries)
+	uc := calendarUseCase.New(calendarUseCase.Dependencies{
+		Store: store, Tx: calendarTx{uow: postgres.NewUnitOfWorker[resourceCalendarRepo.Queries](postgres.NewUoWFactory(db.Pool))},
+		Agents: fixedAgents{agentA}, Events: eventRepo.New(db.Queries), Configs: eventConfigRepo.New(db.Queries),
+		Planner: fixedPlanner{need: calendarUseCase.Need{Teams: 4, PerTeam: calendarUseCase.Amount{CPUMillicores: 1000, MemoryBytes: 2 << 30}}},
+		Config:  calendarUseCase.DefaultConfig(), Now: func() time.Time { return now },
+	})
+	port := &recordingPort{held: map[uuid.UUID]map[uuid.UUID]infraModel.ClusterReservation{}}
+	uc.SetClusterReservations(port, nil)
+
+	start, end := now.Add(time.Hour), now.Add(5*time.Hour)
+	res, err := uc.SetEventResourceReservation(ctx, created.ID, calendarUseCase.EventReservationInput{WindowStart: &start, WindowEnd: &end}, creator.ID)
+	require.NoError(t, err)
+	parts, err := store.PartsOfCalendar(ctx, res.Reservation.ID)
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+	held, ok := port.held[agentA.ID][parts[0].ID]
+	require.True(t, ok, "the part is on the agent")
+	assert.Equal(t, int64(4000), held.Amount.CPUMillicores)
+	assert.Equal(t, end, held.To)
+	got, err := store.GetPart(ctx, parts[0].ID)
+	require.NoError(t, err)
+	assert.True(t, got.Synced())
+
+	require.NoError(t, uc.DeleteEventResourceReservation(ctx, created.ID, creator.ID))
+	assert.Empty(t, port.held[agentA.ID], "the canceled reservation's idle part is deleted")
+}
