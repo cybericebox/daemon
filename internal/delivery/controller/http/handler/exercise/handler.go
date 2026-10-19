@@ -58,6 +58,9 @@ type (
 		DeleteExercise(ctx context.Context, id uuid.UUID) error
 		ArchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		UnarchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
+		// bulk actions of the catalog table: per task by the rule of the single-task route
+		BulkSetArchived(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, archived bool) []exerciseUseCase.BulkResult
+		BulkSetAccess(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) []exerciseUseCase.BulkResult
 		// lifecycle
 		SaveDraft(ctx context.Context, exerciseID uuid.UUID, in exerciseUseCase.SaveDraftInput) (exerciseUseCase.VersionView, error)
 		PublishDraft(ctx context.Context, exerciseID uuid.UUID) (exerciseUseCase.VersionView, error)
@@ -228,6 +231,12 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("deploys/:deployID/devices/:device/reset", self, h.resetDeployDevice)
 		ex.POST("deploys/:deployID/devices/:device/rescue", self, h.rescueDeployDevice)
 		ex.DELETE("deploys/:deployID", self, h.destroyDeploy)
+
+		// bulk actions of the catalog table ("bulk" is a static segment, registered before ":id"): every task is
+		// authorized as by its single-task route (archive: the exercise policy per task; access: exercises.write).
+		ex.POST("bulk/archive", self, h.bulkArchive)
+		ex.POST("bulk/unarchive", self, h.bulkUnarchive)
+		ex.PUT("bulk/access", h.prot.RequirePermission(rbac.PermExercisesWrite), h.bulkSetAccess)
 
 		ex.GET(":id", self, h.authorize(exerciseUseCase.ActionReadPublished), h.get)
 		ex.GET(":id/usage", self, h.authorize(exerciseUseCase.ActionRead), h.usage)

@@ -389,6 +389,9 @@ POST   /api/exercises/:id/versions/:versionID/rollback | gate: self | layers: ex
 POST   /api/exercises/:id/versions/:versionID/variants/:variantID/deploy | gate: self | layers: -
 GET    /api/exercises/access | gate: self | layers: -
 GET    /api/exercises/authors | gate: self | layers: -
+PUT    /api/exercises/bulk/access | gate: exercises.write | layers: -
+POST   /api/exercises/bulk/archive | gate: self | layers: -
+POST   /api/exercises/bulk/unarchive | gate: self | layers: -
 GET    /api/exercises/capabilities | gate: self | layers: -
 GET    /api/exercises/deploys | gate: self | layers: -
 DELETE /api/exercises/deploys/:deployID | gate: self | layers: -

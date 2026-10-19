@@ -15192,6 +15192,159 @@
                 }
             }
         },
+        "/exercises/bulk/access": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Set the same access on the selected catalog exercises",
+                "parameters": [
+                    {
+                        "description": "exercise IDs (1..200); all | selected (+EventIDs) | own | none",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.bulkAccessRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.bulkResultResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/bulk/archive": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Archive the selected exercises, each by the rule of one exercise's archive",
+                "parameters": [
+                    {
+                        "description": "exercise IDs (1..200)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.bulkExercisesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.bulkResultResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/bulk/unarchive": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Return the selected exercises to the catalog, each by the rule of one exercise's unarchive",
+                "parameters": [
+                    {
+                        "description": "exercise IDs (1..200)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.bulkExercisesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.bulkResultResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/deploys": {
             "get": {
                 "description": "Only the caller's own, until they are removed: a deploy whose lease is over but is not removed yet has Expired=true (it still runs and can be ended). Optional filters narrow by exercise, version and variant. Each item names the flag-linked tasks; flag values are never returned.",
@@ -28957,6 +29110,10 @@
         "eventAnalytics.accessResponse": {
             "type": "object",
             "properties": {
+                "Export": {
+                    "description": "Export: the CSV exports and the report download.",
+                    "type": "boolean"
+                },
                 "Sections": {
                     "description": "Sections: every analytics section and the event report.",
                     "type": "boolean"
@@ -32882,6 +33039,90 @@
                 }
             }
         },
+        "exercise.bulkAccessRequest": {
+            "type": "object",
+            "required": [
+                "IDs"
+            ],
+            "properties": {
+                "AccessLevel": {
+                    "type": "string",
+                    "enum": [
+                        "all",
+                        "selected",
+                        "own",
+                        "none"
+                    ]
+                },
+                "EventIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "IDs": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "exercise.bulkExercisesRequest": {
+            "type": "object",
+            "required": [
+                "IDs"
+            ],
+            "properties": {
+                "IDs": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "exercise.bulkItemResponse": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "description": "Code is the error code (Status.Code) that skipped the task; 0 when it changed.",
+                    "type": "integer"
+                },
+                "Exercise": {
+                    "description": "Exercise is the changed card; null for a skipped task.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.exerciseResponse"
+                        }
+                    ]
+                },
+                "ID": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.bulkResultResponse": {
+            "type": "object",
+            "properties": {
+                "Changed": {
+                    "type": "integer"
+                },
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.bulkItemResponse"
+                    }
+                },
+                "Skipped": {
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.checkImagesRequest": {
             "type": "object",
             "required": [
@@ -35011,7 +35252,7 @@
             "type": "object",
             "properties": {
                 "attempt": {
-                    "description": "Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and\nwhen the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the\nearliest dispatch of such a pod. Zero when unknown (FillQueueDetails).",
+                    "description": "Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and\nwhen the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the\nearliest dispatch of a pod still starting. Zero when unknown (FillQueueDetails).",
                     "type": "integer",
                     "format": "int32"
                 },
@@ -35083,10 +35324,6 @@
                     "type": "string"
                 },
                 "retryAfter": {
-                    "type": "string"
-                },
-                "scheduledAt": {
-                    "description": "ScheduledAt is when the pod got its node; zero: no node yet, or not known.",
                     "type": "string"
                 },
                 "startedAt": {
