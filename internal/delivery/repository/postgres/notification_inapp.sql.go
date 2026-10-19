@@ -234,6 +234,18 @@ func (q *Queries) GetLatestInboxCursor(ctx context.Context, arg GetLatestInboxCu
 	return i, err
 }
 
+const inboxSubjectExists = `-- name: InboxSubjectExists :one
+SELECT EXISTS (SELECT 1 FROM in_app_notifications WHERE subject_ref = $1::text) AS found
+`
+
+// Whether any notification (open or closed) was ever delivered for the subject: an alert raised once per subject.
+func (q *Queries) InboxSubjectExists(ctx context.Context, subjectRef string) (bool, error) {
+	row := q.db.QueryRow(ctx, inboxSubjectExists, subjectRef)
+	var found bool
+	err := row.Scan(&found)
+	return found, err
+}
+
 const listActiveBannersByUser = `-- name: ListActiveBannersByUser :many
 SELECT n.id, n.user_id, n.title, n.body, n.link, n.read_at, n.created_at, n.icon, n.tone, n.accent_color, n.surface, n.auto_dismiss_ms, n.actions, n.dismissible, n.dismissed_at, n.scope_event_id, n.notification_type, n.category, n.action_required, n.subject_ref, n.resolved_at, n.resolution, n.resolved_by, COALESCE(e.name, '')::text AS event_name, COALESCE(e.tag, '')::text AS event_tag,
        COALESCE(NULLIF(btrim(r.first_name || ' ' || r.last_name), ''), r.email, '')::text AS resolved_by_name

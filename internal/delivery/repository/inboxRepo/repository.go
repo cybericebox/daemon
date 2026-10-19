@@ -34,6 +34,7 @@ type Queries interface {
 	ResolveInboxBySubjectRef(ctx context.Context, arg postgres.ResolveInboxBySubjectRefParams) (int64, error)
 	ResolveInboxItem(ctx context.Context, arg postgres.ResolveInboxItemParams) (int64, error)
 	ResolveInboxBySubjectPattern(ctx context.Context, arg postgres.ResolveInboxBySubjectPatternParams) (int64, error)
+	InboxSubjectExists(ctx context.Context, subjectRef string) (bool, error)
 }
 
 // Every read takes the inbox scope: nil lists all items, an Event id lists
@@ -162,6 +163,11 @@ func (r *Repository) ResolveBySubject(ctx context.Context, subjectRef string, re
 
 // ResolveByPattern closes, without a person, every open request whose
 // subject matches the SQL LIKE pattern.
+// SubjectExists says whether any notification (open or closed) was delivered for the subject.
+func (r *Repository) SubjectExists(ctx context.Context, subjectRef string) (bool, error) {
+	return r.q.InboxSubjectExists(ctx, subjectRef)
+}
+
 func (r *Repository) ResolveByPattern(ctx context.Context, pattern string, resolution inboxModel.Resolution) (int64, error) {
 	return r.q.ResolveInboxBySubjectPattern(ctx, postgres.ResolveInboxBySubjectPatternParams{
 		SubjectPattern: pattern, Resolution: string(resolution),

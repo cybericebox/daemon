@@ -129,3 +129,15 @@ func msTime(ms flexInt) time.Time {
 	}
 	return time.UnixMilli(int64(ms))
 }
+
+// RepeatedWithdrawals is the withdrawal in a row at which a group of labs is reported to the platform admins.
+const RepeatedWithdrawals = 3
+
+// Withdrawal is a group of labs a lab cluster withdrew Attempt times in a row: not every pod of it got a node within
+// the node timeout. Group names it for people ("deploy group <key>", "lab <group>/<lab>", "lab group <name>"); Series
+// is the retry time of that withdrawal (unix ms), the same for every lab of the group.
+type Withdrawal struct {
+	Group   string
+	Attempt int32
+	Series  int64
+}

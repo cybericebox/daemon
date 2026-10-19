@@ -117,6 +117,9 @@ type (
 		lastCapacity map[uuid.UUID]capacityReading
 		lastDevice   map[uuid.UUID]infraModel.AgentDevice
 		lastWindows  map[uuid.UUID][]infraModel.AgentMaintenanceWindow
+
+		// withdrawals alerts the platform admins about groups of labs withdrawn again and again (nil: none).
+		withdrawals WithdrawalNotifier
 	}
 
 	// capacityReading is the last capacity written for an agent, to skip repeated writes.
