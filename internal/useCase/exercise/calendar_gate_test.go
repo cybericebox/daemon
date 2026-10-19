@@ -60,7 +60,7 @@ func TestDeployVariantTest_CalendarRefusalStopsBeforeAnyLabIsCreated(t *testing.
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
 	uc.SetTestLabGate(gate)
 
-	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	if !errors.Is(err, noRoom) && err != noRoom {
 		t.Fatalf("the calendar's refusal must reach the author, got %v", err)
 	}
@@ -83,10 +83,51 @@ func TestDeployVariantTest_ReleasesTheHoldWhenTheLabFailsToStart(t *testing.T) {
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{deployErr: errors.New("lab creation failed")}})
 	uc.SetTestLabGate(gate)
 
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err == nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err == nil {
 		t.Fatal("deploy failure must be returned")
 	}
 	if len(gate.admitted) != 1 || len(gate.released) == 0 || gate.released[0] != gate.admitted[0].ID {
 		t.Fatalf("the hold must be released: admitted=%+v released=%v", gate.admitted, gate.released)
+	}
+}
+
+// The chosen run length is the lease the calendar admits the laboratory for.
+func TestDeployTestTakesChosenLength(t *testing.T) {
+	q, variantID, versionID, ownerID := gateFixture(t)
+	gate := &fakeGate{err: calModel.ErrNoTestLabRoom.Err()}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
+	uc.SetTestLabGate(gate)
+	_, _ = uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 45*time.Minute)
+	if len(gate.admitted) != 1 || gate.admitted[0].Lease != 45*time.Minute {
+		t.Fatalf("admitted %+v, want a 45 minute lease", gate.admitted)
+	}
+}
+
+func TestDeployTestRejectsOtherLength(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	gate := &fakeGate{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
+	uc.SetTestLabGate(gate)
+	_, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), 20*time.Minute)
+	if !errors.Is(err, calModel.ErrTestLengthNotAllowed.Err()) {
+		t.Fatalf("want ErrTestLengthNotAllowed, got %v", err)
+	}
+	if len(gate.admitted) != 0 {
+		t.Fatal("nothing is admitted for a length that is not offered")
+	}
+}
+
+func TestDeployTestDefaultLengthFromSettings(t *testing.T) {
+	q, variantID, versionID, ownerID := gateFixture(t)
+	gate := &fakeGate{err: calModel.ErrNoTestLabRoom.Err()}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
+	uc.SetTestLabGate(gate)
+	_, _ = uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
+	if len(gate.admitted) != 1 || gate.admitted[0].Lease != uc.TestLabLease(context.Background()) {
+		t.Fatalf("admitted %+v, want the lease in force", gate.admitted)
+	}
+	allowed, def := uc.TestRunLengths(context.Background())
+	if len(allowed) == 0 || def != int(uc.TestLabLease(context.Background())/time.Minute) {
+		t.Fatalf("lengths %v default %d", allowed, def)
 	}
 }

@@ -212,7 +212,7 @@ func TestDeployVariantTest_DecryptsSecretsAndDeploys(t *testing.T) {
 	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
 		return postgres.ExerciseTestDeployment{ID: p.ID, GroupName: p.GroupName, VersionID: p.VersionID, VariantID: p.VariantID, CreatedBy: p.CreatedBy, CreatedAt: p.CreatedAt, ExpiresAt: p.ExpiresAt}, nil
 	})
-	handle, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	handle, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestDeployVariantTest_RejectsInvalidForwardingPortBeforeLease(t *testing.T)
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
 	infra := &fakeInfra{}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	_, deployErr := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	_, deployErr := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	if !errors.Is(deployErr, exerciseModel.ErrForwardingPortInvalid.Err()) {
 		t.Fatalf("want invalid port error, got %v", deployErr)
 	}
@@ -285,7 +285,7 @@ func TestDeployVariantTest_RemovesPartiallyCreatedGroupOnFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if _, err := uc.DeployVariantTest(ctx, ownerID, versionID, variantID); err == nil {
+	if _, err := uc.DeployVariantTest(ctx, ownerID, versionID, variantID, 0); err == nil {
 		t.Fatal("deploy failure must be returned")
 	}
 	if group == "" || infra.destroyed != group || infra.destroyCtxErr != nil {
@@ -308,7 +308,7 @@ func TestDeployVariantTest_KeepsLeaseIfPartialGroupCleanupFails(t *testing.T) {
 	infra := &fakeInfra{deployErr: errors.New("lab creation failed"), destroyErr: errors.New("cleanup failed")}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
 
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err == nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err == nil {
 		t.Fatal("deploy failure must be returned")
 	}
 	if group == "" || infra.destroyed != group {
@@ -353,7 +353,7 @@ func TestDeploy_NilInfra_Unavailable(t *testing.T) {
 	variantID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 	variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil)
-	if _, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), versionID, variantID); !errors.Is(err, want) {
+	if _, err := uc.DeployVariantTest(context.Background(), uuid.Must(uuid.NewV7()), versionID, variantID, 0); !errors.Is(err, want) {
 		t.Errorf("deploy: want unavailable, got %v", err)
 	}
 	// The guard sits after the row is loaded: only a lab row needs the agent.
@@ -430,7 +430,7 @@ func TestDeployVariantTest_AllowsTheAuthorInTheGroupPolicy(t *testing.T) {
 	infra := &fakeInfra{}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
 
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(infra.policies) != 1 || infra.policies[0].Name != labBindingModel.ParticipantClientName(ownerID) || len(infra.policies[0].AllowedLabs) != 1 || !strings.HasPrefix(infra.policies[0].AllowedLabs[0], "l-") || infra.policyGroup == "" {
@@ -453,7 +453,7 @@ func TestDeployVariantTest_PolicyFailureCleansTheGroup(t *testing.T) {
 	q.EXPECT().DeleteOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(int64(1), nil)
 	infra := &fakeInfra{policyErr: errors.New("policy failed")}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err == nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err == nil {
 		t.Fatal("a deploy the author cannot reach must fail")
 	}
 	if infra.destroyed != group {
@@ -474,7 +474,7 @@ func TestDeployVariantTest_CreatesTheAuthorsClientAtDeployAndKeepsItsConfig(t *t
 	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "wg-author-config"}}
 	store := &fakeVPNStore{}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: store})
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if infra.client != labBindingModel.ParticipantClientName(ownerID) || infra.ensured != 1 {
@@ -501,7 +501,7 @@ func TestDeployVariantTest_WithVPNCreatesNoClientButTheAuthors(t *testing.T) {
 	})
 	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "wg-author-config"}}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}})
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 		t.Fatal(err)
 	}
 	author := labBindingModel.ParticipantClientName(ownerID)
@@ -563,7 +563,7 @@ func TestDeployVariantTest_FailsAndCleansUpWhenTheConfigCannotBeKept(t *testing.
 	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "wg-author-config"}}
 	store := &fakeVPNStore{storeErr: errors.New("db down")}
 	uc, owner, version, variant := deployFixture(t, infra, store, true)
-	if _, err := uc.DeployVariantTest(context.Background(), owner, version, variant); err == nil {
+	if _, err := uc.DeployVariantTest(context.Background(), owner, version, variant, 0); err == nil {
 		t.Fatal("a config that cannot be kept must fail the deploy")
 	}
 	if infra.destroyed == "" || len(store.deleted) != 2 {
@@ -575,7 +575,7 @@ func TestDeployVariantTest_RefusesAConfigWithoutThePrivateKey(t *testing.T) {
 	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{VPNConfig: "PrivateKey = __PRIVATE_KEY__"}}
 	store := &fakeVPNStore{}
 	uc, owner, version, variant := deployFixture(t, infra, store, true)
-	if _, err := uc.DeployVariantTest(context.Background(), owner, version, variant); err == nil {
+	if _, err := uc.DeployVariantTest(context.Background(), owner, version, variant, 0); err == nil {
 		t.Fatal("a placeholder config must fail the deploy")
 	}
 	if store.calls != 0 {
@@ -649,7 +649,7 @@ func TestDeployVariantTest_SecondLabJoinsTheAuthorsGroupAndReusesItsClient(t *te
 	infra := &fakeInfra{}
 	store := &fakeVPNStore{}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: store, FlagConfig: config.ExerciseConfig{MaxActiveTestDeploys: 2}})
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if created.GroupName != running.GroupName || created.LabName == running.LabName || !strings.HasPrefix(created.LabName, "l-") {
@@ -740,7 +740,7 @@ func TestDeployVariantTest_InjectsResolvedTaskFlagsIntoLinkedDevices(t *testing.
 	infra := &fakeInfra{}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
 
-	handle, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	handle, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	if err != nil {
 		t.Fatalf("deploy: %v", err)
 	}
@@ -809,7 +809,7 @@ func TestDeployVariantTest_RefusesASecondActiveLabOfTheSameUser(t *testing.T) {
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(deviceVersion(), nil).AnyTimes()
 	infra := &fakeInfra{}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	_, err := uc.DeployVariantTest(context.Background(), owner, deviceVersionID, deviceVariantID)
+	_, err := uc.DeployVariantTest(context.Background(), owner, deviceVersionID, deviceVariantID, 0)
 	if !errors.Is(err, exerciseModel.ErrTestDeployActiveExists.Err()) {
 		t.Fatalf("a second lab must be refused: %v", err)
 	}
@@ -876,7 +876,7 @@ func TestDeployVariantTest_LimitIsConfigurable(t *testing.T) {
 				q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{}, errors.New("gone")).AnyTimes()
 			}
 			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}, FlagConfig: config.ExerciseConfig{MaxActiveTestDeploys: tc.limit}})
-			_, err := uc.DeployVariantTest(context.Background(), owner, deviceVersionID, deviceVariantID)
+			_, err := uc.DeployVariantTest(context.Background(), owner, deviceVersionID, deviceVariantID, 0)
 			if got := errors.Is(err, exerciseModel.ErrTestDeployActiveExists.Err()); got != tc.refused {
 				t.Fatalf("refused=%v, want %v (err %v)", got, tc.refused, err)
 			}
@@ -1036,7 +1036,7 @@ func TestDeployVariantTest_GroupBeingDeleted_AnswersBusyAtOnceWithoutWaiting(t *
 	infra := &fakeInfra{deployErr: terminatingErr()}
 	uc, owner, ver, variant := groupWaitFixture(t, infra, &fakeVPNStore{})
 	start := time.Now()
-	_, err := uc.DeployVariantTest(context.Background(), owner, ver, variant)
+	_, err := uc.DeployVariantTest(context.Background(), owner, ver, variant, 0)
 	if !errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
 		t.Fatalf("want the group-busy domain error, got %v", err)
 	}
@@ -1169,7 +1169,7 @@ func TestDeployVariantTest_OnlyRemovingLabsLeft_AnswersBusyWithoutCallingTheAgen
 	q.EXPECT().GetExerciseVersionByID(gomock.Any(), gomock.Any()).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil).AnyTimes()
 	infra := &presenceInfra{fakeInfra: &fakeInfra{}, groupExists: true}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	_, err := uc.DeployVariantTest(context.Background(), owner, versionID, variantID)
+	_, err := uc.DeployVariantTest(context.Background(), owner, versionID, variantID, 0)
 	if !errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
 		t.Fatalf("want the group-busy domain error, got %v", err)
 	}
@@ -1183,7 +1183,7 @@ func TestDeployVariantTest_RecreatedGroupReplacesTheStoredConfig(t *testing.T) {
 	owner := uuid.Must(uuid.NewV7())
 	store := &fakeVPNStore{userID: owner, scope: vpnModel.ScopeTest, ref: uuid.NullUUID{}, plaintext: "wg-stale"}
 	uc, _, ver, variant := groupWaitFixture(t, infra, store)
-	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant, 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.deleted) == 0 || store.plaintext != "wg-new" {
@@ -1196,7 +1196,7 @@ func TestDeployVariantTest_RecreatedGroupWithoutConfigLeavesNoStaleOne(t *testin
 	owner := uuid.Must(uuid.NewV7())
 	store := &fakeVPNStore{userID: owner, scope: vpnModel.ScopeTest, ref: uuid.NullUUID{}, plaintext: "wg-stale"}
 	uc, _, ver, variant := groupWaitFixture(t, infra, store)
-	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), owner, ver, variant, 0); err != nil {
 		t.Fatal(err)
 	}
 	if len(store.deleted) == 0 {

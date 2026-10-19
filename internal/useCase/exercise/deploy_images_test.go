@@ -94,7 +94,7 @@ func TestDeployVariantTest_UnavailableImageRefusesBeforeAnythingIsCreated(t *tes
 	uc.SetTestLabGate(gate)
 	uc.SetImageAccess(images)
 
-	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	require.True(t, errors.Is(err, imageRegistryModel.ErrImagesUnavailable.Err()), "got %v", err)
 	require.Zero(t, infra.deployCalls)
 	require.Empty(t, gate.admitted)
@@ -110,7 +110,7 @@ func TestDeployVariantTest_SendsTheRewrittenTopologyAndThePlatformCredential(t *
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
 	uc.SetImageAccess(images)
 
-	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	require.NoError(t, err)
 	require.Equal(t, 1, infra.deployCalls)
 	require.Equal(t, rewrittenWeb, infra.deployedTopo.Devices[0].Image)
@@ -136,7 +136,7 @@ func TestDeployVariantTest_UsesTheExerciseImageScope(t *testing.T) {
 			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
 			uc.SetImageAccess(images)
 
-			_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+			_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 			require.NoError(t, err)
 			require.Equal(t, []uuid.UUID{exerciseID}, images.scopeAsked)
 			require.Len(t, images.scopes, 1)
@@ -156,7 +156,7 @@ func TestEventPreviewDeploy_UsesTheEventScope(t *testing.T) {
 	uc.SetTestLabGate(&eventPreviewGate{until: time.Now().Add(time.Hour)})
 	uc.SetImageAccess(images)
 
-	_, err := uc.DeployEventPreviewVariantTest(context.Background(), eventID, ownerID, versionID, variantID)
+	_, err := uc.DeployEventPreviewVariantTest(context.Background(), eventID, ownerID, versionID, variantID, 0)
 	require.NoError(t, err)
 	require.Empty(t, images.scopeAsked)
 	require.Len(t, images.scopes, 1)

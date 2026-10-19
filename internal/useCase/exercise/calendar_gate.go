@@ -38,8 +38,24 @@ func (u *ExerciseUseCase) admitTestLab(ctx context.Context, id, owner uuid.UUID,
 	}
 	_, err := u.testLabGate.AdmitTestLab(ctx, calendarUseCase.TestLabRequest{
 		ID: id, Owner: owner, Size: policy.Total(topo).Amount, LargestDevice: largest, Lease: lease,
+		PinnedAgent: u.testGroupAgent(ctx, owner),
 	})
 	return err
+}
+
+// testGroupAgent is the agent of the author's shared test group when it exists: a new run goes there.
+func (u *ExerciseUseCase) testGroupAgent(ctx context.Context, owner uuid.UUID) *uuid.UUID {
+	locator, ok := u.infra.(interface {
+		GroupAgent(ctx context.Context, group string) (uuid.UUID, bool, error)
+	})
+	if !ok {
+		return nil
+	}
+	agent, found, err := locator.GroupAgent(ctx, testGroupName(owner))
+	if err != nil || !found {
+		return nil
+	}
+	return &agent
 }
 
 // admitStaticTest asks the calendar to admit a static test, which reserves nothing.

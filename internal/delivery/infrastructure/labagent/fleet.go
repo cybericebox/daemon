@@ -300,6 +300,18 @@ func (f *Fleet) partOn(ctx context.Context, m *Member, ref infraModel.Reservatio
 	return part.String(), nil
 }
 
+// GroupAgent is the agent that holds an existing group; found is false for a group that is not placed.
+func (f *Fleet) GroupAgent(ctx context.Context, group string) (uuid.UUID, bool, error) {
+	members := f.Members()
+	switch {
+	case len(members) == 1:
+		return members[0].ID, true, nil
+	case len(members) == 0 || f.store == nil:
+		return uuid.Nil, false, nil
+	}
+	return f.store.Get(ctx, group)
+}
+
 // Available is true while the fleet has at least one agent; with none, infrastructure is not
 // configured.
 func (f *Fleet) Available() bool { return len(f.Members()) > 0 }

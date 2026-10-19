@@ -185,7 +185,7 @@ func (h *Handler) deploy(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	handle, err := h.useCase.DeployVariantTest(ctx, claims.UserID, versionID, variantID)
+	handle, err := h.useCase.DeployVariantTest(ctx, claims.UserID, versionID, variantID, 0)
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return

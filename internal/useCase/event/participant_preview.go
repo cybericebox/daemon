@@ -32,7 +32,7 @@ import (
 // author endpoints retain their independent author-write authorization.
 type PreviewTestLabs interface {
 	EventPreviewAllocated(context.Context, uuid.UUID) (bool, error)
-	DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (exerciseModel.DeployHandle, error)
+	DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, time.Duration) (exerciseModel.DeployHandle, error)
 	CanStartEventPreview(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (bool, error)
 	PreviewDeployStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error)
 	CheckTestFlag(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) (bool, error)
@@ -590,7 +590,7 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 			if u.previewLabs == nil {
 				return PreviewRunView{}, infraUnavailable()
 			}
-			handle, e := u.previewLabs.DeployEventPreviewVariantTest(txCtx, event, user, item.ExerciseVersionID, item.VariantID)
+			handle, e := u.previewLabs.DeployEventPreviewVariantTest(txCtx, event, user, item.ExerciseVersionID, item.VariantID, 0)
 			if e != nil {
 				return PreviewRunView{}, e
 			}
