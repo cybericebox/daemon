@@ -226,6 +226,11 @@ type Block struct {
 	SecondaryAction   *BlockAction                      `json:"secondaryAction,omitempty"`
 	Variant           string                            `json:"variant,omitempty"`
 	WidthPercent      int                               `json:"widthPercent,omitempty"`
+	Spacing           *BlockSpacing                     `json:"spacing,omitempty"`
+	MaxWidth          *int                              `json:"maxWidth,omitempty"`
+	ContentAlign      string                            `json:"contentAlign,omitempty"`
+	TextColumns       *int                              `json:"textColumns,omitempty"`
+	MobileFullWidth   bool                              `json:"mobileFullWidth,omitempty"`
 	Size              string                            `json:"size,omitempty"`
 	Line              bool                              `json:"line,omitempty"`
 	OpenItem          *int                              `json:"openItem,omitempty"`
@@ -256,6 +261,9 @@ func (d Document) Validate() error {
 		return err
 	}
 	for _, block := range d.Blocks {
+		if err := validateBlockLayout(block); err != nil {
+			return err
+		}
 		if err := validateVariables(block); err != nil {
 			return err
 		}

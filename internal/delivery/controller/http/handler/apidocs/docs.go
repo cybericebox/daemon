@@ -30888,6 +30888,9 @@ const docTemplate = `{
                 "condition": {
                     "$ref": "#/definitions/eventContentModel.Condition"
                 },
+                "contentAlign": {
+                    "type": "string"
+                },
                 "dateDisplays": {
                     "type": "object",
                     "additionalProperties": {
@@ -30968,9 +30971,15 @@ const docTemplate = `{
                     "description": "size limit of a file question",
                     "type": "integer"
                 },
+                "maxWidth": {
+                    "type": "integer"
+                },
                 "minDate": {
                     "description": "date question: earliest allowed answer",
                     "type": "string"
+                },
+                "mobileFullWidth": {
+                    "type": "boolean"
                 },
                 "note": {
                     "type": "string"
@@ -31008,6 +31017,9 @@ const docTemplate = `{
                 "size": {
                     "type": "string"
                 },
+                "spacing": {
+                    "$ref": "#/definitions/eventContentModel.BlockSpacing"
+                },
                 "staffOnly": {
                     "description": "StaffOnly hides a participant/team field from participants: organizers\nfill it in the manage tables, and it never counts as required.",
                     "type": "boolean"
@@ -31026,6 +31038,9 @@ const docTemplate = `{
                 },
                 "text": {
                     "type": "string"
+                },
+                "textColumns": {
+                    "type": "integer"
                 },
                 "timerDisplay": {
                     "type": "string"
@@ -31108,6 +31123,31 @@ const docTemplate = `{
                 },
                 "value": {
                     "type": "string"
+                }
+            }
+        },
+        "eventContentModel.BlockSpacing": {
+            "type": "object",
+            "properties": {
+                "desktop": {
+                    "$ref": "#/definitions/eventContentModel.BlockSpacingValues"
+                },
+                "mobile": {
+                    "$ref": "#/definitions/eventContentModel.BlockSpacingValues"
+                }
+            }
+        },
+        "eventContentModel.BlockSpacingValues": {
+            "type": "object",
+            "properties": {
+                "bottom": {
+                    "type": "integer"
+                },
+                "inline": {
+                    "type": "integer"
+                },
+                "top": {
+                    "type": "integer"
                 }
             }
         },
