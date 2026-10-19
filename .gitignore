@@ -17,3 +17,6 @@ docs/superpowers/
 # Local workspace file (make work): points the build at ../laboratory
 go.work
 go.work.sum
+
+# Local development worktrees
+.worktrees/
