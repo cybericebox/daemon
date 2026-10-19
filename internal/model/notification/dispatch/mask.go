@@ -36,8 +36,8 @@ func MaskRecipients(rows []DispatchDetail) []DispatchDetail {
 		targets := make([]DispatchTarget, len(row.Targets))
 		for j, target := range row.Targets {
 			target.Recipient = MaskEmail(target.Recipient)
-			target.Error = maskEmailsIn(target.Error, known)
-			target.FallbackError = maskEmailsIn(target.FallbackError, known)
+			target.Error = MaskEmailsIn(target.Error, known...)
+			target.FallbackError = MaskEmailsIn(target.FallbackError, known...)
 			targets[j] = target
 		}
 		row.Targets = targets
@@ -46,8 +46,8 @@ func MaskRecipients(rows []DispatchDetail) []DispatchDetail {
 	return masked
 }
 
-// maskEmailsIn masks the row's own addresses wherever they appear (whatever their form), then any other address.
-func maskEmailsIn(text string, known []string) string {
+// MaskEmailsIn masks the given known addresses wherever they appear (whatever their form), then any other address.
+func MaskEmailsIn(text string, known ...string) string {
 	for _, address := range known {
 		if strings.Contains(address, "@") {
 			text = strings.ReplaceAll(text, address, MaskEmail(address))

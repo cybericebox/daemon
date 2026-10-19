@@ -10,6 +10,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
@@ -163,7 +164,28 @@ func (h *Handler) participants(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	if !h.maskDropOff(ctx, &v) {
+		return
+	}
 	response.AbortWithData(ctx, toParticipantsResponse(v))
+}
+
+// maskDropOff masks the addresses of «Затверджені без жодної спроби» for a viewer without the people access (a
+// read-only moderator, owner decision 2026-10-19); names stay. It reports whether the request may go on.
+func (h *Handler) maskDropOff(ctx *gin.Context, v *eventAnalyticsUseCase.ParticipantsView) bool {
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return false
+	}
+	if !people {
+		rows := make([]eventAnalyticsUseCase.DropOffRowView, len(v.DropOff.Rows))
+		for i, row := range v.DropOff.Rows {
+			row.Email = dispatchModel.MaskEmail(row.Email)
+			rows[i] = row
+		}
+		v.DropOff.Rows = rows
+	}
+	return true
 }
 
 func toParticipantsResponse(v eventAnalyticsUseCase.ParticipantsView) participantsResponse {
@@ -241,6 +263,9 @@ func (h *Handler) exportParticipants(ctx *gin.Context) {
 	v, err := h.useCase.GetEventAnalyticsParticipants(ctx, eventID, from, to)
 	if err != nil {
 		response.AbortWithError(ctx, err)
+		return
+	}
+	if !h.maskDropOff(ctx, &v) {
 		return
 	}
 	w := startAnalyticsCSV(ctx, "participants-"+table)
