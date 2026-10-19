@@ -4705,7 +4705,7 @@ const docTemplate = `{
                 "tags": [
                     "event-analytics"
                 ],
-                "summary": "Per participant usage as CSV (UTF-8 with BOM)",
+                "summary": "Per participant usage as CSV (UTF-8 with BOM); owner, write moderators and platform staff only",
                 "parameters": [
                     {
                         "type": "string",
@@ -9023,6 +9023,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "429": {
+                        "description": "more than 120 previews of one user per minute",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -29191,6 +29197,10 @@ const docTemplate = `{
                     "description": "Export: the CSV exports and the report download.",
                     "type": "boolean"
                 },
+                "People": {
+                    "description": "People: per-person rows of «Використання» (names, visits, VPN sessions).",
+                    "type": "boolean"
+                },
                 "Sections": {
                     "description": "Sections: every analytics section and the event report.",
                     "type": "boolean"
@@ -31007,6 +31017,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Available": {
+                    "type": "boolean"
+                },
+                "PeopleHidden": {
+                    "description": "PeopleHidden: the caller sees the aggregates only (a read-only\nmoderator); Users is empty then.",
                     "type": "boolean"
                 },
                 "Period": {
