@@ -262,3 +262,21 @@ func TestListTestLabsShowsNoQueueOnceEveryPodIsDispatched(t *testing.T) {
 		t.Fatalf("queued = %+v", page.Items[1])
 	}
 }
+
+// A lab whose pods are all sent but wait for a new node keeps its queue: the admin sees why it is not ready.
+func TestListTestLabsShowsALabWaitingForANode(t *testing.T) {
+	agent := fakeLabAgent{statuses: map[string]exerciseModel.LabDeployStatus{
+		"t-node": {Phase: exerciseModel.DeployPhaseProvisioning, Queue: &exerciseModel.LabQueue{Reason: exerciseModel.QueueReasonNodeStarting, Pods: 3}},
+	}}
+	uc, q := newTestLabs(t, agent, nil)
+	q.EXPECT().ListPlatformTestLabs(gomock.Any(), gomock.Any()).Return([]postgres.ListPlatformTestLabsRow{
+		{ID: uuid.Must(uuid.NewV7()), GroupName: "t-node", ExpiresAt: fixedNow.Add(time.Hour)},
+	}, nil)
+	page, err := uc.ListTestLabs(context.Background(), "", 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Items[0].Status != TestLabCreating || page.Items[0].Queue == nil || page.Items[0].Queue.Reason != exerciseModel.QueueReasonNodeStarting {
+		t.Fatalf("node wait = %+v", page.Items[0])
+	}
+}

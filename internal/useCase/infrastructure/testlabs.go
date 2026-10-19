@@ -77,7 +77,8 @@ type (
 		Status string
 		// Resources is what the lab uses now; unknown while the agent has no usage for it.
 		Resources ResourcesView
-		// Queue is the place in the launch queue while the lab waits there (Status queued); nil otherwise.
+		// Queue is the place in the launch queue while the lab waits there (Status queued), or the node wait of a lab whose
+		// pods are all sent; nil otherwise.
 		Queue *exerciseModel.LabQueue
 		// ImageWarning: an image of the lab or its group is pulled by tag, not pinned to a digest.
 		ImageWarning bool
@@ -156,8 +157,9 @@ func (u *TestLabsUseCase) fillStatuses(ctx context.Context, views []TestLabView)
 			}
 			views[i].Status = testLabState(status)
 			views[i].Resources = statusResources(status)
-			// A lab whose pods are all dispatched (position 0) no longer waits, so it shows no queue.
-			if status.Queue != nil && status.Queue.Position > 0 {
+			// A lab whose pods are all dispatched (position 0) no longer waits, so it shows no queue, unless some of
+			// them wait for a node.
+			if status.Queue != nil && (status.Queue.Position > 0 || status.Queue.Reason == exerciseModel.QueueReasonNodeStarting) {
 				views[i].Queue = status.Queue
 			}
 			views[i].ImageWarning = status.ImageWarning != "" || status.GroupImageWarning != ""

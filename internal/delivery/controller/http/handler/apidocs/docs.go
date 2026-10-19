@@ -35020,6 +35020,11 @@ const docTemplate = `{
         "exerciseModel.LabQueue": {
             "type": "object",
             "properties": {
+                "attempt": {
+                    "description": "Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and\nwhen the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the\nearliest dispatch of such a pod. Zero when unknown (FillQueueDetails).",
+                    "type": "integer",
+                    "format": "int32"
+                },
                 "group": {
                     "description": "Group is the deploy group of the lab (the task for event labs); empty for an independent lab.",
                     "type": "string"
@@ -35047,6 +35052,12 @@ const docTemplate = `{
                     "format": "int32"
                 },
                 "reason": {
+                    "type": "string"
+                },
+                "retryAt": {
+                    "type": "string"
+                },
+                "waitingSince": {
                     "type": "string"
                 }
             }
@@ -35081,12 +35092,24 @@ const docTemplate = `{
                 "queuedAt": {
                     "type": "string"
                 },
+                "retryAfter": {
+                    "type": "string"
+                },
+                "scheduledAt": {
+                    "description": "ScheduledAt is when the pod got its node; zero: no node yet, or not known.",
+                    "type": "string"
+                },
                 "startedAt": {
                     "type": "string"
                 },
                 "state": {
                     "description": "State is one of the PodState* values.",
                     "type": "string"
+                },
+                "withdrawals": {
+                    "description": "Withdrawals is how often in a row the pod's group was withdrawn (not every pod got a node in time); RetryAfter is when\nthe cluster sends it again (zero: no wait).",
+                    "type": "integer",
+                    "format": "int32"
                 }
             }
         },
@@ -36383,6 +36406,9 @@ const docTemplate = `{
         "labview.QueueResponse": {
             "type": "object",
             "properties": {
+                "Attempt": {
+                    "type": "integer"
+                },
                 "Length": {
                     "type": "integer"
                 },
@@ -36399,6 +36425,12 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "Reason": {
+                    "type": "string"
+                },
+                "RetryAt": {
+                    "type": "string"
+                },
+                "WaitingSince": {
                     "type": "string"
                 }
             }
@@ -36519,7 +36551,13 @@ const docTemplate = `{
         "labview.StandQueueResponse": {
             "type": "object",
             "properties": {
+                "Attempt": {
+                    "type": "integer"
+                },
                 "Length": {
+                    "type": "integer"
+                },
+                "NodeStartingLabs": {
                     "type": "integer"
                 },
                 "Position": {
@@ -36529,6 +36567,12 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "Reason": {
+                    "type": "string"
+                },
+                "RetryAt": {
+                    "type": "string"
+                },
+                "WaitingSince": {
                     "type": "string"
                 }
             }

@@ -1999,7 +1999,7 @@ func TestDeployStatus_ExposesQueueSnapshotAndImageWarnings(t *testing.T) {
 	}}
 	w := httptest.NewRecorder()
 	newEngine(uc, uid).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String(), nil))
-	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":3,"Length":8,"Reason":"NoSchedulableNodes","Message":"","Pods":0,"Pending":0}`, `"ImageWarning":"web:latest"`, `"GroupImageWarning":"vpn:1"`,
+	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":3,"Length":8,"Reason":"NoSchedulableNodes","Message":"","Pods":0,"Pending":0,"Attempt":0,"RetryAt":null,"WaitingSince":null}`, `"ImageWarning":"web:latest"`, `"GroupImageWarning":"vpn:1"`,
 		`"Snapshot":{"LastSnapshotAt":null,"RestoredAt":null,"SizeBytes":5,"Warning":"","Rescue":true}`, `{"Name":"plain","Ready":false,"Reason":"","Scheduling":null,"Snapshot":null}`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("status lacks %s: %s", want, w.Body.String())

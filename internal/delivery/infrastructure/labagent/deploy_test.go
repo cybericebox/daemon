@@ -528,6 +528,17 @@ func TestMapLabStatusKeepsDeviceReasonAndSumsUsage(t *testing.T) {
 	}
 }
 
+// A lab whose sent pods wait for a node says since when: the earliest dispatch of such a pod.
+func TestMapLabStatusFillsTheNodeWait(t *testing.T) {
+	got := mapLabStatus(&labpb.Lab{Status: &labpb.LabStatus{Phase: "Provisioning", Scheduling: &labpb.Scheduling{Reason: "NodeStarting", Pods: 2}, Devices: []*labpb.LabDeviceStatus{
+		{Name: "a", Scheduling: &labpb.PodScheduling{State: labpb.PodState_POD_STATE_STARTING, DispatchedUnixMs: 1792400060000}},
+		{Name: "b", Scheduling: &labpb.PodScheduling{State: labpb.PodState_POD_STATE_STARTING, DispatchedUnixMs: 1792400000000}},
+	}}})
+	if got.Queue == nil || !got.Queue.WaitingSince.Equal(time.UnixMilli(1792400000000)) {
+		t.Fatalf("queue = %+v", got.Queue)
+	}
+}
+
 func TestKeyUpkeepCallsTheAgentAndTreatsAGoneKeyAsRemoved(t *testing.T) {
 	f := &fakeAgent{}
 	c := newClient(f)

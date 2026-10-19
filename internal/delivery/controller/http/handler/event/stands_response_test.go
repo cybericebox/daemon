@@ -21,7 +21,7 @@ func TestStandsResponseCarriesTheQueueAndImageWarningPerStand(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw)
-	for _, want := range []string{`"Queue":{"QueuedLabs":3,"Position":2,"Length":9,"Reason":"WaitingForGroup"}`, `"ImageWarning":true`, `"Queue":null,"ImageWarning":false`} {
+	for _, want := range []string{`"Queue":{"QueuedLabs":3,"Position":2,"Length":9,"Reason":"WaitingForGroup","NodeStartingLabs":0,"Attempt":0,"RetryAt":null,"WaitingSince":null}`, `"ImageWarning":true`, `"Queue":null,"ImageWarning":false`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("stands response lacks %s: %s", want, body)
 		}

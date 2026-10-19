@@ -7,6 +7,7 @@ import (
 	"time"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	labMonitoring "github.com/cybericebox/daemon/internal/model/labMonitoring"
 )
 
 func TestStatusMapsQueueSnapshotAndWarnings(t *testing.T) {
@@ -25,7 +26,7 @@ func TestStatusMapsQueueSnapshotAndWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := string(raw)
-	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":2,"Length":7,"Reason":"PreparingImages","Message":"preparing","Pods":3,"Pending":2}`, `"ImageWarning":"web:latest"`, `"GroupImageWarning":"vpn:1"`,
+	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":2,"Length":7,"Reason":"PreparingImages","Message":"preparing","Pods":3,"Pending":2,"Attempt":0,"RetryAt":null,"WaitingSince":null}`, `"ImageWarning":"web:latest"`, `"GroupImageWarning":"vpn:1"`,
 		`{"Name":"plain","Ready":false,"Reason":"","Scheduling":null,"Snapshot":null}`, `"Scheduling":{"State":"Failed","QueuedAt":null,"DispatchedAt":null,"StartedAt":null,"Failure":{"Reason":"ImagePull","Message":"denied","RestartCount":1,"At":null}}`, `"LastSnapshotAt":"2026-10-01T09:00:00Z","RestoredAt":null,"SizeBytes":10,"Warning":"quota","Rescue":true`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("response lacks %s:\n%s", want, got)
@@ -51,5 +52,36 @@ func TestAnnotateDevicesFillsTypeAndLogicalName(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("device %d = %v, want %v", i, got[i], want[i])
 		}
+	}
+}
+
+// A withdrawn lab carries its attempt and retry time, a lab waiting for a node since when; a stand counts the labs waiting
+// for a node, and gets a queue for them alone.
+func TestQueueDetailsOfWithdrawalAndNodeWait(t *testing.T) {
+	at := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
+	raw, err := json.Marshal(Queue(&exerciseModel.LabQueue{Position: 1, Length: 1, Reason: exerciseModel.QueueReasonWithdrawn, Attempt: 2, RetryAt: at}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `"Reason":"Withdrawn","Message":"","Pods":0,"Pending":0,"Attempt":2,"RetryAt":"2026-10-19T10:00:00Z","WaitingSince":null`; !strings.Contains(string(raw), want) {
+		t.Fatalf("queue = %s, want %s", raw, want)
+	}
+	stand := StandQueue(labMonitoring.Launch{NodeStartingLabs: 2, WaitingSince: at})
+	if stand == nil {
+		t.Fatal("a stand with labs waiting for a node has a queue")
+	}
+	raw, err = json.Marshal(stand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"QueuedLabs":0,"Position":0,"Length":0,"Reason":"NodeStarting","NodeStartingLabs":2,"Attempt":0,"RetryAt":null,"WaitingSince":"2026-10-19T10:00:00Z"}`; string(raw) != want {
+		t.Fatalf("stand queue = %s, want %s", raw, want)
+	}
+	queued := StandQueue(labMonitoring.Launch{QueuedLabs: 1, Position: 3, Length: 5, Reason: exerciseModel.QueueReasonWithdrawn, Attempt: 1, RetryAt: at, NodeStartingLabs: 1, WaitingSince: at})
+	if queued.Reason != exerciseModel.QueueReasonWithdrawn || queued.Attempt != 1 || queued.RetryAt == nil || queued.NodeStartingLabs != 1 {
+		t.Fatalf("stand queue = %+v", queued)
+	}
+	if StandQueue(labMonitoring.Launch{}) != nil {
+		t.Fatal("a stand with nothing waiting has no queue")
 	}
 }
