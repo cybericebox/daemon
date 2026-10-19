@@ -1449,9 +1449,9 @@ func (h *Handler) requireWritableEvent(ctx *gin.Context) {
 	middleware.RequireEventWritable(ctx, h.useCase, id)
 }
 
-// requireExport admits the event staff who may take its data out of the system (CSV exports): the owner and write
-// moderators. A viewer (observer) reads the same data on the screen only. Unlike requireManage, an archived event
-// still exports.
+// requireExport admits the staff who may take the event's data out of the system (CSV exports): the owner, write
+// moderators and platform admins (events.write), the same set as the analytics exports. A viewer (observer) and an
+// admin viewer read the same data on the screen only. Unlike requireManage, an archived event still exports.
 func (h *Handler) requireExport(ctx *gin.Context) {
 	id, ok := parseEventID(ctx)
 	if !ok {
@@ -1462,9 +1462,16 @@ func (h *Handler) requireExport(ctx *gin.Context) {
 		response.AbortWithUnauthenticated(ctx)
 		return
 	}
-	if err := h.useCase.RequireManageEvent(ctx, id, claims.UserID); err != nil {
+	if err := h.canExport(ctx, id, claims); err != nil {
 		response.AbortWithError(ctx, err)
 	}
+}
+
+func (h *Handler) canExport(ctx *gin.Context, eventID uuid.UUID, claims rbac.Claims) error {
+	if claims.Role.HasPermission(rbac.PermEventsWrite) {
+		return nil
+	}
+	return h.useCase.RequireManageEvent(ctx, eventID, claims.UserID)
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {
@@ -1507,7 +1514,9 @@ func (h *Handler) getManagementAccess(ctx *gin.Context) {
 		response.AbortWithError(ctx, getErr)
 		return
 	}
-	response.AbortWithData(ctx, gin.H{"CanManage": err == nil, "InfrastructureAllowed": event.InfrastructureAllowed})
+	// CanExport: the CSV exports and report downloads, the same rule as requireExport and the analytics export level.
+	canExport := err == nil || claims.Role.HasPermission(rbac.PermEventsWrite)
+	response.AbortWithData(ctx, gin.H{"CanManage": err == nil, "CanExport": canExport, "InfrastructureAllowed": event.InfrastructureAllowed})
 }
 
 // list godoc
