@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
@@ -277,4 +278,32 @@ func TestIntegrityResponseCarriesCrossFlagAndAnswers(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"Owner":{"TeamID":"00000000-0000-0000-0000-000000000000","TeamName":"Victim"`)
 	require.Contains(t, w.Body.String(), `"Value":"ice{x}"`)
 	require.Contains(t, w.Body.String(), `"Info":true`)
+}
+
+// archivedUseCase is an archived event: every manage write is refused.
+type archivedUseCase struct{ sectionsUseCase }
+
+func (*archivedUseCase) RequireEventWritable(context.Context, uuid.UUID) error {
+	return eventModel.ErrEventArchived.Err()
+}
+
+// Review marks and dismissals are writes: an archived event refuses them, reading the section still works.
+func TestIntegrityWritesRefusedOnAnArchivedEvent(t *testing.T) {
+	uc := &archivedUseCase{}
+	tc := uuid.Must(uuid.NewV7())
+	writes := []struct{ method, route, body string }{
+		{http.MethodPut, "integrity/solves/" + tc.String() + "/review", `{"Note":"checked"}`},
+		{http.MethodDelete, "integrity/solves/" + tc.String() + "/review", ""},
+		{http.MethodPost, "integrity/dismissals", `{"TeamChallengeID":"` + tc.String() + `","Scope":"event","Kind":"shared_wrong","Key":"x"}`},
+		{http.MethodDelete, "integrity/dismissals/" + tc.String(), ""},
+	}
+	for _, write := range writes {
+		w := serveSectionsWith(t, uc, write.method, sectionsURL(write.route), write.body)
+		require.Equal(t, http.StatusConflict, w.Code, write.method+" "+write.route+": "+w.Body.String())
+	}
+	require.Empty(t, uc.reviewed)
+	require.Empty(t, uc.unreviewed)
+	require.Empty(t, uc.dismissed)
+	require.Empty(t, uc.removed)
+	require.Equal(t, http.StatusOK, serveSections(t, uc, sectionsURL("integrity/dismissals")).Code)
 }

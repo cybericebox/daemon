@@ -17,6 +17,8 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/notification/stats"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -431,7 +433,21 @@ func (h *Handler) getEvent(ctx *gin.Context) {
 		return
 	}
 	view, err := h.useCase.GetEventMailSettings(ctx.Request.Context(), eventID)
-	respond(ctx, view, err)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	private, err := h.seesPrivate(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	if !private && view.SMTP != nil {
+		smtp := *view.SMTP
+		smtp.Username = ""
+		view.SMTP = &smtp
+	}
+	respond(ctx, view, nil)
 }
 
 // updateEventIdentity godoc
@@ -557,6 +573,14 @@ func (h *Handler) eventJournal(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	private, err := h.seesPrivate(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	if !private {
+		rows = dispatchModel.MaskRecipients(rows)
+	}
 	stats.WriteJournalPage(ctx, rows, total, limit)
 }
 
@@ -567,6 +591,26 @@ func (h *Handler) requireManage(ctx *gin.Context) {
 		}
 		return middleware.CheckEventWritable(ctx, h.useCase, eventID)
 	})
+}
+
+// seesPrivate tells whether the caller sees the participants' addresses and the SMTP username: the owner, write
+// moderators and platform staff (admin_viewer included) do; a read-only moderator gets them masked or hidden.
+func (h *Handler) seesPrivate(ctx *gin.Context, eventID uuid.UUID) (bool, error) {
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		return false, nil
+	}
+	if claims.Role.HasPermission(rbac.PermEventsRead) {
+		return true, nil
+	}
+	err := h.useCase.RequireManageEvent(ctx.Request.Context(), eventID, claims.UserID)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, eventManagerModel.ErrEventManagementForbidden.Err()) || errors.Is(err, authModel.ErrInsufficientPermission.Err()) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {

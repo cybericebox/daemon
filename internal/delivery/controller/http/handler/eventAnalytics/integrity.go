@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -33,11 +34,21 @@ func (h *Handler) initIntegrity(router *gin.RouterGroup) {
 	analytics.GET("integrity", h.requireSensitive, h.integrity)
 	analytics.GET("integrity/export.csv", h.requireSensitive, h.exportIntegrity)
 	analytics.GET("integrity/flags", h.requireSensitive, h.integrityFlags)
-	analytics.PUT("integrity/solves/:teamChallengeID/review", h.requireSensitive, h.reviewSolve)
-	analytics.DELETE("integrity/solves/:teamChallengeID/review", h.requireSensitive, h.unreviewSolve)
+	// Marks and dismissals are writes: an archived event refuses them like every other manage write.
+	analytics.PUT("integrity/solves/:teamChallengeID/review", h.requireSensitive, h.requireWritable, h.reviewSolve)
+	analytics.DELETE("integrity/solves/:teamChallengeID/review", h.requireSensitive, h.requireWritable, h.unreviewSolve)
 	analytics.GET("integrity/dismissals", h.requireSensitive, h.integrityDismissals)
-	analytics.POST("integrity/dismissals", h.requireSensitive, h.dismissPattern)
-	analytics.DELETE("integrity/dismissals/:dismissalID", h.requireSensitive, h.removeDismissal)
+	analytics.POST("integrity/dismissals", h.requireSensitive, h.requireWritable, h.dismissPattern)
+	analytics.DELETE("integrity/dismissals/:dismissalID", h.requireSensitive, h.requireWritable, h.removeDismissal)
+}
+
+// requireWritable is the archived-event guard of the manage writes (middleware.CheckEventWritable).
+func (h *Handler) requireWritable(ctx *gin.Context) {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	middleware.RequireEventWritable(ctx, h.useCase, eventID)
 }
 
 type (

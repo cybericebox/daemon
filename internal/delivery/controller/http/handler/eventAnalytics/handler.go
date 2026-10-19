@@ -102,6 +102,8 @@ type accessResponse struct {
 	Sensitive bool `json:"Sensitive"`
 	// Export: the CSV exports and the report download.
 	Export bool `json:"Export"`
+	// People: per-person rows of «Використання» (names, visits, VPN sessions).
+	People bool `json:"People"`
 }
 
 // access godoc
@@ -126,7 +128,7 @@ func (h *Handler) access(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, accessResponse{Sections: access.Sections, Sensitive: access.Sensitive, Export: access.Export})
+	response.AbortWithData(ctx, accessResponse{Sections: access.Sections, Sensitive: access.Sensitive, Export: access.Export, People: access.People})
 }
 
 func parseEventID(ctx *gin.Context) (uuid.UUID, bool) {

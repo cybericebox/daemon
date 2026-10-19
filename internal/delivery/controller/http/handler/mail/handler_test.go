@@ -14,6 +14,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	authModel "github.com/cybericebox/daemon/internal/model/auth"
+	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -40,6 +41,10 @@ type fakeUseCase struct {
 	enabled      bool
 	order        []uuid.UUID
 	testID       *uuid.UUID
+	settings     mailUseCase.EventSettingsView
+	journalRows  []dispatchModel.DispatchDetail
+	// viewer: a read-only event moderator (RequireManageEvent answers like the real access check).
+	viewer bool
 }
 
 func (f *fakeUseCase) GetPlatformMailSettings(context.Context) (mailUseCase.PlatformSettingsView, error) {
@@ -82,7 +87,7 @@ func (f *fakeUseCase) TestPlatformProvider(_ context.Context, id *uuid.UUID, in 
 	return mailUseCase.TestResult{Sent: true, Recipient: "me@example.org"}, nil
 }
 func (f *fakeUseCase) GetEventMailSettings(context.Context, uuid.UUID) (mailUseCase.EventSettingsView, error) {
-	return mailUseCase.EventSettingsView{}, nil
+	return f.settings, nil
 }
 func (f *fakeUseCase) UpdateEventIdentity(_ context.Context, _ uuid.UUID, in mailModel.Identity, _ uuid.UUID) (mailUseCase.EventSettingsView, error) {
 	f.identity = in
@@ -99,21 +104,28 @@ func (f *fakeUseCase) TestEventSMTP(context.Context, uuid.UUID, *mailModel.SMTPI
 }
 func (f *fakeUseCase) ListEventMailJournal(_ context.Context, eventID uuid.UUID, filter dispatchModel.ListDispatchesFilter) ([]dispatchModel.DispatchDetail, int64, error) {
 	f.journalEvent, f.journalF = eventID, filter
-	return nil, 0, nil
+	return f.journalRows, int64(len(f.journalRows)), nil
 }
 func (f *fakeUseCase) RequireManageEvent(context.Context, uuid.UUID, uuid.UUID) error {
 	if f.manageDenied {
 		return authModel.ErrInsufficientPermission.Err()
+	}
+	if f.viewer {
+		return eventManagerModel.ErrEventManagementForbidden.Err()
 	}
 	return nil
 }
 func (f *fakeUseCase) RequireReadEvent(context.Context, uuid.UUID, uuid.UUID) error { return nil }
 
 func serve(uc *fakeUseCase, method, path, body string) *httptest.ResponseRecorder {
+	return serveAs(uc, rbac.RoleUser, method, path, body)
+}
+
+func serveAs(uc *fakeUseCase, role rbac.Role, method, path, body string) *httptest.ResponseRecorder {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.Use(response.WithErrorHandler, func(c *gin.Context) {
-		c.Request = c.Request.WithContext(rbac.ContextWithCurrentUserSession(c.Request.Context(), rbac.Claims{UserID: uuid.Must(uuid.NewV7()), Role: rbac.RoleUser}))
+		c.Request = c.Request.WithContext(rbac.ContextWithCurrentUserSession(c.Request.Context(), rbac.Claims{UserID: uuid.Must(uuid.NewV7()), Role: role}))
 	})
 	NewMailAPIHandler(uc, passThrough{}).Init(router.Group("/api"))
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -261,4 +273,44 @@ func TestPlatformFooter_SaveAndPreviewPassTheDocument(t *testing.T) {
 	uc = &fakeUseCase{}
 	require.Equal(t, http.StatusOK, serve(uc, http.MethodPut, "/api/mail/settings/footer", `{"Content":null}`).Code)
 	require.Equal(t, "null", string(uc.footer), "null restores the default")
+}
+
+// Who sees the participants' addresses and the SMTP username: the owner and write moderators (RequireManageEvent
+// passes) and platform staff, admin_viewer included; a read-only moderator gets them masked or hidden.
+func TestEventMail_PrivateDataPerRole(t *testing.T) {
+	journal := []dispatchModel.DispatchDetail{{
+		DispatchInfo: dispatchModel.DispatchInfo{RecipientEmail: "olena@example.com", RecipientName: "Олена"},
+		Targets:      []dispatchModel.DispatchTarget{{Channel: "email", Status: "error", Recipient: "olena@example.com", Error: "550 <olena@example.com> unknown"}},
+	}}
+	settings := mailUseCase.EventSettingsView{SMTP: &mailUseCase.SMTPView{Host: "smtp.uni.edu", Username: "mailer@uni.edu"}}
+	cases := []struct {
+		name    string
+		role    rbac.Role
+		viewer  bool
+		private bool
+	}{
+		{"owner or write moderator", rbac.RoleUser, false, true},
+		{"read-only moderator", rbac.RoleUser, true, false},
+		{"platform admin", rbac.RoleAdmin, true, true},
+		{"platform admin viewer", rbac.RoleAdminViewer, true, true},
+	}
+	eventID := uuid.Must(uuid.NewV7())
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			uc := &fakeUseCase{viewer: c.viewer, journalRows: journal, settings: settings}
+			w := serveAs(uc, c.role, http.MethodGet, "/api/events/"+eventID.String()+"/manage/mail/journal", "")
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.Equal(t, c.private, strings.Contains(w.Body.String(), "olena@example.com"), w.Body.String())
+			if !c.private {
+				require.Contains(t, w.Body.String(), "o***@example.com")
+				require.Contains(t, w.Body.String(), "Олена")
+			}
+			w = serveAs(uc, c.role, http.MethodGet, "/api/events/"+eventID.String()+"/manage/mail", "")
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.Equal(t, c.private, strings.Contains(w.Body.String(), "mailer@uni.edu"), w.Body.String())
+			require.Contains(t, w.Body.String(), "smtp.uni.edu")
+		})
+	}
+	// The stored view is not changed by the masking.
+	require.Equal(t, "mailer@uni.edu", settings.SMTP.Username)
 }
