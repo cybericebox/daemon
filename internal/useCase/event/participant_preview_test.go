@@ -28,6 +28,8 @@ type previewLabsFake struct {
 	deploy       uuid.UUID
 	destroyErr   error
 	vpnConfig    string
+	// endedOnce: the next listing shows the lab's lease as already over (the lab is gone), then back to expiry.
+	endedOnce bool
 }
 
 func (f *previewLabsFake) DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, time.Duration) (exerciseModel.DeployHandle, error) {
@@ -312,7 +314,9 @@ func TestPreviewStaticVariantSurvivesDynamicSiblingAndDisabledEventInfrastructur
 func (f *previewLabsFake) EventPreviewAllocated(context.Context, uuid.UUID) (bool, error) {
 	return f.allocated, nil
 }
-func TestPreviewNoEventAllocationOmitsDynamicButKeepsStatic(t *testing.T) {
+
+// A dynamic preview takes the starting staff member's test lease: the event's own reservation is never needed.
+func TestPreviewWithoutEventReservationKeepsDynamicAndStatic(t *testing.T) {
 	for _, dynamic := range []bool{false, true} {
 		t.Run(map[bool]string{true: "dynamic", false: "static"}[dynamic], func(t *testing.T) {
 			f := newPreviewFixture(t, dynamic)
@@ -321,12 +325,8 @@ func TestPreviewNoEventAllocationOmitsDynamicButKeepsStatic(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := 1
-			if dynamic {
-				want = 0
-			}
-			if len(board.Challenges) != want {
-				t.Fatalf("challenges %d want %d", len(board.Challenges), want)
+			if len(board.Challenges) != 1 {
+				t.Fatalf("challenges %d want 1", len(board.Challenges))
 			}
 			if !dynamic && !board.Challenges[0].PreviewCanStart {
 				t.Fatal("static blocked by missing allocation")
@@ -336,6 +336,10 @@ func TestPreviewNoEventAllocationOmitsDynamicButKeepsStatic(t *testing.T) {
 }
 
 func (f *previewLabsFake) ListTestDeploys(context.Context, uuid.UUID, uuid.UUID) ([]exerciseModel.TestDeploy, error) {
+	if f.endedOnce {
+		f.endedOnce = false
+		return nil, nil
+	}
 	expires := f.expiry
 	if expires.IsZero() {
 		expires = time.Now().Add(time.Hour)
@@ -471,6 +475,7 @@ func TestPreviewExpiredEngineLeaseDoesNotBlockRestartOrReset(t *testing.T) {
 			}
 			f.row.ExpiresAt = time.Now().Add(-time.Second)
 			f.labs.destroyErr = exerciseModel.ErrTestDeployNotFound.Err()
+			f.labs.endedOnce = true
 			if reset {
 				f.q.EXPECT().ListEventPreviewRuns(gomock.Any(), postgres.ListEventPreviewRunsParams{EventID: f.event, UserID: f.user}).Return([]postgres.EventPreviewRun{*f.row}, nil)
 				f.q.EXPECT().DeleteEventPreviewRun(gomock.Any(), postgres.DeleteEventPreviewRunParams{EventID: f.event, UserID: f.user, SelectionID: f.selection}).Return(nil)
@@ -618,8 +623,8 @@ func TestPreviewCatalogMutedListIsScopedToCaller(t *testing.T) {
 	}
 }
 
-// A dynamic task that cannot run now stays on the settings page with the reason, and only there:
-// the board never offers it.
+// A dynamic task stays on the settings page whatever the capacity; only an event without infrastructure
+// greys it out (with the reason), and then the board never offers it.
 func TestPreviewSettingsListUnavailableDynamicTaskWithReason(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -630,8 +635,8 @@ func TestPreviewSettingsListUnavailableDynamicTaskWithReason(t *testing.T) {
 		onBoard        bool
 	}{
 		{"dynamic without infrastructure", true, false, true, event.PreviewReasonNoInfrastructure, false},
-		{"dynamic without an active reservation", true, true, false, event.PreviewReasonNoReservation, false},
-		{"dynamic with a placed reservation", true, true, true, "", true},
+		{"dynamic without an event reservation", true, true, false, "", true},
+		{"dynamic with an event reservation", true, true, true, "", true},
 		{"static without infrastructure or reservation", false, false, false, "", true},
 	}
 	for _, c := range cases {
@@ -656,10 +661,10 @@ func TestPreviewSettingsListUnavailableDynamicTaskWithReason(t *testing.T) {
 	}
 }
 
-// Saving keeps a listed task that cannot run now, but a newly chosen one still needs capacity.
+// Saving keeps a listed task the event cannot run (no infrastructure), but a newly chosen one is refused.
 func TestPreviewSaveKeepsListedUnavailableDynamicTaskButRefusesNewOne(t *testing.T) {
 	f := newPreviewFixture(t, true)
-	f.labs.allocated = false
+	f.infrastructureAllowed = false
 	f.q.EXPECT().UpsertEventPreviewSettings(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpsertEventPreviewSettingsParams) error {
 		f.selections = p.Selections
 		return nil
@@ -667,11 +672,30 @@ func TestPreviewSaveKeepsListedUnavailableDynamicTaskButRefusesNewOne(t *testing
 	name := "Preview"
 	input := event.PreviewSettingsInput{GroupName: &name, Selections: []event.PreviewSelection{{ExerciseVersionID: f.version, VariantID: f.variant}}}
 	view, err := f.uc.PutPreviewSettings(context.Background(), f.event, f.user, input)
-	if err != nil || len(view.EffectiveSelections) != 1 || view.EffectiveSelections[0].Reason != event.PreviewReasonNoReservation {
+	if err != nil || len(view.EffectiveSelections) != 1 || view.EffectiveSelections[0].Reason != event.PreviewReasonNoInfrastructure {
 		t.Fatalf("saving the listed task: %+v %v", view, err)
 	}
 	f.selections = []byte(`[]`)
 	if _, err = f.uc.PutPreviewSettings(context.Background(), f.event, f.user, input); !errors.Is(err, preview.ErrUnavailable.Err()) {
 		t.Fatalf("a newly chosen task without capacity: %v", err)
+	}
+}
+
+// The test lease counts only while the lab runs: when the engine moves its end later, the preview run follows
+// and its lab is not taken down at the earlier end.
+func TestPreviewRunFollowsTheTestLeaseMovedLater(t *testing.T) {
+	f := newPreviewFixture(t, true)
+	f.labs.expiry = time.Now().Add(10 * time.Minute)
+	if _, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.row.ExpiresAt = time.Now().Add(-time.Second)
+	f.labs.expiry = time.Now().Add(30 * time.Minute)
+	board, err := f.uc.PreviewBoard(context.Background(), f.event, f.user)
+	if err != nil || len(board.Challenges) != 1 || board.Challenges[0].PreviewExpiresAt == nil || !board.Challenges[0].PreviewExpiresAt.Equal(f.labs.expiry) {
+		t.Fatalf("board %+v %v", board, err)
+	}
+	if _, err = f.uc.SubmitPreviewFlag(context.Background(), f.event, f.user, f.selection, f.task, "ICE{secret}"); err != nil || f.labs.ends != 0 {
+		t.Fatalf("a running lab must not end at the row's earlier end: %v, ends %d", err, f.labs.ends)
 	}
 }

@@ -25832,7 +25832,7 @@
                     "type": "string"
                 },
                 "Reason": {
-                    "description": "Reason is set when the task stays listed but cannot run now: a dynamic task without infrastructure\n(no_infrastructure) or without an active, placed resource reservation (no_reservation).",
+                    "description": "Reason is set when the task stays listed but cannot run in this event: a dynamic task on an event\nwithout infrastructure (no_infrastructure). Capacity never hides a task: it is taken at launch.",
                     "type": "string"
                 },
                 "VariantID": {
