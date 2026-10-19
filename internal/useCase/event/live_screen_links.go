@@ -107,6 +107,7 @@ func (u *EventUseCase) storeLiveScreenLink(ctx context.Context, link eventConten
 	if err := u.liveScreens.Issue(ctx, link); err != nil {
 		return IssuedLiveScreenLinkView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to save live screen link").Err()
 	}
+	u.liveScreenTokens.invalidate()
 	return IssuedLiveScreenLinkView{LiveScreenLinkView: toLiveScreenLinkView(link), Token: token}, nil
 }
 
@@ -116,6 +117,7 @@ func (u *EventUseCase) RevokeLiveScreenLink(ctx context.Context, eventID uuid.UU
 	if _, err := u.liveScreens.Revoke(ctx, eventID, time.Now()); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to revoke live screen link").Err()
 	}
+	u.liveScreenTokens.invalidate()
 	return nil
 }
 
