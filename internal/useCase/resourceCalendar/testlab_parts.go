@@ -179,7 +179,7 @@ func (u *ResourceCalendarUseCase) testRunAgent(ctx context.Context, s Store, a a
 		if err != nil {
 			return uuid.Nil, platformErr(err, "Failed to read the booking")
 		}
-		agent := uuid.Nil
+		var agent uuid.UUID
 		if pinned != nil {
 			agent = *pinned
 		} else if agent, err = calModel.AssignUnit(b.Placement, units, calModel.UnitBooking); err != nil {
