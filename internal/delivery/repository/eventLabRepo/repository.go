@@ -16,6 +16,7 @@ import (
 )
 
 type Queries interface {
+	ListRunningEventTeamLabsInGroups(context.Context, postgres.ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error)
 	RecordEventLabBirthIdentity(context.Context, postgres.RecordEventLabBirthIdentityParams) (int64, error)
 	RecordEventLabRetirement(context.Context, postgres.RecordEventLabRetirementParams) (int64, error)
 	RecordEventTeamLabInitialReadiness(context.Context, postgres.RecordEventTeamLabInitialReadinessParams) (int64, error)
@@ -385,4 +386,9 @@ func (r *Repository) RecordBirthIdentity(ctx context.Context, id uuid.UUID, o ev
 	}
 	n, err := r.q.RecordEventLabBirthIdentity(ctx, postgres.RecordEventLabBirthIdentityParams{ID: id, AgentUid: l.AgentUID, AgentGeneration: l.AgentGeneration, CreateEvidence: jsonOf(l.CreateEvidence), ExpectedCreateEvidence: row.CreateEvidence, DesiredRevision: l.Revision, Generation: l.Generation, LabGroupName: l.Ref.Group, LabName: l.Ref.Lab, Now: now})
 	return n == 1, err
+}
+
+// RunningInGroups lists the labs of an event that still run in the given team groups.
+func (r *Repository) RunningInGroups(ctx context.Context, eventID uuid.UUID, groups []string) ([]uuid.UUID, error) {
+	return r.q.ListRunningEventTeamLabsInGroups(ctx, postgres.ListRunningEventTeamLabsInGroupsParams{EventID: eventID, Groups: groups})
 }

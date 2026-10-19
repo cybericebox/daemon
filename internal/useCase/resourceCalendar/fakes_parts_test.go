@@ -260,3 +260,22 @@ func (f *fakePort) running(agent, id uuid.UUID, groups int, used Amount, phase s
 	r.Status = &infraModel.ClusterReservationStatus{Phase: phase, Groups: groups, Used: used}
 	f.agent(agent)[id] = r
 }
+
+// The notifier also tells about ending and reduced reservations.
+func (f *fakeNotifier) ReservationEnding(_ context.Context, n ReservationNotice) error {
+	f.ending = append(f.ending, n)
+	return nil
+}
+
+func (f *fakeNotifier) ReservationReduced(_ context.Context, n ReservationNotice) error {
+	f.reduced = append(f.reduced, n)
+	return nil
+}
+
+// fakeListener records the parts it hears about.
+type fakeListener struct {
+	ending, ended []PartNotice
+}
+
+func (f *fakeListener) PartEnding(_ context.Context, n PartNotice) { f.ending = append(f.ending, n) }
+func (f *fakeListener) PartEnded(_ context.Context, n PartNotice)  { f.ended = append(f.ended, n) }

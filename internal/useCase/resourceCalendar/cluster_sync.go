@@ -55,6 +55,8 @@ type clusterSync struct {
 	newID  func() uuid.UUID
 	// locks serializes the pushes to one agent inside this process.
 	locks sync.Map
+	// listener acts on the ending and the end of parts.
+	listener PartListener
 }
 
 // SetClusterReservations wires the agents' reservation API; notice says how long before its end an agent gives

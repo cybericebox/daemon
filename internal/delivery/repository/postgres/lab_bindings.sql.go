@@ -471,6 +471,28 @@ func (q *Queries) MarkLabBindingFailedWithReason(ctx context.Context, arg MarkLa
 	return result.RowsAffected(), nil
 }
 
+const markLabGroupBindingsDestroyed = `-- name: MarkLabGroupBindingsDestroyed :execrows
+UPDATE lab_bindings
+SET readiness = 3
+WHERE event_id = $1
+  AND lab_group_name = $2
+  AND readiness <> 3
+`
+
+type MarkLabGroupBindingsDestroyedParams struct {
+	EventID      uuid.UUID `json:"event_id"`
+	LabGroupName string    `json:"lab_group_name"`
+}
+
+// The labs of one team group of an event are gone (its cluster reservation ended).
+func (q *Queries) MarkLabGroupBindingsDestroyed(ctx context.Context, arg MarkLabGroupBindingsDestroyedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markLabGroupBindingsDestroyed, arg.EventID, arg.LabGroupName)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const markLabGroupCleanupRequestDestroyed = `-- name: MarkLabGroupCleanupRequestDestroyed :execrows
 UPDATE lab_group_cleanup_requests
 SET destroyed_at = $1

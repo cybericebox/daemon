@@ -55,7 +55,9 @@ type ExerciseUseCase struct {
 	resources resourcesModel.Policy
 	// testLabGate admits a test laboratory into the resource calendar; nil: no check.
 	testLabGate TestLabGate
-	elevations  IElevations // nil in narrow constructions: no approvals exist then
+	// testLabNotifier tells the author about the end of a test laboratory's reservation.
+	testLabNotifier TestLabNotifier
+	elevations      IElevations // nil in narrow constructions: no approvals exist then
 	// fileGCGrace is the media GC grace window the per-task file store follows.
 	fileGCGrace    time.Duration
 	importInbox    IImportInbox    // nil until wired; the end of a background import is then not announced

@@ -325,3 +325,42 @@ func TestSeenSinkHearsMessagesWithoutCapacityOnly(t *testing.T) {
 		t.Fatalf("only the two messages without a capacity refresh the agent: heard %d", seen)
 	}
 }
+
+type reservationReport struct {
+	snapshot bool
+	ids      []string
+	deleted  []string
+}
+
+// The reservations of a message reach their sink (all of them in a snapshot, the deleted ones by id); a deleted
+// reservation belongs to no lab group.
+func TestReservationsSinkReceivesReservationsAndDeletes(t *testing.T) {
+	store := &recordingStore{}
+	first := update("e1", 1, true, "group-a")
+	first.Reservations = []*labpb.Reservation{{Id: "r-1"}, {Id: "r-2"}}
+	second := update("e1", 2, false)
+	second.DeletedKeys = []*labpb.MonitoringDeletedKey{{Kind: "Reservation", Name: "r-2"}}
+	third := update("e1", 3, false, "group-a") // no reservation news: the sink is not called
+	stream := &scriptedStream{updates: []*labpb.MonitoringUpdate{first, second, third}}
+	var got []reservationReport
+	runner := NewRunner(nil, func(context.Context, *labpb.MonitoringRequest) (Stream, error) { return stream, nil }, store).
+		WithReservationsSink(func(_ context.Context, snapshot bool, rs []*labpb.Reservation, deleted []string) error {
+			r := reservationReport{snapshot: snapshot, deleted: deleted}
+			for _, v := range rs {
+				r.ids = append(r.ids, v.GetId())
+			}
+			got = append(got, r)
+			return nil
+		})
+	if err := runner.consume(context.Background()); err != io.EOF {
+		t.Fatalf("consume error = %v", err)
+	}
+	if len(got) != 2 || !got[0].snapshot || len(got[0].ids) != 2 || got[1].snapshot || len(got[1].deleted) != 1 || got[1].deleted[0] != "r-2" {
+		t.Fatalf("reservation reports %+v", got)
+	}
+	for _, applied := range store.applied {
+		if applied.group == "" {
+			t.Fatalf("a deleted reservation became a lab group update: %+v", store.applied)
+		}
+	}
+}

@@ -346,6 +346,8 @@ func NewUseCase(deps Dependencies) *UseCase {
 	if fleet, ok := deps.LabAgent.(interface{ SetPartResolver(infraModel.PartResolver) }); ok {
 		fleet.SetPartResolver(calendarUC)
 	}
+	// The ending notice and the end of a part act on the test labs and the event stands.
+	calendarUC.SetPartListener(partListener{exercises: exerciseUC, events: eventUC})
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.
 	if deps.LabAgent != nil {
 		labJobs := deps.EnqueuerFactory.NewEnqueuer()

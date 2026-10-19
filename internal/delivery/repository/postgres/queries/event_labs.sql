@@ -169,3 +169,9 @@ WHERE id=sqlc.arg(id) AND agent_uid='' AND desired_state IN ('Running','Stopped'
  AND desired_revision=sqlc.arg(desired_revision) AND generation=sqlc.arg(generation)
  AND lab_group_name=sqlc.arg(lab_group_name) AND lab_name=sqlc.arg(lab_name)
  AND create_evidence=sqlc.arg(expected_create_evidence)::jsonb;
+
+-- name: ListRunningEventTeamLabsInGroups :many
+-- The labs of an event that still run in the given team groups (their cluster reservation is ending).
+SELECT id FROM event_team_labs
+WHERE event_id = sqlc.arg(event_id) AND lab_group_name = ANY(sqlc.arg(groups)::text[]) AND desired_state = 'Running'
+ORDER BY id;

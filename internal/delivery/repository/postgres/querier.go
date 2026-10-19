@@ -1340,6 +1340,8 @@ type Querier interface {
 	ListRetiringEventLabs(ctx context.Context, limitVal int32) ([]EventTeamLab, error)
 	ListRetryableEmptyEventLabRevealBarriers(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
 	ListRevealSetLabs(ctx context.Context, arg ListRevealSetLabsParams) ([]EventTeamLab, error)
+	// The labs of an event that still run in the given team groups (their cluster reservation is ending).
+	ListRunningEventTeamLabsInGroups(ctx context.Context, arg ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error)
 	// The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
 	ListRunningExerciseImportJobs(ctx context.Context, arg ListRunningExerciseImportJobsParams) ([]ExerciseImportJob, error)
 	// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
@@ -1482,6 +1484,8 @@ type Querier interface {
 	MarkLabBindingDeployed(ctx context.Context, arg MarkLabBindingDeployedParams) (int64, error)
 	MarkLabBindingDestroyed(ctx context.Context, id uuid.UUID) (int64, error)
 	MarkLabBindingFailedWithReason(ctx context.Context, arg MarkLabBindingFailedWithReasonParams) (int64, error)
+	// The labs of one team group of an event are gone (its cluster reservation ended).
+	MarkLabGroupBindingsDestroyed(ctx context.Context, arg MarkLabGroupBindingsDestroyedParams) (int64, error)
 	MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg MarkLabGroupCleanupRequestDestroyedParams) (int64, error)
 	MarkPlatformSMTPUsed(ctx context.Context, arg MarkPlatformSMTPUsedParams) error
 	// A ready Lab makes the preparing team challenges of every binding that shares
@@ -1704,6 +1708,8 @@ type Querier interface {
 	SetEventTeamHidden(ctx context.Context, arg SetEventTeamHiddenParams) (int64, error)
 	SetEventTeamsFieldsMissing(ctx context.Context, arg SetEventTeamsFieldsMissingParams) error
 	SetEventVPNCursor(ctx context.Context, arg SetEventVPNCursorParams) error
+	// The ending notice of the run's cluster reservation: when the lab is deleted unless extended (narrow write).
+	SetExerciseTestDeployEndingAt(ctx context.Context, arg SetExerciseTestDeployEndingAtParams) (int64, error)
 	SetImportedExercisePointers(ctx context.Context, arg SetImportedExercisePointersParams) error
 	// A rotated access key: the new key signs from now on, the previous ones are recorded as retired.
 	SetInfrastructureAgentAccessKey(ctx context.Context, arg SetInfrastructureAgentAccessKeyParams) (int64, error)

@@ -112,6 +112,24 @@ func outcomes(ids []uuid.UUID, res []*labpb.ItemResult) []infraModel.ItemOutcome
 	return out
 }
 
+// ReservationsOf converts the reservations a monitoring message carries and the ids of the deleted ones; a reservation
+// whose id is not a part id is not ours and is left out.
+func ReservationsOf(rs []*labpb.Reservation, deleted []string) ([]infraModel.ClusterReservation, []uuid.UUID) {
+	listed := make([]infraModel.ClusterReservation, 0, len(rs))
+	for _, r := range rs {
+		if v, ok := reservationFrom(r); ok {
+			listed = append(listed, v)
+		}
+	}
+	var gone []uuid.UUID
+	for _, name := range deleted {
+		if id, err := uuid.FromString(name); err == nil {
+			gone = append(gone, id)
+		}
+	}
+	return listed, gone
+}
+
 // ListReservations lists this platform instance's reservations on the agent.
 func (c *Client) ListReservations(ctx context.Context) ([]infraModel.ClusterReservation, error) {
 	list, err := c.Client.ListReservations(ctx, &labpb.ListRequest{Selector: c.MonitoringSelector()})

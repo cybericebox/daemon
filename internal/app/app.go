@@ -190,6 +190,11 @@ func Run(cfg *config.Config) {
 				ucs.Journal.ReportAgentErrors(ctx, member.Name, agentErrors(report))
 			})
 			runner = runner.WithLinkSink(agentLink{journal: ucs.Journal, id: member.ID, name: member.Name})
+			// The agent's reservations: their phase, the ending notice and the usage drive the calendar's parts.
+			runner = runner.WithReservationsSink(func(ctx context.Context, snapshot bool, reservations []*labpb.Reservation, deleted []string) error {
+				listed, gone := labagent.ReservationsOf(reservations, deleted)
+				return ucs.ObserveClusterReservations(ctx, member.ID, snapshot, listed, gone)
+			})
 			return runner.WithAgentID(member.ID.String()).Run(ctx)
 		},
 	})
