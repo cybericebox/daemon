@@ -660,11 +660,24 @@ func (h *Handler) listVersions(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	// The internal notes are for full access only (admins, the owner event's owners/managers).
+	notes := accessFrom(ctx).Flags
 	out := make([]versionListItemResponse, 0, len(items))
 	for _, v := range items {
+		adminNote := v.AdminNote
+		if !notes {
+			adminNote = ""
+		}
 		out = append(out, versionListItemResponse{
-			ID: v.ID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label, VariantCount: v.VariantCount,
-			CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
+			ID:           v.ID,
+			Status:       v.Status,
+			AdminNote:    adminNote,
+			Label:        v.Label,
+			VariantCount: v.VariantCount,
+			CreatedAt:    v.CreatedAt,
+			CreatedBy:    v.CreatedBy,
+			AuthorName:   v.AuthorName,
+			PublishedAt:  v.PublishedAt,
 		})
 	}
 	response.AbortWithData(ctx, out)
@@ -704,6 +717,10 @@ func (h *Handler) getVersion(ctx *gin.Context) {
 	if access := accessFrom(ctx); access.Full && !access.Flags {
 		v = exerciseUseCase.WithoutFlags(v)
 	}
+	// The internal notes reach only full access: not an event viewer, not a published-only reader.
+	if !accessFrom(ctx).Flags {
+		v = exerciseUseCase.WithoutNotes(v)
+	}
 	// The fixed flags of a catalog exercise reach only the managers of an event it is attached to.
 	if !accessFrom(ctx).Full {
 		actor, ok := actorFrom(ctx)
@@ -736,9 +753,9 @@ func (h *Handler) getDraft(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	// An event viewer reads the working copy without the flags.
+	// An event viewer reads the working copy without the flags and the internal notes.
 	if !accessFrom(ctx).Flags {
-		v = exerciseUseCase.WithoutFlags(v)
+		v = exerciseUseCase.WithoutNotes(exerciseUseCase.WithoutFlags(v))
 	}
 	response.AbortWithData(ctx, versionToResponse(v))
 }
