@@ -4515,6 +4515,8 @@ definitions:
         type: string
       condition:
         $ref: '#/definitions/eventContentModel.Condition'
+      contentAlign:
+        type: string
       dateDisplays:
         additionalProperties:
           additionalProperties:
@@ -4571,9 +4573,13 @@ definitions:
       maxSizeMB:
         description: size limit of a file question
         type: integer
+      maxWidth:
+        type: integer
       minDate:
         description: 'date question: earliest allowed answer'
         type: string
+      mobileFullWidth:
+        type: boolean
       note:
         type: string
       openItem:
@@ -4598,6 +4604,8 @@ definitions:
         type: string
       size:
         type: string
+      spacing:
+        $ref: '#/definitions/eventContentModel.BlockSpacing'
       staffOnly:
         description: |-
           StaffOnly hides a participant/team field from participants: organizers
@@ -4613,6 +4621,8 @@ definitions:
         type: string
       text:
         type: string
+      textColumns:
+        type: integer
       timerDisplay:
         type: string
       timerSize:
@@ -4667,6 +4677,22 @@ definitions:
         type: array
       value:
         type: string
+    type: object
+  eventContentModel.BlockSpacing:
+    properties:
+      desktop:
+        $ref: '#/definitions/eventContentModel.BlockSpacingValues'
+      mobile:
+        $ref: '#/definitions/eventContentModel.BlockSpacingValues'
+    type: object
+  eventContentModel.BlockSpacingValues:
+    properties:
+      bottom:
+        type: integer
+      inline:
+        type: integer
+      top:
+        type: integer
     type: object
   eventContentModel.BlockType:
     enum:
