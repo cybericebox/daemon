@@ -53,6 +53,7 @@ func (u *EventUseCase) CleanupWithdrawnLaboratories(ctx context.Context) error {
 		if err := u.infra.DestroyLabGroup(ctx, group); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy withdrawn laboratory group").Err()
 		}
+		u.releaseTeamUnit(ctx, group)
 		for _, index := range indexes {
 			affected, markErr := u.labBindings.MarkDestroyed(ctx, bindings[index].ID)
 			if markErr != nil {
@@ -98,6 +99,7 @@ func (u *EventUseCase) CleanupQueuedLabGroups(ctx context.Context) error {
 		if err := u.infra.DestroyLabGroup(ctx, group); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy queued laboratory group").Err()
 		}
+		u.releaseTeamUnit(ctx, group)
 		affected, markErr := u.labBindings.MarkCleanupRequestDestroyed(ctx, group, time.Now())
 		if markErr != nil {
 			return model.ErrPlatform.WithError(markErr).WithMessage("Failed to mark queued laboratory group cleanup complete").Err()

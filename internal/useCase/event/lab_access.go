@@ -170,7 +170,7 @@ func (u *EventUseCase) reconcileLabAccess(ctx context.Context, sync labAccessSyn
 			if errors.Is(err, infraModel.ErrNoAgentFitsTask.Err()) {
 				return err
 			}
-			if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) {
+			if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) || errors.Is(err, infraModel.ErrReservationEnded) {
 				// The team's part is not on its agent yet, or is full for now: a wait, not a fault.
 				return errors.Join(infraModel.ErrGroupNotReady, err)
 			}

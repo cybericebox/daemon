@@ -457,3 +457,19 @@ func TestTeamGroupWaitsOnClusterReservation(t *testing.T) {
 		t.Fatalf("the group must run under the team's unit, got %+v", infra.ref)
 	}
 }
+
+// An ended part of the team's unit (the window passed) is a wait too, never a failure of the stand.
+func TestTeamGroupWaitsOnEndedReservation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := newFormGateMock(ctrl)
+	infra := &reservationWaitInfra{recordingLabAccessInfra: recordingLabAccessInfra{err: fmt.Errorf("deploy: %w", infraModel.ErrReservationEnded)}}
+	uc := event.NewEventUseCase(event.Dependencies{Repo: q, Infra: infra})
+	eventID, teamID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{{EventTeamID: teamID, EventID: eventID, DesiredRevision: 2, AppliedRevision: 1, UpdatedAt: time.Now(), RuntimeOpen: true, VpnEnabled: true}}, nil)
+	q.EXPECT().ListEventLabAccessClients(gomock.Any(), teamID).Return([]uuid.UUID{userID}, nil)
+	q.EXPECT().ListEventLabAccessLabs(gomock.Any(), teamID).Return(nil, nil)
+
+	if err := uc.ReconcilePendingLabAccess(context.Background()); err != nil {
+		t.Fatalf("an ended cluster reservation is a wait, got %v", err)
+	}
+}

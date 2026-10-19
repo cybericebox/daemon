@@ -182,7 +182,7 @@ func (l partListener) PartEnding(ctx context.Context, n calendarUseCase.PartNoti
 	case n.Part.Source == calModel.PartTestRun && n.Part.TestDeployID != nil && n.Part.OwnerID != nil:
 		err = l.exercises.TestRunEnding(ctx, *n.Part.OwnerID, *n.Part.TestDeployID, n.EndsAt)
 	case n.Part.Source == calModel.PartCalendar && n.EventID != nil && n.EventEnded:
-		err = l.events.ReservationPartEnding(ctx, *n.EventID, n.Part.AgentID)
+		err = l.events.ReservationPartEnding(ctx, *n.EventID, n.Part.AgentID, n.At)
 	}
 	if err != nil {
 		log.Warn().Err(err).Str("part_id", n.Part.ID.String()).Msg("Failed to act on the ending notice of a cluster reservation")
@@ -195,7 +195,7 @@ func (l partListener) PartEnded(ctx context.Context, n calendarUseCase.PartNotic
 	case n.Part.Source == calModel.PartTestRun && n.Part.TestDeployID != nil && n.Part.OwnerID != nil:
 		err = l.exercises.EndTestDeployByReservation(ctx, *n.Part.OwnerID, *n.Part.TestDeployID)
 	case n.Part.Source == calModel.PartCalendar && n.EventID != nil:
-		err = l.events.ReservationPartEnded(ctx, *n.EventID, n.Part.AgentID)
+		err = l.events.ReservationPartEnded(ctx, *n.EventID, n.Part.AgentID, n.At)
 	}
 	if err != nil {
 		log.Warn().Err(err).Str("part_id", n.Part.ID.String()).Msg("Failed to act on the end of a cluster reservation")
