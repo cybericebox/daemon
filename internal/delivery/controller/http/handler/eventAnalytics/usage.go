@@ -128,11 +128,11 @@ type (
 // @Success 200 {object} response.Response{data=usageResponse}
 // @Router /events/{id}/manage/analytics/usage [get]
 func (h *Handler) usage(ctx *gin.Context) {
-	v, ok := h.loadUsage(ctx)
+	people, ok := h.seesPeople(ctx)
 	if !ok {
 		return
 	}
-	people, ok := h.seesPeople(ctx)
+	v, ok := h.loadUsage(ctx, !people)
 	if !ok {
 		return
 	}
@@ -163,7 +163,9 @@ func (h *Handler) seesPeople(ctx *gin.Context) (bool, bool) {
 	return access.People, true
 }
 
-func (h *Handler) loadUsage(ctx *gin.Context) (eventAnalyticsUseCase.UsageView, bool) {
+// loadUsage reads the usage of the event. eventWide ignores the team and period filters: a viewer who sees the
+// totals only gets them for the whole event, so a small team or a narrow window cannot single out one person.
+func (h *Handler) loadUsage(ctx *gin.Context, eventWide bool) (eventAnalyticsUseCase.UsageView, bool) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return eventAnalyticsUseCase.UsageView{}, false
@@ -180,6 +182,9 @@ func (h *Handler) loadUsage(ctx *gin.Context) (eventAnalyticsUseCase.UsageView, 
 			return eventAnalyticsUseCase.UsageView{}, false
 		}
 		teamID = &id
+	}
+	if eventWide {
+		teamID, from, to = nil, nil, nil
 	}
 	v, err := h.useCase.GetEventAnalyticsUsage(ctx, eventID, teamID, from, to)
 	if err != nil {
@@ -246,7 +251,7 @@ func (h *Handler) exportUsage(ctx *gin.Context) {
 		response.AbortWithError(ctx, eventAnalyticsModel.ErrEventAnalyticsSensitiveForbidden.Err())
 		return
 	}
-	v, ok := h.loadUsage(ctx)
+	v, ok := h.loadUsage(ctx, false)
 	if !ok {
 		return
 	}

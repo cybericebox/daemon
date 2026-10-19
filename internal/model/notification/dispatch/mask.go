@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
-// emailInText finds addresses inside free text (an SMTP reply quotes the recipient).
-var emailInText = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
+// emailInText finds addresses inside free text (an SMTP reply quotes the recipient): anything around an «@» up to
+// a space, a bracket or a quote, so unicode local parts and IDN domains are caught as well.
+var emailInText = regexp.MustCompile(`[^\s<>@"']+@[^\s<>@"']+`)
 
 // MaskEmail keeps the first character of the local part and the domain: «olena@example.com» → «o***@example.com».
 // A text without «@» is returned as it is.
@@ -27,12 +28,16 @@ func MaskEmail(email string) string {
 func MaskRecipients(rows []DispatchDetail) []DispatchDetail {
 	masked := make([]DispatchDetail, len(rows))
 	for i, row := range rows {
+		known := []string{row.RecipientEmail}
+		for _, target := range row.Targets {
+			known = append(known, target.Recipient)
+		}
 		row.RecipientEmail = MaskEmail(row.RecipientEmail)
 		targets := make([]DispatchTarget, len(row.Targets))
 		for j, target := range row.Targets {
 			target.Recipient = MaskEmail(target.Recipient)
-			target.Error = maskEmailsIn(target.Error)
-			target.FallbackError = maskEmailsIn(target.FallbackError)
+			target.Error = maskEmailsIn(target.Error, known)
+			target.FallbackError = maskEmailsIn(target.FallbackError, known)
 			targets[j] = target
 		}
 		row.Targets = targets
@@ -41,6 +46,17 @@ func MaskRecipients(rows []DispatchDetail) []DispatchDetail {
 	return masked
 }
 
-func maskEmailsIn(text string) string {
-	return emailInText.ReplaceAllStringFunc(text, MaskEmail)
+// maskEmailsIn masks the row's own addresses wherever they appear (whatever their form), then any other address.
+func maskEmailsIn(text string, known []string) string {
+	for _, address := range known {
+		if strings.Contains(address, "@") {
+			text = strings.ReplaceAll(text, address, MaskEmail(address))
+		}
+	}
+	return emailInText.ReplaceAllStringFunc(text, func(found string) string {
+		if strings.Contains(found, "***@") {
+			return found
+		}
+		return MaskEmail(found)
+	})
 }

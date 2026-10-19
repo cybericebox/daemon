@@ -46,3 +46,21 @@ func TestMaskRecipients_HidesEveryAddressAndLeavesTheRest(t *testing.T) {
 	// The input is not changed.
 	require.Equal(t, "olena@example.com", rows[0].Targets[0].Recipient)
 }
+
+// Unicode local parts and IDN domains in a server reply are masked too, and the row's own address is masked
+// wherever it appears.
+func TestMaskRecipients_UnicodeAndIDNAddresses(t *testing.T) {
+	rows := []DispatchDetail{{
+		DispatchInfo: DispatchInfo{RecipientEmail: "олена@приклад.укр"},
+		Targets: []DispatchTarget{{
+			Recipient:     "олена@приклад.укр",
+			Error:         "550 5.1.1 олена@приклад.укр: user unknown; cc: müller@bücher.de",
+			FallbackError: `553 rejected "jose@xn--bcher-kva.de"`,
+		}},
+	}}
+	masked := MaskRecipients(rows)[0].Targets[0]
+	require.Equal(t, "о***@приклад.укр", masked.Recipient)
+	require.Equal(t, "550 5.1.1 о***@приклад.укр: user unknown; cc: m***@bücher.de", masked.Error)
+	require.Equal(t, `553 rejected "j***@xn--bcher-kva.de"`, masked.FallbackError)
+	require.NotContains(t, masked.Error, "олена@")
+}
