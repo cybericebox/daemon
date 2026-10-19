@@ -117,3 +117,9 @@ func generatePassword(policy password.ComplexityConfig) (string, error) {
 	}
 	return string(chars), nil
 }
+
+// GeneratePassword builds a random password that passes the platform policy. The load-test
+// account generator uses it too.
+func GeneratePassword(policy password.ComplexityConfig) (string, error) {
+	return generatePassword(policy)
+}
