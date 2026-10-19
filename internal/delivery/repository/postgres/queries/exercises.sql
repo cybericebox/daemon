@@ -97,6 +97,13 @@ WITH listed AS (SELECT e.id,
                                             THEN jsonb_array_length(version.variants -> 0 -> 'tasks')
                                         ELSE 0 END
                            END AS task_count,
+                       -- Their names, in order (empty without a variant).
+                       COALESCE(ARRAY(SELECT COALESCE(task.value ->> 'name', '')
+                                      FROM jsonb_array_elements(CASE
+                                                                    WHEN jsonb_typeof(version.variants -> 0 -> 'tasks') = 'array'
+                                                                        THEN version.variants -> 0 -> 'tasks'
+                                                                    ELSE '[]'::jsonb END) WITH ORDINALITY AS task(value, position)
+                                      ORDER BY task.position), '{}')::text[] AS task_names,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The content the catalog describes: the published version, else the working copy (as infrastructure).
@@ -129,7 +136,8 @@ SELECT sqlc.embed(exercises), listed.status, listed.author_name,
        (listed.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
        COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty,
        (listed.task_count IS NOT NULL)::boolean      AS has_task_count,
-       COALESCE(listed.task_count, 0)::int           AS task_count
+       COALESCE(listed.task_count, 0)::int           AS task_count,
+       listed.task_names
 FROM listed
 JOIN exercises USING (id)
 WHERE (coalesce(cardinality(sqlc.arg(statuses)::text[]), 0) = 0 OR listed.status = ANY (sqlc.arg(statuses)::text[]))
@@ -169,6 +177,13 @@ WITH listed AS (SELECT e.id,
                                             THEN jsonb_array_length(version.variants -> 0 -> 'tasks')
                                         ELSE 0 END
                            END AS task_count,
+                       -- Their names, in order (empty without a variant).
+                       COALESCE(ARRAY(SELECT COALESCE(task.value ->> 'name', '')
+                                      FROM jsonb_array_elements(CASE
+                                                                    WHEN jsonb_typeof(version.variants -> 0 -> 'tasks') = 'array'
+                                                                        THEN version.variants -> 0 -> 'tasks'
+                                                                    ELSE '[]'::jsonb END) WITH ORDINALITY AS task(value, position)
+                                      ORDER BY task.position), '{}')::text[] AS task_names,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
                 -- The content the catalog describes: the published version, else the working copy (as infrastructure).

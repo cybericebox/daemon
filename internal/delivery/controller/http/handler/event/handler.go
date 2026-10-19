@@ -486,7 +486,8 @@ func (h *Handler) listPublishedExercisesForEvent(ctx *gin.Context) {
 		}
 		out = append(out, publishedExerciseChoiceResponse{ID: item.ID, Name: item.Name, Description: item.Description, PublishedVersionID: item.PublishedVersionID,
 			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, Attached: item.Attached,
-			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy})
+			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy,
+			AvgDifficulty: item.AvgDifficulty, TaskCount: item.TaskCount, TaskNames: nonNilStrings(item.TaskNames)})
 	}
 	response.AbortWithData(ctx, out)
 }
@@ -2207,4 +2208,12 @@ func (h *Handler) listHintUnlocks(ctx *gin.Context) {
 		out = append(out, hintUnlockResponse(item))
 	}
 	response.AbortWithData(ctx, out)
+}
+
+// nonNilStrings keeps a JSON array an array: nil becomes [].
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

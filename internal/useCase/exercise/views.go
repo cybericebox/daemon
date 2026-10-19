@@ -54,6 +54,8 @@ type ExerciseListItem struct {
 	AvgDifficulty *float64
 	// TaskCount is the number of subtasks of that same first variant; nil without a variant (page lists only).
 	TaskCount *int
+	// TaskNames are the names of those subtasks in order (page lists only; empty without a variant).
+	TaskNames []string
 
 	ExerciseScopeView
 }

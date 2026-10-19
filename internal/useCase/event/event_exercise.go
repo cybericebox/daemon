@@ -250,7 +250,8 @@ func (u *EventUseCase) ListPublishedExercisesForEvent(ctx context.Context, event
 			scope = "event"
 		}
 		items = append(items, EventCatalogItem{ID: row.ID, Name: row.Name, Description: row.Description, Tags: row.Tags, Scope: scope,
-			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached})
+			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached,
+			AvgDifficulty: row.AvgDifficulty, TaskCount: row.TaskCount, TaskNames: row.TaskNames})
 	}
 	if err = u.decorateCatalogResources(ctx, items); err != nil {
 		return nil, err

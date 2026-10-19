@@ -676,6 +676,11 @@ type publishedExerciseChoiceResponse struct {
 	// approved elevation holds a device above the platform frame (a badge in the picker).
 	Resources     eventResourceRangeResponse `json:"Resources"`
 	ResourceHeavy bool                       `json:"ResourceHeavy"`
+	// AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first
+	// variant, null without one; TaskCount: their number, null without a variant; TaskNames: their names in order.
+	AvgDifficulty *float64 `json:"AvgDifficulty"`
+	TaskCount     *int     `json:"TaskCount"`
+	TaskNames     []string `json:"TaskNames"`
 }
 
 type publishedExerciseTaskPreviewResponse struct {

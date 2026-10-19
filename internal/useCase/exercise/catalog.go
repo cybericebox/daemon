@@ -261,7 +261,7 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 		items := make([]ExerciseListItem, 0, len(exercises))
 		for _, e := range exercises {
 			item := toExerciseListItem(e.Exercise, e.Status)
-			item.AuthorName, item.AvgDifficulty, item.TaskCount = e.AuthorName, e.AvgDifficulty, e.TaskCount
+			item.AuthorName, item.AvgDifficulty, item.TaskCount, item.TaskNames = e.AuthorName, e.AvgDifficulty, e.TaskCount, e.TaskNames
 			items = append(items, item)
 		}
 		total, err := u.exercises.CountPage(ctx, params)
