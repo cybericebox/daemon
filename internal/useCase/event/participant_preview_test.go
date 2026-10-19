@@ -617,3 +617,61 @@ func TestPreviewCatalogMutedListIsScopedToCaller(t *testing.T) {
 		t.Fatalf("items=%v err=%v calls=%d", items, err, calls)
 	}
 }
+
+// A dynamic task that cannot run now stays on the settings page with the reason, and only there:
+// the board never offers it.
+func TestPreviewSettingsListUnavailableDynamicTaskWithReason(t *testing.T) {
+	cases := []struct {
+		name           string
+		dynamic        bool
+		infrastructure bool
+		allocated      bool
+		reason         string
+		onBoard        bool
+	}{
+		{"dynamic without infrastructure", true, false, true, event.PreviewReasonNoInfrastructure, false},
+		{"dynamic without an active reservation", true, true, false, event.PreviewReasonNoReservation, false},
+		{"dynamic with a placed reservation", true, true, true, "", true},
+		{"static without infrastructure or reservation", false, false, false, "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newPreviewFixture(t, c.dynamic)
+			f.infrastructureAllowed, f.labs.allocated = c.infrastructure, c.allocated
+			settings, err := f.uc.GetPreviewSettings(context.Background(), f.event, f.user)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(settings.EffectiveSelections) != 1 || settings.EffectiveSelections[0].Reason != c.reason || settings.EffectiveSelections[0].Name != "Catalog" {
+				t.Fatalf("effective selections %+v, want one with reason %q", settings.EffectiveSelections, c.reason)
+			}
+			board, err := f.uc.PreviewBoard(context.Background(), f.event, f.user)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(board.Challenges) > 0) != c.onBoard {
+				t.Fatalf("on the board: %d challenges, want present=%v", len(board.Challenges), c.onBoard)
+			}
+		})
+	}
+}
+
+// Saving keeps a listed task that cannot run now, but a newly chosen one still needs capacity.
+func TestPreviewSaveKeepsListedUnavailableDynamicTaskButRefusesNewOne(t *testing.T) {
+	f := newPreviewFixture(t, true)
+	f.labs.allocated = false
+	f.q.EXPECT().UpsertEventPreviewSettings(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.UpsertEventPreviewSettingsParams) error {
+		f.selections = p.Selections
+		return nil
+	}).AnyTimes()
+	name := "Preview"
+	input := event.PreviewSettingsInput{GroupName: &name, Selections: []event.PreviewSelection{{ExerciseVersionID: f.version, VariantID: f.variant}}}
+	view, err := f.uc.PutPreviewSettings(context.Background(), f.event, f.user, input)
+	if err != nil || len(view.EffectiveSelections) != 1 || view.EffectiveSelections[0].Reason != event.PreviewReasonNoReservation {
+		t.Fatalf("saving the listed task: %+v %v", view, err)
+	}
+	f.selections = []byte(`[]`)
+	if _, err = f.uc.PutPreviewSettings(context.Background(), f.event, f.user, input); !errors.Is(err, preview.ErrUnavailable.Err()) {
+		t.Fatalf("a newly chosen task without capacity: %v", err)
+	}
+}

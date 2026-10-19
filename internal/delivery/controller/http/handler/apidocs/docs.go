@@ -25838,6 +25838,10 @@ const docTemplate = `{
                 "Name": {
                     "type": "string"
                 },
+                "Reason": {
+                    "description": "Reason is set when the task stays listed but cannot run now: a dynamic task without infrastructure\n(no_infrastructure) or without an active, placed resource reservation (no_reservation).",
+                    "type": "string"
+                },
                 "VariantID": {
                     "type": "string"
                 },
