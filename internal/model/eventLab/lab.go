@@ -138,12 +138,9 @@ func (l *Lab) Start(operationID uuid.UUID, now time.Time) error {
 	// new start after an intervening intent changed the desired revision.
 	currentStop := l.AgentUID != "" && l.AgentGeneration > 0 && l.ObservedRevision == l.Revision && l.ObservedAt != nil && l.AccessFenced && l.Allocation.RuntimeState == "Released" && l.Allocation.ReleasedAt != nil && l.FailureCode == ""
 	currentBarrier := l.SnapshotMode == "skip" || (l.SnapshotMode == "required" && l.SnapshotState == "Succeeded")
-	deadline := l.RetentionUntil
-	if l.ProtectedUntil != nil && (deadline == nil || l.ProtectedUntil.After(*deadline)) {
-		deadline = l.ProtectedUntil
-	}
+	// The retention deadline no longer limits a restart: a stopped lab lives until its reservation window ends.
 	restartableClosure := l.ClosedAt != nil && (l.CloseReason == "manual" || l.CloseReason == "stage")
-	if l.DesiredState != "Stopped" || l.ActualState != "Stopped" || !restartableClosure || !currentStop || !retainedDefinition || !currentBarrier || (deadline != nil && !now.Before(*deadline)) {
+	if l.DesiredState != "Stopped" || l.ActualState != "Stopped" || !restartableClosure || !currentStop || !retainedDefinition || !currentBarrier {
 		return ErrRestartUnavailable.Err()
 	}
 	if operationID == uuid.Nil || operationID == l.OperationID {

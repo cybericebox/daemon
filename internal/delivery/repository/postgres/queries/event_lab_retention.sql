@@ -1,8 +1,3 @@
--- name: ListDueRetainedEventLabs :many
-SELECT l.* FROM event_team_labs l WHERE l.desired_state='Stopped' AND l.retention_until<=sqlc.arg(now)
- AND (l.protected_until IS NULL OR l.protected_until<=sqlc.arg(now))
- AND NOT EXISTS(SELECT 1 FROM event_lab_retention_pins p WHERE p.lab_id=l.id AND p.generation=l.generation AND p.needed_until>sqlc.arg(now))
-ORDER BY l.retention_until,l.id LIMIT sqlc.arg(limit_val);
 -- name: ListRetiringEventLabs :many
 SELECT * FROM event_team_labs WHERE desired_state='Deleted' AND retirement_state<>'Deleted' ORDER BY updated_at,id LIMIT sqlc.arg(limit_val);
 -- name: ListOrphanEventLabs :many
@@ -95,13 +90,6 @@ ON CONFLICT(lab_id,generation) DO NOTHING;
 -- name: IsOwnedRetainedLabGroup :one
 SELECT EXISTS(SELECT 1 FROM event_team_group_allocations g WHERE g.lab_group_name=sqlc.arg(lab_group_name)
  AND NOT(g.desired_state='Deleted' AND g.actual_state='Deleted' AND g.retirement_state='Deleted' AND g.allocation->>'StorageState'='Deleted')) AS owned;
--- name: ListDueRetainedGroups :many
-SELECT g.* FROM event_team_group_allocations g WHERE g.desired_state='Stopped' AND g.actual_state='Stopped'
- AND g.retention_until<=sqlc.arg(now) AND (g.protected_until IS NULL OR g.protected_until<=sqlc.arg(now))
- AND NOT EXISTS(SELECT 1 FROM event_lab_group_retention_pins p WHERE p.event_team_id=g.event_team_id AND p.needed_until>sqlc.arg(now))
- AND NOT EXISTS(SELECT 1 FROM event_team_labs l WHERE l.event_team_id=g.event_team_id AND (l.desired_state<>'Deleted' OR l.retirement_state<>'Deleted' OR l.allocation->>'StorageState'<>'Deleted'))
-ORDER BY g.retention_until,g.event_team_id LIMIT sqlc.arg(limit_val);
-
 -- name: HasActiveEventLabRuntimeSelection :one
 SELECT EXISTS(SELECT 1 FROM event_stage_lab_runtime_memberships m JOIN event_stages s ON s.id=m.stage_id
  JOIN event_lab_retention_pins p ON p.lab_id=m.lab_id AND p.stage_id=m.stage_id AND p.generation=m.generation

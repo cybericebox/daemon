@@ -38,3 +38,18 @@ func TestEndWithReservationSettlesLabAndGroup(t *testing.T) {
 		t.Fatalf("ended group: %+v", g)
 	}
 }
+
+// A manually stopped lab restarts after its retention deadline too: labs live until the reservation window ends.
+func TestRestartIgnoresRetentionDeadline(t *testing.T) {
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-time.Hour)
+	l := Lab{ID: uuid.Must(uuid.NewV7()), Ref: Ref{Group: "team", Lab: "lab"}, DesiredState: "Stopped", ActualState: "Stopped", CloseReason: "manual", ClosedAt: &past,
+		AgentUID: "uid", AgentGeneration: 1, Revision: 2, ObservedRevision: 2, ObservedAt: &past, AccessFenced: true, SnapshotMode: "skip",
+		RetentionUntil: &past, Allocation: Allocation{RuntimeState: "Released", ReleasedAt: &past, StorageState: "Retained"}, OperationID: uuid.Must(uuid.NewV7())}
+	if err := l.Start(uuid.Must(uuid.NewV7()), now); err != nil {
+		t.Fatalf("restart refused after the retention deadline: %v", err)
+	}
+	if l.DesiredState != "Running" {
+		t.Fatal("not restarted")
+	}
+}

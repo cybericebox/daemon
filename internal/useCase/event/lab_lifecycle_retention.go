@@ -7,7 +7,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabAllocationRepo"
-	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabGroupRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventLabRetentionRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventRepo"
@@ -114,9 +113,6 @@ func (u *EventUseCase) SelectRetainedLabsForStage(ctx context.Context, eventID, 
 		if l.EventID != eventID || l.CloseReason == "solved" || l.DesiredState == "Deleted" {
 			return fmt.Errorf("retained runtime selection is not eligible")
 		}
-		if deadline := l.EffectiveRetentionUntil(); l.DesiredState == "Stopped" && deadline != nil && !now.Before(*deadline) {
-			return fmt.Errorf("retained runtime selection has expired")
-		}
 		if err = repo.Select(txCtx, eventID, stageID, id, now); err != nil {
 			return err
 		}
@@ -221,6 +217,8 @@ func (u *EventUseCase) recomputeRetentionPinsInTransaction(ctx context.Context, 
 	return q.RefreshEventGroupProtectedUntil(ctx, eventID)
 }
 
+// ReconcileLabRetention closes the labs still running after the event (stop with their final snapshot) and drives
+// the retirements already requested. It no longer starts a retirement: labs live until the reservation window ends.
 func (u *EventUseCase) ReconcileLabRetention(ctx context.Context, now time.Time) error {
 	if !u.lifecycleControls || u.uow == nil {
 		return nil
@@ -262,52 +260,8 @@ func (u *EventUseCase) ReconcileLabRetention(ctx context.Context, now time.Time)
 			}
 		}()
 	}
-	due, err := repo.DueLabs(ctx, now, u.labLifecycleBatch)
-	if err != nil {
-		return err
-	}
-	for _, snapshot := range due {
-		txCtx, q, unit, e := u.uow.UnitOfWork(ctx)
-		if e != nil {
-			errs = append(errs, e)
-			continue
-		}
-		func() {
-			defer unit.Restore()
-			if e = eventLabRepo.New(q).LockAdmission(txCtx, snapshot.TeamID); e != nil && !repositoryTools.IsObjectNotFoundError(e) {
-				errs = append(errs, e)
-				return
-			}
-			l, e := eventLabRepo.New(q).Lock(txCtx, snapshot.ID)
-			if e != nil {
-				errs = append(errs, e)
-				return
-			}
-			pinned, e := eventLabRetentionRepo.New(q).Pinned(txCtx, l, now)
-			if e != nil {
-				errs = append(errs, e)
-				return
-			}
-			if pinned {
-				return
-			}
-			expected := l.Revision
-			if !l.RequestRetirement(uuid.Must(uuid.NewV7()), now) {
-				return
-			}
-			if e = eventLabRetentionRepo.New(q).Archive(txCtx, l.ID); e != nil {
-				errs = append(errs, e)
-				return
-			}
-			if _, e = eventLabRepo.New(q).Update(txCtx, l, expected); e != nil {
-				errs = append(errs, e)
-				return
-			}
-			if e = unit.Save(); e != nil {
-				errs = append(errs, e)
-			}
-		}()
-	}
+	// Labs and their snapshots live until the end of the reservation window (owner decision 2026-10-19): the
+	// cluster deletes them there. A retention deadline never retires a lab or a group; it is kept but ignored.
 	retiring, err := repo.Retiring(ctx, u.labLifecycleBatch)
 	if err != nil {
 		return err
@@ -334,40 +288,6 @@ func (u *EventUseCase) ReconcileLabRetention(ctx context.Context, now time.Time)
 				errs = append(errs, e)
 			}
 		}
-	}
-	groups, err := repo.DueGroups(ctx, now, u.labLifecycleBatch)
-	if err != nil {
-		return err
-	}
-	for _, snapshot := range groups {
-		txCtx, q, unit, e := u.uow.UnitOfWork(ctx)
-		if e != nil {
-			errs = append(errs, e)
-			continue
-		}
-		func() {
-			defer unit.Restore()
-			if e = eventLabRepo.New(q).LockAdmission(txCtx, snapshot.TeamID); e != nil && !repositoryTools.IsObjectNotFoundError(e) {
-				errs = append(errs, e)
-				return
-			}
-			g, e := eventLabGroupRepo.New(q).Lock(txCtx, snapshot.TeamID)
-			if e != nil {
-				errs = append(errs, e)
-				return
-			}
-			expected := g.Revision
-			if !g.RequestRetirement(uuid.Must(uuid.NewV7()), now) {
-				return
-			}
-			if _, e = eventLabGroupRepo.New(q).Update(txCtx, g, expected); e != nil {
-				errs = append(errs, e)
-				return
-			}
-			if e = unit.Save(); e != nil {
-				errs = append(errs, e)
-			}
-		}()
 	}
 	return errors.Join(errs...)
 }

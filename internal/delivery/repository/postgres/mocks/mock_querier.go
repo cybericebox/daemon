@@ -6192,36 +6192,6 @@ func (mr *MockQuerierMockRecorder) ListDispatches(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDispatches", reflect.TypeOf((*MockQuerier)(nil).ListDispatches), ctx, arg)
 }
 
-// ListDueRetainedEventLabs mocks base method.
-func (m *MockQuerier) ListDueRetainedEventLabs(ctx context.Context, arg postgres.ListDueRetainedEventLabsParams) ([]postgres.EventTeamLab, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDueRetainedEventLabs", ctx, arg)
-	ret0, _ := ret[0].([]postgres.EventTeamLab)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListDueRetainedEventLabs indicates an expected call of ListDueRetainedEventLabs.
-func (mr *MockQuerierMockRecorder) ListDueRetainedEventLabs(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDueRetainedEventLabs", reflect.TypeOf((*MockQuerier)(nil).ListDueRetainedEventLabs), ctx, arg)
-}
-
-// ListDueRetainedGroups mocks base method.
-func (m *MockQuerier) ListDueRetainedGroups(ctx context.Context, arg postgres.ListDueRetainedGroupsParams) ([]postgres.EventTeamGroupAllocation, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListDueRetainedGroups", ctx, arg)
-	ret0, _ := ret[0].([]postgres.EventTeamGroupAllocation)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListDueRetainedGroups indicates an expected call of ListDueRetainedGroups.
-func (mr *MockQuerierMockRecorder) ListDueRetainedGroups(ctx, arg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDueRetainedGroups", reflect.TypeOf((*MockQuerier)(nil).ListDueRetainedGroups), ctx, arg)
-}
-
 // ListDueStageRuntimeSelections mocks base method.
 func (m *MockQuerier) ListDueStageRuntimeSelections(ctx context.Context, arg postgres.ListDueStageRuntimeSelectionsParams) ([]postgres.ListDueStageRuntimeSelectionsRow, error) {
 	m.ctrl.T.Helper()
