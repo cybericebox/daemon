@@ -49,7 +49,7 @@ func TestMidEventPartEndSettlesLabsWithoutFailure(t *testing.T) {
 	stops := len(f.agent.stopCalls)
 	f.agent.mu.Unlock()
 
-	if err = uc.ReservationPartEnded(ctx, f.eventID, agent.id); err != nil {
+	if err = uc.ReservationPartEnded(ctx, f.eventID, agent.id, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 	labs := eventLabRepo.New(f.db.Queries)
@@ -98,7 +98,7 @@ func TestMidEventPartEndSettlesLabsWithoutFailure(t *testing.T) {
 		t.Fatalf("bindings not recorded as removed: %d %v", destroyed, err)
 	}
 	// Repeating the end changes nothing.
-	if err = uc.ReservationPartEnded(ctx, f.eventID, agent.id); err != nil {
+	if err = uc.ReservationPartEnded(ctx, f.eventID, agent.id, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 }

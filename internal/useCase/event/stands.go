@@ -784,7 +784,7 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 			return false, nil
 		}
 		// The team's part is not on its agent yet, or has no room now: the Lab waits, it has not failed.
-		if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) {
+		if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) || errors.Is(err, infraModel.ErrReservationEnded) {
 			log.Info().Err(err).Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Stand lab deploy waits for its cluster reservation")
 			return false, nil
 		}
@@ -972,6 +972,7 @@ func (u *EventUseCase) tearDownEventStands(ctx context.Context, e eventModel.Eve
 			if err = u.infra.DestroyLabGroup(ctx, group); err != nil {
 				return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy team stand").Err()
 			}
+			u.releaseTeamUnit(ctx, group)
 		}
 		if err = u.labBindings.MarkEventDestroyed(ctx, e.ID); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to mark stand labs destroyed").Err()

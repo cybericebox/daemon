@@ -46,7 +46,7 @@ func (u *EventUseCase) groupsOnAgent(ctx context.Context, eventID, agentID uuid.
 // ReservationPartEnding is the ending notice of the event's reservation part on an agent after the event: at the end
 // the cluster deletes everything under it, snapshots included, so the labs that still run are stopped now (with the
 // final snapshot their policy asks for) while the cluster still has them.
-func (u *EventUseCase) ReservationPartEnding(ctx context.Context, eventID, agentID uuid.UUID) error {
+func (u *EventUseCase) ReservationPartEnding(ctx context.Context, eventID, agentID uuid.UUID, now time.Time) error {
 	if !u.lifecycleControls || u.uow == nil {
 		return nil
 	}
@@ -58,7 +58,6 @@ func (u *EventUseCase) ReservationPartEnding(ctx context.Context, eventID, agent
 	if err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to list the running event labs").Err()
 	}
-	now := time.Now().UTC()
 	var errs []error
 	for _, id := range running {
 		txCtx, q, unit, e := u.uow.UnitOfWork(ctx)
@@ -93,7 +92,7 @@ func (u *EventUseCase) ReservationPartEnding(ctx context.Context, eventID, agent
 // ReservationPartEnded releases the event's labs on an agent whose reservation part ended: the cluster deleted them.
 // Their groups are forgotten (placement released) and their bindings recorded as removed. It is the expected end of
 // the reservation, not a failure: no stand failure, no failed-lab signal.
-func (u *EventUseCase) ReservationPartEnded(ctx context.Context, eventID, agentID uuid.UUID) error {
+func (u *EventUseCase) ReservationPartEnded(ctx context.Context, eventID, agentID uuid.UUID, now time.Time) error {
 	groups, err := u.groupsOnAgent(ctx, eventID, agentID)
 	if err != nil {
 		return err
@@ -108,16 +107,17 @@ func (u *EventUseCase) ReservationPartEnded(ctx context.Context, eventID, agentI
 		if mErr := u.labBindings.MarkGroupDestroyed(ctx, eventID, group); mErr != nil {
 			errs = append(errs, model.ErrPlatform.WithError(mErr).WithMessage("Failed to record the labs of an ended reservation").Err())
 		}
-		if eErr := u.endLifecyclesWithReservation(ctx, group); eErr != nil {
+		if eErr := u.endLifecyclesWithReservation(ctx, group, now); eErr != nil {
 			errs = append(errs, eErr)
 		}
+		u.releaseTeamUnit(ctx, group)
 	}
 	return errors.Join(errs...)
 }
 
 // endLifecyclesWithReservation settles the lifecycle of a team group the cluster deleted with its reservation, and of
 // every lab in it: the lifecycle stops chasing them (no start, no stop, no failure) and they hold nothing.
-func (u *EventUseCase) endLifecyclesWithReservation(ctx context.Context, group string) error {
+func (u *EventUseCase) endLifecyclesWithReservation(ctx context.Context, group string, now time.Time) error {
 	if !u.lifecycleControls || u.uow == nil {
 		return nil
 	}
@@ -130,7 +130,6 @@ func (u *EventUseCase) endLifecyclesWithReservation(ctx context.Context, group s
 		return err
 	}
 	defer unit.Restore()
-	now := time.Now().UTC()
 	labs := eventLabRepo.New(q)
 	if err = labs.LockAdmission(txCtx, teamID); err != nil && !repositoryTools.IsObjectNotFoundError(err) {
 		return err
@@ -166,4 +165,25 @@ func (u *EventUseCase) endLifecyclesWithReservation(ctx context.Context, group s
 		}
 	}
 	return unit.Save()
+}
+
+// teamUnitReleaser forgets the agent of a team's unit of the event reservation (the calendar).
+type teamUnitReleaser interface {
+	ReleaseTeamUnit(ctx context.Context, eventID, teamID uuid.UUID) error
+}
+
+// releaseTeamUnit forgets the agent of the team of a destroyed group, so a new group of the team is placed again
+// from the current shares. A failure is logged: the unit stays on its agent.
+func (u *EventUseCase) releaseTeamUnit(ctx context.Context, group string) {
+	releaser, ok := u.resourceGate.(teamUnitReleaser)
+	if !ok {
+		return
+	}
+	eventID, teamID, ok := labBindingModel.ParseGroupName(group)
+	if !ok {
+		return
+	}
+	if err := releaser.ReleaseTeamUnit(ctx, eventID, teamID); err != nil {
+		log.Warn().Err(err).Str("lab_group", group).Msg("Failed to release the reservation unit of a destroyed group")
+	}
 }
