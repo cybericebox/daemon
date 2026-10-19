@@ -1418,6 +1418,17 @@ func TestDeployVariant_Returns200(t *testing.T) {
 	}
 }
 
+// The status carries the author's WireGuard private key once the lab is up: never cacheable.
+func TestDeployStatus_IsNeverCached(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	r := newEngine(&fakeUC{deployStatus: exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true, VPNConfig: "wg"}}, uid)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String(), nil))
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("code=%d Cache-Control=%q", w.Code, w.Header().Get("Cache-Control"))
+	}
+}
+
 func TestDeployStatus_Returns200(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	uc := &fakeUC{deployStatus: exerciseModel.LabDeployStatus{

@@ -27,14 +27,15 @@ type previewLabsFake struct {
 	startErr     error
 	deploy       uuid.UUID
 	destroyErr   error
+	vpnConfig    string
 }
 
 func (f *previewLabsFake) DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (exerciseModel.DeployHandle, error) {
 	f.starts++
 	return exerciseModel.DeployHandle{Group: f.deploy.String()}, f.startErr
 }
-func (f *previewLabsFake) DeployTestStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error) {
-	return exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true}, nil
+func (f *previewLabsFake) PreviewDeployStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error) {
+	return exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true, VPNConfig: f.vpnConfig}, nil
 }
 func (f *previewLabsFake) CheckTestFlag(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) (bool, error) {
 	return true, nil

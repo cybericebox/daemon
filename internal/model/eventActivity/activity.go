@@ -29,6 +29,7 @@ const (
 	KindCaptainChanged           Kind = "captain_changed"
 	KindParticipantStatusChanged Kind = "participant_status_changed"
 	KindAttemptRejected          Kind = "attempt_rejected"
+	KindVPNConfigDownloaded      Kind = "vpn_config_downloaded"
 )
 
 // RejectReason is why a flag submission was refused before it became an
@@ -45,6 +46,20 @@ const (
 	RejectLocked          RejectReason = "locked"
 	RejectUnavailable     RejectReason = "unavailable"
 )
+
+// VPNConfigType is whose lab VPN config was handed out (Data "config").
+type VPNConfigType string
+
+const (
+	VPNConfigModerator   VPNConfigType = "moderator"
+	VPNConfigParticipant VPNConfigType = "participant"
+	VPNConfigPreview     VPNConfigType = "preview"
+	VPNConfigDeploy      VPNConfigType = "deploy"
+)
+
+// VPNConfigWindow is the dedupe window of configs delivered by a polled status
+// (the deploy route): at most one row per user and event in it.
+const VPNConfigWindow = 10 * time.Minute
 
 // TaskOpenWindow is the dedupe window of task opens: at most one row per
 // user and task in it, however often the page is opened.
@@ -72,6 +87,15 @@ func AttachmentDownloaded(eventID, userID, teamID, challengeID, fileID uuid.UUID
 	return Activity{
 		EventID: eventID, UserID: userID, TeamID: &teamID, Kind: KindAttachmentDownloaded, SubjectID: &challengeID, At: at,
 		Data: map[string]any{"file_id": fileID.String()},
+	}
+}
+
+// VPNConfigDownloaded: the user was handed a WireGuard config of the event's
+// lab (who, event, config type). The config itself is never logged.
+func VPNConfigDownloaded(eventID, userID uuid.UUID, config VPNConfigType, at time.Time) Activity {
+	return Activity{
+		EventID: eventID, UserID: userID, Kind: KindVPNConfigDownloaded, At: at,
+		Data: map[string]any{"config": string(config)},
 	}
 }
 

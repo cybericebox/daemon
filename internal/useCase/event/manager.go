@@ -13,6 +13,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
+	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 )
@@ -49,18 +50,25 @@ func (u *EventUseCase) SetEventManager(ctx context.Context, eventID uuid.UUID, i
 	if err != nil {
 		return EventManagerView{}, err
 	}
+	if err = u.rejectApprovedParticipant(ctx, eventID, in.UserID); err != nil {
+		return EventManagerView{}, err
+	}
 	if role == eventManagerModel.RoleViewer {
 		if err = u.rejectRedundantViewer(ctx, in.UserID); err != nil {
 			return EventManagerView{}, err
 		}
 	}
 	if u.signalPublishers == nil {
+		prev, prevErr := u.managers.Get(ctx, eventID, in.UserID)
 		value, err := u.managers.Upsert(ctx, membership)
 		if err != nil {
 			if repositoryTools.IsObjectNotFoundError(err) {
 				return EventManagerView{}, eventManagerModel.ErrEventManagerOwnerProtected.Err()
 			}
 			return EventManagerView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to set event manager").Err()
+		}
+		if prevErr == nil && prev.Role == eventManagerModel.RoleManager && role == eventManagerModel.RoleViewer {
+			u.dropModeratorLabClient(ctx, eventID, in.UserID)
 		}
 		return EventManagerView{UserID: value.UserID, Role: int16(value.Role), CreatedAt: value.CreatedAt}, u.requestModeratorsLabAccess(ctx, eventID)
 	}
@@ -85,6 +93,7 @@ func (u *EventUseCase) SetEventManager(ctx context.Context, eventID uuid.UUID, i
 			return EventManagerView{UserID: old.UserID, Role: int16(old.Role), CreatedAt: old.CreatedAt}, nil
 		}
 	}
+	demoted := err == nil && old.Role == eventManagerModel.RoleManager && role == eventManagerModel.RoleViewer
 	e, err := eventRepo.New(txRepo).GetByID(txCtx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
@@ -116,7 +125,38 @@ func (u *EventUseCase) SetEventManager(ctx context.Context, eventID uuid.UUID, i
 	if err = unit.Save(); err != nil {
 		return EventManagerView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to set event manager").Err()
 	}
+	if demoted {
+		u.dropModeratorLabClient(ctx, eventID, in.UserID)
+	}
 	return EventManagerView{UserID: value.UserID, Role: int16(value.Role), CreatedAt: value.CreatedAt}, u.requestModeratorsLabAccess(ctx, eventID)
+}
+
+// dropModeratorLabClient removes the lab VPN client of a person who is no
+// longer a moderator, like RemoveEventManager does.
+func (u *EventUseCase) dropModeratorLabClient(ctx context.Context, eventID, userID uuid.UUID) {
+	if team, err := u.stands.GetModeratorsTeam(ctx, eventID); err == nil {
+		u.dropMemberLabClient(ctx, eventID, team.ID, userID)
+	}
+}
+
+// rejectApprovedParticipant refuses to make an approved participant a manager
+// or moderator of the same event: the participant and moderator VPN configs
+// share one storage key, so the person would get both groups' access.
+func (u *EventUseCase) rejectApprovedParticipant(ctx context.Context, eventID, userID uuid.UUID) error {
+	if u.participants == nil {
+		return nil
+	}
+	p, err := u.participants.Get(ctx, eventID, userID)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return nil
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event participant").Err()
+	}
+	if p.Status == participantModel.StatusApproved {
+		return eventManagerModel.ErrEventManagerIsParticipant.Err()
+	}
+	return nil
 }
 
 // rejectRedundantViewer refuses the viewer role for platform staff with

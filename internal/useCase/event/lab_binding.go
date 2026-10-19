@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"fmt"
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"sync"
 	"time"
@@ -166,6 +167,7 @@ func (u *EventUseCase) GetOwnLabVPNConfig(ctx context.Context, eventID, userID u
 	if config == "" {
 		return "", eventStandModel.ErrStandLabClientMissing.Err()
 	}
+	u.recordVPNConfigDownload(ctx, eventID, userID, eventActivityModel.VPNConfigParticipant)
 	return config, nil
 }
 

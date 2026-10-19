@@ -6,7 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// EventManagerObjectCode — next free detail code: 7
+// EventManagerObjectCode — next free detail code: 8
 var (
 	ErrEventManagerIdentityInvalid = err.ErrInvalidData.WithObjectCode(model.EventManagerObjectCode).
 					WithMessage("Event manager event and user identifiers are required").WithDetailCode(1)
@@ -20,4 +20,6 @@ var (
 					WithMessage("Event owner role cannot be changed or removed").WithDetailCode(5)
 	ErrEventManagerViewerRedundant = err.ErrInvalidData.WithObjectCode(model.EventManagerObjectCode).
 					WithMessage("Platform administrators already have read access to all events").WithDetailCode(6)
+	ErrEventManagerIsParticipant = err.ErrConflict.WithObjectCode(model.EventManagerObjectCode).
+					WithMessage("An approved participant of the event cannot manage it").WithDetailCode(7)
 )

@@ -212,6 +212,8 @@ func (h *Handler) deployStatus(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx)
 		return
 	}
+	// The status carries the author's WireGuard private key once the lab is up.
+	ctx.Header("Cache-Control", "private, no-store")
 	status, err := h.useCase.DeployTestStatus(ctx, claims.UserID, deployID)
 	if err != nil {
 		response.AbortWithError(ctx, err)

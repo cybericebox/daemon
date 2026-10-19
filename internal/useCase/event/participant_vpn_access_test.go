@@ -68,6 +68,7 @@ func TestOwnVPNProbeStatusRequiresApprovedTeamAndUsesGroupSubnet(t *testing.T) {
 func TestOwnVPNConfigReturnsTheStoredEventScopedSecretAndNeverCreatesAClient(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
+	q.EXPECT().CreateEventActivity(gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // the download is logged
 	store, infra := &recordingVPNStore{config: "private-personal-config"}, &earlyVPNInfra{}
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q, VPN: store, Infra: infra})
 	eventID, userID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
@@ -152,6 +153,7 @@ func TestVPNDownloadRequiresReadyGroupIndependentlyOfChallengeLabs(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			q := newFormGateMock(ctrl)
+			q.EXPECT().CreateEventActivity(gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // the download is logged
 			store, infra := &recordingVPNStore{config: "personal"}, &earlyVPNInfra{}
 			uc := event.NewEventUseCase(event.Dependencies{Repo: q, VPN: store, Infra: infra})
 			eventID, userID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())

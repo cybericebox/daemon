@@ -14,6 +14,8 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
+
 	testDeployRepo "github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -646,12 +648,43 @@ func (u *ExerciseUseCase) withOwnerLock(ctx context.Context, owner uuid.UUID, wa
 // exists, it is persisted for the caller under the test scope (best-effort: the
 // config is also returned inline, so a store hiccup must not break polling).
 func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
+	status, deploy, err := u.deployTestStatus(ctx, userID, deployID)
+	if err == nil && status.VPNConfig != "" && deploy.EventID != nil {
+		u.recordVPNConfigDownload(ctx, *deploy.EventID, userID, deployID)
+	}
+	return status, err
+}
+
+// PreviewDeployStatus is DeployTestStatus for the event preview, which logs
+// its own download when the config is actually handed out.
+func (u *ExerciseUseCase) PreviewDeployStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
+	status, _, err := u.deployTestStatus(ctx, userID, deployID)
+	return status, err
+}
+
+// recordVPNConfigDownload logs a config delivered by the polled status route:
+// one row per user and deploy in eventActivityModel.VPNConfigWindow. A failed
+// write never fails the poll.
+func (u *ExerciseUseCase) recordVPNConfigDownload(ctx context.Context, eventID, userID, deployID uuid.UUID) {
+	if u.vpnAudit == nil {
+		return
+	}
+	a := eventActivityModel.VPNConfigDownloaded(eventID, userID, eventActivityModel.VPNConfigDeploy, u.timeNow())
+	a.SubjectID = &deployID
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := u.vpnAudit.AppendOnce(writeCtx, a, eventActivityModel.VPNConfigWindow); err != nil {
+		log.Warn().Err(err).Stringer("event_id", eventID).Msg("event activity: vpn config download not logged")
+	}
+}
+
+func (u *ExerciseUseCase) deployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, exerciseModel.TestDeploy, error) {
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			return exerciseModel.LabDeployStatus{}, exerciseModel.ErrTestDeployNotFound.Err()
+			return exerciseModel.LabDeployStatus{}, deploy, exerciseModel.ErrTestDeployNotFound.Err()
 		}
-		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		return exerciseModel.LabDeployStatus{}, deploy, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
 	// A static test has nothing to provision: it is ready at once and never asks the agent.
 	if deploy.IsStatic() {
@@ -660,21 +693,21 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 			ExpiresAt:   deploy.ExpiresAt,
 			Expired:     testDeployExpired(deploy, u.timeNow()),
 			SolvedTasks: deploy.Solved,
-		}, nil
+		}, deploy, nil
 	}
 	if u.infra == nil {
-		return exerciseModel.LabDeployStatus{}, infraModel.ErrInfrastructureUnavailable.Err()
+		return exerciseModel.LabDeployStatus{}, deploy, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
 	expired := testDeployExpired(deploy, u.timeNow())
 	if !expired {
 		if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
-			return exerciseModel.LabDeployStatus{}, err
+			return exerciseModel.LabDeployStatus{}, deploy, err
 		}
 	}
 	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
 	if err != nil && !expired {
-		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
+		return exerciseModel.LabDeployStatus{}, deploy, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
 	}
 	if err != nil {
 		status = exerciseModel.LabDeployStatus{} // being removed: the agent may no longer know the Lab
@@ -688,12 +721,12 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 	status.VPNConfig = ""
 	status.SolvedTasks = deploy.Solved
 	if expired {
-		return status, nil // the access ended with the lease: no VPN config, handshake or probe address
+		return status, deploy, nil // the access ended with the lease: no VPN config, handshake or probe address
 	}
 	if status.Ready && u.vpnStore != nil {
 		config, cfgErr := u.vpnStore.GetConfig(ctx, userID, vpnModel.ScopeTest, deployVPNRef(deploy))
 		if cfgErr != nil {
-			return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(cfgErr).WithMessage("Failed to read test VPN config").Err()
+			return exerciseModel.LabDeployStatus{}, deploy, model.ErrPlatform.WithError(cfgErr).WithMessage("Failed to read test VPN config").Err()
 		}
 		if !strings.Contains(config, wgPrivateKeyPlaceholder) {
 			status.VPNConfig = config
@@ -714,7 +747,7 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 			}
 		}
 	}
-	return status, nil
+	return status, deploy, nil
 }
 
 // vpnSubnetReader is the optional port that reads a group's published VPN client subnet.
