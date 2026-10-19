@@ -49,6 +49,8 @@ type Runner struct {
 	lockKey int64
 	// capacity receives every capacity the agent reports (its tenant view); a failure is logged, never fatal.
 	capacity CapacitySink
+	// seen hears every message that carries no capacity (a heartbeat), so the agent stays "seen" while idle.
+	seen SeenSink
 	// features receives what the agent says the tenant can use (first message, then on change).
 	features FeaturesSink
 	// errors receives the agent's error journal report (its components, failed lab deploys, certificate end).
@@ -74,6 +76,9 @@ func NewRunner(pool *pgxpool.Pool, open OpenStream, store Store) *Runner {
 // CapacitySink keeps the capacity an agent reports.
 type CapacitySink func(ctx context.Context, capacity *labpb.CapacityResponse, observedAt time.Time) error
 
+// SeenSink hears that the agent delivered a message at the given time.
+type SeenSink func(ctx context.Context, at time.Time)
+
 // FeaturesSink keeps the features an agent reports.
 type FeaturesSink func(ctx context.Context, features *labpb.FeaturesResponse, observedAt time.Time) error
 
@@ -96,6 +101,13 @@ func (r *Runner) WithErrorsSink(sink ErrorsSink) *Runner {
 // WithLinkSink reports the state of the link to sink.
 func (r *Runner) WithLinkSink(sink LinkSink) *Runner {
 	r.link = sink
+	return r
+}
+
+// WithSeenSink hands the arrival time of every message without a capacity to sink: the agent reports a
+// capacity only when it changes, but it is connected for as long as its heartbeats arrive.
+func (r *Runner) WithSeenSink(sink SeenSink) *Runner {
+	r.seen = sink
 	return r
 }
 
@@ -220,6 +232,9 @@ func (r *Runner) persist(ctx context.Context, update *labpb.MonitoringUpdate) er
 		if sinkErr := r.features(ctx, features, time.UnixMilli(update.GetObservedAtUnixMs()).UTC()); sinkErr != nil {
 			log.Error().Err(sinkErr).Msg("Failed to record the agent features")
 		}
+	}
+	if update.GetCapacity() == nil && r.seen != nil {
+		r.seen(ctx, time.Now().UTC())
 	}
 	if capacity := update.GetCapacity(); capacity != nil {
 		encoded, err := protojson.Marshal(capacity)

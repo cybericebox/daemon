@@ -66,6 +66,7 @@ func TestRequestRouter_ResourceAlarmGoesToEveryAdminAndEscalationReplacesTheCopy
 	require.Len(t, notifier.sent, 2)
 	assert.Equal(t, notificationTypes.NotificationType(inboxModel.TypeResourceAlarmRaised), notifier.sent[0].typ)
 	assert.Equal(t, "3", notifier.sent[0].vars["units"])
+	assert.Equal(t, "агент не на звʼязку", notifier.sent[0].vars["alarm_kind"], "the reason is text, never the raw enum")
 	assert.True(t, notifier.sent[0].options.Inbox.ActionRequired)
 	assert.Equal(t, inboxModel.ResourceAlarmRef(alarmID), notifier.sent[0].options.Inbox.SubjectRef)
 

@@ -841,3 +841,34 @@ func TestListAgentsFlagsAnAgentThatDoesNotMeetThePlatformRequirements(t *testing
 		t.Fatalf("few = %+v", u)
 	}
 }
+
+func TestTouchAgentSeenKeepsAnIdleAgentFreshUnderTheRewriteThrottle(t *testing.T) {
+	ctx := context.Background()
+	f := newAgentsFixture(t, boundSealer{})
+	view, _ := f.uc.EnrollAgent(ctx, enrollForm("eu", 1))
+	// Nothing known yet: nothing to repeat.
+	if err := f.uc.TouchAgentSeen(ctx, view.ID, f.now); err != nil || f.store.capacityWrites != 0 {
+		t.Fatalf("no capacity yet: %v %d", err, f.store.capacityWrites)
+	}
+	cpu, memory := int64(8000), int64(1<<30)
+	if err := f.uc.RecordAgentCapacity(ctx, view.ID, &cpu, &memory, f.now); err != nil {
+		t.Fatal(err)
+	}
+	// Heartbeats every 30 s for 20 minutes: the reading is renewed, but only once per rewrite throttle.
+	for at := 30 * time.Second; at <= 20*time.Minute; at += 30 * time.Second {
+		if err := f.uc.TouchAgentSeen(ctx, view.ID, f.now.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen := f.store.records[view.ID].CapacitySeenAt
+	if seen == nil || f.now.Add(20*time.Minute).Sub(*seen) > capacityRewriteAfter {
+		t.Fatalf("an idle agent must stay fresh: seen %v", seen)
+	}
+	if f.store.capacityWrites > 5 {
+		t.Fatalf("the rewrite throttle holds: %d writes", f.store.capacityWrites)
+	}
+	got := f.store.records[view.ID]
+	if got.CapacityCPUMillicores == nil || *got.CapacityCPUMillicores != 8000 {
+		t.Fatalf("the capacity is kept: %+v", got.AgentRegistration)
+	}
+}

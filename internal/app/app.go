@@ -161,6 +161,12 @@ func Run(cfg *config.Config) {
 				// The largest device the agent can place, for the calendar (an older agent reports none).
 				return ucs.AgentsUseCase.RecordAgentMaxDevice(ctx, member.ID, labagent.MaxDeviceOf(capacity))
 			})
+			// The agent reports a capacity only on change; every other message (a heartbeat) keeps it seen.
+			runner = runner.WithSeenSink(func(ctx context.Context, at time.Time) {
+				if err := ucs.AgentsUseCase.TouchAgentSeen(ctx, member.ID, at); err != nil {
+					log.Error().Err(err).Msg("Failed to refresh the agent last seen")
+				}
+			})
 			// What the agent offers (persistence, image cache, scheduler, endpoints): the live member gets it at
 			// once, the registry keeps the last report.
 			runner = runner.WithFeaturesSink(func(ctx context.Context, features *labpb.FeaturesResponse, observedAt time.Time) error {

@@ -599,6 +599,19 @@ func (u *AgentsUseCase) RecordAgentCapacity(ctx context.Context, id uuid.UUID, c
 	return nil
 }
 
+// TouchAgentSeen refreshes the "last seen" of an agent whose monitoring stream delivered a message that carries
+// no capacity (a heartbeat): the last known capacity is recorded again, under the same rewrite throttle. Before
+// the first capacity of this process there is nothing to repeat; the snapshot carries one.
+func (u *AgentsUseCase) TouchAgentSeen(ctx context.Context, id uuid.UUID, seenAt time.Time) error {
+	u.capacityMu.Lock()
+	last, known := u.lastCapacity[id]
+	u.capacityMu.Unlock()
+	if !known {
+		return nil
+	}
+	return u.RecordAgentCapacity(ctx, id, last.cpu, last.memory, seenAt)
+}
+
 // RecordAgentMaxDevice keeps the largest device an agent last reported it can place, for the resource calendar, which does
 // not plan a device above it. It is called with every capacity the agent reports and writes only when the value changes. A
 // capacity without the value (no schedulable node for a moment, an older agent) is not recorded, so a blink never erases it.

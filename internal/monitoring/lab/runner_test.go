@@ -309,3 +309,19 @@ func TestErrorsSinkReceivesTheAgentsErrorJournalReport(t *testing.T) {
 		t.Fatalf("errors sink got %#v, want the one report", got)
 	}
 }
+
+func TestSeenSinkHearsMessagesWithoutCapacityOnly(t *testing.T) {
+	store := &recordingStore{}
+	first := update("e1", 1, true, "group-a")
+	first.Capacity = &labpb.CapacityResponse{Tenant: "platform"}
+	stream := &scriptedStream{updates: []*labpb.MonitoringUpdate{first, update("e1", 2, false, "group-a"), update("e1", 3, false, "group-a")}}
+	seen := 0
+	runner := NewRunner(nil, func(context.Context, *labpb.MonitoringRequest) (Stream, error) { return stream, nil }, store).
+		WithSeenSink(func(context.Context, time.Time) { seen++ })
+	if err := runner.consume(context.Background()); err != io.EOF {
+		t.Fatalf("consume error = %v", err)
+	}
+	if seen != 2 {
+		t.Fatalf("only the two messages without a capacity refresh the agent: heard %d", seen)
+	}
+}
