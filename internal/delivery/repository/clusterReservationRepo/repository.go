@@ -74,6 +74,7 @@ func partFrom(row postgres.ClusterReservation) calModel.Part {
 		Window:     calModel.Window{Start: row.StartsAt.UTC(), End: row.EndsAt.UTC()},
 		Amount:     calModel.Amount{CPUMillicores: row.CpuMillicores, MemoryBytes: row.MemoryBytes},
 		DesiredRev: row.DesiredRev, SyncedRev: row.SyncedRev, SyncedAt: timePtr(row.SyncedAt), SyncError: row.SyncError,
+		SyncReason: row.SyncReason, SyncFailedSince: timePtr(row.SyncFailedSince), ShrinkHeld: row.ShrinkHeld, Forced: row.Forced,
 		Status: calModel.PartStatus{
 			Phase: row.Phase, NoticeAt: timePtr(row.NoticeAt), EndsAt: timePtr(row.EndsNoticeAt), EndingReason: row.EndingReason,
 			Used:   calModel.Amount{CPUMillicores: row.UsedCpuMillicores, MemoryBytes: row.UsedMemoryBytes},
@@ -98,14 +99,16 @@ func (r *Repository) SavePart(ctx context.Context, p calModel.Part) error {
 		ID: p.ID, AgentID: p.AgentID, Source: string(p.Source),
 		CalendarReservationID: nullUUID(p.CalendarID), TestDeployID: nullUUID(p.TestDeployID), OwnerID: nullUUID(p.OwnerID),
 		StartsAt: p.Window.Start, EndsAt: p.Window.End, CpuMillicores: p.Amount.CPUMillicores, MemoryBytes: p.Amount.MemoryBytes,
-		DesiredRev: p.DesiredRev, SyncedRev: p.SyncedRev, SyncedAt: tstz(p.SyncedAt), SyncError: p.SyncError,
+		DesiredRev: p.DesiredRev, SyncedRev: p.SyncedRev, SyncedAt: tstz(p.SyncedAt), SyncError: p.SyncError, Forced: p.Forced,
 		RetireAt: tstz(p.RetireAt), CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	})
 }
 
 // MarkSynced records the agent's answer for a revision (narrow: it never lowers the confirmed revision).
-func (r *Repository) MarkSynced(ctx context.Context, id uuid.UUID, rev int64, syncErr string, at time.Time) error {
-	return r.q.MarkClusterReservationSynced(ctx, postgres.MarkClusterReservationSyncedParams{ID: id, SyncedRev: rev, SyncError: syncErr, SyncedAt: tstz(&at)})
+func (r *Repository) MarkSynced(ctx context.Context, id uuid.UUID, a calModel.SyncAnswer) error {
+	return r.q.MarkClusterReservationSynced(ctx, postgres.MarkClusterReservationSyncedParams{
+		ID: id, Ok: a.OK, SyncedRev: a.Rev, At: a.At, SyncError: a.Error, SyncReason: a.Reason, ShrinkHeld: a.ShrinkHeld,
+	})
 }
 
 // Observe stores what the agent reported about a part (narrow).

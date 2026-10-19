@@ -2,7 +2,9 @@
 -- one agent; its id is what the agent knows and stays the same when the part is extended. Parts come from a
 -- calendar reservation (split by its placement shares), a test run (one lab, from its start to the end of its
 -- lease) or a test group (an author's shared group on one agent). desired_rev counts the changes to send,
--- synced_rev is the last one the agent confirmed; the observed columns are what the agent last reported.
+-- synced_rev is the last one the agent confirmed (sync_error / sync_reason / sync_failed_since say why it is not,
+-- shrink_held that a shrink was held back while labs run in the part); forced marks a desired change an admin forced
+-- past that guard. The observed columns are what the agent last reported.
 CREATE TABLE cluster_reservations
 (
     id                      uuid PRIMARY KEY,
@@ -19,6 +21,10 @@ CREATE TABLE cluster_reservations
     synced_rev              bigint      NOT NULL DEFAULT 0,
     synced_at               timestamptz,
     sync_error              text        NOT NULL DEFAULT '',
+    sync_reason             text        NOT NULL DEFAULT '',
+    sync_failed_since       timestamptz,
+    shrink_held             boolean     NOT NULL DEFAULT false,
+    forced                  boolean     NOT NULL DEFAULT false,
     phase                   text        NOT NULL DEFAULT '',
     notice_at               timestamptz,
     ends_notice_at          timestamptz,

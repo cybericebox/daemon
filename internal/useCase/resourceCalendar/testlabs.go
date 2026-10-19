@@ -292,11 +292,12 @@ func (u *ResourceCalendarUseCase) BookTestLab(ctx context.Context, owner uuid.UU
 			return platformErr(cErr, "Failed to save the booking")
 		}
 		booking = b
-		return nil
+		return u.splitParts(ctx, s, b, false, now)
 	})
 	if err != nil {
 		return BookingView{}, err
 	}
+	u.pushParts(ctx)
 	return BookingView{ID: booking.ID, From: booking.Window.Start, To: booking.Window.End, Size: booking.Size}, nil
 }
 
@@ -316,7 +317,7 @@ func (u *ResourceCalendarUseCase) ListTestLabBookings(ctx context.Context, owner
 // CancelBooking cancels the author's own booking; its room is free at once.
 func (u *ResourceCalendarUseCase) CancelTestLabBooking(ctx context.Context, owner, id uuid.UUID) error {
 	now := u.now().UTC()
-	return u.inTx(ctx, func(ctx context.Context, s Store) error {
+	err := u.inTx(ctx, func(ctx context.Context, s Store) error {
 		r, err := s.GetReservation(ctx, id)
 		if err != nil || r.Kind != calModel.KindBooking || r.OwnerID == nil || *r.OwnerID != owner || !r.Active() {
 			if err == nil || notFound(err) {
@@ -328,6 +329,11 @@ func (u *ResourceCalendarUseCase) CancelTestLabBooking(ctx context.Context, owne
 		if _, err = s.UpdateReservation(ctx, r); err != nil {
 			return platformErr(err, "Failed to cancel the booking")
 		}
-		return nil
+		return u.splitParts(ctx, s, r, false, now)
 	})
+	if err != nil {
+		return err
+	}
+	u.pushParts(ctx)
+	return nil
 }

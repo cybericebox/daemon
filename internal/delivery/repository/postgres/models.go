@@ -68,6 +68,10 @@ type ClusterReservation struct {
 	SyncedRev             int64              `json:"synced_rev"`
 	SyncedAt              pgtype.Timestamptz `json:"synced_at"`
 	SyncError             string             `json:"sync_error"`
+	SyncReason            string             `json:"sync_reason"`
+	SyncFailedSince       pgtype.Timestamptz `json:"sync_failed_since"`
+	ShrinkHeld            bool               `json:"shrink_held"`
+	Forced                bool               `json:"forced"`
 	Phase                 string             `json:"phase"`
 	NoticeAt              pgtype.Timestamptz `json:"notice_at"`
 	EndsNoticeAt          pgtype.Timestamptz `json:"ends_notice_at"`

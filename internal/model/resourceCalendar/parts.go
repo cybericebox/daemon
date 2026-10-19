@@ -72,7 +72,15 @@ type Part struct {
 	DesiredRev int64
 	SyncedRev  int64
 	SyncedAt   *time.Time
-	SyncError  string
+	// SyncError and SyncReason (the agent's machine code) say why the last send failed; SyncFailedSince is when
+	// the failures started (nil once the agent confirmed).
+	SyncError       string
+	SyncReason      string
+	SyncFailedSince *time.Time
+	// ShrinkHeld: the last send held back a shrink because labs still run in the part.
+	ShrinkHeld bool
+	// Forced: the desired state was forced by an admin past the shrink guard.
+	Forced bool
 
 	Status PartStatus
 
@@ -114,22 +122,43 @@ func (p *Part) Retire(now time.Time) {
 	}
 }
 
-// MarkSynced records the agent's OK for a revision; an answer for an older revision leaves a newer one unsynced.
-func (p *Part) MarkSynced(rev int64, now time.Time) {
-	if rev > p.SyncedRev {
-		p.SyncedRev = rev
-	}
-	if p.Synced() {
-		p.SyncError = ""
-	}
-	p.SyncedAt = &now
-	p.UpdatedAt = now
+// SyncAnswer is the agent's answer for one revision of a part.
+type SyncAnswer struct {
+	OK  bool
+	Rev int64
+	// Error and Reason describe a failure.
+	Error, Reason string
+	ShrinkHeld    bool
+	At            time.Time
 }
 
-// MarkSyncFailed records why the agent did not take the part; it stays unsynced and is retried.
+// Answer applies the agent's answer: an OK for an older revision leaves a newer one unsynced; a failure keeps the
+// part unsynced (it is retried) and keeps the time the failures started.
+func (p *Part) Answer(a SyncAnswer) {
+	if a.OK {
+		p.SyncedRev = max(p.SyncedRev, a.Rev)
+		p.SyncedAt = &a.At
+		p.SyncFailedSince = nil
+	} else if p.SyncFailedSince == nil {
+		p.SyncFailedSince = &a.At
+	}
+	p.SyncError, p.SyncReason, p.ShrinkHeld = a.Error, a.Reason, a.ShrinkHeld
+	p.UpdatedAt = a.At
+}
+
+// MarkSynced records the agent's OK for a revision.
+func (p *Part) MarkSynced(rev int64, now time.Time) {
+	p.Answer(SyncAnswer{OK: true, Rev: rev, At: now})
+}
+
+// MarkSyncFailed records why the agent did not take the part.
 func (p *Part) MarkSyncFailed(reason string, now time.Time) {
-	p.SyncError = reason
-	p.UpdatedAt = now
+	p.Answer(SyncAnswer{Error: reason, At: now})
+}
+
+// SyncFailingFor reports whether the sends have failed for at least d.
+func (p *Part) SyncFailingFor(d time.Duration, now time.Time) bool {
+	return p.SyncFailedSince != nil && !now.Before(p.SyncFailedSince.Add(d))
 }
 
 // Observe stores what the agent reported.
