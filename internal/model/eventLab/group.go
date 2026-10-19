@@ -30,6 +30,9 @@ func (g *Group) Target() GroupTarget {
 	return GroupTarget{g.Name, g.AgentUID, g.OperationID, g.Revision}
 }
 func (g *Group) HeldCompute() Compute {
+	if g.EndedWithReservation() {
+		return Compute{}
+	}
 	if g.DesiredState == "Deleted" && g.RetirementStopTarget != nil && g.RetirementStopTarget.ExpectedUID == g.AgentUID && g.Allocation.RuntimeState == "Released" && g.Allocation.ReleasedAt != nil && g.AccessFenced {
 		return Compute{}
 	}
