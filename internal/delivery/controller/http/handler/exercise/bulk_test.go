@@ -129,3 +129,37 @@ func TestBulkAccess_GateAndInput(t *testing.T) {
 		t.Fatalf("bad level: status %d", w.Code)
 	}
 }
+
+// Access requests name at most 500 events, on one task's route and on the bulk route: more is a bad request and
+// nothing reaches the use case; exactly 500 passes.
+func TestAccess_EventIDsCapped(t *testing.T) {
+	id := uuid.Must(uuid.NewV7())
+	events := make([]uuid.UUID, 501)
+	for i := range events {
+		events[i] = uuid.Must(uuid.NewV7())
+	}
+	body := func(prefix string, n int) string {
+		return `{` + prefix + `"AccessLevel":"selected","EventIDs":` + idsJSON(events[:n]...) + `}`
+	}
+	for _, route := range []struct{ url, prefix string }{
+		{"/api/exercises/" + id.String() + "/access", ""},
+		{"/api/exercises/bulk/access", `"IDs":` + idsJSON(id) + `,`},
+	} {
+		uc := &fakeUC{}
+		if w := jsonRequest(engineAs(uc, rbac.RoleAdmin), http.MethodPut, route.url, body(route.prefix, 501)); w.Code != http.StatusBadRequest || uc.bulkAccess != nil || uc.accessInput.EventIDs != nil {
+			t.Fatalf("%s with 501 events: status %d", route.url, w.Code)
+		}
+		uc = &fakeUC{bulkResults: []exerciseUseCase.BulkResult{{ID: id, View: exerciseUseCase.ExerciseView{ID: id}}}}
+		if w := jsonRequest(engineAs(uc, rbac.RoleAdmin), http.MethodPut, route.url, body(route.prefix, 500)); w.Code != http.StatusOK {
+			t.Fatalf("%s with 500 events: status %d body %s", route.url, w.Code, w.Body.String())
+		}
+	}
+}
+
+// An over-the-cap refusal of the use case (a caller that skipped the route cap) answers as an error, not a result.
+func TestBulkArchive_UseCaseRefusal(t *testing.T) {
+	uc := &fakeUC{err: model.ErrPlatform.WithMessage("at most 200").Err()}
+	if w := jsonRequest(engineAs(uc, rbac.RoleAdmin), http.MethodPost, "/api/exercises/bulk/archive", `{"IDs":`+idsJSON(uuid.Must(uuid.NewV7()))+`}`); w.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d", w.Code)
+	}
+}

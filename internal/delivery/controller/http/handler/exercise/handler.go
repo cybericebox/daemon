@@ -59,8 +59,8 @@ type (
 		ArchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		UnarchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		// bulk actions of the catalog table: per task by the rule of the single-task route
-		BulkSetArchived(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, archived bool) []exerciseUseCase.BulkResult
-		BulkSetAccess(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) []exerciseUseCase.BulkResult
+		BulkSetArchived(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, archived bool) ([]exerciseUseCase.BulkResult, error)
+		BulkSetAccess(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) ([]exerciseUseCase.BulkResult, error)
 		// lifecycle
 		SaveDraft(ctx context.Context, exerciseID uuid.UUID, in exerciseUseCase.SaveDraftInput) (exerciseUseCase.VersionView, error)
 		PublishDraft(ctx context.Context, exerciseID uuid.UUID) (exerciseUseCase.VersionView, error)

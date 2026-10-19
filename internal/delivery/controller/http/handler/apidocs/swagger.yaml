@@ -5831,6 +5831,7 @@ definitions:
       EventIDs:
         items:
           type: string
+        maxItems: 500
         type: array
       IDs:
         items:
@@ -6970,6 +6971,7 @@ definitions:
       EventIDs:
         items:
           type: string
+        maxItems: 500
         type: array
     type: object
   exercise.startUploadRequest:

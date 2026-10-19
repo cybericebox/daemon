@@ -14,15 +14,17 @@ import (
 )
 
 type (
-	// bulkExercisesRequest is the selection of the catalog table (at most MaxBulkExercises).
+	// bulkExercisesRequest is the selection of the catalog table. max=200 is exerciseUseCase.MaxBulkExercises (a tag
+	// cannot name the constant; TestBulkArchive_BatchLimits keeps them equal).
 	bulkExercisesRequest struct {
 		IDs []uuid.UUID `json:"IDs" binding:"required,min=1,max=200"`
 	}
 
+	// bulkAccessRequest: IDs as bulkExercisesRequest (max = MaxBulkExercises); EventIDs capped as for one task.
 	bulkAccessRequest struct {
 		IDs         []uuid.UUID `json:"IDs" binding:"required,min=1,max=200"`
 		AccessLevel string      `json:"AccessLevel" enums:"all,selected,own,none"`
-		EventIDs    []uuid.UUID `json:"EventIDs"`
+		EventIDs    []uuid.UUID `json:"EventIDs" binding:"max=500"`
 	}
 
 	bulkItemResponse struct {
@@ -76,7 +78,12 @@ func (h *Handler) bulkSetArchived(ctx *gin.Context, archived bool) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, bulkToResponse(ctx, h.useCase.BulkSetArchived(ctx, actor, req.IDs, archived)))
+	results, err := h.useCase.BulkSetArchived(ctx, actor, req.IDs, archived)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, bulkToResponse(ctx, results))
 }
 
 // bulkSetAccess godoc
@@ -104,7 +111,12 @@ func (h *Handler) bulkSetAccess(ctx *gin.Context) {
 		return
 	}
 	in := exerciseUseCase.SetAccessInput{AccessLevel: level, EventIDs: req.EventIDs, UpdatedBy: actor.UserID}
-	response.AbortWithData(ctx, bulkToResponse(ctx, h.useCase.BulkSetAccess(ctx, actor, req.IDs, in)))
+	results, err := h.useCase.BulkSetAccess(ctx, actor, req.IDs, in)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, bulkToResponse(ctx, results))
 }
 
 func bulkToResponse(ctx *gin.Context, results []exerciseUseCase.BulkResult) bulkResultResponse {

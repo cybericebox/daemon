@@ -33063,6 +33063,7 @@ const docTemplate = `{
                 },
                 "EventIDs": {
                     "type": "array",
+                    "maxItems": 500,
                     "items": {
                         "type": "string"
                     }
@@ -34698,6 +34699,7 @@ const docTemplate = `{
                 },
                 "EventIDs": {
                     "type": "array",
+                    "maxItems": 500,
                     "items": {
                         "type": "string"
                     }
