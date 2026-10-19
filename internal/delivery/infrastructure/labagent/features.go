@@ -17,6 +17,40 @@ import (
 type FeatureCell struct {
 	mu sync.RWMutex
 	v  *infraModel.AgentFeatures
+	// incompatible: the agent answered UNIMPLEMENTED on the reservation API, so it gets no new groups.
+	incompatible bool
+}
+
+// MarkIncompatible records an agent without the reservation API; true the first time.
+func (c *FeatureCell) MarkIncompatible() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	first := !c.incompatible
+	c.incompatible = true
+	return first
+}
+
+// MarkCompatible clears the mark once the agent answers the reservation API (it was upgraded).
+func (c *FeatureCell) MarkCompatible() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.incompatible = false
+	c.mu.Unlock()
+}
+
+// Incompatible reports an agent without the reservation API.
+func (c *FeatureCell) Incompatible() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.incompatible
 }
 
 // NewFeatureCell returns a cell holding f (nil = nothing reported yet).
@@ -63,6 +97,7 @@ func FeaturesOf(r *labpb.FeaturesResponse) infraModel.AgentFeatures {
 		Proxy: infraModel.ProxyFeature{
 			AccessTokenMaxTTLSeconds: proxy.GetAccessTokenMaxTtlSeconds(), SessionMaxTTLSeconds: proxy.GetSessionMaxTtlSeconds(), SessionIdleTTLSeconds: proxy.GetSessionIdleTtlSeconds(),
 		},
+		Reservations: infraModel.ReservationsFeature{Required: r.GetReservations().GetRequired(), NoticeSeconds: int64(r.GetReservations().GetEndingNoticeSeconds())},
 	}
 }
 
@@ -197,7 +232,7 @@ func (f *Fleet) MeetsRequirements(m *Member) bool {
 func (f *Fleet) eligible() []*Member {
 	var out []*Member
 	for _, m := range f.Members() {
-		if m.Enabled && f.MeetsRequirements(m) {
+		if m.Enabled && f.MeetsRequirements(m) && !m.Features.Incompatible() {
 			out = append(out, m)
 		}
 	}
