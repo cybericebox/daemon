@@ -969,10 +969,11 @@ func (u *EventUseCase) tearDownEventStands(ctx context.Context, e eventModel.Eve
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to list event laboratory groups").Err()
 		}
 		for _, group := range groups {
+			agent := u.groupAgent(ctx, group)
 			if err = u.infra.DestroyLabGroup(ctx, group); err != nil {
 				return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy team stand").Err()
 			}
-			u.releaseTeamUnit(ctx, group)
+			u.releaseTeamUnit(ctx, group, agent)
 		}
 		if err = u.labBindings.MarkEventDestroyed(ctx, e.ID); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to mark stand labs destroyed").Err()

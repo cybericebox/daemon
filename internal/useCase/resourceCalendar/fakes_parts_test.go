@@ -57,11 +57,24 @@ func (m *memStore) MarkSynced(_ context.Context, id uuid.UUID, a calModel.SyncAn
 
 func (m *memStore) Observe(_ context.Context, id uuid.UUID, s calModel.PartStatus) error {
 	parts := m.partsMap()
-	if p, ok := parts[id]; ok {
+	// Like the query: an ended part stays ended.
+	if p, ok := parts[id]; ok && p.Status.Phase != calModel.PartEnded {
 		p.Status = s
 		parts[id] = p
 	}
 	return nil
+}
+
+func (m *memStore) EndPart(_ context.Context, id uuid.UUID, s calModel.PartStatus) (bool, error) {
+	parts := m.partsMap()
+	p, ok := parts[id]
+	if !ok || p.Status.Phase == calModel.PartEnded {
+		return false, nil
+	}
+	s.Phase = calModel.PartEnded
+	p.Status = s
+	parts[id] = p
+	return true, nil
 }
 
 func (m *memStore) DeletePart(_ context.Context, id uuid.UUID) error {

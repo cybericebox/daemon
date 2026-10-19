@@ -2900,6 +2900,21 @@ func (mr *MockQuerierMockRecorder) EmailTemplateFileUsableByEvent(ctx, arg any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EmailTemplateFileUsableByEvent", reflect.TypeOf((*MockQuerier)(nil).EmailTemplateFileUsableByEvent), ctx, arg)
 }
 
+// EndClusterReservation mocks base method.
+func (m *MockQuerier) EndClusterReservation(ctx context.Context, arg postgres.EndClusterReservationParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EndClusterReservation", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// EndClusterReservation indicates an expected call of EndClusterReservation.
+func (mr *MockQuerierMockRecorder) EndClusterReservation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EndClusterReservation", reflect.TypeOf((*MockQuerier)(nil).EndClusterReservation), ctx, arg)
+}
+
 // EnqueueErrorNotification mocks base method.
 func (m *MockQuerier) EnqueueErrorNotification(ctx context.Context, arg postgres.EnqueueErrorNotificationParams) (int64, error) {
 	m.ctrl.T.Helper()

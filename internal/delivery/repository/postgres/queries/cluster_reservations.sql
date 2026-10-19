@@ -34,7 +34,16 @@ SET phase = sqlc.arg(phase), notice_at = sqlc.narg(notice_at), ends_notice_at = 
     ending_reason = sqlc.arg(ending_reason), used_cpu_millicores = sqlc.arg(used_cpu_millicores),
     used_memory_bytes = sqlc.arg(used_memory_bytes), group_count = sqlc.arg(group_count), exceeded = sqlc.arg(exceeded),
     observed_at = sqlc.narg(observed_at)
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id) AND phase <> 'Ended';
+
+-- name: EndClusterReservation :execrows
+-- Records the end of a part once: a part already ended changes no row, so only one caller acts on the end.
+UPDATE cluster_reservations
+SET phase = 'Ended', notice_at = sqlc.narg(notice_at), ends_notice_at = sqlc.narg(ends_notice_at),
+    ending_reason = sqlc.arg(ending_reason), used_cpu_millicores = sqlc.arg(used_cpu_millicores),
+    used_memory_bytes = sqlc.arg(used_memory_bytes), group_count = sqlc.arg(group_count), exceeded = sqlc.arg(exceeded),
+    observed_at = sqlc.narg(observed_at)
+WHERE id = sqlc.arg(id) AND phase <> 'Ended';
 
 -- name: DeleteClusterReservation :exec
 DELETE FROM cluster_reservations WHERE id = sqlc.arg(id);

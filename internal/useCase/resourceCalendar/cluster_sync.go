@@ -32,6 +32,8 @@ type PartStore interface {
 	SavePart(ctx context.Context, p calModel.Part) error
 	MarkSynced(ctx context.Context, id uuid.UUID, a calModel.SyncAnswer) error
 	Observe(ctx context.Context, id uuid.UUID, s calModel.PartStatus) error
+	// EndPart records the end of a part once: true only for the call that ended it.
+	EndPart(ctx context.Context, id uuid.UUID, s calModel.PartStatus) (bool, error)
 	DeletePart(ctx context.Context, id uuid.UUID) error
 	GetPart(ctx context.Context, id uuid.UUID) (calModel.Part, error)
 	PartsOfAgent(ctx context.Context, agent uuid.UUID) ([]calModel.Part, error)
@@ -149,52 +151,76 @@ func (u *ResourceCalendarUseCase) releaseStaleUnits(ctx context.Context, s Store
 	return nil
 }
 
-// ReleaseTeamUnit forgets the agent of a team of an event once its group is gone (destroyed, the team deleted): a
-// new group of the team is placed again from the current shares.
-func (u *ResourceCalendarUseCase) ReleaseTeamUnit(ctx context.Context, eventID, teamID uuid.UUID) error {
-	r, err := u.store.GetEventReservation(ctx, eventID)
-	if err != nil {
-		if notFound(err) {
+// ReleaseTeamUnit forgets the agent of a team of an event once its group on agentID is gone (destroyed, the team
+// deleted): a new group of the team is placed again from the current shares. A unit on another agent is kept.
+func (u *ResourceCalendarUseCase) ReleaseTeamUnit(ctx context.Context, eventID, teamID, agentID uuid.UUID) error {
+	// Under the calendar lock, like every assignment: a team placed anew on another agent meanwhile keeps its unit.
+	return u.inTx(ctx, func(ctx context.Context, s Store) error {
+		r, err := s.GetEventReservation(ctx, eventID)
+		if err != nil {
+			if notFound(err) {
+				return nil
+			}
+			return platformErr(err, "Failed to read the event reservation")
+		}
+		unit := calModel.TeamUnit(teamID)
+		units, err := s.Units(ctx, r.ID)
+		if err != nil {
+			return platformErr(err, "Failed to read the units of a reservation")
+		}
+		if a, ok := units[unit]; !ok || a != agentID {
 			return nil
 		}
-		return platformErr(err, "Failed to read the event reservation")
-	}
-	if err = u.store.ReleaseUnit(ctx, r.ID, calModel.TeamUnit(teamID)); err != nil {
-		return platformErr(err, "Failed to release the unit of a team")
-	}
-	return nil
+		if err = s.ReleaseUnit(ctx, r.ID, unit); err != nil {
+			return platformErr(err, "Failed to release the unit of a team")
+		}
+		return nil
+	})
 }
 
 // finishPart acts once on the end of a part whose row is dropped or whose window has passed: the cluster deleted
 // what ran in it. A part retired on purpose before its window end (a test run its author ended, a share that left
 // the placement with nothing in it) has nothing to act on; a canceled reservation does.
-func (u *ResourceCalendarUseCase) finishPart(ctx context.Context, p calModel.Part, now time.Time) {
-	if p.Status.Phase == calModel.PartEnded {
-		return
-	}
-	if p.Retired() && p.Window.End.After(*p.RetireAt) {
-		if p.Source != calModel.PartCalendar || p.CalendarID == nil {
-			return
-		}
-		r, err := u.store.GetReservation(ctx, *p.CalendarID)
-		if err == nil && r.Active() {
-			return
-		}
-	}
+func (u *ResourceCalendarUseCase) finishPart(ctx context.Context, p calModel.Part, now time.Time) error {
 	status := p.Status
-	status.Phase, status.ObservedAt = calModel.PartEnded, &now
-	if err := u.store.Observe(ctx, p.ID, status); err != nil {
-		log.Warn().Err(err).Str("part_id", p.ID.String()).Msg("Failed to record the end of a cluster reservation part")
+	status.ObservedAt = &now
+	return u.finishWith(ctx, p, status, now)
+}
+
+// finishWith is finishPart with the status the agent reported at the end. The end is recorded atomically: of two
+// callers racing on the same part (the monitoring and a sync at the window end), only the one that changed the row
+// acts on it.
+func (u *ResourceCalendarUseCase) finishWith(ctx context.Context, p calModel.Part, status calModel.PartStatus, now time.Time) error {
+	if p.Status.Phase == calModel.PartEnded {
+		return nil
 	}
-	// An author's group part ends with their runs: nothing acts on it.
-	if p.Source != calModel.PartTestGroup {
+	act := p.Source != calModel.PartTestGroup // an author's group part ends with their runs: nothing acts on it
+	if p.Retired() && p.Window.End.After(*p.RetireAt) {
+		act = false
+		if p.Source == calModel.PartCalendar && p.CalendarID != nil {
+			r, err := u.store.GetReservation(ctx, *p.CalendarID)
+			act = err != nil || !r.Active()
+		}
+	}
+	status.Phase = calModel.PartEnded
+	if status.ObservedAt == nil {
+		status.ObservedAt = &now
+	}
+	changed, err := u.store.EndPart(ctx, p.ID, status)
+	if err != nil {
+		return platformErr(err, "Failed to record the end of a cluster reservation part")
+	}
+	if changed && act {
 		u.ended(ctx, p, now)
 	}
+	return nil
 }
 
 // dropPart removes the row of a part the agent no longer holds, after acting on its end.
 func (u *ResourceCalendarUseCase) dropPart(ctx context.Context, p calModel.Part, now time.Time) error {
-	u.finishPart(ctx, p, now)
+	if err := u.finishPart(ctx, p, now); err != nil {
+		return err
+	}
 	return u.store.DeletePart(ctx, p.ID)
 }
 

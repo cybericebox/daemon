@@ -323,6 +323,8 @@ type Querier interface {
 	// THIS Event's own template rows — never by another Event's rows or by
 	// unrelated owners (avatars, exercise images).
 	EmailTemplateFileUsableByEvent(ctx context.Context, arg EmailTemplateFileUsableByEventParams) (bool, error)
+	// Records the end of a part once: a part already ended changes no row, so only one caller acts on the end.
+	EndClusterReservation(ctx context.Context, arg EndClusterReservationParams) (int64, error)
 	EnqueueErrorNotification(ctx context.Context, arg EnqueueErrorNotificationParams) (int64, error)
 	EnsureSignalHookExecution(ctx context.Context, arg EnsureSignalHookExecutionParams) error
 	EventExerciseHasAttempts(ctx context.Context, eventExerciseID uuid.UUID) (bool, error)

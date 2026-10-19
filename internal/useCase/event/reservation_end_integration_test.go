@@ -11,6 +11,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
+	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	signalModel "github.com/cybericebox/daemon/internal/model/signal"
 	"github.com/cybericebox/daemon/internal/useCase/event"
 )
@@ -23,6 +24,20 @@ type reservationAgent struct {
 
 func (a reservationAgent) GroupAgent(context.Context, string) (uuid.UUID, bool, error) {
 	return a.id, true, nil
+}
+
+// unitGate is a resource gate that records the team units released, with the agent of the destroyed group.
+type unitGate struct {
+	released map[uuid.UUID]uuid.UUID
+}
+
+func (g *unitGate) HoldsForAllTeams(context.Context, uuid.UUID, resourcesModel.Amount, int, resourcesModel.Amount) error {
+	return nil
+}
+
+func (g *unitGate) ReleaseTeamUnit(_ context.Context, _, teamID, agentID uuid.UUID) error {
+	g.released[teamID] = agentID
+	return nil
 }
 
 // A part that ends while the event runs: the cluster deleted the team groups and every lab in them. Their lifecycle
@@ -38,6 +53,8 @@ func TestMidEventPartEndSettlesLabsWithoutFailure(t *testing.T) {
 		SignalPublishers: event.NewOutboxSignalPublisherFactory(time.Now), StandDeployBudget: 200,
 	})
 	uc.SetLifecycleControls(true)
+	gate := &unitGate{released: map[uuid.UUID]uuid.UUID{}}
+	uc.SetResourceGate(gate)
 	rows, err := f.db.Queries.ListEventLabAllocations(ctx, f.eventID)
 	if err != nil || len(rows) == 0 {
 		t.Fatal("fixture labs", len(rows), err)
@@ -96,6 +113,15 @@ func TestMidEventPartEndSettlesLabsWithoutFailure(t *testing.T) {
 	var destroyed int
 	if err = f.db.Pool.QueryRow(ctx, `SELECT count(*) FROM lab_bindings WHERE event_id=$1 AND readiness=$2`, f.eventID, int16(labBindingModel.ReadinessDestroyed)).Scan(&destroyed); err != nil || destroyed == 0 {
 		t.Fatalf("bindings not recorded as removed: %d %v", destroyed, err)
+	}
+	// The units of the teams are released on the agent whose part ended, so a team placed anew elsewhere keeps its unit.
+	if len(gate.released) == 0 {
+		t.Fatal("no team unit released")
+	}
+	for team, a := range gate.released {
+		if a != agent.id {
+			t.Fatalf("team %s released on %s, its group was on %s", team, a, agent.id)
+		}
 	}
 	// Repeating the end changes nothing.
 	if err = uc.ReservationPartEnded(ctx, f.eventID, agent.id, time.Now().UTC()); err != nil {
