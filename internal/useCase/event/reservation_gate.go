@@ -26,13 +26,19 @@ type reservationHolder interface {
 	HasEventReservation(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
 
+// reservationStarter is the optional part of the gate that tells when the event's reservation window starts.
+// Before that moment nothing can be admitted, so the event waits as if it had no reservation.
+type reservationStarter interface {
+	EventReservationStart(ctx context.Context, eventID uuid.UUID) (startsAt time.Time, found bool, err error)
+}
+
 // errAwaitingReservation: the event needs lab tasks or accounted group services and has no reservation yet.
 // It is a wait, not a fault: nothing is deployed and nothing reaches the error journal; the work starts by
 // itself once the reservation exists.
 var errAwaitingReservation = errors.New("event is waiting for its resource reservation")
 
 // awaitingReservation reports whether the event needs lab tasks or accounted group services but has no
-// reservation. A gate that cannot say (no calendar wired) does not hold anything back; a failed read holds
+// reservation, or its reservation window has not started. A gate that cannot say (no calendar wired) does not hold anything back; a failed read holds
 // the pass back and is only logged.
 func (u *EventUseCase) awaitingReservation(ctx context.Context, eventID uuid.UUID) bool {
 	if u.reservationWait != nil {
@@ -50,6 +56,15 @@ func (u *EventUseCase) awaitingReservation(ctx context.Context, eventID uuid.UUI
 	// VPN and gateway services still need a budget when there are no lab devices.
 	if need.LabDevices == 0 && !u.allocationAccounting {
 		return false
+	}
+	if starter, ok := u.resourceGate.(reservationStarter); ok {
+		startsAt, found, err := starter.EventReservationStart(ctx, eventID)
+		if err != nil {
+			log.Warn().Err(err).Str("event_id", eventID.String()).Msg("Reservation wait: cannot read the reservation")
+			return true
+		}
+		// A reservation whose window has not started holds nothing yet: a wait, not a shortage.
+		return !found || time.Now().UTC().Before(startsAt)
 	}
 	reserved, err := holder.HasEventReservation(ctx, eventID)
 	if err != nil {

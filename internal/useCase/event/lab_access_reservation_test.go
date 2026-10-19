@@ -24,6 +24,11 @@ import (
 type labAccessReservationGate struct {
 	fakeResourceGate
 	reserved bool
+	startsAt time.Time
+}
+
+func (g *labAccessReservationGate) EventReservationStart(context.Context, uuid.UUID) (time.Time, bool, error) {
+	return g.startsAt, g.reserved, nil
 }
 
 func (g *labAccessReservationGate) HasEventReservation(context.Context, uuid.UUID) (bool, error) {
@@ -84,6 +89,7 @@ func newLabAccessReservationFixture(t *testing.T, accounting, exists bool) *labA
 		Placement: []byte(`[{"agent_id":"` + uuid.Must(uuid.NewV7()).String() + `","units":1}]`),
 		CreatedAt: now, UpdatedAt: now,
 	}
+	f.gate.startsAt = f.budget.StartsAt
 	f.uc = event.NewEventUseCase(event.Dependencies{Repo: q, UoW: testUnitOfWorker{repo: q, unit: f.unit}, Infra: f.infra})
 	f.uc.SetResourceGate(f.gate)
 	f.uc.SetAllocationAccounting(accounting)
@@ -310,4 +316,26 @@ func TestEventGroupAdmissionCountsAlreadyAdmittedParticipantPreviews(t *testing.
 	require.Error(t, err, "the preview and a full team envelope cannot both spend the same reservation")
 	require.Empty(t, f.created)
 	require.Empty(t, f.infra.operations)
+}
+
+func TestReconcilePendingLabAccess_ReservationWindowInTheFutureIsAWait(t *testing.T) {
+	f := newLabAccessReservationFixture(t, true, false)
+	f.gate.reserved = true
+	f.budget.StartsAt, f.budget.EndsAt = time.Now().UTC().Add(time.Hour), time.Now().UTC().Add(2*time.Hour)
+	f.gate.startsAt = f.budget.StartsAt
+	f.expectSync(true, true, 2)
+	for range 2 {
+		require.NoError(t, f.uc.ReconcilePendingLabAccess(context.Background()), "a window that has not started is a wait, with no journal entry")
+	}
+	require.Empty(t, f.infra.operations)
+	require.Empty(t, f.created)
+
+	// The window opens: the same sync is admitted.
+	f.budget.StartsAt = time.Now().UTC().Add(-time.Minute)
+	f.gate.startsAt = f.budget.StartsAt
+	f.q.EXPECT().ListDirtyEventLabAccessSyncs(gomock.Any(), int32(100)).Return([]postgres.ListDirtyEventLabAccessSyncsRow{
+		{EventTeamID: f.teamID, EventID: f.eventID, DesiredRevision: 2, AppliedRevision: 1, VpnEnabled: true, RuntimeOpen: true},
+	}, nil)
+	require.NoError(t, f.uc.ReconcilePendingLabAccess(context.Background()))
+	require.Len(t, f.created, 1)
 }

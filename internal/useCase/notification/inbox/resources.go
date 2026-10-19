@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/model/notification/inappdefaults"
 	inboxModel "github.com/cybericebox/daemon/internal/model/notification/inbox"
 )
 
@@ -104,7 +105,7 @@ func (r *RequestRouter) ResourceAlarmRaised(ctx context.Context, a ResourceAlarm
 		}
 	}
 	vars := map[string]any{
-		"alarm_id": a.ID.String(), "alarm_kind": a.Kind, "event_id": a.EventID.String(), "event_name": a.EventName, "event_tag": a.EventTag,
+		"alarm_id": a.ID.String(), "alarm_kind": inappdefaults.AlarmReason(inappdefaults.UK, string(a.Kind)), "event_id": a.EventID.String(), "event_name": a.EventName, "event_tag": a.EventTag,
 		"agent_name": a.AgentName, "units": strconv.Itoa(a.Units),
 	}
 	meta := inboxModel.NewMeta(inboxModel.TypeResourceAlarmRaised, inboxModel.RoleAdmin, inboxModel.ResourceAlarmRef(a.ID)).Raised(a.RaisedAt)
