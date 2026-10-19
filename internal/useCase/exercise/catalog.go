@@ -235,7 +235,7 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 	if f.Page > 0 {
 		sortBy := f.SortBy
 		switch sortBy {
-		case "name", "tags", "status", "updated":
+		case "name", "tags", "status", "updated", "author", "difficulty":
 		default:
 			sortBy = "updated"
 		}
@@ -243,26 +243,28 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 		if sortDir != "asc" {
 			sortDir = "desc"
 		}
-		status := f.Status
-		if !exerciseModel.CatalogStatus(status).Valid() {
-			status = ""
-		}
+		statuses, pageArchived := statusFilter(f)
 		offset := (int64(f.Page) - 1) * int64(limit)
 		if offset < 0 || offset > 2147483647 {
 			return ExercisesListResult{}, model.ErrPlatform.WithMessage("Exercise page is out of range").Err()
 		}
-		exercises, err := u.exercises.ListPage(ctx, exerciseRepo.PageParams{
-			Search: f.Search, Tags: tags, Status: status, Archived: archived, SortBy: sortBy, SortDir: sortDir,
-			Limit: int32(limit), Offset: int32(offset), Visibility: visibility,
-		})
+		params := exerciseRepo.PageParams{
+			Search: f.Search, Tags: tags, TagsAll: normalizeTagFilter(f.TagsAll), TagsNone: normalizeTagFilter(f.TagsNone),
+			AuthorIDs: f.AuthorIDs, Statuses: statuses, Archived: pageArchived,
+			DifficultyMin: difficultyBound(f.DifficultyMin), DifficultyMax: difficultyBound(f.DifficultyMax),
+			SortBy: sortBy, SortDir: sortDir, Limit: int32(limit), Offset: int32(offset), Visibility: visibility,
+		}
+		exercises, err := u.exercises.ListPage(ctx, params)
 		if err != nil {
 			return ExercisesListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to list exercises").Err()
 		}
 		items := make([]ExerciseListItem, 0, len(exercises))
 		for _, e := range exercises {
-			items = append(items, toExerciseListItem(e.Exercise, e.Status))
+			item := toExerciseListItem(e.Exercise, e.Status)
+			item.AuthorName, item.AvgDifficulty = e.AuthorName, e.AvgDifficulty
+			items = append(items, item)
 		}
-		total, err := u.exercises.CountPage(ctx, f.Search, tags, status, archived, visibility)
+		total, err := u.exercises.CountPage(ctx, params)
 		if err != nil {
 			return ExercisesListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count exercises").Err()
 		}
@@ -304,6 +306,72 @@ func (u *ExerciseUseCase) listExercises(ctx context.Context, f ExercisesFilter, 
 		return ExercisesListResult{}, model.ErrPlatform.WithError(err).WithMessage("Failed to count exercises").Err()
 	}
 	return ExercisesListResult{Exercises: items, NextCursor: next, HasMore: hasMore, Total: total}, nil
+}
+
+// statusFilter turns the status filter (Status plus Statuses, unknown values dropped) into the statuses to keep
+// and the archive filter of a page list: archived alone lists only archived tasks, archived with other statuses
+// lists both, no archived keeps archived tasks out (unless Archived is "only").
+func statusFilter(f ExercisesFilter) ([]string, string) {
+	seen := map[string]bool{}
+	statuses := make([]string, 0, len(f.Statuses)+1)
+	archived := false
+	for _, status := range append([]string{f.Status}, f.Statuses...) {
+		if !exerciseModel.CatalogStatus(status).Valid() || seen[status] {
+			continue
+		}
+		seen[status] = true
+		statuses = append(statuses, status)
+		archived = archived || status == string(exerciseModel.StatusArchived)
+	}
+	switch {
+	case f.Archived == "only" || (archived && len(statuses) == 1):
+		return statuses, "only"
+	case archived:
+		return statuses, "any"
+	default:
+		return statuses, "exclude"
+	}
+}
+
+// normalizeTagFilter lower-cases and trims the tags of a filter (tags are stored lower-case), dropping empty ones.
+func normalizeTagFilter(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if tag = strings.ToLower(strings.TrimSpace(tag)); tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+// difficultyBound keeps a difficulty level bound within 1..6; anything else is no bound (0).
+func difficultyBound(level int) int32 {
+	if level < 1 || level > 6 {
+		return 0
+	}
+	return int32(level)
+}
+
+// ListExerciseAuthors suggests the authors of the tasks the caller may read, by use; search matches the name, ids
+// (non-empty) asks for those authors only. limit <= 0 means the default (50). Names only, never emails.
+func (u *ExerciseUseCase) ListExerciseAuthors(ctx context.Context, actor Actor, search string, ids []uuid.UUID, limit int) ([]ExerciseAuthorSuggestion, error) {
+	if limit <= 0 {
+		limit = defaultTagLimit
+	}
+	limit = min(limit, pagination.MaxPageSize)
+	viewer := uuid.NullUUID{}
+	if !actor.has(rbac.PermExercisesRead) {
+		viewer = uuid.NullUUID{UUID: actor.UserID, Valid: true}
+	}
+	items, err := u.exercises.ListAuthors(ctx, strings.TrimSpace(search), ids, viewer, int32(limit))
+	if err != nil {
+		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to list exercise authors").Err()
+	}
+	out := make([]ExerciseAuthorSuggestion, 0, len(items))
+	for _, item := range items {
+		out = append(out, ExerciseAuthorSuggestion{ID: item.ID, Name: item.Name, Count: item.Count})
+	}
+	return out, nil
 }
 
 // ListExerciseTags suggests existing tags by use: those starting with prefix,

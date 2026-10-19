@@ -5724,6 +5724,15 @@ definitions:
       Name:
         type: string
     type: object
+  exercise.ExerciseAuthorSuggestion:
+    properties:
+      Count:
+        type: integer
+      ID:
+        type: string
+      Name:
+        type: string
+    type: object
   exercise.ExerciseTagSuggestion:
     properties:
       Count:
@@ -5751,6 +5760,13 @@ definitions:
       CanDelete:
         type: boolean
       CanExport:
+        description: |-
+          CanExport: the caller may export some tasks (exercises.export: any; an event moderator: their events' tasks,
+          per task Permissions.CanExport).
+        type: boolean
+      CanImport:
+        description: 'CanImport: the caller may import tasks somewhere (the catalog
+          with exercises.write, or an event they manage).'
         type: boolean
       CanPublish:
         type: boolean
@@ -6248,6 +6264,18 @@ definitions:
         type: string
       ArchivedAt:
         type: string
+      AuthorID:
+        description: |-
+          AuthorID created the task (null when the account is gone); AuthorName is their first and last name, "" when
+          unknown (offset pages only).
+        type: string
+      AuthorName:
+        type: string
+      AvgDifficulty:
+        description: |-
+          AvgDifficulty is the mean level (1 elementary … 6 insane) of the subtasks of the first variant of the
+          published version, else the working copy; null without one (offset pages only).
+        type: number
       CreatedAt:
         type: string
       Description:
@@ -6597,6 +6625,11 @@ definitions:
     type: object
   exercise.importUploadRequest:
     properties:
+      OwnerEventID:
+        description: |-
+          OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
+          platform catalog (exercises.write).
+        type: string
       Password:
         type: string
       UploadID:
@@ -6610,6 +6643,11 @@ definitions:
     properties:
       FileID:
         description: FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).
+        type: string
+      OwnerEventID:
+        description: |-
+          OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
+          platform catalog (exercises.write).
         type: string
       Password:
         type: string
@@ -20513,6 +20551,38 @@ paths:
           type: string
         name: tags
         type: array
+      - collectionFormat: multi
+        description: tasks having every one of these tags (offset pages only)
+        in: query
+        items:
+          type: string
+        name: withTag
+        type: array
+      - collectionFormat: multi
+        description: tasks having none of these tags (offset pages only)
+        in: query
+        items:
+          type: string
+        name: withoutTag
+        type: array
+      - collectionFormat: multi
+        description: 'author (creator) ids, repeated or comma-separated, max 100:
+          any of them (offset pages only)'
+        in: query
+        items:
+          type: string
+        name: author
+        type: array
+      - description: lowest rounded average difficulty level, 1 elementary … 6 insane;
+          tasks without one are excluded (offset pages only)
+        in: query
+        name: difficultyMin
+        type: integer
+      - description: highest rounded average difficulty level, 1..6 (offset pages
+          only)
+        in: query
+        name: difficultyMax
+        type: integer
       - description: id of the last row of the previous page
         in: query
         name: cursor
@@ -20525,12 +20595,17 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: published, changed, draft_only, archived, or none (offset pages
-          only)
+      - collectionFormat: multi
+        description: 'published, changed, draft_only, archived or none, repeated or
+          comma-separated: any of them; archived with others lists both (offset pages
+          only)'
         in: query
+        items:
+          type: string
         name: status
-        type: string
-      - description: name, tags, status, or updated (offset pages only)
+        type: array
+      - description: name, tags, status, author, difficulty or updated (offset pages
+          only)
         in: query
         name: sortBy
         type: string
@@ -21543,6 +21618,48 @@ paths:
       summary: What the caller may do in the exercises app
       tags:
       - exercises
+  /exercises/authors:
+    get:
+      parameters:
+      - description: name substring (case-insensitive); empty returns the most frequent
+          authors
+        in: query
+        name: search
+        type: string
+      - collectionFormat: multi
+        description: 'only these authors (repeated or comma-separated, max 100): the
+          names of the chosen ones'
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
+      - description: max authors (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.ExerciseAuthorSuggestion'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Authors of the exercises the caller may read, by use (the author filter);
+        names only, never emails
+      tags:
+      - exercises
   /exercises/deploys:
     get:
       description: 'Only the caller''s own, until they are removed: a deploy whose
@@ -21890,7 +22007,8 @@ paths:
       consumes:
       - application/json
       description: |-
-        200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
+        exercises.export exports any task; an event owner/manager only the tasks of their events (403
+        otherwise, nothing exported). 200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
         `images/…/<device>.tar`) the export runs in the background: 202 {JobID}; poll GET
         /exercises/export/jobs/{jobID}, then read the file in chunks.
       parameters:
@@ -22082,6 +22200,11 @@ paths:
       - description: archive password when it contains secrets
         in: formData
         name: password
+        type: string
+      - description: 'the event the tasks are created in (its owner/manager, or exercises.write);
+          empty: the platform catalog (exercises.write)'
+        in: formData
+        name: OwnerEventID
         type: string
       produces:
       - application/json

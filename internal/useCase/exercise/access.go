@@ -191,7 +191,10 @@ type AccessSummary struct {
 	CanPublish       bool
 	CanDelete        bool
 	CanExport        bool
-	Events           []AccessEvent
+	// CanImport: the caller may import somewhere (the catalog, or an event they manage); CanExport is also true
+	// for event moderators, who export the tasks of their events (per task: Permissions.CanExport).
+	CanImport bool
+	Events    []AccessEvent
 }
 
 func (u *ExerciseUseCase) GetAccessSummary(ctx context.Context, actor Actor) (AccessSummary, error) {
@@ -202,10 +205,14 @@ func (u *ExerciseUseCase) GetAccessSummary(ctx context.Context, actor Actor) (Ac
 	out := AccessSummary{
 		IsAdmin: actor.has(rbac.PermExercisesRead), CanCreateCatalog: actor.has(rbac.PermExercisesWrite),
 		CanPublish: actor.has(rbac.PermExercisesPublish), CanDelete: actor.has(rbac.PermExercisesDelete),
-		CanExport: actor.has(rbac.PermExercisesExport), Events: make([]AccessEvent, 0, len(memberships)),
+		CanExport: actor.has(rbac.PermExercisesExport), CanImport: actor.has(rbac.PermExercisesWrite),
+		Events: make([]AccessEvent, 0, len(memberships)),
 	}
 	for _, m := range memberships {
-		out.Events = append(out.Events, AccessEvent{ID: m.EventID, Name: m.Name, Tag: m.Tag, CanWrite: canManage(m.Role), InfrastructureAllowed: m.InfrastructureAllowed})
+		manage := canManage(m.Role)
+		out.Events = append(out.Events, AccessEvent{ID: m.EventID, Name: m.Name, Tag: m.Tag, CanWrite: manage, InfrastructureAllowed: m.InfrastructureAllowed})
+		out.CanImport = out.CanImport || manage
+		out.CanExport = out.CanExport || manage
 	}
 	return out, nil
 }
@@ -226,7 +233,8 @@ func permissionsFor(actor Actor, e exerciseModel.Exercise, memberships map[uuid.
 	}
 	role, member := memberships[e.OwnerEventID.UUID]
 	manage := member && canManage(role)
-	return ExercisePermissions{CanRead: member, CanEdit: manage, CanPublish: manage, CanDelete: manage, CanPropose: manage && e.PublishedVersionID.Valid && e.ArchivedAt == nil}
+	return ExercisePermissions{CanRead: member, CanEdit: manage, CanPublish: manage, CanDelete: manage, CanExport: manage,
+		CanPropose: manage && e.PublishedVersionID.Valid && e.ArchivedAt == nil}
 }
 
 func (u *ExerciseUseCase) membershipMap(ctx context.Context, actor Actor) (map[uuid.UUID]int16, error) {
@@ -302,19 +310,84 @@ func (u *ExerciseUseCase) requireInfrastructureAllowed(ctx context.Context, e ex
 
 // AuthorizeFileUpload: admins, and anyone who manages at least one event.
 func (u *ExerciseUseCase) AuthorizeFileUpload(ctx context.Context, actor Actor) error {
+	return u.RequireAuthor(ctx, actor)
+}
+
+// RequireAuthor lets through who may create tasks somewhere: exercises.write (the catalog and every event), or an
+// owner/manager of at least one event (that event). It guards what is not about one target: the upload of a file
+// or an archive, the example archive.
+func (u *ExerciseUseCase) RequireAuthor(ctx context.Context, actor Actor) error {
 	if actor.has(rbac.PermExercisesWrite) {
 		return nil
 	}
+	managed, err := u.managesAnyEvent(ctx, actor)
+	if err != nil {
+		return err
+	}
+	if !managed {
+		return exerciseModel.ErrExerciseForbidden.Err()
+	}
+	return nil
+}
+
+func (u *ExerciseUseCase) managesAnyEvent(ctx context.Context, actor Actor) (bool, error) {
 	memberships, err := u.exercises.Memberships(ctx, actor.UserID)
 	if err != nil {
-		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event memberships").Err()
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to get event memberships").Err()
 	}
 	for _, m := range memberships {
 		if canManage(m.Role) {
-			return nil
+			return true, nil
 		}
 	}
-	return exerciseModel.ErrExerciseForbidden.Err()
+	return false, nil
+}
+
+// AuthorizeImport checks where the caller may import tasks: the same rule as creating one (requireCreateScope).
+// The platform catalog (ownerEventID nil) needs exercises.write; an event needs that or an owner/manager
+// membership of it.
+func (u *ExerciseUseCase) AuthorizeImport(ctx context.Context, actor Actor, ownerEventID *uuid.UUID) error {
+	return u.requireCreateScope(ctx, actor, ownerEventID)
+}
+
+// AuthorizeExport checks that the caller may export every one of the tasks. exercises.export exports any task.
+// Otherwise only the tasks of an event the caller owns or manages: an archive carries every version and variant
+// with the flags (and, with a password, the secrets), more than a moderator may read of a catalog task — even one
+// attached to their event — or than a viewer may read of their event's tasks.
+func (u *ExerciseUseCase) AuthorizeExport(ctx context.Context, actor Actor, ids []uuid.UUID) error {
+	if actor.has(rbac.PermExercisesExport) {
+		return nil
+	}
+	rows, err := u.exercises.Memberships(ctx, actor.UserID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event memberships").Err()
+	}
+	memberships := make(map[uuid.UUID]int16, len(rows))
+	for _, m := range rows {
+		memberships[m.EventID] = m.Role
+	}
+	for _, id := range ids {
+		e, getErr := u.exercises.GetByID(ctx, id)
+		if getErr != nil {
+			if repositoryTools.IsObjectNotFoundError(getErr) {
+				return exerciseModel.ErrExerciseNotFound.Err()
+			}
+			return model.ErrPlatform.WithError(getErr).WithMessage("Failed to get exercise").Err()
+		}
+		if !canExportEventTask(e, memberships) {
+			return exerciseModel.ErrExerciseForbidden.Err()
+		}
+	}
+	return nil
+}
+
+// canExportEventTask: an event task whose owner event the caller owns or manages.
+func canExportEventTask(e exerciseModel.Exercise, memberships map[uuid.UUID]int16) bool {
+	if !e.IsEventScoped() || !e.OwnerEventID.Valid {
+		return false
+	}
+	role, member := memberships[e.OwnerEventID.UUID]
+	return member && canManage(role)
 }
 
 // AuthorizeFileDownload: the uploader, and readers of an exercise whose

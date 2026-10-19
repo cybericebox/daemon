@@ -671,22 +671,23 @@ type ExerciseExportJob struct {
 }
 
 type ExerciseImportJob struct {
-	ID          uuid.UUID   `json:"id"`
-	CreatedBy   uuid.UUID   `json:"created_by"`
-	Source      string      `json:"source"`
-	SourceID    uuid.UUID   `json:"source_id"`
-	State       string      `json:"state"`
-	ExerciseIds []uuid.UUID `json:"exercise_ids"`
-	Error       []byte      `json:"error"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
-	Stage       string      `json:"stage"`
-	ImagesDone  int32       `json:"images_done"`
-	ImagesTotal int32       `json:"images_total"`
-	TasksDone   int32       `json:"tasks_done"`
-	TasksTotal  int32       `json:"tasks_total"`
-	BytesPushed int64       `json:"bytes_pushed"`
-	BytesTotal  int64       `json:"bytes_total"`
+	ID           uuid.UUID     `json:"id"`
+	CreatedBy    uuid.UUID     `json:"created_by"`
+	Source       string        `json:"source"`
+	SourceID     uuid.UUID     `json:"source_id"`
+	State        string        `json:"state"`
+	ExerciseIds  []uuid.UUID   `json:"exercise_ids"`
+	Error        []byte        `json:"error"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	Stage        string        `json:"stage"`
+	ImagesDone   int32         `json:"images_done"`
+	ImagesTotal  int32         `json:"images_total"`
+	TasksDone    int32         `json:"tasks_done"`
+	TasksTotal   int32         `json:"tasks_total"`
+	BytesPushed  int64         `json:"bytes_pushed"`
+	BytesTotal   int64         `json:"bytes_total"`
+	OwnerEventID uuid.NullUUID `json:"owner_event_id"`
 }
 
 type ExerciseProposal struct {
@@ -733,15 +734,16 @@ type ExerciseTestDeployment struct {
 }
 
 type ExerciseVersion struct {
-	ID          uuid.UUID          `json:"id"`
-	ExerciseID  uuid.UUID          `json:"exercise_id"`
-	Status      string             `json:"status"`
-	AdminNote   string             `json:"admin_note"`
-	Variants    []byte             `json:"variants"`
-	CreatedAt   time.Time          `json:"created_at"`
-	CreatedBy   uuid.NullUUID      `json:"created_by"`
-	PublishedAt pgtype.Timestamptz `json:"published_at"`
-	Label       string             `json:"label"`
+	ID            uuid.UUID          `json:"id"`
+	ExerciseID    uuid.UUID          `json:"exercise_id"`
+	Status        string             `json:"status"`
+	AdminNote     string             `json:"admin_note"`
+	Variants      []byte             `json:"variants"`
+	CreatedAt     time.Time          `json:"created_at"`
+	CreatedBy     uuid.NullUUID      `json:"created_by"`
+	PublishedAt   pgtype.Timestamptz `json:"published_at"`
+	Label         string             `json:"label"`
+	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
 }
 
 type File struct {

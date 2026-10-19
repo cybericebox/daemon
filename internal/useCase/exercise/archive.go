@@ -57,6 +57,9 @@ type ImportExerciseInput struct {
 	Archive   []byte
 	Password  string
 	CreatedBy uuid.UUID
+	// OwnerEventID: nil imports into the platform catalog, else the tasks belong to that event. Authorization is
+	// the caller's (AuthorizeImport).
+	OwnerEventID *uuid.UUID
 	// Limits are the archive limits the caller read for this import (the archive was already checked against them);
 	// zero: the limits in force.
 	Limits exerciseModel.ArchiveLimits
@@ -178,15 +181,15 @@ func (u *ExerciseUseCase) ImportExerciseArchive(ctx context.Context, in ImportEx
 	if err != nil {
 		return ExerciseView{}, err
 	}
-	if err = u.prepareImport(ctx, &parsed, protected); err != nil {
+	if err = u.prepareImport(ctx, &parsed, protected, in.OwnerEventID); err != nil {
 		return ExerciseView{}, err
 	}
-	return u.storeImport(ctx, &parsed, in.CreatedBy)
+	return u.storeImport(ctx, &parsed, in.CreatedBy, in.OwnerEventID)
 }
 
 // prepareImport checks a parsed task and makes it final before anything is uploaded or written: linked variants,
 // statuses, secrets only in a protected archive, final ids, the publish gate, secrets sealed.
-func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool) error {
+func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerciseArchive, protected bool, ownerEventID *uuid.UUID) error {
 	// A linked variant holds only its own parts in the archive: the base fills in the rest before validation.
 	if err := syncImportedLinks(parsed.Versions); err != nil {
 		return err
@@ -207,18 +210,18 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 		return err
 	}
 	// A version imported as published passes the same gate as PublishDraft, before anything is uploaded or written.
-	if err := u.requireImportedPublishable(ctx, parsed.Versions); err != nil {
+	if err := u.requireImportedPublishable(ctx, parsed.Versions, ownerEventID); err != nil {
 		return err
 	}
 	return u.encryptImportedSecrets(parsed.Versions)
 }
 
 // storeImport uploads the attachments of a prepared task and creates it.
-func (u *ExerciseUseCase) storeImport(ctx context.Context, parsed *ParsedExerciseArchive, createdBy uuid.UUID) (ExerciseView, error) {
+func (u *ExerciseUseCase) storeImport(ctx context.Context, parsed *ParsedExerciseArchive, createdBy uuid.UUID, ownerEventID *uuid.UUID) (ExerciseView, error) {
 	if err := u.copyImportedAttachments(ctx, parsed, createdBy); err != nil {
 		return ExerciseView{}, err
 	}
-	created, err := u.createImportedIdentity(ctx, parsed.Exercise, createdBy)
+	created, err := u.createImportedIdentity(ctx, parsed.Exercise, createdBy, ownerEventID)
 	if err != nil {
 		return ExerciseView{}, err
 	}
@@ -303,10 +306,14 @@ func validateImportedVersions(versions []exerciseModel.ExerciseVersion) error {
 }
 
 // requireImportedPublishable runs the publish gate (requirePublishable, the one PublishDraft runs) on every
-// version imported as published. The import always creates a new catalog task: no owner event, no approved
-// elevation yet. A refusal keeps its error and gains the archive path it is about.
-func (u *ExerciseUseCase) requireImportedPublishable(ctx context.Context, versions []exerciseModel.ExerciseVersion) error {
+// version imported as published. The import creates a new task (no approved elevation yet): a catalog task, or one
+// of ownerEventID, whose infrastructure permission then applies. A refusal keeps its error and gains the archive
+// path it is about.
+func (u *ExerciseUseCase) requireImportedPublishable(ctx context.Context, versions []exerciseModel.ExerciseVersion, ownerEventID *uuid.UUID) error {
 	newTask := exerciseModel.Exercise{Scope: exerciseModel.ScopeCatalog}
+	if ownerEventID != nil {
+		newTask = exerciseModel.Exercise{Scope: exerciseModel.ScopeEvent, OwnerEventID: uuid.NullUUID{UUID: *ownerEventID, Valid: true}}
+	}
 	for index := range versions {
 		if !versions[index].Status.IsPublished() {
 			continue
@@ -419,11 +426,11 @@ func (u *ExerciseUseCase) copyImportedAttachments(ctx context.Context, parsed *P
 	return nil
 }
 
-func (u *ExerciseUseCase) createImportedIdentity(ctx context.Context, source exerciseModel.Exercise, createdBy uuid.UUID) (ExerciseView, error) {
+func (u *ExerciseUseCase) createImportedIdentity(ctx context.Context, source exerciseModel.Exercise, createdBy uuid.UUID, ownerEventID *uuid.UUID) (ExerciseView, error) {
 	baseName := source.Name
 	for attempt := 0; attempt < 100; attempt++ {
 		name := importedName(baseName, attempt)
-		created, err := u.CreateExercise(ctx, CreateExerciseInput{Name: name, Description: source.Description, Tags: source.Tags, CreatedBy: createdBy})
+		created, err := u.CreateExercise(ctx, CreateExerciseInput{Name: name, Description: source.Description, Tags: source.Tags, CreatedBy: createdBy, OwnerEventID: ownerEventID})
 		if err == nil {
 			return created, nil
 		}

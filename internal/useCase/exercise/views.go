@@ -46,6 +46,12 @@ type ExerciseListItem struct {
 	ArchivedAt *time.Time
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	// AuthorID created the task; AuthorName is their first and last name (page lists only; "" when unknown).
+	AuthorID   *uuid.UUID
+	AuthorName string
+	// AvgDifficulty is the mean level (1 elementary … 6 insane) of the subtasks of the first variant of the
+	// published version, else the working copy; nil without one (page lists only).
+	AvgDifficulty *float64
 
 	ExerciseScopeView
 }
@@ -173,6 +179,13 @@ type ExerciseTagSuggestion struct {
 	Count int64  `json:"Count"`
 }
 
+// ExerciseAuthorSuggestion is one author for the author filter: the name only, never the email.
+type ExerciseAuthorSuggestion struct {
+	ID    uuid.UUID `json:"ID"`
+	Name  string    `json:"Name"`
+	Count int64     `json:"Count"`
+}
+
 // ExerciseUsage lists the events (active or archived) where any version of
 // the exercise is attached.
 type ExerciseUsage struct {
@@ -231,7 +244,7 @@ func toExerciseListItem(e exerciseModel.Exercise, status exerciseModel.CatalogSt
 	return ExerciseListItem{
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		HasDraft: e.DraftVersionID.Valid, HasPublished: e.PublishedVersionID.Valid, Status: string(status),
-		ArchivedAt: e.ArchivedAt, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
+		ArchivedAt: e.ArchivedAt, CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: uuidPtr(e.CreatedBy),
 		ExerciseScopeView: toScopeView(e),
 	}
 }

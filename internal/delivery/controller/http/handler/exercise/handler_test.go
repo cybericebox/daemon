@@ -69,6 +69,14 @@ type fakeUC struct {
 	checkedImages         []string
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
+	// managedEvent is the event the caller owns/manages (uuid.Nil: none); exportable are the tasks of it.
+	managedEvent  uuid.UUID
+	exportable    map[uuid.UUID]bool
+	importTargets []*uuid.UUID
+	authorSearch  string
+	authorIDs     []uuid.UUID
+	authorLimit   int
+	authors       []exerciseUseCase.ExerciseAuthorSuggestion
 	// image upload
 	imageUpload imageUploadCalls
 	// background import of archives with images
@@ -557,7 +565,7 @@ func TestListExercises_ParsesSeveralEvents(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	got := uc.listFilter.EventIDs
-	if len(got) != 3 || got[0] != a || got[1] != b || got[2] != c || uc.listFilter.Status != "changed" {
+	if len(got) != 3 || got[0] != a || got[1] != b || got[2] != c || len(uc.listFilter.Statuses) != 1 || uc.listFilter.Statuses[0] != "changed" {
 		t.Fatalf("events are repeated or comma-separated, deduplicated in order: %+v", uc.listFilter)
 	}
 	w = httptest.NewRecorder()
@@ -622,7 +630,7 @@ func TestListExercises_OffsetPagePreservesCursorEndpoint(t *testing.T) {
 	if env.Data.Page != 2 || env.Data.PageSize != 25 || env.Data.Total != 52 {
 		t.Fatalf("offset envelope: %+v", env.Data)
 	}
-	if uc.listFilter.Page != 2 || uc.listFilter.SortBy != "name" || uc.listFilter.SortDir != "asc" || uc.listFilter.Status != "draft" || len(uc.listFilter.Tags) != 1 {
+	if uc.listFilter.Page != 2 || uc.listFilter.SortBy != "name" || uc.listFilter.SortDir != "asc" || len(uc.listFilter.Statuses) != 1 || uc.listFilter.Statuses[0] != "draft" || len(uc.listFilter.Tags) != 1 {
 		t.Fatalf("offset filter: %+v", uc.listFilter)
 	}
 	w = httptest.NewRecorder()
@@ -1831,6 +1839,35 @@ func (f *fakeUC) AuthorizeFileUpload(_ context.Context, actor exerciseUseCase.Ac
 		return exerciseModel.ErrExerciseForbidden.Err()
 	}
 	return nil
+}
+// RequireAuthor, AuthorizeImport and AuthorizeExport mirror the use case policy: RBAC, else the managed event.
+func (f *fakeUC) RequireAuthor(_ context.Context, actor exerciseUseCase.Actor) error {
+	if actor.Role.HasPermission(rbac.PermExercisesWrite) || f.managedEvent != uuid.Nil {
+		return nil
+	}
+	return exerciseModel.ErrExerciseForbidden.Err()
+}
+func (f *fakeUC) AuthorizeImport(_ context.Context, actor exerciseUseCase.Actor, owner *uuid.UUID) error {
+	f.importTargets = append(f.importTargets, owner)
+	if actor.Role.HasPermission(rbac.PermExercisesWrite) || (owner != nil && *owner == f.managedEvent && f.managedEvent != uuid.Nil) {
+		return nil
+	}
+	return exerciseModel.ErrExerciseForbidden.Err()
+}
+func (f *fakeUC) AuthorizeExport(_ context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID) error {
+	if actor.Role.HasPermission(rbac.PermExercisesExport) {
+		return nil
+	}
+	for _, id := range ids {
+		if !f.exportable[id] {
+			return exerciseModel.ErrExerciseForbidden.Err()
+		}
+	}
+	return nil
+}
+func (f *fakeUC) ListExerciseAuthors(_ context.Context, _ exerciseUseCase.Actor, search string, ids []uuid.UUID, limit int) ([]exerciseUseCase.ExerciseAuthorSuggestion, error) {
+	f.authorSearch, f.authorIDs, f.authorLimit = search, ids, limit
+	return f.authors, f.err
 }
 func (f *fakeUC) AuthorizeFileDownload(_ context.Context, actor exerciseUseCase.Actor, _ mediaModel.File) error {
 	if !actor.Role.HasPermission(rbac.PermExercisesRead) {

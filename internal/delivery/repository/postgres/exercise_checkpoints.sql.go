@@ -25,7 +25,7 @@ WHERE src.exercise_id = $5
                         FROM exercise_versions dv
                         WHERE dv.exercise_id = $5
                           AND dv.status = 'draft')))
-RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label
+RETURNING id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty
 `
 
 type CreateExerciseCheckpointParams struct {
@@ -60,6 +60,7 @@ func (q *Queries) CreateExerciseCheckpoint(ctx context.Context, arg CreateExerci
 		&i.CreatedBy,
 		&i.PublishedAt,
 		&i.Label,
+		&i.AvgDifficulty,
 	)
 	return i, err
 }
@@ -88,9 +89,9 @@ WITH source AS (
     WHERE d.exercise_id = $2
       AND d.status = 'draft'
       AND EXISTS (SELECT 1 FROM preserved)
-    RETURNING d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label
+    RETURNING d.id, d.exercise_id, d.status, d.admin_note, d.variants, d.created_at, d.created_by, d.published_at, d.label, d.avg_difficulty
 )
-SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label FROM restored
+SELECT id, exercise_id, status, admin_note, variants, created_at, created_by, published_at, label, avg_difficulty FROM restored
 `
 
 type RestoreVersionPreservingDraftParams struct {
@@ -102,15 +103,16 @@ type RestoreVersionPreservingDraftParams struct {
 }
 
 type RestoreVersionPreservingDraftRow struct {
-	ID          uuid.UUID          `json:"id"`
-	ExerciseID  uuid.UUID          `json:"exercise_id"`
-	Status      string             `json:"status"`
-	AdminNote   string             `json:"admin_note"`
-	Variants    []byte             `json:"variants"`
-	CreatedAt   time.Time          `json:"created_at"`
-	CreatedBy   uuid.NullUUID      `json:"created_by"`
-	PublishedAt pgtype.Timestamptz `json:"published_at"`
-	Label       string             `json:"label"`
+	ID            uuid.UUID          `json:"id"`
+	ExerciseID    uuid.UUID          `json:"exercise_id"`
+	Status        string             `json:"status"`
+	AdminNote     string             `json:"admin_note"`
+	Variants      []byte             `json:"variants"`
+	CreatedAt     time.Time          `json:"created_at"`
+	CreatedBy     uuid.NullUUID      `json:"created_by"`
+	PublishedAt   pgtype.Timestamptz `json:"published_at"`
+	Label         string             `json:"label"`
+	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
 }
 
 // Save the current draft as a checkpoint in the same statement before
@@ -135,6 +137,7 @@ func (q *Queries) RestoreVersionPreservingDraft(ctx context.Context, arg Restore
 		&i.CreatedBy,
 		&i.PublishedAt,
 		&i.Label,
+		&i.AvgDifficulty,
 	)
 	return i, err
 }
