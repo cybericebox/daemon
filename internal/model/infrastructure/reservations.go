@@ -97,3 +97,46 @@ type ReservationPort interface {
 	UpdateReservations(ctx context.Context, agentID uuid.UUID, rs []ClusterReservation) ([]ItemOutcome, error)
 	DeleteReservations(ctx context.Context, agentID uuid.UUID, ids []uuid.UUID) ([]ItemOutcome, error)
 }
+
+// ErrPlacementMismatch: a group is placed on another agent than its reservation's unit (it never moves).
+var ErrPlacementMismatch = errors.New("the group is placed on another agent than its reservation")
+
+// ReservationRef names the backend reservation a group or a lab runs under; the calendar resolves it to the part on
+// the group's agent. One of the forms is set:
+//   - a calendar reservation (CalendarID, or the active reservation of EventID) and the Unit inside it (a team, a
+//     preview owner, the booking);
+//   - a test run (TestDeployID);
+//   - an author's test group (OwnerID).
+type ReservationRef struct {
+	CalendarID   *uuid.UUID
+	EventID      *uuid.UUID
+	Unit         string
+	TestDeployID *uuid.UUID
+	OwnerID      *uuid.UUID
+}
+
+// Empty is true when the ref names no reservation.
+func (r ReservationRef) Empty() bool {
+	return r.CalendarID == nil && r.EventID == nil && r.TestDeployID == nil && r.OwnerID == nil
+}
+
+// PartResolver finds the cluster reservation a ref runs under.
+type PartResolver interface {
+	// Resolve returns the agent of the ref (assigning its unit when needed) and the part id there. pinned is the
+	// agent the group already lives on, when it has one. A part that is not on its agent yet is sent once; still
+	// missing is ErrNoClusterReservation (retryable).
+	Resolve(ctx context.Context, ref ReservationRef, pinned *uuid.UUID) (agentID, partID uuid.UUID, err error)
+}
+
+type groupReservationKey struct{}
+
+// WithGroupReservation carries the reservation of the group a call creates (EnsureVPNGroup, the preparation check).
+func WithGroupReservation(ctx context.Context, ref ReservationRef) context.Context {
+	return context.WithValue(ctx, groupReservationKey{}, ref)
+}
+
+// GroupReservationFrom returns what WithGroupReservation stored; false when none.
+func GroupReservationFrom(ctx context.Context) (ReservationRef, bool) {
+	ref, ok := ctx.Value(groupReservationKey{}).(ReservationRef)
+	return ref, ok && !ref.Empty()
+}

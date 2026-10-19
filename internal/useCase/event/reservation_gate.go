@@ -11,6 +11,8 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
@@ -36,6 +38,11 @@ type reservationStarter interface {
 // It is a wait, not a fault: nothing is deployed and nothing reaches the error journal; the work starts by
 // itself once the reservation exists.
 var errAwaitingReservation = errors.New("event is waiting for its resource reservation")
+
+// teamReservation is what a team's group and labs run under: the team's unit of the event reservation.
+func teamReservation(eventID, teamID uuid.UUID) infraModel.ReservationRef {
+	return infraModel.ReservationRef{EventID: &eventID, Unit: calModel.TeamUnit(teamID)}
+}
 
 // awaitingReservation reports whether the event needs lab tasks or accounted group services but has no
 // reservation, or its reservation window has not started. A gate that cannot say (no calendar wired) does not hold anything back; a failed read holds

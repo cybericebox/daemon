@@ -47,7 +47,7 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 	if meta.InitialLifecycle != nil && (meta.InitialLifecycle.OperationID == uuid.Nil || meta.InitialLifecycle.Revision != 1 || meta.BeforeCreate == nil) {
 		return fmt.Errorf("managed initial lifecycle requires a persisted operation and revision1")
 	}
-	if err := c.ensureGroup(ctx, group, meta.GroupLabels); err != nil {
+	if err := c.ensureGroup(ctx, group, meta.GroupLabels, meta.GroupPartID); err != nil {
 		return err
 	}
 	if err := c.awaitGroupNamespace(ctx, group); err != nil {
@@ -90,7 +90,7 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 		Variants: []*labpb.LabVariant{{VariantId: deployVariantID, SpecJson: specJSON, RegistryCredentials: registryCredentials(meta.PullCredentials)}},
 		Items: []*labpb.LabItem{{
 			ExpectedGroupUid: expectedGroupUID, LabGroup: group, Name: lab, VariantId: deployVariantID, Env: env,
-			Labels: meta.Labels, DeployGroup: meta.DeployGroup,
+			Labels: meta.Labels, DeployGroup: meta.DeployGroup, ReservationId: meta.PartID,
 		}},
 	})
 	if err != nil {
@@ -105,14 +105,19 @@ func (c *Client) DeployLab(ctx context.Context, group, lab string, meta infraMod
 // EnsureVPNGroup creates the stable team group without requiring a Lab.
 // A later DeployLab reuses exactly this group name.
 func (c *Client) EnsureVPNGroup(ctx context.Context, group string) error {
-	return c.ensureGroup(ctx, group, nil)
+	return c.ensureGroup(ctx, group, nil, "")
+}
+
+// EnsureVPNGroupUnder is EnsureVPNGroup for a group that runs under a reservation (its part id).
+func (c *Client) EnsureVPNGroupUnder(ctx context.Context, group, reservationID string) error {
+	return c.ensureGroup(ctx, group, nil, reservationID)
 }
 
 // groupItem is one group to create. The sizes of its own pods (the VPN by the group's users, the gateway by
 // its internet labs; computed with this agent's formula and carried in ctx by the fleet) are passed
 // explicitly here, so the pods are created at exactly the size the backend planned and reserved.
-func groupItem(ctx context.Context, group string, labels map[string]string) *labpb.LabGroupItem {
-	item := &labpb.LabGroupItem{Name: group, Labels: labels}
+func groupItem(ctx context.Context, group string, labels map[string]string, reservationID string) *labpb.LabGroupItem {
+	item := &labpb.LabGroupItem{Name: group, Labels: labels, ReservationId: reservationID}
 	if sizes, ok := infraModel.GroupSizesFrom(ctx); ok {
 		setGroupSizes(item, sizes)
 	}
@@ -120,10 +125,10 @@ func groupItem(ctx context.Context, group string, labels map[string]string) *lab
 }
 
 // ensureGroup creates the group when it is missing; labels it lacks are added to an existing one.
-func (c *Client) ensureGroup(ctx context.Context, group string, labels map[string]string) error {
+func (c *Client) ensureGroup(ctx context.Context, group string, labels map[string]string, reservationID string) error {
 	res, err := c.CreateLabGroups(ctx, &labpb.CreateLabGroupsRequest{
 		Labels: c.requestLabels(),
-		Items:  []*labpb.LabGroupItem{groupItem(ctx, group, labels)},
+		Items:  []*labpb.LabGroupItem{groupItem(ctx, group, labels, reservationID)},
 	})
 	if err != nil {
 		return agentErr("create lab group", err)

@@ -644,7 +644,7 @@ func TestCreatedGroupCannotBeSilentlyUndersized(t *testing.T) {
 	f := &fakeAgent{groups: readyGroup(), itemState: labpb.ItemState_ITEM_STATE_FAILED, itemError: groupSpecDiffers}
 	c := newClient(f)
 	ctx := infraModel.WithGroupSizes(context.Background(), infraModel.GroupSizes{VPN: resourcesModel.Amount{CPUMillicores: 100, MemoryBytes: 128 << 20}, Gateway: resourcesModel.Amount{CPUMillicores: 25, MemoryBytes: 32 << 20}})
-	if err := c.ensureGroup(ctx, "event-team", nil); err == nil {
+	if err := c.ensureGroup(ctx, "event-team", nil, ""); err == nil {
 		t.Fatal("adopted existing group without proof its immutable pods fit")
 	}
 }

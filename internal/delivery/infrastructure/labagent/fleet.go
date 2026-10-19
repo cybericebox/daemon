@@ -78,6 +78,9 @@ var errNoPlacement = errors.New("lab group has no agent")
 type Fleet struct {
 	store  PlacementStore
 	picker Picker
+	// parts resolves the reservation a group or lab runs under to its agent and part id; nil: groups are placed
+	// by the picker and carry no reservation.
+	parts infraModel.PartResolver
 
 	mu sync.RWMutex
 	// prewarmSkipLogged remembers the agents whose cache-off skip was logged already.
@@ -98,6 +101,10 @@ func NewFleet(store PlacementStore, picker Picker, members ...*Member) *Fleet {
 	f.Replace(members)
 	return f
 }
+
+// SetPartResolver wires the calendar's cluster reservations: a new group that names a reservation is placed on
+// the agent of its unit, and every group and lab carries its part id.
+func (f *Fleet) SetPartResolver(r infraModel.PartResolver) { f.parts = r }
 
 // Replace swaps the members (a changed agent list). Clients of members that are gone are the
 // caller's to close.
@@ -242,7 +249,7 @@ func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, err
 		}
 		enabled = fitting
 	}
-	picked, err := f.picker(ctx, group, enabled)
+	picked, err := f.pick(ctx, group, enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -258,6 +265,39 @@ func (f *Fleet) memberForCreate(ctx context.Context, group string) (*Member, err
 		return nil, fmt.Errorf("lab group %q is placed on agent %s that is not in the fleet", group, winner)
 	}
 	return held, nil
+}
+
+// pick chooses the agent of a new group: the agent of its reservation's unit (placement follows the parts), else the
+// picker (a group without a reservation).
+func (f *Fleet) pick(ctx context.Context, group string, enabled []*Member) (*Member, error) {
+	ref, reserved := infraModel.GroupReservationFrom(ctx)
+	if !reserved || f.parts == nil {
+		return f.picker(ctx, group, enabled)
+	}
+	agentID, _, err := f.parts.Resolve(ctx, ref, nil)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range enabled {
+		if m.ID == agentID {
+			return m, nil
+		}
+	}
+	return nil, fmt.Errorf("lab group %q: the agent %s of its reservation takes no new groups: %w", group, agentID, infraModel.ErrNoClusterReservation)
+}
+
+// partOn resolves a ref to its part id on the member the group lives on; an empty ref, or a fleet without the
+// calendar, sends no reservation.
+func (f *Fleet) partOn(ctx context.Context, m *Member, ref infraModel.ReservationRef) (string, error) {
+	if ref.Empty() || f.parts == nil {
+		return "", nil
+	}
+	pinned := m.ID
+	_, part, err := f.parts.Resolve(ctx, ref, &pinned)
+	if err != nil {
+		return "", err
+	}
+	return part.String(), nil
 }
 
 // Available is true while the fleet has at least one agent; with none, infrastructure is not
@@ -286,6 +326,9 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	need := labNeed(policy, topo)
 	topo = policy.Explicitly(topo)
 	ctx = infraModel.WithPlacementNeed(ctx, withLab(infraModel.PlacementNeedFrom(ctx), need))
+	if !meta.GroupReservation.Empty() {
+		ctx = infraModel.WithGroupReservation(ctx, meta.GroupReservation)
+	}
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
 		return err
@@ -299,9 +342,16 @@ func (f *Fleet) DeployLab(ctx context.Context, group, lab string, meta infraMode
 	if feat := m.Features.Get(); feat != nil && !feat.Persistence.Available && wantsPersistence(topo) {
 		return infraModel.ErrDevicePersistenceUnavailable.Err()
 	}
+	if meta.GroupPartID, err = f.partOn(ctx, m, meta.GroupReservation); err != nil {
+		return err
+	}
+	if meta.PartID, err = f.partOn(ctx, m, meta.Reservation); err != nil {
+		return err
+	}
 	return m.Client.DeployLab(f.withSizes(ctx, m), group, lab, meta, topo)
 }
 
+// EnsureVPNGroup creates a team's group; the reservation it runs under comes with ctx (WithGroupReservation).
 func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {
 	m, err := f.memberForCreate(ctx, group)
 	if err != nil {
@@ -310,7 +360,12 @@ func (f *Fleet) EnsureVPNGroup(ctx context.Context, group string) error {
 	if v := f.fitOf(m, infraModel.PlacementNeedFrom(ctx)); v != nil {
 		return noAgentFits(v)
 	}
-	return m.Client.EnsureVPNGroup(f.withSizes(ctx, m), group)
+	ref, _ := infraModel.GroupReservationFrom(ctx)
+	part, err := f.partOn(ctx, m, ref)
+	if err != nil {
+		return err
+	}
+	return m.Client.EnsureVPNGroupUnder(f.withSizes(ctx, m), group, part)
 }
 
 func (f *Fleet) LabStatus(ctx context.Context, group, lab string) (exerciseModel.LabDeployStatus, error) {
