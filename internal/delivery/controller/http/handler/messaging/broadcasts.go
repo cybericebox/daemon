@@ -7,8 +7,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	broadcastModel "github.com/cybericebox/daemon/internal/model/notification/broadcast"
+	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	broadcastUseCase "github.com/cybericebox/daemon/internal/useCase/notification/broadcast"
 	"github.com/cybericebox/daemon/pkg/pagination"
@@ -219,9 +221,24 @@ func (h *Handler) listDeliveries(scope scopeFn) gin.HandlerFunc {
 			response.AbortWithError(ctx, err)
 			return
 		}
+		// An event's read-only moderator sees the recipients' addresses masked (owner decision 2026-10-19).
+		masked := false
+		if eventID != nil {
+			private, err := middleware.SeesEventPersonalData(ctx, *eventID, h.useCase.RequireManageEvent)
+			if err != nil {
+				response.AbortWithError(ctx, err)
+				return
+			}
+			masked = !private
+		}
 		out := make([]deliveryResponse, 0, len(items))
 		for _, d := range items {
-			out = append(out, deliveryResponse(d))
+			row := deliveryResponse(d)
+			if masked {
+				row.Error = dispatchModel.MaskEmailsIn(row.Error, row.RecipientEmail)
+				row.RecipientEmail = dispatchModel.MaskEmail(row.RecipientEmail)
+			}
+			out = append(out, row)
 		}
 		response.AbortWithData(ctx, out)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func (permProtection) RequirePermission(required rbac.Permission) gin.HandlerFun
 		}
 		if ctx.GetHeader("X-Anonymous") == "" {
 			userID := uuid.Must(uuid.NewV7())
-			ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), rbac.Claims{UserID: userID}))
+			ctx.Request = ctx.Request.WithContext(rbac.ContextWithCurrentUserSession(ctx.Request.Context(), rbac.Claims{UserID: userID, Role: rbac.Role(ctx.GetHeader("X-Role"))}))
 		}
 		ctx.Next()
 	}
@@ -50,6 +51,7 @@ type fakeUseCase struct {
 	visibleE      []*uuid.UUID
 	visibleSites  []string
 	role          string
+	deliveries    []broadcastModel.Delivery
 }
 
 func (f *fakeUseCase) RequireManageEvent(context.Context, uuid.UUID, uuid.UUID) error {
@@ -59,6 +61,12 @@ func (f *fakeUseCase) RequireManageEvent(context.Context, uuid.UUID, uuid.UUID) 
 	return nil
 }
 func (f *fakeUseCase) RequireReadEvent(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+func (f *fakeUseCase) GetBroadcast(context.Context, uuid.UUID, *uuid.UUID) (broadcastModel.Broadcast, error) {
+	return broadcastModel.Broadcast{}, nil
+}
+func (f *fakeUseCase) ListBroadcastDeliveries(context.Context, uuid.UUID, int32, int32) ([]broadcastModel.Delivery, error) {
+	return f.deliveries, nil
+}
 func (f *fakeUseCase) CountBroadcastAudience(_ context.Context, scope *uuid.UUID, _ broadcastModel.Audience) (int, error) {
 	f.counted = append(f.counted, scope)
 	return 7, nil
@@ -185,5 +193,47 @@ func TestPublicBannerReadIsOpenAndScopedByTheEventQuery(t *testing.T) {
 	}
 	if w = do(t, uc, http.MethodGet, "/api/banners?event=nope", "", ""); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad event id = %d", w.Code)
+	}
+}
+
+// The recipients of an event broadcast: the owner, write moderators and platform staff (admin_viewer included) see
+// the addresses; a read-only moderator gets them masked, in the error text too. The platform route never masks.
+func TestBroadcastDeliveriesMaskTheAddressesForAViewer(t *testing.T) {
+	deliveries := []broadcastModel.Delivery{{RecipientEmail: "olena@example.com", Channel: "email", Error: "550 <olena@example.com> unknown"}}
+	path := "/api/events/" + uuid.Must(uuid.NewV7()).String() + "/manage/broadcasts/" + uuid.Must(uuid.NewV7()).String() + "/deliveries"
+	cases := []struct {
+		name, role string
+		platform   rbac.Role
+		private    bool
+	}{
+		{"owner or write moderator", "owner", "", true},
+		{"read-only moderator", "viewer", "", false},
+		{"platform admin", "viewer", rbac.RoleAdmin, true},
+		{"platform admin viewer", "viewer", rbac.RoleAdminViewer, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			uc := &fakeUseCase{role: c.role, deliveries: deliveries}
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			router.Use(response.WithErrorHandler)
+			NewMessagingAPIHandler(uc, permProtection{}).Init(router.Group("/api"))
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set("X-Role", string(c.platform))
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+			}
+			body := w.Body.String()
+			if strings.Contains(body, "olena@example.com") != c.private || (!c.private && !strings.Contains(body, "o***@example.com")) {
+				t.Fatalf("body = %s", body)
+			}
+		})
+	}
+	uc := &fakeUseCase{role: "viewer", deliveries: deliveries}
+	w := do(t, uc, http.MethodGet, "/api/notifications/broadcasts/"+uuid.Must(uuid.NewV7()).String()+"/deliveries", string(rbac.PermNotificationsBroadcast), "")
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "olena@example.com") {
+		t.Fatalf("platform deliveries: %d %s", w.Code, w.Body.String())
 	}
 }

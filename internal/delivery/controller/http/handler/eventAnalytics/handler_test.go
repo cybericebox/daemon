@@ -33,6 +33,7 @@ type fakeUseCase struct {
 	usageTeam *uuid.UUID
 	usageFrom *time.Time
 	usageTo   *time.Time
+	members   eventAnalyticsUseCase.ParticipantsView
 }
 
 func (f *fakeUseCase) RequireEventAnalytics(_ context.Context, _ uuid.UUID, _ rbac.Claims, level eventAnalyticsUseCase.Level) error {
@@ -52,6 +53,10 @@ func (f *fakeUseCase) GetEventAnalyticsOverview(_ context.Context, _ uuid.UUID, 
 func (f *fakeUseCase) GetEventAnalyticsUsage(_ context.Context, _ uuid.UUID, team *uuid.UUID, from, to *time.Time) (eventAnalyticsUseCase.UsageView, error) {
 	f.usageTeam, f.usageFrom, f.usageTo = team, from, to
 	return f.usage, nil
+}
+
+func (f *fakeUseCase) GetEventAnalyticsParticipants(context.Context, uuid.UUID, *time.Time, *time.Time) (eventAnalyticsUseCase.ParticipantsView, error) {
+	return f.members, nil
 }
 
 type allowAll struct{}
@@ -248,5 +253,29 @@ func TestUsageTotalsIgnoreTheFiltersWithoutThePeopleAccess(t *testing.T) {
 		if filtered != people || (!people && (uc.usageTeam != nil || uc.usageFrom != nil || uc.usageTo != nil)) {
 			t.Fatalf("people=%v: team=%v from=%v to=%v", people, uc.usageTeam, uc.usageFrom, uc.usageTo)
 		}
+	}
+}
+
+// «Затверджені без жодної спроби» for a viewer without the people access: the addresses are masked in the report
+// and in its CSV, the names stay. The roles behind People are in TestResolveAccess.
+func TestDropOffAddressesMaskedWithoutThePeopleAccess(t *testing.T) {
+	members := eventAnalyticsUseCase.ParticipantsView{DropOff: eventAnalyticsUseCase.DropOffView{Total: 1,
+		Rows: []eventAnalyticsUseCase.DropOffRowView{{UserID: uuid.Must(uuid.NewV7()), Name: "Олена", Email: "olena@example.com"}}}}
+	for _, people := range []bool{false, true} {
+		uc := &fakeUseCase{people: people, members: members}
+		base := "/api/events/" + uuid.Must(uuid.NewV7()).String() + "/manage/analytics/participants"
+		for _, target := range []string{base, base + "/export.csv?table=dropoff"} {
+			w := serve(t, uc, target)
+			if w.Code != http.StatusOK {
+				t.Fatalf("people=%v %s: status = %d body = %s", people, target, w.Code, w.Body.String())
+			}
+			body := w.Body.String()
+			if bytes.Contains(w.Body.Bytes(), []byte("olena@example.com")) != people || (!people && !bytes.Contains(w.Body.Bytes(), []byte("o***@example.com"))) || !bytes.Contains(w.Body.Bytes(), []byte("Олена")) {
+				t.Fatalf("people=%v %s: body %s", people, target, body)
+			}
+		}
+	}
+	if members.DropOff.Rows[0].Email != "olena@example.com" {
+		t.Fatal("the report itself was changed")
 	}
 }

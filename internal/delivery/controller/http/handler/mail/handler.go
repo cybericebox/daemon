@@ -17,8 +17,6 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/handler/notification/stats"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	authModel "github.com/cybericebox/daemon/internal/model/auth"
-	eventManagerModel "github.com/cybericebox/daemon/internal/model/eventManager"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
@@ -593,24 +591,9 @@ func (h *Handler) requireManage(ctx *gin.Context) {
 	})
 }
 
-// seesPrivate tells whether the caller sees the participants' addresses and the SMTP username: the owner, write
-// moderators and platform staff (admin_viewer included) do; a read-only moderator gets them masked or hidden.
+// seesPrivate: the owner, write moderators and platform staff see the addresses and the SMTP username in full.
 func (h *Handler) seesPrivate(ctx *gin.Context, eventID uuid.UUID) (bool, error) {
-	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
-	if !ok {
-		return false, nil
-	}
-	if claims.Role.HasPermission(rbac.PermEventsRead) {
-		return true, nil
-	}
-	err := h.useCase.RequireManageEvent(ctx.Request.Context(), eventID, claims.UserID)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, eventManagerModel.ErrEventManagementForbidden.Err()) || errors.Is(err, authModel.ErrInsufficientPermission.Err()) {
-		return false, nil
-	}
-	return false, err
+	return middleware.SeesEventPersonalData(ctx, eventID, h.useCase.RequireManageEvent)
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {
