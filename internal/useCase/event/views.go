@@ -734,6 +734,7 @@ type ChallengeSolvesPage struct {
 // TeamRosterMemberView is one member of the caller's team; DisplayName is the
 // participant public name (pseudonym when allowed and set).
 type TeamRosterMemberView struct {
+	// UserID is uuid.Nil for other people when the caller is not the captain.
 	UserID      uuid.UUID
 	DisplayName string
 	Role        participantModel.TeamRole

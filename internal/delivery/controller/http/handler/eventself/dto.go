@@ -152,12 +152,13 @@ type challengeSolveResponse struct {
 }
 
 // teamMemberResponse.Role is participantModel.TeamRole: 0 captain, 1 member.
+// UserID is omitted for other people unless the caller is the captain.
 type teamMemberResponse struct {
-	UserID      uuid.UUID `json:"UserID"`
-	DisplayName string    `json:"DisplayName"`
-	Role        int16     `json:"Role"`
-	Own         bool      `json:"Own"`
-	Pending     bool      `json:"Pending"`
+	UserID      *uuid.UUID `json:"UserID,omitempty"`
+	DisplayName string     `json:"DisplayName"`
+	Role        int16      `json:"Role"`
+	Own         bool       `json:"Own"`
+	Pending     bool       `json:"Pending"`
 }
 type participantAnswersResponse struct {
 	Form     participantFormResponse `json:"Form"`

@@ -135,7 +135,7 @@ func TestParticipantBoard_PrerequisitesSolvesFilesAndRoster(t *testing.T) {
 	}
 
 	roster, err := uc.ListOwnTeamMembers(ctx, f.eventID, member.ID)
-	if err != nil || len(roster) != 2 || roster[0].UserID != captainID || roster[0].Role != participantModel.TeamRoleCaptain ||
+	if err != nil || len(roster) != 2 || roster[0].UserID != uuid.Nil || roster[0].Role != participantModel.TeamRoleCaptain ||
 		roster[1].DisplayName != "Neo" || !roster[1].Own || roster[0].Own {
 		t.Fatalf("roster = %+v, %v", roster, err)
 	}
