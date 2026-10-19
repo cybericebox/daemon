@@ -136,9 +136,9 @@ func TestUnitsReleased(t *testing.T) {
 	h, _, _ := observeHarness(t)
 	res := setEvent(t, h, EventReservationInput{})
 	team := uuid.Must(uuid.NewV7())
-	_, _, err := h.uc.Resolve(context.Background(), infraModel.ReservationRef{EventID: &h.event.ID, Unit: calModel.TeamUnit(team)}, nil)
+	agent, _, err := h.uc.Resolve(context.Background(), infraModel.ReservationRef{EventID: &h.event.ID, Unit: calModel.TeamUnit(team)}, nil)
 	require.NoError(t, err)
-	require.NoError(t, h.uc.ReleaseTeamUnit(context.Background(), h.event.ID, team))
+	require.NoError(t, h.uc.ReleaseTeamUnit(context.Background(), h.event.ID, team, agent))
 	units, _ := h.store.Units(context.Background(), res.Reservation.ID)
 	assert.Empty(t, units, "a destroyed group's team is placed again next time")
 	// A unit left on an agent that no longer has a part of the reservation is released by the split.
@@ -214,4 +214,46 @@ func TestRetiredPartsOfAGoneAgentAreDropped(t *testing.T) {
 	_ = h.uc.ReconcileClusterReservations(context.Background())
 	_, err := h.store.GetPart(context.Background(), p.ID)
 	assert.Error(t, err, "the retired part of an agent gone from the registry is dropped")
+}
+
+// A team recreated right after its group was destroyed, and placed on another agent, keeps its new unit: the late
+// release of the destroyed group's agent does not take it.
+func TestReleaseKeepsAUnitPlacedAnew(t *testing.T) {
+	h, _, _ := observeHarness(t)
+	res := setEvent(t, h, EventReservationInput{})
+	team := uuid.Must(uuid.NewV7())
+	unit := calModel.TeamUnit(team)
+	old, _, err := h.uc.Resolve(context.Background(), infraModel.ReservationRef{EventID: &h.event.ID, Unit: unit}, nil)
+	require.NoError(t, err)
+	// The new group of the team got its unit on another agent before the release ran.
+	require.NoError(t, h.store.ReleaseUnit(context.Background(), res.Reservation.ID, unit))
+	moved := uuid.UUID{15: 7}
+	_, err = h.store.AssignUnit(context.Background(), res.Reservation.ID, unit, moved, now0)
+	require.NoError(t, err)
+	require.NoError(t, h.uc.ReleaseTeamUnit(context.Background(), h.event.ID, team, old))
+	units, _ := h.store.Units(context.Background(), res.Reservation.ID)
+	assert.Equal(t, moved, units[unit], "the unit of the recreated team stays")
+	// The release of its own agent frees it.
+	require.NoError(t, h.uc.ReleaseTeamUnit(context.Background(), h.event.ID, team, moved))
+	units, _ = h.store.Units(context.Background(), res.Reservation.ID)
+	assert.NotContains(t, units, unit)
+}
+
+// The monitoring (without the agent lock) and a sync at the window end both finish the same snapshot of a part:
+// the end is recorded atomically, so only one of them tells the listener.
+func TestRacingFinishesActOnce(t *testing.T) {
+	h, _, l := observeHarness(t)
+	p := testRunPart(t, h)
+	at := p.Window.End.Add(time.Second)
+	h.clock = at
+	require.NoError(t, h.uc.finishPart(context.Background(), p, at))
+	require.NoError(t, h.uc.finishWith(context.Background(), p, calModel.PartStatus{Phase: calModel.PartEnded}, at))
+	assert.Len(t, l.ended, 1)
+	got, err := h.store.GetPart(context.Background(), p.ID)
+	require.NoError(t, err)
+	assert.Equal(t, calModel.PartEnded, got.Status.Phase)
+	// A late status of the agent does not take the part out of its end.
+	require.NoError(t, h.store.Observe(context.Background(), p.ID, calModel.PartStatus{Phase: calModel.PartActive}))
+	got, _ = h.store.GetPart(context.Background(), p.ID)
+	assert.Equal(t, calModel.PartEnded, got.Status.Phase)
 }

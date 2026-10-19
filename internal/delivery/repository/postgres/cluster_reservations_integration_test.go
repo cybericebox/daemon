@@ -91,6 +91,16 @@ func TestClusterReservationParts(t *testing.T) {
 	live, err := repo.PartsOfCalendar(ctx, r.ID)
 	require.NoError(t, err)
 	assert.Len(t, live, 1)
+	ended, err := repo.EndPart(ctx, got.ID, calModel.PartStatus{ObservedAt: &notice})
+	require.NoError(t, err)
+	assert.True(t, ended, "the first end changes the row")
+	ended, err = repo.EndPart(ctx, got.ID, calModel.PartStatus{ObservedAt: &notice})
+	require.NoError(t, err)
+	assert.False(t, ended, "a second end changes nothing: only one caller acts")
+	require.NoError(t, repo.Observe(ctx, got.ID, calModel.PartStatus{Phase: calModel.PartActive, ObservedAt: &notice}))
+	got, err = repo.GetPart(ctx, got.ID)
+	require.NoError(t, err)
+	assert.Equal(t, calModel.PartEnded, got.Status.Phase, "a late status does not undo the end")
 	require.NoError(t, repo.DeletePart(ctx, got.ID))
 }
 

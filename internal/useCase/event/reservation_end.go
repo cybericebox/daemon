@@ -110,7 +110,7 @@ func (u *EventUseCase) ReservationPartEnded(ctx context.Context, eventID, agentI
 		if eErr := u.endLifecyclesWithReservation(ctx, group, now); eErr != nil {
 			errs = append(errs, eErr)
 		}
-		u.releaseTeamUnit(ctx, group)
+		u.releaseTeamUnit(ctx, group, &agentID)
 	}
 	return errors.Join(errs...)
 }
@@ -167,23 +167,46 @@ func (u *EventUseCase) endLifecyclesWithReservation(ctx context.Context, group s
 	return unit.Save()
 }
 
-// teamUnitReleaser forgets the agent of a team's unit of the event reservation (the calendar).
+// teamUnitReleaser forgets the agent of a team's unit of the event reservation (the calendar), if the unit is still
+// on the agent of the destroyed group.
 type teamUnitReleaser interface {
-	ReleaseTeamUnit(ctx context.Context, eventID, teamID uuid.UUID) error
+	ReleaseTeamUnit(ctx context.Context, eventID, teamID, agentID uuid.UUID) error
+}
+
+// groupAgentReader tells the agent a lab group is placed on (the fleet).
+type groupAgentReader interface {
+	GroupAgent(ctx context.Context, group string) (uuid.UUID, bool, error)
+}
+
+// groupAgent reads the agent of a group before it is destroyed; nil when it is not known (then its unit is kept).
+func (u *EventUseCase) groupAgent(ctx context.Context, group string) *uuid.UUID {
+	if _, ok := u.resourceGate.(teamUnitReleaser); !ok {
+		return nil
+	}
+	reader, ok := u.infra.(groupAgentReader)
+	if !ok {
+		return nil
+	}
+	agent, found, err := reader.GroupAgent(ctx, group)
+	if err != nil || !found {
+		return nil
+	}
+	return &agent
 }
 
 // releaseTeamUnit forgets the agent of the team of a destroyed group, so a new group of the team is placed again
-// from the current shares. A failure is logged: the unit stays on its agent.
-func (u *EventUseCase) releaseTeamUnit(ctx context.Context, group string) {
+// from the current shares. A unit already on another agent (the team was placed anew) is kept. A failure is logged:
+// the unit stays on its agent.
+func (u *EventUseCase) releaseTeamUnit(ctx context.Context, group string, agent *uuid.UUID) {
 	releaser, ok := u.resourceGate.(teamUnitReleaser)
-	if !ok {
+	if !ok || agent == nil {
 		return
 	}
 	eventID, teamID, ok := labBindingModel.ParseGroupName(group)
 	if !ok {
 		return
 	}
-	if err := releaser.ReleaseTeamUnit(ctx, eventID, teamID); err != nil {
+	if err := releaser.ReleaseTeamUnit(ctx, eventID, teamID, *agent); err != nil {
 		log.Warn().Err(err).Str("lab_group", group).Msg("Failed to release the reservation unit of a destroyed group")
 	}
 }

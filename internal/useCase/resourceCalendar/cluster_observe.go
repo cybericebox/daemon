@@ -105,8 +105,11 @@ func (u *ResourceCalendarUseCase) ObserveClusterReservations(ctx context.Context
 			resync = true
 			continue
 		}
-		if err = u.store.Observe(ctx, p.ID, next); err != nil {
-			return platformErr(err, "Failed to record the status of a cluster reservation")
+		// The end is recorded by the transition, once.
+		if next.Phase != calModel.PartEnded {
+			if err = u.store.Observe(ctx, p.ID, next); err != nil {
+				return platformErr(err, "Failed to record the status of a cluster reservation")
+			}
 		}
 		u.transition(ctx, p, next, r, now)
 	}
@@ -122,7 +125,9 @@ func (u *ResourceCalendarUseCase) ObserveClusterReservations(ctx context.Context
 		if !ok || p.Status.Phase == calModel.PartEnded {
 			continue // an end already acted on
 		}
-		u.finishPart(ctx, p, now)
+		if err = u.finishPart(ctx, p, now); err != nil {
+			log.Warn().Err(err).Str("part_id", p.ID.String()).Msg("Failed to act on the end of a cluster reservation part")
+		}
 	}
 	if resync {
 		if err = u.SyncAgent(ctx, agentID); err != nil {
@@ -148,7 +153,9 @@ func (u *ResourceCalendarUseCase) transition(ctx context.Context, p calModel.Par
 		u.reduced(ctx, p, next, now)
 	}
 	if next.Phase == calModel.PartEnded && prev.Phase != calModel.PartEnded {
-		u.finishPart(ctx, p, now)
+		if err := u.finishWith(ctx, p, next, now); err != nil {
+			log.Warn().Err(err).Str("part_id", p.ID.String()).Msg("Failed to act on the end of a cluster reservation part")
+		}
 	}
 }
 

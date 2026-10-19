@@ -56,6 +56,46 @@ func (q *Queries) DeleteClusterReservation(ctx context.Context, id uuid.UUID) er
 	return err
 }
 
+const endClusterReservation = `-- name: EndClusterReservation :execrows
+UPDATE cluster_reservations
+SET phase = 'Ended', notice_at = $1, ends_notice_at = $2,
+    ending_reason = $3, used_cpu_millicores = $4,
+    used_memory_bytes = $5, group_count = $6, exceeded = $7,
+    observed_at = $8
+WHERE id = $9 AND phase <> 'Ended'
+`
+
+type EndClusterReservationParams struct {
+	NoticeAt          pgtype.Timestamptz `json:"notice_at"`
+	EndsNoticeAt      pgtype.Timestamptz `json:"ends_notice_at"`
+	EndingReason      string             `json:"ending_reason"`
+	UsedCpuMillicores int64              `json:"used_cpu_millicores"`
+	UsedMemoryBytes   int64              `json:"used_memory_bytes"`
+	GroupCount        int32              `json:"group_count"`
+	Exceeded          bool               `json:"exceeded"`
+	ObservedAt        pgtype.Timestamptz `json:"observed_at"`
+	ID                uuid.UUID          `json:"id"`
+}
+
+// Records the end of a part once: a part already ended changes no row, so only one caller acts on the end.
+func (q *Queries) EndClusterReservation(ctx context.Context, arg EndClusterReservationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, endClusterReservation,
+		arg.NoticeAt,
+		arg.EndsNoticeAt,
+		arg.EndingReason,
+		arg.UsedCpuMillicores,
+		arg.UsedMemoryBytes,
+		arg.GroupCount,
+		arg.Exceeded,
+		arg.ObservedAt,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getClusterReservation = `-- name: GetClusterReservation :one
 SELECT id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at, cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, sync_reason, sync_failed_since, shrink_held, forced, retire_held, phase, notice_at, ends_notice_at, ending_reason, used_cpu_millicores, used_memory_bytes, group_count, exceeded, observed_at, retire_at, created_at, updated_at FROM cluster_reservations WHERE id = $1
 `
@@ -548,7 +588,7 @@ SET phase = $1, notice_at = $2, ends_notice_at = $3,
     ending_reason = $4, used_cpu_millicores = $5,
     used_memory_bytes = $6, group_count = $7, exceeded = $8,
     observed_at = $9
-WHERE id = $10
+WHERE id = $10 AND phase <> 'Ended'
 `
 
 type ObserveClusterReservationParams struct {

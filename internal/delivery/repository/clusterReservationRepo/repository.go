@@ -18,6 +18,7 @@ type Queries interface {
 	SaveClusterReservation(context.Context, postgres.SaveClusterReservationParams) error
 	MarkClusterReservationSynced(context.Context, postgres.MarkClusterReservationSyncedParams) error
 	ObserveClusterReservation(context.Context, postgres.ObserveClusterReservationParams) error
+	EndClusterReservation(context.Context, postgres.EndClusterReservationParams) (int64, error)
 	DeleteClusterReservation(context.Context, uuid.UUID) error
 	GetClusterReservation(context.Context, uuid.UUID) (postgres.ClusterReservation, error)
 	ListClusterReservationsOfAgent(context.Context, uuid.UUID) ([]postgres.ClusterReservation, error)
@@ -118,6 +119,16 @@ func (r *Repository) Observe(ctx context.Context, id uuid.UUID, s calModel.PartS
 		UsedCpuMillicores: s.Used.CPUMillicores, UsedMemoryBytes: s.Used.MemoryBytes, GroupCount: int32(s.Groups),
 		Exceeded: s.Exceeded, ObservedAt: tstz(s.ObservedAt),
 	})
+}
+
+// EndPart records the end of a part and reports whether this call ended it (false: it had ended already).
+func (r *Repository) EndPart(ctx context.Context, id uuid.UUID, s calModel.PartStatus) (bool, error) {
+	n, err := r.q.EndClusterReservation(ctx, postgres.EndClusterReservationParams{
+		ID: id, NoticeAt: tstz(s.NoticeAt), EndsNoticeAt: tstz(s.EndsAt), EndingReason: s.EndingReason,
+		UsedCpuMillicores: s.Used.CPUMillicores, UsedMemoryBytes: s.Used.MemoryBytes, GroupCount: int32(s.Groups),
+		Exceeded: s.Exceeded, ObservedAt: tstz(s.ObservedAt),
+	})
+	return n == 1, err
 }
 
 // DeletePart drops a part the agent confirmed gone.
