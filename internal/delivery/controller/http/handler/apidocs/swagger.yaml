@@ -2364,6 +2364,14 @@ definitions:
       Port:
         type: integer
     type: object
+  event.previewStartRequest:
+    properties:
+      LeaseMinutes:
+        description: |-
+          LeaseMinutes is the run length of the preview's test laboratory: one of the offered lengths; 0 or absent takes
+          the lease in force.
+        type: integer
+    type: object
   event.publishedExerciseChoiceResponse:
     properties:
       Attached:
@@ -2796,6 +2804,14 @@ definitions:
           Queue is set while some of the stand's labs wait in the launch queue (the best placed one);
           from the current monitoring state.
       Reason:
+        type: string
+      ReservationEnded:
+        description: 'ReservationEnded: the team''s reservation ended and its labs
+          were deleted.'
+        type: boolean
+      ReservationEndsAt:
+        description: ReservationEndsAt is when the team's resource reservation deletes
+          its labs (the ending notice); null before.
         type: string
       Status:
         type: string
@@ -6032,6 +6048,10 @@ definitions:
         type: string
       DeployID:
         type: string
+      EndingAt:
+        description: EndingAt is when the run's reservation deletes the lab unless
+          it is extended (its ending notice); null before.
+        type: string
       ExerciseID:
         type: string
       Expired:
@@ -6066,6 +6086,14 @@ definitions:
       VersionID:
         type: string
     type: object
+  exercise.deployRequest:
+    properties:
+      LeaseMinutes:
+        description: |-
+          LeaseMinutes is the run length the author chose: one of the lengths offered (GET /exercises/test-runs/lengths);
+          0 or absent takes the lease in force.
+        type: integer
+    type: object
   exercise.deployResponse:
     properties:
       DeployID:
@@ -6092,6 +6120,10 @@ definitions:
         items:
           $ref: '#/definitions/exercise.deployDeviceResponse'
         type: array
+      EndingAt:
+        description: EndingAt is when the run's reservation deletes the lab unless
+          it is extended (its ending notice); null before.
+        type: string
       Expired:
         type: boolean
       ExpiresAt:
@@ -7049,6 +7081,18 @@ definitions:
       TaskID:
         type: string
     type: object
+  exercise.testRunLengthsResponse:
+    properties:
+      AllowedMinutes:
+        description: AllowedMinutes are the offered lengths, shortest first.
+        items:
+          type: integer
+        type: array
+      DefaultMinutes:
+        description: DefaultMinutes is the length taken when none is chosen (the lease
+          in force).
+        type: integer
+    type: object
   exercise.topologyDTO:
     properties:
       Connections:
@@ -7296,6 +7340,10 @@ definitions:
         items:
           $ref: '#/definitions/exerciseModel.LabDeployedDevice'
         type: array
+      endingAt:
+        description: EndingAt is when the run's reservation deletes the lab (its ending
+          notice); nil until the notice.
+        type: string
       expired:
         type: boolean
       expiresAt:
@@ -10346,6 +10394,53 @@ definitions:
       WindowStart:
         type: string
     type: object
+  resourceCalendar.partDTO:
+    properties:
+      AgentID:
+        type: string
+      AgentName:
+        type: string
+      Amount:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      EndsAt:
+        description: EndsAt is when the part's labs are deleted, once the ending is
+          announced.
+        type: string
+      From:
+        type: string
+      Groups:
+        type: integer
+      PartID:
+        type: string
+      Phase:
+        description: Phase is Pending, Active, Ending, Ended, or empty before the
+          agent reported it.
+        enum:
+        - ""
+        - Pending
+        - Active
+        - Ending
+        - Ended
+        type: string
+      Retiring:
+        description: 'Retiring: the part is no longer wanted and is being removed
+          from its agent.'
+        type: boolean
+      ShrinkHeld:
+        type: boolean
+      SyncError:
+        type: string
+      Synced:
+        description: 'Synced: the agent holds the last change; SyncError says why
+          not; ShrinkHeld: a shrink waits for the labs.'
+        type: boolean
+      To:
+        type: string
+      Used:
+        allOf:
+        - $ref: '#/definitions/resourceCalendar.amountDTO'
+        description: Used and Groups are what runs in the part as the agent last said.
+    type: object
   resourceCalendar.replanRequest:
     properties:
       AllowConflicts:
@@ -10406,6 +10501,12 @@ definitions:
         $ref: '#/definitions/resourceCalendar.amountDTO'
       OwnerID:
         type: string
+      Parts:
+        description: 'Parts are the reservation as the agents hold it: one per agent
+          of the placement.'
+        items:
+          $ref: '#/definitions/resourceCalendar.partDTO'
+        type: array
       PerTeam:
         $ref: '#/definitions/resourceCalendar.amountDTO'
       PerTeamSnapshotQuotaBytes:
@@ -17537,6 +17638,11 @@ paths:
         name: selectionID
         required: true
         type: string
+      - description: the chosen run length
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/event.previewStartRequest'
       responses:
         "200":
           description: OK
@@ -21682,6 +21788,11 @@ paths:
         name: variantID
         required: true
         type: string
+      - description: the chosen run length
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/exercise.deployRequest'
       produces:
       - application/json
       responses:
@@ -21700,6 +21811,10 @@ paths:
             $ref: '#/definitions/response.Response'
         "409":
           description: Conflict
+          schema:
+            $ref: '#/definitions/response.Response'
+        "503":
+          description: Service Unavailable
           schema:
             $ref: '#/definitions/response.Response'
       summary: Deploy a variant's topology for testing
@@ -22831,6 +22946,23 @@ paths:
                   $ref: '#/definitions/resourceCalendar.testLabRoomDTO'
               type: object
       summary: Does a test laboratory fit now
+      tags:
+      - exercises
+  /exercises/test-runs/lengths:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.testRunLengthsResponse'
+              type: object
+      summary: The run lengths an author may choose for a test laboratory
       tags:
       - exercises
   /exercises/uploads:

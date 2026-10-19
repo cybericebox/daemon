@@ -426,6 +426,7 @@ GET    /api/exercises/test-labs/bookings | gate: self | layers: resourceCalendar
 POST   /api/exercises/test-labs/bookings | gate: self | layers: resourceCalendar.requireTestLabAuthor
 DELETE /api/exercises/test-labs/bookings/:bookingID | gate: self | layers: resourceCalendar.requireTestLabAuthor
 GET    /api/exercises/test-labs/room | gate: self | layers: resourceCalendar.requireTestLabAuthor
+GET    /api/exercises/test-runs/lengths | gate: self | layers: -
 POST   /api/exercises/uploads | gate: self | layers: -
 DELETE /api/exercises/uploads/:uploadID | gate: self | layers: -
 GET    /api/exercises/uploads/:uploadID | gate: self | layers: -

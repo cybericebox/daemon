@@ -387,6 +387,7 @@ func (u *ResourceCalendarUseCase) reservationView(r *calModel.Reservation, state
 	if v.Alarms == nil {
 		v.Alarms = []AlarmView{}
 	}
+	v.Parts = []PartView{}
 	for _, sh := range r.Placement {
 		v.Placement = append(v.Placement, ShareView{AgentID: sh.AgentID, AgentName: names[sh.AgentID], Units: sh.Units})
 	}
@@ -430,6 +431,11 @@ func (u *ResourceCalendarUseCase) GetEventResourceReservation(ctx context.Contex
 	}
 	view := u.reservationView(r, states, labels, alarms[r.ID])
 	view.Covered = r.Unplaced == 0 && len(conflicts) == 0
+	parts, err := u.partViews(ctx, []uuid.UUID{r.ID}, states)
+	if err != nil {
+		return ReservationResult{}, err
+	}
+	view.Parts = parts[r.ID]
 	if e, eErr := u.events.GetByID(ctx, eventID); eErr == nil {
 		view.StartLead = startLead(e, r)
 	}

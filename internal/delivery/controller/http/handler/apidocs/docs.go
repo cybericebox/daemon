@@ -10420,6 +10420,14 @@ const docTemplate = `{
                         "name": "selectionID",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "the chosen run length",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/event.previewStartRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -16886,6 +16894,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/exercises/test-runs/lengths": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "The run lengths an author may choose for a test laboratory",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.testRunLengthsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/uploads": {
             "post": {
                 "consumes": [
@@ -18569,6 +18608,14 @@ const docTemplate = `{
                         "name": "variantID",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "the chosen run length",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/exercise.deployRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -18598,6 +18645,12 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -27949,6 +28002,15 @@ const docTemplate = `{
                 }
             }
         },
+        "event.previewStartRequest": {
+            "type": "object",
+            "properties": {
+                "LeaseMinutes": {
+                    "description": "LeaseMinutes is the run length of the preview's test laboratory: one of the offered lengths; 0 or absent takes\nthe lease in force.",
+                    "type": "integer"
+                }
+            }
+        },
         "event.publishedExerciseChoiceResponse": {
             "type": "object",
             "properties": {
@@ -28593,6 +28655,14 @@ const docTemplate = `{
                     ]
                 },
                 "Reason": {
+                    "type": "string"
+                },
+                "ReservationEnded": {
+                    "description": "ReservationEnded: the team's reservation ended and its labs were deleted.",
+                    "type": "boolean"
+                },
+                "ReservationEndsAt": {
+                    "description": "ReservationEndsAt is when the team's resource reservation deletes its labs (the ending notice); null before.",
                     "type": "string"
                 },
                 "Status": {
@@ -33354,6 +33424,10 @@ const docTemplate = `{
                 "DeployID": {
                     "type": "string"
                 },
+                "EndingAt": {
+                    "description": "EndingAt is when the run's reservation deletes the lab unless it is extended (its ending notice); null before.",
+                    "type": "string"
+                },
                 "ExerciseID": {
                     "type": "string"
                 },
@@ -33397,6 +33471,15 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.deployRequest": {
+            "type": "object",
+            "properties": {
+                "LeaseMinutes": {
+                    "description": "LeaseMinutes is the run length the author chose: one of the lengths offered (GET /exercises/test-runs/lengths);\n0 or absent takes the lease in force.",
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.deployResponse": {
             "type": "object",
             "properties": {
@@ -33433,6 +33516,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exercise.deployDeviceResponse"
                     }
+                },
+                "EndingAt": {
+                    "description": "EndingAt is when the run's reservation deletes the lab unless it is extended (its ending notice); null before.",
+                    "type": "string"
                 },
                 "Expired": {
                     "type": "boolean"
@@ -34802,6 +34889,22 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.testRunLengthsResponse": {
+            "type": "object",
+            "properties": {
+                "AllowedMinutes": {
+                    "description": "AllowedMinutes are the offered lengths, shortest first.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "DefaultMinutes": {
+                    "description": "DefaultMinutes is the length taken when none is chosen (the lease in force).",
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.topologyDTO": {
             "type": "object",
             "properties": {
@@ -35152,6 +35255,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exerciseModel.LabDeployedDevice"
                     }
+                },
+                "endingAt": {
+                    "description": "EndingAt is when the run's reservation deletes the lab (its ending notice); nil until the notice.",
+                    "type": "string"
                 },
                 "expired": {
                     "type": "boolean"
@@ -39628,6 +39735,69 @@ const docTemplate = `{
                 }
             }
         },
+        "resourceCalendar.partDTO": {
+            "type": "object",
+            "properties": {
+                "AgentID": {
+                    "type": "string"
+                },
+                "AgentName": {
+                    "type": "string"
+                },
+                "Amount": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "EndsAt": {
+                    "description": "EndsAt is when the part's labs are deleted, once the ending is announced.",
+                    "type": "string"
+                },
+                "From": {
+                    "type": "string"
+                },
+                "Groups": {
+                    "type": "integer"
+                },
+                "PartID": {
+                    "type": "string"
+                },
+                "Phase": {
+                    "description": "Phase is Pending, Active, Ending, Ended, or empty before the agent reported it.",
+                    "type": "string",
+                    "enum": [
+                        "",
+                        "Pending",
+                        "Active",
+                        "Ending",
+                        "Ended"
+                    ]
+                },
+                "Retiring": {
+                    "description": "Retiring: the part is no longer wanted and is being removed from its agent.",
+                    "type": "boolean"
+                },
+                "ShrinkHeld": {
+                    "type": "boolean"
+                },
+                "SyncError": {
+                    "type": "string"
+                },
+                "Synced": {
+                    "description": "Synced: the agent holds the last change; SyncError says why not; ShrinkHeld: a shrink waits for the labs.",
+                    "type": "boolean"
+                },
+                "To": {
+                    "type": "string"
+                },
+                "Used": {
+                    "description": "Used and Groups are what runs in the part as the agent last said.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                }
+            }
+        },
         "resourceCalendar.replanRequest": {
             "type": "object",
             "properties": {
@@ -39714,6 +39884,13 @@ const docTemplate = `{
                 },
                 "OwnerID": {
                     "type": "string"
+                },
+                "Parts": {
+                    "description": "Parts are the reservation as the agents hold it: one per agent of the placement.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.partDTO"
+                    }
                 },
                 "PerTeam": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"

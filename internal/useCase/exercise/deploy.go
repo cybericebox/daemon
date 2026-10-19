@@ -748,7 +748,7 @@ func (u *ExerciseUseCase) deployTestStatus(ctx context.Context, userID, deployID
 	if err != nil {
 		status = exerciseModel.LabDeployStatus{} // being removed: the agent may no longer know the Lab
 	}
-	status.ExpiresAt, status.Expired = deploy.ExpiresAt, expired
+	status.ExpiresAt, status.Expired, status.EndingAt = deploy.ExpiresAt, expired, deploy.EndingAt
 	if expired {
 		status.Phase, status.Removing = exerciseModel.DeployPhaseRemoving, true
 	}

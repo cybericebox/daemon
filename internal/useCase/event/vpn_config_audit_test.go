@@ -58,7 +58,7 @@ func TestPreviewVPNDownloadIsLoggedButStatusIsNot(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	f.labs.vpnConfig = "preview-cfg"
 	ctx := context.Background()
-	_, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection)
+	_, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0)
 	require.NoError(t, err)
 
 	// The status route never hands the config out and is polled: no row.
@@ -74,7 +74,7 @@ func TestPreviewVPNDownloadIsLoggedButStatusIsNot(t *testing.T) {
 func TestPreviewVPNWithoutConfigIsNotLogged(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	ctx := context.Background()
-	_, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection)
+	_, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0)
 	require.NoError(t, err)
 	config, err := f.uc.PreviewVPNConfig(ctx, f.event, f.user, f.selection)
 	require.NoError(t, err)

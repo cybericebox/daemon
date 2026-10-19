@@ -32,6 +32,8 @@ import (
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	// deployLength is the run length the last deploy asked for.
+	deployLength time.Duration
 	// limits are the archive limits in force (nil: the defaults); limitReads counts the reads, exportLimits and
 	// imports are what the archive calls got.
 	limits                *exerciseModel.ArchiveLimits
@@ -272,9 +274,11 @@ func (f *fakeUC) MaxActiveTestDeploys() int                               { retu
 func (f *fakeUC) DevicePersistenceAllowed() bool                          { return true }
 func (f *fakeUC) Policy() resourcesModel.Policy                           { return resourcesModel.DefaultPolicy() }
 func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy                  { return f.flagPolicy }
-func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID, _ time.Duration) (exerciseModel.DeployHandle, error) {
+func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
+	f.deployLength = length
 	return f.deployHandle, f.err
 }
+func (f *fakeUC) TestRunLengths(context.Context) ([]int, int) { return []int{15, 30, 45, 60, 120}, 120 }
 func (f *fakeUC) DeployTestStatus(_ context.Context, _, _ uuid.UUID) (exerciseModel.LabDeployStatus, error) {
 	return f.deployStatus, f.err
 }
@@ -1450,6 +1454,32 @@ func TestDeployStatus_IsNeverCached(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String(), nil))
 	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "private, no-store" {
 		t.Fatalf("code=%d Cache-Control=%q", w.Code, w.Header().Get("Cache-Control"))
+	}
+}
+
+func TestDeployTestHandlerParsesLength(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{deployHandle: exerciseModel.DeployHandle{Group: "t-123", Lab: "lab"}}
+	r := newEngine(uc, uid)
+	url := "/api/exercises/" + uuid.Must(uuid.NewV7()).String() + "/versions/" + uuid.Must(uuid.NewV7()).String() + "/variants/" + uuid.Must(uuid.NewV7()).String() + "/deploy"
+	req := httptest.NewRequest(http.MethodPost, url, strings.NewReader(`{"LeaseMinutes":45}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || uc.deployLength != 45*time.Minute {
+		t.Fatalf("want 200 and a 45 minute run, got %d %v body=%s", w.Code, uc.deployLength, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, url, strings.NewReader(`{"LeaseMinutes":-5}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("a negative length is a bad request, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/test-runs/lengths", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"AllowedMinutes":[15,30,45,60,120]`) || !strings.Contains(w.Body.String(), `"DefaultMinutes":120`) {
+		t.Fatalf("lengths: %d %s", w.Code, w.Body.String())
 	}
 }
 

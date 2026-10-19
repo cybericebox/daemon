@@ -239,3 +239,24 @@ func TestClampDesired(t *testing.T) {
 	got, _ = clampDesired(p, listed, 5*time.Minute, now, false)
 	assert.Equal(t, w.Start, got.Window.Start)
 }
+
+func TestReservationViewHasParts(t *testing.T) {
+	h, port := syncHarness(t)
+	port.down[agentTwo] = assert.AnError
+	setEvent(t, h, EventReservationInput{})
+	got, err := h.uc.GetEventResourceReservation(context.Background(), h.event.ID)
+	require.NoError(t, err)
+	require.Len(t, got.Reservation.Parts, 2)
+	byAgent := map[uuid.UUID]PartView{}
+	for _, p := range got.Reservation.Parts {
+		byAgent[p.AgentID] = p
+	}
+	assert.True(t, byAgent[agentOne].Synced)
+	assert.Equal(t, "a", byAgent[agentOne].AgentName)
+	assert.False(t, byAgent[agentTwo].Synced)
+	assert.Equal(t, assert.AnError.Error(), byAgent[agentTwo].SyncError)
+	tl, err := h.uc.GetResourceCalendarTimeline(context.Background(), now0, now0.Add(12*time.Hour))
+	require.NoError(t, err)
+	require.Len(t, tl.Reservations, 1)
+	assert.Len(t, tl.Reservations[0].Parts, 2)
+}
