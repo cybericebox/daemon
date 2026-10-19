@@ -270,3 +270,22 @@ func TestWindowLimiterKeepsOnlyTheSharedAndLinkKeys(t *testing.T) {
 		t.Fatalf("limiter keeps %d keys, want the shared one and the link", len(limiter.counts))
 	}
 }
+
+// A new window or a spent shared budget never stops a working link: the
+// shared budget is only the junk's, and the link's own count starts over.
+func TestWindowResetAndJunkFloodKeepWorkingLinksServed(t *testing.T) {
+	link := screenToken(7)
+	limiter := newWindowLimiter(3, time.Minute)
+	limiter.known = func(_ context.Context, token string, _ time.Time) bool { return token == link }
+	start := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	for minute := 0; minute < 3; minute++ {
+		at := start.Add(time.Duration(minute) * time.Minute)
+		// At the start of each window: 1100 made-up tokens and junk first.
+		for i := 0; i < 1100; i++ {
+			limiter.allow(unknownScreenBucket, at)
+		}
+		if ok, _ := limiter.allow("link:"+link, at.Add(time.Second)); !ok {
+			t.Fatalf("minute %d: the working link was refused", minute)
+		}
+	}
+}

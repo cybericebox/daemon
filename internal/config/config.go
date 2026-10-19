@@ -527,8 +527,9 @@ type LimitsConfig struct {
 	StreamsAnonymousPerEvent int `env:"STREAMS_ANONYMOUS_PER_EVENT" envDefault:"500"`
 	AttemptStreamsPerUser    int `env:"ATTEMPT_STREAMS_PER_USER"    envDefault:"6"`
 	ErrorStreamsPerUser      int `env:"ERROR_STREAMS_PER_USER"      envDefault:"3"`
-	// LiveScreenPerMinute requests per minute of one screen link.
-	LiveScreenPerMinute int `env:"LIVE_SCREEN_PER_MINUTE" envDefault:"120"`
+	// LiveScreenPerMinute requests per minute of one screen link, shared by
+	// every screen opened with it (about 10 screens at the fastest refresh).
+	LiveScreenPerMinute int `env:"LIVE_SCREEN_PER_MINUTE" envDefault:"600"`
 }
 
 func (c LimitsConfig) Validate() error {
