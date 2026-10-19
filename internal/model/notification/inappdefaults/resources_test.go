@@ -7,7 +7,7 @@ func TestResourceRequestsLinkToTheAdminResourcesPage(t *testing.T) {
 	for _, lang := range []Lang{UK, EN} {
 		found := 0
 		for _, tpl := range All(lang) {
-			if tpl.Type != "resources.change.requested" && tpl.Type != "resources.alarm.raised" {
+			if tpl.Type != "resources.change.requested" && tpl.Type != "resources.alarm.raised" && tpl.Type != "resources.cpu.throttled" {
 				continue
 			}
 			found++
@@ -15,8 +15,8 @@ func TestResourceRequestsLinkToTheAdminResourcesPage(t *testing.T) {
 				t.Errorf("%s %s: link %q", lang, tpl.Type, tpl.Link)
 			}
 		}
-		if found != 2 {
-			t.Errorf("%s: %d resource request templates, want 2", lang, found)
+		if found != 3 {
+			t.Errorf("%s: %d resource request templates, want 3", lang, found)
 		}
 	}
 }

@@ -41,6 +41,33 @@ type ResourceAlarm struct {
 	RaisedAt  time.Time
 }
 
+// CPUThrottle is a lab device the agent reports starved by its CPU limit.
+type CPUThrottle struct {
+	AgentID       string
+	LabRun        string
+	LabName       string
+	LabGroupName  string
+	Device        string
+	Percent       int
+	WindowSeconds int
+	RaisedAt      time.Time
+}
+
+// CPUThrottled tells every platform admin that a lab device is throttled above the threshold. The caller raises
+// it once per device per lab run.
+func (r *RequestRouter) CPUThrottled(ctx context.Context, t CPUThrottle) error {
+	admins, err := r.queries.ListPlatformAdminUserIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("inbox requests: list platform admins: %w", err)
+	}
+	vars := map[string]any{
+		"lab_name": t.LabName, "lab_group_name": t.LabGroupName, "device_name": t.Device, "agent_id": t.AgentID,
+		"percent": strconv.Itoa(t.Percent), "window_minutes": strconv.Itoa((t.WindowSeconds + 59) / 60), "admin_url": r.adminURL,
+	}
+	meta := inboxModel.NewMeta(inboxModel.TypeResourceCPUThrottled, inboxModel.RoleAdmin, inboxModel.CPUThrottleRef(t.LabRun, t.Device)).Raised(t.RaisedAt)
+	return r.fanOut(ctx, admins, inboxModel.TypeResourceCPUThrottled, vars, meta)
+}
+
 func (r *RequestRouter) resourceChangeVars(ctx context.Context, c ResourceChange) (map[string]any, error) {
 	vars := map[string]any{
 		"change_id": c.ID.String(), "event_id": c.EventID.String(), "event_name": c.EventName, "event_tag": c.EventTag,

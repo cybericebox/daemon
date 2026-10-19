@@ -73,6 +73,23 @@ type labWithdrawalPayload struct {
 	UserName      string `var:"user_name" desc:"Recipient full name" default:"Jane Doe"`
 }
 
+// resourceCPUThrottlePayload is the CPU throttling alert of a lab device to the platform admins.
+type resourceCPUThrottlePayload struct {
+	LabName       string `var:"lab_name" desc:"Lab object name" default:"lab-7f3a"`
+	LabGroupName  string `var:"lab_group_name" desc:"Lab group name" default:"team-7f3a"`
+	DeviceName    string `var:"device_name" desc:"Device name" default:"web"`
+	Percent       string `var:"percent" desc:"Share of CPU periods the device was throttled in, percent" default:"70"`
+	WindowMinutes string `var:"window_minutes" desc:"Minutes the share was measured over" default:"5"`
+	AgentID       string `var:"agent_id" desc:"Laboratory agent identifier" default:"01900000-0000-7000-8000-000000000010"`
+	AdminURL      string `var:"admin_url" desc:"Admin site root, ends with a slash" default:"https://admin.example.org/"`
+	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`
+	UserEmail     string `var:"user_email" desc:"Recipient email" default:"admin@example.org"`
+	UserFirstName string `var:"user_first_name" desc:"Recipient first name" default:"Jane"`
+	UserLastName  string `var:"user_last_name" desc:"Recipient last name" default:"Doe"`
+	UserPicture   string `var:"user_picture" desc:"Recipient profile image URL" default:"https://example.org/avatar.png"`
+	UserName      string `var:"user_name" desc:"Recipient full name" default:"Jane Doe"`
+}
+
 func (labWithdrawalPayload) NotificationType() NotificationType {
 	return inboxModel.TypeLabWithdrawalsRepeated
 }
@@ -80,6 +97,15 @@ func (labWithdrawalPayload) NotificationChannels() []NotificationChannel {
 	return []NotificationChannel{NotificationChannelInApp}
 }
 func (labWithdrawalPayload) Marshal() (json.RawMessage, error) { return json.RawMessage(`{}`), nil }
+func (resourceCPUThrottlePayload) NotificationType() NotificationType {
+	return inboxModel.TypeResourceCPUThrottled
+}
+func (resourceCPUThrottlePayload) NotificationChannels() []NotificationChannel {
+	return []NotificationChannel{NotificationChannelInApp}
+}
+func (resourceCPUThrottlePayload) Marshal() (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
+}
 
 func init() {
 	for _, typ := range []NotificationType{inboxModel.TypeResourceChangeRequested, inboxModel.TypeResourceChangeApproved, inboxModel.TypeResourceChangeRejected} {
@@ -87,4 +113,5 @@ func init() {
 	}
 	Register(resourceAlarmPayload{})
 	Register(labWithdrawalPayload{})
+	Register(resourceCPUThrottlePayload{})
 }
