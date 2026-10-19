@@ -30,7 +30,7 @@ type previewLabsFake struct {
 	vpnConfig    string
 }
 
-func (f *previewLabsFake) DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (exerciseModel.DeployHandle, error) {
+func (f *previewLabsFake) DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, time.Duration) (exerciseModel.DeployHandle, error) {
 	f.starts++
 	return exerciseModel.DeployHandle{Group: f.deploy.String()}, f.startErr
 }

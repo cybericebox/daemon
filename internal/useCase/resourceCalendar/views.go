@@ -264,6 +264,10 @@ type TestLabRoom struct {
 	Via       string
 	// NearestFrom is the start of the nearest free window when not available (nil: none within the horizon).
 	NearestFrom *time.Time
+	// AgentID is the agent the laboratory goes to; PartID the part of its run (nil for a run inside a booking,
+	// which runs under the booking's part).
+	AgentID uuid.UUID
+	PartID  uuid.UUID
 }
 
 // TestLabRequest is what a test laboratory asks for.
@@ -276,6 +280,8 @@ type TestLabRequest struct {
 	Static bool
 	// Lease is how long it will run; zero takes the default.
 	Lease time.Duration
+	// PinnedAgent is the agent of the author's existing test group: a run never needs a second agent.
+	PinnedAgent *uuid.UUID
 }
 
 // EventTestLabRequest charges only the named event reservation, never author capacity.

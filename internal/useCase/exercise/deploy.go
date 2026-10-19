@@ -139,6 +139,13 @@ const testLabOperationTimeout = 60 * time.Second
 // hold the author's lock and the HTTP call): the author gets a retryable domain conflict at once.
 func (u *ExerciseUseCase) deployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
 	err := u.infra.DeployLab(ctx, group, lab, meta, topo)
+	// The run's reservation has no room, or is not on its agent yet: the author's errors, not a fault.
+	switch {
+	case errors.Is(err, infraModel.ErrReservationFull):
+		return calModel.ErrTestLabReservationFull.WithError(err).Err()
+	case errors.Is(err, infraModel.ErrNoClusterReservation):
+		return calModel.ErrClusterReservationNotReady.WithError(err).Err()
+	}
 	if _, terminating := infraModel.AsTerminating(err); terminating {
 		return exerciseModel.ErrTestDeployGroupBusy.Err()
 	}
@@ -209,16 +216,38 @@ func (u *ExerciseUseCase) InfrastructureAvailable() bool {
 // handle whose Group is the deploy id. The lab provisions asynchronously; the
 // caller polls DeployTestStatus. Secret env values are decrypted here (never
 // leaving the daemon in plaintext until this deploy path), so the agent receives
-// resolved values for its write-only env Secret.
-func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
-	return u.deployVariantTest(ctx, nil, ownerID, versionID, variantID)
+// resolved values for its write-only env Secret. length is the run length the author chose (one of
+// AllowedTestLengths; zero takes the lease in force); it is the lease and the window of the run's reservation.
+func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
+	return u.deployVariantTest(ctx, nil, ownerID, versionID, variantID, length)
 }
-func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eventID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
-	return u.deployVariantTest(ctx, &eventID, ownerID, versionID, variantID)
+func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eventID, ownerID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
+	return u.deployVariantTest(ctx, &eventID, ownerID, versionID, variantID, length)
 }
-func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
+
+// TestRunLengths are the run lengths an author may choose and the one taken when none is chosen.
+func (u *ExerciseUseCase) TestRunLengths(ctx context.Context) (allowed []int, defaultMinutes int) {
+	leases := u.testRunLeases(ctx)
+	return leases.AllowedMinutes(), int(leases.Lease / time.Minute)
+}
+
+// testLength checks the chosen run length against the leases in force.
+func (u *ExerciseUseCase) testLength(ctx context.Context, chosen time.Duration) (time.Duration, error) {
+	leases := u.testRunLeases(ctx)
+	lease, ok := leases.TestLength(chosen)
+	if !ok {
+		return 0, calModel.ErrTestLengthNotAllowed.WithPublicContext("allowed", leases.AllowedMinutes()).Err()
+	}
+	return lease, nil
+}
+
+func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
 	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
 
+	lease, err := u.testLength(ctx, length)
+	if err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
 	exerciseID, variant, err := u.loadVersionVariant(ctx, versionID, variantID)
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
@@ -226,7 +255,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	// A variant without devices has no laboratory to run: its test is a row with flags and a lease, which needs
 	// no agent. An event preview always needs a laboratory.
 	if eventID == nil && len(variant.Topology.Devices) == 0 {
-		return u.deployStaticTest(ctx, ownerID, versionID, variant)
+		return u.deployStaticTest(ctx, ownerID, versionID, variant, lease)
 	}
 	if u.infra == nil {
 		return exerciseModel.DeployHandle{}, infraModel.ErrInfrastructureUnavailable.Err()
@@ -277,8 +306,6 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		deployFlags = append(deployFlags, exerciseModel.DeployFlag{TaskID: link.TaskID, Name: link.Name, Flag: link.Flag})
 	}
 	id := uuid.Must(uuid.NewV7())
-	// One lease for the calendar hold and the row.
-	lease := u.testRunLeases(ctx).Lease
 	// The resource calendar decides whether the laboratory fits: the author's booked window, the guaranteed pool
 	// or unplanned room; otherwise the error names the nearest free window.
 	if eventID == nil {
@@ -392,7 +419,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 
 // deployStaticTest starts the test of a variant without devices: a row with a flag for every task and a lease,
 // no laboratory, group or VPN. It counts toward the author's limit like a laboratory but never touches the agent.
-func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, versionID uuid.UUID, variant exerciseModel.Variant) (exerciseModel.DeployHandle, error) {
+func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, versionID uuid.UUID, variant exerciseModel.Variant, lease time.Duration) (exerciseModel.DeployHandle, error) {
 	flags := make([]exerciseModel.DeployFlag, 0, len(variant.Tasks))
 	for _, task := range variant.Tasks {
 		flag, err := flagpattern.Resolve(task.Flag, testFlagRandomBytes, rand.Reader)
@@ -403,7 +430,6 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 	}
 	now := u.timeNow()
 	id := uuid.Must(uuid.NewV7())
-	lease := u.testRunLeases(ctx).Lease
 	// A static request reserves nothing: the calendar admits it without an agent read or a hold.
 	if err := u.admitStaticTest(ctx, id, ownerID, lease); err != nil {
 		return exerciseModel.DeployHandle{}, err

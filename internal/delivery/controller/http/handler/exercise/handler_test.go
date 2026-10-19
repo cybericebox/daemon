@@ -272,7 +272,7 @@ func (f *fakeUC) MaxActiveTestDeploys() int                               { retu
 func (f *fakeUC) DevicePersistenceAllowed() bool                          { return true }
 func (f *fakeUC) Policy() resourcesModel.Policy                           { return resourcesModel.DefaultPolicy() }
 func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy                  { return f.flagPolicy }
-func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID) (exerciseModel.DeployHandle, error) {
+func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID, _ time.Duration) (exerciseModel.DeployHandle, error) {
 	return f.deployHandle, f.err
 }
 func (f *fakeUC) DeployTestStatus(_ context.Context, _, _ uuid.UUID) (exerciseModel.LabDeployStatus, error) {

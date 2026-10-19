@@ -55,7 +55,7 @@ func TestDeployVariantTest_SchedulesTheEndAtTheLeaseExpiry(t *testing.T) {
 	uc.SetClock(func() time.Time { return now })
 	uc.SetTestDeployExpiry(expiry)
 
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 		t.Fatal(err)
 	}
 	want := scheduled{owner: ownerID, deploy: created, at: now.Add(2 * time.Hour)}
@@ -76,7 +76,7 @@ func TestDeployVariantTest_ASchedulingFailureDoesNotFailTheDeploy(t *testing.T) 
 	})
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
 	uc.SetTestDeployExpiry(&fakeExpiry{err: errors.New("river is down")})
-	if _, err := uc.DeployVariantTest(context.Background(), fixedID(3), versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), fixedID(3), versionID, variantID, 0); err != nil {
 		t.Fatalf("the periodic sweep covers a missed job: %v", err)
 	}
 }
@@ -209,7 +209,7 @@ func TestDeployVariantTest_AnExpiredLabDoesNotCountAgainstTheLimit(t *testing.T)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
 	uc.SetClock(func() time.Time { return now })
 
-	_, err := uc.DeployVariantTest(context.Background(), owner, fixedID(2), fixedID(1))
+	_, err := uc.DeployVariantTest(context.Background(), owner, fixedID(2), fixedID(1), 0)
 	if errors.Is(err, exerciseModel.ErrTestDeployActiveExists.Err()) {
 		t.Fatal("a lab past its lease is not an active one")
 	}
