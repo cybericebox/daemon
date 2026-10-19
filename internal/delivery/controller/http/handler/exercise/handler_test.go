@@ -149,13 +149,13 @@ func (f *fakeUC) UnarchiveExercise(_ context.Context, id, _ uuid.UUID) (exercise
 	f.unarchivedID = id
 	return f.exerciseView, f.err
 }
-func (f *fakeUC) BulkSetArchived(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, archived bool) []exerciseUseCase.BulkResult {
+func (f *fakeUC) BulkSetArchived(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, archived bool) ([]exerciseUseCase.BulkResult, error) {
 	f.bulkIDs, f.bulkArchived = ids, &archived
-	return f.bulkResults
+	return f.bulkResults, f.err
 }
-func (f *fakeUC) BulkSetAccess(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) []exerciseUseCase.BulkResult {
+func (f *fakeUC) BulkSetAccess(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) ([]exerciseUseCase.BulkResult, error) {
 	f.bulkIDs, f.bulkAccess = ids, &in
-	return f.bulkResults
+	return f.bulkResults, f.err
 }
 func (f *fakeUC) GetVariantStats(_ context.Context, _ uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error) {
 	return f.variantStats, f.err

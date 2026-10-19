@@ -74,7 +74,7 @@ func TestBulkSetArchived_PerRole(t *testing.T) {
 					written[byName[arg.Name]] = true
 					return 1, nil
 				}).AnyTimes()
-				results := uc.BulkSetArchived(context.Background(), exercise.Actor{UserID: userID, Role: tc.role}, []uuid.UUID{own.ID, foreign.ID, catalog.ID}, archived)
+				results, _ := uc.BulkSetArchived(context.Background(), exercise.Actor{UserID: userID, Role: tc.role}, []uuid.UUID{own.ID, foreign.ID, catalog.ID}, archived)
 				if len(results) != 3 {
 					t.Fatalf("results = %d", len(results))
 				}
@@ -110,7 +110,7 @@ func TestBulkSetArchived_MissingAndDuplicates(t *testing.T) {
 	q.EXPECT().GetExerciseByID(gomock.Any(), catalog.ID).Return(catalog, nil).AnyTimes()
 	q.EXPECT().GetExerciseByID(gomock.Any(), missing).Return(postgres.Exercise{}, pgx.ErrNoRows).AnyTimes()
 	q.EXPECT().UpdateExercise(gomock.Any(), gomock.Any()).Return(int64(1), nil).Times(1)
-	results := uc.BulkSetArchived(context.Background(), exercise.Actor{UserID: userID, Role: rbac.RoleAdmin}, []uuid.UUID{missing, catalog.ID, catalog.ID}, true)
+	results, _ := uc.BulkSetArchived(context.Background(), exercise.Actor{UserID: userID, Role: rbac.RoleAdmin}, []uuid.UUID{missing, catalog.ID, catalog.ID}, true)
 	if len(results) != 2 || bulkOutcome(results[0]) != "not found" || bulkOutcome(results[1]) != "changed" {
 		t.Fatalf("results = %+v", results)
 	}
@@ -136,12 +136,29 @@ func TestBulkSetAccess_PerItem(t *testing.T) {
 	q.EXPECT().DeleteExerciseEventAccess(gomock.Any(), catalog.ID).Return(nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	results := uc.BulkSetAccess(context.Background(), exercise.Actor{UserID: userID, Role: rbac.RoleAdmin}, []uuid.UUID{own.ID, catalog.ID},
+	results, _ := uc.BulkSetAccess(context.Background(), exercise.Actor{UserID: userID, Role: rbac.RoleAdmin}, []uuid.UUID{own.ID, catalog.ID},
 		exercise.SetAccessInput{AccessLevel: exerciseModel.AccessNone, UpdatedBy: userID})
 	if got := [2]string{bulkOutcome(results[0]), bulkOutcome(results[1])}; got != [2]string{"invalid", "changed"} {
 		t.Fatalf("got %v", got)
 	}
 	if results[1].View.AccessLevel != "none" {
 		t.Fatalf("view access = %q", results[1].View.AccessLevel)
+	}
+}
+
+// TestBulk_RefusesOverTheCap: more than MaxBulkExercises distinct tasks change nothing (the route caps them first).
+func TestBulk_RefusesOverTheCap(t *testing.T) {
+	userID := uuid.Must(uuid.NewV7())
+	uc, _ := rightsUseCase(t, rightsCase{role: rbac.RoleAdmin}, userID) // no repository call is expected
+	ids := make([]uuid.UUID, exercise.MaxBulkExercises+1)
+	for i := range ids {
+		ids[i] = uuid.Must(uuid.NewV7())
+	}
+	actor := exercise.Actor{UserID: userID, Role: rbac.RoleAdmin}
+	if results, err := uc.BulkSetArchived(context.Background(), actor, ids, true); err == nil || results != nil {
+		t.Fatalf("archive over the cap: results=%d err=%v", len(results), err)
+	}
+	if results, err := uc.BulkSetAccess(context.Background(), actor, ids, exercise.SetAccessInput{AccessLevel: exerciseModel.AccessNone}); err == nil || results != nil {
+		t.Fatalf("access over the cap: results=%d err=%v", len(results), err)
 	}
 }

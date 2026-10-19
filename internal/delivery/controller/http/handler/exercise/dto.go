@@ -120,9 +120,10 @@ type accessEventResponse struct {
 	InfrastructureAllowed bool      `json:"InfrastructureAllowed"`
 }
 
+// setAccessRequest: at most 500 selected events (the same cap as bulkAccessRequest).
 type setAccessRequest struct {
 	AccessLevel string      `json:"AccessLevel" enums:"all,selected,own,none"`
-	EventIDs    []uuid.UUID `json:"EventIDs"`
+	EventIDs    []uuid.UUID `json:"EventIDs" binding:"max=500"`
 }
 
 type proposeRequest struct {

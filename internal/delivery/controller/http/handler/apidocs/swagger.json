@@ -33056,6 +33056,7 @@
                 },
                 "EventIDs": {
                     "type": "array",
+                    "maxItems": 500,
                     "items": {
                         "type": "string"
                     }
@@ -34691,6 +34692,7 @@
                 },
                 "EventIDs": {
                     "type": "array",
+                    "maxItems": 500,
                     "items": {
                         "type": "string"
                     }
