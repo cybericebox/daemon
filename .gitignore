@@ -20,3 +20,11 @@ go.work.sum
 
 # Local development worktrees
 .worktrees/
+
+# Agent development files (kept locally, not in git)
+/AGENTS.md
+/CLAUDE.md
+/.claude/
+/.superpowers/
+/docs/superpowers/
+/.worktrees/
