@@ -44,6 +44,7 @@ type Queries interface {
 	ListExercisesCursor(ctx context.Context, arg postgres.ListExercisesCursorParams) ([]postgres.ListExercisesCursorRow, error)
 	ListExercisesPage(ctx context.Context, arg postgres.ListExercisesPageParams) ([]postgres.ListExercisesPageRow, error)
 	ListExerciseTags(ctx context.Context, arg postgres.ListExerciseTagsParams) ([]postgres.ListExerciseTagsRow, error)
+	ListExerciseAuthors(ctx context.Context, arg postgres.ListExerciseAuthorsParams) ([]postgres.ListExerciseAuthorsRow, error)
 	CountExercises(ctx context.Context, arg postgres.CountExercisesParams) (int64, error)
 	CountExercisesPage(ctx context.Context, arg postgres.CountExercisesPageParams) (int64, error)
 	ListExerciseVersionIDs(ctx context.Context, exerciseID uuid.UUID) ([]uuid.UUID, error)
@@ -119,22 +120,51 @@ type Visibility struct {
 }
 
 // Listed is one catalog list row: the entity plus its derived catalog status
-// (query-side shape).
+// (query-side shape). The page list also carries the author's name and the
+// average difficulty (nil: none); the cursor list leaves them empty.
 type Listed struct {
 	exerciseModel.Exercise
-	Status exerciseModel.CatalogStatus
+	Status        exerciseModel.CatalogStatus
+	AuthorName    string
+	AvgDifficulty *float64
 }
 
+// PageParams filter, sort and page the catalog table. Tags: any of them; TagsAll: every one; TagsNone: none of
+// them. Status and Statuses: any of them (none: every status). DifficultyMin/Max: the rounded average level 1..6,
+// inclusive, 0 = no bound.
 type PageParams struct {
-	Search     string
-	Tags       []string
-	Status     string // ” or a CatalogStatus
-	Archived   string // "only" or "exclude"
-	Visibility Visibility
-	SortBy     string
-	SortDir    string
-	Limit      int32
-	Offset     int32
+	Search        string
+	Tags          []string
+	TagsAll       []string
+	TagsNone      []string
+	AuthorIDs     []uuid.UUID
+	Status        string // ” or a CatalogStatus
+	Statuses      []string
+	Archived      string // "only", "any" or "exclude"
+	DifficultyMin int32
+	DifficultyMax int32
+	Visibility    Visibility
+	SortBy        string
+	SortDir       string
+	Limit         int32
+	Offset        int32
+}
+
+// statuses is Statuses plus the single Status.
+func (p PageParams) statuses() []string {
+	out := make([]string, 0, len(p.Statuses)+1)
+	out = append(out, p.Statuses...)
+	if p.Status != "" {
+		out = append(out, p.Status)
+	}
+	return out
+}
+
+func orEmpty[T any](values []T) []T {
+	if values == nil {
+		return []T{}
+	}
+	return values
 }
 
 type Repository struct {
@@ -171,8 +201,9 @@ func (r *Repository) ListCursor(ctx context.Context, p ListParams) ([]Listed, er
 
 func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]Listed, error) {
 	rows, err := r.q.ListExercisesPage(ctx, postgres.ListExercisesPageParams{
-		Search: p.Search, Tags: p.Tags, Status: p.Status, Archived: p.Archived, SortBy: p.SortBy,
-		SortDir: p.SortDir, LimitVal: p.Limit, OffsetVal: p.Offset,
+		Search: p.Search, Tags: orEmpty(p.Tags), TagsAll: orEmpty(p.TagsAll), TagsNone: orEmpty(p.TagsNone), AuthorIds: orEmpty(p.AuthorIDs),
+		Statuses: p.statuses(), Archived: p.Archived, DifficultyMin: p.DifficultyMin, DifficultyMax: p.DifficultyMax,
+		SortBy: p.SortBy, SortDir: p.SortDir, LimitVal: p.Limit, OffsetVal: p.Offset,
 		Scope: p.Visibility.Scope, EventIds: p.Visibility.EventIDs, Infrastructure: p.Visibility.Infrastructure, ViewerID: p.Visibility.ViewerID,
 	})
 	if err != nil {
@@ -180,14 +211,44 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]Listed, erro
 	}
 	out := make([]Listed, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, Listed{Exercise: ToDomain(row.Exercise), Status: exerciseModel.CatalogStatus(row.Status)})
+		item := Listed{Exercise: ToDomain(row.Exercise), Status: exerciseModel.CatalogStatus(row.Status), AuthorName: row.AuthorName}
+		if row.HasAvgDifficulty {
+			avg := row.AvgDifficulty
+			item.AvgDifficulty = &avg
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }
 
-func (r *Repository) CountPage(ctx context.Context, search string, tags []string, status, archived string, v Visibility) (int64, error) {
-	return r.q.CountExercisesPage(ctx, postgres.CountExercisesPageParams{Search: search, Tags: tags, Status: status, Archived: archived,
-		Scope: v.Scope, EventIds: v.EventIDs, Infrastructure: v.Infrastructure, ViewerID: v.ViewerID})
+// CountPage counts the rows of the catalog table for the same filters as ListPage (sorting and paging ignored).
+func (r *Repository) CountPage(ctx context.Context, p PageParams) (int64, error) {
+	return r.q.CountExercisesPage(ctx, postgres.CountExercisesPageParams{
+		Search: p.Search, Tags: orEmpty(p.Tags), TagsAll: orEmpty(p.TagsAll), TagsNone: orEmpty(p.TagsNone), AuthorIds: orEmpty(p.AuthorIDs),
+		Statuses: p.statuses(), Archived: p.Archived, DifficultyMin: p.DifficultyMin, DifficultyMax: p.DifficultyMax,
+		Scope: p.Visibility.Scope, EventIds: p.Visibility.EventIDs, Infrastructure: p.Visibility.Infrastructure, ViewerID: p.Visibility.ViewerID,
+	})
+}
+
+// AuthorCount is one author of catalog exercises: the name (never the email) and how many exercises.
+type AuthorCount struct {
+	ID    uuid.UUID
+	Name  string
+	Count int64
+}
+
+// ListAuthors ranks the authors of the exercises by use; search matches the name, ids (non-empty) keeps only those
+// authors. A valid viewerID counts only exercises that viewer may read.
+func (r *Repository) ListAuthors(ctx context.Context, search string, ids []uuid.UUID, viewerID uuid.NullUUID, limit int32) ([]AuthorCount, error) {
+	rows, err := r.q.ListExerciseAuthors(ctx, postgres.ListExerciseAuthorsParams{Search: search, Ids: orEmpty(ids), ViewerID: viewerID, LimitVal: limit})
+	if err != nil {
+		return nil, err
+	}
+	items := make([]AuthorCount, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, AuthorCount{ID: row.ID, Name: row.Name, Count: row.ExerciseCount})
+	}
+	return items, nil
 }
 
 type TagCount struct {

@@ -7738,6 +7738,21 @@ func (mr *MockQuerierMockRecorder) ListEventsPage(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListEventsPage", reflect.TypeOf((*MockQuerier)(nil).ListEventsPage), ctx, arg)
 }
 
+// ListExerciseAuthors mocks base method.
+func (m *MockQuerier) ListExerciseAuthors(ctx context.Context, arg postgres.ListExerciseAuthorsParams) ([]postgres.ListExerciseAuthorsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExerciseAuthors", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListExerciseAuthorsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExerciseAuthors indicates an expected call of ListExerciseAuthors.
+func (mr *MockQuerierMockRecorder) ListExerciseAuthors(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExerciseAuthors", reflect.TypeOf((*MockQuerier)(nil).ListExerciseAuthors), ctx, arg)
+}
+
 // ListExerciseCardExtras mocks base method.
 func (m *MockQuerier) ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]postgres.ListExerciseCardExtrasRow, error) {
 	m.ctrl.T.Helper()

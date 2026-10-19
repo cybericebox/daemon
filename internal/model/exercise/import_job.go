@@ -14,7 +14,9 @@ type ImportJob struct {
 	CreatedBy uuid.UUID
 	Source    ImportSource
 	SourceID  uuid.UUID
-	State     ImportJobState
+	// OwnerEventID is the event the tasks are created in (an event moderator's import); NULL: the platform catalog.
+	OwnerEventID uuid.NullUUID
+	State        ImportJobState
 	// ExerciseIDs are the tasks the import created (done only).
 	ExerciseIDs []uuid.UUID
 	// Error is what the user is told when the import failed: never a secret or an internal detail.
@@ -81,8 +83,8 @@ const (
 )
 
 // NewImportJob starts an import of the source.
-func NewImportJob(id, createdBy, sourceID uuid.UUID, source ImportSource, now time.Time) ImportJob {
-	return ImportJob{ID: id, CreatedBy: createdBy, Source: source, SourceID: sourceID, State: ImportJobRunning, CreatedAt: now, UpdatedAt: now}
+func NewImportJob(id, createdBy, sourceID uuid.UUID, source ImportSource, ownerEventID uuid.NullUUID, now time.Time) ImportJob {
+	return ImportJob{ID: id, CreatedBy: createdBy, Source: source, SourceID: sourceID, OwnerEventID: ownerEventID, State: ImportJobRunning, CreatedAt: now, UpdatedAt: now}
 }
 
 // OwnedBy tells whether user started the import.
@@ -98,11 +100,13 @@ func (j *ImportJob) Current(now time.Time) (ImportJobState, *ImportJobError) {
 	return j.State, j.Error
 }
 
-// Restart runs a failed (or interrupted) import again; false when it is running or done.
-func (j *ImportJob) Restart(now time.Time) bool {
+// Restart runs a failed (or interrupted) import again, into ownerEventID (the target of the new request); false when
+// it is running or done.
+func (j *ImportJob) Restart(ownerEventID uuid.NullUUID, now time.Time) bool {
 	if state, _ := j.Current(now); state != ImportJobFailed {
 		return false
 	}
+	j.OwnerEventID = ownerEventID
 	j.State, j.Error, j.ExerciseIDs, j.Progress, j.UpdatedAt = ImportJobRunning, nil, nil, ImportProgress{Stage: ImportStageUnpacking}, now
 	return true
 }

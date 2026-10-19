@@ -104,8 +104,12 @@ type accessSummaryResponse struct {
 	CanCreateCatalog bool                  `json:"CanCreateCatalog"`
 	CanPublish       bool                  `json:"CanPublish"`
 	CanDelete        bool                  `json:"CanDelete"`
-	CanExport        bool                  `json:"CanExport"`
-	Events           []accessEventResponse `json:"Events"`
+	// CanExport: the caller may export some tasks (exercises.export: any; an event moderator: their events' tasks,
+	// per task Permissions.CanExport).
+	CanExport bool `json:"CanExport"`
+	// CanImport: the caller may import tasks somewhere (the catalog with exercises.write, or an event they manage).
+	CanImport bool                  `json:"CanImport"`
+	Events    []accessEventResponse `json:"Events"`
 }
 
 type accessEventResponse struct {
@@ -168,6 +172,13 @@ type exerciseListItemResponse struct {
 	ArchivedAt *time.Time `json:"ArchivedAt"`
 	CreatedAt  time.Time  `json:"CreatedAt"`
 	UpdatedAt  time.Time  `json:"UpdatedAt"`
+	// AuthorID created the task (null when the account is gone); AuthorName is their first and last name, "" when
+	// unknown (offset pages only).
+	AuthorID   *uuid.UUID `json:"AuthorID"`
+	AuthorName string     `json:"AuthorName"`
+	// AvgDifficulty is the mean level (1 elementary … 6 insane) of the subtasks of the first variant of the
+	// published version, else the working copy; null without one (offset pages only).
+	AvgDifficulty *float64 `json:"AvgDifficulty"`
 	exerciseScopeResponse
 }
 
@@ -175,7 +186,7 @@ func exerciseListItemToResponse(e exerciseUseCase.ExerciseListItem) exerciseList
 	return exerciseListItemResponse{
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		HasDraft: e.HasDraft, HasPublished: e.HasPublished, Status: e.Status, ArchivedAt: e.ArchivedAt,
-		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt,
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }

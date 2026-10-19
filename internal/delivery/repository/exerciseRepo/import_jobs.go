@@ -20,6 +20,7 @@ func (r *Repository) StartImportJob(ctx context.Context, j exerciseModel.ImportJ
 	row, err := r.q.StartExerciseImportJob(ctx, postgres.StartExerciseImportJobParams{
 		ID: j.ID, CreatedBy: j.CreatedBy, Source: string(j.Source), SourceID: j.SourceID, State: string(j.State),
 		ExerciseIds: idsOrEmpty(j.ExerciseIDs), Error: failure, CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt,
+		OwnerEventID: j.OwnerEventID,
 	})
 	if err != nil {
 		return exerciseModel.ImportJob{}, err
@@ -56,7 +57,7 @@ func (r *Repository) SaveImportJob(ctx context.Context, j exerciseModel.ImportJo
 		return 0, err
 	}
 	return r.q.UpdateExerciseImportJob(ctx, postgres.UpdateExerciseImportJobParams{
-		ID: j.ID, State: string(j.State), ExerciseIds: idsOrEmpty(j.ExerciseIDs), Error: failure, UpdatedAt: j.UpdatedAt,
+		ID: j.ID, State: string(j.State), OwnerEventID: j.OwnerEventID, ExerciseIds: idsOrEmpty(j.ExerciseIDs), Error: failure, UpdatedAt: j.UpdatedAt,
 		Stage: stageOrDefault(j.Progress.Stage), ImagesDone: int32(j.Progress.ImagesDone), ImagesTotal: int32(j.Progress.ImagesTotal),
 		TasksDone: int32(j.Progress.TasksDone), TasksTotal: int32(j.Progress.TasksTotal),
 		BytesPushed: j.Progress.BytesPushed, BytesTotal: j.Progress.BytesTotal,
@@ -96,7 +97,7 @@ func importJobErrorJSON(e *exerciseModel.ImportJobError) ([]byte, error) {
 // importJobFromRow never refuses a row: an error that does not decode is kept as its code-less shape.
 func importJobFromRow(row postgres.ExerciseImportJob) exerciseModel.ImportJob {
 	j := exerciseModel.ImportJob{
-		ID: row.ID, CreatedBy: row.CreatedBy, Source: exerciseModel.ImportSource(row.Source), SourceID: row.SourceID,
+		ID: row.ID, CreatedBy: row.CreatedBy, Source: exerciseModel.ImportSource(row.Source), SourceID: row.SourceID, OwnerEventID: row.OwnerEventID,
 		State: exerciseModel.ImportJobState(row.State), ExerciseIDs: row.ExerciseIds, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 		Progress: exerciseModel.ImportProgress{
 			Stage: exerciseModel.ImportStage(row.Stage), ImagesDone: int(row.ImagesDone), ImagesTotal: int(row.ImagesTotal),

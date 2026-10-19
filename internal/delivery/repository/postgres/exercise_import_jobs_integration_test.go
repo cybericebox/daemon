@@ -23,7 +23,7 @@ func TestExerciseImportJobRoundTrip(t *testing.T) {
 	t0 := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
 	owner := newUser(t, db)
 	source := uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000d1")
-	first := exerciseModel.NewImportJob(uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000d2"), owner, source, exerciseModel.ImportSourceUpload, t0)
+	first := exerciseModel.NewImportJob(uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000d2"), owner, source, exerciseModel.ImportSourceUpload, uuid.NullUUID{}, t0)
 
 	stored, err := repo.StartImportJob(ctx, first)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestExerciseImportJobRoundTrip(t *testing.T) {
 	if stored.ID != first.ID || stored.State != exerciseModel.ImportJobRunning || stored.Source != exerciseModel.ImportSourceUpload || len(stored.ExerciseIDs) != 0 || stored.Error != nil {
 		t.Fatalf("stored %+v", stored)
 	}
-	again, err := repo.StartImportJob(ctx, exerciseModel.NewImportJob(uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000d3"), owner, source, exerciseModel.ImportSourceUpload, t0.Add(time.Minute)))
+	again, err := repo.StartImportJob(ctx, exerciseModel.NewImportJob(uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000d3"), owner, source, exerciseModel.ImportSourceUpload, uuid.NullUUID{}, t0.Add(time.Minute)))
 	if err != nil || again.ID != first.ID || !again.CreatedAt.Equal(t0) {
 		t.Fatalf("again %+v err %v", again, err)
 	}
@@ -77,5 +77,39 @@ func TestExerciseImportJobRoundTrip(t *testing.T) {
 
 	if _, err = repo.GetImportJob(ctx, uuid.FromStringOrNil("01900000-0000-7000-8000-0000000000ff")); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("absent: %v", err)
+	}
+}
+
+// The target event of a moderator's import round-trips, a restart may move it, and the event going away removes
+// the job (nothing is created in the catalog instead).
+func TestExerciseImportJobOwnerEvent(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	t0 := time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)
+	user := newUser(t, db)
+	eventA, eventB := mustSeedEventForParticipants(t, db, "importa"), mustSeedEventForParticipants(t, db, "importb")
+	target := uuid.NullUUID{UUID: eventA.ID, Valid: true}
+	job := exerciseModel.NewImportJob(uuid.Must(uuid.NewV7()), user, uuid.Must(uuid.NewV7()), exerciseModel.ImportSourceUpload, target, t0)
+	stored, err := repo.StartImportJob(ctx, job)
+	if err != nil || stored.OwnerEventID != target {
+		t.Fatalf("stored %+v err %v", stored, err)
+	}
+	stored.Fail(exerciseModel.ImportJobError{Code: 1, Message: "m"}, t0.Add(time.Minute))
+	moved := uuid.NullUUID{UUID: eventB.ID, Valid: true}
+	if !stored.Restart(moved, t0.Add(2*time.Minute)) {
+		t.Fatal("a failed import restarts")
+	}
+	if _, err = repo.SaveImportJob(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if got, getErr := repo.GetImportJob(ctx, job.ID); getErr != nil || got.OwnerEventID != moved {
+		t.Fatalf("restarted into %+v err %v", got.OwnerEventID, getErr)
+	}
+	if _, err = db.Pool.Exec(ctx, `DELETE FROM events WHERE id = $1`, eventB.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.GetImportJob(ctx, job.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("the event's import goes with it: %v", err)
 	}
 }

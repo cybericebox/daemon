@@ -992,6 +992,10 @@ type Querier interface {
 	// platform default, else 7).
 	ListEventsDueStartReminder(ctx context.Context, nowAt time.Time) ([]ListEventsDueStartReminderRow, error)
 	ListEventsPage(ctx context.Context, arg ListEventsPageParams) ([]Event, error)
+	// The authors of the exercises the viewer may read (viewer_id NULL: every exercise), by use, for the author filter.
+	// Only the first and last name, never the email; search matches either; ids (non-empty) keeps only those authors
+	// (the names of the chosen ones).
+	ListExerciseAuthors(ctx context.Context, arg ListExerciseAuthorsParams) ([]ListExerciseAuthorsRow, error)
 	// Card decorations for a page of exercises in one query: owner event name,
 	// fork source name, infrastructure and a pending proposal.
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]ListExerciseCardExtrasRow, error)
@@ -1030,6 +1034,9 @@ type Querier interface {
 	// status is the single derived catalog status (exercise_status); the working
 	// copy counts only for readers who may see it (admins, members of the owner
 	// event) — for the others a catalog exercise is simply "published".
+	// tags: any of them; tags_all: every one of them; tags_none: none of them.
+	// statuses: any of them (empty: every status). archived: exclude | only | any.
+	// difficulty_min/max: the rounded average level 1..6, inclusive (0: no bound).
 	ListExercisesPage(ctx context.Context, arg ListExercisesPageParams) ([]ListExercisesPageRow, error)
 	// Which of the given events still exist (the periodic orphan LabGroup sweep).
 	ListExistingEventIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
@@ -1770,7 +1777,7 @@ type Querier interface {
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
 	// The whole job aggregate (state, stored file, error) in one write.
 	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
-	// The whole job aggregate (state, created tasks, error, progress) in one write.
+	// The whole job aggregate (state, created tasks, error, progress, target event) in one write.
 	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
 	// The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
 	// has ended (zero rows) keeps its outcome.
