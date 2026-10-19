@@ -226,8 +226,10 @@ type resultsSnapshotResponse struct {
 	Scoreboard  []scoreboardEntryResponse         `json:"Scoreboard"`
 	Timeline    []eventScoreTimelineEntryResponse `json:"Timeline"`
 	TotalTeams  int                               `json:"TotalTeams"`
-	Freeze      resultsFreezeResponse             `json:"Freeze"`
-	Display     resultsDisplayResponse            `json:"Display"`
+	// Tasks: the published tasks count, only on the live screen (view=live).
+	Tasks   *int64                 `json:"Tasks,omitempty"`
+	Freeze  resultsFreezeResponse  `json:"Freeze"`
+	Display resultsDisplayResponse `json:"Display"`
 }
 
 // resultsFreezeResponse: Applied tells whether this response is the frozen
@@ -384,7 +386,7 @@ func toResultsSnapshotResponse(v eventUseCase.ResultsSnapshotView) resultsSnapsh
 		timeline = append(timeline, eventScoreTimelineEntryResponse{EventTeamID: item.EventTeamID, EventChallengeID: item.EventChallengeID, ChallengeName: item.ChallengeName, Points: item.Points, SolvedAt: item.SolvedAt})
 	}
 	f := v.Freeze
-	return resultsSnapshotResponse{Revision: v.Revision, GeneratedAt: v.GeneratedAt, Scoreboard: entries, Timeline: timeline, TotalTeams: v.TotalTeams,
+	return resultsSnapshotResponse{Revision: v.Revision, GeneratedAt: v.GeneratedAt, Scoreboard: entries, Timeline: timeline, TotalTeams: v.TotalTeams, Tasks: v.Tasks,
 		Freeze:  resultsFreezeResponse{Enabled: f.Enabled, FrozenAt: f.FrozenAt, FinishAt: f.FinishAt, OpenedAt: f.OpenedAt, Active: f.Active, Applied: f.Applied},
 		Display: resultsDisplayResponse{ChartEnabled: v.Display.ChartEnabled, ChartTeams: v.Display.ChartTeams, RowsLimit: v.Display.RowsLimit}}
 }

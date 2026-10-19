@@ -5611,6 +5611,9 @@ definitions:
         items:
           $ref: '#/definitions/eventself.scoreboardEntryResponse'
         type: array
+      Tasks:
+        description: 'Tasks: the published tasks count, only on the live screen (view=live).'
+        type: integer
       Timeline:
         items:
           $ref: '#/definitions/eventself.eventScoreTimelineEntryResponse'

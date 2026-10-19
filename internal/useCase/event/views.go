@@ -788,8 +788,11 @@ type ResultsSnapshotView struct {
 	Timeline    []EventScoreTimelineEntryView
 	// TotalTeams counts the ranked teams before the page row limit.
 	TotalTeams int
-	Freeze     ResultsFreezeView
-	Display    ResultsDisplayView
+	// Tasks counts the published tasks, for the live screen facts only
+	// (view=live); the results page leaves it nil.
+	Tasks   *int64
+	Freeze  ResultsFreezeView
+	Display ResultsDisplayView
 }
 
 // ResultsFreezeView is the scoreboard freeze state. Applied tells whether the
