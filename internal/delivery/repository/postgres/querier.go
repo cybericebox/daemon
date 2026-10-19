@@ -1406,6 +1406,7 @@ type Querier interface {
 	// an old short tag makes one) is never a candidate: removing that tag could remove what serves the other digest; its
 	// rows stay until the other digest's row goes. At most 500 rows a pass; the rest wait for the next one.
 	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error)
+	// (a part holding back a shrink is sent again: the admin may force it, or the labs may be gone.)
 	ListUnsyncedClusterReservationAgents(ctx context.Context) ([]uuid.UUID, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)

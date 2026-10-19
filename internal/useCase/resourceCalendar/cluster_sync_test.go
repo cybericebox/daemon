@@ -136,7 +136,10 @@ func TestForcedShrinkIsSent(t *testing.T) {
 	held := port.held[agentOne][p.ID]
 	port.running(agentOne, p.ID, 3, held.Amount, calModel.PartActive)
 	end := h.clock.Add(time.Minute)
+	// Allowing a conflict is not forcing a shrink: the admin panel always allows conflicts.
 	setEvent(t, h, EventReservationInput{Teams: ptr(6), WindowEnd: &end, AllowConflicts: true})
+	assert.Equal(t, held.Amount, port.held[agentOne][p.ID].Amount, "a shrink without the admin's confirmation is held")
+	setEvent(t, h, EventReservationInput{Teams: ptr(6), WindowEnd: &end, AllowConflicts: true, ForceShrink: true})
 	sent := port.held[agentOne][p.ID]
 	assert.Less(t, sent.Amount.CPUMillicores, held.Amount.CPUMillicores, "a forced shrink is sent")
 	assert.True(t, sent.To.Before(h.clock.Add(DefaultReservationNotice)))

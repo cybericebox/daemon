@@ -36,6 +36,9 @@ type EventReservationInput struct {
 	// AllowConflicts keeps a reservation that does not fit by packing (it is marked not covered and the admin
 	// resolves it by hand); without it such a reservation is refused.
 	AllowConflicts bool
+	// ForceShrink sends a smaller size or an earlier end to the agents even while labs run in the reservation (the
+	// admin confirmed that the labs that do not fit are deleted); without it such a shrink is held back.
+	ForceShrink bool
 	// DryRun only reports what would happen.
 	DryRun bool
 }
@@ -227,7 +230,7 @@ func (u *ResourceCalendarUseCase) SetEventResourceReservation(ctx context.Contex
 			}
 		}
 		result.Saved = true
-		if err = u.splitParts(ctx, s, r, in.AllowConflicts, now); err != nil {
+		if err = u.splitParts(ctx, s, r, in.ForceShrink, now); err != nil {
 			return err
 		}
 		raised, err = u.reconcileReservation(ctx, s, r, states, now)
@@ -359,7 +362,7 @@ func (u *ResourceCalendarUseCase) ReplanResourceReservation(ctx context.Context,
 			return platformErr(err, "Failed to save the reservation")
 		}
 		result.Saved = true
-		if err = u.splitParts(ctx, s, r, allowConflicts, now); err != nil {
+		if err = u.splitParts(ctx, s, r, false, now); err != nil {
 			return err
 		}
 		raised, err = u.reconcileReservation(ctx, s, r, states, now)

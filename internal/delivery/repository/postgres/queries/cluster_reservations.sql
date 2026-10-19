@@ -77,7 +77,8 @@ LIMIT 1;
 SELECT DISTINCT agent_id FROM cluster_reservations;
 
 -- name: ListUnsyncedClusterReservationAgents :many
-SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL;
+-- (a part holding back a shrink is sent again: the admin may force it, or the labs may be gone.)
+SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL OR shrink_held;
 
 -- name: ListClusterReservationUnits :many
 SELECT * FROM cluster_reservation_units WHERE calendar_reservation_id = sqlc.arg(calendar_reservation_id) ORDER BY assigned_at, unit_key;

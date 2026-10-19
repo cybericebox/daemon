@@ -154,7 +154,7 @@ func (m *memStore) PartAgents(context.Context) ([]uuid.UUID, error) {
 }
 
 func (m *memStore) UnsyncedAgents(context.Context) ([]uuid.UUID, error) {
-	return m.agentsWhere(func(p calModel.Part) bool { return !p.Synced() || p.Retired() }), nil
+	return m.agentsWhere(func(p calModel.Part) bool { return !p.Synced() || p.Retired() || p.ShrinkHeld }), nil
 }
 
 func (m *memStore) Units(_ context.Context, calendar uuid.UUID) (map[string]uuid.UUID, error) {
