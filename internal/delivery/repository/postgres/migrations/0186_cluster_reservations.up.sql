@@ -4,7 +4,7 @@
 -- lease) or a test group (an author's shared group on one agent). desired_rev counts the changes to send,
 -- synced_rev is the last one the agent confirmed (sync_error / sync_reason / sync_failed_since say why it is not,
 -- shrink_held that a shrink was held back while labs run in the part); forced marks a desired change an admin forced
--- past that guard. The observed columns are what the agent last reported.
+-- past that guard; retire_held keeps a part that left the placement while labs still run in it. The observed columns are what the agent last reported.
 CREATE TABLE cluster_reservations
 (
     id                      uuid PRIMARY KEY,
@@ -25,6 +25,7 @@ CREATE TABLE cluster_reservations
     sync_failed_since       timestamptz,
     shrink_held             boolean     NOT NULL DEFAULT false,
     forced                  boolean     NOT NULL DEFAULT false,
+    retire_held             boolean     NOT NULL DEFAULT false,
     phase                   text        NOT NULL DEFAULT '',
     notice_at               timestamptz,
     ends_notice_at          timestamptz,

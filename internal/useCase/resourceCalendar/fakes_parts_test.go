@@ -187,6 +187,8 @@ type fakePort struct {
 	// down makes every call of an agent fail; refuse makes create/update refuse an id with a reason.
 	down   map[uuid.UUID]error
 	refuse map[uuid.UUID]string
+	// afterList runs once a listing is taken (another replica acting in between).
+	afterList func()
 }
 
 func newFakePort() *fakePort {
@@ -209,6 +211,9 @@ func (f *fakePort) ListReservations(_ context.Context, agent uuid.UUID) ([]infra
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID.String() < out[j].ID.String() })
+	if f.afterList != nil {
+		f.afterList()
+	}
 	return out, nil
 }
 

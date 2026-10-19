@@ -93,10 +93,33 @@ func (u *ResourceCalendarUseCase) splitParts(ctx context.Context, s Store, r *ca
 		before[p.ID] = p
 	}
 	keep, add, retire := calModel.SplitCalendar(r, existing, u.newPartID, now)
-	for _, group := range [][]calModel.Part{keep, add, retire} {
+	live := map[uuid.UUID]bool{}
+	for _, p := range append(append([]calModel.Part(nil), keep...), add...) {
+		live[p.AgentID] = true
+	}
+	var held []calModel.Part
+	for i, p := range retire {
+		// A part that left the placement while labs still run in it stays (the shrink guard), unless the
+		// reservation is canceled or the admin forces it.
+		if old := before[p.ID]; r.Active() && !forced && old.Status.Groups > 0 {
+			if !old.RetireHeld {
+				old.RetireHeld = true
+				old.UpdatedAt = now
+				held = append(held, old)
+			}
+			live[p.AgentID] = true
+			retire[i] = calModel.Part{}
+		}
+	}
+	for _, group := range [][]calModel.Part{keep, add, retire, held} {
 		for _, p := range group {
-			// An unchanged part is saved again only when the admin now forces the shrink it holds back.
-			if old, ok := before[p.ID]; ok && old.DesiredRev == p.DesiredRev && (!forced || !old.ShrinkHeld || old.Forced) {
+			if p.ID == uuid.Nil {
+				continue // held back above
+			}
+			old, ok := before[p.ID]
+			// An unchanged part is saved again only when the admin now forces the shrink it holds back, or its
+			// held retirement changed.
+			if ok && old.DesiredRev == p.DesiredRev && old.RetireHeld == p.RetireHeld && (!forced || !old.ShrinkHeld || old.Forced) {
 				continue
 			}
 			p.Forced = forced
@@ -105,7 +128,74 @@ func (u *ResourceCalendarUseCase) splitParts(ctx context.Context, s Store, r *ca
 			}
 		}
 	}
+	return u.releaseStaleUnits(ctx, s, r.ID, live)
+}
+
+// releaseStaleUnits forgets the units placed on an agent that no longer holds a part of the reservation (its share
+// went away and no lab runs there): the unit is placed again from the current shares when its group is created.
+func (u *ResourceCalendarUseCase) releaseStaleUnits(ctx context.Context, s Store, calendarID uuid.UUID, live map[uuid.UUID]bool) error {
+	units, err := s.Units(ctx, calendarID)
+	if err != nil {
+		return platformErr(err, "Failed to read the units of a reservation")
+	}
+	for unit, agent := range units {
+		if live[agent] {
+			continue
+		}
+		if err = s.ReleaseUnit(ctx, calendarID, unit); err != nil {
+			return platformErr(err, "Failed to release a unit of a reservation")
+		}
+	}
 	return nil
+}
+
+// ReleaseTeamUnit forgets the agent of a team of an event once its group is gone (destroyed, the team deleted): a
+// new group of the team is placed again from the current shares.
+func (u *ResourceCalendarUseCase) ReleaseTeamUnit(ctx context.Context, eventID, teamID uuid.UUID) error {
+	r, err := u.store.GetEventReservation(ctx, eventID)
+	if err != nil {
+		if notFound(err) {
+			return nil
+		}
+		return platformErr(err, "Failed to read the event reservation")
+	}
+	if err = u.store.ReleaseUnit(ctx, r.ID, calModel.TeamUnit(teamID)); err != nil {
+		return platformErr(err, "Failed to release the unit of a team")
+	}
+	return nil
+}
+
+// finishPart acts once on the end of a part whose row is dropped or whose window has passed: the cluster deleted
+// what ran in it. A part retired on purpose before its window end (a test run its author ended, a share that left
+// the placement with nothing in it) has nothing to act on; a canceled reservation does.
+func (u *ResourceCalendarUseCase) finishPart(ctx context.Context, p calModel.Part, now time.Time) {
+	if p.Status.Phase == calModel.PartEnded {
+		return
+	}
+	if p.Retired() && p.Window.End.After(*p.RetireAt) {
+		if p.Source != calModel.PartCalendar || p.CalendarID == nil {
+			return
+		}
+		r, err := u.store.GetReservation(ctx, *p.CalendarID)
+		if err == nil && r.Active() {
+			return
+		}
+	}
+	status := p.Status
+	status.Phase, status.ObservedAt = calModel.PartEnded, &now
+	if err := u.store.Observe(ctx, p.ID, status); err != nil {
+		log.Warn().Err(err).Str("part_id", p.ID.String()).Msg("Failed to record the end of a cluster reservation part")
+	}
+	// An author's group part ends with their runs: nothing acts on it.
+	if p.Source != calModel.PartTestGroup {
+		u.ended(ctx, p, now)
+	}
+}
+
+// dropPart removes the row of a part the agent no longer holds, after acting on its end.
+func (u *ResourceCalendarUseCase) dropPart(ctx context.Context, p calModel.Part, now time.Time) error {
+	u.finishPart(ctx, p, now)
+	return u.store.DeletePart(ctx, p.ID)
 }
 
 // pushParts sends every part that is not on its agent yet, after the commit of the change that made it. A failure
@@ -223,15 +313,17 @@ func (u *ResourceCalendarUseCase) SyncAgent(ctx context.Context, agentID uuid.UU
 	mu.Lock()
 	defer mu.Unlock()
 	now := u.now().UTC()
+	// The agent is listed first and the parts read after: a part another replica created in between is known here,
+	// so it is never taken for an orphan.
+	listed, listErr := u.cluster.port.ListReservations(ctx, agentID)
 	parts, err := u.store.PartsOfAgent(ctx, agentID)
 	if err != nil {
 		return platformErr(err, "Failed to read the cluster reservation parts")
 	}
-	listed, err := u.cluster.port.ListReservations(ctx, agentID)
-	if err != nil {
-		u.recordFailure(ctx, parts, err, now)
+	if listErr != nil {
+		u.recordFailure(ctx, parts, listErr, now)
 		u.reconcilePartAlarms(ctx, parts)
-		return fmt.Errorf("list the cluster reservations: %w", err)
+		return fmt.Errorf("list the cluster reservations: %w", listErr)
 	}
 	byID := make(map[uuid.UUID]*infraModel.ClusterReservation, len(listed))
 	for i := range listed {
@@ -252,7 +344,7 @@ func (u *ResourceCalendarUseCase) SyncAgent(ctx context.Context, agentID uuid.UU
 		}
 		if p.Retired() {
 			if l == nil {
-				if err = u.store.DeletePart(ctx, p.ID); err != nil {
+				if err = u.dropPart(ctx, p, now); err != nil {
 					return platformErr(err, "Failed to drop a cluster reservation part")
 				}
 				continue
@@ -345,7 +437,7 @@ func (u *ResourceCalendarUseCase) record(ctx context.Context, items []pending, o
 		case !ok:
 			u.answer(ctx, it.part, calModel.SyncAnswer{Error: "the agent gave no answer for the reservation", At: now})
 		case o.OK && it.drop:
-			if err := u.store.DeletePart(ctx, it.part.ID); err != nil {
+			if err := u.dropPart(ctx, it.part, now); err != nil {
 				log.Warn().Err(err).Str("part_id", it.part.ID.String()).Msg("Failed to drop a deleted cluster reservation part")
 			}
 		case o.OK:
@@ -426,7 +518,7 @@ func partCauses(parts []calModel.Part, now time.Time) []cause {
 		case p.SyncFailingFor(clusterSyncAlarmAfter, now):
 			out = append(out, cause{kind: calModel.AlarmClusterSyncFailed, agent: &agent})
 		}
-		if p.ShrinkHeld {
+		if p.ShrinkHeld || p.RetireHeld {
 			out = append(out, cause{kind: calModel.AlarmClusterShrinkHeld, agent: &agent})
 		}
 	}
@@ -491,8 +583,19 @@ func (u *ResourceCalendarUseCase) ReconcileClusterReservations(ctx context.Conte
 	}
 	sort.Slice(gone, func(i, j int) bool { return gone[i].String() < gone[j].String() })
 	for _, a := range gone {
-		if sErr := u.SyncAgent(ctx, a); sErr != nil {
-			errs = append(errs, fmt.Errorf("agent %s: %w", a, sErr))
+		// An agent gone from the registry cannot be asked: its retired parts are dropped (there is nothing left to
+		// delete), its live ones wait for the admin to place their reservations again.
+		parts, pErr := u.store.PartsOfAgent(ctx, a)
+		if pErr != nil {
+			errs = append(errs, fmt.Errorf("agent %s: %w", a, pErr))
+			continue
+		}
+		for _, p := range parts {
+			if p.Retired() {
+				if dErr := u.store.DeletePart(ctx, p.ID); dErr != nil {
+					errs = append(errs, fmt.Errorf("agent %s: %w", a, dErr))
+				}
+			}
 		}
 	}
 	return errors.Join(errs...)

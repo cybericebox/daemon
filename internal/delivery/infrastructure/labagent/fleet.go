@@ -293,9 +293,14 @@ func (f *Fleet) partOn(ctx context.Context, m *Member, ref infraModel.Reservatio
 		return "", nil
 	}
 	pinned := m.ID
-	_, part, err := f.parts.Resolve(ctx, ref, &pinned)
+	agent, part, err := f.parts.Resolve(ctx, ref, &pinned)
 	if err != nil {
 		return "", err
+	}
+	// The reservation's part is on another agent than the group (a group made before the reservations): the group
+	// is not moved, it must be recreated.
+	if agent != m.ID {
+		return "", fmt.Errorf("lab group on agent %s, its reservation on %s: %w", m.ID, agent, infraModel.ErrPlacementMismatch)
 	}
 	return part.String(), nil
 }

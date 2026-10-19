@@ -5,15 +5,15 @@
 
 -- name: SaveClusterReservation :exec
 INSERT INTO cluster_reservations (id, agent_id, source, calendar_reservation_id, test_deploy_id, owner_id, starts_at, ends_at,
-                                  cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, forced, retire_at,
+                                  cpu_millicores, memory_bytes, desired_rev, synced_rev, synced_at, sync_error, forced, retire_held, retire_at,
                                   created_at, updated_at)
 VALUES (sqlc.arg(id), sqlc.arg(agent_id), sqlc.arg(source), sqlc.narg(calendar_reservation_id), sqlc.narg(test_deploy_id), sqlc.narg(owner_id),
         sqlc.arg(starts_at), sqlc.arg(ends_at), sqlc.arg(cpu_millicores), sqlc.arg(memory_bytes), sqlc.arg(desired_rev), sqlc.arg(synced_rev),
-        sqlc.narg(synced_at), sqlc.arg(sync_error), sqlc.arg(forced), sqlc.narg(retire_at), sqlc.arg(created_at), sqlc.arg(updated_at))
+        sqlc.narg(synced_at), sqlc.arg(sync_error), sqlc.arg(forced), sqlc.arg(retire_held), sqlc.narg(retire_at), sqlc.arg(created_at), sqlc.arg(updated_at))
 ON CONFLICT (id) DO UPDATE
 SET starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, cpu_millicores = EXCLUDED.cpu_millicores,
     memory_bytes = EXCLUDED.memory_bytes, desired_rev = GREATEST(cluster_reservations.desired_rev, EXCLUDED.desired_rev),
-    forced = EXCLUDED.forced, retire_at = EXCLUDED.retire_at, updated_at = EXCLUDED.updated_at;
+    forced = EXCLUDED.forced, retire_held = EXCLUDED.retire_held, retire_at = EXCLUDED.retire_at, updated_at = EXCLUDED.updated_at;
 
 -- name: MarkClusterReservationSynced :exec
 -- The agent's answer for a revision: a confirmation never lowers synced_rev and clears the failure; a failure keeps
@@ -78,7 +78,7 @@ SELECT DISTINCT agent_id FROM cluster_reservations;
 
 -- name: ListUnsyncedClusterReservationAgents :many
 -- (a part holding back a shrink is sent again: the admin may force it, or the labs may be gone.)
-SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL OR shrink_held;
+SELECT DISTINCT agent_id FROM cluster_reservations WHERE synced_rev < desired_rev OR retire_at IS NOT NULL OR shrink_held OR retire_held;
 
 -- name: ListClusterReservationUnits :many
 SELECT * FROM cluster_reservation_units WHERE calendar_reservation_id = sqlc.arg(calendar_reservation_id) ORDER BY assigned_at, unit_key;
