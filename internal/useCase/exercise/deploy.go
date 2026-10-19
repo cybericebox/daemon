@@ -1025,8 +1025,24 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 
 // TestLabNotifier tells an author about the end of a test laboratory's reservation (the inbox).
 type TestLabNotifier interface {
-	TestLabEnding(ctx context.Context, owner uuid.UUID, deploy exerciseModel.TestDeploy, endsAt time.Time) error
-	TestLabEnded(ctx context.Context, owner uuid.UUID, deploy exerciseModel.TestDeploy) error
+	TestLabEnding(ctx context.Context, owner, deployID uuid.UUID, exerciseName string, endsAt time.Time) error
+	TestLabEnded(ctx context.Context, owner, deployID uuid.UUID, exerciseName string) error
+}
+
+// deployExerciseName is the name of the task a test deploy runs (empty when it cannot be read: the notice still goes).
+func (u *ExerciseUseCase) deployExerciseName(ctx context.Context, deploy exerciseModel.TestDeploy) string {
+	if u.exercises == nil {
+		return ""
+	}
+	version, err := u.exercises.GetVersion(ctx, deploy.VersionID)
+	if err != nil {
+		return ""
+	}
+	e, err := u.exercises.GetByID(ctx, version.ExerciseID)
+	if err != nil {
+		return ""
+	}
+	return e.Name
 }
 
 // SetTestLabNotifier wires the author's notifications about the reservation of a test laboratory.
@@ -1049,7 +1065,7 @@ func (u *ExerciseUseCase) TestRunEnding(ctx context.Context, owner, deployID uui
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the ending of a test deploy").Err()
 	}
 	if u.testLabNotifier != nil {
-		if nErr := u.testLabNotifier.TestLabEnding(ctx, owner, deploy, endsAt); nErr != nil {
+		if nErr := u.testLabNotifier.TestLabEnding(ctx, owner, deployID, u.deployExerciseName(ctx, deploy), endsAt); nErr != nil {
 			log.Warn().Err(nErr).Str("deploy", deployID.String()).Msg("Failed to notify the author about an ending test laboratory")
 		}
 	}
@@ -1082,7 +1098,7 @@ func (u *ExerciseUseCase) EndTestDeployByReservation(ctx context.Context, owner,
 		return true, u.endTestLab(ctx, repo, deploy, true)
 	})
 	if ended != nil && u.testLabNotifier != nil {
-		if nErr := u.testLabNotifier.TestLabEnded(ctx, owner, *ended); nErr != nil {
+		if nErr := u.testLabNotifier.TestLabEnded(ctx, owner, deployID, u.deployExerciseName(ctx, *ended)); nErr != nil {
 			log.Warn().Err(nErr).Str("deploy", deployID.String()).Msg("Failed to notify the author about an ended test laboratory")
 		}
 	}

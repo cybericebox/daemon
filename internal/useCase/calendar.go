@@ -17,6 +17,7 @@ import (
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
 	exerciseUseCase "github.com/cybericebox/daemon/internal/useCase/exercise"
+	inboxUseCase "github.com/cybericebox/daemon/internal/useCase/notification/inbox"
 	calendarUseCase "github.com/cybericebox/daemon/internal/useCase/resourceCalendar"
 )
 
@@ -200,3 +201,6 @@ func (l partListener) PartEnded(ctx context.Context, n calendarUseCase.PartNotic
 		log.Warn().Err(err).Str("part_id", n.Part.ID.String()).Msg("Failed to act on the end of a cluster reservation")
 	}
 }
+
+// The inbox router tells about the ending and reduced event reservations.
+var _ calendarUseCase.ReservationNotifier = (*inboxUseCase.RequestRouter)(nil)
