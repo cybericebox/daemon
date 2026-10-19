@@ -5,7 +5,7 @@ import (
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// next free detail code: 15
+// next free detail code: 16
 
 var (
 	// ErrWindowInvalid: the time range of a reservation or a booking is empty, reversed or out of bounds.
@@ -82,4 +82,9 @@ var (
 	ErrChangeRequestPending = err.ErrConflict.WithObjectCode(model.ResourceCalendarObjectCode).
 				WithMessage("The event has a change request that waits for a decision").
 				WithDetailCode(14)
+
+	// ErrUnitNotPlaced: every share of the reservation is taken, so a new team (or preview owner) has no agent.
+	ErrUnitNotPlaced = err.ErrConflict.WithObjectCode(model.ResourceCalendarObjectCode).
+				WithMessage("The reservation has no free place for this team").
+				WithDetailCode(15)
 )
