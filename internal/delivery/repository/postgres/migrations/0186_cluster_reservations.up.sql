@@ -60,6 +60,9 @@ CREATE TABLE cluster_reservation_units
     PRIMARY KEY (calendar_reservation_id, unit_key)
 );
 
+-- The ending notice of a test run's cluster reservation: when its lab is deleted unless the author extends it.
+ALTER TABLE exercise_test_deployments ADD COLUMN ending_at timestamptz;
+
 -- Two new readiness alarms: a part the agent did not take for a while, and a shrink held back because labs
 -- still run in the part.
 ALTER TABLE resource_alarms DROP CONSTRAINT resource_alarms_kind_check;

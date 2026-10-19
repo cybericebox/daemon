@@ -16,6 +16,7 @@ import (
 )
 
 type Queries interface {
+	MarkLabGroupBindingsDestroyed(ctx context.Context, arg postgres.MarkLabGroupBindingsDestroyedParams) (int64, error)
 	GetLabBinding(ctx context.Context, arg postgres.GetLabBindingParams) (postgres.LabBinding, error)
 	CreateLabBinding(ctx context.Context, arg postgres.CreateLabBindingParams) (postgres.LabBinding, error)
 	UpdateLabBindingReadiness(ctx context.Context, arg postgres.UpdateLabBindingReadinessParams) (int64, error)
@@ -261,4 +262,10 @@ func (r *Repository) RetryInitial(ctx context.Context, lab eventLabModel.Lab) (i
 		return 0, errors.New("initial retry query unavailable")
 	}
 	return q.RetryNeverCreatedLabBindings(ctx, lab.ID, lab.TeamID, lab.EventID, lab.Revision, lab.OperationID)
+}
+
+// MarkGroupDestroyed records that the labs of one team group of an event are gone (its cluster reservation ended).
+func (r *Repository) MarkGroupDestroyed(ctx context.Context, eventID uuid.UUID, group string) error {
+	_, err := r.q.MarkLabGroupBindingsDestroyed(ctx, postgres.MarkLabGroupBindingsDestroyedParams{EventID: eventID, LabGroupName: group})
+	return err
 }

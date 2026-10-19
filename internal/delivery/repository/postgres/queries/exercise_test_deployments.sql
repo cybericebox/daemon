@@ -15,8 +15,11 @@ JOIN exercise_versions v ON v.id = d.version_id
 WHERE d.created_by = sqlc.arg(created_by) AND v.exercise_id = sqlc.arg(exercise_id)
 ORDER BY d.expires_at;
 -- name: ExtendOwnedExerciseTestDeploy :one
-UPDATE exercise_test_deployments SET expires_at = sqlc.arg(expires_at)
+UPDATE exercise_test_deployments SET expires_at = sqlc.arg(expires_at), ending_at = NULL
 WHERE id = sqlc.arg(id) AND created_by = sqlc.arg(created_by) RETURNING *;
+-- name: SetExerciseTestDeployEndingAt :execrows
+-- The ending notice of the run's cluster reservation: when the lab is deleted unless extended (narrow write).
+UPDATE exercise_test_deployments SET ending_at = sqlc.narg(ending_at) WHERE id = sqlc.arg(id) AND created_by = sqlc.arg(created_by);
 -- name: LockExerciseTestDeploysOf :exec
 -- Serializes the "one active test lab per user" check and insert of one owner until the transaction ends.
 SELECT pg_advisory_xact_lock(hashtextextended('exercise-test-deploy:' || sqlc.arg(owner)::text, 0));

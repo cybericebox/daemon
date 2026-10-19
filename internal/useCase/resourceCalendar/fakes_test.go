@@ -268,6 +268,8 @@ type fakeNotifier struct {
 	decided   []bool
 	raised    []inboxUseCase.ResourceAlarm
 	closed    []uuid.UUID
+	ending    []ReservationNotice
+	reduced   []ReservationNotice
 }
 
 func (f *fakeNotifier) ResourceChangeRequested(_ context.Context, c inboxUseCase.ResourceChange) error {

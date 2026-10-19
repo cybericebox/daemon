@@ -22,6 +22,9 @@ type TestDeploy struct {
 	Expired bool
 	// Removing is true while the lab is being removed: the lease is over and the agent still has it (filled when listed, not stored).
 	Removing bool
+	// EndingAt is set once the run's cluster reservation gave its ending notice: the lab is deleted then unless
+	// extended (an extension clears it).
+	EndingAt *time.Time
 }
 
 // Kinds of a test deploy. The kind follows the row shape, never the live variant: a draft variant may gain or lose

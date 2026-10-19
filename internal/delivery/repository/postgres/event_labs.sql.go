@@ -586,6 +586,38 @@ func (q *Queries) ListPendingStoppedEventTeamLabs(ctx context.Context, arg ListP
 	return items, nil
 }
 
+const listRunningEventTeamLabsInGroups = `-- name: ListRunningEventTeamLabsInGroups :many
+SELECT id FROM event_team_labs
+WHERE event_id = $1 AND lab_group_name = ANY($2::text[]) AND desired_state = 'Running'
+ORDER BY id
+`
+
+type ListRunningEventTeamLabsInGroupsParams struct {
+	EventID uuid.UUID `json:"event_id"`
+	Groups  []string  `json:"groups"`
+}
+
+// The labs of an event that still run in the given team groups (their cluster reservation is ending).
+func (q *Queries) ListRunningEventTeamLabsInGroups(ctx context.Context, arg ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listRunningEventTeamLabsInGroups, arg.EventID, arg.Groups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockEventForLabSourceChange = `-- name: LockEventForLabSourceChange :one
 SELECT id FROM events WHERE id=$1 FOR NO KEY UPDATE
 `

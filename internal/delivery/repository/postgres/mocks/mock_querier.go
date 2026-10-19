@@ -9462,6 +9462,21 @@ func (mr *MockQuerierMockRecorder) ListRevealSetLabs(ctx, arg any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRevealSetLabs", reflect.TypeOf((*MockQuerier)(nil).ListRevealSetLabs), ctx, arg)
 }
 
+// ListRunningEventTeamLabsInGroups mocks base method.
+func (m *MockQuerier) ListRunningEventTeamLabsInGroups(ctx context.Context, arg postgres.ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunningEventTeamLabsInGroups", ctx, arg)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunningEventTeamLabsInGroups indicates an expected call of ListRunningEventTeamLabsInGroups.
+func (mr *MockQuerierMockRecorder) ListRunningEventTeamLabsInGroups(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunningEventTeamLabsInGroups", reflect.TypeOf((*MockQuerier)(nil).ListRunningEventTeamLabsInGroups), ctx, arg)
+}
+
 // ListRunningExerciseImportJobs mocks base method.
 func (m *MockQuerier) ListRunningExerciseImportJobs(ctx context.Context, arg postgres.ListRunningExerciseImportJobsParams) ([]postgres.ExerciseImportJob, error) {
 	m.ctrl.T.Helper()
@@ -10440,6 +10455,21 @@ func (m *MockQuerier) MarkLabBindingFailedWithReason(ctx context.Context, arg po
 func (mr *MockQuerierMockRecorder) MarkLabBindingFailedWithReason(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkLabBindingFailedWithReason", reflect.TypeOf((*MockQuerier)(nil).MarkLabBindingFailedWithReason), ctx, arg)
+}
+
+// MarkLabGroupBindingsDestroyed mocks base method.
+func (m *MockQuerier) MarkLabGroupBindingsDestroyed(ctx context.Context, arg postgres.MarkLabGroupBindingsDestroyedParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkLabGroupBindingsDestroyed", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkLabGroupBindingsDestroyed indicates an expected call of MarkLabGroupBindingsDestroyed.
+func (mr *MockQuerierMockRecorder) MarkLabGroupBindingsDestroyed(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkLabGroupBindingsDestroyed", reflect.TypeOf((*MockQuerier)(nil).MarkLabGroupBindingsDestroyed), ctx, arg)
 }
 
 // MarkLabGroupCleanupRequestDestroyed mocks base method.
@@ -12000,6 +12030,21 @@ func (m *MockQuerier) SetEventVPNCursor(ctx context.Context, arg postgres.SetEve
 func (mr *MockQuerierMockRecorder) SetEventVPNCursor(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetEventVPNCursor", reflect.TypeOf((*MockQuerier)(nil).SetEventVPNCursor), ctx, arg)
+}
+
+// SetExerciseTestDeployEndingAt mocks base method.
+func (m *MockQuerier) SetExerciseTestDeployEndingAt(ctx context.Context, arg postgres.SetExerciseTestDeployEndingAtParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetExerciseTestDeployEndingAt", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetExerciseTestDeployEndingAt indicates an expected call of SetExerciseTestDeployEndingAt.
+func (mr *MockQuerierMockRecorder) SetExerciseTestDeployEndingAt(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExerciseTestDeployEndingAt", reflect.TypeOf((*MockQuerier)(nil).SetExerciseTestDeployEndingAt), ctx, arg)
 }
 
 // SetImportedExercisePointers mocks base method.

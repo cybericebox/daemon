@@ -1023,6 +1023,72 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 	return err
 }
 
+// TestLabNotifier tells an author about the end of a test laboratory's reservation (the inbox).
+type TestLabNotifier interface {
+	TestLabEnding(ctx context.Context, owner uuid.UUID, deploy exerciseModel.TestDeploy, endsAt time.Time) error
+	TestLabEnded(ctx context.Context, owner uuid.UUID, deploy exerciseModel.TestDeploy) error
+}
+
+// SetTestLabNotifier wires the author's notifications about the reservation of a test laboratory.
+func (u *ExerciseUseCase) SetTestLabNotifier(n TestLabNotifier) { u.testLabNotifier = n }
+
+// TestRunEnding records the ending notice of a test run's reservation (the lab page shows it) and tells the author
+// once. An extension clears it.
+func (u *ExerciseUseCase) TestRunEnding(ctx context.Context, owner, deployID uuid.UUID, endsAt time.Time) error {
+	deploy, err := u.testDeploys.GetOwned(ctx, deployID, owner)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return nil
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if deploy.EndingAt != nil {
+		return nil
+	}
+	if err = u.testDeploys.SetEndingAt(ctx, deployID, owner, &endsAt); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the ending of a test deploy").Err()
+	}
+	if u.testLabNotifier != nil {
+		if nErr := u.testLabNotifier.TestLabEnding(ctx, owner, deploy, endsAt); nErr != nil {
+			log.Warn().Err(nErr).Str("deploy", deployID.String()).Msg("Failed to notify the author about an ending test laboratory")
+		}
+	}
+	return nil
+}
+
+// EndTestDeployByReservation ends a test laboratory whose reservation ended: the same path as the end of its lease
+// (the lab and, with the author's last one, the group go; the hold is released), never a failure. The author is
+// told, since they did not end it themselves.
+func (u *ExerciseUseCase) EndTestDeployByReservation(ctx context.Context, owner, deployID uuid.UUID) error {
+	var ended *exerciseModel.TestDeploy
+	err := u.underOwnerLock(ctx, owner, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		deploy, err := repo.GetOwned(ctx, deployID, owner)
+		if err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return false, nil // ended already
+			}
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		}
+		now := u.timeNow()
+		if deploy.ExpiresAt.After(now) {
+			if deploy, err = repo.ExtendOwned(ctx, deployID, owner, now); err != nil {
+				return false, model.ErrPlatform.WithError(err).WithMessage("Failed to end test deploy").Err()
+			}
+		}
+		ended = &deploy
+		if u.infra == nil {
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		return true, u.endTestLab(ctx, repo, deploy, true)
+	})
+	if ended != nil && u.testLabNotifier != nil {
+		if nErr := u.testLabNotifier.TestLabEnded(ctx, owner, *ended); nErr != nil {
+			log.Warn().Err(nErr).Str("deploy", deployID.String()).Msg("Failed to notify the author about an ended test laboratory")
+		}
+	}
+	return err
+}
+
 // CleanupExpiredTestDeploys removes the Labs whose persisted lease expired (and, with the last
 // Lab of an author, the group). It is the safety net behind the job scheduled for each lease's end:
 // a failed agent deletion retains its row, so the next periodic pass retries it.

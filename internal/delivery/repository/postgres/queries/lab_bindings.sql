@@ -227,3 +227,11 @@ UPDATE lab_bindings
 SET readiness = 3
 WHERE event_id = sqlc.arg(event_id)
   AND readiness <> 3;
+
+-- name: MarkLabGroupBindingsDestroyed :execrows
+-- The labs of one team group of an event are gone (its cluster reservation ended).
+UPDATE lab_bindings
+SET readiness = 3
+WHERE event_id = sqlc.arg(event_id)
+  AND lab_group_name = sqlc.arg(lab_group_name)
+  AND readiness <> 3;
