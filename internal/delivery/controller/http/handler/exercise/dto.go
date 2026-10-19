@@ -182,6 +182,8 @@ type exerciseListItemResponse struct {
 	AvgDifficulty *float64 `json:"AvgDifficulty"`
 	// TaskCount is the number of subtasks of that same first variant; null without a variant (offset pages only).
 	TaskCount *int `json:"TaskCount"`
+	// TaskNames are their names in order: the popover of the count (offset pages only; empty without a variant).
+	TaskNames []string `json:"TaskNames"`
 	exerciseScopeResponse
 }
 
@@ -189,7 +191,7 @@ func exerciseListItemToResponse(e exerciseUseCase.ExerciseListItem) exerciseList
 	return exerciseListItemResponse{
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		HasDraft: e.HasDraft, HasPublished: e.HasPublished, Status: e.Status, ArchivedAt: e.ArchivedAt,
-		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount,
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount, TaskNames: taskNames(e.TaskNames),
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }
@@ -974,4 +976,12 @@ func exerciseToResponse(e exerciseUseCase.ExerciseView) exerciseResponse {
 		CreatedAt: e.CreatedAt, CreatedBy: e.CreatedBy, AuthorName: e.AuthorName, UpdatedAt: e.UpdatedAt, UpdatedBy: e.UpdatedBy, UpdatedByName: e.UpdatedByName,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
+}
+
+// taskNames keeps the JSON an array: nil (a cursor page) becomes [].
+func taskNames(names []string) []string {
+	if names == nil {
+		return []string{}
+	}
+	return names
 }

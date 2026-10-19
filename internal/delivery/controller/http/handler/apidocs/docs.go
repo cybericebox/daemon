@@ -28027,6 +28027,10 @@ const docTemplate = `{
                     "description": "Attached: the event already uses it (or its fork family).",
                     "type": "boolean"
                 },
+                "AvgDifficulty": {
+                    "description": "AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first\nvariant, null without one; TaskCount: their number, null without a variant; TaskNames: their names in order.",
+                    "type": "number"
+                },
                 "Description": {
                     "type": "string"
                 },
@@ -28058,6 +28062,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TaskCount": {
+                    "type": "integer"
+                },
+                "TaskNames": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -33958,6 +33971,13 @@ const docTemplate = `{
                 "TaskCount": {
                     "description": "TaskCount is the number of subtasks of that same first variant; null without a variant (offset pages only).",
                     "type": "integer"
+                },
+                "TaskNames": {
+                    "description": "TaskNames are their names in order: the popover of the count (offset pages only; empty without a variant).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "UpdatedAt": {
                     "type": "string"

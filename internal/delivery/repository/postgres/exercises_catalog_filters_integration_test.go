@@ -3,11 +3,13 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gofrs/uuid"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -278,5 +280,43 @@ func TestListAuthors_ViewerSeesOnlyReadable(t *testing.T) {
 	authors, err := repo.ListAuthors(ctx, "", nil, uuid.NullUUID{UUID: moderator, Valid: true}, 10)
 	if err != nil || len(authors) != 1 || authors[0].ID != insider {
 		t.Fatalf("a moderator sees the authors of what they may read only: %+v err=%v", authors, err)
+	}
+}
+
+// TestCatalogSubtaskNames: both the catalog table and the event's «Додати з каталогу» list carry the subtask names of
+// the first variant in order. The event list reads the PUBLISHED version only: a newer working copy never shows.
+func TestCatalogSubtaskNames(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	event := mustSeedEventForParticipants(t, db, "picker")
+	task := mustCreateExerciseFull(t, repo, "Picker task", "", []string{"web"}, itNow)
+	if _, err := db.Pool.Exec(ctx, `UPDATE exercises SET access_level = 0 WHERE id = $1`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	published := levels(exerciseModel.DifficultyEasy, exerciseModel.DifficultyHard) // «Task A», «Task B»: average 4
+	published = append(published, exerciseModel.Variant{Index: 1, Tasks: levels(exerciseModel.DifficultyInsane)[0].Tasks})
+	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: published}, itNow, uuid.NullUUID{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Publish(ctx, task.ID, itNow.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	draft := []exerciseModel.Variant{{Index: 0, Tasks: []exerciseModel.Task{{ID: uuid.Must(uuid.NewV7()), Name: "Secret draft subtask", Difficulty: exerciseModel.DifficultyEasy}}}}
+	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: draft}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := repo.ListPage(ctx, exerciseRepo.PageParams{Search: "Picker", Archived: "exclude", SortBy: "name", SortDir: "asc", Limit: 5})
+	if err != nil || len(rows) != 1 || strings.Join(rows[0].TaskNames, "|") != "Task A|Task B" || *rows[0].TaskCount != 2 {
+		t.Fatalf("catalog table names: %+v err=%v", rows, err)
+	}
+	items, err := eventExerciseRepo.New(db.Queries).Catalog(ctx, event.ID, "Picker", "", nil)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("event catalog: %+v err=%v", items, err)
+	}
+	got := items[0]
+	if strings.Join(got.TaskNames, "|") != "Task A|Task B" || got.TaskCount == nil || *got.TaskCount != 2 || got.AvgDifficulty == nil || *got.AvgDifficulty != 4 {
+		t.Fatalf("event catalog item: names=%v count=%v avg=%v", got.TaskNames, got.TaskCount, got.AvgDifficulty)
 	}
 }

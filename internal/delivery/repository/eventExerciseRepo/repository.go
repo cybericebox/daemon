@@ -208,6 +208,11 @@ type CatalogItem struct {
 	PublishedVersionID uuid.UUID
 	Infrastructure     bool
 	Attached           bool
+	// The published version's first variant: the average difficulty (nil: none), the subtask count (nil: no
+	// variant) and the subtask names in order.
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
 }
 
 // Catalog lists what the event may attach; tags match any (overlap), nil or
@@ -222,7 +227,20 @@ func (r *Repository) Catalog(ctx context.Context, eventID uuid.UUID, search, inf
 	}
 	out := make([]CatalogItem, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, CatalogItem(row))
+		item := CatalogItem{ID: row.ID, Name: row.Name, Description: row.Description, Tags: row.Tags, Scope: row.Scope,
+			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached, TaskNames: row.TaskNames}
+		if item.TaskNames == nil {
+			item.TaskNames = []string{}
+		}
+		if row.HasAvgDifficulty {
+			avg := row.AvgDifficulty
+			item.AvgDifficulty = &avg
+		}
+		if row.HasTaskCount {
+			count := len(row.TaskNames)
+			item.TaskCount = &count
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }

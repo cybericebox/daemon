@@ -521,6 +521,11 @@ type EventCatalogItem struct {
 	// approved elevation holds a device above the platform frame.
 	Resources     resourcesModel.Range
 	ResourceHeavy bool
+	// The published version's first variant: the average difficulty (1 elementary … 6 insane; nil: none), the
+	// subtask count (nil: no variant) and the subtask names in order (what the preview shows anyway).
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
 }
 
 // EventCatalogTag is a tag of the event's attachable exercises with how many
