@@ -1383,6 +1383,12 @@ definitions:
     type: object
   event.eventExerciseResponse:
     properties:
+      AvgDifficulty:
+        description: |-
+          The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:
+          none), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,
+          else of the first.
+        type: number
       ChallengeCount:
         type: integer
       CreatedAt:
@@ -1443,6 +1449,12 @@ definitions:
         type: integer
       SupersededAt:
         type: string
+      TaskCount:
+        type: integer
+      TaskNames:
+        items:
+          type: string
+        type: array
       UpdateAvailable:
         type: boolean
       VariantCount:

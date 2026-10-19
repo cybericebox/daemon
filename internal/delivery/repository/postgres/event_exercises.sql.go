@@ -426,6 +426,18 @@ SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mo
         WHERE v.exercise_id = ex.forked_from_exercise_id AND v.published_at IS NOT NULL)::integer AS source_latest_version_number,
        exercise_variants_have_infrastructure(pinned.variants)::boolean AS infrastructure,
        CASE WHEN jsonb_typeof(pinned.variants) = 'array' THEN jsonb_array_length(pinned.variants) ELSE 0 END::integer AS variant_count,
+       -- The PINNED version, as the catalog shows a version: the average difficulty (NULL scans badly, hence the
+       -- flag), whether there is a variant, and the subtask names in order, of the fixed variant of a fixed
+       -- attachment, else of the first one (every variant has the same subtasks at the same levels).
+       (pinned.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
+       COALESCE(pinned.avg_difficulty, 0)::float8 AS avg_difficulty,
+       (jsonb_typeof(pinned.variants -> 0) = 'object')::boolean AS has_task_count,
+       COALESCE(ARRAY(SELECT COALESCE(task.value ->> 'name', '')
+                      FROM jsonb_array_elements(CASE
+                                                    WHEN jsonb_typeof(pinned.variants -> CASE WHEN ee.variant_mode = 1 THEN COALESCE(ee.fixed_variant_index, 0) ELSE 0 END -> 'tasks') = 'array'
+                                                        THEN pinned.variants -> CASE WHEN ee.variant_mode = 1 THEN COALESCE(ee.fixed_variant_index, 0) ELSE 0 END -> 'tasks'
+                                                    ELSE '[]'::jsonb END) WITH ORDINALITY AS task(value, position)
+                      ORDER BY task.position), '{}')::text[] AS task_names,
        (SELECT count(*) FROM event_challenges ec WHERE ec.event_exercise_id = ee.id)::integer AS challenge_count,
        (SELECT count(*) FROM event_challenges ec WHERE ec.event_exercise_id = ee.id AND ec.published)::integer AS published_count,
        EXISTS (SELECT 1
@@ -469,6 +481,10 @@ type ListEventExerciseDetailsRow struct {
 	SourceLatestVersionNumber int32              `json:"source_latest_version_number"`
 	Infrastructure            bool               `json:"infrastructure"`
 	VariantCount              int32              `json:"variant_count"`
+	HasAvgDifficulty          bool               `json:"has_avg_difficulty"`
+	AvgDifficulty             float64            `json:"avg_difficulty"`
+	HasTaskCount              bool               `json:"has_task_count"`
+	TaskNames                 []string           `json:"task_names"`
 	ChallengeCount            int32              `json:"challenge_count"`
 	PublishedCount            int32              `json:"published_count"`
 	HasAttempts               bool               `json:"has_attempts"`
@@ -513,6 +529,10 @@ func (q *Queries) ListEventExerciseDetails(ctx context.Context, eventID uuid.UUI
 			&i.SourceLatestVersionNumber,
 			&i.Infrastructure,
 			&i.VariantCount,
+			&i.HasAvgDifficulty,
+			&i.AvgDifficulty,
+			&i.HasTaskCount,
+			&i.TaskNames,
 			&i.ChallengeCount,
 			&i.PublishedCount,
 			&i.HasAttempts,

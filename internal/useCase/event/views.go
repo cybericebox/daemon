@@ -494,6 +494,11 @@ type EventExerciseView struct {
 	// FlagsMayRepeat: some task variant of the pinned version has fewer possible flags than the event's team
 	// capacity, or its flag filter was reset, so two teams may get the same flag.
 	FlagsMayRepeat bool
+	// The pinned version (not the catalog's latest): the average difficulty (nil: none), the subtask count (nil: no
+	// variant) and the subtask names (of the fixed variant of a fixed attachment, else of the first).
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
 }
 
 // EventExerciseForkView describes the catalog source of an event fork.

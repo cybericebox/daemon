@@ -171,6 +171,7 @@ func toEventExerciseDetailView(row eventExerciseRepo.Detail) EventExerciseView {
 	}
 	view.Infrastructure, view.VariantCount = row.Infrastructure, row.VariantCount
 	view.ChallengeCount, view.PublishedCount, view.HasAttempts = row.ChallengeCount, row.PublishedCount, row.HasAttempts
+	view.AvgDifficulty, view.TaskCount, view.TaskNames = row.AvgDifficulty, row.TaskCount, row.TaskNames
 	return view
 }
 
