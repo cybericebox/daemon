@@ -3152,6 +3152,9 @@ definitions:
     type: object
   eventAnalytics.accessResponse:
     properties:
+      Export:
+        description: 'Export: the CSV exports and the report download.'
+        type: boolean
       Sections:
         description: 'Sections: every analytics section and the event report.'
         type: boolean
@@ -5816,6 +5819,63 @@ definitions:
       State:
         type: string
     type: object
+  exercise.bulkAccessRequest:
+    properties:
+      AccessLevel:
+        enum:
+        - all
+        - selected
+        - own
+        - none
+        type: string
+      EventIDs:
+        items:
+          type: string
+        type: array
+      IDs:
+        items:
+          type: string
+        maxItems: 200
+        minItems: 1
+        type: array
+    required:
+    - IDs
+    type: object
+  exercise.bulkExercisesRequest:
+    properties:
+      IDs:
+        items:
+          type: string
+        maxItems: 200
+        minItems: 1
+        type: array
+    required:
+    - IDs
+    type: object
+  exercise.bulkItemResponse:
+    properties:
+      Code:
+        description: Code is the error code (Status.Code) that skipped the task; 0
+          when it changed.
+        type: integer
+      Exercise:
+        allOf:
+        - $ref: '#/definitions/exercise.exerciseResponse'
+        description: Exercise is the changed card; null for a skipped task.
+      ID:
+        type: string
+    type: object
+  exercise.bulkResultResponse:
+    properties:
+      Changed:
+        type: integer
+      Items:
+        items:
+          $ref: '#/definitions/exercise.bulkItemResponse'
+        type: array
+      Skipped:
+        type: integer
+    type: object
   exercise.checkImagesRequest:
     properties:
       Images:
@@ -7322,7 +7382,7 @@ definitions:
         description: |-
           Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and
           when the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the
-          earliest dispatch of such a pod. Zero when unknown (FillQueueDetails).
+          earliest dispatch of a pod still starting. Zero when unknown (FillQueueDetails).
         format: int32
         type: integer
       group:
@@ -7377,10 +7437,6 @@ definitions:
       queuedAt:
         type: string
       retryAfter:
-        type: string
-      scheduledAt:
-        description: 'ScheduledAt is when the pod got its node; zero: no node yet,
-          or not known.'
         type: string
       startedAt:
         type: string
@@ -21695,6 +21751,98 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Authors of the exercises the caller may read, by use (the author filter);
         names only, never emails
+      tags:
+      - exercises
+  /exercises/bulk/access:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise IDs (1..200); all | selected (+EventIDs) | own | none
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.bulkAccessRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.bulkResultResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Set the same access on the selected catalog exercises
+      tags:
+      - exercises
+  /exercises/bulk/archive:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise IDs (1..200)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.bulkExercisesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.bulkResultResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Archive the selected exercises, each by the rule of one exercise's
+        archive
+      tags:
+      - exercises
+  /exercises/bulk/unarchive:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise IDs (1..200)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.bulkExercisesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.bulkResultResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Return the selected exercises to the catalog, each by the rule of one
+        exercise's unarchive
       tags:
       - exercises
   /exercises/deploys:

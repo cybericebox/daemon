@@ -116,6 +116,12 @@ type fakeUC struct {
 	// lifecycle: archive/unarchive
 	archivedID   uuid.UUID
 	unarchivedID uuid.UUID
+
+	// bulk actions of the catalog table
+	bulkResults  []exerciseUseCase.BulkResult
+	bulkIDs      []uuid.UUID
+	bulkArchived *bool
+	bulkAccess   *exerciseUseCase.SetAccessInput
 }
 
 func (f *fakeUC) CreateExercise(_ context.Context, _ exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error) {
@@ -142,6 +148,14 @@ func (f *fakeUC) ArchiveExercise(_ context.Context, id, _ uuid.UUID) (exerciseUs
 func (f *fakeUC) UnarchiveExercise(_ context.Context, id, _ uuid.UUID) (exerciseUseCase.ExerciseView, error) {
 	f.unarchivedID = id
 	return f.exerciseView, f.err
+}
+func (f *fakeUC) BulkSetArchived(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, archived bool) []exerciseUseCase.BulkResult {
+	f.bulkIDs, f.bulkArchived = ids, &archived
+	return f.bulkResults
+}
+func (f *fakeUC) BulkSetAccess(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) []exerciseUseCase.BulkResult {
+	f.bulkIDs, f.bulkAccess = ids, &in
+	return f.bulkResults
 }
 func (f *fakeUC) GetVariantStats(_ context.Context, _ uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error) {
 	return f.variantStats, f.err
