@@ -14988,7 +14988,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "name, tags, status, author, difficulty or updated (offset pages only)",
+                        "description": "name, tags, status, author, difficulty, subtasks or updated (offset pages only)",
                         "name": "sortBy",
                         "in": "query"
                     },
@@ -33850,6 +33850,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "TaskCount": {
+                    "description": "TaskCount is the number of subtasks of that same first variant; null without a variant (offset pages only).",
+                    "type": "integer"
                 },
                 "UpdatedAt": {
                     "type": "string"

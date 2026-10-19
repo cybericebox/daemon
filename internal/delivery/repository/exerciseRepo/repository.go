@@ -127,6 +127,8 @@ type Listed struct {
 	Status        exerciseModel.CatalogStatus
 	AuthorName    string
 	AvgDifficulty *float64
+	// TaskCount is the number of subtasks of the first variant (nil: no variant).
+	TaskCount *int
 }
 
 // PageParams filter, sort and page the catalog table. Tags: any of them; TagsAll: every one; TagsNone: none of
@@ -215,6 +217,10 @@ func (r *Repository) ListPage(ctx context.Context, p PageParams) ([]Listed, erro
 		if row.HasAvgDifficulty {
 			avg := row.AvgDifficulty
 			item.AvgDifficulty = &avg
+		}
+		if row.HasTaskCount {
+			count := int(row.TaskCount)
+			item.TaskCount = &count
 		}
 		out = append(out, item)
 	}

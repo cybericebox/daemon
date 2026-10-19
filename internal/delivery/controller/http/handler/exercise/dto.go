@@ -180,6 +180,8 @@ type exerciseListItemResponse struct {
 	// AvgDifficulty is the mean level (1 elementary … 6 insane) of the subtasks of the first variant of the
 	// published version, else the working copy; null without one (offset pages only).
 	AvgDifficulty *float64 `json:"AvgDifficulty"`
+	// TaskCount is the number of subtasks of that same first variant; null without a variant (offset pages only).
+	TaskCount *int `json:"TaskCount"`
 	exerciseScopeResponse
 }
 
@@ -187,7 +189,7 @@ func exerciseListItemToResponse(e exerciseUseCase.ExerciseListItem) exerciseList
 	return exerciseListItemResponse{
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		HasDraft: e.HasDraft, HasPublished: e.HasPublished, Status: e.Status, ArchivedAt: e.ArchivedAt,
-		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty,
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }

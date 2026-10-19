@@ -6389,6 +6389,10 @@ definitions:
         items:
           type: string
         type: array
+      TaskCount:
+        description: TaskCount is the number of subtasks of that same first variant;
+          null without a variant (offset pages only).
+        type: integer
       UpdatedAt:
         type: string
     type: object
@@ -20704,8 +20708,8 @@ paths:
           type: string
         name: status
         type: array
-      - description: name, tags, status, author, difficulty or updated (offset pages
-          only)
+      - description: name, tags, status, author, difficulty, subtasks or updated (offset
+          pages only)
         in: query
         name: sortBy
         type: string
