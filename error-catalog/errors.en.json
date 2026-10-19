@@ -346,6 +346,7 @@
   "61811": "This exercise is not available to the event",
   "62201": "User cannot view the analytics of this event",
   "62202": "Only the event owner, write moderators and platform admins can view answers and integrity signals",
+  "62208": "Only the event owner, write moderators and platform admins can export the event data",
   "62603": "A solved laboratory cannot be restarted",
   "62609": "The laboratory is closed",
   "62614": "Manual laboratory controls require progressive reveal mode",

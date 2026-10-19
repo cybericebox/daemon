@@ -27,10 +27,10 @@ func (h *Handler) initProgress(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("progress/scores", h.requireSections, h.progressScores)
 	analytics.GET("progress/matrix", h.requireSections, h.progressMatrix)
-	analytics.GET("progress/matrix/export.csv", h.requireSections, h.exportProgressMatrix)
+	analytics.GET("progress/matrix/export.csv", h.requireExport, h.exportProgressMatrix)
 	analytics.GET("progress/heatmap", h.requireSections, h.progressHeatmap)
 	analytics.GET("progress/inactive", h.requireSections, h.progressInactive)
-	analytics.GET("progress/inactive/export.csv", h.requireSections, h.exportProgressInactive)
+	analytics.GET("progress/inactive/export.csv", h.requireExport, h.exportProgressInactive)
 }
 
 type (

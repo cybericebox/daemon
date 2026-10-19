@@ -279,6 +279,19 @@ func TestRequireEventAnalytics(t *testing.T) {
 	if err := check(stranger, rbac.RoleAdmin, eventAnalytics.LevelSensitive); err != nil {
 		t.Fatalf("platform admin: %v", err)
 	}
+	// Exports: never a read-only moderator (observer) or an admin viewer; owners and admins keep them.
+	if err := check(reader, rbac.RoleUser, eventAnalytics.LevelExport); !errors.Is(err, eventAnalyticsModel.ErrEventAnalyticsExportForbidden.Err()) {
+		t.Fatalf("read-only moderator, export: %v", err)
+	}
+	if err := check(stranger, rbac.RoleAdminViewer, eventAnalytics.LevelExport); !errors.Is(err, eventAnalyticsModel.ErrEventAnalyticsExportForbidden.Err()) {
+		t.Fatalf("admin viewer, export: %v", err)
+	}
+	if err := check(owner, rbac.RoleUser, eventAnalytics.LevelExport); err != nil {
+		t.Fatalf("owner, export: %v", err)
+	}
+	if err := check(stranger, rbac.RoleAdmin, eventAnalytics.LevelExport); err != nil {
+		t.Fatalf("platform admin, export: %v", err)
+	}
 }
 
 // Buckets are rebuilt for events without a final rollup or with results

@@ -31,7 +31,7 @@ type ReportUseCase interface {
 func (h *Handler) initReport(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("report", h.requireSections, h.report)
-	analytics.GET("report/export.zip", h.requireSections, h.exportReport)
+	analytics.GET("report/export.zip", h.requireExport, h.exportReport)
 }
 
 type (

@@ -21,15 +21,15 @@ type ParticipantsUseCase interface {
 }
 
 // initParticipants registers the «Учасники» and «Комунікації» routes. The
-// reports hold no wrong answers, so every route needs only the sections level.
+// reports hold no wrong answers, so every route needs only the sections level; the CSV exports need the export level.
 // The group carries its own PermSelf gate: tools/checkroutes sees only gates
 // written in the registering function.
 func (h *Handler) initParticipants(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("participants", h.requireSections, h.participants)
-	analytics.GET("participants/export.csv", h.requireSections, h.exportParticipants)
+	analytics.GET("participants/export.csv", h.requireExport, h.exportParticipants)
 	analytics.GET("communications", h.requireSections, h.communications)
-	analytics.GET("communications/export.csv", h.requireSections, h.exportCommunications)
+	analytics.GET("communications/export.csv", h.requireExport, h.exportCommunications)
 }
 
 type (

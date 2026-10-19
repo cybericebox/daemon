@@ -15,10 +15,10 @@ func membership(role eventManagerModel.Role) *eventManagerModel.EventManager {
 	return &eventManagerModel.EventManager{EventID: uuid.Must(uuid.NewV7()), UserID: uuid.Must(uuid.NewV7()), Role: role}
 }
 
-// §7: sections for every event staff role; wrong answers and integrity for
-// the owner, write moderators and platform admins only.
+// §7: sections for every event staff role; wrong answers, integrity and the
+// exports for the owner, write moderators and platform admins only.
 func TestResolveAccess(t *testing.T) {
-	full := eventAnalyticsModel.Access{Sections: true, Sensitive: true}
+	full := eventAnalyticsModel.Access{Sections: true, Sensitive: true, Export: true}
 	read := eventAnalyticsModel.Access{Sections: true}
 	none := eventAnalyticsModel.Access{}
 	cases := []struct {

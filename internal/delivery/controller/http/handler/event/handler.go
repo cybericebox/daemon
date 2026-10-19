@@ -324,13 +324,14 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.PUT("list-columns/:list", h.requireManage, h.putListColumns)
 		// Viewers read the journal without submitted answers and expected flags.
 		manage.GET("solution-attempts", h.requireRead, h.listManageSolutionAttempts)
-		manage.GET("solution-attempts/export.csv", h.requireManage, h.exportSolutionAttempts)
+		// Exports take data out of the system: owners and write moderators only, never a viewer (observer).
+		manage.GET("solution-attempts/export.csv", h.requireExport, h.exportSolutionAttempts)
 		manage.GET("solution-attempts/live", h.requireRead, h.liveSolutionAttempts)
 		manage.POST("solution-attempts/annul", h.requireManage, h.annulSolve)
 		manage.PATCH("solution-attempts/:attemptID/decision", h.requireManage, h.decideSolutionAttempt)
 		// Moderators' own results: always live, every team (R4).
 		manage.GET("results", h.requireRead, h.getManageResults)
-		manage.GET("results/export.csv", h.requireRead, h.exportManageResults)
+		manage.GET("results/export.csv", h.requireExport, h.exportManageResults)
 		manage.PUT("results/opened", h.requireManage, h.setResultsOpened)
 		manage.GET("results-settings", h.requireRead, h.getResultsSettings)
 		manage.PUT("results-settings", h.requireManage, h.updateResultsSettings)
@@ -1446,6 +1447,24 @@ func (h *Handler) requireWritableEvent(ctx *gin.Context) {
 		return
 	}
 	middleware.RequireEventWritable(ctx, h.useCase, id)
+}
+
+// requireExport admits the event staff who may take its data out of the system (CSV exports): the owner and write
+// moderators. A viewer (observer) reads the same data on the screen only. Unlike requireManage, an archived event
+// still exports.
+func (h *Handler) requireExport(ctx *gin.Context) {
+	id, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	if err := h.useCase.RequireManageEvent(ctx, id, claims.UserID); err != nil {
+		response.AbortWithError(ctx, err)
+	}
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {

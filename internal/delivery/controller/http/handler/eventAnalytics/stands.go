@@ -22,7 +22,7 @@ type StandsUseCase interface {
 func (h *Handler) initStands(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("stands", h.requireSections, h.stands)
-	analytics.GET("stands/export.csv", h.requireSections, h.exportStands)
+	analytics.GET("stands/export.csv", h.requireExport, h.exportStands)
 }
 
 type (

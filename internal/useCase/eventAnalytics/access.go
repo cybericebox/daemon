@@ -17,10 +17,13 @@ import (
 type Level int
 
 const (
-	// LevelSections: every analytics section and the report download.
+	// LevelSections: every analytics section and the report on the screen.
 	LevelSections Level = iota
 	// LevelSensitive: wrong answer texts and the integrity section.
 	LevelSensitive
+	// LevelExport: the CSV exports and the report download (never a read-only
+	// moderator).
+	LevelExport
 )
 
 // RequireEventAnalytics authorizes the viewer for one analytics route of the
@@ -36,6 +39,9 @@ func (u *EventAnalyticsUseCase) RequireEventAnalytics(ctx context.Context, event
 	}
 	if level == LevelSensitive && !access.Sensitive {
 		return eventAnalyticsModel.ErrEventAnalyticsSensitiveForbidden.Err()
+	}
+	if level == LevelExport && !access.Export {
+		return eventAnalyticsModel.ErrEventAnalyticsExportForbidden.Err()
 	}
 	return nil
 }

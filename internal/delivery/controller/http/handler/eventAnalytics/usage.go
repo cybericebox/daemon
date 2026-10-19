@@ -22,7 +22,7 @@ type UsageUseCase interface {
 func (h *Handler) initUsage(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("usage", h.requireSections, h.usage)
-	analytics.GET("usage/export.csv", h.requireSections, h.exportUsage)
+	analytics.GET("usage/export.csv", h.requireExport, h.exportUsage)
 }
 
 type (

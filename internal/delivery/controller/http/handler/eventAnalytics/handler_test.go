@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,6 +120,33 @@ func TestRequireSensitiveChecksTheSensitiveLevel(t *testing.T) {
 	h.requireSensitive(ctx)
 	if !ctx.IsAborted() || len(uc.levels) != 1 || uc.levels[0] != eventAnalyticsUseCase.LevelSensitive {
 		t.Fatalf("aborted=%v levels=%v", ctx.IsAborted(), uc.levels)
+	}
+}
+
+// Every download (section CSVs, the report ZIP) checks the export level, so a
+// read-only moderator (observer) gets 403 and no file.
+func TestEveryExportRouteNeedsTheExportLevel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	NewEventAnalyticsAPIHandler(&fakeUseCase{}, allowAll{}).Init(router.Group("api"))
+	eventID := uuid.Must(uuid.NewV7()).String()
+	exports := 0
+	for _, route := range router.Routes() {
+		if !strings.Contains(route.Path, "/export.") {
+			continue
+		}
+		exports++
+		uc := &fakeUseCase{deny: eventAnalyticsModel.ErrEventAnalyticsExportForbidden.Err()}
+		w := serve(t, uc, strings.ReplaceAll(route.Path, ":id", eventID))
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s: status = %d, want 403", route.Path, w.Code)
+		}
+		if len(uc.levels) != 1 || (uc.levels[0] != eventAnalyticsUseCase.LevelExport && !(strings.Contains(route.Path, "/integrity/") && uc.levels[0] == eventAnalyticsUseCase.LevelSensitive)) {
+			t.Errorf("%s: levels checked %v, want the export level", route.Path, uc.levels)
+		}
+	}
+	if exports < 10 {
+		t.Fatalf("found %d export routes, want every section's CSV and the report ZIP", exports)
 	}
 }
 
