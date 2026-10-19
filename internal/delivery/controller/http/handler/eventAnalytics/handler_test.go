@@ -1,6 +1,7 @@
 package eventAnalytics
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -27,6 +28,8 @@ type fakeUseCase struct {
 	from, to  *time.Time
 	overview  eventAnalyticsUseCase.OverviewView
 	sensitive bool
+	people    bool
+	usage     eventAnalyticsUseCase.UsageView
 }
 
 func (f *fakeUseCase) RequireEventAnalytics(_ context.Context, _ uuid.UUID, _ rbac.Claims, level eventAnalyticsUseCase.Level) error {
@@ -35,12 +38,16 @@ func (f *fakeUseCase) RequireEventAnalytics(_ context.Context, _ uuid.UUID, _ rb
 }
 
 func (f *fakeUseCase) EventAnalyticsAccess(context.Context, uuid.UUID, rbac.Claims) (eventAnalyticsModel.Access, error) {
-	return eventAnalyticsModel.Access{Sections: true, Sensitive: f.sensitive}, nil
+	return eventAnalyticsModel.Access{Sections: true, Sensitive: f.sensitive, People: f.people}, nil
 }
 
 func (f *fakeUseCase) GetEventAnalyticsOverview(_ context.Context, _ uuid.UUID, from, to *time.Time) (eventAnalyticsUseCase.OverviewView, error) {
 	f.from, f.to = from, to
 	return f.overview, nil
+}
+
+func (f *fakeUseCase) GetEventAnalyticsUsage(context.Context, uuid.UUID, *uuid.UUID, *time.Time, *time.Time) (eventAnalyticsUseCase.UsageView, error) {
+	return f.usage, nil
 }
 
 type allowAll struct{}
@@ -179,5 +186,45 @@ func TestOverviewMailCountersNeedTheSensitiveAccess(t *testing.T) {
 		if sensitive && body.Data.Comms.EmailSent != 5 {
 			t.Fatalf("comms: %+v", body.Data.Comms)
 		}
+	}
+}
+
+// «Використання» for a viewer without the people access (a read-only moderator): the aggregates only, no
+// per-person rows, names or times, and no per-person CSV. The roles behind People are in TestResolveAccess.
+func TestUsagePeopleOnlyWithThePeopleAccess(t *testing.T) {
+	seen := time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)
+	usage := eventAnalyticsUseCase.UsageView{Available: true, Summary: eventAnalyticsUseCase.UsageSummaryView{Users: 12, OnlineNow: 4},
+		Users: []eventAnalyticsUseCase.UsageUserView{{UserID: uuid.Must(uuid.NewV7()), UserName: "Олена Коваленко", LastSeenAt: &seen}}}
+	for _, people := range []bool{false, true} {
+		uc := &fakeUseCase{people: people, usage: usage}
+		base := "/api/events/" + uuid.Must(uuid.NewV7()).String() + "/manage/analytics/usage"
+		w := serve(t, uc, base)
+		var body struct {
+			Data usageResponse `json:"data"`
+		}
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			t.Fatalf("people=%v: status = %d body = %s", people, w.Code, w.Body.String())
+		}
+		if body.Data.Summary.Users != 12 || body.Data.Summary.OnlineNow != 4 {
+			t.Fatalf("people=%v: summary %+v", people, body.Data.Summary)
+		}
+		if people != (len(body.Data.Users) == 1) || body.Data.PeopleHidden == people || bytes.Contains(w.Body.Bytes(), []byte("Олена")) != people {
+			t.Fatalf("people=%v: body %s", people, w.Body.String())
+		}
+		w = serve(t, uc, base+"/export.csv")
+		if (w.Code == http.StatusOK) != people {
+			t.Fatalf("people=%v: CSV status %d", people, w.Code)
+		}
+	}
+}
+
+func TestAccessReportsThePeopleLevel(t *testing.T) {
+	uc := &fakeUseCase{people: true}
+	w := serve(t, uc, "/api/events/"+uuid.Must(uuid.NewV7()).String()+"/manage/analytics/access")
+	var body struct {
+		Data accessResponse `json:"data"`
+	}
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &body) != nil || !body.Data.People {
+		t.Fatalf("status = %d body = %s", w.Code, w.Body.String())
 	}
 }

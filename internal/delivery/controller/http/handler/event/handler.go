@@ -9,6 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -355,7 +356,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("notification-templates/email", h.requireManage, h.createEventEmailTemplate)
 		// Static preview/image/logo segments sit beside the ":templateID" param
 		// routes (as on the platform template API).
-		manage.POST("notification-templates/email/preview", h.requireRead, h.previewEventEmail)
+		// A preview renders the whole email on every edit: bounded per user, so a read-only account cannot turn it
+		// into a load generator.
+		manage.POST("notification-templates/email/preview", h.requireRead, middleware.RateLimitPerUser(emailPreviewsPerMinute, time.Minute), h.previewEventEmail)
 		manage.GET("notification-templates/email/presets", h.requireRead, h.listEventEmailPresets)
 		manage.POST("notification-templates/email/:templateID/images", h.requireManage, h.uploadEventEmailImage)
 		manage.GET("notification-templates/email/images/:fileID", h.requireRead, middleware.SameSiteResource, h.streamEventEmailImage)

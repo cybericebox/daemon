@@ -623,6 +623,7 @@ type eventEmailPreviewResponse struct {
 // @Param body body eventEmailPreviewRequest true "template draft"
 // @Success 200 {object} response.Response{data=eventEmailPreviewResponse}
 // @Failure 400 {object} response.Response
+// @Failure 429 {object} response.Response "more than 120 previews of one user per minute"
 // @Router /events/{id}/manage/notification-templates/email/preview [post]
 func (h *Handler) previewEventEmail(ctx *gin.Context) {
 	eventID, ok := parseEventID(ctx)
@@ -780,3 +781,7 @@ func (h *Handler) listEventEmailPresets(ctx *gin.Context) {
 	}
 	response.AbortWithData(ctx, out)
 }
+
+// emailPreviewsPerMinute bounds the email previews of one user: the editors ask for one about every second while
+// someone types, never more.
+const emailPreviewsPerMinute = 120

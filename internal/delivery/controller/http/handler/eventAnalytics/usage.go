@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
@@ -34,6 +35,9 @@ type (
 		Summary   usageSummaryResponse `json:"Summary"`
 		Users     []usageUserResponse  `json:"Users"`
 		Period    periodResponse       `json:"Period"`
+		// PeopleHidden: the caller sees the aggregates only (a read-only
+		// moderator); Users is empty then.
+		PeopleHidden bool `json:"PeopleHidden"`
 	}
 
 	usageSummaryResponse struct {
@@ -128,7 +132,35 @@ func (h *Handler) usage(ctx *gin.Context) {
 	if !ok {
 		return
 	}
-	response.AbortWithData(ctx, toUsageResponse(v))
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return
+	}
+	if !people {
+		v.Users = nil
+	}
+	out := toUsageResponse(v)
+	out.PeopleHidden = !people
+	response.AbortWithData(ctx, out)
+}
+
+// seesPeople tells whether the caller may see the per-person rows of «Використання» (Access.People).
+func (h *Handler) seesPeople(ctx *gin.Context) (bool, bool) {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return false, false
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return false, false
+	}
+	access, err := h.useCase.EventAnalyticsAccess(ctx, eventID, claims)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return false, false
+	}
+	return access.People, true
 }
 
 func (h *Handler) loadUsage(ctx *gin.Context) (eventAnalyticsUseCase.UsageView, bool) {
@@ -196,7 +228,7 @@ func toUsageResponse(v eventAnalyticsUseCase.UsageView) usageResponse {
 }
 
 // exportUsage godoc
-// @Summary Per participant usage as CSV (UTF-8 with BOM)
+// @Summary Per participant usage as CSV (UTF-8 with BOM); owner, write moderators and platform staff only
 // @Tags event-analytics
 // @Produce text/csv
 // @Param id path string true "event ID"
@@ -206,6 +238,14 @@ func toUsageResponse(v eventAnalyticsUseCase.UsageView) usageResponse {
 // @Success 200 {string} string "CSV"
 // @Router /events/{id}/manage/analytics/usage/export.csv [get]
 func (h *Handler) exportUsage(ctx *gin.Context) {
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return
+	}
+	if !people {
+		response.AbortWithError(ctx, eventAnalyticsModel.ErrEventAnalyticsSensitiveForbidden.Err())
+		return
+	}
 	v, ok := h.loadUsage(ctx)
 	if !ok {
 		return

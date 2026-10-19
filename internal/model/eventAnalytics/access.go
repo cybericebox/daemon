@@ -20,6 +20,9 @@ type Access struct {
 	// only with the owner, write moderators and platform admins; a read-only
 	// moderator (observer) and an admin viewer read it on the screen.
 	Export bool
+	// People: per-person rows (names, last visits, VPN sessions) of
+	// «Використання». A read-only moderator gets the aggregates only.
+	People bool
 }
 
 // ResolveAccess applies §7. The event owner and write moderators see and
@@ -34,11 +37,12 @@ func ResolveAccess(membership *eventManagerModel.EventManager, role rbac.Role) A
 		access.Sections = membership.CanRead()
 		access.Sensitive = membership.CanManage()
 		access.Export = membership.CanManage()
+		access.People = membership.CanManage()
 	}
 	if role.HasPermission(rbac.PermEventsWrite) {
-		access.Sections, access.Sensitive, access.Export = true, true, true
+		access.Sections, access.Sensitive, access.Export, access.People = true, true, true, true
 	} else if role.HasPermission(rbac.PermEventsRead) {
-		access.Sections = true
+		access.Sections, access.People = true, true
 	}
 	return access
 }
