@@ -6,7 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// ParticipantObjectCode — next free detail code: 28 (27 retired: invitations are not rate limited)
+// ParticipantObjectCode — next free detail code: 31
 var (
 	ErrRegistrationClosed = err.ErrConflict.WithObjectCode(model.ParticipantObjectCode).
 				WithMessage("Registration is closed for this event").WithDetailCode(1)
@@ -64,6 +64,11 @@ var (
 					WithMessage("A required form field is not filled in").WithDetailCode(27)
 	ErrParticipantFormInvalid = err.ErrInvalidData.WithObjectCode(model.ParticipantObjectCode).
 					WithMessage("The form is invalid").WithDetailCode(28)
+	// A form that does not exist or was never delivered to the caller: the two cases are one answer on purpose.
+	ErrEventFormNotFound = err.ErrObjectNotFound.WithObjectCode(model.ParticipantObjectCode).
+				WithMessage("Event form not found").WithDetailCode(29)
+	ErrEventFormNotFoundForAnswer = err.ErrObjectNotFound.WithObjectCode(model.ParticipantObjectCode).
+					WithMessage("Event form to answer not found").WithDetailCode(30)
 )
 
 // DetailField names the form field key an answer error is about.

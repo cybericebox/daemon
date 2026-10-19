@@ -875,6 +875,46 @@ func TestListOwnTeamMembers_ListsMembersThenPendingInvitees(t *testing.T) {
 	}
 }
 
+// Account ids are what the captain's actions (transfer, kick) need; a member gets the roster without the others' ids.
+func TestListOwnTeamMembers_OnlyTheCaptainGetsAccountIDs(t *testing.T) {
+	for _, role := range []participantModel.TeamRole{participantModel.TeamRoleCaptain, participantModel.TeamRoleMember} {
+		ctrl := gomock.NewController(t)
+		q := newFormGateMock(ctrl)
+		uc := newUC(q)
+		eventID, teamID, userID, mateID, inviteeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+		other := participantModel.TeamRoleMember
+		if role == participantModel.TeamRoleMember {
+			other = participantModel.TeamRoleCaptain
+		}
+		q.EXPECT().GetEventParticipant(gomock.Any(), postgres.GetEventParticipantParams{EventID: eventID, UserID: userID}).Return(postgres.EventParticipant{
+			EventID: eventID, UserID: userID, Status: int16(participantModel.StatusApproved), TeamID: uuid.NullUUID{UUID: teamID, Valid: true},
+			TeamRole: pgtype.Int2{Int16: int16(role), Valid: true}, CreatedAt: time.Now(),
+		}, nil)
+		q.EXPECT().ListOwnTeamMembers(gomock.Any(), postgres.ListOwnTeamMembersParams{EventID: eventID, TeamID: teamID}).Return([]postgres.ListOwnTeamMembersRow{
+			{UserID: userID, TeamRole: pgtype.Int2{Int16: int16(role), Valid: true}, DisplayName: "Me"},
+			{UserID: mateID, TeamRole: pgtype.Int2{Int16: int16(other), Valid: true}, DisplayName: "Mate"},
+		}, nil)
+		q.EXPECT().ListOwnTeamPendingInvitees(gomock.Any(), postgres.ListOwnTeamPendingInviteesParams{EventID: eventID, TeamID: teamID}).Return([]postgres.ListOwnTeamPendingInviteesRow{
+			{UserID: inviteeID, DisplayName: "Invitee"},
+		}, nil)
+
+		items, err := uc.ListOwnTeamMembers(context.Background(), eventID, userID)
+		if err != nil || len(items) != 3 {
+			t.Fatalf("role %d: %+v, %v", role, items, err)
+		}
+		captain := role == participantModel.TeamRoleCaptain
+		if items[0].UserID != userID || !items[0].Own {
+			t.Fatalf("role %d: the caller's own row keeps its id: %+v", role, items[0])
+		}
+		if (items[1].UserID == mateID) != captain || (items[2].UserID == inviteeID) != captain {
+			t.Fatalf("role %d: other ids shown = %v, want %v: %+v", role, items[1].UserID != uuid.Nil, captain, items)
+		}
+		if !captain && (items[1].UserID != uuid.Nil || items[2].UserID != uuid.Nil || items[1].DisplayName != "Mate" || items[1].Role != participantModel.TeamRoleCaptain) {
+			t.Fatalf("member view: %+v", items)
+		}
+	}
+}
+
 func TestGetTeamProfile_ReturnsRosterStatusAnswersAndResults(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)

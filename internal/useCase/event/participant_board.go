@@ -265,6 +265,14 @@ func (u *EventUseCase) ListOwnTeamMembers(ctx context.Context, eventID, userID u
 	for _, invitee := range pending {
 		out = append(out, TeamRosterMemberView{UserID: invitee.UserID, DisplayName: invitee.DisplayName, Role: invitee.Role, Own: invitee.UserID == userID, Pending: true})
 	}
+	// Account ids serve only the captain's actions (transfer, kick); a member gets the others without them.
+	if p.TeamRole == nil || *p.TeamRole != participantModel.TeamRoleCaptain {
+		for i := range out {
+			if !out[i].Own {
+				out[i].UserID = uuid.Nil
+			}
+		}
+	}
 	return out, nil
 }
 

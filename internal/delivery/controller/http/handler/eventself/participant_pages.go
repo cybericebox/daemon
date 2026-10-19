@@ -74,7 +74,11 @@ func (h *Handler) ownTeamMembers(ctx *gin.Context) {
 	}
 	out := make([]teamMemberResponse, 0, len(items))
 	for _, item := range items {
-		out = append(out, teamMemberResponse{UserID: item.UserID, DisplayName: item.DisplayName, Role: int16(item.Role), Own: item.Own, Pending: item.Pending})
+		member := teamMemberResponse{DisplayName: item.DisplayName, Role: int16(item.Role), Own: item.Own, Pending: item.Pending}
+		if item.UserID != uuid.Nil {
+			member.UserID = &item.UserID
+		}
+		out = append(out, member)
 	}
 	response.AbortWithData(ctx, out)
 }
