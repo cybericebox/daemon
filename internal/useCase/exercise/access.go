@@ -53,9 +53,13 @@ func (a Action) rbacPermission() rbac.Permission {
 }
 
 // Access is the outcome of AuthorizeExercise: Full is false when the caller
-// may only see the published version.
+// may only see the published version. Flags is false when the hidden flags must
+// be taken out of every version the caller reads: an event viewer reads their
+// event's tasks in full except the flags (as the event's own journal hides the
+// expected flag from viewers); a published-only reader gets RedactFlags instead.
 type Access struct {
-	Full bool
+	Full  bool
+	Flags bool
 }
 
 // AuthorizeExercise is the single data-dependent policy of the exercise
@@ -66,7 +70,7 @@ type Access struct {
 // 403 without saying why (category B).
 func (u *ExerciseUseCase) AuthorizeExercise(ctx context.Context, actor Actor, id uuid.UUID, action Action) (Access, error) {
 	if actor.has(action.rbacPermission()) {
-		return Access{Full: true}, nil
+		return Access{Full: true, Flags: true}, nil
 	}
 	e, err := u.exercises.GetByID(ctx, id)
 	if err != nil {
@@ -86,7 +90,7 @@ func (u *ExerciseUseCase) AuthorizeExercise(ctx context.Context, actor Actor, id
 		if !member || (action > ActionRead && !canManage(role)) {
 			return Access{}, exerciseModel.ErrExerciseForbidden.Err()
 		}
-		return Access{Full: true}, nil
+		return Access{Full: true, Flags: canManage(role)}, nil
 	}
 	if action != ActionReadPublished {
 		return Access{}, exerciseModel.ErrExerciseForbidden.Err()
@@ -101,7 +105,7 @@ func (u *ExerciseUseCase) AuthorizeExercise(ctx context.Context, actor Actor, id
 	return Access{}, nil
 }
 
-// RedactFlags removes the fixed flags a non-admin reader of a published catalog version may not see: they stay
+// RedactFlags removes the fixed flags (and the device env var carrying them) a non-admin reader of a published catalog version may not see: they stay
 // only where the exercise is attached to an event the caller manages, at the version that attachment pins and,
 // for a fixed-variant attachment, in that variant alone. The view's own variants are never mutated.
 func (u *ExerciseUseCase) RedactFlags(ctx context.Context, actor Actor, v VersionView) (VersionView, error) {
@@ -132,12 +136,30 @@ func (u *ExerciseUseCase) RedactFlags(ctx context.Context, actor Actor, v Versio
 		tasks := make([]exerciseModel.Task, len(variants[i].Tasks))
 		copy(tasks, variants[i].Tasks)
 		for ti := range tasks {
-			tasks[ti].Flag = nil
+			tasks[ti].Flag, tasks[ti].DeviceFlagVar = nil, ""
 		}
 		variants[i].Tasks = tasks
 	}
 	v.Variants = variants
 	return v, nil
+}
+
+// WithoutFlags is the version with every flag taken out (Task.Flag and the device env var that carries it,
+// DeviceFlagVar), for a reader who sees the content but never the flags (an event viewer). The view's own variants
+// are never mutated.
+func WithoutFlags(v VersionView) VersionView {
+	variants := make([]exerciseModel.Variant, len(v.Variants))
+	copy(variants, v.Variants)
+	for i := range variants {
+		tasks := make([]exerciseModel.Task, len(variants[i].Tasks))
+		copy(tasks, variants[i].Tasks)
+		for ti := range tasks {
+			tasks[ti].Flag, tasks[ti].DeviceFlagVar = nil, ""
+		}
+		variants[i].Tasks = tasks
+	}
+	v.Variants = variants
+	return v
 }
 
 // RequireTestLabAuthor lets through who may run a test deploy: exercises.write, or a manage membership of an

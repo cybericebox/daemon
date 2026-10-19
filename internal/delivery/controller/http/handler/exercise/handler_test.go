@@ -69,6 +69,8 @@ type fakeUC struct {
 	checkedImages         []string
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
+	// access overrides what AuthorizeExercise grants (nil: full, flags included).
+	access *exerciseUseCase.Access
 	// managedEvent is the event the caller owns/manages (uuid.Nil: none); exportable are the tasks of it.
 	managedEvent  uuid.UUID
 	exportable    map[uuid.UUID]bool
@@ -1829,10 +1831,13 @@ func (f *fakeUC) AuthorizeExercise(_ context.Context, actor exerciseUseCase.Acto
 	if f.authErr != nil {
 		return exerciseUseCase.Access{}, f.authErr
 	}
+	if f.access != nil {
+		return *f.access, nil
+	}
 	if !actor.Role.HasPermission(fakeActionPermission(action)) {
 		return exerciseUseCase.Access{}, exerciseModel.ErrExerciseForbidden.Err()
 	}
-	return exerciseUseCase.Access{Full: true}, nil
+	return exerciseUseCase.Access{Full: true, Flags: true}, nil
 }
 func (f *fakeUC) AuthorizeFileUpload(_ context.Context, actor exerciseUseCase.Actor) error {
 	if !actor.Role.HasPermission(rbac.PermExercisesWrite) {

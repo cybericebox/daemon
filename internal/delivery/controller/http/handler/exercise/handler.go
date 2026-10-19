@@ -700,6 +700,10 @@ func (h *Handler) getVersion(ctx *gin.Context) {
 		response.AbortWithError(ctx, exerciseModel.ErrExerciseVersionNotFound.Err())
 		return
 	}
+	// An event viewer reads their event's tasks without the flags.
+	if access := accessFrom(ctx); access.Full && !access.Flags {
+		v = exerciseUseCase.WithoutFlags(v)
+	}
 	// The fixed flags of a catalog exercise reach only the managers of an event it is attached to.
 	if !accessFrom(ctx).Full {
 		actor, ok := actorFrom(ctx)
@@ -731,6 +735,10 @@ func (h *Handler) getDraft(ctx *gin.Context) {
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	// An event viewer reads the working copy without the flags.
+	if !accessFrom(ctx).Flags {
+		v = exerciseUseCase.WithoutFlags(v)
 	}
 	response.AbortWithData(ctx, versionToResponse(v))
 }
