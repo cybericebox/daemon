@@ -16,6 +16,8 @@ const (
 	// TypeLabWithdrawalsRepeated: a lab cluster withdrew a group of labs several times in a row because it got no
 	// node in time; the admins look at the cluster capacity.
 	TypeLabWithdrawalsRepeated = "resources.labs.withdrawn"
+	// TypeResourceCPUThrottled tells the admins that a lab device is starved by its CPU limit.
+	TypeResourceCPUThrottled = "resources.cpu.throttled"
 )
 
 func init() {
@@ -27,6 +29,8 @@ func init() {
 	manuallyResolvable[TypeResourceAlarmRaised] = true
 	categoryRules[TypeLabWithdrawalsRepeated] = map[RecipientRole]Category{RoleAdmin: CategoryRequests, "": CategoryPersonal}
 	manuallyResolvable[TypeLabWithdrawalsRepeated] = true
+	categoryRules[TypeResourceCPUThrottled] = map[RecipientRole]Category{RoleAdmin: CategoryRequests, "": CategoryPersonal}
+	manuallyResolvable[TypeResourceCPUThrottled] = true
 }
 
 // ResourceChangeRef ties every admin's copy of one change request together.
@@ -40,3 +44,6 @@ func ResourceAlarmRef(id uuid.UUID) string { return "resource_alarm:" + id.Strin
 func LabWithdrawalRef(agentID uuid.UUID, group string, series int64) string {
 	return "lab_withdrawn:" + agentID.String() + ":" + group + ":" + strconv.FormatInt(series, 10)
 }
+
+// CPUThrottleRef ties every admin's copy of the throttling alert of one device in one lab run together.
+func CPUThrottleRef(labRun, device string) string { return "cpu_throttle:" + labRun + "/" + device }

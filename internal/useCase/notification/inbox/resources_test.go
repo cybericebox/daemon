@@ -87,3 +87,31 @@ func TestResourceTypesSupportInApp(t *testing.T) {
 	}
 	assert.True(t, inboxModel.ManuallyResolvable(inboxModel.TypeResourceAlarmRaised), "an admin closes an alarm request by hand")
 }
+
+func TestRequestRouter_CPUThrottledGoesToEveryPlatformAdmin(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	notifier := &fakeNotifier{}
+	router := inboxUseCase.NewRequestRouter(repo, notifier)
+	admin1, admin2 := tools.NewUUIDv7(), tools.NewUUIDv7()
+	repo.EXPECT().GetUserByID(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, id uuid.UUID) (postgres.User, error) {
+		return postgres.User{ID: id, Email: "x@example.org"}, nil
+	}).AnyTimes()
+	repo.EXPECT().ListPlatformAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin1, admin2}, nil)
+
+	router.SetAdminURL("https://admin.example.org/")
+	require.NoError(t, router.CPUThrottled(context.Background(), inboxUseCase.CPUThrottle{
+		AgentID: "a-1", LabRun: "uid-1", LabName: "lab-1", LabGroupName: "team-1", Device: "web", Percent: 70, WindowSeconds: 300, RaisedAt: time.Now(),
+	}))
+	require.Len(t, notifier.sent, 2)
+	got := notifier.sent[0]
+	assert.Equal(t, notificationTypes.NotificationType(inboxModel.TypeResourceCPUThrottled), got.typ)
+	assert.Equal(t, "web", got.vars["device_name"])
+	assert.Equal(t, "70", got.vars["percent"])
+	assert.Equal(t, "5", got.vars["window_minutes"])
+	assert.Equal(t, "https://admin.example.org/", got.vars["admin_url"])
+	assert.Equal(t, inboxModel.CategoryRequests, got.options.Inbox.Category)
+	assert.Equal(t, inboxModel.CPUThrottleRef("uid-1", "web"), got.options.Inbox.SubjectRef)
+	assert.True(t, notificationTypes.Supports(notificationTypes.NotificationType(inboxModel.TypeResourceCPUThrottled), notificationTypes.NotificationChannelInApp))
+	assert.True(t, inboxModel.ManuallyResolvable(inboxModel.TypeResourceCPUThrottled))
+}
