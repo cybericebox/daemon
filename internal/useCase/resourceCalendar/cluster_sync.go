@@ -96,7 +96,7 @@ func (u *ResourceCalendarUseCase) splitParts(ctx context.Context, s Store, r *ca
 	for _, group := range [][]calModel.Part{keep, add, retire} {
 		for _, p := range group {
 			// An unchanged part is saved again only when the admin now forces the shrink it holds back.
-			if old, ok := before[p.ID]; ok && old.DesiredRev == p.DesiredRev && !(forced && old.ShrinkHeld && !old.Forced) {
+			if old, ok := before[p.ID]; ok && old.DesiredRev == p.DesiredRev && (!forced || !old.ShrinkHeld || old.Forced) {
 				continue
 			}
 			p.Forced = forced
