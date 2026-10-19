@@ -2,6 +2,7 @@ package eventContentModel
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -404,5 +405,25 @@ func TestLiveBlockSettings(t *testing.T) {
 		if err := layout.Validate(); err == nil {
 			t.Fatalf("%s %v accepted", item.kind, item.props)
 		}
+	}
+}
+
+func TestLiveWidgetsOfAllScenesAreBounded(t *testing.T) {
+	canvas := func(count int) LiveScene {
+		widgets := make([]LiveWidget, 0, count)
+		for i := range count {
+			widgets = append(widgets, LiveWidget{ID: fmt.Sprintf("w%d", i), Type: "qr", X: i%12 + 1, Y: i/12 + 1, W: 1, H: 1, Props: map[string]json.RawMessage{}})
+		}
+		return LiveScene{Grid: LiveGrid{Cols: 12, Rows: 8}, Widgets: widgets}
+	}
+	layout := DefaultLiveLayout()
+	layout.Widgets = canvas(48).Widgets
+	layout.Scenes = map[string]LiveScene{"before": canvas(48)}
+	if err := layout.Validate(); err != nil {
+		t.Fatalf("96 widgets rejected: %v", err)
+	}
+	layout.Scenes["finished"] = canvas(1)
+	if err := layout.Validate(); err == nil {
+		t.Fatal("97 widgets in all scenes accepted")
 	}
 }
