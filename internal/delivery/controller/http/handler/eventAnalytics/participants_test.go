@@ -13,6 +13,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
@@ -30,6 +31,11 @@ type peopleUseCase struct {
 func (f *peopleUseCase) RequireEventAnalytics(_ context.Context, _ uuid.UUID, _ rbac.Claims, level eventAnalyticsUseCase.Level) error {
 	f.levels = append(f.levels, level)
 	return nil
+}
+
+// The owner's access: the report goes out unmasked (masking is in TestDropOffAddressesMaskedWithoutThePeopleAccess).
+func (f *peopleUseCase) EventAnalyticsAccess(context.Context, uuid.UUID, rbac.Claims) (eventAnalyticsModel.Access, error) {
+	return eventAnalyticsModel.Access{Sections: true, Sensitive: true, People: true}, nil
 }
 func (f *peopleUseCase) GetEventAnalyticsParticipants(_ context.Context, _ uuid.UUID, from, to *time.Time) (eventAnalyticsUseCase.ParticipantsView, error) {
 	f.from, f.to = from, to

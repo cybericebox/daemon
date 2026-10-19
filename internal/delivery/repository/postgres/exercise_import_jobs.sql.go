@@ -13,7 +13,7 @@ import (
 )
 
 const getExerciseImportJob = `-- name: GetExerciseImportJob :one
-SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total
+SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id
 FROM exercise_import_jobs
 WHERE id = $1
 `
@@ -38,12 +38,13 @@ func (q *Queries) GetExerciseImportJob(ctx context.Context, id uuid.UUID) (Exerc
 		&i.TasksTotal,
 		&i.BytesPushed,
 		&i.BytesTotal,
+		&i.OwnerEventID,
 	)
 	return i, err
 }
 
 const listRunningExerciseImportJobs = `-- name: ListRunningExerciseImportJobs :many
-SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total
+SELECT id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id
 FROM exercise_import_jobs
 WHERE created_by = $1
   AND state = 'running'
@@ -83,6 +84,7 @@ func (q *Queries) ListRunningExerciseImportJobs(ctx context.Context, arg ListRun
 			&i.TasksTotal,
 			&i.BytesPushed,
 			&i.BytesTotal,
+			&i.OwnerEventID,
 		); err != nil {
 			return nil, err
 		}
@@ -96,23 +98,26 @@ func (q *Queries) ListRunningExerciseImportJobs(ctx context.Context, arg ListRun
 
 const startExerciseImportJob = `-- name: StartExerciseImportJob :one
 
-INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at)
+INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at,
+                                  owner_event_id)
 VALUES ($1, $2, $3, $4, $5,
-        $6::uuid[], $7, $8, $9)
+        $6::uuid[], $7, $8, $9,
+        $10)
 ON CONFLICT (source_id) DO UPDATE SET source_id = EXCLUDED.source_id
-RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total
+RETURNING id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at, stage, images_done, images_total, tasks_done, tasks_total, bytes_pushed, bytes_total, owner_event_id
 `
 
 type StartExerciseImportJobParams struct {
-	ID          uuid.UUID   `json:"id"`
-	CreatedBy   uuid.UUID   `json:"created_by"`
-	Source      string      `json:"source"`
-	SourceID    uuid.UUID   `json:"source_id"`
-	State       string      `json:"state"`
-	ExerciseIds []uuid.UUID `json:"exercise_ids"`
-	Error       []byte      `json:"error"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	ID           uuid.UUID     `json:"id"`
+	CreatedBy    uuid.UUID     `json:"created_by"`
+	Source       string        `json:"source"`
+	SourceID     uuid.UUID     `json:"source_id"`
+	State        string        `json:"state"`
+	ExerciseIds  []uuid.UUID   `json:"exercise_ids"`
+	Error        []byte        `json:"error"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	OwnerEventID uuid.NullUUID `json:"owner_event_id"`
 }
 
 // Background imports of task archives with device images (the import job aggregate: one row per source).
@@ -128,6 +133,7 @@ func (q *Queries) StartExerciseImportJob(ctx context.Context, arg StartExerciseI
 		arg.Error,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.OwnerEventID,
 	)
 	var i ExerciseImportJob
 	err := row.Scan(
@@ -147,45 +153,49 @@ func (q *Queries) StartExerciseImportJob(ctx context.Context, arg StartExerciseI
 		&i.TasksTotal,
 		&i.BytesPushed,
 		&i.BytesTotal,
+		&i.OwnerEventID,
 	)
 	return i, err
 }
 
 const updateExerciseImportJob = `-- name: UpdateExerciseImportJob :execrows
 UPDATE exercise_import_jobs
-SET state        = $1,
-    exercise_ids = $2::uuid[],
-    error        = $3,
-    stage        = $4,
-    images_done  = $5,
-    images_total = $6,
-    tasks_done   = $7,
-    tasks_total  = $8,
-    bytes_pushed = $9,
-    bytes_total  = $10,
-    updated_at   = $11
-WHERE id = $12
+SET state          = $1,
+    owner_event_id = $2,
+    exercise_ids = $3::uuid[],
+    error        = $4,
+    stage        = $5,
+    images_done  = $6,
+    images_total = $7,
+    tasks_done   = $8,
+    tasks_total  = $9,
+    bytes_pushed = $10,
+    bytes_total  = $11,
+    updated_at   = $12
+WHERE id = $13
 `
 
 type UpdateExerciseImportJobParams struct {
-	State       string      `json:"state"`
-	ExerciseIds []uuid.UUID `json:"exercise_ids"`
-	Error       []byte      `json:"error"`
-	Stage       string      `json:"stage"`
-	ImagesDone  int32       `json:"images_done"`
-	ImagesTotal int32       `json:"images_total"`
-	TasksDone   int32       `json:"tasks_done"`
-	TasksTotal  int32       `json:"tasks_total"`
-	BytesPushed int64       `json:"bytes_pushed"`
-	BytesTotal  int64       `json:"bytes_total"`
-	UpdatedAt   time.Time   `json:"updated_at"`
-	ID          uuid.UUID   `json:"id"`
+	State        string        `json:"state"`
+	OwnerEventID uuid.NullUUID `json:"owner_event_id"`
+	ExerciseIds  []uuid.UUID   `json:"exercise_ids"`
+	Error        []byte        `json:"error"`
+	Stage        string        `json:"stage"`
+	ImagesDone   int32         `json:"images_done"`
+	ImagesTotal  int32         `json:"images_total"`
+	TasksDone    int32         `json:"tasks_done"`
+	TasksTotal   int32         `json:"tasks_total"`
+	BytesPushed  int64         `json:"bytes_pushed"`
+	BytesTotal   int64         `json:"bytes_total"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	ID           uuid.UUID     `json:"id"`
 }
 
-// The whole job aggregate (state, created tasks, error, progress) in one write.
+// The whole job aggregate (state, created tasks, error, progress, target event) in one write.
 func (q *Queries) UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateExerciseImportJob,
 		arg.State,
+		arg.OwnerEventID,
 		arg.ExerciseIds,
 		arg.Error,
 		arg.Stage,

@@ -3,6 +3,7 @@ package exercise
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -89,6 +90,67 @@ func applyVisibilityQuery(ctx *gin.Context, f *exerciseUseCase.ExercisesFilter) 
 	return true
 }
 
+// maxAuthorFilter caps the author filter (a table filter).
+const maxAuthorFilter = 100
+
+// queryList reads a list query parameter that may repeat and/or be comma-separated, trimmed, empty values and
+// duplicates dropped.
+func queryList(ctx *gin.Context, name string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, value := range ctx.QueryArray(name) {
+		for raw := range strings.SplitSeq(value, ",") {
+			if raw = strings.TrimSpace(raw); raw != "" && !seen[raw] {
+				seen[raw] = true
+				out = append(out, raw)
+			}
+		}
+	}
+	return out
+}
+
+// applyTableQuery reads the catalog table filters of an offset page: statuses (status, repeated), tags with all
+// of (withTag) and none of (withoutTag), authors (author ids) and the average difficulty range (difficultyMin,
+// difficultyMax: levels 1..6).
+func applyTableQuery(ctx *gin.Context, f *exerciseUseCase.ExercisesFilter) bool {
+	f.Statuses = queryList(ctx, "status")
+	f.TagsAll = queryList(ctx, "withTag")
+	f.TagsNone = queryList(ctx, "withoutTag")
+	authors := queryList(ctx, "author")
+	if len(authors) > maxAuthorFilter {
+		response.AbortWithBadRequest(ctx, fmt.Errorf("at most %d authors", maxAuthorFilter))
+		return false
+	}
+	for _, raw := range authors {
+		id, err := uuid.FromString(raw)
+		if err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return false
+		}
+		f.AuthorIDs = append(f.AuthorIDs, id)
+	}
+	for _, bound := range []struct {
+		name  string
+		value *int
+	}{{"difficultyMin", &f.DifficultyMin}, {"difficultyMax", &f.DifficultyMax}} {
+		raw := ctx.Query(bound.name)
+		if raw == "" {
+			continue
+		}
+		level, err := strconv.Atoi(raw)
+		if err != nil || level < 1 || level > 6 {
+			response.AbortWithBadRequest(ctx, fmt.Errorf("%s must be a difficulty level from 1 to 6", bound.name))
+			return false
+		}
+		*bound.value = level
+	}
+	if f.DifficultyMin > 0 && f.DifficultyMax > 0 && f.DifficultyMin > f.DifficultyMax {
+		response.AbortWithBadRequest(ctx, errors.New("difficultyMin must not exceed difficultyMax"))
+		return false
+	}
+	return true
+}
+
 // access godoc
 // @Summary  What the caller may do in the exercises app
 // @Tags     exercises
@@ -106,7 +168,7 @@ func (h *Handler) access(ctx *gin.Context) {
 		return
 	}
 	out := accessSummaryResponse{IsAdmin: summary.IsAdmin, CanCreateCatalog: summary.CanCreateCatalog, CanPublish: summary.CanPublish,
-		CanDelete: summary.CanDelete, CanExport: summary.CanExport, Events: make([]accessEventResponse, 0, len(summary.Events))}
+		CanDelete: summary.CanDelete, CanExport: summary.CanExport, CanImport: summary.CanImport, Events: make([]accessEventResponse, 0, len(summary.Events))}
 	for _, e := range summary.Events {
 		out.Events = append(out.Events, accessEventResponse(e))
 	}

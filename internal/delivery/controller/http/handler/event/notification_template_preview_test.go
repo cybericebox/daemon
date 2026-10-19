@@ -124,3 +124,26 @@ func TestEventEmailPreview_NotEventScopedIs400(t *testing.T) {
 		t.Fatalf("status=%d want 400 body=%s", w.Code, w.Body.String())
 	}
 }
+
+// The preview is bounded per user: one router is one limiter, as in the server.
+func TestEventEmailPreview_RateLimitedPerUser(t *testing.T) {
+	actor, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	u := &previewContractUC{previewErr: notificationModel.ErrTemplateTypeNotEventScoped.Err()}
+	router := testEventCRUDRouter(&eventCRUDContractUC{IUseCase: u}, actor)
+	preview := func() int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/events/"+eventID.String()+"/manage/notification-templates/email/preview",
+			strings.NewReader(`{"NotificationType":"event.manager.assigned","Body":[]}`))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+		return w.Code
+	}
+	for i := range 120 { // the limit of one minute
+		if code := preview(); code == http.StatusTooManyRequests {
+			t.Fatalf("request %d limited", i+1)
+		}
+	}
+	if code := preview(); code != http.StatusTooManyRequests {
+		t.Fatalf("over the limit: status=%d want 429", code)
+	}
+}

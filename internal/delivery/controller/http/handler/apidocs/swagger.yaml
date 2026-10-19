@@ -42,6 +42,8 @@ definitions:
         type: string
       HasPassword:
         type: boolean
+      ID:
+        type: string
       LastName:
         type: string
       Picture:
@@ -1886,6 +1888,8 @@ definitions:
         $ref: '#/definitions/event.resultsFreezeStateResponse'
       GeneratedAt:
         type: string
+      ParticipantsSee:
+        type: boolean
       Revision:
         type: integer
       Teams:
@@ -2362,6 +2366,14 @@ definitions:
       Port:
         type: integer
     type: object
+  event.previewStartRequest:
+    properties:
+      LeaseMinutes:
+        description: |-
+          LeaseMinutes is the run length of the preview's test laboratory: one of the offered lengths; 0 or absent takes
+          the lease in force.
+        type: integer
+    type: object
   event.publishedExerciseChoiceResponse:
     properties:
       Attached:
@@ -2795,6 +2807,14 @@ definitions:
           from the current monitoring state.
       Reason:
         type: string
+      ReservationEnded:
+        description: 'ReservationEnded: the team''s reservation ended and its labs
+          were deleted.'
+        type: boolean
+      ReservationEndsAt:
+        description: ReservationEndsAt is when the team's resource reservation deletes
+          its labs (the ending notice); null before.
+        type: string
       Status:
         type: string
       TeamID:
@@ -3150,6 +3170,13 @@ definitions:
     type: object
   eventAnalytics.accessResponse:
     properties:
+      Export:
+        description: 'Export: the CSV exports and the report download.'
+        type: boolean
+      People:
+        description: 'People: per-person rows of «Використання» (names, visits, VPN
+          sessions).'
+        type: boolean
       Sections:
         description: 'Sections: every analytics section and the event report.'
         type: boolean
@@ -4363,6 +4390,11 @@ definitions:
         type: string
       Available:
         type: boolean
+      PeopleHidden:
+        description: |-
+          PeopleHidden: the caller sees the aggregates only (a read-only
+          moderator); Users is empty then.
+        type: boolean
       Period:
         $ref: '#/definitions/eventAnalytics.periodResponse'
       Summary:
@@ -5280,8 +5312,6 @@ definitions:
         type: boolean
       BlockingFields:
         type: boolean
-      CaptainID:
-        type: string
       ExtraFields:
         additionalProperties: {}
         type: object
@@ -5724,6 +5754,15 @@ definitions:
       Name:
         type: string
     type: object
+  exercise.ExerciseAuthorSuggestion:
+    properties:
+      Count:
+        type: integer
+      ID:
+        type: string
+      Name:
+        type: string
+    type: object
   exercise.ExerciseTagSuggestion:
     properties:
       Count:
@@ -5751,6 +5790,13 @@ definitions:
       CanDelete:
         type: boolean
       CanExport:
+        description: |-
+          CanExport: the caller may export some tasks (exercises.export: any; an event moderator: their events' tasks,
+          per task Permissions.CanExport).
+        type: boolean
+      CanImport:
+        description: 'CanImport: the caller may import tasks somewhere (the catalog
+          with exercises.write, or an event they manage).'
         type: boolean
       CanPublish:
         type: boolean
@@ -5799,6 +5845,64 @@ definitions:
         type: string
       State:
         type: string
+    type: object
+  exercise.bulkAccessRequest:
+    properties:
+      AccessLevel:
+        enum:
+        - all
+        - selected
+        - own
+        - none
+        type: string
+      EventIDs:
+        items:
+          type: string
+        maxItems: 500
+        type: array
+      IDs:
+        items:
+          type: string
+        maxItems: 200
+        minItems: 1
+        type: array
+    required:
+    - IDs
+    type: object
+  exercise.bulkExercisesRequest:
+    properties:
+      IDs:
+        items:
+          type: string
+        maxItems: 200
+        minItems: 1
+        type: array
+    required:
+    - IDs
+    type: object
+  exercise.bulkItemResponse:
+    properties:
+      Code:
+        description: Code is the error code (Status.Code) that skipped the task; 0
+          when it changed.
+        type: integer
+      Exercise:
+        allOf:
+        - $ref: '#/definitions/exercise.exerciseResponse'
+        description: Exercise is the changed card; null for a skipped task.
+      ID:
+        type: string
+    type: object
+  exercise.bulkResultResponse:
+    properties:
+      Changed:
+        type: integer
+      Items:
+        items:
+          $ref: '#/definitions/exercise.bulkItemResponse'
+        type: array
+      Skipped:
+        type: integer
     type: object
   exercise.checkImagesRequest:
     properties:
@@ -5955,6 +6059,10 @@ definitions:
         type: string
       DeployID:
         type: string
+      EndingAt:
+        description: EndingAt is when the run's reservation deletes the lab unless
+          it is extended (its ending notice); null before.
+        type: string
       ExerciseID:
         type: string
       Expired:
@@ -5989,6 +6097,14 @@ definitions:
       VersionID:
         type: string
     type: object
+  exercise.deployRequest:
+    properties:
+      LeaseMinutes:
+        description: |-
+          LeaseMinutes is the run length the author chose: one of the lengths offered (GET /exercises/test-runs/lengths);
+          0 or absent takes the lease in force.
+        type: integer
+    type: object
   exercise.deployResponse:
     properties:
       DeployID:
@@ -6015,6 +6131,10 @@ definitions:
         items:
           $ref: '#/definitions/exercise.deployDeviceResponse'
         type: array
+      EndingAt:
+        description: EndingAt is when the run's reservation deletes the lab unless
+          it is extended (its ending notice); null before.
+        type: string
       Expired:
         type: boolean
       ExpiresAt:
@@ -6248,6 +6368,18 @@ definitions:
         type: string
       ArchivedAt:
         type: string
+      AuthorID:
+        description: |-
+          AuthorID created the task (null when the account is gone); AuthorName is their first and last name, "" when
+          unknown (offset pages only).
+        type: string
+      AuthorName:
+        type: string
+      AvgDifficulty:
+        description: |-
+          AvgDifficulty is the mean level (1 elementary … 6 insane) of the subtasks of the first variant of the
+          published version, else the working copy; null without one (offset pages only).
+        type: number
       CreatedAt:
         type: string
       Description:
@@ -6300,6 +6432,10 @@ definitions:
         items:
           type: string
         type: array
+      TaskCount:
+        description: TaskCount is the number of subtasks of that same first variant;
+          null without a variant (offset pages only).
+        type: integer
       UpdatedAt:
         type: string
     type: object
@@ -6597,6 +6733,11 @@ definitions:
     type: object
   exercise.importUploadRequest:
     properties:
+      OwnerEventID:
+        description: |-
+          OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
+          platform catalog (exercises.write).
+        type: string
       Password:
         type: string
       UploadID:
@@ -6610,6 +6751,11 @@ definitions:
     properties:
       FileID:
         description: FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).
+        type: string
+      OwnerEventID:
+        description: |-
+          OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
+          platform catalog (exercises.write).
         type: string
       Password:
         type: string
@@ -6872,6 +7018,7 @@ definitions:
       EventIDs:
         items:
           type: string
+        maxItems: 500
         type: array
     type: object
   exercise.startUploadRequest:
@@ -6944,6 +7091,18 @@ definitions:
         type: integer
       TaskID:
         type: string
+    type: object
+  exercise.testRunLengthsResponse:
+    properties:
+      AllowedMinutes:
+        description: AllowedMinutes are the offered lengths, shortest first.
+        items:
+          type: integer
+        type: array
+      DefaultMinutes:
+        description: DefaultMinutes is the length taken when none is chosen (the lease
+          in force).
+        type: integer
     type: object
   exercise.topologyDTO:
     properties:
@@ -7192,6 +7351,10 @@ definitions:
         items:
           $ref: '#/definitions/exerciseModel.LabDeployedDevice'
         type: array
+      endingAt:
+        description: EndingAt is when the run's reservation deletes the lab (its ending
+          notice); nil until the notice.
+        type: string
       expired:
         type: boolean
       expiresAt:
@@ -7280,6 +7443,13 @@ definitions:
     type: object
   exerciseModel.LabQueue:
     properties:
+      attempt:
+        description: |-
+          Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and
+          when the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the
+          earliest dispatch of a pod still starting. Zero when unknown (FillQueueDetails).
+        format: int32
+        type: integer
       group:
         description: Group is the deploy group of the lab (the task for event labs);
           empty for an independent lab.
@@ -7306,6 +7476,10 @@ definitions:
         type: integer
       reason:
         type: string
+      retryAt:
+        type: string
+      waitingSince:
+        type: string
     type: object
   exerciseModel.PodFailure:
     properties:
@@ -7327,11 +7501,19 @@ definitions:
         $ref: '#/definitions/exerciseModel.PodFailure'
       queuedAt:
         type: string
+      retryAfter:
+        type: string
       startedAt:
         type: string
       state:
         description: State is one of the PodState* values.
         type: string
+      withdrawals:
+        description: |-
+          Withdrawals is how often in a row the pod's group was withdrawn (not every pod got a node in time); RetryAfter is when
+          the cluster sends it again (zero: no wait).
+        format: int32
+        type: integer
     type: object
   imageRegistry.checkResponse:
     properties:
@@ -7523,6 +7705,11 @@ definitions:
         - expired
         - withdrawn
         type: string
+      Resolvable:
+        description: |-
+          Resolvable is true when the recipient may close this open request by hand (the resolve endpoint accepts it).
+          Clients show «Вирішено» from it instead of keeping their own list of types.
+        type: boolean
       ResolvedAt:
         description: ResolvedAt and Resolution are set once a request was decided
           (by anyone).
@@ -8221,6 +8408,8 @@ definitions:
     type: object
   labview.QueueResponse:
     properties:
+      Attempt:
+        type: integer
       Length:
         type: integer
       Message:
@@ -8232,6 +8421,10 @@ definitions:
       Position:
         type: integer
       Reason:
+        type: string
+      RetryAt:
+        type: string
+      WaitingSince:
         type: string
     type: object
   labview.SchedulingResponse:
@@ -8310,13 +8503,21 @@ definitions:
     type: object
   labview.StandQueueResponse:
     properties:
+      Attempt:
+        type: integer
       Length:
+        type: integer
+      NodeStartingLabs:
         type: integer
       Position:
         type: integer
       QueuedLabs:
         type: integer
       Reason:
+        type: string
+      RetryAt:
+        type: string
+      WaitingSince:
         type: string
     type: object
   labview.StatusResponse:
@@ -10204,6 +10405,53 @@ definitions:
       WindowStart:
         type: string
     type: object
+  resourceCalendar.partDTO:
+    properties:
+      AgentID:
+        type: string
+      AgentName:
+        type: string
+      Amount:
+        $ref: '#/definitions/resourceCalendar.amountDTO'
+      EndsAt:
+        description: EndsAt is when the part's labs are deleted, once the ending is
+          announced.
+        type: string
+      From:
+        type: string
+      Groups:
+        type: integer
+      PartID:
+        type: string
+      Phase:
+        description: Phase is Pending, Active, Ending, Ended, or empty before the
+          agent reported it.
+        enum:
+        - ""
+        - Pending
+        - Active
+        - Ending
+        - Ended
+        type: string
+      Retiring:
+        description: 'Retiring: the part is no longer wanted and is being removed
+          from its agent.'
+        type: boolean
+      ShrinkHeld:
+        type: boolean
+      SyncError:
+        type: string
+      Synced:
+        description: 'Synced: the agent holds the last change; SyncError says why
+          not; ShrinkHeld: a shrink waits for the labs.'
+        type: boolean
+      To:
+        type: string
+      Used:
+        allOf:
+        - $ref: '#/definitions/resourceCalendar.amountDTO'
+        description: Used and Groups are what runs in the part as the agent last said.
+    type: object
   resourceCalendar.replanRequest:
     properties:
       AllowConflicts:
@@ -10264,6 +10512,12 @@ definitions:
         $ref: '#/definitions/resourceCalendar.amountDTO'
       OwnerID:
         type: string
+      Parts:
+        description: 'Parts are the reservation as the agents hold it: one per agent
+          of the placement.'
+        items:
+          $ref: '#/definitions/resourceCalendar.partDTO'
+        type: array
       PerTeam:
         $ref: '#/definitions/resourceCalendar.amountDTO'
       PerTeamSnapshotQuotaBytes:
@@ -10335,6 +10589,11 @@ definitions:
       DynamicSnapshotQuotaBytes:
         example: ""
         type: string
+      ForceShrink:
+        description: |-
+          ForceShrink sends a smaller size or an earlier end to the cluster even while labs run in it (the labs that do
+          not fit are deleted after the notice); without it such a shrink is held back while they run.
+        type: boolean
       PerTeam:
         $ref: '#/definitions/resourceCalendar.amountDTO'
       PerTeamSnapshotQuotaBytes:
@@ -13845,7 +14104,8 @@ paths:
           description: CSV
           schema:
             type: string
-      summary: Per participant usage as CSV (UTF-8 with BOM)
+      summary: Per participant usage as CSV (UTF-8 with BOM); owner, write moderators
+        and platform staff only
       tags:
       - event-analytics
   /events/{id}/manage/answer-files:
@@ -16756,6 +17016,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/response.Response'
+        "429":
+          description: more than 120 previews of one user per minute
+          schema:
+            $ref: '#/definitions/response.Response'
       summary: Preview an event-scoped email template draft
       tags:
       - events
@@ -17395,6 +17659,11 @@ paths:
         name: selectionID
         required: true
         type: string
+      - description: the chosen run length
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/event.previewStartRequest'
       responses:
         "200":
           description: OK
@@ -20513,6 +20782,38 @@ paths:
           type: string
         name: tags
         type: array
+      - collectionFormat: multi
+        description: tasks having every one of these tags (offset pages only)
+        in: query
+        items:
+          type: string
+        name: withTag
+        type: array
+      - collectionFormat: multi
+        description: tasks having none of these tags (offset pages only)
+        in: query
+        items:
+          type: string
+        name: withoutTag
+        type: array
+      - collectionFormat: multi
+        description: 'author (creator) ids, repeated or comma-separated, max 100:
+          any of them (offset pages only)'
+        in: query
+        items:
+          type: string
+        name: author
+        type: array
+      - description: lowest rounded average difficulty level, 1 elementary … 6 insane;
+          tasks without one are excluded (offset pages only)
+        in: query
+        name: difficultyMin
+        type: integer
+      - description: highest rounded average difficulty level, 1..6 (offset pages
+          only)
+        in: query
+        name: difficultyMax
+        type: integer
       - description: id of the last row of the previous page
         in: query
         name: cursor
@@ -20525,12 +20826,17 @@ paths:
         in: query
         name: pageSize
         type: integer
-      - description: published, changed, draft_only, archived, or none (offset pages
-          only)
+      - collectionFormat: multi
+        description: 'published, changed, draft_only, archived or none, repeated or
+          comma-separated: any of them; archived with others lists both (offset pages
+          only)'
         in: query
+        items:
+          type: string
         name: status
-        type: string
-      - description: name, tags, status, or updated (offset pages only)
+        type: array
+      - description: name, tags, status, author, difficulty, subtasks or updated (offset
+          pages only)
         in: query
         name: sortBy
         type: string
@@ -21503,6 +21809,11 @@ paths:
         name: variantID
         required: true
         type: string
+      - description: the chosen run length
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/exercise.deployRequest'
       produces:
       - application/json
       responses:
@@ -21523,6 +21834,10 @@ paths:
           description: Conflict
           schema:
             $ref: '#/definitions/response.Response'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/response.Response'
       summary: Deploy a variant's topology for testing
       tags:
       - exercises
@@ -21541,6 +21856,140 @@ paths:
                   $ref: '#/definitions/exercise.accessSummaryResponse'
               type: object
       summary: What the caller may do in the exercises app
+      tags:
+      - exercises
+  /exercises/authors:
+    get:
+      parameters:
+      - description: name substring (case-insensitive); empty returns the most frequent
+          authors
+        in: query
+        name: search
+        type: string
+      - collectionFormat: multi
+        description: 'only these authors (repeated or comma-separated, max 100): the
+          names of the chosen ones'
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
+      - description: max authors (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/exercise.ExerciseAuthorSuggestion'
+                  type: array
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Authors of the exercises the caller may read, by use (the author filter);
+        names only, never emails
+      tags:
+      - exercises
+  /exercises/bulk/access:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise IDs (1..200); all | selected (+EventIDs) | own | none
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.bulkAccessRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.bulkResultResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Set the same access on the selected catalog exercises
+      tags:
+      - exercises
+  /exercises/bulk/archive:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise IDs (1..200)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.bulkExercisesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.bulkResultResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Archive the selected exercises, each by the rule of one exercise's
+        archive
+      tags:
+      - exercises
+  /exercises/bulk/unarchive:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: exercise IDs (1..200)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/exercise.bulkExercisesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.bulkResultResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: Return the selected exercises to the catalog, each by the rule of one
+        exercise's unarchive
       tags:
       - exercises
   /exercises/deploys:
@@ -21890,7 +22339,8 @@ paths:
       consumes:
       - application/json
       description: |-
-        200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
+        exercises.export exports any task; an event owner/manager only the tasks of their events (403
+        otherwise, nothing exported). 200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
         `images/…/<device>.tar`) the export runs in the background: 202 {JobID}; poll GET
         /exercises/export/jobs/{jobID}, then read the file in chunks.
       parameters:
@@ -22082,6 +22532,11 @@ paths:
       - description: archive password when it contains secrets
         in: formData
         name: password
+        type: string
+      - description: 'the event the tasks are created in (its owner/manager, or exercises.write);
+          empty: the platform catalog (exercises.write)'
+        in: formData
+        name: OwnerEventID
         type: string
       produces:
       - application/json
@@ -22512,6 +22967,23 @@ paths:
                   $ref: '#/definitions/resourceCalendar.testLabRoomDTO'
               type: object
       summary: Does a test laboratory fit now
+      tags:
+      - exercises
+  /exercises/test-runs/lengths:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/exercise.testRunLengthsResponse'
+              type: object
+      summary: The run lengths an author may choose for a test laboratory
       tags:
       - exercises
   /exercises/uploads:

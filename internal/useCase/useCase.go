@@ -10,6 +10,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository"
 	"github.com/cybericebox/daemon/internal/delivery/repository/emailTemplateRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/errorJournalRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventActivityRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventAnalyticsRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventConfigRepo"
 	eventFormRepo "github.com/cybericebox/daemon/internal/delivery/repository/eventFormRepo"
@@ -30,6 +31,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/signalOutboxRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	jobsModel "github.com/cybericebox/daemon/internal/model/jobs"
 	mailModel "github.com/cybericebox/daemon/internal/model/mail"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
@@ -270,6 +272,7 @@ func NewUseCase(deps Dependencies) *UseCase {
 			Settings:    platformSettingsUC,
 		},
 	)
+	exerciseUC.SetVPNConfigAudit(eventActivityRepo.New(deps.Repo))
 	// A task archive upload may be as large as the archive limit in force plus one image archive.
 	mediaUC.SetArchiveUploadLimit(func(ctx context.Context) int64 { return exerciseUC.ArchiveLimits(ctx).WithImagesBytes() })
 
@@ -331,6 +334,20 @@ func NewUseCase(deps Dependencies) *UseCase {
 	exerciseUC.SetTestLabGate(calendarUC)
 	// A room check naming no lease answers for the lease in force (the platform settings), like the admission.
 	calendarUC.SetTestLabLease(exerciseUC.TestLabLease)
+	// The calendar's reservations are split per agent and sent to the agents' reservation API.
+	if port, ok := deps.LabAgent.(interface {
+		infraModel.ReservationPort
+		ReservationNotice(agentID uuid.UUID) time.Duration
+	}); ok {
+		calendarUC.SetClusterReservations(port, port.ReservationNotice)
+	}
+	// Placement follows the parts: a new group goes to the agent of its reservation's unit and every group and lab
+	// carries its part id.
+	if fleet, ok := deps.LabAgent.(interface{ SetPartResolver(infraModel.PartResolver) }); ok {
+		fleet.SetPartResolver(calendarUC)
+	}
+	// The ending notice and the end of a part act on the test labs and the event stands.
+	calendarUC.SetPartListener(partListener{exercises: exerciseUC, events: eventUC})
 	// The lab jobs exist only with an infrastructure agent (see jobsRegistry); without one nothing is scheduled.
 	if deps.LabAgent != nil {
 		labJobs := deps.EnqueuerFactory.NewEnqueuer()
@@ -386,13 +403,18 @@ func NewUseCase(deps Dependencies) *UseCase {
 	// Inbox requests that reach every person who may act on them (Event
 	// managers, platform admins) and close for all of them on decision.
 	inboxRequests := inboxUseCase.NewRequestRouter(deps.Repo, notificationDispatcher)
+	inboxRequests.SetAdminURL(deps.AuthConfig.Hosts.AdminURL("/"))
 	eventUC.SetStandInbox(inboxRequests)
 	exerciseUC.SetProposalInbox(inboxRequests)
 	exerciseUC.SetElevationInbox(inboxRequests)
 	exerciseUC.SetImportInbox(inboxRequests)
 	calendarUC.SetNotifier(inboxRequests)
+	// An author hears about the ending and the end of a test laboratory's reservation.
+	exerciseUC.SetTestLabNotifier(inboxRequests)
 	// The periodic registry credential check tells the people who can fix a credential when it breaks or recovers.
 	imageRegistryUC.SetCheckNotifier(inboxRequests)
+	// A group of labs a cluster withdrew again and again (no node in time) is a request to the platform admins.
+	agentsUC.SetWithdrawalNotifier(inboxRequests)
 	eventUC.SetEmailFooters(mailUC)
 	emailTemplateUC := emailUseCase.NewNotificationEmailTemplateUseCase(deps.Repo, mediaUC)
 	emailTemplateUC.SetFooterSource(mailUC)

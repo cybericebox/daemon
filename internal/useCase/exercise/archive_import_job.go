@@ -64,6 +64,8 @@ type (
 		UploadID  uuid.UUID
 		Password  string
 		CreatedBy uuid.UUID
+		// OwnerEventID: nil imports into the platform catalog, else into that event (AuthorizeImport first).
+		OwnerEventID *uuid.UUID
 	}
 
 	// QueueImportInput names the archive source of a background import.
@@ -72,6 +74,8 @@ type (
 		SourceID  uuid.UUID
 		Password  string
 		CreatedBy uuid.UUID
+		// OwnerEventID: nil imports into the platform catalog, else into that event (AuthorizeImport first).
+		OwnerEventID *uuid.UUID
 	}
 
 	// ArchiveImportStart is either the tasks created at once (no image files) or the background import's job.
@@ -133,6 +137,7 @@ func (u *ExerciseUseCase) ImportUploadedArchive(ctx context.Context, in ImportUp
 	if named {
 		jobID, queueErr := u.QueueArchiveImport(ctx, QueueImportInput{
 			Source: exerciseModel.ImportSourceUpload, SourceID: in.UploadID, Password: in.Password, CreatedBy: in.CreatedBy,
+			OwnerEventID: in.OwnerEventID,
 		})
 		if queueErr != nil {
 			return ArchiveImportStart{}, queueErr
@@ -147,7 +152,7 @@ func (u *ExerciseUseCase) ImportUploadedArchive(ctx context.Context, in ImportUp
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
-	created, err := u.importArchiveBundle(ctx, contents, in.Password, in.CreatedBy, lim)
+	created, err := u.importArchiveBundle(ctx, contents, in.Password, in.CreatedBy, in.OwnerEventID, lim)
 	if err != nil {
 		return ArchiveImportStart{}, err
 	}
@@ -158,17 +163,17 @@ func (u *ExerciseUseCase) ImportUploadedArchive(ctx context.Context, in ImportUp
 // ImportArchiveBundle imports every task of an archive held in memory (one task folder or several), each as its
 // own import: the synchronous path of archives without image files. The limits in force are read once for all.
 func (u *ExerciseUseCase) ImportArchiveBundle(ctx context.Context, contents []byte, password string, createdBy uuid.UUID) ([]ExerciseView, error) {
-	return u.importArchiveBundle(ctx, contents, password, createdBy, u.ArchiveLimits(ctx))
+	return u.importArchiveBundle(ctx, contents, password, createdBy, nil, u.ArchiveLimits(ctx))
 }
 
-func (u *ExerciseUseCase) importArchiveBundle(ctx context.Context, contents []byte, password string, createdBy uuid.UUID, lim exerciseModel.ArchiveLimits) ([]ExerciseView, error) {
+func (u *ExerciseUseCase) importArchiveBundle(ctx context.Context, contents []byte, password string, createdBy uuid.UUID, ownerEventID *uuid.UUID, lim exerciseModel.ArchiveLimits) ([]ExerciseView, error) {
 	imports, err := ExpandExerciseArchiveBundle(contents, password, lim)
 	if err != nil {
 		return nil, err
 	}
 	created := make([]ExerciseView, 0, len(imports))
 	for _, item := range imports {
-		view, importErr := u.ImportExerciseArchive(ctx, ImportExerciseInput{Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, Limits: lim})
+		view, importErr := u.ImportExerciseArchive(ctx, ImportExerciseInput{Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, OwnerEventID: ownerEventID, Limits: lim})
 		if importErr != nil {
 			return nil, importErr
 		}
@@ -193,7 +198,11 @@ func (u *ExerciseUseCase) QueueArchiveImport(ctx context.Context, in QueueImport
 	}
 	now := u.timeNow()
 	newID := freshID()
-	job, err := u.exercises.StartImportJob(ctx, exerciseModel.NewImportJob(newID, in.CreatedBy, in.SourceID, in.Source, now))
+	owner := uuid.NullUUID{}
+	if in.OwnerEventID != nil {
+		owner = uuid.NullUUID{UUID: *in.OwnerEventID, Valid: true}
+	}
+	job, err := u.exercises.StartImportJob(ctx, exerciseModel.NewImportJob(newID, in.CreatedBy, in.SourceID, in.Source, owner, now))
 	if err != nil {
 		return uuid.Nil, model.ErrPlatform.WithError(err).WithMessage("Failed to record the import").Err()
 	}
@@ -201,7 +210,7 @@ func (u *ExerciseUseCase) QueueArchiveImport(ctx context.Context, in QueueImport
 		return uuid.Nil, exerciseModel.ErrImportJobNotFound.Err()
 	}
 	if job.ID != newID { // the source already has an import
-		if !job.Restart(now) {
+		if !job.Restart(owner, now) {
 			return job.ID, nil // running or done: the same import
 		}
 		if _, err = u.exercises.SaveImportJob(ctx, job); err != nil {
@@ -406,7 +415,7 @@ func (u *ExerciseUseCase) runArchiveImport(ctx context.Context, job exerciseMode
 	if err != nil {
 		return nil, err
 	}
-	return u.importArchiveRead(ctx, read, job.CreatedBy, progress)
+	return u.importArchiveRead(ctx, read, job.CreatedBy, uuidPtr(job.OwnerEventID), progress)
 }
 
 // importStateTimeout bounds one write of an import's outcome.

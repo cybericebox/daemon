@@ -16,6 +16,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/platformSettingsRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	mediaModel "github.com/cybericebox/daemon/internal/model/media"
@@ -31,9 +32,9 @@ import (
 // author endpoints retain their independent author-write authorization.
 type PreviewTestLabs interface {
 	EventPreviewAllocated(context.Context, uuid.UUID) (bool, error)
-	DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (exerciseModel.DeployHandle, error)
+	DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, time.Duration) (exerciseModel.DeployHandle, error)
 	CanStartEventPreview(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (bool, error)
-	DeployTestStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error)
+	PreviewDeployStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error)
 	CheckTestFlag(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) (bool, error)
 	OpenTestDeployLink(context.Context, uuid.UUID, uuid.UUID, string, int32) (labaccess.Link, error)
 	DestroyDeployTest(context.Context, uuid.UUID, uuid.UUID) error
@@ -524,7 +525,7 @@ func previewTask(variant exerciseModel.Variant, id uuid.UUID) (exerciseModel.Tas
 
 // withPreviewRun serializes one event/user's mutations across daemon replicas.
 // The existing laboratory engine owns its independent lease even if this transaction fails.
-func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selection uuid.UUID, create bool, fn func(context.Context, *preview.Run, exerciseModel.Variant) error) (PreviewRunView, error) {
+func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selection uuid.UUID, create bool, length time.Duration, fn func(context.Context, *preview.Run, exerciseModel.Variant) error) (PreviewRunView, error) {
 	item, variant, err := u.selectedPreview(ctx, event, user, selection)
 	if err != nil {
 		return PreviewRunView{}, err
@@ -589,7 +590,7 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 			if u.previewLabs == nil {
 				return PreviewRunView{}, infraUnavailable()
 			}
-			handle, e := u.previewLabs.DeployEventPreviewVariantTest(txCtx, event, user, item.ExerciseVersionID, item.VariantID)
+			handle, e := u.previewLabs.DeployEventPreviewVariantTest(txCtx, event, user, item.ExerciseVersionID, item.VariantID, length)
 			if e != nil {
 				return PreviewRunView{}, e
 			}
@@ -636,12 +637,15 @@ func (u *EventUseCase) withPreviewRun(ctx context.Context, event, user, selectio
 	committed = true
 	return PreviewRunView{ID: run.ID, SelectionID: selection, ExpiresAt: run.ExpiresAt, Dynamic: dynamic}, nil
 }
-func (u *EventUseCase) StartPreviewRun(ctx context.Context, event, user, selection uuid.UUID) (PreviewRunView, error) {
-	return u.withPreviewRun(ctx, event, user, selection, true, nil)
+
+// StartPreviewRun starts (or reuses) the organizer's preview run; length is the run length of its test laboratory
+// (one of the offered ones; zero takes the lease in force).
+func (u *EventUseCase) StartPreviewRun(ctx context.Context, event, user, selection uuid.UUID, length time.Duration) (PreviewRunView, error) {
+	return u.withPreviewRun(ctx, event, user, selection, true, length, nil)
 }
 func (u *EventUseCase) SubmitPreviewFlag(ctx context.Context, event, user, selection, taskID uuid.UUID, flag string) (SubmitChallengeResult, error) {
 	var result SubmitChallengeResult
-	_, err := u.withPreviewRun(ctx, event, user, selection, false, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
+	_, err := u.withPreviewRun(ctx, event, user, selection, false, 0, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
 		task, e := previewTask(variant, taskID)
 		if e != nil {
 			return e
@@ -680,7 +684,7 @@ func previewHints(task exerciseModel.Task, run *preview.Run) []OwnHintView {
 }
 func (u *EventUseCase) UnlockPreviewHint(ctx context.Context, event, user, selection, taskID, hintID uuid.UUID) (OwnHintView, error) {
 	var result OwnHintView
-	_, err := u.withPreviewRun(ctx, event, user, selection, false, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
+	_, err := u.withPreviewRun(ctx, event, user, selection, false, 0, func(ctx context.Context, run *preview.Run, variant exerciseModel.Variant) error {
 		task, e := previewTask(variant, taskID)
 		if e != nil {
 			return e
@@ -802,7 +806,20 @@ func (u *EventUseCase) PreviewLabStatus(ctx context.Context, event, user, select
 	if !run.DeployID.Valid || u.previewLabs == nil {
 		return exerciseModel.LabDeployStatus{}, previewUnavailable()
 	}
-	return u.previewLabs.DeployTestStatus(ctx, user, run.DeployID.UUID)
+	return u.previewLabs.PreviewDeployStatus(ctx, user, run.DeployID.UUID)
+}
+
+// PreviewVPNConfig hands out the owned preview lab's VPN config and logs the
+// download. The status route never carries the config.
+func (u *EventUseCase) PreviewVPNConfig(ctx context.Context, event, user, selection uuid.UUID) (string, error) {
+	status, err := u.PreviewLabStatus(ctx, event, user, selection)
+	if err != nil {
+		return "", err
+	}
+	if status.VPNConfig != "" {
+		u.recordVPNConfigDownload(ctx, event, user, eventActivityModel.VPNConfigPreview)
+	}
+	return status.VPNConfig, nil
 }
 func (u *EventUseCase) PreviewProxyLink(ctx context.Context, event, user, selection uuid.UUID, device string, port int32) (labaccess.Link, error) {
 	run, err := u.ownedPreviewRun(ctx, event, user, selection)

@@ -66,10 +66,8 @@ func NewPlatformSettingsUseCase(deps Dependencies) *PlatformSettingsUseCase {
 	return u
 }
 
-// ListPlatformSettings returns only settings the caller (from context) may read.
-// A setting with an empty required_permission is public (readable by anyone).
-// A setting with a non-empty required_permission is returned only when the
-// caller holds that permission.
+// ListPlatformSettings returns only settings the caller (from context) may read: the caller must hold the setting's
+// ReadPermission. An empty required_permission means an administrator (platform.settings.read), never anonymous.
 func (u *PlatformSettingsUseCase) ListPlatformSettings(
 	ctx context.Context,
 ) ([]platformSettingsModel.PlatformSetting, error) {
@@ -79,7 +77,7 @@ func (u *PlatformSettingsUseCase) ListPlatformSettings(
 	}
 	out := make([]platformSettingsModel.PlatformSetting, 0, len(settings))
 	for _, s := range settings {
-		if s.RequiredPermission == "" || rbac.HasPermissionInContext(ctx, rbac.Permission(s.RequiredPermission)) {
+		if rbac.HasPermissionInContext(ctx, rbac.Permission(s.ReadPermission())) {
 			out = append(out, s)
 		}
 	}
@@ -100,7 +98,7 @@ func (u *PlatformSettingsUseCase) GetPlatformSetting(
 		}
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get setting").Err()
 	}
-	if setting.RequiredPermission != "" && !rbac.HasPermissionInContext(ctx, rbac.Permission(setting.RequiredPermission)) {
+	if !rbac.HasPermissionInContext(ctx, rbac.Permission(setting.ReadPermission())) {
 		return nil, platformSettingsModel.ErrSettingNotFound.Err()
 	}
 	return &setting, nil
@@ -128,6 +126,9 @@ func (u *PlatformSettingsUseCase) UpsertPlatformSetting(
 	}
 	if platformSettingsModel.IsTypedKey(in.Key) {
 		return nil, platformSettingsModel.ErrTypedSettingNotGeneric.WithPublicContext("key", in.Key).Err()
+	}
+	if !platformSettingsModel.ValidReadPermission(in.RequiredPermission) {
+		return nil, platformSettingsModel.ErrSettingAccessInvalid.Err()
 	}
 	saved, err := u.settings.Upsert(
 		ctx,

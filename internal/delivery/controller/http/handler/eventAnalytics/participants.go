@@ -10,6 +10,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	dispatchModel "github.com/cybericebox/daemon/internal/model/notification/dispatch"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
@@ -21,15 +22,15 @@ type ParticipantsUseCase interface {
 }
 
 // initParticipants registers the «Учасники» and «Комунікації» routes. The
-// reports hold no wrong answers, so every route needs only the sections level.
+// reports hold no wrong answers, so every route needs only the sections level; the CSV exports need the export level.
 // The group carries its own PermSelf gate: tools/checkroutes sees only gates
 // written in the registering function.
 func (h *Handler) initParticipants(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("participants", h.requireSections, h.participants)
-	analytics.GET("participants/export.csv", h.requireSections, h.exportParticipants)
+	analytics.GET("participants/export.csv", h.requireExport, h.exportParticipants)
 	analytics.GET("communications", h.requireSections, h.communications)
-	analytics.GET("communications/export.csv", h.requireSections, h.exportCommunications)
+	analytics.GET("communications/export.csv", h.requireExport, h.exportCommunications)
 }
 
 type (
@@ -163,7 +164,28 @@ func (h *Handler) participants(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	if !h.maskDropOff(ctx, &v) {
+		return
+	}
 	response.AbortWithData(ctx, toParticipantsResponse(v))
+}
+
+// maskDropOff masks the addresses of «Затверджені без жодної спроби» for a viewer without the people access (a
+// read-only moderator, owner decision 2026-10-19); names stay. It reports whether the request may go on.
+func (h *Handler) maskDropOff(ctx *gin.Context, v *eventAnalyticsUseCase.ParticipantsView) bool {
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return false
+	}
+	if !people {
+		rows := make([]eventAnalyticsUseCase.DropOffRowView, len(v.DropOff.Rows))
+		for i, row := range v.DropOff.Rows {
+			row.Email = dispatchModel.MaskEmail(row.Email)
+			rows[i] = row
+		}
+		v.DropOff.Rows = rows
+	}
+	return true
 }
 
 func toParticipantsResponse(v eventAnalyticsUseCase.ParticipantsView) participantsResponse {
@@ -241,6 +263,9 @@ func (h *Handler) exportParticipants(ctx *gin.Context) {
 	v, err := h.useCase.GetEventAnalyticsParticipants(ctx, eventID, from, to)
 	if err != nil {
 		response.AbortWithError(ctx, err)
+		return
+	}
+	if !h.maskDropOff(ctx, &v) {
 		return
 	}
 	w := startAnalyticsCSV(ctx, "participants-"+table)

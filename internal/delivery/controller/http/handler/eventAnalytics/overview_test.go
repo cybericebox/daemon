@@ -33,7 +33,7 @@ func TestOverviewFeedIsSerialized(t *testing.T) {
 }
 
 // The export is the overview series as a UTF-8 CSV with a BOM, behind the
-// sections gate, for the requested period.
+// export gate, for the requested period.
 func TestOverviewExportCSV(t *testing.T) {
 	start := time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC)
 	uc := &fakeUseCase{overview: eventAnalyticsUseCase.OverviewView{
@@ -43,7 +43,7 @@ func TestOverviewExportCSV(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
-	if len(uc.levels) != 1 || uc.levels[0] != eventAnalyticsUseCase.LevelSections {
+	if len(uc.levels) != 1 || uc.levels[0] != eventAnalyticsUseCase.LevelExport {
 		t.Fatalf("access levels checked: %v", uc.levels)
 	}
 	if uc.from == nil || !uc.from.Equal(start) {

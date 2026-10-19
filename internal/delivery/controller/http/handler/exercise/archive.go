@@ -45,7 +45,8 @@ type exportedFileResponse struct {
 
 // export godoc
 // @Summary      Export selected exercises as one ZIP archive stored as a file (several: one folder per exercise)
-// @Description  200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
+// @Description  exercises.export exports any task; an event owner/manager only the tasks of their events (403
+// @Description  otherwise, nothing exported). 200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,
 // @Description  `images/…/<device>.tar`) the export runs in the background: 202 {JobID}; poll GET
 // @Description  /exercises/export/jobs/{jobID}, then read the file in chunks.
 // @Tags     exercises
@@ -69,6 +70,11 @@ func (h *Handler) export(ctx *gin.Context) {
 	}
 	if req.IncludeSecrets && strings.TrimSpace(req.Password) == "" {
 		response.AbortWithBadRequest(ctx, fmt.Errorf("a password is required when exporting secrets"))
+		return
+	}
+	// Every task of the selection, before anything is read or recorded.
+	if err := h.useCase.AuthorizeExport(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, req.IDs); err != nil {
+		response.AbortWithError(ctx, err)
 		return
 	}
 	if req.IncludeImages {
@@ -210,6 +216,7 @@ func (h *Handler) exportJob(ctx *gin.Context) {
 // @Produce  json
 // @Param    archive   formData  file    true   "exercise ZIP"
 // @Param    password  formData  string  false  "archive password when it contains secrets"
+// @Param    OwnerEventID  formData  string  false  "the event the tasks are created in (its owner/manager, or exercises.write); empty: the platform catalog (exercises.write)"
 // @Success  200  {object}  response.Response{data=[]exerciseResponse}
 // @Success  202  {object}  response.Response{data=importJobStarted}
 // @Failure  400  {object}  response.Response
@@ -218,6 +225,12 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
 	if !ok {
 		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	actor := exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}
+	// Nobody who may not import anywhere makes the server read an archive; the target is checked once the form is read.
+	if err := h.useCase.RequireAuthor(ctx, actor); err != nil {
+		response.AbortWithError(ctx, err)
 		return
 	}
 	// One set of archive limits for the whole import.
@@ -239,6 +252,14 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 		abortArchiveError(ctx, err)
 		return
 	}
+	owner, ok := ownerEventFromForm(ctx)
+	if !ok {
+		return
+	}
+	if err = h.useCase.AuthorizeImport(ctx, actor, owner); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
 	password := ctx.PostForm("password")
 	if exerciseUseCase.ArchiveNamesImages(contents, password, lim) {
 		// Images need the platform registry: refuse before anything is stored.
@@ -253,10 +274,24 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 			response.AbortWithError(ctx, storeErr)
 			return
 		}
-		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: stored.ID, Password: password, CreatedBy: claims.UserID})
+		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: stored.ID, Password: password, CreatedBy: claims.UserID, OwnerEventID: owner})
 		return
 	}
-	h.importContents(ctx, claims.UserID, contents, password, lim)
+	h.importContents(ctx, claims.UserID, owner, contents, password, lim)
+}
+
+// ownerEventFromForm reads the optional OwnerEventID form field: nil is the platform catalog.
+func ownerEventFromForm(ctx *gin.Context) (*uuid.UUID, bool) {
+	raw := strings.TrimSpace(ctx.PostForm("OwnerEventID"))
+	if raw == "" {
+		return nil, true
+	}
+	id, err := uuid.FromString(raw)
+	if err != nil {
+		response.AbortWithBadRequest(ctx, err)
+		return nil, false
+	}
+	return &id, true
 }
 
 // importExample godoc
@@ -267,6 +302,14 @@ func (h *Handler) importArchive(ctx *gin.Context) {
 // @Failure  500  {object}  response.Response
 // @Router   /exercises/import/example [get]
 func (h *Handler) importExample(ctx *gin.Context) {
+	actor, ok := actorFrom(ctx)
+	if !ok {
+		return
+	}
+	if err := h.useCase.RequireAuthor(ctx, actor); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
 	contents, err := exerciseUseCase.ExampleArchive()
 	if err != nil {
 		response.AbortWithError(ctx, err)
@@ -287,6 +330,9 @@ type importUploadedRequest struct {
 	// FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).
 	FileID   uuid.UUID `json:"FileID" binding:"required"`
 	Password string    `json:"Password"`
+	// OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
+	// platform catalog (exercises.write).
+	OwnerEventID *uuid.UUID `json:"OwnerEventID"`
 }
 
 // importUploadedArchive godoc
@@ -310,6 +356,10 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 	var req importUploadedRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		response.AbortWithBadRequest(ctx, err)
+		return
+	}
+	if err := h.useCase.AuthorizeImport(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, req.OwnerEventID); err != nil {
+		response.AbortWithError(ctx, err)
 		return
 	}
 	// Only a file the caller uploaded: another person's file is not found, like an absent one.
@@ -336,10 +386,10 @@ func (h *Handler) importUploadedArchive(ctx *gin.Context) {
 		return
 	}
 	if exerciseUseCase.ArchiveNamesImages(contents, req.Password, lim) {
-		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: req.FileID, Password: req.Password, CreatedBy: claims.UserID})
+		h.queueImport(ctx, exerciseUseCase.QueueImportInput{Source: exerciseModel.ImportSourceFile, SourceID: req.FileID, Password: req.Password, CreatedBy: claims.UserID, OwnerEventID: req.OwnerEventID})
 		return
 	}
-	h.importContents(ctx, claims.UserID, contents, req.Password, lim)
+	h.importContents(ctx, claims.UserID, req.OwnerEventID, contents, req.Password, lim)
 }
 
 // importJobStarted is the answer of an import that runs in the background (an archive naming device image files):
@@ -362,6 +412,9 @@ type importUploadRequest struct {
 	// UploadID is a chunked upload with Purpose "exercise-archive", every chunk sent (no complete call).
 	UploadID uuid.UUID `json:"UploadID" binding:"required"`
 	Password string    `json:"Password"`
+	// OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the
+	// platform catalog (exercises.write).
+	OwnerEventID *uuid.UUID `json:"OwnerEventID"`
 }
 
 // importArchiveUpload godoc
@@ -393,7 +446,11 @@ func (h *Handler) importArchiveUpload(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	start, err := h.useCase.ImportUploadedArchive(ctx, exerciseUseCase.ImportUploadInput{UploadID: req.UploadID, Password: req.Password, CreatedBy: claims.UserID})
+	if err := h.useCase.AuthorizeImport(ctx, exerciseUseCase.Actor{UserID: claims.UserID, Role: claims.Role}, req.OwnerEventID); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	start, err := h.useCase.ImportUploadedArchive(ctx, exerciseUseCase.ImportUploadInput{UploadID: req.UploadID, Password: req.Password, CreatedBy: claims.UserID, OwnerEventID: req.OwnerEventID})
 	if err != nil {
 		abortArchiveError(ctx, err)
 		return
@@ -528,7 +585,7 @@ func (h *Handler) importJob(ctx *gin.Context) {
 }
 
 // importContents expands the archive bytes and imports every exercise in them, all under lim.
-func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents []byte, password string, lim exerciseModel.ArchiveLimits) {
+func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, ownerEventID *uuid.UUID, contents []byte, password string, lim exerciseModel.ArchiveLimits) {
 	imports, err := exerciseUseCase.ExpandExerciseArchiveBundle(contents, password, lim)
 	if err != nil {
 		abortArchiveError(ctx, err)
@@ -537,7 +594,7 @@ func (h *Handler) importContents(ctx *gin.Context, createdBy uuid.UUID, contents
 	created := make([]exerciseResponse, 0, len(imports))
 	for _, item := range imports {
 		view, importErr := h.useCase.ImportExerciseArchive(ctx, exerciseUseCase.ImportExerciseInput{
-			Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, Limits: lim,
+			Archive: item.Archive, Password: item.Password, CreatedBy: createdBy, OwnerEventID: ownerEventID, Limits: lim,
 		})
 		if importErr != nil {
 			response.AbortWithError(ctx, importErr)

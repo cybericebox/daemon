@@ -9,6 +9,7 @@ import (
 	"github.com/gofrs/uuid"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	eventAnalyticsModel "github.com/cybericebox/daemon/internal/model/eventAnalytics"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventAnalyticsUseCase "github.com/cybericebox/daemon/internal/useCase/eventAnalytics"
 )
@@ -22,7 +23,7 @@ type UsageUseCase interface {
 func (h *Handler) initUsage(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("usage", h.requireSections, h.usage)
-	analytics.GET("usage/export.csv", h.requireSections, h.exportUsage)
+	analytics.GET("usage/export.csv", h.requireExport, h.exportUsage)
 }
 
 type (
@@ -34,6 +35,9 @@ type (
 		Summary   usageSummaryResponse `json:"Summary"`
 		Users     []usageUserResponse  `json:"Users"`
 		Period    periodResponse       `json:"Period"`
+		// PeopleHidden: the caller sees the aggregates only (a read-only
+		// moderator); Users is empty then.
+		PeopleHidden bool `json:"PeopleHidden"`
 	}
 
 	usageSummaryResponse struct {
@@ -124,14 +128,44 @@ type (
 // @Success 200 {object} response.Response{data=usageResponse}
 // @Router /events/{id}/manage/analytics/usage [get]
 func (h *Handler) usage(ctx *gin.Context) {
-	v, ok := h.loadUsage(ctx)
+	people, ok := h.seesPeople(ctx)
 	if !ok {
 		return
 	}
-	response.AbortWithData(ctx, toUsageResponse(v))
+	v, ok := h.loadUsage(ctx, !people)
+	if !ok {
+		return
+	}
+	if !people {
+		v.Users = nil
+	}
+	out := toUsageResponse(v)
+	out.PeopleHidden = !people
+	response.AbortWithData(ctx, out)
 }
 
-func (h *Handler) loadUsage(ctx *gin.Context) (eventAnalyticsUseCase.UsageView, bool) {
+// seesPeople tells whether the caller may see the per-person rows of «Використання» (Access.People).
+func (h *Handler) seesPeople(ctx *gin.Context) (bool, bool) {
+	eventID, ok := parseEventID(ctx)
+	if !ok {
+		return false, false
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return false, false
+	}
+	access, err := h.useCase.EventAnalyticsAccess(ctx, eventID, claims)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return false, false
+	}
+	return access.People, true
+}
+
+// loadUsage reads the usage of the event. eventWide ignores the team and period filters: a viewer who sees the
+// totals only gets them for the whole event, so a small team or a narrow window cannot single out one person.
+func (h *Handler) loadUsage(ctx *gin.Context, eventWide bool) (eventAnalyticsUseCase.UsageView, bool) {
 	eventID, ok := parseEventID(ctx)
 	if !ok {
 		return eventAnalyticsUseCase.UsageView{}, false
@@ -148,6 +182,9 @@ func (h *Handler) loadUsage(ctx *gin.Context) (eventAnalyticsUseCase.UsageView, 
 			return eventAnalyticsUseCase.UsageView{}, false
 		}
 		teamID = &id
+	}
+	if eventWide {
+		teamID, from, to = nil, nil, nil
 	}
 	v, err := h.useCase.GetEventAnalyticsUsage(ctx, eventID, teamID, from, to)
 	if err != nil {
@@ -196,7 +233,7 @@ func toUsageResponse(v eventAnalyticsUseCase.UsageView) usageResponse {
 }
 
 // exportUsage godoc
-// @Summary Per participant usage as CSV (UTF-8 with BOM)
+// @Summary Per participant usage as CSV (UTF-8 with BOM); owner, write moderators and platform staff only
 // @Tags event-analytics
 // @Produce text/csv
 // @Param id path string true "event ID"
@@ -206,7 +243,15 @@ func toUsageResponse(v eventAnalyticsUseCase.UsageView) usageResponse {
 // @Success 200 {string} string "CSV"
 // @Router /events/{id}/manage/analytics/usage/export.csv [get]
 func (h *Handler) exportUsage(ctx *gin.Context) {
-	v, ok := h.loadUsage(ctx)
+	people, ok := h.seesPeople(ctx)
+	if !ok {
+		return
+	}
+	if !people {
+		response.AbortWithError(ctx, eventAnalyticsModel.ErrEventAnalyticsSensitiveForbidden.Err())
+		return
+	}
+	v, ok := h.loadUsage(ctx, false)
 	if !ok {
 		return
 	}

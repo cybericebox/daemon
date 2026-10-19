@@ -573,6 +573,7 @@ func TestGetOwnChallengeLabStatus_RejectsPreparingChallenge(t *testing.T) {
 func TestGetOwnLabVPNConfig_UsesCallerAndEventScope(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := newFormGateMock(ctrl)
+	q.EXPECT().CreateEventActivity(gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // the download is logged
 	store := &recordingVPNStore{config: "wg-personal"}
 	uc := event.NewEventUseCase(event.Dependencies{Repo: q, VPN: store})
 	eventID, userID, teamID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())

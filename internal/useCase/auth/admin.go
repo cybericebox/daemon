@@ -227,7 +227,7 @@ func (u *AuthUseCase) UpdateUserRole(ctx context.Context, userID uuid.UUID, role
 		if err := requireManageableTarget(caller.Role, rbac.Role(target.Role)); err != nil {
 			return err
 		}
-		// Admins lower roles; only a super_admin makes an admin.
+		// Below super_admin only the user role is given (rbac.CanSetRole).
 		if !rbac.CanSetRole(caller.Role, target.Role, role) {
 			return authModel.ErrCannotAssignRole.Err()
 		}
@@ -298,8 +298,10 @@ func (u *AuthUseCase) DeleteUser(ctx context.Context, userID uuid.UUID) error {
 	})
 }
 
+// requireManageableTarget: only a higher role manages an account (rbac.CanManageAccount); an admin never blocks,
+// demotes or deletes another admin, admin_viewer or super_admin.
 func requireManageableTarget(caller, target rbac.Role) error {
-	if !rbac.CanAssignRole(caller, target) {
+	if !rbac.CanManageAccount(caller, target) {
 		return authModel.ErrInsufficientPermission.Err()
 	}
 	return nil

@@ -68,7 +68,7 @@ func TestEventPreviewDeployRequiresScopedGateAndPersistsBoundedScope(t *testing.
 		written = p
 		return postgres.ExerciseTestDeployment{ID: p.ID, EventID: p.EventID, GroupName: p.GroupName, CreatedBy: p.CreatedBy, ExpiresAt: p.ExpiresAt}, nil
 	})
-	_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, versionID, variantID)
+	_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, versionID, variantID, 0)
 	require.NoError(t, err)
 	require.True(t, written.EventID.Valid)
 	require.Equal(t, eventID, written.EventID.UUID)
@@ -85,7 +85,7 @@ func TestEventPreviewDeployCannotFallbackToAuthorGate(t *testing.T) {
 	infra := &fakeInfra{}
 	u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
 	u.SetTestLabGate(g)
-	_, err := u.DeployEventPreviewVariantTest(context.Background(), uuid.Must(uuid.NewV7()), owner, versionID, variantID)
+	_, err := u.DeployEventPreviewVariantTest(context.Background(), uuid.Must(uuid.NewV7()), owner, versionID, variantID, 0)
 	require.Error(t, err)
 	require.Empty(t, g.admitted)
 	require.Zero(t, infra.deployCalls)
@@ -165,7 +165,7 @@ func TestEventPreviewFailedLaunchKeepsAllocationUntilNativeDeletion(t *testing.T
 		saved.ExpiresAt = p.ExpiresAt
 		return saved, nil
 	})
-	_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, version, variant)
+	_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, version, variant, 0)
 	require.Error(t, err)
 	require.Empty(t, gate.released)
 	require.False(t, saved.ExpiresAt.After(time.Now()))
@@ -189,7 +189,7 @@ func TestEventPreviewExercisesReuseSingleEventOwnerGroupAndClient(t *testing.T) 
 		version, variant := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 		encoded, _ := json.Marshal([]exerciseModel.Variant{{ID: variant, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}}}}})
 		q.EXPECT().GetExerciseVersionByID(gomock.Any(), version).Return(postgres.ExerciseVersion{ID: version, Variants: encoded}, nil).AnyTimes()
-		_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, version, variant)
+		_, err := u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, version, variant, 0)
 		require.NoError(t, err)
 	}
 	require.Len(t, rows, 2)
@@ -342,7 +342,7 @@ func TestEventPreviewCommitFailureHasDurableOrphanCleanupBeforeLeaseExpiry(t *te
 	q.EXPECT().CreateExerciseTestDeploy(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, p postgres.CreateExerciseTestDeployParams) (postgres.ExerciseTestDeployment, error) {
 		return postgres.ExerciseTestDeployment{ID: p.ID, CreatedBy: p.CreatedBy, EventID: p.EventID, GroupName: p.GroupName, ExpiresAt: p.ExpiresAt}, nil
 	})
-	_, err := u.DeployEventPreviewVariantTest(ctx, eventID, owner, version, variant)
+	_, err := u.DeployEventPreviewVariantTest(ctx, eventID, owner, version, variant, 0)
 	require.Error(t, err)
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
 	require.Equal(t, 1, infra.deployCalls)

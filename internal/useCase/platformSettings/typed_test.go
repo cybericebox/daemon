@@ -321,14 +321,12 @@ func TestLoadTyped_NullOrForeignKeys_WarnStillSafe(t *testing.T) {
 	})
 }
 
-// A typed row is gated by platform.settings.read: a caller holding only the value permission (the public role)
-// cannot read it through GET settings/:key/value.
+// A typed row is gated by platform.settings.read: the public role cannot read it through GET settings/:key/value.
 func TestGetPlatformSettingValue_TypedRowHiddenFromValueOnlyCaller(t *testing.T) {
 	repo, uc := setupTyped(t)
 	for _, key := range []string{platformSettingsModel.RetentionKey, platformSettingsModel.ArchiveLimitsKey, platformSettingsModel.TestRunsKey} {
 		repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), key).Return(storedRow(key, `{"Lease":3600}`), nil)
 		ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RolePublic})
-		require.True(t, rbac.HasPermissionInContext(ctx, rbac.PermPlatformSettingsReadValue), "the public role holds the value permission")
 
 		value, err := uc.GetPlatformSettingValue(ctx, key)
 		assert.Nil(t, value)

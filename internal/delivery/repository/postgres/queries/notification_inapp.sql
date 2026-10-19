@@ -184,3 +184,7 @@ WHERE id = sqlc.arg(id)
   AND user_id = sqlc.arg(user_id)
   AND action_required
   AND resolved_at IS NULL;
+
+-- name: InboxSubjectExists :one
+-- Whether any notification (open or closed) was ever delivered for the subject: an alert raised once per subject.
+SELECT EXISTS (SELECT 1 FROM in_app_notifications WHERE subject_ref = sqlc.arg(subject_ref)::text) AS found;

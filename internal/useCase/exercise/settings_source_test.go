@@ -100,7 +100,7 @@ func TestDeployVariantTest_StaticTakesTheSavedLease(t *testing.T) {
 	now := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
 	uc.SetClock(func() time.Time { return now })
 
-	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	require.NoError(t, err)
 	require.True(t, created.ExpiresAt.Equal(now.Add(3*time.Hour)), "expires %s", created.ExpiresAt)
 	require.Len(t, gate.admitted, 1)
@@ -118,7 +118,7 @@ func TestDeployVariantTest_SourceErrorUsesTheConfigLease(t *testing.T) {
 	now := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
 	uc.SetClock(func() time.Time { return now })
 
-	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	_, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	require.NoError(t, err)
 	require.True(t, created.ExpiresAt.Equal(now.Add(90*time.Minute)), "expires %s", created.ExpiresAt)
 	require.Contains(t, warnings.String(), `"level":"warn"`)

@@ -126,7 +126,7 @@ func TestExerciseArchivedAt_RoundTripAndListFilter(t *testing.T) {
 		if err != nil || len(page) != 1 || page[0].ID != tc.want {
 			t.Fatalf("page archived=%s: %v err=%v", tc.archived, page, err)
 		}
-		if count, err := repo.CountPage(ctx, "", []string{}, "", tc.archived, exerciseRepo.Visibility{}); err != nil || count != 1 {
+		if count, err := repo.CountPage(ctx, exerciseRepo.PageParams{Tags: []string{}, Archived: tc.archived}); err != nil || count != 1 {
 			t.Fatalf("page count archived=%s: %d err=%v", tc.archived, count, err)
 		}
 	}
@@ -477,18 +477,18 @@ func TestListExercisesPage_SortsBeforePagingAndCountsFilteredRows(t *testing.T) 
 	c := mustCreateExerciseFull(t, repo, "Gamma lab", "third", []string{"web"}, itNow.Add(2*time.Minute))
 
 	first, err := listPage(ctx, db.Queries, postgres.ListExercisesPageParams{
-		Search: "lab", Tags: []string{}, Status: "", SortBy: "name", SortDir: "asc", LimitVal: 2, OffsetVal: 0,
+		Search: "lab", Tags: []string{}, SortBy: "name", SortDir: "asc", LimitVal: 2, OffsetVal: 0,
 	})
 	if err != nil || len(first) != 2 || first[0].ID != a.ID {
 		t.Fatalf("name-ascending first page: ids=%v err=%v", idsOf(first), err)
 	}
 	second, err := listPage(ctx, db.Queries, postgres.ListExercisesPageParams{
-		Search: "lab", Tags: []string{}, Status: "", SortBy: "name", SortDir: "asc", LimitVal: 2, OffsetVal: 2,
+		Search: "lab", Tags: []string{}, SortBy: "name", SortDir: "asc", LimitVal: 2, OffsetVal: 2,
 	})
 	if err != nil || len(second) != 1 || second[0].ID != c.ID {
 		t.Fatalf("name-ascending second page: ids=%v err=%v", idsOf(second), err)
 	}
-	count, err := db.Queries.CountExercisesPage(ctx, postgres.CountExercisesPageParams{Search: "lab", Tags: []string{"web"}, Status: ""})
+	count, err := db.Queries.CountExercisesPage(ctx, postgres.CountExercisesPageParams{Search: "lab", Tags: []string{"web"}})
 	if err != nil || count != 2 {
 		t.Fatalf("filtered count: count=%d err=%v", count, err)
 	}
@@ -520,12 +520,12 @@ func TestListExercisesPage_FiltersVersionStatus(t *testing.T) {
 		{status: "published", want: published.ID},
 	} {
 		rows, err := listPage(ctx, db.Queries, postgres.ListExercisesPageParams{
-			Search: "", Tags: []string{}, Status: tc.status, SortBy: "updated", SortDir: "desc", LimitVal: 25, OffsetVal: 0,
+			Search: "", Tags: []string{}, Statuses: statusList(tc.status), SortBy: "updated", SortDir: "desc", LimitVal: 25, OffsetVal: 0,
 		})
 		if err != nil || len(rows) != 1 || rows[0].ID != tc.want {
 			t.Errorf("status %q: ids=%v err=%v", tc.status, idsOf(rows), err)
 		}
-		count, err := db.Queries.CountExercisesPage(ctx, postgres.CountExercisesPageParams{Search: "", Tags: []string{}, Status: tc.status})
+		count, err := db.Queries.CountExercisesPage(ctx, postgres.CountExercisesPageParams{Search: "", Tags: []string{}, Statuses: statusList(tc.status)})
 		if err != nil || count != 1 {
 			t.Errorf("status %q count=%d err=%v", tc.status, count, err)
 		}
@@ -744,4 +744,12 @@ func TestExerciseRepoListCursor_NilTagsAndEventIDs(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("Count with nil tags: %d err=%v", n, err)
 	}
+}
+
+// statusList is the statuses filter of one status ("" = every status).
+func statusList(status string) []string {
+	if status == "" {
+		return nil
+	}
+	return []string{status}
 }

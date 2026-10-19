@@ -41,18 +41,35 @@ func sampleRow(key string, requiredPermission string) postgres.AppSetting {
 	}
 }
 
-// TestGet_PublicSettingAccessibleToAll verifies that a setting with an empty
-// required_permission is returned to any caller, including one with no role.
-func TestGet_PublicSettingAccessibleToAll(t *testing.T) {
-	ctrl, repo, uc := setup(t)
-	defer ctrl.Finish()
-	// no role in context — unauthenticated caller
-	ctx := context.Background()
-	repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), "theme").Return(sampleRow("theme", ""), nil)
-
-	got, err := uc.GetPlatformSetting(ctx, "theme")
-	require.NoError(t, err)
-	assert.Equal(t, "theme", got.Key)
+// An empty required_permission means an administrator, never anonymous: per role, only the super_admin (the one role
+// holding platform.settings.read) reads it; everyone else gets ErrSettingNotFound (existence is not leaked).
+func TestGet_EmptyPermissionIsAdminOnly(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctx     context.Context
+		allowed bool
+	}{
+		{"anonymous", context.Background(), false},
+		{"public", rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RolePublic}), false},
+		{"user", rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RoleUser}), false},
+		{"admin_viewer", rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RoleAdminViewer}), false},
+		{"admin", rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RoleAdmin}), false},
+		{"super_admin", rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RoleSuperAdmin}), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctrl, repo, uc := setup(t)
+			defer ctrl.Finish()
+			repo.EXPECT().GetPlatformSettingByKey(gomock.Any(), "theme").Return(sampleRow("theme", ""), nil)
+			got, err := uc.GetPlatformSettingValue(c.ctx, "theme")
+			if c.allowed {
+				require.NoError(t, err)
+				assert.JSONEq(t, `{"a":1}`, string(got))
+				return
+			}
+			assert.True(t, platformSettingsModel.ErrSettingNotFound.Err().Is(err), "got %v", err)
+		})
+	}
 }
 
 // TestGet_PermissionedSettingAllowedBySuperAdmin verifies that a setting requiring
@@ -100,22 +117,20 @@ func TestGet_DeniedByPermission_ReturnsNotFound(t *testing.T) {
 	assert.True(t, platformSettingsModel.ErrSettingNotFound.Err().Is(err))
 }
 
-// TestList_FiltersPermissionedForRoleUser verifies that ListSettings filters out
-// settings requiring "platform.settings.read" for a RoleUser caller, while
-// returning publicly-readable (empty required_permission) settings.
-func TestList_FiltersPermissionedForRoleUser(t *testing.T) {
+// TestList_HidesEverythingFromNonAdmins: with no public level, a user sees no setting at all, empty
+// required_permission included.
+func TestList_HidesEverythingFromNonAdmins(t *testing.T) {
 	ctrl, repo, uc := setup(t)
 	defer ctrl.Finish()
 	ctx := rbac.ContextWithCurrentUserSession(context.Background(), rbac.Claims{Role: rbac.RoleUser})
 	repo.EXPECT().ListPlatformSettings(gomock.Any()).Return([]postgres.AppSetting{
-		sampleRow("public-key", ""),
+		sampleRow("default-key", ""),
 		sampleRow("admin-key", string(rbac.PermPlatformSettingsRead)),
 	}, nil)
 
 	got, err := uc.ListPlatformSettings(ctx)
 	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "public-key", got[0].Key)
+	assert.Empty(t, got)
 }
 
 // TestList_ReturnsAllForSuperAdmin verifies that super_admin sees both public and
@@ -134,20 +149,24 @@ func TestList_ReturnsAllForSuperAdmin(t *testing.T) {
 	assert.Len(t, got, 2)
 }
 
-// TestList_PublicSettingAccessibleWithNoRole verifies that a setting with empty
-// required_permission is returned even when no role is set in ctx.
-func TestList_PublicSettingAccessibleWithNoRole(t *testing.T) {
+// TestList_NothingForAnonymous: an anonymous caller lists nothing.
+func TestList_NothingForAnonymous(t *testing.T) {
 	ctrl, repo, uc := setup(t)
 	defer ctrl.Finish()
-	ctx := context.Background() // no role
-	repo.EXPECT().ListPlatformSettings(gomock.Any()).Return([]postgres.AppSetting{
-		sampleRow("public-key", ""),
-	}, nil)
+	repo.EXPECT().ListPlatformSettings(gomock.Any()).Return([]postgres.AppSetting{sampleRow("default-key", "")}, nil)
 
-	got, err := uc.ListPlatformSettings(ctx)
+	got, err := uc.ListPlatformSettings(context.Background())
 	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, "public-key", got[0].Key)
+	assert.Empty(t, got)
+}
+
+// A setting's access is one of the known levels; a free string is refused before anything is stored.
+func TestUpsert_RefusesUnknownAccessLevel(t *testing.T) {
+	_, _, uc := setup(t)
+	for _, permission := range []string{"public", "platform.settings.read.value", "users.read", "*"} {
+		_, err := uc.UpsertPlatformSetting(context.Background(), UpsertInput{Key: "k", Value: json.RawMessage(`{}`), RequiredPermission: permission})
+		assert.True(t, platformSettingsModel.ErrSettingAccessInvalid.Err().Is(err), "%q: got %v", permission, err)
+	}
 }
 
 func TestUpsert_AtomicStatement(t *testing.T) {

@@ -2,15 +2,18 @@ package event
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/mock/gomock"
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	postgresMocks "github.com/cybericebox/daemon/internal/delivery/repository/postgres/mocks"
 	"github.com/cybericebox/daemon/internal/model/eventContent/testutil"
+	participantModel "github.com/cybericebox/daemon/internal/model/participant"
 )
 
 func TestGetOwnEventFormReturnsDeliveredVersionInsteadOfCurrentFormVersion(t *testing.T) {
@@ -56,5 +59,23 @@ func TestSubmitEventFormResponseRejectsVersionOutsideDeliveredVersion(t *testing
 	err := uc.SubmitEventFormResponse(context.Background(), eventID, formID, userID, SubmitEventFormResponseInput{FormVersionID: uuid.Must(uuid.NewV7()), Answers: map[string]any{}})
 	if err == nil {
 		t.Fatal("response with a version other than the delivery version was accepted")
+	}
+}
+
+// A form that does not exist or was never delivered to the caller is a 404 for the participant, never a platform error.
+func TestOwnEventFormNotDeliveredIsNotFound(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	uc := NewEventUseCase(Dependencies{Repo: q})
+	eventID, formID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventFormDelivery(gomock.Any(), postgres.GetEventFormDeliveryParams{EventID: eventID, FormID: formID, UserID: userID}).Return(postgres.EventFormDelivery{}, pgx.ErrNoRows).Times(2)
+
+	_, err := uc.GetOwnEventForm(context.Background(), eventID, formID, userID)
+	if !errors.Is(err, participantModel.ErrEventFormNotFound.Err()) {
+		t.Fatalf("GetOwnEventForm: want ErrEventFormNotFound, got %v", err)
+	}
+	err = uc.SubmitEventFormResponse(context.Background(), eventID, formID, userID, SubmitEventFormResponseInput{FormVersionID: uuid.Must(uuid.NewV7()), Answers: map[string]any{}})
+	if !errors.Is(err, participantModel.ErrEventFormNotFoundForAnswer.Err()) {
+		t.Fatalf("SubmitEventFormResponse: want ErrEventFormNotFoundForAnswer, got %v", err)
 	}
 }

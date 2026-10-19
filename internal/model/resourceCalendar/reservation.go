@@ -303,6 +303,10 @@ const (
 	AlarmAgentShrunk AlarmKind = "agent_shrunk"
 	// AlarmNotConnected: the connected capacity at the deploy lead is below the reservation.
 	AlarmNotConnected AlarmKind = "not_connected"
+	// AlarmClusterSyncFailed: a part of the reservation has not reached its agent for a while.
+	AlarmClusterSyncFailed AlarmKind = "cluster_sync_failed"
+	// AlarmClusterShrinkHeld: a smaller size or an earlier end is held back while labs still run in the part.
+	AlarmClusterShrinkHeld AlarmKind = "cluster_shrink_held"
 )
 
 // Alarm is a readiness alarm: a reservation that cannot be served as promised. It is a real entity: raised

@@ -17,6 +17,7 @@ type resourceChangePayload struct {
 	RequesterName string `var:"requester_name" desc:"Organizer full name (email when unnamed)" default:"Jane Doe"`
 	Reason        string `var:"reason" desc:"Organizer reason" default:"More teams joined"`
 	Summary       string `var:"summary" desc:"What the organizer asks for" default:"size 8 / 16Gi; until 2026-10-05 18:00 UTC"`
+	AdminURL      string `var:"admin_url" desc:"Admin site root, ends with a slash" default:"https://admin.example.org/"`
 	DecisionNote  string `var:"decision_note" desc:"Admin note (decisions only)" default:""`
 	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`
 	UserEmail     string `var:"user_email" desc:"Recipient email" default:"admin@example.org"`
@@ -40,6 +41,7 @@ type resourceAlarmPayload struct {
 	EventName     string `var:"event_name" desc:"Event name" default:"Cyber ICE Box CTF"`
 	EventTag      string `var:"event_tag" desc:"Event short tag" default:"ctf-2026"`
 	AgentName     string `var:"agent_name" desc:"Laboratory agent name (empty when none)" default:"main"`
+	AdminURL      string `var:"admin_url" desc:"Admin site root, ends with a slash" default:"https://admin.example.org/"`
 	Units         string `var:"units" desc:"Teams affected" default:"3"`
 	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`
 	UserEmail     string `var:"user_email" desc:"Recipient email" default:"admin@example.org"`
@@ -57,9 +59,32 @@ func (resourceAlarmPayload) NotificationChannels() []NotificationChannel {
 }
 func (resourceAlarmPayload) Marshal() (json.RawMessage, error) { return json.RawMessage(`{}`), nil }
 
+// labWithdrawalPayload is the alert to the platform admins that a lab cluster withdrew a group again and again.
+type labWithdrawalPayload struct {
+	AgentName     string `var:"agent_name" desc:"Laboratory agent name" default:"main"`
+	Group         string `var:"group" desc:"The group of labs started together (deploy group or lab)" default:"0198c0a4-7a41-7000-8000-000000000001"`
+	Attempt       string `var:"attempt" desc:"Withdrawals in a row" default:"3"`
+	AdminURL      string `var:"admin_url" desc:"Admin site root, ends with a slash" default:"https://admin.example.org/"`
+	UserID        string `var:"user_id" desc:"Recipient identifier" default:"01900000-0000-7000-8000-000000000003"`
+	UserEmail     string `var:"user_email" desc:"Recipient email" default:"admin@example.org"`
+	UserFirstName string `var:"user_first_name" desc:"Recipient first name" default:"Jane"`
+	UserLastName  string `var:"user_last_name" desc:"Recipient last name" default:"Doe"`
+	UserPicture   string `var:"user_picture" desc:"Recipient profile image URL" default:"https://example.org/avatar.png"`
+	UserName      string `var:"user_name" desc:"Recipient full name" default:"Jane Doe"`
+}
+
+func (labWithdrawalPayload) NotificationType() NotificationType {
+	return inboxModel.TypeLabWithdrawalsRepeated
+}
+func (labWithdrawalPayload) NotificationChannels() []NotificationChannel {
+	return []NotificationChannel{NotificationChannelInApp}
+}
+func (labWithdrawalPayload) Marshal() (json.RawMessage, error) { return json.RawMessage(`{}`), nil }
+
 func init() {
 	for _, typ := range []NotificationType{inboxModel.TypeResourceChangeRequested, inboxModel.TypeResourceChangeApproved, inboxModel.TypeResourceChangeRejected} {
 		Register(resourceChangePayload{Type: typ})
 	}
 	Register(resourceAlarmPayload{})
+	Register(labWithdrawalPayload{})
 }

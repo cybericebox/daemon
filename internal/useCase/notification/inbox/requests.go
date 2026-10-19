@@ -44,11 +44,16 @@ type RequestRouter struct {
 	queries  RequestQueries
 	inbox    *inboxRepo.Repository
 	dispatch Notifier
+	// adminURL is the admin site root with a trailing slash ("https://admin.<domain>/"); empty leaves links out.
+	adminURL string
 }
 
 func NewRequestRouter(queries RequestQueries, dispatch Notifier) *RequestRouter {
 	return &RequestRouter{queries: queries, inbox: inboxRepo.New(queries), dispatch: dispatch}
 }
+
+// SetAdminURL sets the admin site root the resource requests link to.
+func (r *RequestRouter) SetAdminURL(url string) { r.adminURL = url }
 
 func (r *RequestRouter) Name() string { return "inbox-requests" }
 

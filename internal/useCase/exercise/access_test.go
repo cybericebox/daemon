@@ -37,10 +37,13 @@ func TestAuthorizeExercise(t *testing.T) {
 		action      exercise.Action
 		wantErr     error
 		wantFull    bool
+		wantFlags   bool
 	}{
-		{name: "admin writes anything", role: rbac.RoleSuperAdmin, action: exercise.ActionPublish, wantFull: true},
-		{name: "manager publishes own event exercise", role: rbac.RoleUser, row: &eventRow, memberships: member(1), action: exercise.ActionPublish, wantFull: true},
-		{name: "viewer reads own event exercise", role: rbac.RoleUser, row: &eventRow, memberships: member(2), action: exercise.ActionRead, wantFull: true},
+		{name: "admin writes anything", role: rbac.RoleSuperAdmin, action: exercise.ActionPublish, wantFull: true, wantFlags: true},
+		{name: "admin viewer reads everything", role: rbac.RoleAdminViewer, action: exercise.ActionRead, wantFull: true, wantFlags: true},
+		{name: "manager publishes own event exercise", role: rbac.RoleUser, row: &eventRow, memberships: member(1), action: exercise.ActionPublish, wantFull: true, wantFlags: true},
+		{name: "owner reads own event exercise with flags", role: rbac.RoleUser, row: &eventRow, memberships: member(0), action: exercise.ActionRead, wantFull: true, wantFlags: true},
+		{name: "viewer reads own event exercise without flags", role: rbac.RoleUser, row: &eventRow, memberships: member(2), action: exercise.ActionRead, wantFull: true},
 		{name: "viewer cannot edit", role: rbac.RoleUser, row: &eventRow, memberships: member(2), action: exercise.ActionWrite, wantErr: exerciseModel.ErrExerciseForbidden.Err()},
 		{name: "stranger cannot read an event exercise", role: rbac.RoleUser, row: &eventRow, memberships: nil, action: exercise.ActionReadPublished, wantErr: exerciseModel.ErrExerciseForbidden.Err()},
 		{name: "manager reads an available catalog exercise, published only", role: rbac.RoleUser, row: &catalogRow, readable: ptr(true), action: exercise.ActionReadPublished},
@@ -68,7 +71,7 @@ func TestAuthorizeExercise(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || access.Full != tc.wantFull {
+			if err != nil || access.Full != tc.wantFull || access.Flags != tc.wantFlags {
 				t.Fatalf("access=%+v err=%v", access, err)
 			}
 		})
@@ -192,5 +195,39 @@ func TestRedactFlags(t *testing.T) {
 				t.Fatal("the input view was mutated")
 			}
 		})
+	}
+}
+
+// WithoutFlags takes every flag and flag env var out of a copy; the original keeps them.
+func TestWithoutFlags(t *testing.T) {
+	v := exercise.VersionView{Variants: []exerciseModel.Variant{
+		{Tasks: []exerciseModel.Task{{Flag: []string{"a"}, DeviceFlagVar: "FLAG"}, {Flag: []string{"b", "c"}}}},
+		{Tasks: []exerciseModel.Task{{Flag: []string{"d"}}}},
+	}}
+	out := exercise.WithoutFlags(v)
+	for _, variant := range out.Variants {
+		for _, task := range variant.Tasks {
+			if task.Flag != nil {
+				t.Fatalf("flag left: %+v", task)
+			}
+		}
+	}
+	if out.Variants[0].Tasks[0].DeviceFlagVar != "" || v.Variants[0].Tasks[0].DeviceFlagVar != "FLAG" || v.Variants[0].Tasks[0].Flag[0] != "a" || v.Variants[1].Tasks[0].Flag[0] != "d" {
+		t.Fatalf("copy %+v original %+v", out, v)
+	}
+}
+
+// WithoutNotes blanks the exercise note and every variant note in a copy; the original keeps them.
+func TestWithoutNotes(t *testing.T) {
+	v := exercise.VersionView{
+		AdminNote: "admin",
+		Variants:  []exerciseModel.Variant{{Note: "first"}, {Note: "second"}},
+	}
+	out := exercise.WithoutNotes(v)
+	if out.AdminNote != "" || out.Variants[0].Note != "" || out.Variants[1].Note != "" {
+		t.Fatalf("notes left: %+v", out)
+	}
+	if v.AdminNote != "admin" || v.Variants[0].Note != "first" || v.Variants[1].Note != "second" {
+		t.Fatalf("original changed: %+v", v)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -51,12 +52,16 @@ type (
 		GetExercise(ctx context.Context, id uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		ListExercises(ctx context.Context, f exerciseUseCase.ExercisesFilter) (exerciseUseCase.ExercisesListResult, error)
 		ListExerciseTags(ctx context.Context, actor exerciseUseCase.Actor, prefix string, limit int) ([]exerciseUseCase.ExerciseTagSuggestion, error)
+		ListExerciseAuthors(ctx context.Context, actor exerciseUseCase.Actor, search string, ids []uuid.UUID, limit int) ([]exerciseUseCase.ExerciseAuthorSuggestion, error)
 		UpdateExerciseIdentity(ctx context.Context, in exerciseUseCase.UpdateExerciseInput) (exerciseUseCase.ExerciseView, error)
 		GetExerciseUsage(ctx context.Context, id uuid.UUID) (exerciseUseCase.ExerciseUsage, error)
 		GetVariantStats(ctx context.Context, exerciseID uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error)
 		DeleteExercise(ctx context.Context, id uuid.UUID) error
 		ArchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
 		UnarchiveExercise(ctx context.Context, id, by uuid.UUID) (exerciseUseCase.ExerciseView, error)
+		// bulk actions of the catalog table: per task by the rule of the single-task route
+		BulkSetArchived(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, archived bool) ([]exerciseUseCase.BulkResult, error)
+		BulkSetAccess(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) ([]exerciseUseCase.BulkResult, error)
 		// lifecycle
 		SaveDraft(ctx context.Context, exerciseID uuid.UUID, in exerciseUseCase.SaveDraftInput) (exerciseUseCase.VersionView, error)
 		PublishDraft(ctx context.Context, exerciseID uuid.UUID) (exerciseUseCase.VersionView, error)
@@ -68,7 +73,8 @@ type (
 		GetWorkingCopy(ctx context.Context, exerciseID uuid.UUID) (exerciseUseCase.VersionView, error)
 		ListVersions(ctx context.Context, exerciseID uuid.UUID) ([]exerciseUseCase.VersionListItem, error)
 		// deploy (per-variant test)
-		DeployVariantTest(ctx context.Context, userID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error)
+		DeployVariantTest(ctx context.Context, userID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error)
+		TestRunLengths(ctx context.Context) (allowed []int, defaultMinutes int)
 		DeployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error)
 		DestroyDeployTest(ctx context.Context, userID, deployID uuid.UUID) error
 		ResetTestDeployDevice(ctx context.Context, userID, deployID uuid.UUID, device string) error
@@ -115,6 +121,12 @@ type (
 		// W4: data-dependent authorization and ownership
 		AuthorizeExercise(ctx context.Context, actor exerciseUseCase.Actor, id uuid.UUID, action exerciseUseCase.Action) (exerciseUseCase.Access, error)
 		AuthorizeFileUpload(ctx context.Context, actor exerciseUseCase.Actor) error
+		// RequireAuthor: exercises.write or an owner/manager of some event (import routes not about one target).
+		RequireAuthor(ctx context.Context, actor exerciseUseCase.Actor) error
+		// AuthorizeImport: the catalog (nil) needs exercises.write; an event needs that or managing it.
+		AuthorizeImport(ctx context.Context, actor exerciseUseCase.Actor, ownerEventID *uuid.UUID) error
+		// AuthorizeExport: exercises.export, or every task belongs to an event the caller manages.
+		AuthorizeExport(ctx context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID) error
 		AuthorizeFileDownload(ctx context.Context, actor exerciseUseCase.Actor, file mediaModel.File) error
 		AuthorizeTestDeploy(ctx context.Context, actor exerciseUseCase.Actor, exerciseID, versionID, variantID uuid.UUID) error
 		RedactFlags(ctx context.Context, actor exerciseUseCase.Actor, v exerciseUseCase.VersionView) (exerciseUseCase.VersionView, error)
@@ -154,12 +166,15 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// W4: every route below is PermSelf-gated plus the data-dependent
 		// exercise policy (h.authorize / the use case): admins keep their RBAC
 		// rights, event managers work on their events' exercises and read
-		// the catalog exercises available to them. Export/import stay RBAC.
+		// the catalog exercises available to them. Import and export follow
+		// the same split: the catalog and any task for admins (exercises.write /
+		// exercises.export), an event's own tasks for its owners/managers.
 		self := h.prot.RequirePermission(rbac.PermSelf)
 		// long: whole-file server-side work (assemble, promote, import) outlives the server WriteTimeout
 		long := download.LongOperation()
 		ex.GET("", self, h.list)
 		ex.GET("tags", self, h.listTags)
+		ex.GET("authors", self, h.listAuthors)
 		ex.GET("access", self, h.access)
 		ex.POST("", self, h.create)
 
@@ -178,19 +193,20 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.PUT("uploads/:uploadID/chunks/:index", self, middleware.RawBody, h.putUploadChunk)
 		ex.POST("uploads/:uploadID/complete", long, self, h.completeUpload)
 		ex.DELETE("uploads/:uploadID", self, h.abortUpload)
-		// a ZIP archive that went up in chunks
-		ex.POST("import/uploaded", long, h.prot.RequirePermission(rbac.PermExercisesWrite), h.importUploadedArchive)
+		// a ZIP archive that went up in chunks; the target (catalog or event) is authorized in the handler
+		ex.POST("import/uploaded", long, self, h.importUploadedArchive)
 		// a task archive upload (purpose exercise-archive), read where its chunks lie; with images a background job
-		ex.POST("import/upload", long, h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchiveUpload)
-		// the background import's state, for the user who started it (same gate as the import)
-		ex.GET("import/jobs", h.prot.RequirePermission(rbac.PermExercisesWrite), h.runningImportJobs)
-		ex.GET("import/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importJob)
-		// the built-in example archive: same gate as the import it explains
-		ex.GET("import/example", h.prot.RequirePermission(rbac.PermExercisesWrite), h.importExample)
-		ex.POST("export", h.prot.RequirePermission(rbac.PermExercisesExport), h.export)
-		// the background export's state, for the user who started it (same gate as the export)
-		ex.GET("export/jobs/:jobID", h.prot.RequirePermission(rbac.PermExercisesExport), h.exportJob)
-		ex.POST("import", long, h.prot.RequirePermission(rbac.PermExercisesWrite), h.importArchive)
+		ex.POST("import/upload", long, self, h.importArchiveUpload)
+		// the background import's state, for the user who started it only (the use case scopes it to them)
+		ex.GET("import/jobs", self, h.runningImportJobs)
+		ex.GET("import/jobs/:jobID", self, h.importJob)
+		// the built-in example archive: for whoever may import somewhere
+		ex.GET("import/example", self, h.importExample)
+		// every task of the selection is authorized in the handler (AuthorizeExport)
+		ex.POST("export", self, h.export)
+		// the background export's state, for the user who started it only (the use case scopes it to them)
+		ex.GET("export/jobs/:jobID", self, h.exportJob)
+		ex.POST("import", long, self, h.importArchive)
 		ex.GET("capabilities", self, h.capabilities)
 		ex.GET("flag-policy", self, h.flagPolicy)
 
@@ -210,6 +226,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		// extend and destroy are owner-scoped in the use case; creating one
 		// is authorized per exercise (h.deploy).
 		ex.GET("deploys", self, h.listDeploys)
+		ex.GET("test-runs/lengths", self, h.testRunLengths)
 		ex.GET("deploys/:deployID", self, h.deployStatus)
 		ex.POST("deploys/:deployID/extend", self, h.extendDeploy)
 		ex.POST("deploys/:deployID/link", self, h.deployLink)
@@ -217,6 +234,12 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.POST("deploys/:deployID/devices/:device/reset", self, h.resetDeployDevice)
 		ex.POST("deploys/:deployID/devices/:device/rescue", self, h.rescueDeployDevice)
 		ex.DELETE("deploys/:deployID", self, h.destroyDeploy)
+
+		// bulk actions of the catalog table ("bulk" is a static segment, registered before ":id"): every task is
+		// authorized as by its single-task route (archive: the exercise policy per task; access: exercises.write).
+		ex.POST("bulk/archive", self, h.bulkArchive)
+		ex.POST("bulk/unarchive", self, h.bulkUnarchive)
+		ex.PUT("bulk/access", h.prot.RequirePermission(rbac.PermExercisesWrite), h.bulkSetAccess)
 
 		ex.GET(":id", self, h.authorize(exerciseUseCase.ActionReadPublished), h.get)
 		ex.GET(":id/usage", self, h.authorize(exerciseUseCase.ActionRead), h.usage)
@@ -283,6 +306,52 @@ func (h *Handler) listTags(ctx *gin.Context) {
 	response.AbortWithData(ctx, items)
 }
 
+// listAuthors godoc
+// @Summary  Authors of the exercises the caller may read, by use (the author filter); names only, never emails
+// @Tags     exercises
+// @Produce  json
+// @Param    search  query  string  false  "name substring (case-insensitive); empty returns the most frequent authors"
+// @Param    id      query  []string  false  "only these authors (repeated or comma-separated, max 100): the names of the chosen ones"  collectionFormat(multi)
+// @Param    limit   query  int     false  "max authors (default 50, max 200)"
+// @Success  200  {object}  response.Response{data=[]exerciseUseCase.ExerciseAuthorSuggestion}
+// @Failure  400  {object}  response.Response
+// @Router   /exercises/authors [get]
+func (h *Handler) listAuthors(ctx *gin.Context) {
+	actor, ok := actorFrom(ctx)
+	if !ok {
+		return
+	}
+	limit := 0
+	if raw := ctx.Query("limit"); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 {
+			response.AbortWithBadRequest(ctx, fmt.Errorf("limit must be a positive integer"))
+			return
+		}
+		limit = value
+	}
+	rawIDs := queryList(ctx, "id")
+	if len(rawIDs) > maxAuthorFilter {
+		response.AbortWithBadRequest(ctx, fmt.Errorf("at most %d authors", maxAuthorFilter))
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(rawIDs))
+	for _, raw := range rawIDs {
+		id, err := uuid.FromString(raw)
+		if err != nil {
+			response.AbortWithBadRequest(ctx, err)
+			return
+		}
+		ids = append(ids, id)
+	}
+	items, err := h.useCase.ListExerciseAuthors(ctx, actor, ctx.Query("search"), ids, limit)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	response.AbortWithData(ctx, items)
+}
+
 // capabilities exposes only the editor action's availability, not platform-wide
 // agent inventory or monitoring. The actual deploy remains guarded server-side.
 func (h *Handler) capabilities(ctx *gin.Context) {
@@ -308,11 +377,16 @@ func (h *Handler) capabilities(ctx *gin.Context) {
 // @Produce  json
 // @Param    search    query  string    false  "name/description substring"
 // @Param    tags      query  []string  false  "filter by tags (any match)"  collectionFormat(multi)
+// @Param    withTag   query  []string  false  "tasks having every one of these tags (offset pages only)"  collectionFormat(multi)
+// @Param    withoutTag  query  []string  false  "tasks having none of these tags (offset pages only)"  collectionFormat(multi)
+// @Param    author    query  []string  false  "author (creator) ids, repeated or comma-separated, max 100: any of them (offset pages only)"  collectionFormat(multi)
+// @Param    difficultyMin  query  int  false  "lowest rounded average difficulty level, 1 elementary … 6 insane; tasks without one are excluded (offset pages only)"
+// @Param    difficultyMax  query  int  false  "highest rounded average difficulty level, 1..6 (offset pages only)"
 // @Param    cursor    query  string    false  "id of the last row of the previous page"
 // @Param    page      query  int       false  "1-based page; selects offset pagination"
 // @Param    pageSize  query  int       false  "page size"
-// @Param    status    query  string    false  "published, changed, draft_only, archived, or none (offset pages only)"
-// @Param    sortBy    query  string    false  "name, tags, status, or updated (offset pages only)"
+// @Param    status    query  []string  false  "published, changed, draft_only, archived or none, repeated or comma-separated: any of them; archived with others lists both (offset pages only)"  collectionFormat(multi)
+// @Param    sortBy    query  string    false  "name, tags, status, author, difficulty, subtasks or updated (offset pages only)"
 // @Param    sortDir   query  string    false  "asc or desc (offset pages only)"
 // @Param    archived  query  string    false  "exclude (default) or only; status=archived implies only"
 // @Param    scope     query  string    false  "catalog, event, or empty for both"
@@ -333,11 +407,10 @@ func (h *Handler) list(ctx *gin.Context) {
 			return
 		}
 		filter := exerciseUseCase.ExercisesFilter{
-			Search: ctx.Query("search"), Tags: ctx.QueryArray("tags"), Status: ctx.Query("status"),
-			Archived: ctx.Query("archived"),
-			Page:     page.Page, PageSize: page.PageSize, SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir"),
+			Search: ctx.Query("search"), Tags: ctx.QueryArray("tags"), Archived: ctx.Query("archived"),
+			Page: page.Page, PageSize: page.PageSize, SortBy: ctx.Query("sortBy"), SortDir: ctx.Query("sortDir"),
 		}
-		if !applyVisibilityQuery(ctx, &filter) {
+		if !applyVisibilityQuery(ctx, &filter) || !applyTableQuery(ctx, &filter) {
 			return
 		}
 		res, err := h.useCase.ListExercisesFor(ctx, actor, filter)
@@ -599,11 +672,24 @@ func (h *Handler) listVersions(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	// The internal notes are for full access only (admins, the owner event's owners/managers).
+	notes := accessFrom(ctx).Flags
 	out := make([]versionListItemResponse, 0, len(items))
 	for _, v := range items {
+		adminNote := v.AdminNote
+		if !notes {
+			adminNote = ""
+		}
 		out = append(out, versionListItemResponse{
-			ID: v.ID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label, VariantCount: v.VariantCount,
-			CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
+			ID:           v.ID,
+			Status:       v.Status,
+			AdminNote:    adminNote,
+			Label:        v.Label,
+			VariantCount: v.VariantCount,
+			CreatedAt:    v.CreatedAt,
+			CreatedBy:    v.CreatedBy,
+			AuthorName:   v.AuthorName,
+			PublishedAt:  v.PublishedAt,
 		})
 	}
 	response.AbortWithData(ctx, out)
@@ -639,6 +725,14 @@ func (h *Handler) getVersion(ctx *gin.Context) {
 		response.AbortWithError(ctx, exerciseModel.ErrExerciseVersionNotFound.Err())
 		return
 	}
+	// An event viewer reads their event's tasks without the flags.
+	if access := accessFrom(ctx); access.Full && !access.Flags {
+		v = exerciseUseCase.WithoutFlags(v)
+	}
+	// The internal notes reach only full access: not an event viewer, not a published-only reader.
+	if !accessFrom(ctx).Flags {
+		v = exerciseUseCase.WithoutNotes(v)
+	}
 	// The fixed flags of a catalog exercise reach only the managers of an event it is attached to.
 	if !accessFrom(ctx).Full {
 		actor, ok := actorFrom(ctx)
@@ -670,6 +764,10 @@ func (h *Handler) getDraft(ctx *gin.Context) {
 	if err != nil {
 		response.AbortWithError(ctx, err)
 		return
+	}
+	// An event viewer reads the working copy without the flags and the internal notes.
+	if !accessFrom(ctx).Flags {
+		v = exerciseUseCase.WithoutNotes(exerciseUseCase.WithoutFlags(v))
 	}
 	response.AbortWithData(ctx, versionToResponse(v))
 }

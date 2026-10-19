@@ -339,14 +339,14 @@ func parseArchiveRead(read archiveRead) ([]ParsedExerciseArchive, error) {
 // importArchiveRead imports every task of an archive read with its image files, all or nothing: every task is
 // parsed and checked, every image file indexed and then pushed, and only then are the tasks created. A failure
 // while creating removes the tasks this import already created.
-func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRead, createdBy uuid.UUID, progress *importProgress) ([]ExerciseView, error) {
+func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRead, createdBy uuid.UUID, ownerEventID *uuid.UUID, progress *importProgress) ([]ExerciseView, error) {
 	tasks, err := parseArchiveRead(read)
 	if err != nil {
 		return nil, err
 	}
 	progress.tasksTotal(ctx, len(tasks))
 	for i := range tasks {
-		if err = u.prepareImport(ctx, &tasks[i], read.protected); err != nil {
+		if err = u.prepareImport(ctx, &tasks[i], read.protected, ownerEventID); err != nil {
 			return nil, err
 		}
 	}
@@ -362,7 +362,7 @@ func (u *ExerciseUseCase) importArchiveRead(ctx context.Context, read archiveRea
 	}
 	created := make([]ExerciseView, 0, len(tasks))
 	for i := range tasks {
-		view, storeErr := u.storeImport(ctx, &tasks[i], createdBy)
+		view, storeErr := u.storeImport(ctx, &tasks[i], createdBy, ownerEventID)
 		if storeErr != nil {
 			for _, done := range created {
 				_, _ = u.exercises.Delete(context.WithoutCancel(ctx), done.ID)

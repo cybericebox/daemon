@@ -95,7 +95,7 @@ func TestExerciseCatalogList(t *testing.T) {
 		if listErr != nil {
 			t.Fatal(listErr)
 		}
-		count, countErr := repo.CountPage(ctx, "", []string{}, status, archivedFilter, v)
+		count, countErr := repo.CountPage(ctx, exerciseRepo.PageParams{Tags: []string{}, Status: status, Archived: archivedFilter, Visibility: v})
 		if countErr != nil || count != int64(len(rows)) {
 			t.Fatalf("count %d != rows %d (err=%v)", count, len(rows), countErr)
 		}

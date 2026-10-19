@@ -14,15 +14,21 @@ type (
 	// QueueResponse is the place of a lab in the scheduler queue; the phase is Queued while none of its
 	// pods has been dispatched. Position is 1-based among the labs that still have pods to dispatch and
 	// 0 when all are dispatched (Length is their number). Reason is why the next pod waits: InFlightLimit,
-	// WaitingForGroup, WaitingForTurn, PreparingImages, InsufficientResources, NoSchedulableNodes or TenantQuota; empty
-	// when nothing waits. Message is its detail. Pods are the pods of the lab, Pending those not dispatched.
+	// WaitingForGroup, WaitingForTurn, PreparingImages, InsufficientResources, NoSchedulableNodes, TenantQuota,
+	// DoesNotFitNow, ReservationMissing, ReservationNotActive, ReservationFull or Withdrawn (not every pod of the
+	// lab's group got a node in time: the cluster deleted its pods and sends it again at RetryAt, Attempt counts the
+	// withdrawals in a row); or NodeStarting while every pod is sent and some wait for a node (since WaitingSince);
+	// empty when nothing waits. Message is its detail. Pods are the pods of the lab, Pending those not dispatched.
 	QueueResponse struct {
-		Position int32  `json:"Position"`
-		Length   int32  `json:"Length"`
-		Reason   string `json:"Reason"`
-		Message  string `json:"Message"`
-		Pods     int32  `json:"Pods"`
-		Pending  int32  `json:"Pending"`
+		Position     int32      `json:"Position"`
+		Length       int32      `json:"Length"`
+		Reason       string     `json:"Reason"`
+		Message      string     `json:"Message"`
+		Pods         int32      `json:"Pods"`
+		Pending      int32      `json:"Pending"`
+		Attempt      int32      `json:"Attempt"`
+		RetryAt      *time.Time `json:"RetryAt"`
+		WaitingSince *time.Time `json:"WaitingSince"`
 	}
 
 	// SchedulingResponse is one device pod on its way through the scheduler. State is Queued, Starting,
@@ -46,12 +52,18 @@ type (
 	}
 
 	// StandQueueResponse summarizes the labs of one stand that wait in the launch queue: how many, and
-	// the place and reason of the best placed one. Reason is as in QueueResponse.
+	// the place and reason of the best placed one (Attempt and RetryAt when it was withdrawn). Reason is as in
+	// QueueResponse. NodeStartingLabs are the labs whose pods are all sent while some wait for a node, since
+	// WaitingSince; with no queued lab the Reason is NodeStarting.
 	StandQueueResponse struct {
-		QueuedLabs int    `json:"QueuedLabs"`
-		Position   int32  `json:"Position"`
-		Length     int32  `json:"Length"`
-		Reason     string `json:"Reason"`
+		QueuedLabs       int        `json:"QueuedLabs"`
+		Position         int32      `json:"Position"`
+		Length           int32      `json:"Length"`
+		Reason           string     `json:"Reason"`
+		NodeStartingLabs int        `json:"NodeStartingLabs"`
+		Attempt          int32      `json:"Attempt"`
+		RetryAt          *time.Time `json:"RetryAt"`
+		WaitingSince     *time.Time `json:"WaitingSince"`
 	}
 
 	// SnapshotResponse is the writable-layer snapshot state of a device with state persistence.
@@ -97,15 +109,21 @@ func Queue(q *exerciseModel.LabQueue) *QueueResponse {
 	if q == nil {
 		return nil
 	}
-	return &QueueResponse{Position: q.Position, Length: q.Length, Reason: q.Reason, Message: q.Message, Pods: q.Pods, Pending: q.Pending}
+	return &QueueResponse{Position: q.Position, Length: q.Length, Reason: q.Reason, Message: q.Message, Pods: q.Pods, Pending: q.Pending,
+		Attempt: q.Attempt, RetryAt: optionalTime(q.RetryAt), WaitingSince: optionalTime(q.WaitingSince)}
 }
 
 // StandQueue summarizes the queue of a stand from the monitoring state; nil when no lab waits.
 func StandQueue(l labMonitoring.Launch) *StandQueueResponse {
-	if l.QueuedLabs == 0 {
+	if l.QueuedLabs == 0 && l.NodeStartingLabs == 0 {
 		return nil
 	}
-	return &StandQueueResponse{QueuedLabs: l.QueuedLabs, Position: l.Position, Length: l.Length, Reason: l.Reason}
+	out := &StandQueueResponse{QueuedLabs: l.QueuedLabs, Position: l.Position, Length: l.Length, Reason: l.Reason,
+		NodeStartingLabs: l.NodeStartingLabs, Attempt: l.Attempt, RetryAt: optionalTime(l.RetryAt), WaitingSince: optionalTime(l.WaitingSince)}
+	if l.QueuedLabs == 0 {
+		out.Reason = exerciseModel.QueueReasonNodeStarting
+	}
+	return out
 }
 
 // Snapshot maps a device snapshot; nil stays nil.

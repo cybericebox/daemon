@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	inboxModel "github.com/cybericebox/daemon/internal/model/notification/inbox"
@@ -242,8 +243,26 @@ func TestListInbox_SerializesResolution(t *testing.T) {
 	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/notifications/inbox", nil))
 	assert.Equal(t, http.StatusOK, w.Code)
 	body := w.Body.String()
-	assert.Contains(t, body, `"Category":"requests","ActionRequired":true,"ResolvedAt":"2026-09-29T12:04:00Z","Resolution":"fixed","ResolvedBy":{"ID":"`+resolver.String()+`","Name":"Іван П."}`)
-	assert.Contains(t, body, `"Category":"activity","ActionRequired":false,"ResolvedAt":null,"Resolution":null,"ResolvedBy":null`)
+	assert.Contains(t, body, `"Category":"requests","ActionRequired":true,"ResolvedAt":"2026-09-29T12:04:00Z","Resolution":"fixed","ResolvedBy":{"ID":"`+resolver.String()+`","Name":"Іван П."},"Resolvable":false`)
+	assert.Contains(t, body, `"Category":"activity","ActionRequired":false,"ResolvedAt":null,"Resolution":null,"ResolvedBy":null,"Resolvable":false`)
+}
+
+// Resolvable follows the server's own rule: an open request of a manually resolvable type, nothing else.
+func TestListInbox_ResolvableFlag(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	resolved := time.Date(2026, 10, 19, 14, 25, 0, 0, time.UTC)
+	uc := &fakeUseCase{list: []inboxModel.InAppNotification{
+		{ID: uuid.Must(uuid.NewV7()), Type: "resources.alarm.raised", Category: inboxModel.CategoryRequests, ActionRequired: true, Title: "open alarm"},
+		{ID: uuid.Must(uuid.NewV7()), Type: "resources.alarm.raised", Category: inboxModel.CategoryRequests, ActionRequired: true, ResolvedAt: &resolved, Title: "closed alarm"},
+		{ID: uuid.Must(uuid.NewV7()), Type: "event.application.submitted", Category: inboxModel.CategoryRequests, ActionRequired: true, Title: "decision only"},
+	}}
+	w := httptest.NewRecorder()
+	newEngine(uc, &uid).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/notifications/inbox", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	body := w.Body.String()
+	assert.Regexp(t, `"Title":"open alarm".*?"Resolvable":true`, body)
+	assert.Regexp(t, `"Title":"closed alarm".*?"Resolvable":false`, body)
+	assert.Regexp(t, `"Title":"decision only".*?"Resolvable":false`, body)
 }
 
 func TestResolveRequest_PassesCallerAndID(t *testing.T) {

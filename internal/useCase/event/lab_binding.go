@@ -14,6 +14,7 @@ import (
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
 	eventModel "github.com/cybericebox/daemon/internal/model/event"
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	eventExerciseModel "github.com/cybericebox/daemon/internal/model/eventExercise"
 	eventStandModel "github.com/cybericebox/daemon/internal/model/eventStand"
@@ -166,6 +167,7 @@ func (u *EventUseCase) GetOwnLabVPNConfig(ctx context.Context, eventID, userID u
 	if config == "" {
 		return "", eventStandModel.ErrStandLabClientMissing.Err()
 	}
+	u.recordVPNConfigDownload(ctx, eventID, userID, eventActivityModel.VPNConfigParticipant)
 	return config, nil
 }
 

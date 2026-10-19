@@ -160,7 +160,10 @@ func (u *ResourceCalendarUseCase) AdmitTestLab(ctx context.Context, req TestLabR
 	if err != nil {
 		return TestLabRoom{}, err
 	}
-	var result admission
+	var (
+		result      admission
+		agent, part uuid.UUID
+	)
 	err = u.inTx(ctx, func(ctx context.Context, s Store) error {
 		a, dErr := u.decideTestLab(ctx, s, states, size, req.LargestDevice, req.Owner, lease, now)
 		if dErr != nil {
@@ -174,18 +177,26 @@ func (u *ResourceCalendarUseCase) AdmitTestLab(ctx context.Context, req TestLabR
 		if hErr := s.SaveHold(ctx, hold); hErr != nil {
 			return platformErr(hErr, "Failed to record the test laboratory hold")
 		}
-		return nil
+		// The chosen length is the window of the run's cluster reservation.
+		var aErr error
+		if agent, aErr = u.testRunAgent(ctx, s, a, states, size, req.LargestDevice, lease, req.PinnedAgent, now); aErr != nil {
+			return aErr
+		}
+		part, aErr = u.testRunParts(ctx, s, req, a.via, agent, lease, now)
+		return aErr
 	})
 	if err != nil {
 		return TestLabRoom{}, err
 	}
-	return TestLabRoom{Available: true, Via: result.via}, nil
+	u.pushParts(ctx)
+	return TestLabRoom{Available: true, Via: result.via, ExpiresAt: now.Add(lease), AgentID: agent, PartID: part}, nil
 }
 
-// ExtendTestLab moves the end of a hold when the lease of its laboratory is extended.
+// ExtendTestLab moves the end of a hold when the lease of its laboratory is extended, and the end of its run's
+// cluster reservation with it (the same id), so the agent's ending notice goes back.
 func (u *ResourceCalendarUseCase) ExtendTestLab(ctx context.Context, id, owner uuid.UUID, size Amount, until time.Time) error {
 	now := u.now().UTC()
-	return u.inTx(ctx, func(ctx context.Context, s Store) error {
+	err := u.inTx(ctx, func(ctx context.Context, s Store) error {
 		holds, err := s.ActiveHolds(ctx, now)
 		if err != nil {
 			return platformErr(err, "Failed to read the test laboratory holds")
@@ -198,15 +209,40 @@ func (u *ResourceCalendarUseCase) ExtendTestLab(ctx context.Context, id, owner u
 				}
 			}
 		}
-		return nil
+		return u.extendRunPart(ctx, s, id, owner, until, now)
 	})
+	if err != nil {
+		return err
+	}
+	u.pushParts(ctx)
+	return nil
 }
 
-// ReleaseTestLab frees the room of a test laboratory that ended.
+// ReleaseTestLab frees the room of a test laboratory that ended: its hold, its run's cluster reservation, and the
+// author's group part shrinks to the runs that are left.
 func (u *ResourceCalendarUseCase) ReleaseTestLab(ctx context.Context, id uuid.UUID) error {
-	if err := u.store.DeleteHold(ctx, id); err != nil {
-		return platformErr(err, "Failed to release the test laboratory hold")
+	now := u.now().UTC()
+	err := u.inTx(ctx, func(ctx context.Context, s Store) error {
+		var owner *uuid.UUID
+		holds, err := s.ActiveHolds(ctx, now)
+		if err != nil {
+			return platformErr(err, "Failed to read the test laboratory holds")
+		}
+		for _, h := range holds {
+			if h.ID == id {
+				o := h.OwnerID
+				owner = &o
+			}
+		}
+		if err = s.DeleteHold(ctx, id); err != nil {
+			return platformErr(err, "Failed to release the test laboratory hold")
+		}
+		return u.endRunPart(ctx, s, id, owner, now)
+	})
+	if err != nil {
+		return err
 	}
+	u.pushParts(ctx)
 	return nil
 }
 
@@ -292,11 +328,12 @@ func (u *ResourceCalendarUseCase) BookTestLab(ctx context.Context, owner uuid.UU
 			return platformErr(cErr, "Failed to save the booking")
 		}
 		booking = b
-		return nil
+		return u.splitParts(ctx, s, b, false, now)
 	})
 	if err != nil {
 		return BookingView{}, err
 	}
+	u.pushParts(ctx)
 	return BookingView{ID: booking.ID, From: booking.Window.Start, To: booking.Window.End, Size: booking.Size}, nil
 }
 
@@ -316,7 +353,7 @@ func (u *ResourceCalendarUseCase) ListTestLabBookings(ctx context.Context, owner
 // CancelBooking cancels the author's own booking; its room is free at once.
 func (u *ResourceCalendarUseCase) CancelTestLabBooking(ctx context.Context, owner, id uuid.UUID) error {
 	now := u.now().UTC()
-	return u.inTx(ctx, func(ctx context.Context, s Store) error {
+	err := u.inTx(ctx, func(ctx context.Context, s Store) error {
 		r, err := s.GetReservation(ctx, id)
 		if err != nil || r.Kind != calModel.KindBooking || r.OwnerID == nil || *r.OwnerID != owner || !r.Active() {
 			if err == nil || notFound(err) {
@@ -328,6 +365,11 @@ func (u *ResourceCalendarUseCase) CancelTestLabBooking(ctx context.Context, owne
 		if _, err = s.UpdateReservation(ctx, r); err != nil {
 			return platformErr(err, "Failed to cancel the booking")
 		}
-		return nil
+		return u.splitParts(ctx, s, r, false, now)
 	})
+	if err != nil {
+		return err
+	}
+	u.pushParts(ctx)
+	return nil
 }

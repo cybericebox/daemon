@@ -69,8 +69,10 @@ SELECT lab.materialized AND lab.objective_count>0
  ) AS complete FROM event_team_labs lab WHERE lab.id=sqlc.arg(id);
 
 -- name: ListDirtyEventTeamLabs :many
+-- A lab the cluster deleted with its reservation (Deleted, retirement Deleted, no retirement target) is settled.
 SELECT * FROM event_team_labs
 WHERE next_attempt_at<=sqlc.arg(now)
+ AND NOT (desired_state='Deleted' AND actual_state='Deleted' AND retirement_state='Deleted' AND retirement_stop_target IS NULL)
  AND NOT COALESCE((desired_state='Stopped' AND actual_state='Stopped' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'ReleasedAt' IS NOT NULL AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
  AND NOT COALESCE((desired_state='Deleted' AND actual_state='Deleted' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'StorageState'='Deleted' AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
 ORDER BY next_attempt_at,id LIMIT sqlc.arg(limit_val);
@@ -169,3 +171,9 @@ WHERE id=sqlc.arg(id) AND agent_uid='' AND desired_state IN ('Running','Stopped'
  AND desired_revision=sqlc.arg(desired_revision) AND generation=sqlc.arg(generation)
  AND lab_group_name=sqlc.arg(lab_group_name) AND lab_name=sqlc.arg(lab_name)
  AND create_evidence=sqlc.arg(expected_create_evidence)::jsonb;
+
+-- name: ListRunningEventTeamLabsInGroups :many
+-- The labs of an event that still run in the given team groups (their cluster reservation is ending).
+SELECT id FROM event_team_labs
+WHERE event_id = sqlc.arg(event_id) AND lab_group_name = ANY(sqlc.arg(groups)::text[]) AND desired_state = 'Running'
+ORDER BY id;

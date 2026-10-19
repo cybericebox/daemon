@@ -28,6 +28,7 @@ type Amount = calModel.Amount
 type (
 	// Store is the data port of the calendar (satisfied by *resourceCalendarRepo.Repository).
 	Store interface {
+		PartStore
 		Lock(ctx context.Context) error
 		CreateReservation(ctx context.Context, v *calModel.Reservation) error
 		UpdateReservation(ctx context.Context, v *calModel.Reservation) (bool, error)
@@ -168,6 +169,7 @@ type (
 		// testLabLease is the lease in force for a request naming none (SetTestLabLease); nil: cfg.TestLabLease.
 		testLabLease func(context.Context) time.Duration
 		now          func() time.Time
+		cluster      clusterSync
 	}
 )
 

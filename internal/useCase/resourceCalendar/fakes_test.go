@@ -26,6 +26,8 @@ type memStore struct {
 	holds        map[uuid.UUID]calModel.TestLabHold
 	settings     calModel.Settings
 	labels       map[uuid.UUID]calModel.Label
+	parts        map[uuid.UUID]calModel.Part
+	units        map[uuid.UUID]map[string]uuid.UUID
 }
 
 func newMemStore() *memStore {
@@ -266,6 +268,8 @@ type fakeNotifier struct {
 	decided   []bool
 	raised    []inboxUseCase.ResourceAlarm
 	closed    []uuid.UUID
+	ending    []ReservationNotice
+	reduced   []ReservationNotice
 }
 
 func (f *fakeNotifier) ResourceChangeRequested(_ context.Context, c inboxUseCase.ResourceChange) error {

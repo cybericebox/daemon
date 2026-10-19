@@ -734,6 +734,7 @@ type ChallengeSolvesPage struct {
 // TeamRosterMemberView is one member of the caller's team; DisplayName is the
 // participant public name (pseudonym when allowed and set).
 type TeamRosterMemberView struct {
+	// UserID is uuid.Nil for other people when the caller is not the captain.
 	UserID      uuid.UUID
 	DisplayName string
 	Role        participantModel.TeamRole
@@ -832,8 +833,11 @@ type ManageResultsView struct {
 	Revision    int64
 	GeneratedAt time.Time
 	Freeze      ResultsFreezeView
-	Counts      ManageResultsCountsView
-	Teams       []ManageResultsTeamView
+	// ParticipantsSee: the participants read the board now (the event runs or
+	// finished and its results are not hidden).
+	ParticipantsSee bool
+	Counts          ManageResultsCountsView
+	Teams           []ManageResultsTeamView
 }
 
 type ManageResultsCountsView struct {

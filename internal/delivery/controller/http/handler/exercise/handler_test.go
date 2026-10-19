@@ -32,6 +32,8 @@ import (
 
 // fakeUC satisfies exerciseHandler.IUseCase.
 type fakeUC struct {
+	// deployLength is the run length the last deploy asked for.
+	deployLength time.Duration
 	// limits are the archive limits in force (nil: the defaults); limitReads counts the reads, exportLimits and
 	// imports are what the archive calls got.
 	limits                *exerciseModel.ArchiveLimits
@@ -69,6 +71,16 @@ type fakeUC struct {
 	checkedImages         []string
 	availability          []imageRegistryModel.Availability
 	scopeAsked            bool
+	// access overrides what AuthorizeExercise grants (nil: full, flags included).
+	access *exerciseUseCase.Access
+	// managedEvent is the event the caller owns/manages (uuid.Nil: none); exportable are the tasks of it.
+	managedEvent  uuid.UUID
+	exportable    map[uuid.UUID]bool
+	importTargets []*uuid.UUID
+	authorSearch  string
+	authorIDs     []uuid.UUID
+	authorLimit   int
+	authors       []exerciseUseCase.ExerciseAuthorSuggestion
 	// image upload
 	imageUpload imageUploadCalls
 	// background import of archives with images
@@ -106,6 +118,12 @@ type fakeUC struct {
 	// lifecycle: archive/unarchive
 	archivedID   uuid.UUID
 	unarchivedID uuid.UUID
+
+	// bulk actions of the catalog table
+	bulkResults  []exerciseUseCase.BulkResult
+	bulkIDs      []uuid.UUID
+	bulkArchived *bool
+	bulkAccess   *exerciseUseCase.SetAccessInput
 }
 
 func (f *fakeUC) CreateExercise(_ context.Context, _ exerciseUseCase.CreateExerciseInput) (exerciseUseCase.ExerciseView, error) {
@@ -132,6 +150,14 @@ func (f *fakeUC) ArchiveExercise(_ context.Context, id, _ uuid.UUID) (exerciseUs
 func (f *fakeUC) UnarchiveExercise(_ context.Context, id, _ uuid.UUID) (exerciseUseCase.ExerciseView, error) {
 	f.unarchivedID = id
 	return f.exerciseView, f.err
+}
+func (f *fakeUC) BulkSetArchived(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, archived bool) ([]exerciseUseCase.BulkResult, error) {
+	f.bulkIDs, f.bulkArchived = ids, &archived
+	return f.bulkResults, f.err
+}
+func (f *fakeUC) BulkSetAccess(_ context.Context, _ exerciseUseCase.Actor, ids []uuid.UUID, in exerciseUseCase.SetAccessInput) ([]exerciseUseCase.BulkResult, error) {
+	f.bulkIDs, f.bulkAccess = ids, &in
+	return f.bulkResults, f.err
 }
 func (f *fakeUC) GetVariantStats(_ context.Context, _ uuid.UUID) ([]exerciseUseCase.VersionVariantStats, error) {
 	return f.variantStats, f.err
@@ -248,9 +274,11 @@ func (f *fakeUC) MaxActiveTestDeploys() int                               { retu
 func (f *fakeUC) DevicePersistenceAllowed() bool                          { return true }
 func (f *fakeUC) Policy() resourcesModel.Policy                           { return resourcesModel.DefaultPolicy() }
 func (f *fakeUC) FlagPolicy() exerciseUseCase.FlagPolicy                  { return f.flagPolicy }
-func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID) (exerciseModel.DeployHandle, error) {
+func (f *fakeUC) DeployVariantTest(_ context.Context, _, _, _ uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
+	f.deployLength = length
 	return f.deployHandle, f.err
 }
+func (f *fakeUC) TestRunLengths(context.Context) ([]int, int) { return []int{15, 30, 45, 60, 120}, 120 }
 func (f *fakeUC) DeployTestStatus(_ context.Context, _, _ uuid.UUID) (exerciseModel.LabDeployStatus, error) {
 	return f.deployStatus, f.err
 }
@@ -557,7 +585,7 @@ func TestListExercises_ParsesSeveralEvents(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	got := uc.listFilter.EventIDs
-	if len(got) != 3 || got[0] != a || got[1] != b || got[2] != c || uc.listFilter.Status != "changed" {
+	if len(got) != 3 || got[0] != a || got[1] != b || got[2] != c || len(uc.listFilter.Statuses) != 1 || uc.listFilter.Statuses[0] != "changed" {
 		t.Fatalf("events are repeated or comma-separated, deduplicated in order: %+v", uc.listFilter)
 	}
 	w = httptest.NewRecorder()
@@ -622,7 +650,7 @@ func TestListExercises_OffsetPagePreservesCursorEndpoint(t *testing.T) {
 	if env.Data.Page != 2 || env.Data.PageSize != 25 || env.Data.Total != 52 {
 		t.Fatalf("offset envelope: %+v", env.Data)
 	}
-	if uc.listFilter.Page != 2 || uc.listFilter.SortBy != "name" || uc.listFilter.SortDir != "asc" || uc.listFilter.Status != "draft" || len(uc.listFilter.Tags) != 1 {
+	if uc.listFilter.Page != 2 || uc.listFilter.SortBy != "name" || uc.listFilter.SortDir != "asc" || len(uc.listFilter.Statuses) != 1 || uc.listFilter.Statuses[0] != "draft" || len(uc.listFilter.Tags) != 1 {
 		t.Fatalf("offset filter: %+v", uc.listFilter)
 	}
 	w = httptest.NewRecorder()
@@ -1418,6 +1446,43 @@ func TestDeployVariant_Returns200(t *testing.T) {
 	}
 }
 
+// The status carries the author's WireGuard private key once the lab is up: never cacheable.
+func TestDeployStatus_IsNeverCached(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	r := newEngine(&fakeUC{deployStatus: exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true, VPNConfig: "wg"}}, uid)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String(), nil))
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("code=%d Cache-Control=%q", w.Code, w.Header().Get("Cache-Control"))
+	}
+}
+
+func TestDeployTestHandlerParsesLength(t *testing.T) {
+	uid := uuid.Must(uuid.NewV7())
+	uc := &fakeUC{deployHandle: exerciseModel.DeployHandle{Group: "t-123", Lab: "lab"}}
+	r := newEngine(uc, uid)
+	url := "/api/exercises/" + uuid.Must(uuid.NewV7()).String() + "/versions/" + uuid.Must(uuid.NewV7()).String() + "/variants/" + uuid.Must(uuid.NewV7()).String() + "/deploy"
+	req := httptest.NewRequest(http.MethodPost, url, strings.NewReader(`{"LeaseMinutes":45}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || uc.deployLength != 45*time.Minute {
+		t.Fatalf("want 200 and a 45 minute run, got %d %v body=%s", w.Code, uc.deployLength, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, url, strings.NewReader(`{"LeaseMinutes":-5}`))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("a negative length is a bad request, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/test-runs/lengths", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"AllowedMinutes":[15,30,45,60,120]`) || !strings.Contains(w.Body.String(), `"DefaultMinutes":120`) {
+		t.Fatalf("lengths: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestDeployStatus_Returns200(t *testing.T) {
 	uid := uuid.Must(uuid.NewV7())
 	uc := &fakeUC{deployStatus: exerciseModel.LabDeployStatus{
@@ -1810,16 +1875,48 @@ func (f *fakeUC) AuthorizeExercise(_ context.Context, actor exerciseUseCase.Acto
 	if f.authErr != nil {
 		return exerciseUseCase.Access{}, f.authErr
 	}
+	if f.access != nil {
+		return *f.access, nil
+	}
 	if !actor.Role.HasPermission(fakeActionPermission(action)) {
 		return exerciseUseCase.Access{}, exerciseModel.ErrExerciseForbidden.Err()
 	}
-	return exerciseUseCase.Access{Full: true}, nil
+	return exerciseUseCase.Access{Full: true, Flags: true}, nil
 }
 func (f *fakeUC) AuthorizeFileUpload(_ context.Context, actor exerciseUseCase.Actor) error {
 	if !actor.Role.HasPermission(rbac.PermExercisesWrite) {
 		return exerciseModel.ErrExerciseForbidden.Err()
 	}
 	return nil
+}
+// RequireAuthor, AuthorizeImport and AuthorizeExport mirror the use case policy: RBAC, else the managed event.
+func (f *fakeUC) RequireAuthor(_ context.Context, actor exerciseUseCase.Actor) error {
+	if actor.Role.HasPermission(rbac.PermExercisesWrite) || f.managedEvent != uuid.Nil {
+		return nil
+	}
+	return exerciseModel.ErrExerciseForbidden.Err()
+}
+func (f *fakeUC) AuthorizeImport(_ context.Context, actor exerciseUseCase.Actor, owner *uuid.UUID) error {
+	f.importTargets = append(f.importTargets, owner)
+	if actor.Role.HasPermission(rbac.PermExercisesWrite) || (owner != nil && *owner == f.managedEvent && f.managedEvent != uuid.Nil) {
+		return nil
+	}
+	return exerciseModel.ErrExerciseForbidden.Err()
+}
+func (f *fakeUC) AuthorizeExport(_ context.Context, actor exerciseUseCase.Actor, ids []uuid.UUID) error {
+	if actor.Role.HasPermission(rbac.PermExercisesExport) {
+		return nil
+	}
+	for _, id := range ids {
+		if !f.exportable[id] {
+			return exerciseModel.ErrExerciseForbidden.Err()
+		}
+	}
+	return nil
+}
+func (f *fakeUC) ListExerciseAuthors(_ context.Context, _ exerciseUseCase.Actor, search string, ids []uuid.UUID, limit int) ([]exerciseUseCase.ExerciseAuthorSuggestion, error) {
+	f.authorSearch, f.authorIDs, f.authorLimit = search, ids, limit
+	return f.authors, f.err
 }
 func (f *fakeUC) AuthorizeFileDownload(_ context.Context, actor exerciseUseCase.Actor, _ mediaModel.File) error {
 	if !actor.Role.HasPermission(rbac.PermExercisesRead) {
@@ -1946,7 +2043,7 @@ func TestDeployStatus_ExposesQueueSnapshotAndImageWarnings(t *testing.T) {
 	}}
 	w := httptest.NewRecorder()
 	newEngine(uc, uid).ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/exercises/deploys/"+uuid.Must(uuid.NewV7()).String(), nil))
-	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":3,"Length":8,"Reason":"NoSchedulableNodes","Message":"","Pods":0,"Pending":0}`, `"ImageWarning":"web:latest"`, `"GroupImageWarning":"vpn:1"`,
+	for _, want := range []string{`"Phase":"Queued"`, `"Queue":{"Position":3,"Length":8,"Reason":"NoSchedulableNodes","Message":"","Pods":0,"Pending":0,"Attempt":0,"RetryAt":null,"WaitingSince":null}`, `"ImageWarning":"web:latest"`, `"GroupImageWarning":"vpn:1"`,
 		`"Snapshot":{"LastSnapshotAt":null,"RestoredAt":null,"SizeBytes":5,"Warning":"","Rescue":true}`, `{"Name":"plain","Ready":false,"Reason":"","Scheduling":null,"Snapshot":null}`} {
 		if !strings.Contains(w.Body.String(), want) {
 			t.Errorf("status lacks %s: %s", want, w.Body.String())

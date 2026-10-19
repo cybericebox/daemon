@@ -4705,7 +4705,7 @@ const docTemplate = `{
                 "tags": [
                     "event-analytics"
                 ],
-                "summary": "Per participant usage as CSV (UTF-8 with BOM)",
+                "summary": "Per participant usage as CSV (UTF-8 with BOM); owner, write moderators and platform staff only",
                 "parameters": [
                     {
                         "type": "string",
@@ -9026,6 +9026,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
+                    },
+                    "429": {
+                        "description": "more than 120 previews of one user per minute",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
                     }
                 }
             }
@@ -10420,6 +10426,14 @@ const docTemplate = `{
                         "name": "selectionID",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "the chosen run length",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/event.previewStartRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -14917,6 +14931,48 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "tasks having every one of these tags (offset pages only)",
+                        "name": "withTag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "tasks having none of these tags (offset pages only)",
+                        "name": "withoutTag",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "author (creator) ids, repeated or comma-separated, max 100: any of them (offset pages only)",
+                        "name": "author",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "lowest rounded average difficulty level, 1 elementary … 6 insane; tasks without one are excluded (offset pages only)",
+                        "name": "difficultyMin",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "highest rounded average difficulty level, 1..6 (offset pages only)",
+                        "name": "difficultyMax",
+                        "in": "query"
+                    },
+                    {
                         "type": "string",
                         "description": "id of the last row of the previous page",
                         "name": "cursor",
@@ -14935,14 +14991,18 @@ const docTemplate = `{
                         "in": "query"
                     },
                     {
-                        "type": "string",
-                        "description": "published, changed, draft_only, archived, or none (offset pages only)",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "published, changed, draft_only, archived or none, repeated or comma-separated: any of them; archived with others lists both (offset pages only)",
                         "name": "status",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "name, tags, status, or updated (offset pages only)",
+                        "description": "name, tags, status, author, difficulty, subtasks or updated (offset pages only)",
                         "name": "sortBy",
                         "in": "query"
                     },
@@ -15084,6 +15144,223 @@ const docTemplate = `{
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/authors": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Authors of the exercises the caller may read, by use (the author filter); names only, never emails",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "name substring (case-insensitive); empty returns the most frequent authors",
+                        "name": "search",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "only these authors (repeated or comma-separated, max 100): the names of the chosen ones",
+                        "name": "id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "max authors (default 50, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/exercise.ExerciseAuthorSuggestion"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/bulk/access": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Set the same access on the selected catalog exercises",
+                "parameters": [
+                    {
+                        "description": "exercise IDs (1..200); all | selected (+EventIDs) | own | none",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.bulkAccessRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.bulkResultResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/bulk/archive": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Archive the selected exercises, each by the rule of one exercise's archive",
+                "parameters": [
+                    {
+                        "description": "exercise IDs (1..200)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.bulkExercisesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.bulkResultResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/bulk/unarchive": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "Return the selected exercises to the catalog, each by the rule of one exercise's unarchive",
+                "parameters": [
+                    {
+                        "description": "exercise IDs (1..200)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/exercise.bulkExercisesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.bulkResultResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
                         }
                     }
                 }
@@ -15617,7 +15894,7 @@ const docTemplate = `{
         },
         "/exercises/export": {
             "post": {
-                "description": "200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,\n` + "`" + `images/…/\u003cdevice\u003e.tar` + "`" + `) the export runs in the background: 202 {JobID}; poll GET\n/exercises/export/jobs/{jobID}, then read the file in chunks.",
+                "description": "exercises.export exports any task; an event owner/manager only the tasks of their events (403\notherwise, nothing exported). 200 with the stored file. With IncludeImages (the platform images of the devices go into the archive,\n` + "`" + `images/…/\u003cdevice\u003e.tar` + "`" + `) the export runs in the background: 202 {JobID}; poll GET\n/exercises/export/jobs/{jobID}, then read the file in chunks.",
                 "consumes": [
                     "application/json"
                 ],
@@ -15927,6 +16204,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "archive password when it contains secrets",
                         "name": "password",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "the event the tasks are created in (its owner/manager, or exercises.write); empty: the platform catalog (exercises.write)",
+                        "name": "OwnerEventID",
                         "in": "formData"
                     }
                 ],
@@ -16608,6 +16891,37 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/resourceCalendar.testLabRoomDTO"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/exercises/test-runs/lengths": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "The run lengths an author may choose for a test laboratory",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/exercise.testRunLengthsResponse"
                                         }
                                     }
                                 }
@@ -18300,6 +18614,14 @@ const docTemplate = `{
                         "name": "variantID",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "the chosen run length",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/exercise.deployRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -18329,6 +18651,12 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/response.Response"
                         }
@@ -24237,6 +24565,9 @@ const docTemplate = `{
                 "HasPassword": {
                     "type": "boolean"
                 },
+                "ID": {
+                    "type": "string"
+                },
                 "LastName": {
                     "type": "string"
                 },
@@ -26970,6 +27301,9 @@ const docTemplate = `{
                 "GeneratedAt": {
                     "type": "string"
                 },
+                "ParticipantsSee": {
+                    "type": "boolean"
+                },
                 "Revision": {
                     "type": "integer"
                 },
@@ -27677,6 +28011,15 @@ const docTemplate = `{
                 }
             }
         },
+        "event.previewStartRequest": {
+            "type": "object",
+            "properties": {
+                "LeaseMinutes": {
+                    "description": "LeaseMinutes is the run length of the preview's test laboratory: one of the offered lengths; 0 or absent takes\nthe lease in force.",
+                    "type": "integer"
+                }
+            }
+        },
         "event.publishedExerciseChoiceResponse": {
             "type": "object",
             "properties": {
@@ -28323,6 +28666,14 @@ const docTemplate = `{
                 "Reason": {
                     "type": "string"
                 },
+                "ReservationEnded": {
+                    "description": "ReservationEnded: the team's reservation ended and its labs were deleted.",
+                    "type": "boolean"
+                },
+                "ReservationEndsAt": {
+                    "description": "ReservationEndsAt is when the team's resource reservation deletes its labs (the ending notice); null before.",
+                    "type": "string"
+                },
                 "Status": {
                     "type": "string"
                 },
@@ -28845,6 +29196,14 @@ const docTemplate = `{
         "eventAnalytics.accessResponse": {
             "type": "object",
             "properties": {
+                "Export": {
+                    "description": "Export: the CSV exports and the report download.",
+                    "type": "boolean"
+                },
+                "People": {
+                    "description": "People: per-person rows of «Використання» (names, visits, VPN sessions).",
+                    "type": "boolean"
+                },
                 "Sections": {
                     "description": "Sections: every analytics section and the event report.",
                     "type": "boolean"
@@ -30663,6 +31022,10 @@ const docTemplate = `{
                 "Available": {
                     "type": "boolean"
                 },
+                "PeopleHidden": {
+                    "description": "PeopleHidden: the caller sees the aggregates only (a read-only\nmoderator); Users is empty then.",
+                    "type": "boolean"
+                },
                 "Period": {
                     "$ref": "#/definitions/eventAnalytics.periodResponse"
                 },
@@ -31997,9 +32360,6 @@ const docTemplate = `{
                 "BlockingFields": {
                     "type": "boolean"
                 },
-                "CaptainID": {
-                    "type": "string"
-                },
                 "ExtraFields": {
                     "type": "object",
                     "additionalProperties": {}
@@ -32638,6 +32998,20 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.ExerciseAuthorSuggestion": {
+            "type": "object",
+            "properties": {
+                "Count": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Name": {
+                    "type": "string"
+                }
+            }
+        },
         "exercise.ExerciseTagSuggestion": {
             "type": "object",
             "properties": {
@@ -32679,6 +33053,11 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "CanExport": {
+                    "description": "CanExport: the caller may export some tasks (exercises.export: any; an event moderator: their events' tasks,\nper task Permissions.CanExport).",
+                    "type": "boolean"
+                },
+                "CanImport": {
+                    "description": "CanImport: the caller may import tasks somewhere (the catalog with exercises.write, or an event they manage).",
                     "type": "boolean"
                 },
                 "CanPublish": {
@@ -32751,6 +33130,91 @@ const docTemplate = `{
                 },
                 "State": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.bulkAccessRequest": {
+            "type": "object",
+            "required": [
+                "IDs"
+            ],
+            "properties": {
+                "AccessLevel": {
+                    "type": "string",
+                    "enum": [
+                        "all",
+                        "selected",
+                        "own",
+                        "none"
+                    ]
+                },
+                "EventIDs": {
+                    "type": "array",
+                    "maxItems": 500,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "IDs": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "exercise.bulkExercisesRequest": {
+            "type": "object",
+            "required": [
+                "IDs"
+            ],
+            "properties": {
+                "IDs": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "exercise.bulkItemResponse": {
+            "type": "object",
+            "properties": {
+                "Code": {
+                    "description": "Code is the error code (Status.Code) that skipped the task; 0 when it changed.",
+                    "type": "integer"
+                },
+                "Exercise": {
+                    "description": "Exercise is the changed card; null for a skipped task.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/exercise.exerciseResponse"
+                        }
+                    ]
+                },
+                "ID": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.bulkResultResponse": {
+            "type": "object",
+            "properties": {
+                "Changed": {
+                    "type": "integer"
+                },
+                "Items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/exercise.bulkItemResponse"
+                    }
+                },
+                "Skipped": {
+                    "type": "integer"
                 }
             }
         },
@@ -32977,6 +33441,10 @@ const docTemplate = `{
                 "DeployID": {
                     "type": "string"
                 },
+                "EndingAt": {
+                    "description": "EndingAt is when the run's reservation deletes the lab unless it is extended (its ending notice); null before.",
+                    "type": "string"
+                },
                 "ExerciseID": {
                     "type": "string"
                 },
@@ -33020,6 +33488,15 @@ const docTemplate = `{
                 }
             }
         },
+        "exercise.deployRequest": {
+            "type": "object",
+            "properties": {
+                "LeaseMinutes": {
+                    "description": "LeaseMinutes is the run length the author chose: one of the lengths offered (GET /exercises/test-runs/lengths);\n0 or absent takes the lease in force.",
+                    "type": "integer"
+                }
+            }
+        },
         "exercise.deployResponse": {
             "type": "object",
             "properties": {
@@ -33056,6 +33533,10 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/exercise.deployDeviceResponse"
                     }
+                },
+                "EndingAt": {
+                    "description": "EndingAt is when the run's reservation deletes the lab unless it is extended (its ending notice); null before.",
+                    "type": "string"
                 },
                 "Expired": {
                     "type": "boolean"
@@ -33390,6 +33871,17 @@ const docTemplate = `{
                 "ArchivedAt": {
                     "type": "string"
                 },
+                "AuthorID": {
+                    "description": "AuthorID created the task (null when the account is gone); AuthorName is their first and last name, \"\" when\nunknown (offset pages only).",
+                    "type": "string"
+                },
+                "AuthorName": {
+                    "type": "string"
+                },
+                "AvgDifficulty": {
+                    "description": "AvgDifficulty is the mean level (1 elementary … 6 insane) of the subtasks of the first variant of the\npublished version, else the working copy; null without one (offset pages only).",
+                    "type": "number"
+                },
                 "CreatedAt": {
                     "type": "string"
                 },
@@ -33462,6 +33954,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "TaskCount": {
+                    "description": "TaskCount is the number of subtasks of that same first variant; null without a variant (offset pages only).",
+                    "type": "integer"
                 },
                 "UpdatedAt": {
                     "type": "string"
@@ -33900,6 +34396,10 @@ const docTemplate = `{
                 "UploadID"
             ],
             "properties": {
+                "OwnerEventID": {
+                    "description": "OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the\nplatform catalog (exercises.write).",
+                    "type": "string"
+                },
                 "Password": {
                     "type": "string"
                 },
@@ -33917,6 +34417,10 @@ const docTemplate = `{
             "properties": {
                 "FileID": {
                     "description": "FileID is the file a chunked upload produced (POST /exercises/uploads/{uploadID}/complete).",
+                    "type": "string"
+                },
+                "OwnerEventID": {
+                    "description": "OwnerEventID is the event the tasks are created in (its owner/manager, or exercises.write); null: the\nplatform catalog (exercises.write).",
                     "type": "string"
                 },
                 "Password": {
@@ -34303,6 +34807,7 @@ const docTemplate = `{
                 },
                 "EventIDs": {
                     "type": "array",
+                    "maxItems": 500,
                     "items": {
                         "type": "string"
                     }
@@ -34398,6 +34903,22 @@ const docTemplate = `{
                 },
                 "TaskID": {
                     "type": "string"
+                }
+            }
+        },
+        "exercise.testRunLengthsResponse": {
+            "type": "object",
+            "properties": {
+                "AllowedMinutes": {
+                    "description": "AllowedMinutes are the offered lengths, shortest first.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "DefaultMinutes": {
+                    "description": "DefaultMinutes is the length taken when none is chosen (the lease in force).",
+                    "type": "integer"
                 }
             }
         },
@@ -34752,6 +35273,10 @@ const docTemplate = `{
                         "$ref": "#/definitions/exerciseModel.LabDeployedDevice"
                     }
                 },
+                "endingAt": {
+                    "description": "EndingAt is when the run's reservation deletes the lab (its ending notice); nil until the notice.",
+                    "type": "string"
+                },
                 "expired": {
                     "type": "boolean"
                 },
@@ -34863,6 +35388,11 @@ const docTemplate = `{
         "exerciseModel.LabQueue": {
             "type": "object",
             "properties": {
+                "attempt": {
+                    "description": "Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and\nwhen the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the\nearliest dispatch of a pod still starting. Zero when unknown (FillQueueDetails).",
+                    "type": "integer",
+                    "format": "int32"
+                },
                 "group": {
                     "description": "Group is the deploy group of the lab (the task for event labs); empty for an independent lab.",
                     "type": "string"
@@ -34890,6 +35420,12 @@ const docTemplate = `{
                     "format": "int32"
                 },
                 "reason": {
+                    "type": "string"
+                },
+                "retryAt": {
+                    "type": "string"
+                },
+                "waitingSince": {
                     "type": "string"
                 }
             }
@@ -34924,12 +35460,20 @@ const docTemplate = `{
                 "queuedAt": {
                     "type": "string"
                 },
+                "retryAfter": {
+                    "type": "string"
+                },
                 "startedAt": {
                     "type": "string"
                 },
                 "state": {
                     "description": "State is one of the PodState* values.",
                     "type": "string"
+                },
+                "withdrawals": {
+                    "description": "Withdrawals is how often in a row the pod's group was withdrawn (not every pod got a node in time); RetryAfter is when\nthe cluster sends it again (zero: no wait).",
+                    "type": "integer",
+                    "format": "int32"
                 }
             }
         },
@@ -35217,6 +35761,10 @@ const docTemplate = `{
                         "expired",
                         "withdrawn"
                     ]
+                },
+                "Resolvable": {
+                    "description": "Resolvable is true when the recipient may close this open request by hand (the resolve endpoint accepts it).\nClients show «Вирішено» from it instead of keeping their own list of types.",
+                    "type": "boolean"
                 },
                 "ResolvedAt": {
                     "description": "ResolvedAt and Resolution are set once a request was decided (by anyone).",
@@ -36226,6 +36774,9 @@ const docTemplate = `{
         "labview.QueueResponse": {
             "type": "object",
             "properties": {
+                "Attempt": {
+                    "type": "integer"
+                },
                 "Length": {
                     "type": "integer"
                 },
@@ -36242,6 +36793,12 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "Reason": {
+                    "type": "string"
+                },
+                "RetryAt": {
+                    "type": "string"
+                },
+                "WaitingSince": {
                     "type": "string"
                 }
             }
@@ -36362,7 +36919,13 @@ const docTemplate = `{
         "labview.StandQueueResponse": {
             "type": "object",
             "properties": {
+                "Attempt": {
+                    "type": "integer"
+                },
                 "Length": {
+                    "type": "integer"
+                },
+                "NodeStartingLabs": {
                     "type": "integer"
                 },
                 "Position": {
@@ -36372,6 +36935,12 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "Reason": {
+                    "type": "string"
+                },
+                "RetryAt": {
+                    "type": "string"
+                },
+                "WaitingSince": {
                     "type": "string"
                 }
             }
@@ -39183,6 +39752,69 @@ const docTemplate = `{
                 }
             }
         },
+        "resourceCalendar.partDTO": {
+            "type": "object",
+            "properties": {
+                "AgentID": {
+                    "type": "string"
+                },
+                "AgentName": {
+                    "type": "string"
+                },
+                "Amount": {
+                    "$ref": "#/definitions/resourceCalendar.amountDTO"
+                },
+                "EndsAt": {
+                    "description": "EndsAt is when the part's labs are deleted, once the ending is announced.",
+                    "type": "string"
+                },
+                "From": {
+                    "type": "string"
+                },
+                "Groups": {
+                    "type": "integer"
+                },
+                "PartID": {
+                    "type": "string"
+                },
+                "Phase": {
+                    "description": "Phase is Pending, Active, Ending, Ended, or empty before the agent reported it.",
+                    "type": "string",
+                    "enum": [
+                        "",
+                        "Pending",
+                        "Active",
+                        "Ending",
+                        "Ended"
+                    ]
+                },
+                "Retiring": {
+                    "description": "Retiring: the part is no longer wanted and is being removed from its agent.",
+                    "type": "boolean"
+                },
+                "ShrinkHeld": {
+                    "type": "boolean"
+                },
+                "SyncError": {
+                    "type": "string"
+                },
+                "Synced": {
+                    "description": "Synced: the agent holds the last change; SyncError says why not; ShrinkHeld: a shrink waits for the labs.",
+                    "type": "boolean"
+                },
+                "To": {
+                    "type": "string"
+                },
+                "Used": {
+                    "description": "Used and Groups are what runs in the part as the agent last said.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resourceCalendar.amountDTO"
+                        }
+                    ]
+                }
+            }
+        },
         "resourceCalendar.replanRequest": {
             "type": "object",
             "properties": {
@@ -39269,6 +39901,13 @@ const docTemplate = `{
                 },
                 "OwnerID": {
                     "type": "string"
+                },
+                "Parts": {
+                    "description": "Parts are the reservation as the agents hold it: one per agent of the placement.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/resourceCalendar.partDTO"
+                    }
                 },
                 "PerTeam": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"
@@ -39374,6 +40013,10 @@ const docTemplate = `{
                 "DynamicSnapshotQuotaBytes": {
                     "type": "string",
                     "example": ""
+                },
+                "ForceShrink": {
+                    "description": "ForceShrink sends a smaller size or an earlier end to the cluster even while labs run in it (the labs that do\nnot fit are deleted after the notice); without it such a shrink is held back while they run.",
+                    "type": "boolean"
                 },
                 "PerTeam": {
                     "$ref": "#/definitions/resourceCalendar.amountDTO"

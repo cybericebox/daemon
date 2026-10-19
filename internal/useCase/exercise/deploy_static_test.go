@@ -61,7 +61,7 @@ func TestDeployVariantTest_StaticRunsWithoutAgentOrResources(t *testing.T) {
 	now := time.Date(2026, 10, 17, 10, 0, 0, 0, time.UTC)
 	uc.SetClock(func() time.Time { return now })
 
-	handle, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID)
+	handle, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestDeployVariantTest_StaticCountsTowardTheLimit(t *testing.T) {
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, FlagConfig: config.ExerciseConfig{MaxActiveTestDeploys: 1}})
 	uc.SetClock(func() time.Time { return now })
 
-	_, err := uc.DeployVariantTest(context.Background(), owner, versionID, variantID)
+	_, err := uc.DeployVariantTest(context.Background(), owner, versionID, variantID, 0)
 	if !errors.Is(err, exerciseModel.ErrTestDeployActiveExists.Err()) {
 		t.Fatalf("want ErrTestDeployActiveExists, got %v", err)
 	}
@@ -116,7 +116,7 @@ func TestDeployVariantTest_StaticIgnoresDeviceFreeTemplateFlags(t *testing.T) {
 	var created postgres.CreateExerciseTestDeployParams
 	expectStaticCreate(q, &created)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if f := flagsByTask(t, created.Flags)[t1]; !regexp.MustCompile(`^ICE\{[0-9]{4}\}$`).MatchString(f) {
@@ -130,7 +130,7 @@ func TestDeployVariantTest_StaticWithAgentDownStillWorks(t *testing.T) {
 	expectStaticCreate(q, &created)
 	infra := &fakeInfra{deployErr: errors.New("agent down"), policyErr: errors.New("agent down")}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 		t.Fatal(err)
 	}
 	if infra.deployCalls != 0 || len(infra.policies) != 0 || infra.ensured != 0 || infra.policyGroup != "" {
@@ -141,7 +141,7 @@ func TestDeployVariantTest_StaticWithAgentDownStillWorks(t *testing.T) {
 func TestDeployVariantTest_EventPreviewStaticStillNoLab(t *testing.T) {
 	q, variantID, versionID, ownerID := staticFixture(t, nil, nil)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
-	_, err := uc.DeployEventPreviewVariantTest(context.Background(), uuid.Must(uuid.NewV7()), ownerID, versionID, variantID)
+	_, err := uc.DeployEventPreviewVariantTest(context.Background(), uuid.Must(uuid.NewV7()), ownerID, versionID, variantID, 0)
 	if !errors.Is(err, exerciseModel.ErrTestDeployNoLab.Err()) {
 		t.Fatalf("want ErrTestDeployNoLab, got %v", err)
 	}
@@ -150,7 +150,7 @@ func TestDeployVariantTest_EventPreviewStaticStillNoLab(t *testing.T) {
 func TestDeployVariantTest_LabVariantWithNilInfra(t *testing.T) {
 	q, variantID, versionID, ownerID := gateFixture(t)
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: nil})
-	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
+	if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); !errors.Is(err, infraModel.ErrInfrastructureUnavailable.Err()) {
 		t.Fatalf("want ErrInfrastructureUnavailable, got %v", err)
 	}
 }
@@ -191,7 +191,7 @@ func TestDeployVariantTest_StaticRowsDoNotMakeOrBlockTheGroup(t *testing.T) {
 			})
 			infra := &fakeInfra{}
 			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: &fakeVPNStore{}, FlagConfig: config.ExerciseConfig{MaxActiveTestDeploys: 2}})
-			if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID); err != nil {
+			if _, err := uc.DeployVariantTest(context.Background(), ownerID, versionID, variantID, 0); err != nil {
 				if errors.Is(err, exerciseModel.ErrTestDeployGroupBusy.Err()) {
 					t.Fatal("a static row must not block the group")
 				}

@@ -98,6 +98,15 @@ type AgentFeatures struct {
 	Limits      LimitsFeature         `json:"limits"`
 	// TenantQuota is the cluster owner's limit for this platform; the calendar's capacity comes from it.
 	TenantQuota TenantQuotaFeature `json:"tenant_quota"`
+	// Reservations is how the agent's reservations work.
+	Reservations ReservationsFeature `json:"reservations"`
+}
+
+// ReservationsFeature: every group and lab runs under a reservation (Required), and a reservation turns Ending
+// NoticeSeconds before its end.
+type ReservationsFeature struct {
+	Required      bool  `json:"required"`
+	NoticeSeconds int64 `json:"ending_notice_seconds"`
 }
 
 // TenantQuotaFeature is the tenant quota; Has* false means no limit on that resource.
@@ -238,6 +247,13 @@ type LabMeta struct {
 	DeployGroup string
 	// PullCredentials are the registry credentials the agent pulls this lab's images with (never logged).
 	PullCredentials []RegistryCredential
+	// Reservation is what the lab runs under, GroupReservation what its group runs under (independent: a test lab
+	// runs under its run while the author's shared group runs under the group part).
+	Reservation      ReservationRef
+	GroupReservation ReservationRef
+	// PartID and GroupPartID are the resolved part ids the fleet sends; callers leave them empty.
+	PartID      string
+	GroupPartID string
 }
 
 // ImagePrewarm is the state of one image in the platform image cache.

@@ -35,3 +35,14 @@ Before pinning it checks that `../laboratory` has no uncommitted changes and tha
 - `Promote` (`promote.yml`, manual, input: the rc tag) checks the rc image and its checks, adds `vX.Y.Z` and `latest` to the same image without a rebuild, creates the GitHub release, deletes the `vX.Y.Z-rc.*` tags and pre-releases, and deletes the dev images: only tags that match `^sha-[0-9a-f]{7}$` whose commit is an ancestor of the release commit, plus the `buildcache-develop` and old `buildcache` cache tags (the next PR starts with a cold cache). The list is printed first; the `dry_run` input changes nothing.
 - `Cleanup` (`cleanup.yml`, manual, inputs: the release `vX.Y.Z` and `dry_run`) runs the same dev-image cleanup against an existing release commit, for example when it was skipped.
 - Clusters and the chart use exact tags only (`sha-*` or `vX.Y.Z`); `latest` is for outside users.
+
+### Retention
+
+The same rule applies to GitHub release pages and published images, in every repo.
+
+- Git tags of final releases are kept forever, so any version can be rebuilt from source.
+- Release candidates (`-rc.N`): tags, release pages and images are deleted right after the final release is promoted.
+- The newest minor keeps all its patch releases and images.
+- Older minors keep only their latest patch. The other patches of a minor are deleted when the next minor is released.
+- Besides the newest minor, the latest patches of the 10 previous minors are kept (release page and images). An older minor drops out when it is no longer among the last 10: its release page and images are deleted, the tag stays. There are no exceptions: production always runs a current version.
+- Pruning runs automatically in the release workflow. Manual cleanup is done only once, when the policy is introduced.

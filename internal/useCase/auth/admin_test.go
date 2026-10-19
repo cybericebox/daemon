@@ -307,6 +307,20 @@ func TestAdminDeleteUser_OrdinaryAdminCannotDeleteSuperAdmin(t *testing.T) {
 	}
 }
 
+// An admin deletes no account of its own level or above: not another admin, not an admin_viewer.
+func TestAdminDeleteUser_AdminCannotDeletePeers(t *testing.T) {
+	for _, target := range []rbac.Role{rbac.RoleAdmin, rbac.RoleAdminViewer} {
+		t.Run(string(target), func(t *testing.T) {
+			uc, repo := newAdminUC(t)
+			uid := uuid.Must(uuid.NewV7())
+			repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(target), Status: "active"}, nil)
+			if err := uc.DeleteUser(adminCtx(rbac.RoleAdmin), uid); !errors.Is(err, authModel.ErrInsufficientPermission.Err()) {
+				t.Fatalf("want ErrInsufficientPermission, got %v", err)
+			}
+		})
+	}
+}
+
 func TestAdminDeleteUser_Success(t *testing.T) {
 	uc, repo := newAdminUC(t)
 	ctx := adminCtx(rbac.RoleSuperAdmin)
@@ -535,29 +549,60 @@ func TestAdminConcurrentDemotionsLeaveOneSuperAdmin(t *testing.T) {
 }
 
 // An admin lowers another admin but never raises anyone to admin.
-func TestAdminUpdateUserRole_AdminLowersAdminButNeverRaises(t *testing.T) {
-	cases := []struct {
-		name      string
-		current   rbac.Role
-		target    rbac.Role
-		wantError bool
-	}{
-		{"lower an admin", rbac.RoleAdmin, rbac.RoleUser, false},
-		{"raise a user to admin", rbac.RoleUser, rbac.RoleAdmin, true},
-		{"raise a viewer to admin", rbac.RoleAdminViewer, rbac.RoleAdmin, true},
-		{"raise a user to viewer", rbac.RoleUser, rbac.RoleAdminViewer, false},
+// Only a higher role manages a role (admin and admin_viewer are one level): per caller and target role, the role
+// change, the block and the delete are allowed or refused alike.
+func TestAdminAccountManagementByRole(t *testing.T) {
+	roles := []rbac.Role{rbac.RoleSuperAdmin, rbac.RoleAdmin, rbac.RoleAdminViewer, rbac.RoleUser}
+	manages := map[rbac.Role]map[rbac.Role]bool{
+		rbac.RoleSuperAdmin: {rbac.RoleSuperAdmin: true, rbac.RoleAdmin: true, rbac.RoleAdminViewer: true, rbac.RoleUser: true},
+		rbac.RoleAdmin:      {rbac.RoleUser: true},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	for _, caller := range []rbac.Role{rbac.RoleSuperAdmin, rbac.RoleAdmin} {
+		for _, target := range roles {
+			allowed := manages[caller][target]
+			name := string(caller) + "->" + string(target)
+			t.Run(name+"/block", func(t *testing.T) {
+				uc, repo := newAdminUC(t)
+				uid := uuid.Must(uuid.NewV7())
+				repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(target), Status: "active"}, nil)
+				if allowed {
+					// The last-super-admin guard counts first; two active super_admins leave one.
+					repo.EXPECT().CountUsers(gomock.Any(), gomock.Any()).Return(int64(2), nil).AnyTimes()
+					repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+					repo.EXPECT().RevokeUserSessions(gomock.Any(), gomock.Any()).Return(revokedRows(0), nil)
+				}
+				err := uc.UpdateUserStatus(adminCtx(caller), uid, userModel.UserStatusBlocked)
+				if allowed == errors.Is(err, authModel.ErrInsufficientPermission.Err()) {
+					t.Fatalf("allowed=%v, err=%v", allowed, err)
+				}
+			})
+			t.Run(name+"/role to user", func(t *testing.T) {
+				uc, repo := newAdminUC(t)
+				uid := uuid.Must(uuid.NewV7())
+				repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(target), Status: "active"}, nil)
+				if allowed {
+					repo.EXPECT().CountUsers(gomock.Any(), gomock.Any()).Return(int64(2), nil).AnyTimes()
+					repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
+				}
+				err := uc.UpdateUserRole(adminCtx(caller), uid, rbac.RoleUser)
+				if allowed != (err == nil) {
+					t.Fatalf("allowed=%v, err=%v", allowed, err)
+				}
+			})
+		}
+	}
+}
+
+// Below super_admin only the user role is given: an admin never makes a viewer or an admin.
+func TestAdminUpdateUserRole_AdminGivesOnlyUser(t *testing.T) {
+	for _, target := range []rbac.Role{rbac.RoleAdminViewer, rbac.RoleAdmin, rbac.RoleSuperAdmin} {
+		t.Run(string(target), func(t *testing.T) {
 			uc, repo := newAdminUC(t)
 			uid := uuid.Must(uuid.NewV7())
-			repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(c.current), Status: "active"}, nil)
-			if !c.wantError {
-				repo.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(int64(1), nil)
-			}
-			err := uc.UpdateUserRole(adminCtx(rbac.RoleAdmin), uid, c.target)
-			if c.wantError != errors.Is(err, authModel.ErrCannotAssignRole.Err()) || (!c.wantError && err != nil) {
-				t.Fatalf("err = %v", err)
+			repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Role: string(rbac.RoleUser), Status: "active"}, nil).AnyTimes()
+			err := uc.UpdateUserRole(adminCtx(rbac.RoleAdmin), uid, target)
+			if err == nil {
+				t.Fatal("an admin must not give a role at or above its own level")
 			}
 		})
 	}

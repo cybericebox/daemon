@@ -1,7 +1,7 @@
 // Package eventAnalytics is the HTTP delivery of event analytics
 // (docs/EVENT-ANALYTICS.md): GET /events/{id}/manage/analytics/*. Every
 // route is gated twice: PermSelf on the group, then the §7 analytics access
-// of the viewer for this event (requireSections / requireSensitive).
+// of the viewer for this event (requireSections / requireSensitive / requireExport).
 package eventAnalytics
 
 import (
@@ -50,7 +50,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 	{
 		analytics.GET("access", h.requireSections, h.access)
 		analytics.GET("overview", h.requireSections, h.overview)
-		analytics.GET("overview/export.csv", h.requireSections, h.exportOverview)
+		analytics.GET("overview/export.csv", h.requireExport, h.exportOverview)
 		h.initTasks(router)
 		h.initStands(router)
 		h.initUsage(router)
@@ -65,6 +65,13 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 // (§7: owner, every moderator, platform staff).
 func (h *Handler) requireSections(ctx *gin.Context) {
 	h.require(ctx, eventAnalyticsUseCase.LevelSections)
+}
+
+// requireExport admits only the staff who may take the data out of the system:
+// every CSV export and the report download. A read-only moderator (observer)
+// reads the sections on the screen and exports nothing.
+func (h *Handler) requireExport(ctx *gin.Context) {
+	h.require(ctx, eventAnalyticsUseCase.LevelExport)
 }
 
 // requireSensitive admits only the viewers of wrong answers and integrity
@@ -93,6 +100,10 @@ type accessResponse struct {
 	Sections bool `json:"Sections"`
 	// Sensitive: wrong answer texts and the integrity section.
 	Sensitive bool `json:"Sensitive"`
+	// Export: the CSV exports and the report download.
+	Export bool `json:"Export"`
+	// People: per-person rows of «Використання» (names, visits, VPN sessions).
+	People bool `json:"People"`
 }
 
 // access godoc
@@ -117,7 +128,7 @@ func (h *Handler) access(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	response.AbortWithData(ctx, accessResponse{Sections: access.Sections, Sensitive: access.Sensitive})
+	response.AbortWithData(ctx, accessResponse{Sections: access.Sections, Sensitive: access.Sensitive, Export: access.Export, People: access.People})
 }
 
 func parseEventID(ctx *gin.Context) (uuid.UUID, bool) {

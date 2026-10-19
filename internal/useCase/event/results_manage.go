@@ -10,6 +10,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/delivery/repository/challengeAttemptRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/eventResultRepo"
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventTeamRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/mailRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -50,7 +51,7 @@ func (u *EventUseCase) UpdateResultsSettings(ctx context.Context, eventID uuid.U
 
 // SetResultsOpened ends the freeze early («Відкрити підсумки») or restores it.
 // Opening announces participant.event.results_published (participants and
-// managers, Activity).
+// managers, Activity), but only while the participants can see the results.
 func (u *EventUseCase) SetResultsOpened(ctx context.Context, eventID uuid.UUID, opened bool, by uuid.UUID) (ResultsSettingsView, error) {
 	now := time.Now()
 	var newlyOpened bool
@@ -66,18 +67,22 @@ func (u *EventUseCase) SetResultsOpened(ctx context.Context, eventID uuid.UUID, 
 		return ResultsSettingsView{}, err
 	}
 	if newlyOpened {
-		u.publishResultsOpened(ctx, eventID)
+		u.publishResultsOpened(ctx, eventID, cfg.ScoreboardVisibility)
 	}
 	return u.resultsSettingsView(ctx, cfg)
 }
 
 // publishResultsOpened is best-effort: the results are already open, so a
-// failed announcement is logged, not returned.
-func (u *EventUseCase) publishResultsOpened(ctx context.Context, eventID uuid.UUID) {
+// failed announcement is logged, not returned. While the participants cannot
+// see the results (unpublished, not started, hidden) the notice is noise.
+func (u *EventUseCase) publishResultsOpened(ctx context.Context, eventID uuid.UUID, visibility eventConfigModel.Visibility) {
 	if u.signalPublishers == nil || u.uow == nil {
 		return
 	}
 	e, err := u.events.GetByID(ctx, eventID)
+	if err == nil && !participantsSeeResults(visibility, e.Lifecycle, time.Now()) {
+		return
+	}
 	if err == nil {
 		payload := signalModel.EventNoticePayload{ScopeEventID: e.ID, EventTag: e.Tag, EventName: e.Name, EventURL: u.eventURL(e.Tag)}
 		err = u.publishNotice(ctx, signalModel.TypeParticipantEventResultsPublished, &payload, func(context.Context, *mailRepo.Repository) error {
@@ -87,6 +92,16 @@ func (u *EventUseCase) publishResultsOpened(ctx context.Context, eventID uuid.UU
 	if err != nil {
 		log.Error().Err(err).Str("event_id", eventID.String()).Msg("Failed to announce opened results")
 	}
+}
+
+// participantsSeeResults: the event is running or finished and its results
+// are not hidden, so participants read the board now.
+func participantsSeeResults(visibility eventConfigModel.Visibility, lifecycle eventModel.Lifecycle, now time.Time) bool {
+	if visibility == eventConfigModel.VisibilityHidden {
+		return false
+	}
+	status := lifecycle.Status(now)
+	return status == eventModel.LifecycleStarted || status == eventModel.LifecycleFinished
 }
 
 func (u *EventUseCase) announceScoreboardReload(ctx context.Context, eventID uuid.UUID, now time.Time) error {
@@ -107,14 +122,22 @@ func (u *EventUseCase) resultsSettingsView(ctx context.Context, cfg eventConfigM
 }
 
 func (u *EventUseCase) eventFinish(ctx context.Context, eventID uuid.UUID) (*time.Time, error) {
+	lifecycle, err := u.eventLifecycle(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	return lifecycle.EffectiveFinishAt(), nil
+}
+
+func (u *EventUseCase) eventLifecycle(ctx context.Context, eventID uuid.UUID) (eventModel.Lifecycle, error) {
 	e, err := u.events.GetByID(ctx, eventID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			return nil, eventModel.ErrEventNotFound.Err()
+			return eventModel.Lifecycle{}, eventModel.ErrEventNotFound.Err()
 		}
-		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
+		return eventModel.Lifecycle{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
-	return e.Lifecycle.EffectiveFinishAt(), nil
+	return e.Lifecycle, nil
 }
 
 // GetManageResults is the moderators' own live table, independent of the
@@ -127,10 +150,11 @@ func (u *EventUseCase) GetManageResults(ctx context.Context, eventID uuid.UUID) 
 	if err != nil {
 		return ManageResultsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event config").Err()
 	}
-	finish, err := u.eventFinish(ctx, eventID)
+	lifecycle, err := u.eventLifecycle(ctx, eventID)
 	if err != nil {
 		return ManageResultsView{}, err
 	}
+	finish := lifecycle.EffectiveFinishAt()
 	revision, err := u.results.CurrentRevision(ctx, eventID)
 	if err != nil {
 		return ManageResultsView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event result revision").Err()
@@ -156,7 +180,8 @@ func (u *EventUseCase) GetManageResults(ctx context.Context, eventID uuid.UUID) 
 	if generatedAt.IsZero() {
 		generatedAt = now.UTC()
 	}
-	view := ManageResultsView{Revision: revision.Revision, GeneratedAt: generatedAt, Freeze: freezeView(cfg.Results, finish, now), Teams: make([]ManageResultsTeamView, 0, len(rows))}
+	view := ManageResultsView{Revision: revision.Revision, GeneratedAt: generatedAt, Freeze: freezeView(cfg.Results, finish, now),
+		ParticipantsSee: participantsSeeResults(cfg.ScoreboardVisibility, lifecycle, now), Teams: make([]ManageResultsTeamView, 0, len(rows))}
 	var rank int32
 	for _, row := range rows {
 		team := ManageResultsTeamView{TeamID: row.TeamID, Name: row.PublicName, RealName: row.RealName, Individual: row.Individual, Hidden: row.Hidden, Admitted: row.Admitted, Moderators: row.Moderators,
@@ -201,6 +226,15 @@ func (u *EventUseCase) AnnulSolve(ctx context.Context, eventID, teamID, challeng
 		return AnnulSolveView{}, err
 	}
 	defer unit.Restore()
+	// The team must be this event's before any row is locked: a team of another event gets the same answer as a
+	// team without a solve, and its admission and lab rows are never held by this event's managers. The check is a
+	// plain read, so the lock order (lab, then team challenge) stays as everywhere else.
+	if _, err = eventTeamRepo.New(txRepo).GetByID(txCtx, eventID, teamID); err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return AnnulSolveView{}, challengeAttemptModel.ErrNothingToAnnul.Err()
+		}
+		return AnnulSolveView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get team").Err()
+	}
 	if _, err = lockChallengeLabInTransaction(txCtx, txRepo, teamID, challengeID); err != nil {
 		return AnnulSolveView{}, err
 	}

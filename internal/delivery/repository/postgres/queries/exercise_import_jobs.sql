@@ -2,9 +2,11 @@
 
 -- name: StartExerciseImportJob :one
 -- Records a new import of the source, or returns the row the source already has: one import per source.
-INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at)
+INSERT INTO exercise_import_jobs (id, created_by, source, source_id, state, exercise_ids, error, created_at, updated_at,
+                                  owner_event_id)
 VALUES (sqlc.arg(id), sqlc.arg(created_by), sqlc.arg(source), sqlc.arg(source_id), sqlc.arg(state),
-        sqlc.arg(exercise_ids)::uuid[], sqlc.narg(error), sqlc.arg(created_at), sqlc.arg(updated_at))
+        sqlc.arg(exercise_ids)::uuid[], sqlc.narg(error), sqlc.arg(created_at), sqlc.arg(updated_at),
+        sqlc.narg(owner_event_id))
 ON CONFLICT (source_id) DO UPDATE SET source_id = EXCLUDED.source_id
 RETURNING *;
 
@@ -14,9 +16,10 @@ FROM exercise_import_jobs
 WHERE id = sqlc.arg(id);
 
 -- name: UpdateExerciseImportJob :execrows
--- The whole job aggregate (state, created tasks, error, progress) in one write.
+-- The whole job aggregate (state, created tasks, error, progress, target event) in one write.
 UPDATE exercise_import_jobs
-SET state        = sqlc.arg(state),
+SET state          = sqlc.arg(state),
+    owner_event_id = sqlc.narg(owner_event_id),
     exercise_ids = sqlc.arg(exercise_ids)::uuid[],
     error        = sqlc.narg(error),
     stage        = sqlc.arg(stage),

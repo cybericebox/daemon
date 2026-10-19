@@ -6,7 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// EventAnalyticsObjectCode — next free detail code: 8
+// EventAnalyticsObjectCode — next free detail code: 9
 var (
 	// ErrEventAnalyticsForbidden: the viewer has no analytics access to the
 	// event. A missing event looks the same (no event enumeration).
@@ -32,6 +32,11 @@ var (
 	// or the key or scope does not fit it.
 	ErrEventAnalyticsDismissalInvalid = err.ErrInvalidData.WithObjectCode(model.EventAnalyticsObjectCode).
 						WithMessage("This integrity pattern cannot be dismissed").WithDetailCode(7)
+	// ErrEventAnalyticsExportForbidden: CSV exports and the report download are
+	// for the owner, write moderators and platform admins; a read-only
+	// moderator (observer) reads the sections on the screen only.
+	ErrEventAnalyticsExportForbidden = err.ErrForbidden.WithObjectCode(model.EventAnalyticsObjectCode).
+						WithMessage("Only the event owner, write moderators and platform admins can export the event data").WithDetailCode(8)
 )
 
 // MaxReviewNoteLength bounds an organizer's note on a solve (characters).

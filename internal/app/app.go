@@ -27,6 +27,7 @@ import (
 	challengeAttempt "github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	errorJournal "github.com/cybericebox/daemon/internal/model/errorJournal"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
+	labMonitoringModel "github.com/cybericebox/daemon/internal/model/labMonitoring"
 	labMonitoring "github.com/cybericebox/daemon/internal/monitoring/lab"
 	"github.com/cybericebox/daemon/internal/session"
 	"github.com/cybericebox/daemon/internal/useCase"
@@ -189,7 +190,16 @@ func Run(cfg *config.Config) {
 			runner = runner.WithErrorsSink(func(ctx context.Context, report *labpb.ErrorJournal) {
 				ucs.Journal.ReportAgentErrors(ctx, member.Name, agentErrors(report))
 			})
+			// A group of labs withdrawn again and again (no node in time) alerts the platform admins once per series.
+			runner = runner.WithWithdrawalSink(func(ctx context.Context, withdrawals []labMonitoringModel.Withdrawal) {
+				ucs.AgentsUseCase.ReportWithdrawals(ctx, member.ID, member.Name, withdrawals)
+			})
 			runner = runner.WithLinkSink(agentLink{journal: ucs.Journal, id: member.ID, name: member.Name})
+			// The agent's reservations: their phase, the ending notice and the usage drive the calendar's parts.
+			runner = runner.WithReservationsSink(func(ctx context.Context, snapshot bool, reservations []*labpb.Reservation, deleted []string) error {
+				listed, gone := labagent.ReservationsOf(reservations, deleted)
+				return ucs.ObserveClusterReservations(ctx, member.ID, snapshot, listed, gone)
+			})
 			return runner.WithAgentID(member.ID.String()).Run(ctx)
 		},
 	})

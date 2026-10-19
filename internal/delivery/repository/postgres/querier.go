@@ -37,6 +37,8 @@ type Querier interface {
 	// Soft delete: the record stays for history, everything that connects to the agent is wiped and the
 	// name is freed by the caller's rename.
 	ArchiveInfrastructureAgent(ctx context.Context, arg ArchiveInfrastructureAgentParams) (int64, error)
+	// Places a unit on an agent unless it is placed already; returns the agent that holds it afterwards.
+	AssignClusterReservationUnit(ctx context.Context, arg AssignClusterReservationUnitParams) (uuid.UUID, error)
 	// Only an approved, currently unassigned participant may enter a team.
 	AssignEventParticipantTeam(ctx context.Context, arg AssignEventParticipantTeamParams) (int64, error)
 	// Gives the answer's files to their owner and releases the files the owner's
@@ -240,6 +242,7 @@ type Querier interface {
 	// Guarded delete: refuses when the blob got re-referenced between the S3
 	// removal decision and this call.
 	DeleteBlob(ctx context.Context, contentHash string) (int64, error)
+	DeleteClusterReservation(ctx context.Context, id uuid.UUID) error
 	DeleteEmailBlockPreset(ctx context.Context, id uuid.UUID) error
 	DeleteEmailTemplate(ctx context.Context, id uuid.UUID) (int64, error)
 	DeleteErrorTelegramChatsNotIn(ctx context.Context, keep []string) error
@@ -320,6 +323,8 @@ type Querier interface {
 	// THIS Event's own template rows — never by another Event's rows or by
 	// unrelated owners (avatars, exercise images).
 	EmailTemplateFileUsableByEvent(ctx context.Context, arg EmailTemplateFileUsableByEventParams) (bool, error)
+	// Records the end of a part once: a part already ended changes no row, so only one caller acts on the end.
+	EndClusterReservation(ctx context.Context, arg EndClusterReservationParams) (int64, error)
 	EnqueueErrorNotification(ctx context.Context, arg EnqueueErrorNotificationParams) (int64, error)
 	EnsureSignalHookExecution(ctx context.Context, arg EnsureSignalHookExecutionParams) error
 	EventExerciseHasAttempts(ctx context.Context, eventExerciseID uuid.UUID) (bool, error)
@@ -361,6 +366,9 @@ type Querier interface {
 	GetActiveChannels(ctx context.Context, arg GetActiveChannelsParams) ([]string, error)
 	// The event's one working link (unrevoked and not expired).
 	GetActiveEventLiveScreenLink(ctx context.Context, arg GetActiveEventLiveScreenLinkParams) (EventLiveScreenLink, error)
+	GetClusterReservation(ctx context.Context, id uuid.UUID) (ClusterReservation, error)
+	GetClusterReservationOfTestGroup(ctx context.Context, ownerID uuid.NullUUID) (ClusterReservation, error)
+	GetClusterReservationOfTestRun(ctx context.Context, testDeployID uuid.NullUUID) (ClusterReservation, error)
 	GetCurrentEventLabAccessMonitoring(ctx context.Context, eventTeamID uuid.UUID) (LabMonitoringCurrent, error)
 	GetDatabaseTime(ctx context.Context) (time.Time, error)
 	GetDispatch(ctx context.Context, id uuid.UUID) (GetDispatchRow, error)
@@ -641,6 +649,8 @@ type Querier interface {
 	HasActiveEventLabRuntimeSelection(ctx context.Context, arg HasActiveEventLabRuntimeSelectionParams) (bool, error)
 	HasEventLabRetentionPin(ctx context.Context, arg HasEventLabRetentionPinParams) (bool, error)
 	HasIncompleteRequiredEventFormDelivery(ctx context.Context, arg HasIncompleteRequiredEventFormDeliveryParams) (bool, error)
+	// Whether any notification (open or closed) was ever delivered for the subject: an alert raised once per subject.
+	InboxSubjectExists(ctx context.Context, subjectRef string) (bool, error)
 	InsertErrorSample(ctx context.Context, arg InsertErrorSampleParams) error
 	InsertEventRegistrySecret(ctx context.Context, arg InsertEventRegistrySecretParams) error
 	// The first lifecycle transition captures the population. A retry must return
@@ -689,7 +699,18 @@ type Querier interface {
 	// waiting for their first attempt have a NULL channel).
 	ListBroadcastDeliveries(ctx context.Context, arg ListBroadcastDeliveriesParams) ([]ListBroadcastDeliveriesRow, error)
 	ListBroadcastQueuedUserIDs(ctx context.Context, broadcastID uuid.NullUUID) ([]uuid.UUID, error)
+	// Every agent that holds a part (for the periodic reconcile).
+	ListClusterReservationAgents(ctx context.Context) ([]uuid.UUID, error)
+	ListClusterReservationUnits(ctx context.Context, calendarReservationID uuid.UUID) ([]ClusterReservationUnit, error)
+	// Every part of one agent, retired ones included (they are deleted on the agent at the next sync).
+	ListClusterReservationsOfAgent(ctx context.Context, agentID uuid.UUID) ([]ClusterReservation, error)
+	ListClusterReservationsOfCalendar(ctx context.Context, calendarReservationID uuid.NullUUID) ([]ClusterReservation, error)
+	// The parts of several calendar reservations, retired ones included (for the admin view).
+	ListClusterReservationsOfCalendars(ctx context.Context, ids []uuid.UUID) ([]ClusterReservation, error)
+	// The live test-run parts of an author's runs on one agent (the group part covers them).
+	ListClusterReservationsOfTestRuns(ctx context.Context, arg ListClusterReservationsOfTestRunsParams) ([]ClusterReservation, error)
 	ListDirtyEventLabAccessSyncs(ctx context.Context, limitVal int32) ([]ListDirtyEventLabAccessSyncsRow, error)
+	// A lab the cluster deleted with its reservation (Deleted, retirement Deleted, no retirement target) is settled.
 	ListDirtyEventTeamLabs(ctx context.Context, arg ListDirtyEventTeamLabsParams) ([]EventTeamLab, error)
 	ListDispatchTargets(ctx context.Context, dispatchID uuid.UUID) ([]NotificationDispatchTarget, error)
 	ListDispatchTargetsByDispatches(ctx context.Context, dispatchIds []uuid.UUID) ([]NotificationDispatchTarget, error)
@@ -697,8 +718,6 @@ type Querier interface {
 	// a dispatch matches when one of its targets matches all of them. The
 	// transport filter is one value or a comma-separated list.
 	ListDispatches(ctx context.Context, arg ListDispatchesParams) ([]ListDispatchesRow, error)
-	ListDueRetainedEventLabs(ctx context.Context, arg ListDueRetainedEventLabsParams) ([]EventTeamLab, error)
-	ListDueRetainedGroups(ctx context.Context, arg ListDueRetainedGroupsParams) ([]EventTeamGroupAllocation, error)
 	ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]ListDueStageRuntimeSelectionsRow, error)
 	ListDueTimedEventFormAssignmentsForUpdate(ctx context.Context, arg ListDueTimedEventFormAssignmentsForUpdateParams) ([]EventFormAssignment, error)
 	ListEffectiveCorrectAttemptIDs(ctx context.Context, teamChallengeID uuid.UUID) ([]uuid.UUID, error)
@@ -992,6 +1011,10 @@ type Querier interface {
 	// platform default, else 7).
 	ListEventsDueStartReminder(ctx context.Context, nowAt time.Time) ([]ListEventsDueStartReminderRow, error)
 	ListEventsPage(ctx context.Context, arg ListEventsPageParams) ([]Event, error)
+	// The authors of the exercises the viewer may read (viewer_id NULL: every exercise), by use, for the author filter.
+	// Only the first and last name, never the email; search matches either; ids (non-empty) keeps only those authors
+	// (the names of the chosen ones).
+	ListExerciseAuthors(ctx context.Context, arg ListExerciseAuthorsParams) ([]ListExerciseAuthorsRow, error)
 	// Card decorations for a page of exercises in one query: owner event name,
 	// fork source name, infrastructure and a pending proposal.
 	ListExerciseCardExtras(ctx context.Context, ids []uuid.UUID) ([]ListExerciseCardExtrasRow, error)
@@ -1030,6 +1053,9 @@ type Querier interface {
 	// status is the single derived catalog status (exercise_status); the working
 	// copy counts only for readers who may see it (admins, members of the owner
 	// event) — for the others a catalog exercise is simply "published".
+	// tags: any of them; tags_all: every one of them; tags_none: none of them.
+	// statuses: any of them (empty: every status). archived: exclude | only | any.
+	// difficulty_min/max: the rounded average level 1..6, inclusive (0: no bound).
 	ListExercisesPage(ctx context.Context, arg ListExercisesPageParams) ([]ListExercisesPageRow, error)
 	// Which of the given events still exist (the periodic orphan LabGroup sweep).
 	ListExistingEventIDs(ctx context.Context, ids []uuid.UUID) ([]uuid.UUID, error)
@@ -1317,6 +1343,8 @@ type Querier interface {
 	ListRetiringEventLabs(ctx context.Context, limitVal int32) ([]EventTeamLab, error)
 	ListRetryableEmptyEventLabRevealBarriers(ctx context.Context, eventID uuid.UUID) ([]uuid.UUID, error)
 	ListRevealSetLabs(ctx context.Context, arg ListRevealSetLabsParams) ([]EventTeamLab, error)
+	// The labs of an event that still run in the given team groups (their cluster reservation is ending).
+	ListRunningEventTeamLabsInGroups(ctx context.Context, arg ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error)
 	// The imports of the user that still run (a running one silent since stale_before has stopped and is left out).
 	ListRunningExerciseImportJobs(ctx context.Context, arg ListRunningExerciseImportJobsParams) ([]ExerciseImportJob, error)
 	// The poll: rows revoked after the watermark (the caller passes watermark - the 10 s overlap).
@@ -1381,6 +1409,8 @@ type Querier interface {
 	// an old short tag makes one) is never a candidate: removing that tag could remove what serves the other digest; its
 	// rows stay until the other digest's row goes. At most 500 rows a pass; the rest wait for the next one.
 	ListUnreferencedPlatformImages(ctx context.Context, before time.Time) ([]PlatformImage, error)
+	// (a part holding back a shrink is sent again: the admin may force it, or the labs may be gone.)
+	ListUnsyncedClusterReservationAgents(ctx context.Context) ([]uuid.UUID, error)
 	// The events a user is a member of, for the exercises app rights summary.
 	ListUserEventMemberships(ctx context.Context, userID uuid.UUID) ([]ListUserEventMembershipsRow, error)
 	// First and last name of the authors an exercise response shows (never the email).
@@ -1436,6 +1466,9 @@ type Querier interface {
 	LockResourceCalendar(ctx context.Context) error
 	// Open requests become read but stay open: only their decision closes them.
 	MarkAllInAppReadByUser(ctx context.Context, arg MarkAllInAppReadByUserParams) error
+	// The agent's answer for a revision: a confirmation never lowers synced_rev and clears the failure; a failure keeps
+	// synced_rev, records why and keeps the time the failures started.
+	MarkClusterReservationSynced(ctx context.Context, arg MarkClusterReservationSyncedParams) error
 	// Claims the message of a group: only when nobody sent one since the cutoff. Returns the number of occurrences
 	// since that last message (and resets it); no row means another replica was first.
 	MarkErrorGroupNotified(ctx context.Context, arg MarkErrorGroupNotifiedParams) (int64, error)
@@ -1455,6 +1488,8 @@ type Querier interface {
 	MarkLabBindingDeployed(ctx context.Context, arg MarkLabBindingDeployedParams) (int64, error)
 	MarkLabBindingDestroyed(ctx context.Context, id uuid.UUID) (int64, error)
 	MarkLabBindingFailedWithReason(ctx context.Context, arg MarkLabBindingFailedWithReasonParams) (int64, error)
+	// The labs of one team group of an event are gone (its cluster reservation ended).
+	MarkLabGroupBindingsDestroyed(ctx context.Context, arg MarkLabGroupBindingsDestroyedParams) (int64, error)
 	MarkLabGroupCleanupRequestDestroyed(ctx context.Context, arg MarkLabGroupCleanupRequestDestroyedParams) (int64, error)
 	MarkPlatformSMTPUsed(ctx context.Context, arg MarkPlatformSMTPUsedParams) error
 	// A ready Lab makes the preparing team challenges of every binding that shares
@@ -1469,6 +1504,7 @@ type Querier interface {
 	// boundary-derived policy change allocates exactly one more revision before RPC.
 	MaterializeEventLabAccessPolicy(ctx context.Context, arg MaterializeEventLabAccessPolicyParams) (EventLabAccessSync, error)
 	MaxEventChallengeOrder(ctx context.Context, eventExerciseID uuid.UUID) (int32, error)
+	ObserveClusterReservation(ctx context.Context, arg ObserveClusterReservationParams) error
 	OpenEventStandRollout(ctx context.Context, arg OpenEventStandRolloutParams) error
 	OpenReadyEventLabRevealBarriers(ctx context.Context, arg OpenReadyEventLabRevealBarriersParams) (int64, error)
 	// Whether a row of another digest already maps this tag: CreateImage refuses then instead of re-pointing the tag.
@@ -1576,6 +1612,7 @@ type Querier interface {
 	RefreshEventGroupProtectedUntil(ctx context.Context, eventID uuid.UUID) error
 	RefreshEventLabProtectedUntil(ctx context.Context, eventID uuid.UUID) error
 	RegistrationsByDaySince(ctx context.Context, createdAt time.Time) ([]RegistrationsByDaySinceRow, error)
+	ReleaseClusterReservationUnit(ctx context.Context, arg ReleaseClusterReservationUnitParams) error
 	// A claimed message that was not sent: gives the slot back and keeps the
 	// provider error (empty = not a provider error, the last one stays).
 	ReleasePlatformSMTPSend(ctx context.Context, arg ReleasePlatformSMTPSendParams) error
@@ -1633,6 +1670,11 @@ type Querier interface {
 	RevokeUserSessionsExcept(ctx context.Context, arg RevokeUserSessionsExceptParams) ([]RevokeUserSessionsExceptRow, error)
 	RollbackEmailTemplate(ctx context.Context, arg RollbackEmailTemplateParams) (NotificationEmailTemplate, error)
 	RollbackInAppTemplate(ctx context.Context, arg RollbackInAppTemplateParams) (NotificationInAppTemplate, error)
+	// Cluster reservations: the parts of the backend's reservations as the agents hold them, and the agent of each
+	// unit of a calendar reservation. See migration 0186. The desired state is written whole under the calendar lock
+	// (SaveClusterReservation); the agent's confirmation (MarkClusterReservationSynced) and the observed status
+	// (ObserveClusterReservation) are narrow writes, so neither can undo a newer desired change.
+	SaveClusterReservation(ctx context.Context, arg SaveClusterReservationParams) error
 	SaveEventLandingDraft(ctx context.Context, arg SaveEventLandingDraftParams) (int64, error)
 	SaveEventLiveLayoutDraft(ctx context.Context, arg SaveEventLiveLayoutDraftParams) (int64, error)
 	// Saves the editor's draft. A page that was never published also mirrors the
@@ -1670,6 +1712,8 @@ type Querier interface {
 	SetEventTeamHidden(ctx context.Context, arg SetEventTeamHiddenParams) (int64, error)
 	SetEventTeamsFieldsMissing(ctx context.Context, arg SetEventTeamsFieldsMissingParams) error
 	SetEventVPNCursor(ctx context.Context, arg SetEventVPNCursorParams) error
+	// The ending notice of the run's cluster reservation: when the lab is deleted unless extended (narrow write).
+	SetExerciseTestDeployEndingAt(ctx context.Context, arg SetExerciseTestDeployEndingAtParams) (int64, error)
 	SetImportedExercisePointers(ctx context.Context, arg SetImportedExercisePointersParams) error
 	// A rotated access key: the new key signs from now on, the previous ones are recorded as retired.
 	SetInfrastructureAgentAccessKey(ctx context.Context, arg SetInfrastructureAgentAccessKeyParams) (int64, error)
@@ -1770,7 +1814,7 @@ type Querier interface {
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
 	// The whole job aggregate (state, stored file, error) in one write.
 	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
-	// The whole job aggregate (state, created tasks, error, progress) in one write.
+	// The whole job aggregate (state, created tasks, error, progress, target event) in one write.
 	UpdateExerciseImportJob(ctx context.Context, arg UpdateExerciseImportJobParams) (int64, error)
 	// The throttled progress write of a running import: a narrow write, so it never races the outcome write; a job that
 	// has ended (zero rows) keeps its outcome.

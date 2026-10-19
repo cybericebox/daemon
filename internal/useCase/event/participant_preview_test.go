@@ -27,14 +27,15 @@ type previewLabsFake struct {
 	startErr     error
 	deploy       uuid.UUID
 	destroyErr   error
+	vpnConfig    string
 }
 
-func (f *previewLabsFake) DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID) (exerciseModel.DeployHandle, error) {
+func (f *previewLabsFake) DeployEventPreviewVariantTest(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, time.Duration) (exerciseModel.DeployHandle, error) {
 	f.starts++
 	return exerciseModel.DeployHandle{Group: f.deploy.String()}, f.startErr
 }
-func (f *previewLabsFake) DeployTestStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error) {
-	return exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true}, nil
+func (f *previewLabsFake) PreviewDeployStatus(context.Context, uuid.UUID, uuid.UUID) (exerciseModel.LabDeployStatus, error) {
+	return exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true, VPNConfig: f.vpnConfig}, nil
 }
 func (f *previewLabsFake) CheckTestFlag(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) (bool, error) {
 	return true, nil
@@ -154,14 +155,14 @@ func TestPreviewDynamicStartIsIdempotentAndQuotaErrorsPropagate(t *testing.T) {
 			if refuse {
 				f.labs.startErr = quota
 			}
-			first, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection)
+			first, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0)
 			if refuse {
 				if !errors.Is(err, quota) || f.row != nil {
 					t.Fatalf("quota %v", err)
 				}
 				return
 			}
-			second, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection)
+			second, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0)
 			if err != nil || first.ID != second.ID || f.labs.starts != 1 {
 				t.Fatalf("duplicate %+v %+v %v", first, second, err)
 			}
@@ -179,7 +180,7 @@ func TestPreviewRejectsUnselectedTaskHintAndFile(t *testing.T) {
 	f := newPreviewFixture(t, false)
 	ctx := context.Background()
 	other := uuid.Must(uuid.NewV7())
-	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, other); err == nil {
+	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, other, 0); err == nil {
 		t.Fatal("unknown selection accepted")
 	}
 	if _, err := f.uc.SubmitPreviewFlag(ctx, f.event, f.user, f.selection, other, "ICE{secret}"); err == nil {
@@ -202,13 +203,13 @@ func TestPreviewForbidsViewerAndOtherEvent(t *testing.T) {
 	}
 	other := uuid.Must(uuid.NewV7())
 	q.EXPECT().GetEventManager(gomock.Any(), postgres.GetEventManagerParams{EventID: other, UserID: user}).Return(postgres.EventManager{}, pgx.ErrNoRows)
-	if _, err := uc.StartPreviewRun(context.Background(), other, user, uuid.Must(uuid.NewV7())); err == nil {
+	if _, err := uc.StartPreviewRun(context.Background(), other, user, uuid.Must(uuid.NewV7()), 0); err == nil {
 		t.Fatal("other event accepted")
 	}
 }
 func TestPreviewExpiredDynamicRunRejectedOnStatus(t *testing.T) {
 	f := newPreviewFixture(t, true)
-	_, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection)
+	_, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +272,7 @@ func (w previewFailWorker) UnitOfWork(ctx context.Context) (context.Context, eve
 func TestPreviewRollbackCleansCreatedLaboratory(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	f.uc = event.NewEventUseCase(event.Dependencies{Repo: f.q, UoW: previewFailWorker{repo: f.q}, PreviewLabs: f.labs})
-	if _, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection); err == nil {
+	if _, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection, 0); err == nil {
 		t.Fatal("commit failure hidden")
 	}
 	if f.labs.starts != 1 || f.labs.ends != 1 {
@@ -281,7 +282,7 @@ func TestPreviewRollbackCleansCreatedLaboratory(t *testing.T) {
 func TestPreviewResetCleansRemovedSelectionsAndOnlyOwnedRows(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	ctx := context.Background()
-	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection); err != nil {
+	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0); err != nil {
 		t.Fatal(err)
 	}
 	removed := uuid.Must(uuid.NewV7())
@@ -344,7 +345,7 @@ func (f *previewLabsFake) ListTestDeploys(context.Context, uuid.UUID, uuid.UUID)
 func TestPreviewRunExpiryMatchesEarlierLaboratoryReservationEnd(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	f.labs.expiry = time.Now().Add(20 * time.Minute)
-	run, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection)
+	run, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection, 0)
 	if err != nil || !run.ExpiresAt.Equal(f.labs.expiry) {
 		t.Fatalf("lease %+v %v", run, err)
 	}
@@ -352,7 +353,7 @@ func TestPreviewRunExpiryMatchesEarlierLaboratoryReservationEnd(t *testing.T) {
 func TestPreviewRemovingSelectionBlocksOperationsButAllowsCleanup(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	ctx := context.Background()
-	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection); err != nil {
+	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0); err != nil {
 		t.Fatal(err)
 	}
 	f.selections = []byte(`[]`)
@@ -379,7 +380,7 @@ func TestPreviewRemovingSelectionBlocksOperationsButAllowsCleanup(t *testing.T) 
 func TestPreviewOtherManagerCannotAccessOwnersRun(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	ctx := context.Background()
-	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection); err != nil {
+	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0); err != nil {
 		t.Fatal(err)
 	}
 	other := uuid.Must(uuid.NewV7())
@@ -392,7 +393,7 @@ func TestPreviewOtherManagerCannotAccessOwnersRun(t *testing.T) {
 func TestPreviewDisabledInfrastructureRefusesDynamicStartBeforeDeployment(t *testing.T) {
 	f := newPreviewFixture(t, true)
 	f.infrastructureAllowed = false
-	if _, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection); err == nil || f.labs.starts != 0 {
+	if _, err := f.uc.StartPreviewRun(context.Background(), f.event, f.user, f.selection, 0); err == nil || f.labs.starts != 0 {
 		t.Fatalf("disabled dynamic start %v", err)
 	}
 }
@@ -464,7 +465,7 @@ func TestPreviewExpiredEngineLeaseDoesNotBlockRestartOrReset(t *testing.T) {
 		t.Run(map[bool]string{true: "reset", false: "restart"}[reset], func(t *testing.T) {
 			f := newPreviewFixture(t, true)
 			ctx := context.Background()
-			first, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection)
+			first, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -477,7 +478,7 @@ func TestPreviewExpiredEngineLeaseDoesNotBlockRestartOrReset(t *testing.T) {
 					t.Fatalf("expired reset %v", err)
 				}
 			} else {
-				second, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection)
+				second, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0)
 				if err != nil || second.ID == first.ID || f.labs.starts != 2 {
 					t.Fatalf("expired restart %+v %v", second, err)
 				}

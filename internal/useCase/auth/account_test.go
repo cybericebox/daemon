@@ -54,6 +54,10 @@ func TestGetAccount_MapsProvidersAndPassword(t *testing.T) {
 	if !acc.HasPassword || len(acc.Providers) != 1 || acc.Providers[0] != "google" || acc.Email != "a@b.test" {
 		t.Fatalf("unexpected account: %+v", acc)
 	}
+	// The id frontend keys the profile drafts of a tab by the account id.
+	if acc.ID != uid {
+		t.Fatalf("account id = %v, want %v", acc.ID, uid)
+	}
 }
 
 func TestDeleteAccount_SoftDeletesAndCutsLinks(t *testing.T) {

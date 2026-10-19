@@ -135,8 +135,8 @@ jobs:
           TAG: ${{ needs.version.outputs.tag }}
         run: |
           echo "retag $IMAGE:$SRC -> $IMAGE:$TAG"
-          .github/scripts/lab-pin.sh check-label "$IMAGE" "$SRC"
-          docker buildx imagetools create -t "$IMAGE:$TAG" "$IMAGE:$SRC"
+          .github/scripts/ci.sh retry .github/scripts/lab-pin.sh check-label "$IMAGE" "$SRC"
+          .github/scripts/ci.sh retry docker buildx imagetools create -t "$IMAGE:$TAG" "$IMAGE:$SRC"
       - name: Build and push the image
         if: needs.source.outputs.mode != 'retag'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6

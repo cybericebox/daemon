@@ -34,6 +34,19 @@ const (
 	QueueReasonNoSchedulableNodes   = "NoSchedulableNodes"
 	// QueueReasonTenantQuota: dispatching the next pod would pass the platform's resource quota.
 	QueueReasonTenantQuota = "TenantQuota"
+	// QueueReasonDoesNotFitNow: the pods of a deploy group do not fit the cluster together, even empty and grown to its maximum.
+	QueueReasonDoesNotFitNow = "DoesNotFitNow"
+	// QueueReasonReservationMissing, QueueReasonReservationNotActive and QueueReasonReservationFull: the lab's reservation in the
+	// cluster does not exist, its window is not open, or what is left of it is too small.
+	QueueReasonReservationMissing   = "ReservationMissing"
+	QueueReasonReservationNotActive = "ReservationNotActive"
+	QueueReasonReservationFull      = "ReservationFull"
+	// QueueReasonNodeStarting: every pod of the lab is sent and some wait for a node (the cluster may be adding one). The
+	// cluster withdraws the lab's whole group when they still have none at its node timeout.
+	QueueReasonNodeStarting = "NodeStarting"
+	// QueueReasonWithdrawn: not every pod of the lab's group got a node within the node timeout, so the cluster deleted the
+	// group's pods (the running ones too) and sends it again at its retry time; the lab itself stays.
+	QueueReasonWithdrawn = "Withdrawn"
 )
 
 // States of one device pod on its way from the scheduler queue to Ready.
@@ -102,6 +115,8 @@ type LabDeployStatus struct {
 	Expired   bool
 	// Removing: the lab is being removed (its lease is over); the row goes once the agent no longer has it.
 	Removing bool
+	// EndingAt is when the run's reservation deletes the lab (its ending notice); nil until the notice.
+	EndingAt *time.Time
 }
 
 // LabDeployedDevice is one materialised device's readiness. Reason is the
@@ -126,6 +141,10 @@ type PodScheduling struct {
 	DispatchedAt time.Time
 	StartedAt    time.Time
 	Failure      *PodFailure
+	// Withdrawals is how often in a row the pod's group was withdrawn (not every pod got a node in time); RetryAfter is when
+	// the cluster sends it again (zero: no wait).
+	Withdrawals int32
+	RetryAfter  time.Time
 }
 
 // PodFailure explains a pod that did not start. Reason is ImagePull, CrashLoop, Unschedulable,
@@ -163,6 +182,37 @@ type LabQueue struct {
 	Group string
 	// Pods are the pods of the lab and Pending those not dispatched yet.
 	Pods, Pending int32
+	// Attempt and RetryAt describe a withdrawn lab (Reason Withdrawn): how often in a row its group got no node in time, and
+	// when the cluster sends it again. WaitingSince is, for a lab whose sent pods wait for a node (Reason NodeStarting), the
+	// earliest dispatch of a pod still starting. Zero when unknown (FillQueueDetails).
+	Attempt      int32
+	RetryAt      time.Time
+	WaitingSince time.Time
+}
+
+// FillQueueDetails derives the details of a withdrawal or a node wait from the scheduler state of the lab's devices.
+func (s *LabDeployStatus) FillQueueDetails() {
+	q := s.Queue
+	if q == nil {
+		return
+	}
+	for _, d := range s.Devices {
+		p := d.Scheduling
+		if p == nil {
+			continue
+		}
+		switch q.Reason {
+		case QueueReasonWithdrawn:
+			q.Attempt = max(q.Attempt, p.Withdrawals)
+			if p.RetryAfter.After(q.RetryAt) {
+				q.RetryAt = p.RetryAfter
+			}
+		case QueueReasonNodeStarting:
+			if p.State == PodStateStarting && !p.DispatchedAt.IsZero() && (q.WaitingSince.IsZero() || p.DispatchedAt.Before(q.WaitingSince)) {
+				q.WaitingSince = p.DispatchedAt
+			}
+		}
+	}
 }
 
 // LabAccess is one externally reachable web endpoint of a deployed lab.

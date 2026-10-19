@@ -166,3 +166,26 @@ func TestImageUnavailableReasonIsKeptByAssess(t *testing.T) {
 		t.Fatalf("assess = %v %q", status, got)
 	}
 }
+
+// A lab whose sent pods wait for a new cluster node is waiting: the operator withdraws the whole group at its node timeout, so
+// the deploy timeout never fails it meanwhile.
+func TestClassifyWaitsWhileANodeStarts(t *testing.T) {
+	dispatched := standNow.Add(-2 * DeployTimeout)
+	status := exerciseModel.LabDeployStatus{Phase: "Provisioning", Queue: &exerciseModel.LabQueue{Reason: exerciseModel.QueueReasonNodeStarting, Pods: 2}, Devices: []exerciseModel.LabDeployedDevice{
+		{Name: "web", Scheduling: &exerciseModel.PodScheduling{State: exerciseModel.PodStateStarting, DispatchedAt: dispatched}},
+	}}
+	if outcome, _ := Classify(status, dispatched, standNow); outcome != OutcomeWaiting {
+		t.Fatalf("lab waiting for a node outcome = %v, want waiting", outcome)
+	}
+}
+
+// A withdrawn lab is queued again for its retry: waiting, whatever the attempt.
+func TestClassifyWithdrawnLabWaits(t *testing.T) {
+	retry := standNow.Add(4 * time.Minute)
+	status := exerciseModel.LabDeployStatus{Phase: exerciseModel.DeployPhaseQueued, Queue: &exerciseModel.LabQueue{Position: 1, Length: 1, Reason: exerciseModel.QueueReasonWithdrawn, Pods: 2, Pending: 2}, Devices: []exerciseModel.LabDeployedDevice{
+		{Name: "web", Scheduling: &exerciseModel.PodScheduling{State: exerciseModel.PodStateQueued, Withdrawals: 5, RetryAfter: retry}},
+	}}
+	if outcome, _ := Classify(status, standNow.Add(-3*DeployTimeout), standNow); outcome != OutcomeWaiting {
+		t.Fatalf("withdrawn lab outcome = %v, want waiting", outcome)
+	}
+}

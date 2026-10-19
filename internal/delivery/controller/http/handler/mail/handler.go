@@ -431,7 +431,21 @@ func (h *Handler) getEvent(ctx *gin.Context) {
 		return
 	}
 	view, err := h.useCase.GetEventMailSettings(ctx.Request.Context(), eventID)
-	respond(ctx, view, err)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	private, err := h.seesPrivate(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	if !private && view.SMTP != nil {
+		smtp := *view.SMTP
+		smtp.Username = ""
+		view.SMTP = &smtp
+	}
+	respond(ctx, view, nil)
 }
 
 // updateEventIdentity godoc
@@ -557,6 +571,14 @@ func (h *Handler) eventJournal(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
+	private, err := h.seesPrivate(ctx, eventID)
+	if err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	if !private {
+		rows = dispatchModel.MaskRecipients(rows)
+	}
 	stats.WriteJournalPage(ctx, rows, total, limit)
 }
 
@@ -567,6 +589,11 @@ func (h *Handler) requireManage(ctx *gin.Context) {
 		}
 		return middleware.CheckEventWritable(ctx, h.useCase, eventID)
 	})
+}
+
+// seesPrivate: the owner, write moderators and platform staff see the addresses and the SMTP username in full.
+func (h *Handler) seesPrivate(ctx *gin.Context, eventID uuid.UUID) (bool, error) {
+	return middleware.SeesEventPersonalData(ctx, eventID, h.useCase.RequireManageEvent)
 }
 
 func (h *Handler) requireRead(ctx *gin.Context) {

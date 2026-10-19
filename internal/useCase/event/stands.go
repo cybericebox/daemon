@@ -378,7 +378,7 @@ func (u *EventUseCase) prepareTeamAssignment(ctx context.Context, e eventModel.E
 		if nameErr != nil {
 			return nameErr
 		}
-		if err = u.validateLabPreparation(txCtx, group, config.EffectiveLabPolicy(), variant.Topology); err != nil {
+		if err = u.validateLabPreparation(infraModel.WithGroupReservation(txCtx, teamReservation(e.ID, team.ID)), group, config.EffectiveLabPolicy(), variant.Topology); err != nil {
 			return err
 		}
 	}
@@ -783,6 +783,11 @@ func (u *EventUseCase) deployStandLab(ctx context.Context, e eventModel.Event, l
 			log.Info().Err(terminating).Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Stand lab deploy waits for deletion to finish")
 			return false, nil
 		}
+		// The team's part is not on its agent yet, or has no room now: the Lab waits, it has not failed.
+		if errors.Is(err, infraModel.ErrNoClusterReservation) || errors.Is(err, infraModel.ErrReservationFull) || errors.Is(err, infraModel.ErrReservationEnded) {
+			log.Info().Err(err).Str("lab_group", lab.Binding.LabGroupName).Str("lab", lab.Binding.LabName).Msg("Stand lab deploy waits for its cluster reservation")
+			return false, nil
+		}
 		if _, markErr := u.failStandLab(ctx, lab.Binding, eventStandModel.Reason("Deploy failed: "+err.Error())); markErr != nil {
 			return false, model.ErrPlatform.WithError(markErr).WithMessage("Failed to fail stand lab").Err()
 		}
@@ -813,6 +818,9 @@ func standLabMeta(e eventModel.Event, lab labBindingRepo.PendingLab) infraModel.
 			infraModel.LabelEvent: e.ID.String(),
 			infraModel.LabelTeam:  binding.EventTeamID.String(),
 		},
+		// The team's group and its labs run under the team's part of the event reservation.
+		Reservation:      teamReservation(e.ID, binding.EventTeamID),
+		GroupReservation: teamReservation(e.ID, binding.EventTeamID),
 	}
 	if e.Lifecycle.JoinPolicy == eventModel.JoinPolicyLockedAtStart {
 		meta.DeployGroup = lab.EventExerciseID.String()
@@ -961,9 +969,11 @@ func (u *EventUseCase) tearDownEventStands(ctx context.Context, e eventModel.Eve
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to list event laboratory groups").Err()
 		}
 		for _, group := range groups {
+			agent := u.groupAgent(ctx, group)
 			if err = u.infra.DestroyLabGroup(ctx, group); err != nil {
 				return model.ErrPlatform.WithError(err).WithMessage("Failed to destroy team stand").Err()
 			}
+			u.releaseTeamUnit(ctx, group, agent)
 		}
 		if err = u.labBindings.MarkEventDestroyed(ctx, e.ID); err != nil {
 			return model.ErrPlatform.WithError(err).WithMessage("Failed to mark stand labs destroyed").Err()

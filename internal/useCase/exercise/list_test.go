@@ -2,6 +2,7 @@ package exercise_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -27,7 +28,7 @@ func TestListExercisesFor_AdminGetsStatusAndAccessEvents(t *testing.T) {
 
 	q.EXPECT().ListExercisesPage(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.ListExercisesPageParams) ([]postgres.ListExercisesPageRow, error) {
-			if arg.Status != "changed" || arg.Archived != "exclude" || arg.ViewerID.Valid || len(arg.EventIds) != 2 {
+			if !slices.Equal(arg.Statuses, []string{"changed"}) || arg.Archived != "exclude" || arg.ViewerID.Valid || len(arg.EventIds) != 2 {
 				t.Fatalf("page params: %+v", arg)
 			}
 			return []postgres.ListExercisesPageRow{{Exercise: selected, Status: "changed"}, {Exercise: open, Status: "changed"}, {Exercise: owned, Status: "changed"}}, nil
@@ -98,7 +99,7 @@ func TestListExercises_StatusArchivedListsArchived(t *testing.T) {
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
 	q.EXPECT().ListExercisesPage(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.ListExercisesPageParams) ([]postgres.ListExercisesPageRow, error) {
-			if arg.Status != "archived" || arg.Archived != "only" {
+			if !slices.Equal(arg.Statuses, []string{"archived"}) || arg.Archived != "only" {
 				t.Fatalf("status=archived implies archived=only: %+v", arg)
 			}
 			return nil, nil
@@ -110,7 +111,7 @@ func TestListExercises_StatusArchivedListsArchived(t *testing.T) {
 
 	q.EXPECT().ListExercisesPage(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.ListExercisesPageParams) ([]postgres.ListExercisesPageRow, error) {
-			if arg.Status != "" || arg.Archived != "exclude" {
+			if len(arg.Statuses) != 0 || arg.Archived != "exclude" {
 				t.Fatalf("an unknown status is ignored: %+v", arg)
 			}
 			return nil, nil
@@ -177,5 +178,101 @@ func TestListExercisesFor_ItemsCarryTheTotalResourcesOfThePublishedVersion(t *te
 	}
 	if z := res.Exercises[1].Resources; z.Max.Devices != 0 || z.Min.CPUMillicores != 0 {
 		t.Fatalf("an exercise without a published version needs nothing: %+v", z)
+	}
+}
+
+// TestListExercises_TableFilters: the catalog table filters reach the query as given: several statuses (archived
+// with others lists both), tags with all of / none of (lower-cased), authors, the difficulty range (out of range
+// bounds are no bound), the new sorts; the page rows carry the author name and the average difficulty (nil when
+// the task has none).
+func TestListExercises_TableFilters(t *testing.T) {
+	author := uuid.Must(uuid.NewV7())
+	for _, tc := range []struct {
+		name         string
+		filter       exercise.ExercisesFilter
+		wantStatuses []string
+		wantArchived string
+		wantMin      int32
+		wantMax      int32
+		wantSort     string
+	}{
+		{name: "several statuses", filter: exercise.ExercisesFilter{Statuses: []string{"published", "changed", "bogus", "changed"}},
+			wantStatuses: []string{"published", "changed"}, wantArchived: "exclude", wantSort: "updated"},
+		{name: "archived with others lists both", filter: exercise.ExercisesFilter{Statuses: []string{"archived", "draft_only"}},
+			wantStatuses: []string{"archived", "draft_only"}, wantArchived: "any", wantSort: "updated"},
+		{name: "archived alone lists only archived", filter: exercise.ExercisesFilter{Statuses: []string{"archived"}},
+			wantStatuses: []string{"archived"}, wantArchived: "only", wantSort: "updated"},
+		{name: "difficulty range and sort", filter: exercise.ExercisesFilter{DifficultyMin: 2, DifficultyMax: 4, SortBy: "difficulty"},
+			wantStatuses: []string{}, wantArchived: "exclude", wantMin: 2, wantMax: 4, wantSort: "difficulty"},
+		{name: "out of range bounds are none", filter: exercise.ExercisesFilter{DifficultyMin: -1, DifficultyMax: 7, SortBy: "author"},
+			wantStatuses: []string{}, wantArchived: "exclude", wantSort: "author"},
+		{name: "unknown sort", filter: exercise.ExercisesFilter{SortBy: "flag"}, wantStatuses: []string{}, wantArchived: "exclude", wantSort: "updated"},
+		{name: "subtasks sort", filter: exercise.ExercisesFilter{SortBy: "subtasks"}, wantStatuses: []string{}, wantArchived: "exclude", wantSort: "subtasks"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			q := postgresMocks.NewMockQuerier(ctrl)
+			uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+			tc.filter.Page = 1
+			tc.filter.TagsAll, tc.filter.TagsNone, tc.filter.AuthorIDs = []string{" Web ", ""}, []string{"Legacy"}, []uuid.UUID{author}
+			check := func(statuses, tagsAll, tagsNone []string, authors []uuid.UUID, archived string, minLevel, maxLevel int32) {
+				t.Helper()
+				if !slices.Equal(statuses, tc.wantStatuses) || archived != tc.wantArchived || minLevel != tc.wantMin || maxLevel != tc.wantMax {
+					t.Fatalf("statuses=%v archived=%q min=%d max=%d", statuses, archived, minLevel, maxLevel)
+				}
+				if !slices.Equal(tagsAll, []string{"web"}) || !slices.Equal(tagsNone, []string{"legacy"}) || !slices.Equal(authors, []uuid.UUID{author}) {
+					t.Fatalf("tags all=%v none=%v authors=%v", tagsAll, tagsNone, authors)
+				}
+			}
+			withLevel, without := postgres.Exercise{ID: uuid.Must(uuid.NewV7())}, postgres.Exercise{ID: uuid.Must(uuid.NewV7())}
+			q.EXPECT().ListExercisesPage(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, arg postgres.ListExercisesPageParams) ([]postgres.ListExercisesPageRow, error) {
+					check(arg.Statuses, arg.TagsAll, arg.TagsNone, arg.AuthorIds, arg.Archived, arg.DifficultyMin, arg.DifficultyMax)
+					if arg.SortBy != tc.wantSort {
+						t.Fatalf("sort %q", arg.SortBy)
+					}
+					return []postgres.ListExercisesPageRow{
+						{Exercise: withLevel, Status: "published", AuthorName: "Ada Lovelace", HasAvgDifficulty: true, AvgDifficulty: 3.5, HasTaskCount: true, TaskCount: 4},
+						{Exercise: without, Status: "published"},
+					}, nil
+				})
+			q.EXPECT().CountExercisesPage(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, arg postgres.CountExercisesPageParams) (int64, error) {
+					check(arg.Statuses, arg.TagsAll, arg.TagsNone, arg.AuthorIds, arg.Archived, arg.DifficultyMin, arg.DifficultyMax)
+					return 2, nil
+				})
+			res, err := uc.ListExercises(context.Background(), tc.filter)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first, second := res.Exercises[0], res.Exercises[1]
+			if first.AuthorName != "Ada Lovelace" || first.AvgDifficulty == nil || *first.AvgDifficulty != 3.5 || first.TaskCount == nil || *first.TaskCount != 4 {
+				t.Fatalf("row with a difficulty: %+v", first)
+			}
+			if second.AvgDifficulty != nil || second.AuthorName != "" || second.TaskCount != nil {
+				t.Fatalf("row without a difficulty: %+v", second)
+			}
+		})
+	}
+}
+
+// TestListExerciseAuthors_ViewerAndLimit: platform readers see every author; others only of what they may read.
+func TestListExerciseAuthors_ViewerAndLimit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	q := postgresMocks.NewMockQuerier(ctrl)
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Media: newFakeMedia()})
+	managerID, authorID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+
+	q.EXPECT().ListExerciseAuthors(gomock.Any(), postgres.ListExerciseAuthorsParams{Search: "ada", Ids: []uuid.UUID{authorID}, LimitVal: 50}).
+		Return([]postgres.ListExerciseAuthorsRow{{ID: authorID, Name: "Ada Lovelace", ExerciseCount: 3}}, nil)
+	items, err := uc.ListExerciseAuthors(context.Background(), exercise.Actor{Role: rbac.RoleAdminViewer}, " ada ", []uuid.UUID{authorID}, 0)
+	if err != nil || len(items) != 1 || items[0].ID != authorID || items[0].Name != "Ada Lovelace" || items[0].Count != 3 {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+
+	q.EXPECT().ListExerciseAuthors(gomock.Any(), postgres.ListExerciseAuthorsParams{LimitVal: 200, Ids: []uuid.UUID{},
+		ViewerID: uuid.NullUUID{UUID: managerID, Valid: true}}).Return(nil, nil)
+	if _, err = uc.ListExerciseAuthors(context.Background(), exercise.Actor{UserID: managerID, Role: rbac.RoleUser}, "", nil, 1000); err != nil {
+		t.Fatal(err)
 	}
 }

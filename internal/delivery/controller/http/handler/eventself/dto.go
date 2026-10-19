@@ -152,12 +152,13 @@ type challengeSolveResponse struct {
 }
 
 // teamMemberResponse.Role is participantModel.TeamRole: 0 captain, 1 member.
+// UserID is omitted for other people unless the caller is the captain.
 type teamMemberResponse struct {
-	UserID      uuid.UUID `json:"UserID"`
-	DisplayName string    `json:"DisplayName"`
-	Role        int16     `json:"Role"`
-	Own         bool      `json:"Own"`
-	Pending     bool      `json:"Pending"`
+	UserID      *uuid.UUID `json:"UserID,omitempty"`
+	DisplayName string     `json:"DisplayName"`
+	Role        int16      `json:"Role"`
+	Own         bool       `json:"Own"`
+	Pending     bool       `json:"Pending"`
 }
 type participantAnswersResponse struct {
 	Form     participantFormResponse `json:"Form"`
@@ -675,13 +676,13 @@ type submitChallengeResponse struct {
 	Practice bool `json:"Practice"`
 }
 
+// ownTeamResponse carries no account ids: Role says whether the caller is the captain.
 type ownTeamResponse struct {
 	ID       uuid.UUID `json:"ID"`
 	Name     string    `json:"Name"`
 	JoinCode string    `json:"JoinCode"`
 	// JoinCode and JoinCodeExpiresAt are sent to the captain only.
 	JoinCodeExpiresAt *time.Time     `json:"JoinCodeExpiresAt"`
-	CaptainID         uuid.UUID      `json:"CaptainID"`
 	MemberCount       int32          `json:"MemberCount"`
 	ExtraFields       map[string]any `json:"ExtraFields"`
 	Role              int16          `json:"Role"`
@@ -698,7 +699,7 @@ type ownTeamResponse struct {
 }
 
 func toOwnTeamResponse(v eventUseCase.OwnTeamView) ownTeamResponse {
-	return ownTeamResponse{ID: v.ID, Name: v.Name, JoinCode: v.JoinCode, JoinCodeExpiresAt: v.JoinCodeExpiresAt, CaptainID: v.CaptainID, MemberCount: v.MemberCount, ExtraFields: v.ExtraFields, Role: int16(v.Role),
+	return ownTeamResponse{ID: v.ID, Name: v.Name, JoinCode: v.JoinCode, JoinCodeExpiresAt: v.JoinCodeExpiresAt, MemberCount: v.MemberCount, ExtraFields: v.ExtraFields, Role: int16(v.Role),
 		Admitted: v.Admitted, MinTeamSize: v.MinTeamSize, MaxTeamSize: v.MaxTeamSize,
 		MissingFields: nonNilKeys(v.MissingFields), BlockingFields: v.BlockingFields, Formed: v.Formed, FormedAt: v.FormedAt}
 }

@@ -113,6 +113,9 @@ func URL(host, path string) string { return "https://" + host + path }
 // IDURL is a link into the sign-in app, path starting with "/".
 func (h HostsConfig) IDURL(path string) string { return URL(h.ID, path) }
 
+// AdminURL is a link into the admin site, path starting with "/".
+func (h HostsConfig) AdminURL(path string) string { return URL(h.Admin, path) }
+
 // APIURL is the public API base URL when path is empty.
 func (h HostsConfig) APIURL(path string) string { return URL(h.API, path) }
 

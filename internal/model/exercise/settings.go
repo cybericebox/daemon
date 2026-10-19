@@ -89,6 +89,45 @@ type TestRunLeases struct {
 	Max   time.Duration
 }
 
+// TestRunLengths are the run lengths an author chooses from when starting a test laboratory; the choice is the
+// window of the run's cluster reservation.
+var TestRunLengths = []time.Duration{15 * time.Minute, 30 * time.Minute, 45 * time.Minute, time.Hour, 2 * time.Hour}
+
+// AllowedTestLengths are the run lengths offered under these leases: the fixed lengths up to Max.
+func AllowedTestLengths(l TestRunLeases) []time.Duration {
+	out := make([]time.Duration, 0, len(TestRunLengths))
+	for _, d := range TestRunLengths {
+		if l.Max <= 0 || d <= l.Max {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// TestLength is the run length to use: zero takes the lease in force; any other must be one of the offered
+// lengths (ok false otherwise).
+func (l TestRunLeases) TestLength(chosen time.Duration) (time.Duration, bool) {
+	if chosen == 0 {
+		return l.Lease, true
+	}
+	for _, d := range AllowedTestLengths(l) {
+		if d == chosen {
+			return d, true
+		}
+	}
+	return 0, false
+}
+
+// AllowedMinutes lists the offered lengths in minutes.
+func (l TestRunLeases) AllowedMinutes() []int {
+	lengths := AllowedTestLengths(l)
+	out := make([]int, 0, len(lengths))
+	for _, d := range lengths {
+		out = append(out, int(d/time.Minute))
+	}
+	return out
+}
+
 // TestRunFields are the test run leases editable in the platform settings; values are seconds.
 var TestRunFields = []platformSettingsModel.FieldSpec{
 	// One lease and the longest run are at most what the resource calendar can book for a test laboratory

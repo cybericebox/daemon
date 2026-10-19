@@ -10,11 +10,13 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/clusterReservationRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 )
 
 type Queries interface {
+	clusterReservationRepo.Queries
 	LockResourceCalendar(context.Context) error
 	CreateResourceReservation(context.Context, postgres.CreateResourceReservationParams) error
 	UpdateResourceReservation(context.Context, postgres.UpdateResourceReservationParams) (int64, error)
@@ -44,9 +46,14 @@ type Queries interface {
 	DeleteExpiredResourceTestLabHolds(context.Context, time.Time) (int64, error)
 }
 
-type Repository struct{ q Queries }
+// Repository is the calendar store; the cluster reservation parts are part of it, so a calendar decision and the
+// parts it changes are written in one transaction.
+type Repository struct {
+	*clusterReservationRepo.Repository
+	q Queries
+}
 
-func New(q Queries) *Repository { return &Repository{q: q} }
+func New(q Queries) *Repository { return &Repository{Repository: clusterReservationRepo.New(q), q: q} }
 
 // Lock serializes everything that decides on the calendar until the transaction ends.
 func (r *Repository) Lock(ctx context.Context) error { return r.q.LockResourceCalendar(ctx) }

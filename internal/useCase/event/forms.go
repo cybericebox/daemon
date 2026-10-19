@@ -58,7 +58,7 @@ func (u *EventUseCase) GetOwnEventForm(ctx context.Context, eventID, formID, use
 	delivery, err := u.forms.GetDelivery(ctx, eventID, formID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			return EventFormView{}, model.ErrPlatform.WithMessage("Event form is not assigned to this participant").Err()
+			return EventFormView{}, participantModel.ErrEventFormNotFound.Err()
 		}
 		return EventFormView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event form delivery").Err()
 	}
@@ -171,7 +171,7 @@ func (u *EventUseCase) SubmitEventFormResponse(ctx context.Context, eventID, for
 	delivery, err := u.forms.GetDelivery(ctx, eventID, formID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			return model.ErrPlatform.WithMessage("Event form is not assigned to this participant").Err()
+			return participantModel.ErrEventFormNotFoundForAnswer.Err()
 		}
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to get event form delivery").Err()
 	}

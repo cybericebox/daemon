@@ -115,7 +115,31 @@ func (u *EventUseCase) GetParticipationStats(ctx context.Context, eventID, userI
 	if view.Me.UserID == uuid.Nil {
 		view.Me = ParticipationMemberView{UserID: userID}
 	}
+	if p.TeamRole == nil || *p.TeamRole != participantModel.TeamRoleCaptain {
+		view.Team = withoutOthersIDs(view.Team, userID)
+	}
 	return view, nil
+}
+
+// withoutOthersIDs blanks the account ids of the other members (roster and solves): only the captain's
+// actions need them. It copies the slices, as the team view is shared through the per-team cache.
+func withoutOthersIDs(team ParticipationTeamStatsView, userID uuid.UUID) ParticipationTeamStatsView {
+	members := make([]ParticipationMemberView, len(team.Members))
+	copy(members, team.Members)
+	for i := range members {
+		if members[i].UserID != userID {
+			members[i].UserID = uuid.Nil
+		}
+	}
+	solves := make([]ParticipationSolveView, len(team.Solves))
+	copy(solves, team.Solves)
+	for i := range solves {
+		if solves[i].SolvedByUserID != userID {
+			solves[i].SolvedByUserID = uuid.Nil
+		}
+	}
+	team.Members, team.Solves = members, solves
+	return team
 }
 
 // GetModeratorsParticipationStats is the «Моя участь» of the organizers' preview:

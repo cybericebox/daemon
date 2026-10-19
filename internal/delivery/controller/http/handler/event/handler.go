@@ -9,6 +9,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/participantRepo"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gofrs/uuid"
@@ -324,13 +325,14 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.PUT("list-columns/:list", h.requireManage, h.putListColumns)
 		// Viewers read the journal without submitted answers and expected flags.
 		manage.GET("solution-attempts", h.requireRead, h.listManageSolutionAttempts)
-		manage.GET("solution-attempts/export.csv", h.requireManage, h.exportSolutionAttempts)
+		// Exports take data out of the system: owners and write moderators only, never a viewer (observer).
+		manage.GET("solution-attempts/export.csv", h.requireExport, h.exportSolutionAttempts)
 		manage.GET("solution-attempts/live", h.requireRead, h.liveSolutionAttempts)
 		manage.POST("solution-attempts/annul", h.requireManage, h.annulSolve)
 		manage.PATCH("solution-attempts/:attemptID/decision", h.requireManage, h.decideSolutionAttempt)
 		// Moderators' own results: always live, every team (R4).
 		manage.GET("results", h.requireRead, h.getManageResults)
-		manage.GET("results/export.csv", h.requireRead, h.exportManageResults)
+		manage.GET("results/export.csv", h.requireExport, h.exportManageResults)
 		manage.PUT("results/opened", h.requireManage, h.setResultsOpened)
 		manage.GET("results-settings", h.requireRead, h.getResultsSettings)
 		manage.PUT("results-settings", h.requireManage, h.updateResultsSettings)
@@ -354,7 +356,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("notification-templates/email", h.requireManage, h.createEventEmailTemplate)
 		// Static preview/image/logo segments sit beside the ":templateID" param
 		// routes (as on the platform template API).
-		manage.POST("notification-templates/email/preview", h.requireRead, h.previewEventEmail)
+		// A preview renders the whole email on every edit: bounded per user, so a read-only account cannot turn it
+		// into a load generator.
+		manage.POST("notification-templates/email/preview", h.requireRead, middleware.RateLimitPerUser(emailPreviewsPerMinute, time.Minute), h.previewEventEmail)
 		manage.GET("notification-templates/email/presets", h.requireRead, h.listEventEmailPresets)
 		manage.POST("notification-templates/email/:templateID/images", h.requireManage, h.uploadEventEmailImage)
 		manage.GET("notification-templates/email/images/:fileID", h.requireRead, middleware.SameSiteResource, h.streamEventEmailImage)
@@ -1448,6 +1452,31 @@ func (h *Handler) requireWritableEvent(ctx *gin.Context) {
 	middleware.RequireEventWritable(ctx, h.useCase, id)
 }
 
+// requireExport admits the staff who may take the event's data out of the system (CSV exports): the owner, write
+// moderators and platform admins (events.write), the same set as the analytics exports. A viewer (observer) and an
+// admin viewer read the same data on the screen only. Unlike requireManage, an archived event still exports.
+func (h *Handler) requireExport(ctx *gin.Context) {
+	id, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	claims, ok := rbac.CurrentUserSessionFromContext(ctx.Request.Context())
+	if !ok {
+		response.AbortWithUnauthenticated(ctx)
+		return
+	}
+	if err := h.canExport(ctx, id, claims); err != nil {
+		response.AbortWithError(ctx, err)
+	}
+}
+
+func (h *Handler) canExport(ctx *gin.Context, eventID uuid.UUID, claims rbac.Claims) error {
+	if claims.Role.HasPermission(rbac.PermEventsWrite) {
+		return nil
+	}
+	return h.useCase.RequireManageEvent(ctx, eventID, claims.UserID)
+}
+
 func (h *Handler) requireRead(ctx *gin.Context) {
 	id, ok := parseEventID(ctx)
 	if !ok {
@@ -1488,7 +1517,9 @@ func (h *Handler) getManagementAccess(ctx *gin.Context) {
 		response.AbortWithError(ctx, getErr)
 		return
 	}
-	response.AbortWithData(ctx, gin.H{"CanManage": err == nil, "InfrastructureAllowed": event.InfrastructureAllowed})
+	// CanExport: the CSV exports and report downloads, the same rule as requireExport and the analytics export level.
+	canExport := err == nil || claims.Role.HasPermission(rbac.PermEventsWrite)
+	response.AbortWithData(ctx, gin.H{"CanManage": err == nil, "CanExport": canExport, "InfrastructureAllowed": event.InfrastructureAllowed})
 }
 
 // list godoc

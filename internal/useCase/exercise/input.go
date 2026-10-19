@@ -40,10 +40,20 @@ type UpdateExerciseInput struct {
 }
 
 type ExercisesFilter struct {
-	Search   string
+	Search string
+	// Tags: any of them; TagsAll: every one of them; TagsNone: none of them (the last two: page lists only).
 	Tags     []string
+	TagsAll  []string
+	TagsNone []string
 	Status   string
-	Archived string // "only"; anything else = "exclude"
+	// Statuses: any of them, Status included (page lists only); archived among them lists archived tasks too.
+	Statuses []string
+	// AuthorIDs: created by any of them (page lists only).
+	AuthorIDs []uuid.UUID
+	// DifficultyMin/Max: the rounded average difficulty level 1..6, inclusive; 0 = no bound (page lists only).
+	DifficultyMin int
+	DifficultyMax int
+	Archived      string // "only"; anything else = "exclude"
 	Cursor   uuid.UUID
 	Page     int
 	PageSize int

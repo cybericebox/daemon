@@ -15,11 +15,14 @@ func membership(role eventManagerModel.Role) *eventManagerModel.EventManager {
 	return &eventManagerModel.EventManager{EventID: uuid.Must(uuid.NewV7()), UserID: uuid.Must(uuid.NewV7()), Role: role}
 }
 
-// §7: sections for every event staff role; wrong answers and integrity for
-// the owner, write moderators and platform admins only.
+// §7: sections for every event staff role; wrong answers, integrity and the
+// exports for the owner, write moderators and platform admins only; per-person
+// usage for those and every platform staff member, never a read-only moderator.
 func TestResolveAccess(t *testing.T) {
-	full := eventAnalyticsModel.Access{Sections: true, Sensitive: true}
+	full := eventAnalyticsModel.Access{Sections: true, Sensitive: true, Export: true, People: true}
 	read := eventAnalyticsModel.Access{Sections: true}
+	// Platform staff see the people of every event, admin_viewer included (owner decision 2026-10-19).
+	staffRead := eventAnalyticsModel.Access{Sections: true, People: true}
 	none := eventAnalyticsModel.Access{}
 	cases := []struct {
 		name       string
@@ -32,7 +35,7 @@ func TestResolveAccess(t *testing.T) {
 		{"read-only moderator", membership(eventManagerModel.RoleViewer), rbac.RoleUser, read},
 		{"platform admin without a role in the event", nil, rbac.RoleAdmin, full},
 		{"super admin", nil, rbac.RoleSuperAdmin, full},
-		{"admin viewer", nil, rbac.RoleAdminViewer, read},
+		{"admin viewer", nil, rbac.RoleAdminViewer, staffRead},
 		{"admin viewer who is an event owner", membership(eventManagerModel.RoleOwner), rbac.RoleAdminViewer, full},
 		{"read-only moderator who is a platform admin", membership(eventManagerModel.RoleViewer), rbac.RoleAdmin, full},
 		{"participant", nil, rbac.RoleUser, none},

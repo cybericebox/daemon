@@ -30,7 +30,7 @@ type TasksUseCase interface {
 func (h *Handler) initTasks(router *gin.RouterGroup) {
 	analytics := router.Group("events/:id/manage/analytics", h.prot.RequirePermission(rbac.PermSelf))
 	analytics.GET("tasks", h.requireSections, h.tasks)
-	analytics.GET("tasks/export.csv", h.requireSections, h.exportTasks)
+	analytics.GET("tasks/export.csv", h.requireExport, h.exportTasks)
 	analytics.GET("tasks/:challengeID", h.requireSections, h.taskDetail)
 	analytics.GET("tasks/:challengeID/wrong-answers", h.requireSensitive, h.taskWrongAnswers)
 }

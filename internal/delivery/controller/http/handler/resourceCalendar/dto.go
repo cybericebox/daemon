@@ -70,6 +70,31 @@ type reservationDTO struct {
 	// Used is what the event's running objects request now.
 	Used   amountDTO  `json:"Used"`
 	Alarms []alarmDTO `json:"Alarms"`
+	// Parts are the reservation as the agents hold it: one per agent of the placement.
+	Parts []partDTO `json:"Parts"`
+}
+
+// partDTO is one part of a reservation on one agent.
+type partDTO struct {
+	PartID    uuid.UUID `json:"PartID"`
+	AgentID   uuid.UUID `json:"AgentID"`
+	AgentName string    `json:"AgentName"`
+	From      time.Time `json:"From"`
+	To        time.Time `json:"To"`
+	Amount    amountDTO `json:"Amount"`
+	// Used and Groups are what runs in the part as the agent last said.
+	Used   amountDTO `json:"Used"`
+	Groups int       `json:"Groups"`
+	// Phase is Pending, Active, Ending, Ended, or empty before the agent reported it.
+	Phase string `json:"Phase" enums:",Pending,Active,Ending,Ended"`
+	// EndsAt is when the part's labs are deleted, once the ending is announced.
+	EndsAt *time.Time `json:"EndsAt"`
+	// Synced: the agent holds the last change; SyncError says why not; ShrinkHeld: a shrink waits for the labs.
+	Synced     bool   `json:"Synced"`
+	SyncError  string `json:"SyncError"`
+	ShrinkHeld bool   `json:"ShrinkHeld"`
+	// Retiring: the part is no longer wanted and is being removed from its agent.
+	Retiring bool `json:"Retiring"`
 }
 
 func reservation(v calUseCase.ReservationView) reservationDTO {
@@ -84,6 +109,14 @@ func reservation(v calUseCase.ReservationView) reservationDTO {
 	}
 	for _, a := range v.Alarms {
 		out.Alarms = append(out.Alarms, alarm(a))
+	}
+	out.Parts = make([]partDTO, 0, len(v.Parts))
+	for _, p := range v.Parts {
+		out.Parts = append(out.Parts, partDTO{
+			PartID: p.ID, AgentID: p.AgentID, AgentName: p.AgentName, From: p.From, To: p.To, Amount: amount(p.Amount),
+			Used: amount(p.Used), Groups: p.Groups, Phase: p.Phase, EndsAt: p.EndsAt,
+			Synced: p.Synced, SyncError: p.SyncError, ShrinkHeld: p.ShrinkHeld, Retiring: p.Retiring,
+		})
 	}
 	return out
 }
@@ -230,6 +263,9 @@ type setReservationRequest struct {
 	WindowEnd   *time.Time `json:"WindowEnd"`
 	// AllowConflicts keeps a reservation that does not fit by packing (it is then not covered).
 	AllowConflicts bool `json:"AllowConflicts"`
+	// ForceShrink sends a smaller size or an earlier end to the cluster even while labs run in it (the labs that do
+	// not fit are deleted after the notice); without it such a shrink is held back while they run.
+	ForceShrink bool `json:"ForceShrink"`
 	// DryRun only reports what would happen.
 	DryRun bool `json:"DryRun"`
 }
@@ -237,7 +273,7 @@ type setReservationRequest struct {
 func (r setReservationRequest) model() calUseCase.EventReservationInput {
 	in := calUseCase.EventReservationInput{
 		PerTeamSnapshotQuotaBytes: r.PerTeamSnapshotQuotaBytes, DynamicSnapshotQuotaBytes: r.DynamicSnapshotQuotaBytes, Teams: r.Teams, PerTeam: r.PerTeam.model(), BufferPercent: r.BufferPercent, Dynamic: r.Dynamic.model(),
-		WindowStart: r.WindowStart, WindowEnd: r.WindowEnd, AllowConflicts: r.AllowConflicts, DryRun: r.DryRun,
+		WindowStart: r.WindowStart, WindowEnd: r.WindowEnd, AllowConflicts: r.AllowConflicts, ForceShrink: r.ForceShrink, DryRun: r.DryRun,
 	}
 	if r.TailGapMinutes != nil {
 		d := time.Duration(*r.TailGapMinutes) * time.Minute

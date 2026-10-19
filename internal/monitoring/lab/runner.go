@@ -48,13 +48,16 @@ type Runner struct {
 	agentID string
 	lockKey int64
 	// capacity receives every capacity the agent reports (its tenant view); a failure is logged, never fatal.
-	capacity CapacitySink
+	capacity    CapacitySink
+	withdrawals WithdrawalSink
 	// seen hears every message that carries no capacity (a heartbeat), so the agent stays "seen" while idle.
 	seen SeenSink
 	// features receives what the agent says the tenant can use (first message, then on change).
 	features FeaturesSink
 	// errors receives the agent's error journal report (its components, failed lab deploys, certificate end).
 	errors ErrorsSink
+	// reservations receives the agent's reservations (their phase, ending notice and usage) and the deleted ones.
+	reservations ReservationsSink
 	// link hears whether the stream to the agent works (the error journal's agent-offline check).
 	link LinkSink
 	// position is the last message processed: where a reconnect resumes. It lives in memory for the
@@ -91,6 +94,19 @@ type LinkSink interface {
 
 // ErrorsSink receives the error journal part of a monitoring message. It must not block.
 type ErrorsSink func(ctx context.Context, report *labpb.ErrorJournal)
+
+// ReservationsSink receives the reservations of a message: all of them in a snapshot, the changed ones in a delta,
+// and the ids of the deleted ones.
+type ReservationsSink func(ctx context.Context, snapshot bool, reservations []*labpb.Reservation, deleted []string) error
+
+// reservationKind is the deleted-key kind of a reservation.
+const reservationKind = "Reservation"
+
+// WithReservationsSink hands the reservations the agent reports to sink.
+func (r *Runner) WithReservationsSink(sink ReservationsSink) *Runner {
+	r.reservations = sink
+	return r
+}
 
 // WithErrorsSink hands every error journal report of the agent to sink.
 func (r *Runner) WithErrorsSink(sink ErrorsSink) *Runner {
@@ -259,13 +275,24 @@ func (r *Runner) persist(ctx context.Context, update *labpb.MonitoringUpdate) er
 			return err
 		}
 	}
+	if r.withdrawals != nil {
+		if found := repeatedWithdrawals(update); len(found) > 0 {
+			r.withdrawals(ctx, found)
+		}
+	}
 	if reports := update.GetTraffic(); len(reports) > 0 && r.traffic != nil {
 		if err := r.traffic.ApplyTraffic(ctx, reports); err != nil {
 			return fmt.Errorf("apply lab traffic: %w", err)
 		}
 	}
+	deletedReservations := reservationDeletes(update)
+	if r.reservations != nil && (update.GetSnapshot() || len(update.GetReservations()) > 0 || len(deletedReservations) > 0) {
+		if err := r.reservations(ctx, update.GetSnapshot(), update.GetReservations(), deletedReservations); err != nil {
+			log.Error().Err(err).Msg("Failed to record the agent reservations")
+		}
+	}
 	receivedAt := time.Now().UTC()
-	if len(update.GetGroups()) == 0 && len(update.GetLabs()) == 0 && len(update.GetClients()) == 0 && len(update.GetPolicies()) == 0 && len(update.GetDeletedKeys()) == 0 {
+	if len(update.GetGroups()) == 0 && len(update.GetLabs()) == 0 && len(update.GetClients()) == 0 && len(update.GetPolicies()) == 0 && len(update.GetDeletedKeys()) == len(deletedReservations) {
 		// An empty snapshot still means "nothing exists any more".
 		return r.pruneAfterSnapshot(ctx, update, receivedAt)
 	}
@@ -327,9 +354,23 @@ func splitByGroup(update *labpb.MonitoringUpdate) map[string]*labpb.MonitoringUp
 		get(policy.GetLabGroupName()).Policies = append(get(policy.GetLabGroupName()).Policies, policy)
 	}
 	for _, deleted := range update.GetDeletedKeys() {
+		if deleted.GetKind() == reservationKind {
+			continue // a reservation belongs to no group
+		}
 		get(deleted.GetLabGroupName()).DeletedKeys = append(get(deleted.GetLabGroupName()).DeletedKeys, deleted)
 	}
 	return parts
+}
+
+// reservationDeletes are the ids of the reservations a message reports deleted.
+func reservationDeletes(update *labpb.MonitoringUpdate) []string {
+	var out []string
+	for _, deleted := range update.GetDeletedKeys() {
+		if deleted.GetKind() == reservationKind {
+			out = append(out, deleted.GetName())
+		}
+	}
+	return out
 }
 
 func wait(ctx context.Context, duration time.Duration) bool {

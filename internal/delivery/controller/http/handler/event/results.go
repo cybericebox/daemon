@@ -69,11 +69,12 @@ type manageResultsCountsResponse struct {
 }
 
 type manageResultsResponse struct {
-	Revision    int64                       `json:"Revision"`
-	GeneratedAt time.Time                   `json:"GeneratedAt"`
-	Freeze      resultsFreezeStateResponse  `json:"Freeze"`
-	Counts      manageResultsCountsResponse `json:"Counts"`
-	Teams       []manageResultsTeamResponse `json:"Teams"`
+	Revision        int64                       `json:"Revision"`
+	GeneratedAt     time.Time                   `json:"GeneratedAt"`
+	Freeze          resultsFreezeStateResponse  `json:"Freeze"`
+	ParticipantsSee bool                        `json:"ParticipantsSee"`
+	Counts          manageResultsCountsResponse `json:"Counts"`
+	Teams           []manageResultsTeamResponse `json:"Teams"`
 }
 
 type resultsSettingsRequest struct {
@@ -137,7 +138,7 @@ func (h *Handler) getManageResults(ctx *gin.Context) {
 		response.AbortWithError(ctx, err)
 		return
 	}
-	out := manageResultsResponse{Revision: v.Revision, GeneratedAt: v.GeneratedAt, Freeze: toResultsFreezeStateResponse(v.Freeze),
+	out := manageResultsResponse{Revision: v.Revision, GeneratedAt: v.GeneratedAt, Freeze: toResultsFreezeStateResponse(v.Freeze), ParticipantsSee: v.ParticipantsSee,
 		Counts: manageResultsCountsResponse{Ranked: v.Counts.Ranked, Hidden: v.Counts.Hidden, NotAdmitted: v.Counts.NotAdmitted}, Teams: make([]manageResultsTeamResponse, 0, len(v.Teams))}
 	for _, team := range v.Teams {
 		out.Teams = append(out.Teams, toManageResultsTeamResponse(team))

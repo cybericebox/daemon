@@ -345,6 +345,7 @@ func (q *Queries) IsEventTeamLabComplete(ctx context.Context, id uuid.UUID) (pgt
 const listDirtyEventTeamLabs = `-- name: ListDirtyEventTeamLabs :many
 SELECT id, event_id, event_team_id, event_exercise_id, variant_index, generation, lab_group_name, lab_name, agent_uid, agent_generation, desired_revision, observed_revision, operation_id, desired_state, actual_state, runtime_ready, close_reason, logical_closed_at, snapshot_mode, snapshot_state, retention_until, protected_until, actual_stopped_at, observed_at, objective_count, materialized, allocation, failure_code, failure_message, access_fenced, access_fenced_at, access_fence_vpn_boot_id, next_attempt_at, created_at, updated_at, definition_version_id, definition_hash, retention_minutes, retirement_stop_target, retirement_state, retirement_observed_at, retirement_error, create_evidence, runtime_stage_id, runtime_stage_known FROM event_team_labs
 WHERE next_attempt_at<=$1
+ AND NOT (desired_state='Deleted' AND actual_state='Deleted' AND retirement_state='Deleted' AND retirement_stop_target IS NULL)
  AND NOT COALESCE((desired_state='Stopped' AND actual_state='Stopped' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'ReleasedAt' IS NOT NULL AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
  AND NOT COALESCE((desired_state='Deleted' AND actual_state='Deleted' AND observed_revision=desired_revision AND allocation->>'RuntimeState'='Released' AND allocation->>'StorageState'='Deleted' AND failure_code='' AND access_fenced AND (snapshot_mode='skip' OR snapshot_state='Succeeded')),false)
 ORDER BY next_attempt_at,id LIMIT $2
@@ -355,6 +356,7 @@ type ListDirtyEventTeamLabsParams struct {
 	LimitVal int32     `json:"limit_val"`
 }
 
+// A lab the cluster deleted with its reservation (Deleted, retirement Deleted, no retirement target) is settled.
 func (q *Queries) ListDirtyEventTeamLabs(ctx context.Context, arg ListDirtyEventTeamLabsParams) ([]EventTeamLab, error) {
 	rows, err := q.db.Query(ctx, listDirtyEventTeamLabs, arg.Now, arg.LimitVal)
 	if err != nil {
@@ -579,6 +581,38 @@ func (q *Queries) ListPendingStoppedEventTeamLabs(ctx context.Context, arg ListP
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunningEventTeamLabsInGroups = `-- name: ListRunningEventTeamLabsInGroups :many
+SELECT id FROM event_team_labs
+WHERE event_id = $1 AND lab_group_name = ANY($2::text[]) AND desired_state = 'Running'
+ORDER BY id
+`
+
+type ListRunningEventTeamLabsInGroupsParams struct {
+	EventID uuid.UUID `json:"event_id"`
+	Groups  []string  `json:"groups"`
+}
+
+// The labs of an event that still run in the given team groups (their cluster reservation is ending).
+func (q *Queries) ListRunningEventTeamLabsInGroups(ctx context.Context, arg ListRunningEventTeamLabsInGroupsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listRunningEventTeamLabsInGroups, arg.EventID, arg.Groups)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

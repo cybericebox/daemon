@@ -1,6 +1,6 @@
 // Package resourceCalendar is the platform's resource calendar: reservations of lab resources over 15-minute
 // slots, the packing that decides whether they fit the agents, and the placement of a reservation over agents.
-// Reservations live only in the backend; the agent holds none, only the tenant quota the capacity comes from.
+// The backend owns the reservations; the agents hold them as cluster reservations, one part per agent (parts.go).
 package resourceCalendar
 
 import (

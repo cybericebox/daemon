@@ -24,6 +24,7 @@ func (u *AuthUseCase) GetAccount(ctx context.Context, userID uuid.UUID) (*Accoun
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get user providers").Err()
 	}
 	return &AccountInfo{
+		ID:             user.ID,
 		FirstName:      user.FirstName,
 		LastName:       user.LastName,
 		Email:          user.Email,

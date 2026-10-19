@@ -14,6 +14,8 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/rs/zerolog/log"
 
+	eventActivityModel "github.com/cybericebox/daemon/internal/model/eventActivity"
+
 	testDeployRepo "github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
@@ -137,6 +139,13 @@ const testLabOperationTimeout = 60 * time.Second
 // hold the author's lock and the HTTP call): the author gets a retryable domain conflict at once.
 func (u *ExerciseUseCase) deployLab(ctx context.Context, group, lab string, meta infraModel.LabMeta, topo exerciseModel.Topology) error {
 	err := u.infra.DeployLab(ctx, group, lab, meta, topo)
+	// The run's reservation has no room, or is not on its agent yet: the author's errors, not a fault.
+	switch {
+	case errors.Is(err, infraModel.ErrReservationFull), errors.Is(err, infraModel.ErrReservationEnded):
+		return calModel.ErrTestLabReservationFull.WithError(err).Err()
+	case errors.Is(err, infraModel.ErrNoClusterReservation):
+		return calModel.ErrClusterReservationNotReady.WithError(err).Err()
+	}
 	if _, terminating := infraModel.AsTerminating(err); terminating {
 		return exerciseModel.ErrTestDeployGroupBusy.Err()
 	}
@@ -207,16 +216,38 @@ func (u *ExerciseUseCase) InfrastructureAvailable() bool {
 // handle whose Group is the deploy id. The lab provisions asynchronously; the
 // caller polls DeployTestStatus. Secret env values are decrypted here (never
 // leaving the daemon in plaintext until this deploy path), so the agent receives
-// resolved values for its write-only env Secret.
-func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
-	return u.deployVariantTest(ctx, nil, ownerID, versionID, variantID)
+// resolved values for its write-only env Secret. length is the run length the author chose (one of
+// AllowedTestLengths; zero takes the lease in force); it is the lease and the window of the run's reservation.
+func (u *ExerciseUseCase) DeployVariantTest(ctx context.Context, ownerID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
+	return u.deployVariantTest(ctx, nil, ownerID, versionID, variantID, length)
 }
-func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eventID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
-	return u.deployVariantTest(ctx, &eventID, ownerID, versionID, variantID)
+func (u *ExerciseUseCase) DeployEventPreviewVariantTest(ctx context.Context, eventID, ownerID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
+	return u.deployVariantTest(ctx, &eventID, ownerID, versionID, variantID, length)
 }
-func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID) (exerciseModel.DeployHandle, error) {
+
+// TestRunLengths are the run lengths an author may choose and the one taken when none is chosen.
+func (u *ExerciseUseCase) TestRunLengths(ctx context.Context) (allowed []int, defaultMinutes int) {
+	leases := u.testRunLeases(ctx)
+	return leases.AllowedMinutes(), int(leases.Lease / time.Minute)
+}
+
+// testLength checks the chosen run length against the leases in force.
+func (u *ExerciseUseCase) testLength(ctx context.Context, chosen time.Duration) (time.Duration, error) {
+	leases := u.testRunLeases(ctx)
+	lease, ok := leases.TestLength(chosen)
+	if !ok {
+		return 0, calModel.ErrTestLengthNotAllowed.WithPublicContext("allowed", leases.AllowedMinutes()).Err()
+	}
+	return lease, nil
+}
+
+func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.UUID, ownerID, versionID, variantID uuid.UUID, length time.Duration) (exerciseModel.DeployHandle, error) {
 	defer logDuration("deploy test lab", time.Now(), uuid.Nil)
 
+	lease, err := u.testLength(ctx, length)
+	if err != nil {
+		return exerciseModel.DeployHandle{}, err
+	}
 	exerciseID, variant, err := u.loadVersionVariant(ctx, versionID, variantID)
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
@@ -224,7 +255,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	// A variant without devices has no laboratory to run: its test is a row with flags and a lease, which needs
 	// no agent. An event preview always needs a laboratory.
 	if eventID == nil && len(variant.Topology.Devices) == 0 {
-		return u.deployStaticTest(ctx, ownerID, versionID, variant)
+		return u.deployStaticTest(ctx, ownerID, versionID, variant, lease)
 	}
 	if u.infra == nil {
 		return exerciseModel.DeployHandle{}, infraModel.ErrInfrastructureUnavailable.Err()
@@ -275,8 +306,6 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		deployFlags = append(deployFlags, exerciseModel.DeployFlag{TaskID: link.TaskID, Name: link.Name, Flag: link.Flag})
 	}
 	id := uuid.Must(uuid.NewV7())
-	// One lease for the calendar hold and the row.
-	lease := u.testRunLeases(ctx).Lease
 	// The resource calendar decides whether the laboratory fits: the author's booked window, the guaranteed pool
 	// or unplanned room; otherwise the error names the nearest free window.
 	if eventID == nil {
@@ -284,7 +313,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 			return exerciseModel.DeployHandle{}, err
 		}
 	}
-	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(lease)}
+	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(lease), Length: lease}
 
 	if eventID != nil {
 		deploy.GroupName = eventPreviewTestGroup(*eventID, ownerID)
@@ -390,7 +419,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 
 // deployStaticTest starts the test of a variant without devices: a row with a flag for every task and a lease,
 // no laboratory, group or VPN. It counts toward the author's limit like a laboratory but never touches the agent.
-func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, versionID uuid.UUID, variant exerciseModel.Variant) (exerciseModel.DeployHandle, error) {
+func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, versionID uuid.UUID, variant exerciseModel.Variant, lease time.Duration) (exerciseModel.DeployHandle, error) {
 	flags := make([]exerciseModel.DeployFlag, 0, len(variant.Tasks))
 	for _, task := range variant.Tasks {
 		flag, err := flagpattern.Resolve(task.Flag, testFlagRandomBytes, rand.Reader)
@@ -401,7 +430,6 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 	}
 	now := u.timeNow()
 	id := uuid.Must(uuid.NewV7())
-	lease := u.testRunLeases(ctx).Lease
 	// A static request reserves nothing: the calendar admits it without an agent read or a hold.
 	if err := u.admitStaticTest(ctx, id, ownerID, lease); err != nil {
 		return exerciseModel.DeployHandle{}, err
@@ -454,10 +482,17 @@ func testLabMeta(deploy exerciseModel.TestDeploy) infraModel.LabMeta {
 			infraModel.LabelVersion: deploy.VersionID.String(),
 		},
 		GroupLabels: map[string]string{infraModel.LabelKind: infraModel.KindTest},
+		// The lab runs under its own run (or the booking it was admitted in); the author's shared group under the
+		// author's group part.
+		Reservation:      infraModel.ReservationRef{TestDeployID: &deploy.ID},
+		GroupReservation: infraModel.ReservationRef{OwnerID: &deploy.CreatedBy},
 	}
 	if deploy.EventID != nil {
 		meta.Labels[infraModel.LabelEvent] = deploy.EventID.String()
 		meta.GroupLabels[infraModel.LabelEvent] = deploy.EventID.String()
+		// A preview runs inside the event reservation, under the organizer's preview unit.
+		preview := infraModel.ReservationRef{EventID: deploy.EventID, Unit: calModel.PreviewUnit(deploy.CreatedBy)}
+		meta.Reservation, meta.GroupReservation = preview, preview
 	}
 	return meta
 }
@@ -646,12 +681,46 @@ func (u *ExerciseUseCase) withOwnerLock(ctx context.Context, owner uuid.UUID, wa
 // exists, it is persisted for the caller under the test scope (best-effort: the
 // config is also returned inline, so a store hiccup must not break polling).
 func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
+	status, deploy, err := u.deployTestStatus(ctx, userID, deployID)
+	if err == nil && status.VPNConfig != "" && deploy.EventID != nil {
+		u.recordVPNConfigDownload(ctx, *deploy.EventID, userID, deployID)
+	}
+	return status, err
+}
+
+// PreviewDeployStatus is DeployTestStatus for the event preview, which logs
+// its own download when the config is actually handed out.
+func (u *ExerciseUseCase) PreviewDeployStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, error) {
+	status, _, err := u.deployTestStatus(ctx, userID, deployID)
+	return status, err
+}
+
+// vpnAuditWriteTimeout bounds one activity log write, which outlives the poll that caused it.
+const vpnAuditWriteTimeout = 5 * time.Second
+
+// recordVPNConfigDownload logs a config delivered by the polled status route:
+// one row per user and deploy in eventActivityModel.VPNConfigWindow. A failed
+// write never fails the poll.
+func (u *ExerciseUseCase) recordVPNConfigDownload(ctx context.Context, eventID, userID, deployID uuid.UUID) {
+	if u.vpnAudit == nil {
+		return
+	}
+	a := eventActivityModel.VPNConfigDownloaded(eventID, userID, eventActivityModel.VPNConfigDeploy, u.timeNow())
+	a.SubjectID = &deployID
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), vpnAuditWriteTimeout)
+	defer cancel()
+	if _, err := u.vpnAudit.AppendOnce(writeCtx, a, eventActivityModel.VPNConfigWindow); err != nil {
+		log.Warn().Err(err).Stringer("event_id", eventID).Msg("event activity: vpn config download not logged")
+	}
+}
+
+func (u *ExerciseUseCase) deployTestStatus(ctx context.Context, userID, deployID uuid.UUID) (exerciseModel.LabDeployStatus, exerciseModel.TestDeploy, error) {
 	deploy, err := u.testDeploys.GetOwned(ctx, deployID, userID)
 	if err != nil {
 		if repositoryTools.IsObjectNotFoundError(err) {
-			return exerciseModel.LabDeployStatus{}, exerciseModel.ErrTestDeployNotFound.Err()
+			return exerciseModel.LabDeployStatus{}, deploy, exerciseModel.ErrTestDeployNotFound.Err()
 		}
-		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		return exerciseModel.LabDeployStatus{}, deploy, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
 	// A static test has nothing to provision: it is ready at once and never asks the agent.
 	if deploy.IsStatic() {
@@ -660,26 +729,26 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 			ExpiresAt:   deploy.ExpiresAt,
 			Expired:     testDeployExpired(deploy, u.timeNow()),
 			SolvedTasks: deploy.Solved,
-		}, nil
+		}, deploy, nil
 	}
 	if u.infra == nil {
-		return exerciseModel.LabDeployStatus{}, infraModel.ErrInfrastructureUnavailable.Err()
+		return exerciseModel.LabDeployStatus{}, deploy, infraModel.ErrInfrastructureUnavailable.Err()
 	}
 	// A lab whose lease is over but which is not removed yet is still answered (Expired), so its author sees it and can end it.
 	expired := testDeployExpired(deploy, u.timeNow())
 	if !expired {
 		if err = u.requireScopedPreviewActive(ctx, deploy); err != nil {
-			return exerciseModel.LabDeployStatus{}, err
+			return exerciseModel.LabDeployStatus{}, deploy, err
 		}
 	}
 	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
 	if err != nil && !expired {
-		return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
+		return exerciseModel.LabDeployStatus{}, deploy, model.ErrPlatform.WithError(err).WithMessage("Failed to read deploy status").Err()
 	}
 	if err != nil {
 		status = exerciseModel.LabDeployStatus{} // being removed: the agent may no longer know the Lab
 	}
-	status.ExpiresAt, status.Expired = deploy.ExpiresAt, expired
+	status.ExpiresAt, status.Expired, status.EndingAt = deploy.ExpiresAt, expired, deploy.EndingAt
 	if expired {
 		status.Phase, status.Removing = exerciseModel.DeployPhaseRemoving, true
 	}
@@ -688,12 +757,12 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 	status.VPNConfig = ""
 	status.SolvedTasks = deploy.Solved
 	if expired {
-		return status, nil // the access ended with the lease: no VPN config, handshake or probe address
+		return status, deploy, nil // the access ended with the lease: no VPN config, handshake or probe address
 	}
 	if status.Ready && u.vpnStore != nil {
 		config, cfgErr := u.vpnStore.GetConfig(ctx, userID, vpnModel.ScopeTest, deployVPNRef(deploy))
 		if cfgErr != nil {
-			return exerciseModel.LabDeployStatus{}, model.ErrPlatform.WithError(cfgErr).WithMessage("Failed to read test VPN config").Err()
+			return exerciseModel.LabDeployStatus{}, deploy, model.ErrPlatform.WithError(cfgErr).WithMessage("Failed to read test VPN config").Err()
 		}
 		if !strings.Contains(config, wgPrivateKeyPlaceholder) {
 			status.VPNConfig = config
@@ -714,7 +783,7 @@ func (u *ExerciseUseCase) DeployTestStatus(ctx context.Context, userID, deployID
 			}
 		}
 	}
-	return status, nil
+	return status, deploy, nil
 }
 
 // vpnSubnetReader is the optional port that reads a group's published VPN client subnet.
@@ -949,9 +1018,137 @@ func (u *ExerciseUseCase) EndExpiredTestDeploy(ctx context.Context, ownerID, dep
 		if u.infra == nil {
 			return false, infraModel.ErrInfrastructureUnavailable.Err()
 		}
+		if extended, err := u.leaseWhileStarting(ctx, repo, deploy); err != nil || extended {
+			return false, err
+		}
 		return false, u.endTestLab(ctx, repo, deploy, true)
 	})
 	return err
+}
+
+// TestLabNotifier tells an author about the end of a test laboratory's reservation (the inbox).
+type TestLabNotifier interface {
+	TestLabEnding(ctx context.Context, owner, deployID uuid.UUID, exerciseName string, endsAt time.Time) error
+	TestLabEnded(ctx context.Context, owner, deployID uuid.UUID, exerciseName string) error
+}
+
+// deployExerciseName is the name of the task a test deploy runs (empty when it cannot be read: the notice still goes).
+func (u *ExerciseUseCase) deployExerciseName(ctx context.Context, deploy exerciseModel.TestDeploy) string {
+	if u.exercises == nil {
+		return ""
+	}
+	version, err := u.exercises.GetVersion(ctx, deploy.VersionID)
+	if err != nil {
+		return ""
+	}
+	e, err := u.exercises.GetByID(ctx, version.ExerciseID)
+	if err != nil {
+		return ""
+	}
+	return e.Name
+}
+
+// SetTestLabNotifier wires the author's notifications about the reservation of a test laboratory.
+func (u *ExerciseUseCase) SetTestLabNotifier(n TestLabNotifier) { u.testLabNotifier = n }
+
+// TestRunEnding records the ending notice of a test run's reservation (the lab page shows it) and tells the author
+// once. An extension clears it.
+func (u *ExerciseUseCase) TestRunEnding(ctx context.Context, owner, deployID uuid.UUID, endsAt time.Time) error {
+	deploy, err := u.testDeploys.GetOwned(ctx, deployID, owner)
+	if err != nil {
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return nil
+		}
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+	}
+	if deploy.EndingAt != nil {
+		return nil
+	}
+	// A run the cluster has not run for its length yet gets its end moved instead of the notice.
+	if moved, mErr := u.leaseWhileStarting(ctx, u.testDeploys, deploy); mErr != nil || moved {
+		return mErr
+	}
+	if err = u.testDeploys.SetEndingAt(ctx, deployID, owner, &endsAt); err != nil {
+		return model.ErrPlatform.WithError(err).WithMessage("Failed to record the ending of a test deploy").Err()
+	}
+	if u.testLabNotifier != nil {
+		if nErr := u.testLabNotifier.TestLabEnding(ctx, owner, deployID, u.deployExerciseName(ctx, deploy), endsAt); nErr != nil {
+			log.Warn().Err(nErr).Str("deploy", deployID.String()).Msg("Failed to notify the author about an ending test laboratory")
+		}
+	}
+	return nil
+}
+
+// EndTestDeployByReservation ends a test laboratory whose reservation ended: the same path as the end of its lease
+// (the lab and, with the author's last one, the group go; the hold is released), never a failure. The author is
+// told, since they did not end it themselves.
+func (u *ExerciseUseCase) EndTestDeployByReservation(ctx context.Context, owner, deployID uuid.UUID) error {
+	var ended *exerciseModel.TestDeploy
+	// A busy author is skipped (the lab may be ending under the lock already); the lease sweep ends it otherwise.
+	_, err := u.underOwnerLockIfFree(ctx, owner, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+		deploy, err := repo.GetOwned(ctx, deployID, owner)
+		if err != nil {
+			if repositoryTools.IsObjectNotFoundError(err) {
+				return false, nil // ended already
+			}
+			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
+		}
+		now := u.timeNow()
+		if deploy.ExpiresAt.After(now) {
+			if deploy, err = repo.ExtendOwned(ctx, deployID, owner, now); err != nil {
+				return false, model.ErrPlatform.WithError(err).WithMessage("Failed to end test deploy").Err()
+			}
+		}
+		ended = &deploy
+		if u.infra == nil {
+			return true, u.finishTestLab(ctx, repo, deploy)
+		}
+		return true, u.endTestLab(ctx, repo, deploy, true)
+	})
+	if err == nil && ended != nil && u.testLabNotifier != nil {
+		if nErr := u.testLabNotifier.TestLabEnded(ctx, owner, deployID, u.deployExerciseName(ctx, *ended)); nErr != nil {
+			log.Warn().Err(nErr).Str("deploy", deployID.String()).Msg("Failed to notify the author about an ended test laboratory")
+		}
+	}
+	return err
+}
+
+// leaseWhileStarting moves the end of a platform test lab's lease (and its cluster reservation) later when the lab did not
+// run its chosen length: the lease counts only while the lab runs (exerciseModel.TestLeaseEnd), within the hard limit. It
+// runs at the reservation's ending notice and at the lease's end. A lab whose status cannot be read ends as before; an
+// event preview lab keeps the end of its event's reservation.
+func (u *ExerciseUseCase) leaseWhileStarting(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) (bool, error) {
+	if deploy.EventID != nil || deploy.IsStatic() || u.infra == nil {
+		return false, nil
+	}
+	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
+	if err != nil {
+		return false, nil
+	}
+	now := u.timeNow()
+	leases := u.testRunLeases(ctx)
+	var limit time.Time
+	if !deploy.CreatedAt.IsZero() {
+		limit = deploy.CreatedAt.Add(leases.Max)
+	}
+	length := deploy.Length
+	if length <= 0 {
+		length = leases.Lease // a row made before the run length was kept
+	}
+	due, extend := exerciseModel.TestLeaseEnd(status, length, limit, now)
+	if !extend || !due.After(deploy.ExpiresAt) {
+		return false, nil
+	}
+	value, err := repo.ExtendOwned(ctx, deploy.ID, deploy.CreatedBy, due)
+	if err != nil {
+		return false, model.ErrPlatform.WithError(err).WithMessage("Failed to move the end of a test lab lease").Err()
+	}
+	if u.testLabGate != nil {
+		// Best effort, like an extension by the author: the hold follows the lease.
+		_ = u.testLabGate.ExtendTestLab(ctx, deploy.ID, deploy.CreatedBy, calendarUseCase.Amount{}, value.ExpiresAt)
+	}
+	u.scheduleTestDeployExpiry(ctx, value)
+	return true, nil
 }
 
 // CleanupExpiredTestDeploys removes the Labs whose persisted lease expired (and, with the last

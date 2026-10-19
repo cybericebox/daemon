@@ -6,6 +6,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type Queries interface {
 	MarkExerciseTestDeploySolved(context.Context, postgres.MarkExerciseTestDeploySolvedParams) (postgres.ExerciseTestDeployment, error)
 	LockExerciseTestDeploysOf(context.Context, string) error
 	TryLockExerciseTestDeploysOf(context.Context, string) (bool, error)
+	SetExerciseTestDeployEndingAt(context.Context, postgres.SetExerciseTestDeployEndingAtParams) (int64, error)
 	CountActiveExerciseTestDeploys(context.Context, postgres.CountActiveExerciseTestDeploysParams) (int64, error)
 }
 
@@ -63,10 +65,18 @@ func ToRow(v exerciseModel.TestDeploy) postgres.ExerciseTestDeployment {
 	return postgres.ExerciseTestDeployment{EventID: deployEventRef(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags), Solved: marshalSolved(v.Solved)}
 }
 func toDomain(v postgres.ExerciseTestDeployment) exerciseModel.TestDeploy {
-	return exerciseModel.TestDeploy{EventID: deployEventID(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: unmarshalFlags(v.Flags), Solved: unmarshalSolved(v.Solved)}
+	out := exerciseModel.TestDeploy{EventID: deployEventID(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: unmarshalFlags(v.Flags), Solved: unmarshalSolved(v.Solved)}
+	if v.EndingAt.Valid {
+		at := v.EndingAt.Time.UTC()
+		out.EndingAt = &at
+	}
+	if v.RunSeconds.Valid {
+		out.Length = time.Duration(v.RunSeconds.Int32) * time.Second
+	}
+	return out
 }
 func (r *Repository) Create(ctx context.Context, v exerciseModel.TestDeploy) (exerciseModel.TestDeploy, error) {
-	row, e := r.q.CreateExerciseTestDeploy(ctx, postgres.CreateExerciseTestDeployParams{EventID: deployEventRef(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags)})
+	row, e := r.q.CreateExerciseTestDeploy(ctx, postgres.CreateExerciseTestDeployParams{EventID: deployEventRef(v.EventID), ID: v.ID, GroupName: v.GroupName, LabName: v.LabName, VersionID: v.VersionID, VariantID: v.VariantID, CreatedBy: v.CreatedBy, CreatedAt: v.CreatedAt, ExpiresAt: v.ExpiresAt, Flags: marshalFlags(v.Flags), RunSeconds: runSeconds(v.Length)})
 	return toDomain(row), e
 }
 func (r *Repository) GetOwned(ctx context.Context, id, owner uuid.UUID) (exerciseModel.TestDeploy, error) {
@@ -158,4 +168,22 @@ func deployEventID(id uuid.NullUUID) *uuid.UUID {
 		return nil
 	}
 	return &id.UUID
+}
+
+// SetEndingAt records the ending notice of the run's cluster reservation (narrow write: an extension clears it).
+func (r *Repository) SetEndingAt(ctx context.Context, id, owner uuid.UUID, at *time.Time) error {
+	value := pgtype.Timestamptz{}
+	if at != nil {
+		value = pgtype.Timestamptz{Time: *at, Valid: true}
+	}
+	_, err := r.q.SetExerciseTestDeployEndingAt(ctx, postgres.SetExerciseTestDeployEndingAtParams{ID: id, CreatedBy: owner, EndingAt: value})
+	return err
+}
+
+// runSeconds stores the run length; zero (a row made before it was kept, a static test) stores none.
+func runSeconds(d time.Duration) pgtype.Int4 {
+	if d <= 0 {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: int32(d / time.Second), Valid: true}
 }

@@ -272,6 +272,9 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 			if !ok {
 				return calModel.ErrReservationNotFound.Err()
 			}
+			if uErr = u.splitParts(ctx, s, r, false, now); uErr != nil {
+				return uErr
+			}
 			raised, uErr = u.reconcileReservation(ctx, s, r, states, now)
 			if uErr != nil {
 				return uErr
@@ -294,6 +297,7 @@ func (u *ResourceCalendarUseCase) DecideResourceChangeRequest(ctx context.Contex
 		return ChangeRequestView{}, err
 	}
 	u.emit(ctx, raised)
+	u.pushParts(ctx)
 	if u.notifier != nil {
 		if nErr := u.notifier.ResourceChangeDecided(ctx, u.changeNotice(decided, label, decided.RequestedBy), approve, by); nErr != nil {
 			log.Warn().Err(nErr).Msg("Failed to notify about the change decision")

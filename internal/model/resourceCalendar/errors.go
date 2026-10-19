@@ -1,11 +1,13 @@
 package resourceCalendar
 
 import (
+	"net/http"
+
 	"github.com/cybericebox/daemon/internal/model"
 	"github.com/cybericebox/daemon/pkg/err"
 )
 
-// next free detail code: 15
+// next free detail code: 19
 
 var (
 	// ErrWindowInvalid: the time range of a reservation or a booking is empty, reversed or out of bounds.
@@ -82,4 +84,29 @@ var (
 	ErrChangeRequestPending = err.ErrConflict.WithObjectCode(model.ResourceCalendarObjectCode).
 				WithMessage("The event has a change request that waits for a decision").
 				WithDetailCode(14)
+
+	// ErrUnitNotPlaced: every share of the reservation is taken, so a new team (or preview owner) has no agent.
+	ErrUnitNotPlaced = err.ErrConflict.WithObjectCode(model.ResourceCalendarObjectCode).
+				WithMessage("The reservation has no free place for this team").
+				WithDetailCode(15)
+
+	// ErrTestLengthNotAllowed: the run length a test laboratory asks for is not one of the offered ones; the
+	// public context "allowed" lists them in minutes. (Kept in the calendar block: the exercise object has no free
+	// detail code.)
+	ErrTestLengthNotAllowed = err.ErrInvalidData.WithObjectCode(model.ResourceCalendarObjectCode).
+				WithMessage("This run length is not offered").
+				WithDetailCode(16)
+
+	// ErrTestLabReservationFull: the reservation a test laboratory runs under (the author's booking, the run) has
+	// no room left for it.
+	ErrTestLabReservationFull = err.ErrConflict.WithObjectCode(model.ResourceCalendarObjectCode).
+					WithMessage("The reservation has no room for this laboratory").
+					WithDetailCode(17)
+
+	// ErrClusterReservationNotReady: the cluster reservation of a test laboratory is not on its agent yet; the
+	// author tries again in a minute.
+	ErrClusterReservationNotReady = err.ErrConflict.WithObjectCode(model.ResourceCalendarObjectCode).
+					WithMessage("The resources are not ready yet, try again in a minute").
+					WithDetailCode(18).
+					WithHTTPCode(http.StatusServiceUnavailable)
 )
