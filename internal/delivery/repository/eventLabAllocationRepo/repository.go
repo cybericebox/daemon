@@ -10,7 +10,6 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/repository/resourceCalendarRepo"
 	eventLabModel "github.com/cybericebox/daemon/internal/model/eventLab"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
-	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 	calModel "github.com/cybericebox/daemon/internal/model/resourceCalendar"
 	"github.com/gofrs/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -114,15 +113,10 @@ func (r *Repository) UnaccountedStarts(ctx context.Context) (map[uuid.UUID]bool,
 	return out, err
 }
 
-// configuredCPULimit is the CPU limit of the group's pods: each one bursts by the device rule (the cap is per pod),
-// so it is the sum of the limits, not the limit of the sum.
-func configuredCPULimit(g Group) int64 {
-	return resourcesModel.CPULimitFor(g.Sizes.VPN.CPUMillicores) + resourcesModel.CPULimitFor(g.Sizes.Gateway.CPUMillicores)
-}
-
+// initialGroupAllocation: the group pods (VPN, gateway) stay Guaranteed, so their limits equal their requests.
 func initialGroupAllocation(g Group) []byte {
 	total := g.Sizes.Total()
-	v := eventLabModel.Allocation{ConfiguredRequests: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, ConfiguredLimits: eventLabModel.Compute{CPUMillicores: configuredCPULimit(g), MemoryBytes: total.MemoryBytes}, AllocatedRequests: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, RuntimeState: "Admitted", StorageState: "None"}
+	v := eventLabModel.Allocation{ConfiguredRequests: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, ConfiguredLimits: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, AllocatedRequests: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, RuntimeState: "Admitted", StorageState: "None"}
 	raw, _ := json.Marshal(v)
 	return raw
 }
