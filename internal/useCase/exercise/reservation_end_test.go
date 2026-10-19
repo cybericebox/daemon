@@ -2,6 +2,7 @@ package exercise_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -59,5 +60,23 @@ func TestTestRunEndingRecordedAndToldOnce(t *testing.T) {
 	}
 	if len(notices.ending) != 1 {
 		t.Fatalf("the notice is told once, got %d", len(notices.ending))
+	}
+}
+
+// A lab whose end failed is not reported as ended: the author hears of it when it really goes.
+func TestFailedEndIsNotToldAsEnded(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	owner, id := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	row := postgres.ExerciseTestDeployment{ID: id, CreatedBy: owner, GroupName: "tu-1", LabName: "l-1", ExpiresAt: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)}
+	q.EXPECT().GetOwnedExerciseTestDeploy(gomock.Any(), gomock.Any()).Return(row, nil)
+	q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return(nil, errors.New("db down"))
+	notices := &labNotices{}
+	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: &fakeInfra{}})
+	uc.SetTestLabNotifier(notices)
+	if err := uc.EndTestDeployByReservation(context.Background(), owner, id); err == nil {
+		t.Fatal("the failed end must be returned")
+	}
+	if len(notices.ended) != 0 {
+		t.Fatalf("a failed end is not told, got %v", notices.ended)
 	}
 }

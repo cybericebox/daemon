@@ -141,7 +141,7 @@ func (u *ExerciseUseCase) deployLab(ctx context.Context, group, lab string, meta
 	err := u.infra.DeployLab(ctx, group, lab, meta, topo)
 	// The run's reservation has no room, or is not on its agent yet: the author's errors, not a fault.
 	switch {
-	case errors.Is(err, infraModel.ErrReservationFull):
+	case errors.Is(err, infraModel.ErrReservationFull), errors.Is(err, infraModel.ErrReservationEnded):
 		return calModel.ErrTestLabReservationFull.WithError(err).Err()
 	case errors.Is(err, infraModel.ErrNoClusterReservation):
 		return calModel.ErrClusterReservationNotReady.WithError(err).Err()
@@ -1077,7 +1077,8 @@ func (u *ExerciseUseCase) TestRunEnding(ctx context.Context, owner, deployID uui
 // told, since they did not end it themselves.
 func (u *ExerciseUseCase) EndTestDeployByReservation(ctx context.Context, owner, deployID uuid.UUID) error {
 	var ended *exerciseModel.TestDeploy
-	err := u.underOwnerLock(ctx, owner, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
+	// A busy author is skipped (the lab may be ending under the lock already); the lease sweep ends it otherwise.
+	_, err := u.underOwnerLockIfFree(ctx, owner, func(ctx context.Context, repo *testDeployRepo.Repository) (bool, error) {
 		deploy, err := repo.GetOwned(ctx, deployID, owner)
 		if err != nil {
 			if repositoryTools.IsObjectNotFoundError(err) {
@@ -1097,7 +1098,7 @@ func (u *ExerciseUseCase) EndTestDeployByReservation(ctx context.Context, owner,
 		}
 		return true, u.endTestLab(ctx, repo, deploy, true)
 	})
-	if ended != nil && u.testLabNotifier != nil {
+	if err == nil && ended != nil && u.testLabNotifier != nil {
 		if nErr := u.testLabNotifier.TestLabEnded(ctx, owner, deployID, u.deployExerciseName(ctx, *ended)); nErr != nil {
 			log.Warn().Err(nErr).Str("deploy", deployID.String()).Msg("Failed to notify the author about an ended test laboratory")
 		}
