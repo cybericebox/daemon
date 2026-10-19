@@ -130,7 +130,8 @@ func (u *EventUseCase) resourcePlanInputs(ctx context.Context, eventID uuid.UUID
 		if config.MaxTeams != nil {
 			in.teams, in.teamsBasis = int(*config.MaxTeams), "max_teams"
 		} else if count, countErr := u.teams.Count(ctx, eventID); countErr == nil {
-			in.teams = int(max(count, 1))
+			// The regular teams that exist now (never the moderators team, counted below once).
+			in.teams = int(count)
 		}
 	}
 
@@ -149,6 +150,8 @@ func (u *EventUseCase) resourcePlanInputs(ctx context.Context, eventID uuid.UUID
 		// Moderators are a separate participation unit with their own shared Lab.
 		in.teams++
 	}
+	// An event always plans for at least one team (an event with no teams yet still reserves one).
+	in.teams = max(in.teams, 1)
 	all, err := u.eventExercises.List(ctx, eventID)
 	if err != nil {
 		return in, model.ErrPlatform.WithError(err).WithMessage("Failed to list event exercises for the resource plan").Err()
