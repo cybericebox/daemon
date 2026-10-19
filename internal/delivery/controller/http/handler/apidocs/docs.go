@@ -35395,6 +35395,10 @@ const docTemplate = `{
                         "withdrawn"
                     ]
                 },
+                "Resolvable": {
+                    "description": "Resolvable is true when the recipient may close this open request by hand (the resolve endpoint accepts it).\nClients show «Вирішено» from it instead of keeping their own list of types.",
+                    "type": "boolean"
+                },
                 "ResolvedAt": {
                     "description": "ResolvedAt and Resolution are set once a request was decided (by anyone).",
                     "type": "string"
