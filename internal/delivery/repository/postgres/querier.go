@@ -714,8 +714,6 @@ type Querier interface {
 	// a dispatch matches when one of its targets matches all of them. The
 	// transport filter is one value or a comma-separated list.
 	ListDispatches(ctx context.Context, arg ListDispatchesParams) ([]ListDispatchesRow, error)
-	ListDueRetainedEventLabs(ctx context.Context, arg ListDueRetainedEventLabsParams) ([]EventTeamLab, error)
-	ListDueRetainedGroups(ctx context.Context, arg ListDueRetainedGroupsParams) ([]EventTeamGroupAllocation, error)
 	ListDueStageRuntimeSelections(ctx context.Context, arg ListDueStageRuntimeSelectionsParams) ([]ListDueStageRuntimeSelectionsRow, error)
 	ListDueTimedEventFormAssignmentsForUpdate(ctx context.Context, arg ListDueTimedEventFormAssignmentsForUpdateParams) ([]EventFormAssignment, error)
 	ListEffectiveCorrectAttemptIDs(ctx context.Context, teamChallengeID uuid.UUID) ([]uuid.UUID, error)

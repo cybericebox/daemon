@@ -16,7 +16,6 @@ import (
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
 	"github.com/cybericebox/daemon/internal/useCase/event"
 	"github.com/gofrs/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 )
 
@@ -198,73 +197,24 @@ func TestScheduleRetentionKeepsStagePinsWhenOnlyEventFinishMoves(t *testing.T) {
 	require.Equal(t, l.OperationID, current.OperationID)
 }
 
-type staleDueRetentionQueries struct {
-	event.IRepository
-	rows        []postgres.EventTeamLab
-	afterSelect func() error
-}
-
-func (q *staleDueRetentionQueries) ListDueRetainedEventLabs(context.Context, postgres.ListDueRetainedEventLabsParams) ([]postgres.EventTeamLab, error) {
-	if err := q.afterSelect(); err != nil {
-		return nil, err
-	}
-	return q.rows, nil
-}
-func TestScheduleRetentionStaleDueSelectionReloadsUpdatedDeadlineUnderLock(t *testing.T) {
+// Labs live until the reservation window ends (owner decision 2026-10-19): a stopped lab and a stopped group whose
+// retention deadline passed are kept, the deadline is ignored.
+func TestRetentionDeadlineNeverRetires(t *testing.T) {
 	f, set := retentionScheduleFixture(t)
 	ctx := context.Background()
 	l, err := eventLabRepo.New(f.db.Queries).GetForChallenge(ctx, f.blueID, set.challenges[0])
 	require.NoError(t, err)
 	l = waveStopped(t, f, l.ID, "solved")
-	at := l.RetentionUntil.Add(time.Second)
-	stale, err := f.db.Queries.ListDueRetainedEventLabs(ctx, postgres.ListDueRetainedEventLabsParams{Now: pgtype.Timestamptz{Time: at, Valid: true}, LimitVal: 100})
-	require.NoError(t, err)
-	require.NotEmpty(t, stale)
-	race := &staleDueRetentionQueries{IRepository: f.db.Queries, rows: stale, afterSelect: func() error { return extendRetentionSchedule(t, f, l.RetentionUntil.UTC().Add(2*time.Hour)) }}
-	worker := retentionUseCase(f, race, postgres.NewUnitOfWorker[event.IRepository](postgres.NewUoWFactory(f.db.Pool)))
-	require.NoError(t, worker.ReconcileLabRetention(ctx, at))
+	require.NotNil(t, l.RetentionUntil)
+	f.uc.SetLifecycleControls(true)
+	require.NoError(t, f.uc.ReconcileLabRetention(ctx, l.RetentionUntil.Add(30*24*time.Hour)))
 	current, err := eventLabRepo.New(f.db.Queries).Get(ctx, l.ID)
 	require.NoError(t, err)
-	require.Equal(t, "Stopped", current.DesiredState)
+	require.Equal(t, "Stopped", current.DesiredState, "a passed retention deadline never retires a lab")
+	require.Nil(t, current.RetirementStopTarget)
 	require.Equal(t, l.Revision, current.Revision)
-	require.Equal(t, l.OperationID, current.OperationID)
 	require.Equal(t, l.Allocation, current.Allocation)
 }
-func TestScheduleRetentionDoesNotRewriteManualDeletedOrArchivedGenerations(t *testing.T) {
-	f, set := retentionScheduleFixture(t)
-	ctx := context.Background()
-	rows, err := f.db.Queries.ListEventLabAllocations(ctx, f.eventID)
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(rows), 4)
-	manual := waveStopped(t, f, rows[0].ID, "manual")
-	deleted := waveStopped(t, f, rows[1].ID, "solved")
-	expiry := time.Now().UTC().Add(-time.Minute)
-	deleted.SetRetentionDeadline(expiry, expiry)
-	expected := deleted.Revision
-	require.True(t, deleted.RequestRetirement(uuid.Must(uuid.NewV7()), time.Now().UTC()))
-	ok, err := eventLabRepo.New(f.db.Queries).Update(ctx, deleted, expected)
-	require.NoError(t, err)
-	require.True(t, ok)
-	deleted, err = eventLabRepo.New(f.db.Queries).Get(ctx, deleted.ID)
-	require.NoError(t, err)
-	other, err := eventLabRepo.New(f.db.Queries).Get(ctx, rows[2].ID)
-	require.NoError(t, err)
-	require.NoError(t, f.db.Queries.ArchiveEventLabGeneration(ctx, other.ID))
-	var archiveBefore []byte
-	require.NoError(t, f.db.Pool.QueryRow(ctx, `SELECT row_to_json(g)::text::bytea FROM event_lab_generations g WHERE lab_id=$1 AND generation=$2`, other.ID, other.Generation).Scan(&archiveBefore))
-	require.NoError(t, extendRetentionSchedule(t, f, time.Now().UTC().Add(8*time.Hour)))
-	afterManual, err := eventLabRepo.New(f.db.Queries).Get(ctx, manual.ID)
-	require.NoError(t, err)
-	require.Equal(t, manual, afterManual)
-	afterDeleted, err := eventLabRepo.New(f.db.Queries).Get(ctx, deleted.ID)
-	require.NoError(t, err)
-	require.Equal(t, deleted, afterDeleted)
-	var archiveAfter []byte
-	require.NoError(t, f.db.Pool.QueryRow(ctx, `SELECT row_to_json(g)::text::bytea FROM event_lab_generations g WHERE lab_id=$1 AND generation=$2`, other.ID, other.Generation).Scan(&archiveAfter))
-	require.Equal(t, archiveBefore, archiveAfter)
-	_ = set
-}
-
 func TestScheduleRetentionStoppedGroupCannotExpireBeforeRenewedChildren(t *testing.T) {
 	f, _ := allocationFixture(t, 0)
 	seedRetentionGroupLedgers(t, f)
