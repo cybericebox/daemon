@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
-	authModel "github.com/cybericebox/daemon/internal/model/auth"
 )
 
 type signUpRequest struct {
@@ -90,7 +89,7 @@ func (h *Handler) completeSetup(ctx *gin.Context) {
 		response.AbortWithBadRequest(ctx, err)
 		return
 	}
-	meta := authModel.SessionMetadata{UserAgent: ctx.Request.UserAgent(), IP: ctx.ClientIP()}
+	meta := sessionMetadata(ctx)
 	cookie, redirect, err := h.useCase.CompleteRegistration(
 		ctx,
 		req.Token,

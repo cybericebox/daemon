@@ -41,14 +41,16 @@ type fakeUC struct {
 	linkSetupErr      error
 	avatarBody        string
 	avatarType        string
+	capturedMeta      authModel.SessionMetadata
 }
 
 func (f *fakeUC) SignIn(
 	_ context.Context,
 	_, _, redirect string,
-	_ authModel.SessionMetadata,
+	meta authModel.SessionMetadata,
 ) (string, string, error) {
 	f.capturedRedirect = redirect
+	f.capturedMeta = meta
 	return f.cookie, f.redirect, nil
 }
 func (f *fakeUC) IsTrustedRedirect(_ string) bool { return f.trustedRedirect }

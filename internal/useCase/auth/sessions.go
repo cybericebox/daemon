@@ -46,7 +46,8 @@ func (u *AuthUseCase) ListSessions(ctx context.Context, userID, currentSessionID
 		out = append(out, SessionInfo{
 			ID:        s.ID,
 			UserAgent: s.Metadata.UserAgent,
-			IP:        s.Metadata.IP,
+			// a session stored before the address filter may still hold an internal address: never sent
+			IP:        authModel.SessionIP(s.Metadata.IP),
 			LastSeen:  s.LastSeen,
 			IsCurrent: s.ID == currentSessionID,
 			CreatedAt: s.CreatedAt,
