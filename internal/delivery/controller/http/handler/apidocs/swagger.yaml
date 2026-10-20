@@ -6451,6 +6451,13 @@ definitions:
       Name:
         type: string
     type: object
+  exercise.exampleDocumentResponse:
+    properties:
+      Json:
+        type: string
+      Yaml:
+        type: string
+    type: object
   exercise.exerciseListItemResponse:
     properties:
       AccessEventIDs:
@@ -22817,6 +22824,28 @@ paths:
             $ref: '#/definitions/response.Response'
       summary: Download the example import archive (a small built-in ZIP of sample
         tasks)
+      tags:
+      - exercises
+  /exercises/import/example/document:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                Data:
+                  $ref: '#/definitions/exercise.exampleDocumentResponse'
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/response.Response'
+      summary: 'The example task document as text: the commented YAML and the same
+        content as JSON'
       tags:
       - exercises
   /exercises/import/jobs:

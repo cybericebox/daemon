@@ -16483,6 +16483,43 @@
                 }
             }
         },
+        "/exercises/import/example/document": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "exercises"
+                ],
+                "summary": "The example task document as text: the commented YAML and the same content as JSON",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "Data": {
+                                            "$ref": "#/definitions/exercise.exampleDocumentResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/response.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/exercises/import/jobs": {
             "get": {
                 "description": "So a page on another device, or with cleared storage, can follow them (GET /exercises/import/jobs/{jobID}).",
@@ -34175,6 +34212,17 @@
                     "type": "string"
                 },
                 "Name": {
+                    "type": "string"
+                }
+            }
+        },
+        "exercise.exampleDocumentResponse": {
+            "type": "object",
+            "properties": {
+                "Json": {
+                    "type": "string"
+                },
+                "Yaml": {
                     "type": "string"
                 }
             }
