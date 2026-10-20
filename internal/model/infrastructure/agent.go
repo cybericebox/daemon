@@ -191,13 +191,15 @@ type AgentRecord struct {
 // Label keys the platform puts on every object it creates in the infrastructure. The instance
 // label is immutable and ties the object to this platform instance (the agent's Monitoring
 // stream is subscribed with it); the others select objects by event, team or task.
+// The prefix "platform/" is not a domain (the backend is not tied to one) but keeps the keys unique and is a valid
+// Kubernetes label key prefix.
 const (
-	LabelInstance = "cybericebox.io/instance"
-	LabelEvent    = "cybericebox.io/event"
-	LabelTeam     = "cybericebox.io/team"
-	LabelTask     = "cybericebox.io/task"
-	LabelVersion  = "cybericebox.io/version"
-	LabelKind     = "cybericebox.io/kind"
+	LabelInstance = "platform/instance"
+	LabelEvent    = "platform/event"
+	LabelTeam     = "platform/team"
+	LabelTask     = "platform/task"
+	LabelVersion  = "platform/version"
+	LabelKind     = "platform/kind"
 )
 
 // Kinds of a lab for LabelKind.

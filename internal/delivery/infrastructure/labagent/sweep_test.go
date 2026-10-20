@@ -11,7 +11,7 @@ import (
 
 func TestSweepListingIsLimitedToThisInstanceAndTheOwnedKinds(t *testing.T) {
 	a := &fakeAgent{groups: []*labpb.LabGroup{
-		{Name: "g-1", CreatedUnixMs: 1700000000123, Status: &labpb.LabGroupStatus{Phase: "Ready"}, Labels: map[string]string{"cybericebox.io/kind": "stand"}},
+		{Name: "g-1", CreatedUnixMs: 1700000000123, Status: &labpb.LabGroupStatus{Phase: "Ready"}, Labels: map[string]string{"platform/kind": "stand"}},
 		{Name: "g-2"},
 	}}
 	groups, err := newClient(a).ListSweepableGroups(context.Background())
@@ -19,7 +19,7 @@ func TestSweepListingIsLimitedToThisInstanceAndTheOwnedKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The selector is what keeps another platform instance's groups out; the tenant is applied by the agent.
-	if want := "cybericebox.io/instance=prod,cybericebox.io/kind in (stand,test)"; a.listSelector != want {
+	if want := "platform/instance=prod,platform/kind in (stand,test)"; a.listSelector != want {
 		t.Fatalf("selector = %q, want %q", a.listSelector, want)
 	}
 	if len(groups) != 2 || groups[0].Name != "g-1" || groups[0].Phase != "Ready" || !groups[0].CreatedAt.Equal(time.UnixMilli(1700000000123)) {

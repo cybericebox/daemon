@@ -242,7 +242,7 @@ func TestEveryMutatingCallCarriesTheInstanceLabel(t *testing.T) {
 			t.Errorf("%s request labels = %v, want the instance label", name, labels)
 		}
 	}
-	if c.MonitoringSelector() != "cybericebox.io/instance=prod" {
+	if c.MonitoringSelector() != "platform/instance=prod" {
 		t.Errorf("selector = %q", c.MonitoringSelector())
 	}
 }
