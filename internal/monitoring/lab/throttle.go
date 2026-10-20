@@ -7,6 +7,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
+
+	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 )
 
 // ThrottleAlertPercent is the share of throttled CFS periods above which a device is starved by its CPU limit.
@@ -76,6 +78,11 @@ func (w *ThrottleWatcher) Observe(ctx context.Context, update *labpb.MonitoringU
 	for _, l := range update.GetLabs() {
 		run := runKey(l)
 		w.runs[l.GetNamespace()+"/"+l.GetName()] = run
+		// Test deploys (the catalog, an event preview) run with a deliberately small CPU: only the labs of an
+		// event team are alerted.
+		if _, _, ok := labBindingModel.ParseGroupName(l.GetLabGroupName()); !ok {
+			continue
+		}
 		for _, d := range l.GetStatus().GetDevices() {
 			if d.GetCpuThrottledPercent() <= ThrottleAlertPercent || w.alerted[run][d.GetName()] {
 				continue
