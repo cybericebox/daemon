@@ -3,7 +3,6 @@ package exercise
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"slices"
@@ -19,6 +18,7 @@ import (
 	testDeployRepo "github.com/cybericebox/daemon/internal/delivery/repository/testDeployRepo"
 	repositoryTools "github.com/cybericebox/daemon/internal/delivery/repository/tools"
 	"github.com/cybericebox/daemon/internal/model"
+	"github.com/cybericebox/daemon/internal/model/challengeAttempt"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 	"github.com/cybericebox/daemon/internal/model/flagpattern"
 	infraModel "github.com/cybericebox/daemon/internal/model/infrastructure"
@@ -794,7 +794,7 @@ func (u *ExerciseUseCase) CheckTestFlag(ctx context.Context, userID, deployID, t
 		if f.TaskID != taskID {
 			continue
 		}
-		if subtle.ConstantTimeCompare([]byte(f.Flag), []byte(flag)) != 1 {
+		if !challengeAttempt.FlagMatches(f.Flag, flag) {
 			return false, nil
 		}
 		// A correct answer is remembered with the deploy, so the solved state survives a reload.

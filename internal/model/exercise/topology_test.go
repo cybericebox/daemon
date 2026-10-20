@@ -486,14 +486,17 @@ func TestValidateStructure_SecurityPreset(t *testing.T) {
 		wantErr error
 	}{
 		{"empty preset defaults ok", base(""), nil},
-		{"basic ok", base(exerciseModel.SecurityPresetBasic), nil},
-		{"net ok", base(exerciseModel.SecurityPresetNet), nil},
-		{"debug ok", base(exerciseModel.SecurityPresetDebug), nil},
+		{"standard ok", base(exerciseModel.SecurityPresetStandard), nil},
+		{"extended ok", base(exerciseModel.SecurityPresetExtended), nil},
+		{"basic refused", base("basic"), exerciseModel.ErrDeviceSecurityPresetInvalid.Err()},
+		{"service refused", base("service"), exerciseModel.ErrDeviceSecurityPresetInvalid.Err()},
+		{"net refused", base("net"), exerciseModel.ErrDeviceSecurityPresetInvalid.Err()},
+		{"debug refused", base("debug"), exerciseModel.ErrDeviceSecurityPresetInvalid.Err()},
 		{"bogus preset", base("root"), exerciseModel.ErrDeviceSecurityPresetInvalid.Err()},
 		{
 			"forwarding device must not set a preset",
 			func() exerciseModel.Topology {
-				sw := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch, SecurityPreset: exerciseModel.SecurityPresetNet}
+				sw := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "sw", Type: exerciseModel.DeviceTypeUnmanagedSwitch, SecurityPreset: exerciseModel.SecurityPresetExtended}
 				return exerciseModel.Topology{Devices: []exerciseModel.Device{sw}}
 			}(),
 			exerciseModel.ErrDeviceTypeInvalid.Err(),

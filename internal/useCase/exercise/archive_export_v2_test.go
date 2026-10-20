@@ -192,7 +192,7 @@ func exportFixtureVersions() []exerciseModel.ExerciseVersion {
 	device := func(id int, name string) exerciseModel.Device {
 		return exerciseModel.Device{
 			ID: exportID(id), Name: name, Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1.27",
-			SecurityPreset: exerciseModel.SecurityPresetBasic, ResourcePreset: "micro",
+			SecurityPreset: exerciseModel.SecurityPresetStandard, ResourcePreset: "micro",
 			EnvVars: []exerciseModel.EnvVar{{Name: "MODE", Value: "prod"}},
 		}
 	}
@@ -360,7 +360,7 @@ func TestExportExerciseArchive_EnumsByName(t *testing.T) {
 	require.Equal(t, "medium", variant.Tasks[0].Difficulty)
 	require.Equal(t, "steps", variant.Tasks[0].Hints[0].Level)
 	require.Equal(t, "container", variant.Topology.Devices[0].Type)
-	require.Equal(t, "basic", variant.Topology.Devices[0].SecurityPreset)
+	require.Equal(t, "standard", variant.Topology.Devices[0].SecurityPreset)
 	require.Equal(t, "vpn", variant.Topology.Connections[0].Endpoints[0].Kind)
 	require.Equal(t, "device", variant.Topology.Connections[0].Endpoints[1].Kind)
 	require.Equal(t, "web", variant.Topology.Connections[0].Endpoints[1].Device)
@@ -556,7 +556,7 @@ func richVersions() []exerciseModel.ExerciseVersion {
 	devices := []exerciseModel.Device{
 		{
 			ID: exportID(300), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx:1.27",
-			ResourcePreset: "small", SecurityPreset: exerciseModel.SecurityPresetNet,
+			ResourcePreset: "small", SecurityPreset: exerciseModel.SecurityPresetExtended,
 			Interfaces: []exerciseModel.Interface{{Name: "eth0", MAC: "02:00:00:00:00:01", IP: exerciseModel.IPConfig{
 				Type: exerciseModel.IPConfigTypeStatic, AddressRef: ref, GatewayRef: &exerciseModel.NetworkIPRef{Network: "vpn", Host: 1},
 				Routes: []exerciseModel.Route{{DstRef: &exerciseModel.NetworkSubnetRef{Network: "internet"}, Via: "10.0.0.1"}},
