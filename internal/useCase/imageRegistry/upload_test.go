@@ -752,3 +752,63 @@ func TestCreateImageUsesTheDigestOnlyTagWhateverTheName(t *testing.T) {
 		t.Fatalf("tag %s pushed=%v err=%v", wantTag, ok, err)
 	}
 }
+
+// expectRows backs the tag check and the row write of n uploads of the image under tag.
+func (f *uploadFixture) expectRows(tag, digest string, taken bool, rows int) {
+	f.q.EXPECT().PlatformImageTagTakenByOtherDigest(gomock.Any(), postgres.PlatformImageTagTakenByOtherDigestParams{Tag: tag, Digest: digest}).Return(taken, nil).AnyTimes()
+	f.q.EXPECT().UpsertPlatformImage(gomock.Any(), gomock.Any()).Return(nil).Times(rows)
+}
+
+// A registry with immutable tags refuses a second PUT of an existing tag with 403. The tag is the digest alone, so
+// an image whose row is gone finds its tag already serving the very manifest: that is a success without a PUT.
+func TestCreateImageSkipsThePutWhenTheTagAlreadyServesTheManifest(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.reg.immutable = true
+	f.preload(t, configBytes, layerBytes)
+	in := testImage()
+	m, err := imageRegistryModel.BuildManifest(in.Config, in.Layers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := imageRegistryModel.NewPlatformRef("my-web", m.Digest)
+	f.expectRows(ref.Tag(), m.Digest, false, 2)
+
+	if _, err = f.uc.CreateImage(as(uploader), exerciseID, in); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if f.reg.putCount() != 1 {
+		t.Fatalf("PUTs %d, want 1", f.reg.putCount())
+	}
+	res, err := f.uc.CreateImage(as(uploader), exerciseID, in)
+	if err != nil || res.Reference != ref.String() {
+		t.Fatalf("second: %+v %v (a repeated PUT would be refused with 403)", res, err)
+	}
+	if f.reg.putCount() != 1 {
+		t.Fatalf("PUTs %d: the tag already serves the manifest, no second PUT", f.reg.putCount())
+	}
+}
+
+// A tag that exists in the registry under another digest is never overwritten.
+func TestCreateImageRefusesATagServingAnotherManifest(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.preload(t, configBytes, layerBytes)
+	in := testImage()
+	m, err := imageRegistryModel.BuildManifest(in.Config, in.Layers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, _ := imageRegistryModel.NewPlatformRef("my-web", m.Digest)
+	other := bytes.Replace(m.Body, []byte("{"), []byte(`{"annotations":{"x":"y"},`), 1)
+	if _, err = f.registry().PutManifest(context.Background(), ref.Tag(), m.MediaType, other); err != nil {
+		t.Fatal(err)
+	}
+	before := f.reg.putCount()
+	f.expectRows(ref.Tag(), m.Digest, false, 1)
+
+	if _, err = f.uc.CreateImage(as(uploader), exerciseID, in); !errors.Is(err, imageRegistryModel.ErrImageTagTaken.Err()) {
+		t.Fatalf("err %v", err)
+	}
+	if f.reg.putCount() != before {
+		t.Fatalf("PUTs %d -> %d: the other manifest must not be overwritten", before, f.reg.putCount())
+	}
+}

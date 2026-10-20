@@ -368,6 +368,19 @@ func (u *ImageRegistryUseCase) publishImage(ctx context.Context, client *ociregi
 	if taken {
 		return CreateImageResult{}, imageRegistryModel.ErrImageTagTaken.WithError(err).Err()
 	}
+	// A registry with immutable tags (Docker Hub can be set so) refuses even a PUT of the same manifest under an
+	// existing tag with 403. The tag is the digest alone, so the same content finds its tag already there (an
+	// earlier upload whose row is gone): when the tag serves this very manifest the push is done.
+	have, found, err := client.ManifestDigest(ctx, ref.Tag())
+	if err != nil {
+		return CreateImageResult{}, Unavailable(err, pushTokenName)
+	}
+	if found && have != "" {
+		if have != manifest.Digest {
+			return CreateImageResult{}, imageRegistryModel.ErrImageTagTaken.Err()
+		}
+		return CreateImageResult{Reference: ref.String()}, nil
+	}
 	if _, err = client.PutManifest(ctx, ref.Tag(), manifest.MediaType, manifest.Body); err != nil {
 		return CreateImageResult{}, Unavailable(err, pushTokenName)
 	}
