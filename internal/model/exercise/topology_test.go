@@ -621,3 +621,22 @@ func TestValidateStructure_DevicePersistence(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateStructure_DeviceWaitReadyFile(t *testing.T) {
+	validate := func(device exerciseModel.Device) error {
+		version := exerciseModel.ExerciseVersion{Variants: []exerciseModel.Variant{publishVariant(exerciseModel.Topology{Devices: []exerciseModel.Device{device}})}}
+		return version.ValidateStructure()
+	}
+	container := dev("web", exerciseModel.DeviceTypeContainer)
+	container.WaitReadyFile = true
+	if err := validate(container); err != nil {
+		t.Fatalf("a container may wait for /run/ready: %v", err)
+	}
+	for _, typ := range []exerciseModel.DeviceType{exerciseModel.DeviceTypeUnmanagedSwitch, exerciseModel.DeviceTypeHub} {
+		forwarding := dev("Switch", typ)
+		forwarding.WaitReadyFile = true
+		if err := validate(forwarding); !errors.Is(err, exerciseModel.ErrDeviceTypeInvalid.Err()) {
+			t.Fatalf("%s runs no application to wait for: %v", typ, err)
+		}
+	}
+}

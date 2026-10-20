@@ -144,6 +144,16 @@ func (u *NotificationDispatcher) ProcessNotification(
 				hErr = p.h.Handle(hctx, recipient, notificationTypes.NotificationType(in.Type), in.Vars, in.TemplateID, in.ScopeEventID)
 			}
 			attempts[p.ch] += note.ExtraAttempts
+			if skipped, ok := dispatchModel.AsSkipped(hErr); ok {
+				// Deliberately not sent: the target is done, with the reason in the journal, and nothing is retried.
+				if err := u.dispatches.UpsertTarget(ctx, in.DispatchID, p.ch, dispatchRepo.TargetResult{Status: dispatchModel.TargetStatusDone, Error: skipped.Message, Attempts: attempts[p.ch] - 1, Note: *note}); err != nil {
+					return model.ErrPlatform.WithError(err).WithMessage("Failed to checkpoint notification target").Err()
+				}
+				attempts[p.ch]-- // nothing was sent: not a delivery attempt
+				checkpointed[p.ch] = true
+				lastErr[p.ch] = nil
+				continue
+			}
 			lastErr[p.ch] = hErr
 			if hErr == nil {
 				if err := u.dispatches.UpsertTarget(ctx, in.DispatchID, p.ch, dispatchRepo.TargetResult{Status: dispatchModel.TargetStatusDone, Attempts: attempts[p.ch], Note: *note}); err != nil {

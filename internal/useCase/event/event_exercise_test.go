@@ -620,7 +620,8 @@ func TestListPublishedExercisesForEvent_ScopesToEventAndFilters(t *testing.T) {
 	eventID, exerciseID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
 
 	q.EXPECT().ListEventCatalog(gomock.Any(), postgres.ListEventCatalogParams{EventID: eventID, Search: "web", Infrastructure: "yes", Tags: []string{"web", "crypto"}}).
-		Return([]postgres.ListEventCatalogRow{{ID: exerciseID, Name: "Web", Scope: 1, PublishedVersionID: versionID, Infrastructure: true}}, nil)
+		Return([]postgres.ListEventCatalogRow{{ID: exerciseID, Name: "Web", Scope: 1, PublishedVersionID: versionID, Infrastructure: true,
+			HasAvgDifficulty: true, AvgDifficulty: 3.33, HasTaskCount: true, TaskNames: []string{"Recon", "Exploit", "Report"}}}, nil)
 	q.EXPECT().ListVersionVariantDevices(gomock.Any(), []uuid.UUID{versionID}).Return([]postgres.ListVersionVariantDevicesRow{{
 		VersionID: versionID, ExerciseID: exerciseID,
 		Variants: []byte(`[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","topology":{"devices":[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"web","type":"container","resource_preset":"small"}]}}]`),
@@ -629,6 +630,9 @@ func TestListPublishedExercisesForEvent_ScopesToEventAndFilters(t *testing.T) {
 	items, err := uc.ListPublishedExercisesForEvent(context.Background(), eventID, " web ", "yes", []string{" Web", "crypto", "WEB", " "})
 	if err != nil {
 		t.Fatalf("ListPublishedExercisesForEvent: %v", err)
+	}
+	if got := items[0]; got.AvgDifficulty == nil || *got.AvgDifficulty != 3.33 || got.TaskCount == nil || *got.TaskCount != 3 || len(got.TaskNames) != 3 || got.TaskNames[1] != "Exploit" {
+		t.Fatalf("the picker row carries the published first variant's difficulty, count and names: %+v", got)
 	}
 	if len(items) != 1 || items[0].PublishedVersionID != versionID || items[0].Scope != "event" || !items[0].Infrastructure {
 		t.Fatalf("items = %+v", items)

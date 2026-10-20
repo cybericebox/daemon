@@ -2502,10 +2502,15 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "screen link token",
+                        "description": "screen link token (or ?token=)",
+                        "name": "X-Live-Screen-Token",
+                        "in": "header"
+                    },
+                    {
+                        "type": "string",
+                        "description": "screen link token, for clients that cannot send the header",
                         "name": "token",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -6162,6 +6167,162 @@ const docTemplate = `{
                                     "properties": {
                                         "data": {
                                             "$ref": "#/definitions/event.eventExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/exercises/bulk/detach": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Remove 1..200 sets from the event; each set as the single detach would (Confirm for attempted sets)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sets",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.bulkExerciseDetachRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.bulkExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/exercises/bulk/scoring": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Give every task of 1..200 sets the same local scoring (null: the event's); each set as the single action would",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sets and scoring",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.bulkExerciseScoringRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.bulkExerciseResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/exercises/bulk/visibility": {
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Show or hide 1..200 sets on the participant board; each set as the single action would",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "sets and visibility",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/event.bulkExerciseVisibilityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/response.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/event.bulkExerciseResponse"
                                         }
                                     }
                                 }
@@ -9833,7 +9994,7 @@ const docTemplate = `{
         },
         "/events/{id}/manage/notification-types": {
             "get": {
-                "description": "Event-scoped types with their channels and template variables (name, description, sample value). Drives the variable hints and the in-app preview of the template editors.",
+                "description": "Event-scoped types with their channels and template variables (name, description, sample value). The sample values are this event's own data (name, site links, times); only recipient data is a placeholder. Drives the variable hints and the in-app preview of the template editors.",
                 "produces": [
                     "application/json"
                 ],
@@ -10254,6 +10415,36 @@ const docTemplate = `{
                                 }
                             ]
                         }
+                    }
+                }
+            }
+        },
+        "/events/{id}/manage/participant-preview/labs/{deployID}": {
+            "delete": {
+                "description": "The cap error of a preview start names the running labs; this ends the chosen one. Only the caller's own labs.",
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "End one of the caller's own test labs (studio or preview) to free a place at the test-lab cap",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "test lab (deploy) ID",
+                        "name": "deployID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
                     }
                 }
             }
@@ -25677,6 +25868,10 @@ const docTemplate = `{
                 "Name": {
                     "type": "string"
                 },
+                "Reason": {
+                    "description": "Reason is set when the task stays listed but cannot run in this event: a dynamic task on an event\nwithout infrastructure (no_infrastructure). Capacity never hides a task: it is taken at launch.",
+                    "type": "string"
+                },
                 "VariantID": {
                     "type": "string"
                 },
@@ -25988,6 +26183,82 @@ const docTemplate = `{
                 },
                 "UserID": {
                     "type": "string"
+                }
+            }
+        },
+        "event.bulkExerciseDetachRequest": {
+            "type": "object",
+            "properties": {
+                "Confirm": {
+                    "type": "boolean"
+                },
+                "ExerciseIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "event.bulkExerciseItemResponse": {
+            "type": "object",
+            "properties": {
+                "Changed": {
+                    "type": "boolean"
+                },
+                "Code": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "string"
+                },
+                "Message": {
+                    "type": "string"
+                }
+            }
+        },
+        "event.bulkExerciseResponse": {
+            "type": "object",
+            "properties": {
+                "Changed": {
+                    "type": "integer"
+                },
+                "Results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/event.bulkExerciseItemResponse"
+                    }
+                },
+                "Skipped": {
+                    "type": "integer"
+                }
+            }
+        },
+        "event.bulkExerciseScoringRequest": {
+            "type": "object",
+            "properties": {
+                "ExerciseIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Override": {
+                    "$ref": "#/definitions/event.updateScoringProfileRequest"
+                }
+            }
+        },
+        "event.bulkExerciseVisibilityRequest": {
+            "type": "object",
+            "properties": {
+                "ExerciseIDs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "Published": {
+                    "type": "boolean"
                 }
             }
         },
@@ -26559,6 +26830,10 @@ const docTemplate = `{
         "event.eventExerciseResponse": {
             "type": "object",
             "properties": {
+                "AvgDifficulty": {
+                    "description": "The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:\nnone), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,\nelse of the first.",
+                    "type": "number"
+                },
                 "ChallengeCount": {
                     "type": "integer"
                 },
@@ -26580,9 +26855,13 @@ const docTemplate = `{
                 "FixedVariantIndex": {
                     "type": "integer"
                 },
-                "FlagsMayRepeat": {
-                    "description": "FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags\nwere reused after every value was given, so two teams may get the same flag.",
-                    "type": "boolean"
+                "FlagsRepeat": {
+                    "description": "FlagsRepeat: two teams may get the same flag of the set; null when they cannot.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/event.flagsRepeatResponse"
+                        }
+                    ]
                 },
                 "Fork": {
                     "$ref": "#/definitions/event.eventExerciseForkResponse"
@@ -26638,6 +26917,15 @@ const docTemplate = `{
                 },
                 "SupersededAt": {
                     "type": "string"
+                },
+                "TaskCount": {
+                    "type": "integer"
+                },
+                "TaskNames": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "UpdateAvailable": {
                     "type": "boolean"
@@ -27017,6 +27305,25 @@ const docTemplate = `{
                 "State": {
                     "description": "State is computed from time: upcoming | open | closed.",
                     "type": "string"
+                }
+            }
+        },
+        "event.flagsRepeatResponse": {
+            "type": "object",
+            "properties": {
+                "Flags": {
+                    "type": "integer"
+                },
+                "Reason": {
+                    "type": "string",
+                    "enum": [
+                        "limit",
+                        "teams",
+                        "repeated"
+                    ]
+                },
+                "Teams": {
+                    "type": "integer"
                 }
             }
         },
@@ -28027,6 +28334,10 @@ const docTemplate = `{
                     "description": "Attached: the event already uses it (or its fork family).",
                     "type": "boolean"
                 },
+                "AvgDifficulty": {
+                    "description": "AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first\nvariant, null without one; TaskCount: their number, null without a variant; TaskNames: their names in order.",
+                    "type": "number"
+                },
                 "Description": {
                     "type": "string"
                 },
@@ -28058,6 +28369,15 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "Tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "TaskCount": {
+                    "type": "integer"
+                },
+                "TaskNames": {
                     "type": "array",
                     "items": {
                         "type": "string"
@@ -33685,6 +34005,10 @@ const docTemplate = `{
                 },
                 "Type": {
                     "type": "string"
+                },
+                "WaitReadyFile": {
+                    "description": "WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port\npublished through the web proxy is checked automatically either way. Container devices only.",
+                    "type": "boolean"
                 }
             }
         },
@@ -33958,6 +34282,13 @@ const docTemplate = `{
                 "TaskCount": {
                     "description": "TaskCount is the number of subtasks of that same first variant; null without a variant (offset pages only).",
                     "type": "integer"
+                },
+                "TaskNames": {
+                    "description": "TaskNames are their names in order: the popover of the count (offset pages only; empty without a variant).",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "UpdatedAt": {
                     "type": "string"

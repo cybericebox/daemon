@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/jackc/pgx/v5"
 	"testing"
 	"time"
 
@@ -100,6 +101,21 @@ func TestListOwnChallengesRejectsTeamBelowMinimum(t *testing.T) {
 	q.EXPECT().GetEventTeamAdmitted(gomock.Any(), postgres.GetEventTeamAdmittedParams{ID: teamID, EventID: eventID}).Return(false, nil)
 	if _, err := uc.ListOwnChallenges(context.Background(), eventID, userID); !errors.Is(err, eventTeamModel.ErrEventTeamNotAdmitted.Err()) {
 		t.Fatalf("non-admitted team err = %v", err)
+	}
+}
+
+// A user who never joined the event gets the forbidden answer the lab routes give, not a 500 from «no rows».
+func TestListOwnChallengesForANonParticipantIsForbidden(t *testing.T) {
+	q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+	uc := newUC(q)
+	eventID, userID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	q.EXPECT().GetEventParticipant(gomock.Any(), gomock.Any()).Return(postgres.EventParticipant{}, pgx.ErrNoRows).Times(2)
+	_, err := uc.ListOwnChallenges(context.Background(), eventID, userID)
+	if !errors.Is(err, participantModel.ErrParticipantAccessForbidden.Err()) {
+		t.Fatalf("non-participant err = %v, want access forbidden", err)
+	}
+	if _, err = uc.ListOwnBoard(context.Background(), eventID, userID); !errors.Is(err, participantModel.ErrParticipantAccessForbidden.Err()) {
+		t.Fatalf("board of a non-participant err = %v, want access forbidden", err)
 	}
 }
 

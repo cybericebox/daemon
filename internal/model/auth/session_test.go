@@ -86,3 +86,71 @@ func TestSession_ExceedsAbsoluteLifetime(t *testing.T) {
 		t.Fatal("zero means no absolute limit")
 	}
 }
+
+func TestSessionIP_KeepsOnlyPublicAddresses(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		// public: kept, in canonical form
+		{"203.0.113.5", "203.0.113.5"},
+		{" 8.8.8.8 ", "8.8.8.8"},
+		{"2001:4860:4860::8888", "2001:4860:4860::8888"},
+		{"2001:4860:4860:0:0:0:0:8888", "2001:4860:4860::8888"},
+		{"::ffff:8.8.4.4", "8.8.4.4"},
+		// private, CGNAT, loopback, link-local, unspecified, multicast: an edge or a pod, not the client
+		{"10.64.3.2", ""},
+		{"172.16.0.1", ""},
+		{"172.31.255.255", ""},
+		{"192.168.1.10", ""},
+		{"100.64.0.1", ""},
+		{"100.127.255.254", ""},
+		{"127.0.0.1", ""},
+		{"169.254.10.1", ""},
+		{"0.0.0.0", ""},
+		{"224.0.0.1", ""},
+		{"::1", ""},
+		{"fc00::1", ""},
+		{"fd12:3456::1", ""},
+		{"fe80::1", ""},
+		{"::", ""},
+		{"::ffff:10.0.0.1", ""},
+		// not an address
+		{"", ""},
+		{"unknown", ""},
+		{"203.0.113.5:443", ""},
+		{"fe80::1%eth0", ""},
+	}
+	for _, c := range cases {
+		if got := authModel.SessionIP(c.in); got != c.want {
+			t.Errorf("SessionIP(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+	// just outside the CGNAT and 172.16/12 blocks: public
+	for _, ip := range []string{"100.63.255.255", "100.128.0.1", "172.15.255.255", "172.32.0.1"} {
+		if got := authModel.SessionIP(ip); got != ip {
+			t.Errorf("SessionIP(%q) = %q, want it kept", ip, got)
+		}
+	}
+}
+
+func TestNewSession_StoresOnlyAPublicClientAddress(t *testing.T) {
+	userID := uuid.Must(uuid.NewV7())
+	pod := authModel.NewSession(
+		userID,
+		authModel.SessionMetadata{UserAgent: "ua", IP: "10.64.3.2"},
+		idleTTL,
+		sessionNow,
+	)
+	if pod.Metadata.IP != "" || pod.Metadata.UserAgent != "ua" {
+		t.Fatalf("a private address must not be stored: %+v", pod.Metadata)
+	}
+	client := authModel.NewSession(
+		userID,
+		authModel.SessionMetadata{IP: "::ffff:203.0.113.5"},
+		idleTTL,
+		sessionNow,
+	)
+	if client.Metadata.IP != "203.0.113.5" {
+		t.Fatalf("a public address is stored canonical: %+v", client.Metadata)
+	}
+}

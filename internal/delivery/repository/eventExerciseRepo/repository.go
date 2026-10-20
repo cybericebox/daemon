@@ -177,6 +177,11 @@ type Detail struct {
 	ChallengeCount            int32
 	PublishedCount            int32
 	HasAttempts               bool
+	// The pinned version: the average difficulty (nil: none), the subtask count (nil: no variant) and the
+	// subtask names of the fixed variant of a fixed attachment, else of the first one.
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
 }
 
 func (r *Repository) Details(ctx context.Context, eventID uuid.UUID) ([]Detail, error) {
@@ -193,7 +198,20 @@ func (r *Repository) Details(ctx context.Context, eventID uuid.UUID) ([]Detail, 
 			VersionNumber: row.VersionNumber, LatestVersionNumber: row.LatestVersionNumber, ForkedFromExerciseID: row.ForkedFromExerciseID,
 			ForkedFromVersionID: row.ForkedFromVersionID, SourceName: row.SourceName, SourceLatestVersionID: row.SourceLatestVersionID,
 			SourceVersionNumber: row.SourceVersionNumber, SourceLatestVersionNumber: row.SourceLatestVersionNumber, Infrastructure: row.Infrastructure,
-			VariantCount: row.VariantCount, ChallengeCount: row.ChallengeCount, PublishedCount: row.PublishedCount, HasAttempts: row.HasAttempts})
+			VariantCount: row.VariantCount, ChallengeCount: row.ChallengeCount, PublishedCount: row.PublishedCount, HasAttempts: row.HasAttempts,
+			TaskNames: row.TaskNames})
+		item := &out[len(out)-1]
+		if item.TaskNames == nil {
+			item.TaskNames = []string{}
+		}
+		if row.HasAvgDifficulty {
+			avg := row.AvgDifficulty
+			item.AvgDifficulty = &avg
+		}
+		if row.HasTaskCount {
+			count := len(row.TaskNames)
+			item.TaskCount = &count
+		}
 	}
 	return out, nil
 }
@@ -208,6 +226,11 @@ type CatalogItem struct {
 	PublishedVersionID uuid.UUID
 	Infrastructure     bool
 	Attached           bool
+	// The published version's first variant: the average difficulty (nil: none), the subtask count (nil: no
+	// variant) and the subtask names in order.
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
 }
 
 // Catalog lists what the event may attach; tags match any (overlap), nil or
@@ -222,7 +245,20 @@ func (r *Repository) Catalog(ctx context.Context, eventID uuid.UUID, search, inf
 	}
 	out := make([]CatalogItem, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, CatalogItem(row))
+		item := CatalogItem{ID: row.ID, Name: row.Name, Description: row.Description, Tags: row.Tags, Scope: row.Scope,
+			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached, TaskNames: row.TaskNames}
+		if item.TaskNames == nil {
+			item.TaskNames = []string{}
+		}
+		if row.HasAvgDifficulty {
+			avg := row.AvgDifficulty
+			item.AvgDifficulty = &avg
+		}
+		if row.HasTaskCount {
+			count := len(row.TaskNames)
+			item.TaskCount = &count
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }

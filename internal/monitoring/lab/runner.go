@@ -58,6 +58,8 @@ type Runner struct {
 	errors ErrorsSink
 	// reservations receives the agent's reservations (their phase, ending notice and usage) and the deleted ones.
 	reservations ReservationsSink
+	// throttle hears the labs of every message (the CPU throttling alert).
+	throttle *ThrottleWatcher
 	// link hears whether the stream to the agent works (the error journal's agent-offline check).
 	link LinkSink
 	// position is the last message processed: where a reconnect resumes. It lives in memory for the
@@ -101,6 +103,12 @@ type ReservationsSink func(ctx context.Context, snapshot bool, reservations []*l
 
 // reservationKind is the deleted-key kind of a reservation.
 const reservationKind = "Reservation"
+
+// WithThrottleWatcher hands the labs of every message to the watcher, which raises the CPU throttling alerts.
+func (r *Runner) WithThrottleWatcher(w *ThrottleWatcher) *Runner {
+	r.throttle = w
+	return r
+}
 
 // WithReservationsSink hands the reservations the agent reports to sink.
 func (r *Runner) WithReservationsSink(sink ReservationsSink) *Runner {
@@ -243,6 +251,9 @@ func (r *Runner) consume(ctx context.Context) error {
 func (r *Runner) persist(ctx context.Context, update *labpb.MonitoringUpdate) error {
 	if report := update.GetErrors(); report != nil && r.errors != nil {
 		r.errors(ctx, report)
+	}
+	if r.throttle != nil {
+		r.throttle.Observe(ctx, update)
 	}
 	if features := update.GetFeatures(); features != nil && r.features != nil {
 		if sinkErr := r.features(ctx, features, time.UnixMilli(update.GetObservedAtUnixMs()).UTC()); sinkErr != nil {

@@ -491,9 +491,28 @@ type EventExerciseView struct {
 	Resources     resourcesModel.Range
 	ResourceHeavy bool
 	NoAgentFits   bool
-	// FlagsMayRepeat: some task variant of the pinned version has fewer possible flags than the event's team
-	// capacity, or its flag filter was reset, so two teams may get the same flag.
-	FlagsMayRepeat bool
+	// FlagsRepeat: two teams may get the same flag of the set; nil when they cannot.
+	FlagsRepeat *FlagsRepeatView
+	// The pinned version (not the catalog's latest): the average difficulty (nil: none), the subtask count (nil: no
+	// variant) and the subtask names (of the fixed variant of a fixed attachment, else of the first).
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
+}
+
+// Why a flag pool may repeat between teams.
+const (
+	FlagsRepeatLimit    = "limit"    // the pool is smaller than the team limit
+	FlagsRepeatTeams    = "teams"    // the pool is smaller than the teams that exist now (no limit)
+	FlagsRepeatRepeated = "repeated" // every flag of the pool was given and flags repeat
+)
+
+// FlagsRepeatView: the smallest flag pool of a set (Flags) against the teams that draw from it (Teams: the
+// team limit, or the teams that exist now with the moderators team), and why it may repeat (Reason).
+type FlagsRepeatView struct {
+	Flags  int64
+	Teams  int
+	Reason string
 }
 
 // EventExerciseForkView describes the catalog source of an event fork.
@@ -521,6 +540,11 @@ type EventCatalogItem struct {
 	// approved elevation holds a device above the platform frame.
 	Resources     resourcesModel.Range
 	ResourceHeavy bool
+	// The published version's first variant: the average difficulty (1 elementary … 6 insane; nil: none), the
+	// subtask count (nil: no variant) and the subtask names in order (what the preview shows anyway).
+	AvgDifficulty *float64
+	TaskCount     *int
+	TaskNames     []string
 }
 
 // EventCatalogTag is a tag of the event's attachable exercises with how many

@@ -101,6 +101,19 @@ func TestNotificationTypesHTTPContract(t *testing.T) {
 			if !names["event_name"] || !names["start_at"] {
 				t.Fatalf("start reminder variables: %+v", item.Variables)
 			}
+			// The samples are the event's own data; a variable the event has no value for keeps its default.
+			for _, v := range item.Variables {
+				switch v.Name {
+				case "event_name":
+					if v.Default != "Kharkiv Regional CTF" {
+						t.Fatalf("event_name sample = %q", v.Default)
+					}
+				case "hours_left":
+					if v.Default != "24" {
+						t.Fatalf("hours_left sample = %q", v.Default)
+					}
+				}
+			}
 			return
 		}
 	}
@@ -122,4 +135,8 @@ func TestEmailPresetsHTTPContract(t *testing.T) {
 	if err := json.Unmarshal(listed["Data"], &items); err != nil || len(items) != 1 || items[0].Name != "Footer" || string(items[0].Blocks) != `[{"type":"divider"}]` {
 		t.Fatalf("presets data=%s err=%v", listed["Data"], err)
 	}
+}
+
+func (u *subscriptionContractUC) EventPreviewValues(context.Context, uuid.UUID) (map[string]string, error) {
+	return map[string]string{"event_name": "Kharkiv Regional CTF"}, nil
 }

@@ -782,6 +782,11 @@ definitions:
         type: string
       Name:
         type: string
+      Reason:
+        description: |-
+          Reason is set when the task stays listed but cannot run in this event: a dynamic task on an event
+          without infrastructure (no_infrastructure). Capacity never hides a task: it is taken at launch.
+        type: string
       VariantID:
         type: string
       VariantIndex:
@@ -987,6 +992,55 @@ definitions:
         type: string
       UserID:
         type: string
+    type: object
+  event.bulkExerciseDetachRequest:
+    properties:
+      Confirm:
+        type: boolean
+      ExerciseIDs:
+        items:
+          type: string
+        type: array
+    type: object
+  event.bulkExerciseItemResponse:
+    properties:
+      Changed:
+        type: boolean
+      Code:
+        type: integer
+      ID:
+        type: string
+      Message:
+        type: string
+    type: object
+  event.bulkExerciseResponse:
+    properties:
+      Changed:
+        type: integer
+      Results:
+        items:
+          $ref: '#/definitions/event.bulkExerciseItemResponse'
+        type: array
+      Skipped:
+        type: integer
+    type: object
+  event.bulkExerciseScoringRequest:
+    properties:
+      ExerciseIDs:
+        items:
+          type: string
+        type: array
+      Override:
+        $ref: '#/definitions/event.updateScoringProfileRequest'
+    type: object
+  event.bulkExerciseVisibilityRequest:
+    properties:
+      ExerciseIDs:
+        items:
+          type: string
+        type: array
+      Published:
+        type: boolean
     type: object
   event.bulkUpdateChallengeScoringRequest:
     properties:
@@ -1383,6 +1437,12 @@ definitions:
     type: object
   event.eventExerciseResponse:
     properties:
+      AvgDifficulty:
+        description: |-
+          The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:
+          none), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,
+          else of the first.
+        type: number
       ChallengeCount:
         type: integer
       CreatedAt:
@@ -1397,11 +1457,11 @@ definitions:
         type: string
       FixedVariantIndex:
         type: integer
-      FlagsMayRepeat:
-        description: |-
-          FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags
-          were reused after every value was given, so two teams may get the same flag.
-        type: boolean
+      FlagsRepeat:
+        allOf:
+        - $ref: '#/definitions/event.flagsRepeatResponse'
+        description: 'FlagsRepeat: two teams may get the same flag of the set; null
+          when they cannot.'
       Fork:
         $ref: '#/definitions/event.eventExerciseForkResponse'
       HasAttempts:
@@ -1443,6 +1503,12 @@ definitions:
         type: integer
       SupersededAt:
         type: string
+      TaskCount:
+        type: integer
+      TaskNames:
+        items:
+          type: string
+        type: array
       UpdateAvailable:
         type: boolean
       VariantCount:
@@ -1704,6 +1770,19 @@ definitions:
       State:
         description: 'State is computed from time: upcoming | open | closed.'
         type: string
+    type: object
+  event.flagsRepeatResponse:
+    properties:
+      Flags:
+        type: integer
+      Reason:
+        enum:
+        - limit
+        - teams
+        - repeated
+        type: string
+      Teams:
+        type: integer
     type: object
   event.hintCostRequest:
     properties:
@@ -2379,6 +2458,11 @@ definitions:
       Attached:
         description: 'Attached: the event already uses it (or its fork family).'
         type: boolean
+      AvgDifficulty:
+        description: |-
+          AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first
+          variant, null without one; TaskCount: their number, null without a variant; TaskNames: their names in order.
+        type: number
       Description:
         type: string
       ID:
@@ -2401,6 +2485,12 @@ definitions:
         description: 'Scope: catalog | event (the event''s own exercise).'
         type: string
       Tags:
+        items:
+          type: string
+        type: array
+      TaskCount:
+        type: integer
+      TaskNames:
         items:
           type: string
         type: array
@@ -6244,6 +6334,11 @@ definitions:
         type: string
       Type:
         type: string
+      WaitReadyFile:
+        description: |-
+          WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port
+          published through the web proxy is checked automatically either way. Container devices only.
+        type: boolean
     type: object
   exercise.deviceOutsideResponse:
     properties:
@@ -6436,6 +6531,12 @@ definitions:
         description: TaskCount is the number of subtasks of that same first variant;
           null without a variant (offset pages only).
         type: integer
+      TaskNames:
+        description: 'TaskNames are their names in order: the popover of the count
+          (offset pages only; empty without a variant).'
+        items:
+          type: string
+        type: array
       UpdatedAt:
         type: string
     type: object
@@ -15444,6 +15545,102 @@ paths:
         is all-or-nothing)
       tags:
       - events
+  /events/{id}/manage/exercises/bulk/detach:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: sets
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkExerciseDetachRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkExerciseResponse'
+              type: object
+      summary: Remove 1..200 sets from the event; each set as the single detach would
+        (Confirm for attempted sets)
+      tags:
+      - events
+  /events/{id}/manage/exercises/bulk/scoring:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: sets and scoring
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkExerciseScoringRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkExerciseResponse'
+              type: object
+      summary: 'Give every task of 1..200 sets the same local scoring (null: the event''s);
+        each set as the single action would'
+      tags:
+      - events
+  /events/{id}/manage/exercises/bulk/visibility:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: sets and visibility
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/event.bulkExerciseVisibilityRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/response.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/event.bulkExerciseResponse'
+              type: object
+      summary: Show or hide 1..200 sets on the participant board; each set as the
+        single action would
+      tags:
+      - events
   /events/{id}/manage/forms:
     get:
       parameters:
@@ -17298,8 +17495,9 @@ paths:
   /events/{id}/manage/notification-types:
     get:
       description: Event-scoped types with their channels and template variables (name,
-        description, sample value). Drives the variable hints and the in-app preview
-        of the template editors.
+        description, sample value). The sample values are this event's own data (name,
+        site links, times); only recipient data is a placeholder. Drives the variable
+        hints and the in-app preview of the template editors.
       parameters:
       - description: event ID
         in: path
@@ -17553,6 +17751,28 @@ paths:
                   type: array
               type: object
       summary: List published preview exercise variants
+      tags:
+      - participant-preview
+  /events/{id}/manage/participant-preview/labs/{deployID}:
+    delete:
+      description: The cap error of a preview start names the running labs; this ends
+        the chosen one. Only the caller's own labs.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: test lab (deploy) ID
+        in: path
+        name: deployID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: End one of the caller's own test labs (studio or preview) to free a
+        place at the test-lab cap
       tags:
       - participant-preview
   /events/{id}/manage/participant-preview/runs:
@@ -20636,10 +20856,13 @@ paths:
   /events/self/live-screen:
     get:
       parameters:
-      - description: screen link token
+      - description: screen link token (or ?token=)
+        in: header
+        name: X-Live-Screen-Token
+        type: string
+      - description: screen link token, for clients that cannot send the header
         in: query
         name: token
-        required: true
         type: string
       produces:
       - application/json

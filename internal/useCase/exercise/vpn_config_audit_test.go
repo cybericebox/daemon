@@ -36,8 +36,8 @@ func auditedDeploy(t *testing.T, eventID uuid.NullUUID, spy *auditSpy) (*exercis
 		ID: deployID, GroupName: "t-group", CreatedBy: userID, EventID: eventID,
 	}, nil).AnyTimes()
 	infra := &fakeInfra{status: exerciseModel.LabDeployStatus{Phase: "Ready", Ready: true}}
-	// An event-scoped deploy keeps its config under the event id.
-	store := &fakeVPNStore{userID: userID, scope: vpnModel.ScopeTest, ref: eventID, plaintext: "wg-author-config"}
+	// A preview deploy runs in the author's own group: the config is the author's one, not keyed by the event.
+	store := &fakeVPNStore{userID: userID, scope: vpnModel.ScopeTest, plaintext: "wg-author-config"}
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra, VPNStore: store})
 	uc.SetTestLabGate(&eventPreviewGate{until: time.Now().Add(time.Hour)})
 	uc.SetVPNConfigAudit(spy)

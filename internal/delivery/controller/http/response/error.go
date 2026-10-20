@@ -191,3 +191,14 @@ func OnlyCancellation(err error) bool {
 		return false
 	}
 }
+
+// PublicError is what a client sees of an error: its full code and message, an internal one masked as in a
+// response. Bulk endpoints report it per item.
+func PublicError(e error) (int, string) {
+	var parsed err.Error
+	if !errors.As(e, &parsed) {
+		parsed = model.ErrPlatform.WithError(e).WithMessage(e.Error()).Err()
+	}
+	shown := errorToWrite(parsed)
+	return shown.StatusCode().FullCode(), shown.StatusCode().Message()
+}

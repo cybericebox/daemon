@@ -580,9 +580,22 @@ type eventExerciseResponse struct {
 	Resources     eventResourceRangeResponse `json:"Resources"`
 	ResourceHeavy bool                       `json:"ResourceHeavy"`
 	NoAgentFits   bool                       `json:"NoAgentFits"`
-	// FlagsMayRepeat: a task of the set has fewer possible flags than the event's team capacity, or its flags
-	// were reused after every value was given, so two teams may get the same flag.
-	FlagsMayRepeat bool `json:"FlagsMayRepeat"`
+	// FlagsRepeat: two teams may get the same flag of the set; null when they cannot.
+	FlagsRepeat *flagsRepeatResponse `json:"FlagsRepeat"`
+	// The pinned version (event_exercises.exercise_version_id): the mean difficulty (1 elementary … 6 insane; null:
+	// none), the subtask count (null: no variant) and the subtask names, of the fixed variant of a fixed attachment,
+	// else of the first.
+	AvgDifficulty *float64 `json:"AvgDifficulty"`
+	TaskCount     *int     `json:"TaskCount"`
+	TaskNames     []string `json:"TaskNames"`
+}
+
+// flagsRepeatResponse: the smallest flag pool of a set (Flags) against the teams that draw from it (Teams: the
+// team limit, or the teams that exist now with the moderators team), and why flags may repeat.
+type flagsRepeatResponse struct {
+	Flags  int64  `json:"Flags"`
+	Teams  int    `json:"Teams"`
+	Reason string `json:"Reason" enums:"limit,teams,repeated"`
 }
 
 // eventResourceTotalsResponse: container devices, their blocks, CPU in millicores, memory in bytes.
@@ -676,6 +689,11 @@ type publishedExerciseChoiceResponse struct {
 	// approved elevation holds a device above the platform frame (a badge in the picker).
 	Resources     eventResourceRangeResponse `json:"Resources"`
 	ResourceHeavy bool                       `json:"ResourceHeavy"`
+	// AvgDifficulty: the mean level (1 elementary … 6 insane) of the subtasks of the published version's first
+	// variant, null without one; TaskCount: their number, null without a variant; TaskNames: their names in order.
+	AvgDifficulty *float64 `json:"AvgDifficulty"`
+	TaskCount     *int     `json:"TaskCount"`
+	TaskNames     []string `json:"TaskNames"`
 }
 
 type publishedExerciseTaskPreviewResponse struct {
@@ -957,9 +975,12 @@ func (r updateEventChallengeRelationsRequest) toInput() eventUseCase.UpdateEvent
 func toEventExerciseResponse(v eventUseCase.EventExerciseView) eventExerciseResponse {
 	out := eventExerciseResponse{ID: v.ID, ExerciseID: v.ExerciseID, ExerciseName: v.ExerciseName, ExerciseVersionID: v.ExerciseVersionID, VariantMode: int16(v.VariantMode), FixedVariantIndex: v.FixedVariantIndex, Revision: v.Revision, Status: int16(v.Status), ReplacesID: v.ReplacesID, SupersededAt: v.SupersededAt, DetachedAt: v.DetachedAt, CreatedAt: v.CreatedAt, StageID: v.StageID,
 		Scope: v.Scope, VersionNumber: v.VersionNumber, LatestVersionID: v.LatestVersionID, LatestVersionNumber: v.LatestVersionNumber, UpdateAvailable: v.UpdateAvailable,
-		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts}
+		Infrastructure: v.Infrastructure, VariantCount: v.VariantCount, ChallengeCount: v.ChallengeCount, PublishedCount: v.PublishedCount, HasAttempts: v.HasAttempts,
+		AvgDifficulty: v.AvgDifficulty, TaskCount: v.TaskCount, TaskNames: nonNilStrings(v.TaskNames)}
 	out.Resources, out.ResourceHeavy, out.NoAgentFits = rangeResponse(v.Resources), v.ResourceHeavy, v.NoAgentFits
-	out.FlagsMayRepeat = v.FlagsMayRepeat
+	if v.FlagsRepeat != nil {
+		out.FlagsRepeat = &flagsRepeatResponse{Flags: v.FlagsRepeat.Flags, Teams: v.FlagsRepeat.Teams, Reason: v.FlagsRepeat.Reason}
+	}
 	if out.Scope == "" {
 		out.Scope = "catalog"
 	}

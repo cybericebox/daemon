@@ -7,6 +7,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
@@ -110,15 +111,39 @@ func TestResolve(t *testing.T) {
 	assert.False(t, p.InvalidPreset(container("d", "")))
 }
 
-func TestExplicitSetsRequestsEqualLimits(t *testing.T) {
-	r := DefaultPolicy().Explicit(container("d", "large"))
-	assert.Equal(t, "250m", r.CPURequest)
-	assert.Equal(t, "250m", r.CPULimit)
-	assert.Equal(t, "1Gi", r.MemoryRequest)
-	assert.Equal(t, "1Gi", r.MemoryLimit)
-	none := DefaultPolicy().Explicit(container("d", ""))
-	assert.Equal(t, "15m", none.CPULimit)
-	assert.Equal(t, "64Mi", none.MemoryLimit)
+func TestExplicitCPUBurstsAboveRequest(t *testing.T) {
+	policy := DefaultPolicy()
+	cases := []struct{ preset, request, limit, memory string }{
+		{"nano", "7m", "28m", "32Mi"},
+		{"micro", "15m", "60m", "64Mi"},
+		{"small", "31m", "124m", "128Mi"},
+		{"standard", "62m", "248m", "256Mi"},
+		{"medium", "125m", "500m", "512Mi"},
+		{"large", "250m", "1", "1Gi"},
+		{"xlarge", "500m", "1", "2Gi"},
+		{"max", "1", "1", "4Gi"},
+	}
+	for _, c := range cases {
+		t.Run(c.preset, func(t *testing.T) {
+			r := policy.Explicit(container("d", c.preset))
+			assert.Equal(t, c.request, r.CPURequest, "the request is exactly the preset")
+			assert.Equal(t, c.limit, r.CPULimit)
+			assert.Equal(t, c.memory, r.MemoryRequest)
+			assert.Equal(t, c.memory, r.MemoryLimit, "memory limit stays equal to the request")
+			preset, _ := policy.Preset(c.preset)
+			assert.Equal(t, resource.NewMilliQuantity(preset.CPUMillicores, resource.DecimalSI).String(), r.CPURequest)
+		})
+	}
+	none := policy.Explicit(container("d", ""))
+	assert.Equal(t, "15m", none.CPURequest)
+	assert.Equal(t, "60m", none.CPULimit)
+}
+
+func TestCPULimitIsCappedAtOneCore(t *testing.T) {
+	assert.EqualValues(t, 60, CPULimitFor(15))
+	assert.EqualValues(t, 1000, CPULimitFor(250))
+	assert.EqualValues(t, 1000, CPULimitFor(251))
+	assert.EqualValues(t, 4000, CPULimitFor(4000), "a limit never sits below its request")
 }
 
 func TestTotalsCountOnlyContainers(t *testing.T) {

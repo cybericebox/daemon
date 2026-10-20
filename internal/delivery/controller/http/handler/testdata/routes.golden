@@ -151,6 +151,9 @@ POST   /api/events/:id/manage/exercises/:exerciseID/revert | gate: self | layers
 PUT    /api/events/:id/manage/exercises/:exerciseID/stage | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/exercises/:exerciseID/update | gate: self | layers: event.requireManage
 PUT    /api/events/:id/manage/exercises/:exerciseID/visibility | gate: self | layers: event.requireManage
+POST   /api/events/:id/manage/exercises/bulk/detach | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/exercises/bulk/scoring | gate: self | layers: event.requireManage
+PUT    /api/events/:id/manage/exercises/bulk/visibility | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/forms | gate: self | layers: event.requireRead
 POST   /api/events/:id/manage/forms | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/forms/:formID | gate: self | layers: event.requireRead
@@ -231,6 +234,7 @@ PUT    /api/events/:id/manage/participant-form | gate: self | layers: event.requ
 GET    /api/events/:id/manage/participant-form/answers | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/participant-preview/board | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/participant-preview/catalog | gate: self | layers: event.requireManage
+DELETE /api/events/:id/manage/participant-preview/labs/:deployID | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/participant-preview/runs | gate: self | layers: event.requirePreviewCleanup
 GET    /api/events/:id/manage/participant-preview/selections/:selectionID/lab | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/participant-preview/selections/:selectionID/proxy | gate: self | layers: event.requireManage
@@ -346,9 +350,9 @@ POST   /api/events/self/invitation/decline | gate: self | layers: middleware.Res
 POST   /api/events/self/join | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/join/info | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 POST   /api/events/self/join/invitation/accept | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
-GET    /api/events/self/live-screen | gate: events.content.read(public) | layers: eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func
-GET    /api/events/self/live-screen/results | gate: events.content.read(public) | layers: eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
-GET    /api/events/self/live-screen/results/live | gate: events.content.read(public) | layers: eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
+GET    /api/events/self/live-screen | gate: events.content.read(public) | layers: eventself.liveScreenNoStore,eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func
+GET    /api/events/self/live-screen/results | gate: events.content.read(public) | layers: eventself.liveScreenNoStore,eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
+GET    /api/events/self/live-screen/results/live | gate: events.content.read(public) | layers: eventself.liveScreenNoStore,eventself.(*windowLimiter).middleware,eventself.liveScreenGate,middleware.ResolveEventTenant.func,eventself.liveScreenAccess
 GET    /api/events/self/participant-answers | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 PUT    /api/events/self/participant-answers | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence
 GET    /api/events/self/participant-form | gate: self | layers: middleware.ResolveEventTenant.func,eventself.touchPresence

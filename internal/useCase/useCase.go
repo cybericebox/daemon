@@ -98,6 +98,8 @@ type (
 		*errorJournalUseCase.Journal
 		*calendarUseCase.ResourceCalendarUseCase
 		*imageRegistryUseCase.ImageRegistryUseCase
+		// InboxRequests raises the staff inbox requests that come from the monitoring (the CPU throttling alert).
+		InboxRequests *inboxUseCase.RequestRouter
 	}
 	Dependencies struct {
 		Repo            *repository.Repository
@@ -520,5 +522,6 @@ func NewUseCase(deps Dependencies) *UseCase {
 		journalUC,
 		calendarUC,
 		imageRegistryUC,
+		inboxRequests,
 	}
 }

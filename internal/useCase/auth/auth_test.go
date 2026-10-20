@@ -132,6 +132,38 @@ func TestRevokeOtherSessions_NilGuard(t *testing.T) {
 	}
 }
 
+// Sessions stored before the address filter keep their internal address in the row (no migration): the list
+// never shows it.
+func TestListSessions_HidesStoredNonPublicAddresses(t *testing.T) {
+	uc, repo, _ := newUC(t)
+	uid := uuid.Must(uuid.NewV7())
+	cur := uuid.Must(uuid.NewV7())
+	repo.EXPECT().GetSessionsByUser(gomock.Any(), uid).Return([]postgres.Session{
+		{ID: cur, UserID: uid, Metadata: []byte(`{"ip":"10.64.3.2","user_agent":"pod"}`)},
+		{ID: uuid.Must(uuid.NewV7()), UserID: uid, Metadata: []byte(`{"ip":"100.64.1.1"}`)},
+		{ID: uuid.Must(uuid.NewV7()), UserID: uid, Metadata: []byte(`{"ip":"fe80::1"}`)},
+		{
+			ID:       uuid.Must(uuid.NewV7()),
+			UserID:   uid,
+			Metadata: []byte(`{"ip":"2001:db8:85a3::8a2e:370:7334"}`),
+		},
+		{ID: uuid.Must(uuid.NewV7()), UserID: uid, Metadata: []byte(`{"ip":"::ffff:203.0.113.7"}`)},
+	}, nil)
+	out, err := uc.ListSessions(context.Background(), uid, cur)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	want := []string{"", "", "", "2001:db8:85a3::8a2e:370:7334", "203.0.113.7"}
+	for i, s := range out {
+		if s.IP != want[i] {
+			t.Errorf("session %d: IP = %q, want %q", i, s.IP, want[i])
+		}
+	}
+	if out[0].UserAgent != "pod" {
+		t.Fatalf("the rest of the metadata stays: %+v", out[0])
+	}
+}
+
 func TestListSessions_FlagsCurrent(t *testing.T) {
 	uc, repo, _ := newUC(t)
 	uid := uuid.Must(uuid.NewV7())

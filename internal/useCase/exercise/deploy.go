@@ -71,7 +71,8 @@ const wgPrivateKeyPlaceholder = "__PRIVATE_KEY__"
 // test lab of the author, because they all live in the author's one lab group and one client.
 func testVPNRef() uuid.NullUUID { return uuid.NullUUID{} }
 func deployVPNRef(deploy exerciseModel.TestDeploy) uuid.NullUUID {
-	if deploy.EventID == nil {
+	// A preview lab runs in the author's own group, with the author's one client: the same config as the studio.
+	if !legacyEventPreview(deploy) {
 		return testVPNRef()
 	}
 	return uuid.NullUUID{UUID: *deploy.EventID, Valid: true}
@@ -266,8 +267,8 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
-	if u.activeCount(listed, u.timeNow()) >= u.MaxActiveTestDeploys() {
-		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployActiveExists.Err()
+	if running := u.activeLabs(listed, u.timeNow()); len(running) >= u.MaxActiveTestDeploys() {
+		return exerciseModel.DeployHandle{}, u.labLimitError(ctx, running)
 	}
 
 	if err := variant.ValidateTopologyForDeploy(); err != nil {
@@ -307,17 +308,12 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	}
 	id := uuid.Must(uuid.NewV7())
 	// The resource calendar decides whether the laboratory fits: the author's booked window, the guaranteed pool
-	// or unplanned room; otherwise the error names the nearest free window.
-	if eventID == nil {
-		if err = u.admitTestLab(ctx, id, ownerID, topo, lease); err != nil {
-			return exerciseModel.DeployHandle{}, err
-		}
+	// or unplanned room; otherwise the error names the nearest free window. An event preview lab is taken the same
+	// way, as a short lease of the staff member who starts it: it never needs the event's own reservation.
+	if err = u.admitTestLab(ctx, id, ownerID, topo, lease); err != nil {
+		return exerciseModel.DeployHandle{}, err
 	}
 	deploy := exerciseModel.TestDeploy{EventID: eventID, Flags: deployFlags, ID: id, GroupName: testGroupName(ownerID), LabName: testLabName(id), VersionID: versionID, VariantID: variantID, CreatedBy: ownerID, CreatedAt: now, ExpiresAt: now.Add(lease), Length: lease}
-
-	if eventID != nil {
-		deploy.GroupName = eventPreviewTestGroup(*eventID, ownerID)
-	}
 	retained, provisioned := false, false
 	// Everything an author does to their test labs is serialized, so the group is created with the
 	// first lab, grows with the next ones and is deleted with the last one without racing.
@@ -330,36 +326,13 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		// sweep drop it, never this request (asking the agent per row made the request slow).
 		allActive := u.activeLabs(existing, now)
 		if len(allActive) >= u.MaxActiveTestDeploys() {
-			return false, exerciseModel.ErrTestDeployActiveExists.Err()
+			return false, u.labLimitError(ctx, allActive)
 		}
 		existing = sameTestGroup(existing, deploy.GroupName)
 		active := u.activeLabs(existing, now)
 		if len(existing) > 0 && len(active) == 0 {
 			// Only labs that are being removed are left: their group is going away, a new group cannot be made yet.
 			return false, exerciseModel.ErrTestDeployGroupBusy.Err()
-		}
-		if eventID != nil {
-			if _, observable := u.infra.(labPresence); !observable {
-				return false, calendarError()
-			}
-			gate, ok := u.testLabGate.(eventTestLabGate)
-			if !ok {
-				return false, calendarError()
-			}
-			overhead, known := u.eventPreviewGroupOverhead()
-			if !known {
-				return false, calendarError()
-			}
-			req := u.eventPreviewLabRequest(*eventID, id, ownerID, deploy.GroupName, topo, lease)
-			req.GroupOverhead = overhead
-			room, admitErr := gate.AdmitEventTestLab(ctx, req)
-			if admitErr != nil {
-				return false, admitErr
-			}
-			if room.ExpiresAt.IsZero() || !room.ExpiresAt.After(now) {
-				return false, calendarError()
-			}
-			deploy.ExpiresAt = room.ExpiresAt
 		}
 		if _, err = repo.Create(ctx, deploy); err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
@@ -374,7 +347,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 				retained = true
 				return true, model.ErrPlatform.WithError(errors.Join(err, cleanupErr)).WithMessage("Failed to deploy variant lab").Err()
 			}
-			if eventID != nil && !u.testLabGone(cleanupCtx, deploy, append(active, deploy)) {
+			if legacyEventPreview(deploy) && !u.testLabGone(cleanupCtx, deploy, append(active, deploy)) {
 				deploy.ExpiresAt = now
 				if _, expireErr := repo.ExtendOwned(cleanupCtx, deploy.ID, ownerID, now); expireErr != nil {
 					return true, errors.Join(err, expireErr)
@@ -400,7 +373,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		return true, nil
 	})
 	if err != nil {
-		if (!retained && !provisioned) || eventID == nil {
+		if (!retained && !provisioned) || !legacyEventPreview(deploy) {
 			releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 			defer releaseCancel()
 			if releaseErr := u.releaseScopedTestLab(releaseCtx, deploy); releaseErr != nil {
@@ -440,8 +413,8 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 		if err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
 		}
-		if u.activeCount(existing, now) >= u.MaxActiveTestDeploys() {
-			return false, exerciseModel.ErrTestDeployActiveExists.Err()
+		if running := u.activeLabs(existing, now); len(running) >= u.MaxActiveTestDeploys() {
+			return false, u.labLimitError(ctx, running)
 		}
 		if _, err = repo.Create(ctx, deploy); err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
@@ -488,24 +461,33 @@ func testLabMeta(deploy exerciseModel.TestDeploy) infraModel.LabMeta {
 		GroupReservation: infraModel.ReservationRef{OwnerID: &deploy.CreatedBy},
 	}
 	if deploy.EventID != nil {
+		// A preview lab is the author's test run marked with its event; the shared group is not the event's.
 		meta.Labels[infraModel.LabelEvent] = deploy.EventID.String()
+	}
+	if legacyEventPreview(deploy) {
+		// A preview lab started before previews ran on the author's lease lives inside the event reservation.
 		meta.GroupLabels[infraModel.LabelEvent] = deploy.EventID.String()
-		// A preview runs inside the event reservation, under the organizer's preview unit.
 		preview := infraModel.ReservationRef{EventID: deploy.EventID, Unit: calModel.PreviewUnit(deploy.CreatedBy)}
 		meta.Reservation, meta.GroupReservation = preview, preview
 	}
 	return meta
 }
 
-// activeCount is how many of the author's test labs still have a running lease.
-func (u *ExerciseUseCase) activeCount(items []exerciseModel.TestDeploy, now time.Time) int {
-	n := 0
-	for _, item := range items {
-		if !testDeployExpired(item, now) {
-			n++
+// labLimitError refuses a new test lab at the user's cap and names the labs that hold it (studio test labs and
+// participant-mode previews alike), so the user can stop one: nothing running is ever replaced or removed for it.
+func (u *ExerciseUseCase) labLimitError(ctx context.Context, running []exerciseModel.TestDeploy) error {
+	labs := make([]map[string]any, 0, len(running))
+	for _, deploy := range running {
+		lab := map[string]any{"ID": deploy.ID.String(), "Name": "", "ExpiresAt": deploy.ExpiresAt}
+		if deploy.VersionID != uuid.Nil {
+			lab["Name"] = u.deployExerciseName(ctx, deploy)
 		}
+		if deploy.EventID != nil {
+			lab["EventID"] = deploy.EventID.String()
+		}
+		labs = append(labs, lab)
 	}
-	return n
+	return exerciseModel.ErrTestDeployActiveExists.WithPublicContext("running", labs).Err()
 }
 
 // testDeployExpired says the lease is over (a deploy without an expiry never is).
@@ -542,7 +524,7 @@ func (u *ExerciseUseCase) activeLabs(items []exerciseModel.TestDeploy, now time.
 func (u *ExerciseUseCase) testLabGone(ctx context.Context, deploy exerciseModel.TestDeploy, all []exerciseModel.TestDeploy) bool {
 	presence, ok := u.infra.(labPresence)
 	if !ok {
-		return deploy.EventID == nil
+		return !legacyEventPreview(deploy)
 	}
 	var exists bool
 	var err error
@@ -575,7 +557,7 @@ func (u *ExerciseUseCase) provisionTestLab(ctx context.Context, deploy exerciseM
 	if topo.Internet.Enabled {
 		plan.InternetLabs = 1
 	}
-	if deploy.EventID != nil {
+	if legacyEventPreview(deploy) {
 		plan = u.eventPreviewGroupPlan()
 	}
 	ctx = infraModel.WithPlacementNeed(ctx, infraModel.PlacementNeed{Plan: plan})
@@ -928,7 +910,7 @@ func (u *ExerciseUseCase) endTestLab(ctx context.Context, repo *testDeployRepo.R
 			u.scheduleRemovalCheck(ctx, deploy, 1)
 			return nil
 		}
-		if deploy.EventID != nil {
+		if legacyEventPreview(deploy) {
 			return errors.New("event preview cleanup presence capability unavailable")
 		}
 		return u.finishTestLab(ctx, repo, deploy)
@@ -981,7 +963,7 @@ func (u *ExerciseUseCase) CheckTestDeployRemoved(ctx context.Context, ownerID, d
 
 // finishTestLab drops the row of a lab that is gone and frees its resources.
 func (u *ExerciseUseCase) finishTestLab(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) error {
-	if deploy.EventID != nil {
+	if legacyEventPreview(deploy) {
 		if err := u.releaseScopedTestLab(ctx, deploy); err != nil {
 			return err
 		}
@@ -989,7 +971,7 @@ func (u *ExerciseUseCase) finishTestLab(ctx context.Context, repo *testDeployRep
 	if _, err := repo.DeleteOwned(ctx, deploy.ID, deploy.CreatedBy); err != nil {
 		return model.ErrPlatform.WithError(err).WithMessage("Failed to remove test deploy").Err()
 	}
-	if deploy.EventID == nil {
+	if !legacyEventPreview(deploy) {
 		return u.releaseScopedTestLab(ctx, deploy)
 	}
 	return nil
@@ -1118,7 +1100,7 @@ func (u *ExerciseUseCase) EndTestDeployByReservation(ctx context.Context, owner,
 // runs at the reservation's ending notice and at the lease's end. A lab whose status cannot be read ends as before; an
 // event preview lab keeps the end of its event's reservation.
 func (u *ExerciseUseCase) leaseWhileStarting(ctx context.Context, repo *testDeployRepo.Repository, deploy exerciseModel.TestDeploy) (bool, error) {
-	if deploy.EventID != nil || deploy.IsStatic() || u.infra == nil {
+	if legacyEventPreview(deploy) || deploy.IsStatic() || u.infra == nil {
 		return false, nil
 	}
 	status, err := u.infra.LabStatus(ctx, deploy.GroupName, deploy.LabName)
@@ -1211,7 +1193,7 @@ func (u *ExerciseUseCase) ExtendTestDeploy(ctx context.Context, ownerID, deployI
 		}
 		return exerciseModel.TestDeploy{}, model.ErrPlatform.WithError(err).WithMessage("Failed to load test deploy").Err()
 	}
-	if current.EventID != nil {
+	if legacyEventPreview(current) {
 		return u.extendEventPreviewTestDeploy(ctx, ownerID, deployID)
 	}
 	now := u.timeNow()

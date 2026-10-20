@@ -171,6 +171,7 @@ func toEventExerciseDetailView(row eventExerciseRepo.Detail) EventExerciseView {
 	}
 	view.Infrastructure, view.VariantCount = row.Infrastructure, row.VariantCount
 	view.ChallengeCount, view.PublishedCount, view.HasAttempts = row.ChallengeCount, row.PublishedCount, row.HasAttempts
+	view.AvgDifficulty, view.TaskCount, view.TaskNames = row.AvgDifficulty, row.TaskCount, row.TaskNames
 	return view
 }
 
@@ -250,7 +251,8 @@ func (u *EventUseCase) ListPublishedExercisesForEvent(ctx context.Context, event
 			scope = "event"
 		}
 		items = append(items, EventCatalogItem{ID: row.ID, Name: row.Name, Description: row.Description, Tags: row.Tags, Scope: scope,
-			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached})
+			PublishedVersionID: row.PublishedVersionID, Infrastructure: row.Infrastructure, Attached: row.Attached,
+			AvgDifficulty: row.AvgDifficulty, TaskCount: row.TaskCount, TaskNames: row.TaskNames})
 	}
 	if err = u.decorateCatalogResources(ctx, items); err != nil {
 		return nil, err

@@ -19,6 +19,7 @@ import (
 	"github.com/cybericebox/daemon/internal/config"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
+	"github.com/cybericebox/daemon/internal/delivery/controller/http/sse"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	"github.com/cybericebox/daemon/internal/model/rbac"
 	eventUseCase "github.com/cybericebox/daemon/internal/useCase/event"
@@ -329,6 +330,51 @@ func TestScreenLinkOpensItsOwnUnpublishedEventOnly(t *testing.T) {
 	} {
 		if w.Code != http.StatusNotFound || w.Body.String() != unknownHost.Body.String() {
 			t.Fatalf("%s = %d %q, want the unknown host answer %d %q", name, w.Code, w.Body.String(), unknownHost.Code, unknownHost.Body.String())
+		}
+	}
+}
+
+// The event site's server sends the token as a header: it opens the screen
+// like ?token= does, and the token never needs to be in a URL.
+func TestLiveScreenTokenComesInTheHeader(t *testing.T) {
+	router := screenRouter(NewEventSelfAPIHandler(fakeUseCase{}, nil), func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
+	req := httptest.NewRequest(http.MethodGet, "/live-screen", nil)
+	req.Header.Set(LiveScreenTokenHeader, fakeScreenToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"Name":"Screen"`) {
+		t.Fatalf("header token = %d %s", w.Code, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/live-screen/results", nil)
+	req.Header.Set(LiveScreenTokenHeader, fakeScreenToken)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("header token on results = %d", w.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/live-screen", nil)
+	req.Header.Set(LiveScreenTokenHeader, "wrong")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("a wrong header token = %d", w.Code)
+	}
+}
+
+// Answers opened with a screen token are never stored, and the page sends no referrer.
+func TestLiveScreenAnswersAreNeverStored(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/screen", liveScreenNoStore, func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.GET("/stream", liveScreenNoStore, func(c *gin.Context) { sse.WriteHeaders(c); c.Status(http.StatusOK) })
+	for _, path := range []string{"/screen", "/stream"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if got := w.Header().Get("Cache-Control"); got != "private, no-store" {
+			t.Fatalf("%s Cache-Control = %q", path, got)
+		}
+		if got := w.Header().Get("Referrer-Policy"); got != "no-referrer" {
+			t.Fatalf("%s Referrer-Policy = %q", path, got)
 		}
 	}
 }

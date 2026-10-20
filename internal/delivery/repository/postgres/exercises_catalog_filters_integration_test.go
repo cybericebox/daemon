@@ -3,11 +3,14 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/cybericebox/daemon/internal/delivery/repository/eventExerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/exerciseRepo"
 	"github.com/cybericebox/daemon/internal/delivery/repository/postgres"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
@@ -278,5 +281,98 @@ func TestListAuthors_ViewerSeesOnlyReadable(t *testing.T) {
 	authors, err := repo.ListAuthors(ctx, "", nil, uuid.NullUUID{UUID: moderator, Valid: true}, 10)
 	if err != nil || len(authors) != 1 || authors[0].ID != insider {
 		t.Fatalf("a moderator sees the authors of what they may read only: %+v err=%v", authors, err)
+	}
+}
+
+// TestCatalogSubtaskNames: both the catalog table and the event's «Додати з каталогу» list carry the subtask names of
+// the first variant in order. The event list reads the PUBLISHED version only: a newer working copy never shows.
+func TestCatalogSubtaskNames(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	event := mustSeedEventForParticipants(t, db, "picker")
+	task := mustCreateExerciseFull(t, repo, "Picker task", "", []string{"web"}, itNow)
+	if _, err := db.Pool.Exec(ctx, `UPDATE exercises SET access_level = 0 WHERE id = $1`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	published := levels(exerciseModel.DifficultyEasy, exerciseModel.DifficultyHard) // «Task A», «Task B»: average 4
+	published = append(published, exerciseModel.Variant{Index: 1, Tasks: levels(exerciseModel.DifficultyInsane)[0].Tasks})
+	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: published}, itNow, uuid.NullUUID{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Publish(ctx, task.ID, itNow.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	draft := []exerciseModel.Variant{{Index: 0, Tasks: []exerciseModel.Task{{ID: uuid.Must(uuid.NewV7()), Name: "Secret draft subtask", Difficulty: exerciseModel.DifficultyEasy}}}}
+	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: draft}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := repo.ListPage(ctx, exerciseRepo.PageParams{Search: "Picker", Archived: "exclude", SortBy: "name", SortDir: "asc", Limit: 5})
+	if err != nil || len(rows) != 1 || strings.Join(rows[0].TaskNames, "|") != "Task A|Task B" || *rows[0].TaskCount != 2 {
+		t.Fatalf("catalog table names: %+v err=%v", rows, err)
+	}
+	items, err := eventExerciseRepo.New(db.Queries).Catalog(ctx, event.ID, "Picker", "", nil)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("event catalog: %+v err=%v", items, err)
+	}
+	got := items[0]
+	if strings.Join(got.TaskNames, "|") != "Task A|Task B" || got.TaskCount == nil || *got.TaskCount != 2 || got.AvgDifficulty == nil || *got.AvgDifficulty != 4 {
+		t.Fatalf("event catalog item: names=%v count=%v avg=%v", got.TaskNames, got.TaskCount, got.AvgDifficulty)
+	}
+}
+
+// TestEventExerciseDetailsPinnedStats: the event's task list shows the difficulty, count and subtask names of the
+// PINNED version, not of a newer published one; a fixed-variant attachment names its own variant's subtasks.
+func TestEventExerciseDetailsPinnedStats(t *testing.T) {
+	db := testhelpers.SetupTestDB(t)
+	ctx := context.Background()
+	repo := exerciseRepo.New(db.Queries)
+	event := mustSeedEventForParticipants(t, db, "pinned")
+	task := mustCreateExerciseFull(t, repo, "Pinned task", "", nil, itNow)
+	first := levels(exerciseModel.DifficultyEasy, exerciseModel.DifficultyMedium) // «Task A», «Task B»: average 3.5
+	second := exerciseModel.Variant{Index: 1, Tasks: []exerciseModel.Task{
+		{ID: first[0].Tasks[0].ID, Name: "Variant two A", Difficulty: exerciseModel.DifficultyEasy},
+		{ID: first[0].Tasks[1].ID, Name: "Variant two B", Difficulty: exerciseModel.DifficultyMedium},
+	}}
+	pinnedID := uuid.Must(uuid.NewV7())
+	if _, err := repo.UpsertDraft(ctx, task.ID, pinnedID, exerciseModel.ExerciseVersion{Variants: append(first, second)}, itNow, uuid.NullUUID{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Publish(ctx, task.ID, itNow.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	attach := func(mode int16, fixed, revision int32) {
+		t.Helper()
+		params := postgres.CreateEventExerciseParams{ID: uuid.Must(uuid.NewV7()), EventID: event.ID, ExerciseID: task.ID, ExerciseVersionID: pinnedID, VariantMode: mode, Revision: revision, CreatedAt: itNow}
+		if mode == 1 {
+			params.FixedVariantIndex = pgtype.Int4{Int32: fixed, Valid: true}
+		}
+		if _, err := db.Queries.CreateEventExercise(ctx, params); err != nil {
+			t.Fatal(err)
+		}
+	}
+	attach(0, 0, 1)
+	// A newer published version with other subtasks must not show for the attachment pinned to the first one.
+	if _, err := repo.UpsertDraft(ctx, task.ID, uuid.Must(uuid.NewV7()), exerciseModel.ExerciseVersion{Variants: levels(exerciseModel.DifficultyInsane)}, itNow.Add(2*time.Minute), uuid.NullUUID{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Publish(ctx, task.ID, itNow.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Pool.Exec(ctx, `UPDATE event_exercises SET status = 1 WHERE event_id = $1`, event.ID); err != nil {
+		t.Fatal(err)
+	}
+	attach(1, 1, 2)
+
+	details, err := eventExerciseRepo.New(db.Queries).Details(ctx, event.ID)
+	if err != nil || len(details) != 2 {
+		t.Fatalf("details: %d err=%v", len(details), err)
+	}
+	for i, want := range []string{"Task A|Task B", "Variant two A|Variant two B"} {
+		got := details[i]
+		if strings.Join(got.TaskNames, "|") != want || got.TaskCount == nil || *got.TaskCount != 2 || got.AvgDifficulty == nil || *got.AvgDifficulty != 3.5 {
+			t.Fatalf("attachment %d: names=%v count=%v avg=%v", i, got.TaskNames, got.TaskCount, got.AvgDifficulty)
+		}
 	}
 }

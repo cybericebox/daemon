@@ -6,7 +6,7 @@
 # Boot uses ENV != "development" so the in-app MigrationsPath resolves to
 # "migrations" (relative to /app), not the source-tree path.
 # The build runs on the build platform and cross-compiles (pure Go, CGO off): arm64 images need no emulation.
-ARG LABORATORY_CONTRACT_SOURCE=d270687989f477048e488c5f5b6cf6e09b8668ab
+ARG LABORATORY_CONTRACT_SOURCE=1f8d6885654c19b040137ffd2a14df9f99b0a9f5
 FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 ARG LABORATORY_CONTRACT_SOURCE
 ARG TARGETOS=linux
@@ -18,6 +18,8 @@ RUN GOWORK=off go mod download
 COPY . .
 COPY ./internal/delivery/repository/postgres/migrations /build/migrations
 RUN GOWORK=off CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags '-s -w' -o app ./cmd/daemon
+# Operator tool for load tests (docs/loadtest/RUNBOOK.md): creates and removes marked test accounts. Not run by the service.
+RUN GOWORK=off CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags '-s -w' -o loadtest-users ./cmd/loadtest-users
 
 FROM gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 # Runtime Laboratory distribution identity stays separate from SDK source.
@@ -37,6 +39,7 @@ COPY --from=builder /build/migrations /app/migrations
 
 # the built binary
 COPY --from=builder /build/app /app/app
+COPY --from=builder /build/loadtest-users /app/loadtest-users
 
 USER 10001:10001
 ENTRYPOINT ["/app/app"]

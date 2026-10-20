@@ -29,6 +29,7 @@ type previewProxyRequest struct {
 
 type previewUseCase interface {
 	EndPreviewRuns(context.Context, uuid.UUID, uuid.UUID) error
+	StopOwnTestLab(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 	GetPreviewSettings(context.Context, uuid.UUID, uuid.UUID) (eventUseCase.PreviewSettings, error)
 	PutPreviewSettings(context.Context, uuid.UUID, uuid.UUID, eventUseCase.PreviewSettingsInput) (eventUseCase.PreviewSettings, error)
 	GetPreviewDefaults(context.Context) (eventUseCase.PreviewSettings, error)
@@ -58,6 +59,7 @@ func (h *Handler) initPreviewAPI(router *gin.RouterGroup) {
 	preview.GET("catalog", h.requireManage, h.previewCatalog)
 	preview.GET("board", h.requireManage, h.previewBoard)
 	preview.DELETE("runs", h.requirePreviewCleanup, h.endPreviewRuns)
+	preview.DELETE("labs/:deployID", h.requireManage, h.stopOwnTestLab)
 	preview.POST("selections/:selectionID/start", h.requireManage, h.startPreview)
 	preview.DELETE("selections/:selectionID/run", h.requirePreviewCleanup, h.endPreview)
 	preview.GET("selections/:selectionID/lab", h.requireManage, h.previewLab)
@@ -428,6 +430,30 @@ func (h *Handler) endPreviewRuns(ctx *gin.Context) {
 		return
 	}
 	if err := h.useCase.EndPreviewRuns(ctx.Request.Context(), event, previewUser(ctx)); err != nil {
+		response.AbortWithError(ctx, err)
+		return
+	}
+	ctx.Status(http.StatusNoContent)
+}
+
+// stopOwnTestLab godoc
+// @Summary End one of the caller's own test labs (studio or preview) to free a place at the test-lab cap
+// @Description The cap error of a preview start names the running labs; this ends the chosen one. Only the caller's own labs.
+// @Tags participant-preview
+// @Param id path string true "Event ID"
+// @Param deployID path string true "test lab (deploy) ID"
+// @Success 204
+// @Router /events/{id}/manage/participant-preview/labs/{deployID} [delete]
+func (h *Handler) stopOwnTestLab(ctx *gin.Context) {
+	event, ok := parseEventID(ctx)
+	if !ok {
+		return
+	}
+	deployID, ok := previewParam(ctx, "deployID")
+	if !ok {
+		return
+	}
+	if err := h.useCase.StopOwnTestLab(ctx.Request.Context(), event, previewUser(ctx), deployID); err != nil {
 		response.AbortWithError(ctx, err)
 		return
 	}

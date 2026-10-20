@@ -182,6 +182,8 @@ type exerciseListItemResponse struct {
 	AvgDifficulty *float64 `json:"AvgDifficulty"`
 	// TaskCount is the number of subtasks of that same first variant; null without a variant (offset pages only).
 	TaskCount *int `json:"TaskCount"`
+	// TaskNames are their names in order: the popover of the count (offset pages only; empty without a variant).
+	TaskNames []string `json:"TaskNames"`
 	exerciseScopeResponse
 }
 
@@ -189,7 +191,7 @@ func exerciseListItemToResponse(e exerciseUseCase.ExerciseListItem) exerciseList
 	return exerciseListItemResponse{
 		ID: e.ID, Name: e.Name, Description: e.Description, Tags: e.Tags,
 		HasDraft: e.HasDraft, HasPublished: e.HasPublished, Status: e.Status, ArchivedAt: e.ArchivedAt,
-		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount,
+		CreatedAt: e.CreatedAt, UpdatedAt: e.UpdatedAt, AuthorID: e.AuthorID, AuthorName: e.AuthorName, AvgDifficulty: e.AvgDifficulty, TaskCount: e.TaskCount, TaskNames: taskNames(e.TaskNames),
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
 }
@@ -429,6 +431,9 @@ type deviceDTO struct {
 	External   *externalDTO   `json:"External,omitempty"`
 	// Persistence is absent when the device keeps no state.
 	Persistence *persistenceDTO `json:"Persistence,omitempty"`
+	// WaitReadyFile: the device counts as ready only once the application creates /run/ready inside it. A port
+	// published through the web proxy is checked automatically either way. Container devices only.
+	WaitReadyFile bool `json:"WaitReadyFile,omitempty"`
 }
 
 type endpointDTO struct {
@@ -784,7 +789,7 @@ func (d topologyDTO) toDomain() exerciseModel.Topology {
 		VisualRender: d.VisualRender,
 	}
 	for _, dev := range d.Devices {
-		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset}
+		domainDev := exerciseModel.Device{Name: dev.Name, Type: exerciseModel.DeviceType(dev.Type), Image: dev.Image, SecurityPreset: exerciseModel.SecurityPreset(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
 		if dev.Resources != nil {
 			domainDev.Resources = &exerciseModel.DeviceResources{
 				CPURequest: dev.Resources.CPURequest, MemoryRequest: dev.Resources.MemoryRequest,
@@ -901,7 +906,7 @@ func topologyToDTO(t exerciseModel.Topology) topologyDTO {
 	}
 	for _, dev := range t.Devices {
 		id := dev.ID
-		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset}
+		dtoDev := deviceDTO{ID: &id, Name: dev.Name, Type: string(dev.Type), Image: dev.Image, SecurityPreset: string(dev.SecurityPreset), ResourcePreset: dev.ResourcePreset, WaitReadyFile: dev.WaitReadyFile}
 		for _, iface := range dev.Interfaces {
 			dtoIface := interfaceDTO{
 				Name: iface.Name, MAC: iface.MAC,
@@ -974,4 +979,12 @@ func exerciseToResponse(e exerciseUseCase.ExerciseView) exerciseResponse {
 		CreatedAt: e.CreatedAt, CreatedBy: e.CreatedBy, AuthorName: e.AuthorName, UpdatedAt: e.UpdatedAt, UpdatedBy: e.UpdatedBy, UpdatedByName: e.UpdatedByName,
 		exerciseScopeResponse: scopeToResponse(e.ExerciseScopeView),
 	}
+}
+
+// taskNames keeps the JSON an array: nil (a cursor page) becomes [].
+func taskNames(names []string) []string {
+	if names == nil {
+		return []string{}
+	}
+	return names
 }

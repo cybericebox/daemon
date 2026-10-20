@@ -103,6 +103,7 @@ type (
 		EnvVars        []exerciseModel.EnvVar           `json:"env_vars,omitempty"`
 		External       *exerciseModel.ExternalAccess    `json:"external,omitempty"`
 		Persistence    *exerciseModel.DevicePersistence `json:"persistence,omitempty"`
+		WaitReadyFile  bool                             `json:"wait_ready_file,omitempty"`
 	}
 
 	archiveConnectionV2 struct {
@@ -671,7 +672,7 @@ func (t archiveTopologyV2) toDomain(path string, links *archiveLinks) (exerciseM
 			ID: id, Name: device.Name, Type: device.Type, Image: image,
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset,
 			Interfaces: device.Interfaces, EnvVars: device.EnvVars,
-			External: device.External, Persistence: device.Persistence,
+			External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
 		})
 	}
 	for ci, connection := range t.Connections {
@@ -736,7 +737,7 @@ func exportVariantV2(variant exerciseModel.Variant, paths map[uuid.UUID]string, 
 		topology.Devices = append(topology.Devices, archiveDeviceV2{
 			ID: optionalID(device.ID), Name: device.Name, Type: device.Type, Image: exportDeviceImage(device.Image, imagePaths),
 			SecurityPreset: device.SecurityPreset, ResourcePreset: device.ResourcePreset, Interfaces: device.Interfaces,
-			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence,
+			EnvVars: device.EnvVars, External: device.External, Persistence: device.Persistence, WaitReadyFile: device.WaitReadyFile,
 		})
 	}
 	for _, connection := range variant.Topology.Connections {

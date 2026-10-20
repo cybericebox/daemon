@@ -113,6 +113,7 @@ func (r *Repository) UnaccountedStarts(ctx context.Context) (map[uuid.UUID]bool,
 	return out, err
 }
 
+// initialGroupAllocation: the group pods (VPN, gateway) stay Guaranteed, so their limits equal their requests.
 func initialGroupAllocation(g Group) []byte {
 	total := g.Sizes.Total()
 	v := eventLabModel.Allocation{ConfiguredRequests: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, ConfiguredLimits: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, AllocatedRequests: eventLabModel.Compute{CPUMillicores: total.CPUMillicores, MemoryBytes: total.MemoryBytes}, RuntimeState: "Admitted", StorageState: "None"}

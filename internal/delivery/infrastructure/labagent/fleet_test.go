@@ -557,9 +557,9 @@ func TestAgentAlwaysGetsExplicitEqualRequestsAndLimits(t *testing.T) {
 	}
 	spec := string(f.a.createLabs.GetVariants()[0].GetSpecJson())
 	for _, want := range []string{
-		`"cpuRequest":"125m"`, `"cpuLimit":"125m"`, `"memoryRequest":"512Mi"`, `"memoryLimit":"512Mi"`, // preset
-		`"cpuRequest":"15m"`, `"memoryLimit":"64Mi"`, // the default preset, one block
-		`"cpuRequest":"250m"`, `"memoryRequest":"1Gi"`, // sixteen blocks, requests mirrored
+		`"cpuRequest":"125m"`, `"cpuLimit":"500m"`, `"memoryRequest":"512Mi"`, `"memoryLimit":"512Mi"`, // preset
+		`"cpuRequest":"15m"`, `"cpuLimit":"60m"`, `"memoryLimit":"64Mi"`, // the default preset, one block
+		`"cpuRequest":"250m"`, `"cpuLimit":"1"`, `"memoryRequest":"1Gi"`, // sixteen blocks, limit capped at one core
 	} {
 		if !strings.Contains(spec, want) {
 			t.Errorf("spec lacks %s: %s", want, spec)

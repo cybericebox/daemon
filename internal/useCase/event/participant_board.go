@@ -317,6 +317,10 @@ func (u *EventUseCase) StreamModeratorsChallengeAttachment(ctx context.Context, 
 func (u *EventUseCase) ownBoard(ctx context.Context, eventID, userID uuid.UUID, withHints bool) (uuid.UUID, []OwnChallengeView, error) {
 	p, err := u.participants.Get(ctx, eventID, userID)
 	if err != nil {
+		// Not a participant of this event: the same refusal the lab routes give, not a server error.
+		if repositoryTools.IsObjectNotFoundError(err) {
+			return uuid.Nil, nil, participantModel.ErrParticipantAccessForbidden.WithError(err).Err()
+		}
 		return uuid.Nil, nil, model.ErrPlatform.WithError(err).WithMessage("Failed to get event participant").Err()
 	}
 	if p.Status != participantModel.StatusApproved || p.TeamID == nil {

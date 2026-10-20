@@ -110,6 +110,18 @@ SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mo
         WHERE v.exercise_id = ex.forked_from_exercise_id AND v.published_at IS NOT NULL)::integer AS source_latest_version_number,
        exercise_variants_have_infrastructure(pinned.variants)::boolean AS infrastructure,
        CASE WHEN jsonb_typeof(pinned.variants) = 'array' THEN jsonb_array_length(pinned.variants) ELSE 0 END::integer AS variant_count,
+       -- The PINNED version, as the catalog shows a version: the average difficulty (NULL scans badly, hence the
+       -- flag), whether there is a variant, and the subtask names in order, of the fixed variant of a fixed
+       -- attachment, else of the first one (every variant has the same subtasks at the same levels).
+       (pinned.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
+       COALESCE(pinned.avg_difficulty, 0)::float8 AS avg_difficulty,
+       (jsonb_typeof(pinned.variants -> 0) = 'object')::boolean AS has_task_count,
+       COALESCE(ARRAY(SELECT COALESCE(task.value ->> 'name', '')
+                      FROM jsonb_array_elements(CASE
+                                                    WHEN jsonb_typeof(pinned.variants -> CASE WHEN ee.variant_mode = 1 THEN COALESCE(ee.fixed_variant_index, 0) ELSE 0 END -> 'tasks') = 'array'
+                                                        THEN pinned.variants -> CASE WHEN ee.variant_mode = 1 THEN COALESCE(ee.fixed_variant_index, 0) ELSE 0 END -> 'tasks'
+                                                    ELSE '[]'::jsonb END) WITH ORDINALITY AS task(value, position)
+                      ORDER BY task.position), '{}')::text[] AS task_names,
        (SELECT count(*) FROM event_challenges ec WHERE ec.event_exercise_id = ee.id)::integer AS challenge_count,
        (SELECT count(*) FROM event_challenges ec WHERE ec.event_exercise_id = ee.id AND ec.published)::integer AS published_count,
        EXISTS (SELECT 1
@@ -140,6 +152,17 @@ WHERE ee.event_id = sqlc.arg(event_id)
 -- available to it. attached: the event already uses it or its fork family.
 SELECT ex.id, ex.name, ex.description, ex.tags, ex.scope, ex.published_version_id::uuid AS published_version_id,
        exercise_has_infrastructure(ex.id)::boolean AS infrastructure,
+       -- The published version's first variant, as the catalog table shows it: the average difficulty (NULL scans
+       -- badly, hence the flag), the subtask count (NULL without a variant) and the subtask names in order.
+       (published.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
+       COALESCE(published.avg_difficulty, 0)::float8 AS avg_difficulty,
+       (jsonb_typeof(published.variants -> 0) = 'object')::boolean AS has_task_count,
+       COALESCE(ARRAY(SELECT COALESCE(task.value ->> 'name', '')
+                      FROM jsonb_array_elements(CASE
+                                                    WHEN jsonb_typeof(published.variants -> 0 -> 'tasks') = 'array'
+                                                        THEN published.variants -> 0 -> 'tasks'
+                                                    ELSE '[]'::jsonb END) WITH ORDINALITY AS task(value, position)
+                      ORDER BY task.position), '{}')::text[] AS task_names,
        EXISTS (SELECT 1
                FROM event_exercises ee
                JOIN exercises attached ON attached.id = ee.exercise_id
@@ -148,6 +171,7 @@ SELECT ex.id, ex.name, ex.description, ex.tags, ex.scope, ex.published_version_i
                  AND (attached.id = ex.id OR attached.forked_from_exercise_id = ex.id
                    OR ex.forked_from_exercise_id = attached.id))::boolean AS attached
 FROM exercises ex
+JOIN exercise_versions published ON published.id = ex.published_version_id
 WHERE ex.published_version_id IS NOT NULL
   AND ex.archived_at IS NULL
   AND exercise_available_to_event(ex.id, sqlc.arg(event_id))

@@ -17,6 +17,7 @@ import (
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/middleware"
 	"github.com/cybericebox/daemon/internal/delivery/controller/http/response"
 	utils "github.com/cybericebox/daemon/internal/delivery/controller/http/utils"
+	eventModel "github.com/cybericebox/daemon/internal/model/event"
 	eventConfigModel "github.com/cybericebox/daemon/internal/model/eventConfig"
 	eventContentModel "github.com/cybericebox/daemon/internal/model/eventContent"
 	eventFormModel "github.com/cybericebox/daemon/internal/model/eventForm"
@@ -172,6 +173,9 @@ type (
 		ReorderChallengeGroups(ctx context.Context, eventID uuid.UUID, in eventUseCase.ReorderChallengeGroupsInput) error
 		ReorderGroupChallenges(ctx context.Context, eventID uuid.UUID, in eventUseCase.ReorderGroupChallengesInput) error
 		SetEventExerciseVisibility(ctx context.Context, eventID, eventExerciseID uuid.UUID, published bool) error
+		BulkSetEventExerciseVisibility(ctx context.Context, eventID uuid.UUID, ids []uuid.UUID, published bool) ([]eventUseCase.BulkExerciseResult, error)
+		BulkSetEventExerciseScoring(ctx context.Context, eventID uuid.UUID, ids []uuid.UUID, override *eventModel.ScoringProfile) ([]eventUseCase.BulkExerciseResult, error)
+		BulkDetachEventExercises(ctx context.Context, eventID uuid.UUID, ids []uuid.UUID, confirmed bool, by uuid.UUID) ([]eventUseCase.BulkExerciseResult, error)
 		SetEventExerciseStage(ctx context.Context, eventID, eventExerciseID uuid.UUID, stageID *uuid.UUID) (eventUseCase.EventExerciseView, error)
 		ListEventStages(ctx context.Context, eventID uuid.UUID) ([]eventUseCase.EventStageView, error)
 		CreateEventStage(ctx context.Context, eventID uuid.UUID, in eventUseCase.CreateStageInput) (eventUseCase.EventStageView, error)
@@ -199,6 +203,7 @@ type (
 		PublishEventEmailTemplate(ctx context.Context, eventID, templateID, updatedBy uuid.UUID) (emailModel.EmailTemplate, error)
 		RollbackEventEmailTemplate(ctx context.Context, eventID, sourceID, updatedBy uuid.UUID) (emailModel.EmailTemplate, error)
 		PreviewEventEmail(ctx context.Context, eventID uuid.UUID, in emailUseCase.PreviewInput) (emailUseCase.PreviewOutput, error)
+		EventPreviewValues(ctx context.Context, eventID uuid.UUID) (map[string]string, error)
 		ListEventEmailPresets(ctx context.Context, eventID uuid.UUID) ([]emailModel.BlockPreset, error)
 		StreamEventEmailImage(ctx context.Context, eventID, fileID uuid.UUID) (io.ReadCloser, mediaModel.File, error)
 		UploadEventEmailImage(ctx context.Context, eventID, templateID, userID uuid.UUID, reader io.Reader, name string) (mediaModel.File, error)
@@ -391,6 +396,9 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		manage.POST("exercises/:exerciseID/fork", h.requireManage, h.forkEventExercise)
 		manage.POST("exercises/:exerciseID/revert", h.requireManage, h.revertEventExercise)
 		manage.DELETE("exercises/:exerciseID", h.requireManage, h.detachEventExercise)
+		manage.PUT("exercises/bulk/visibility", h.requireManage, h.bulkSetEventExerciseVisibility)
+		manage.PUT("exercises/bulk/scoring", h.requireManage, h.bulkSetEventExerciseScoring)
+		manage.POST("exercises/bulk/detach", h.requireManage, h.bulkDetachEventExercises)
 		manage.PUT("exercises/:exerciseID/challenges/:challengeID/hints", h.requireManage, h.updateChallengeHintCosts)
 		manage.GET("hint-unlocks", h.requireRead, h.listHintUnlocks)
 		manage.GET("exercises/:exerciseID/challenges", h.requireRead, h.listEventChallenges)
@@ -486,7 +494,8 @@ func (h *Handler) listPublishedExercisesForEvent(ctx *gin.Context) {
 		}
 		out = append(out, publishedExerciseChoiceResponse{ID: item.ID, Name: item.Name, Description: item.Description, PublishedVersionID: item.PublishedVersionID,
 			Tags: tags, Scope: item.Scope, Infrastructure: item.Infrastructure, Attached: item.Attached,
-			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy})
+			Resources: rangeResponse(item.Resources), ResourceHeavy: item.ResourceHeavy,
+			AvgDifficulty: item.AvgDifficulty, TaskCount: item.TaskCount, TaskNames: nonNilStrings(item.TaskNames)})
 	}
 	response.AbortWithData(ctx, out)
 }
@@ -2207,4 +2216,12 @@ func (h *Handler) listHintUnlocks(ctx *gin.Context) {
 		out = append(out, hintUnlockResponse(item))
 	}
 	response.AbortWithData(ctx, out)
+}
+
+// nonNilStrings keeps a JSON array an array: nil becomes [].
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

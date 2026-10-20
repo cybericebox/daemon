@@ -526,3 +526,25 @@ func TestDeliver_AnEventKeepsItsOwnSenderThroughItsOwnSMTPButNotOnTheFallback(t 
 	require.Equal(t, "ctf@uni.edu", smtp.sends[0].msg.From.Email, "through its own SMTP the event sends as it wishes")
 	require.Equal(t, "olymp@mail.cybericebox.com", smtp.sends[1].msg.From.Email, "the platform fallback only sends as the event on the platform domain")
 }
+
+func TestReservedAddress(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"a@loadtest.invalid": true, "a@seed.cybericebox.test": true, "a@foo.example": true, "a@localhost": true,
+		"a@LoadTest.INVALID": true, "a@host.test.": true,
+		"a@example.com": false, "a@cybericebox.com": false, "a@invalid.com": false, "a@mytest.org": false, "no-at": false, "": false,
+	} {
+		require.Equal(t, want, reservedAddress(addr), addr)
+	}
+}
+
+// A reserved address is skipped before any route is read: no settings query, no send, not an error of delivery.
+func TestDeliver_ReservedDomainIsSkippedWithoutSending(t *testing.T) {
+	uc, _, smtp := newBareTestUseCase(t, config.SMTPConfig{}, nil) // the mock repo has no expectations: any query fails the test
+	note := &dispatchModel.DeliveryNote{}
+	err := uc.Deliver(dispatchModel.WithDeliveryNote(context.Background(), note), nil, email.Message{To: "lt-run1-001@loadtest.invalid"})
+	skipped, ok := dispatchModel.AsSkipped(err)
+	require.True(t, ok, "got %v", err)
+	require.Equal(t, dispatchModel.SkippedMessageReserved, skipped.Message)
+	require.Empty(t, smtp.sends)
+	require.Empty(t, note.Transport)
+}
