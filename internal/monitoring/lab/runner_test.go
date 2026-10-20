@@ -98,14 +98,14 @@ func TestConsumeAcceptsSkippedSequencesBecauseTheSelectorFiltersUpdates(t *testi
 	store := &recordingStore{}
 	stream := &scriptedStream{updates: []*labpb.MonitoringUpdate{update("e1", 1, true, "group-a"), update("e1", 9, false, "group-a")}}
 	var requests []*labpb.MonitoringRequest
-	runner := NewRunner(nil, openOnce(stream, &requests), store).WithSelector("cybericebox.io/instance=prod")
+	runner := NewRunner(nil, openOnce(stream, &requests), store).WithSelector("platform/instance=prod")
 	if err := runner.consume(context.Background()); err != io.EOF {
 		t.Fatalf("consume error = %v, want EOF after both updates", err)
 	}
 	if len(store.appended) != 2 {
 		t.Fatalf("observations = %d, want the snapshot and the delta after a gap in the numbers", len(store.appended))
 	}
-	if requests[0].GetSelector() != "cybericebox.io/instance=prod" || requests[0].GetAgentEpoch() != "" || requests[0].GetResumeAfterSequence() != 0 {
+	if requests[0].GetSelector() != "platform/instance=prod" || requests[0].GetAgentEpoch() != "" || requests[0].GetResumeAfterSequence() != 0 {
 		t.Fatalf("first request = %+v, want the selector and no resume", requests[0])
 	}
 }
