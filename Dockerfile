@@ -6,7 +6,7 @@
 # Boot uses ENV != "development" so the in-app MigrationsPath resolves to
 # "migrations" (relative to /app), not the source-tree path.
 # The build runs on the build platform and cross-compiles (pure Go, CGO off): arm64 images need no emulation.
-ARG LABORATORY_CONTRACT_SOURCE=d270687989f477048e488c5f5b6cf6e09b8668ab
+ARG LABORATORY_CONTRACT_SOURCE=1f8d6885654c19b040137ffd2a14df9f99b0a9f5
 FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/golang:1.27.1-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 ARG LABORATORY_CONTRACT_SOURCE
 ARG TARGETOS=linux
