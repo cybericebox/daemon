@@ -233,8 +233,15 @@ func (e *Event) UpdateLifecycle(lifecycle Lifecycle, updatedBy uuid.UUID, now ti
 }
 
 func (e *Event) UpdateScoringProfile(profile ScoringProfile, force bool, staticPoints *int32, updatedBy uuid.UUID, now time.Time) error {
-	// Static scoring needs its one value; dynamic scoring keeps any value.
-	if (profile.Mode == ScoringStatic && staticPoints == nil) || (staticPoints != nil && *staticPoints <= 0) {
+	if err := profile.ValidateFor(e.Lifecycle); err != nil {
+		return err
+	}
+	// A dynamic profile may retain an unchanged dormant historical value. New
+	// values and active static scoring must fit the current per-task bounds.
+	unchangedDormantStatic := profile.Mode != ScoringStatic && staticPoints != nil &&
+		e.StaticPoints != nil && *staticPoints == *e.StaticPoints
+	if (profile.Mode == ScoringStatic && staticPoints == nil) ||
+		(staticPoints != nil && (*staticPoints <= 0 || (*staticPoints > MaxTaskPoints && !unchangedDormantStatic))) {
 		return ErrEventStaticPointsInvalid.Err()
 	}
 	e.ScoringProfile = profile

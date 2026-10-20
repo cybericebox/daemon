@@ -112,6 +112,80 @@ func TestDynamicProfileMayDecayToZero(t *testing.T) {
 	}
 }
 
+func TestDynamicScoringProfilePointsRange(t *testing.T) {
+	finish := fixedNow.Add(time.Hour)
+	lifecycle := Lifecycle{JoinPolicy: JoinPolicyLockedAtStart, FinishAt: &finish}
+	for _, mode := range []ScoringMode{ScoringPopularityCurve, ScoringFirstSolvesLadder, ScoringTimeDecay} {
+		for _, bounds := range [][2]int32{{0, 999}, {998, 999}, {0, 1000}, {999, 1000}, {1000, 1001}} {
+			profile := ScoringProfile{Mode: mode, MinPoints: bounds[0], MaxPoints: bounds[1], FloorAtPercent: 50}
+			err := profile.ValidateFor(lifecycle)
+			if bounds[1] > 999 {
+				if !errors.Is(err, ErrEventScoringProfileInvalid.Err()) {
+					t.Errorf("mode %d bounds %v must be rejected, got %v", mode, bounds, err)
+				}
+			} else if err != nil {
+				t.Errorf("mode %d bounds %v must be accepted: %v", mode, bounds, err)
+			}
+		}
+	}
+}
+
+func TestUpdateScoringProfilePointsRange(t *testing.T) {
+	for _, mode := range []ScoringMode{ScoringStatic, ScoringPopularityCurve} {
+		for _, points := range []int32{999, 1000} {
+			previous := int32(100)
+			e := Event{StaticPoints: &previous, UpdatedAt: fixedNow.Add(-time.Hour)}
+			profile := ScoringProfile{Mode: mode, MinPoints: 0, MaxPoints: 999, FloorAtPercent: 50}
+			err := e.UpdateScoringProfile(profile, true, &points, uuid.Nil, fixedNow)
+			if points > 999 {
+				if !errors.Is(err, ErrEventStaticPointsInvalid.Err()) || *e.StaticPoints != 100 || !e.UpdatedAt.Equal(fixedNow.Add(-time.Hour)) || e.ForceEventScoring {
+					t.Errorf("mode %d static points %d must be rejected without mutation: event=%+v err=%v", mode, points, e, err)
+				}
+			} else if err != nil || *e.StaticPoints != 999 {
+				t.Errorf("mode %d static points 999 must be accepted: event=%+v err=%v", mode, e, err)
+			}
+		}
+	}
+}
+
+func TestUpdateScoringProfileRejectsOversizeDynamicPointsWithoutMutation(t *testing.T) {
+	previous := int32(100)
+	e := Event{StaticPoints: &previous, UpdatedAt: fixedNow.Add(-time.Hour)}
+	profile := ScoringProfile{Mode: ScoringPopularityCurve, MinPoints: 0, MaxPoints: 1000, FloorAtPercent: 50}
+	err := e.UpdateScoringProfile(profile, true, nil, uuid.Nil, fixedNow)
+	if !errors.Is(err, ErrEventScoringProfileInvalid.Err()) || *e.StaticPoints != 100 || !e.UpdatedAt.Equal(fixedNow.Add(-time.Hour)) || e.ForceEventScoring {
+		t.Fatalf("oversize dynamic score must be rejected without mutation: event=%+v err=%v", e, err)
+	}
+}
+
+func TestDynamicScoringPreservesOnlyUnchangedDormantLegacyStaticPoints(t *testing.T) {
+	for _, points := range []int32{999, 1500, 1501} {
+		previous := int32(1500)
+		e := Event{StaticPoints: &previous}
+		profile := ScoringProfile{Mode: ScoringPopularityCurve, MinPoints: 0, MaxPoints: 999, FloorAtPercent: 50}
+		err := e.UpdateScoringProfile(profile, false, &points, uuid.Nil, fixedNow)
+		if points == 1501 {
+			if !errors.Is(err, ErrEventStaticPointsInvalid.Err()) || *e.StaticPoints != 1500 {
+				t.Fatalf("a changed oversize dormant value must be rejected: event=%+v err=%v", e, err)
+			}
+		} else if err != nil || *e.StaticPoints != points {
+			t.Fatalf("a valid replacement or unchanged dormant value must be accepted: points=%d event=%+v err=%v", points, e, err)
+		}
+	}
+}
+
+func TestLegacyScoringValuesAreNotClamped(t *testing.T) {
+	points := int32(1500)
+	e := Event{ScoringProfile: ScoringProfile{Mode: ScoringStatic}, StaticPoints: &points}
+	if got := e.EffectiveStaticPoints(100, nil); got != 1500 {
+		t.Fatalf("stored static score = %d, want 1500", got)
+	}
+	profile := ScoringProfile{Mode: ScoringTimeDecay, MinPoints: 100, MaxPoints: 1500}
+	if got := AwardPoints(profile, 100, 1, 1, 0, 0, time.Hour); got != 1500 {
+		t.Fatalf("stored dynamic award = %d, want 1500", got)
+	}
+}
+
 func TestEffectiveStaticPoints(t *testing.T) {
 	static := int32(100)
 	local := ScoringProfile{Mode: ScoringTimeDecay}

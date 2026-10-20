@@ -98,6 +98,7 @@ func TestRequestRouter_CPUThrottledGoesToEveryPlatformAdmin(t *testing.T) {
 		return postgres.User{ID: id, Email: "x@example.org"}, nil
 	}).AnyTimes()
 	repo.EXPECT().ListPlatformAdminUserIDs(gomock.Any()).Return([]uuid.UUID{admin1, admin2}, nil)
+	repo.EXPECT().InboxSubjectExists(gomock.Any(), inboxModel.CPUThrottleRef("uid-1", "web")).Return(false, nil)
 
 	router.SetAdminURL("https://admin.example.org/")
 	require.NoError(t, router.CPUThrottled(context.Background(), inboxUseCase.CPUThrottle{
@@ -114,4 +115,19 @@ func TestRequestRouter_CPUThrottledGoesToEveryPlatformAdmin(t *testing.T) {
 	assert.Equal(t, inboxModel.CPUThrottleRef("uid-1", "web"), got.options.Inbox.SubjectRef)
 	assert.True(t, notificationTypes.Supports(notificationTypes.NotificationType(inboxModel.TypeResourceCPUThrottled), notificationTypes.NotificationChannelInApp))
 	assert.True(t, inboxModel.ManuallyResolvable(inboxModel.TypeResourceCPUThrottled))
+}
+
+// The daemon forgets what it alerted when it restarts; the request already delivered (open, or closed by an admin)
+// is what keeps one request per device per lab run.
+func TestRequestRouter_CPUThrottledIsNotSentAgainForADeliveredRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repo := postgresMocks.NewMockQuerier(ctrl)
+	notifier := &fakeNotifier{}
+	router := inboxUseCase.NewRequestRouter(repo, notifier)
+	repo.EXPECT().InboxSubjectExists(gomock.Any(), inboxModel.CPUThrottleRef("uid-1", "web")).Return(true, nil)
+
+	require.NoError(t, router.CPUThrottled(context.Background(), inboxUseCase.CPUThrottle{
+		AgentID: "a-1", LabRun: "uid-1", LabName: "lab-1", LabGroupName: "team-1", Device: "web", Percent: 70, WindowSeconds: 300, RaisedAt: time.Now(),
+	}))
+	assert.Empty(t, notifier.sent, "no request, and the admins are not even listed")
 }

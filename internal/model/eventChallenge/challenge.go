@@ -162,7 +162,7 @@ func SnapshotForTask(task exerciseModel.Task) (json.RawMessage, error) {
 }
 
 func (c *EventChallenge) SetPoints(points int32) error {
-	if points <= 0 {
+	if points <= 0 || points > eventModel.MaxTaskPoints {
 		return ErrEventChallengePointsInvalid.Err()
 	}
 	c.Points = points
