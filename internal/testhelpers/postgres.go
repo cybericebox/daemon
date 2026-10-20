@@ -84,7 +84,7 @@ func startSharedServer() {
 		sharedServer.err = err
 		return
 	}
-	pool, err := pgxpool.New(ctx, dsnForDatabase(dsn, templateDB))
+	pool, err := versionedTestPool(ctx, dsnForDatabase(dsn, templateDB))
 	if err != nil {
 		sharedServer.err = err
 		return
@@ -129,7 +129,7 @@ func SetupTestDB(t *testing.T) *TestDB {
 		t.Fatalf("create test database: %v", err)
 	}
 
-	pool, err := pgxpool.New(ctx, dsnForDatabase(sharedServer.baseDSN, name))
+	pool, err := versionedTestPool(ctx, dsnForDatabase(sharedServer.baseDSN, name))
 	if err != nil {
 		t.Fatalf("connect to test database: %v", err)
 	}
@@ -146,6 +146,17 @@ func SetupTestDB(t *testing.T) *TestDB {
 	})
 
 	return &TestDB{Pool: pool, Queries: postgres.New(pool)}
+}
+
+// Use the same capability setup as both production repository pools. Tests
+// exercising old writers deliberately open a separate unmarked connection.
+func versionedTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	postgres.ConfigureCatalogWriterConnection(cfg.ConnConfig)
+	return pgxpool.NewWithConfig(ctx, cfg)
 }
 
 // migrateUp runs the repository's real migration files against the pool.

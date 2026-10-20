@@ -188,7 +188,12 @@ type ExerciseVersion struct {
 	ID         uuid.UUID
 	ExerciseID uuid.UUID
 	Status     VersionStatus
-	AdminNote  string
+	// Authored metadata publishes together with the variants. Identity-level
+	// copies are only the published/bootstrap projection, never the working copy.
+	Name        string
+	Description string
+	Tags        []string
+	AdminNote   string
 	// Label names an explicit snapshot (checkpoint note); '' for every other
 	// version. Not content: excluded from HasChanges, never restored into the
 	// working copy. Part of the portable archive format.

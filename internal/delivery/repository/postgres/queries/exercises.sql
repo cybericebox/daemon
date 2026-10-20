@@ -13,14 +13,11 @@ FROM exercises
 WHERE id = $1;
 
 -- name: UpdateExercise :execrows
--- Whole-identity write. Deliberately excludes draft_version_id /
--- published_version_id (owned by the lifecycle CTEs — including them here
--- would race a concurrent publish) and created_at/created_by (immutable).
+-- Policy/audit write. Authored metadata and version pointers belong to the
+-- lifecycle CTEs; writing a loaded copy here could revert a concurrent publish.
+-- created_at/created_by are immutable.
 UPDATE exercises
-SET name        = sqlc.arg(name),
-    description = sqlc.arg(description),
-    tags        = sqlc.arg(tags),
-    archived_at = sqlc.narg(archived_at),
+SET archived_at = sqlc.narg(archived_at),
     access_level = sqlc.arg(access_level),
     updated_at  = sqlc.arg(updated_at),
     updated_by  = sqlc.arg(updated_by)
@@ -41,12 +38,19 @@ WHERE id = $1;
 
 -- name: ListExercisesCursor :many
 SELECT sqlc.embed(exercises),
+       COALESCE(visible.name, exercises.name)::text AS visible_name,
+       COALESCE(visible.description, exercises.description)::text AS visible_description,
+       COALESCE(visible.tags, exercises.tags)::text[] AS visible_tags,
        exercise_status(draft_version_id, published_version_id, archived_at IS NOT NULL,
                        sqlc.narg(viewer_id)::uuid IS NULL OR scope = 1)::text AS status
 FROM exercises
-WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text || '%'
-    OR description ILIKE '%' || sqlc.arg(search)::text || '%')
-  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR tags && sqlc.arg(tags)::text[])
+LEFT JOIN exercise_versions visible ON visible.id = CASE
+    WHEN sqlc.narg(viewer_id)::uuid IS NULL OR exercises.scope = 1
+        THEN COALESCE(exercises.draft_version_id, exercises.published_version_id)
+    ELSE exercises.published_version_id END
+WHERE (sqlc.arg(search)::text = '' OR COALESCE(visible.name, exercises.name) ILIKE '%' || sqlc.arg(search)::text || '%'
+    OR COALESCE(visible.description, exercises.description) ILIKE '%' || sqlc.arg(search)::text || '%')
+  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR COALESCE(visible.tags, exercises.tags) && sqlc.arg(tags)::text[])
   AND (CASE WHEN sqlc.arg(archived)::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
   AND (sqlc.arg(scope)::text = '' OR (sqlc.arg(scope)::text = 'catalog' AND scope = 0)
     OR (sqlc.arg(scope)::text = 'event' AND scope = 1))
@@ -55,18 +59,22 @@ WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text |
                               FROM unnest(sqlc.arg(event_ids)::uuid[]) AS selected(event_id)
                               WHERE exercise_available_to_event(exercises.id, selected.event_id))))
   AND (sqlc.arg(infrastructure)::text = ''
-    OR exercise_has_infrastructure(id) = (sqlc.arg(infrastructure)::text = 'yes'))
-  AND (sqlc.narg(viewer_id)::uuid IS NULL OR exercise_readable_by(id, sqlc.narg(viewer_id)::uuid))
-  AND (created_at, id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)
-ORDER BY created_at DESC, id DESC
+    OR COALESCE(exercise_variants_have_infrastructure(visible.variants), false) = (sqlc.arg(infrastructure)::text = 'yes'))
+  AND (sqlc.narg(viewer_id)::uuid IS NULL OR exercise_readable_by(exercises.id, sqlc.narg(viewer_id)::uuid))
+  AND (exercises.created_at, exercises.id) < (sqlc.arg(cursor_created_at)::timestamptz, sqlc.arg(cursor_id)::uuid)
+ORDER BY exercises.created_at DESC, exercises.id DESC
 LIMIT sqlc.arg(limit_val);
 
 -- name: CountExercises :one
 SELECT count(*)
 FROM exercises
-WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text || '%'
-    OR description ILIKE '%' || sqlc.arg(search)::text || '%')
-  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR tags && sqlc.arg(tags)::text[])
+LEFT JOIN exercise_versions visible ON visible.id = CASE
+    WHEN sqlc.narg(viewer_id)::uuid IS NULL OR exercises.scope = 1
+        THEN COALESCE(exercises.draft_version_id, exercises.published_version_id)
+    ELSE exercises.published_version_id END
+WHERE (sqlc.arg(search)::text = '' OR COALESCE(visible.name, exercises.name) ILIKE '%' || sqlc.arg(search)::text || '%'
+    OR COALESCE(visible.description, exercises.description) ILIKE '%' || sqlc.arg(search)::text || '%')
+  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR COALESCE(visible.tags, exercises.tags) && sqlc.arg(tags)::text[])
   AND (CASE WHEN sqlc.arg(archived)::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
   AND (sqlc.arg(scope)::text = '' OR (sqlc.arg(scope)::text = 'catalog' AND scope = 0)
     OR (sqlc.arg(scope)::text = 'event' AND scope = 1))
@@ -75,8 +83,8 @@ WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text |
                               FROM unnest(sqlc.arg(event_ids)::uuid[]) AS selected(event_id)
                               WHERE exercise_available_to_event(exercises.id, selected.event_id))))
   AND (sqlc.arg(infrastructure)::text = ''
-    OR exercise_has_infrastructure(id) = (sqlc.arg(infrastructure)::text = 'yes'))
-  AND (sqlc.narg(viewer_id)::uuid IS NULL OR exercise_readable_by(id, sqlc.narg(viewer_id)::uuid));
+    OR COALESCE(exercise_variants_have_infrastructure(visible.variants), false) = (sqlc.arg(infrastructure)::text = 'yes'))
+  AND (sqlc.narg(viewer_id)::uuid IS NULL OR exercise_readable_by(exercises.id, sqlc.narg(viewer_id)::uuid));
 
 -- name: ListExercisesPage :many
 -- status is the single derived catalog status (exercise_status); the working
@@ -86,6 +94,9 @@ WHERE (sqlc.arg(search)::text = '' OR name ILIKE '%' || sqlc.arg(search)::text |
 -- statuses: any of them (empty: every status). archived: exclude | only | any.
 -- difficulty_min/max: the rounded average level 1..6, inclusive (0: no bound).
 WITH listed AS (SELECT e.id,
+                       COALESCE(version.name, e.name)::text AS visible_name,
+                       COALESCE(version.description, e.description)::text AS visible_description,
+                       COALESCE(version.tags, e.tags)::text[] AS visible_tags,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        sqlc.narg(viewer_id)::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
@@ -106,14 +117,15 @@ WITH listed AS (SELECT e.id,
                                       ORDER BY task.position), '{}')::text[] AS task_names,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
-                -- The content the catalog describes: the published version, else the working copy (as infrastructure).
-                LEFT JOIN exercise_versions version ON version.id = COALESCE(e.published_version_id, e.draft_version_id)
+                -- The whole actor-visible snapshot: working for full readers, published for public readers.
+                LEFT JOIN exercise_versions version ON version.id = CASE WHEN sqlc.narg(viewer_id)::uuid IS NULL OR e.scope = 1
+                    THEN COALESCE(e.draft_version_id, e.published_version_id) ELSE e.published_version_id END
                 LEFT JOIN users author ON author.id = e.created_by
-                WHERE (sqlc.arg(search)::text = '' OR e.name ILIKE '%' || sqlc.arg(search)::text || '%'
-                    OR e.description ILIKE '%' || sqlc.arg(search)::text || '%')
-                  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR e.tags && sqlc.arg(tags)::text[])
-                  AND (coalesce(cardinality(sqlc.arg(tags_all)::text[]), 0) = 0 OR e.tags @> sqlc.arg(tags_all)::text[])
-                  AND (coalesce(cardinality(sqlc.arg(tags_none)::text[]), 0) = 0 OR NOT e.tags && sqlc.arg(tags_none)::text[])
+                WHERE (sqlc.arg(search)::text = '' OR COALESCE(version.name, e.name) ILIKE '%' || sqlc.arg(search)::text || '%'
+                    OR COALESCE(version.description, e.description) ILIKE '%' || sqlc.arg(search)::text || '%')
+                  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) && sqlc.arg(tags)::text[])
+                  AND (coalesce(cardinality(sqlc.arg(tags_all)::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) @> sqlc.arg(tags_all)::text[])
+                  AND (coalesce(cardinality(sqlc.arg(tags_none)::text[]), 0) = 0 OR NOT COALESCE(version.tags, e.tags) && sqlc.arg(tags_none)::text[])
                   AND (coalesce(cardinality(sqlc.arg(author_ids)::uuid[]), 0) = 0 OR e.created_by = ANY (sqlc.arg(author_ids)::uuid[]))
                   AND (CASE sqlc.arg(archived)::text
                            WHEN 'only' THEN e.archived_at IS NOT NULL
@@ -126,12 +138,13 @@ WITH listed AS (SELECT e.id,
                                                 FROM unnest(sqlc.arg(event_ids)::uuid[]) AS selected(event_id)
                                                 WHERE exercise_available_to_event(e.id, selected.event_id))))
                   AND (sqlc.arg(infrastructure)::text = ''
-                    OR exercise_has_infrastructure(e.id) = (sqlc.arg(infrastructure)::text = 'yes'))
+                    OR COALESCE(exercise_variants_have_infrastructure(version.variants), false) = (sqlc.arg(infrastructure)::text = 'yes'))
                   -- The level shown is the rounded average; a task without one never passes a range.
                   AND (sqlc.arg(difficulty_min)::int = 0 OR round(version.avg_difficulty) >= sqlc.arg(difficulty_min)::int)
                   AND (sqlc.arg(difficulty_max)::int = 0 OR round(version.avg_difficulty) <= sqlc.arg(difficulty_max)::int)
                   AND (sqlc.narg(viewer_id)::uuid IS NULL OR exercise_readable_by(e.id, sqlc.narg(viewer_id)::uuid)))
 SELECT sqlc.embed(exercises), listed.status, listed.author_name,
+       listed.visible_name, listed.visible_description, listed.visible_tags,
        -- NULL scans badly into float64: the flag says whether there is one.
        (listed.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
        COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty,
@@ -142,10 +155,10 @@ FROM listed
 JOIN exercises USING (id)
 WHERE (coalesce(cardinality(sqlc.arg(statuses)::text[]), 0) = 0 OR listed.status = ANY (sqlc.arg(statuses)::text[]))
 ORDER BY
-  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(name) END ASC,
-  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(name) END DESC,
-  CASE WHEN sqlc.arg(sort_by)::text = 'tags' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(array_to_string(tags, ',')) END ASC,
-  CASE WHEN sqlc.arg(sort_by)::text = 'tags' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(array_to_string(tags, ',')) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(listed.visible_name) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'name' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(listed.visible_name) END DESC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'tags' AND sqlc.arg(sort_dir)::text = 'asc' THEN lower(array_to_string(listed.visible_tags, ',')) END ASC,
+  CASE WHEN sqlc.arg(sort_by)::text = 'tags' AND sqlc.arg(sort_dir)::text = 'desc' THEN lower(array_to_string(listed.visible_tags, ',')) END DESC,
   -- Status rank: none < draft_only < changed < published < archived.
   CASE WHEN sqlc.arg(sort_by)::text = 'status' AND sqlc.arg(sort_dir)::text = 'asc' THEN
     array_position(ARRAY ['none', 'draft_only', 'changed', 'published', 'archived'], listed.status) END ASC,
@@ -166,6 +179,9 @@ LIMIT sqlc.arg(limit_val) OFFSET sqlc.arg(offset_val);
 
 -- name: CountExercisesPage :one
 WITH listed AS (SELECT e.id,
+                       COALESCE(version.name, e.name)::text AS visible_name,
+                       COALESCE(version.description, e.description)::text AS visible_description,
+                       COALESCE(version.tags, e.tags)::text[] AS visible_tags,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        sqlc.narg(viewer_id)::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
@@ -186,14 +202,15 @@ WITH listed AS (SELECT e.id,
                                       ORDER BY task.position), '{}')::text[] AS task_names,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
-                -- The content the catalog describes: the published version, else the working copy (as infrastructure).
-                LEFT JOIN exercise_versions version ON version.id = COALESCE(e.published_version_id, e.draft_version_id)
+                -- The whole actor-visible snapshot: working for full readers, published for public readers.
+                LEFT JOIN exercise_versions version ON version.id = CASE WHEN sqlc.narg(viewer_id)::uuid IS NULL OR e.scope = 1
+                    THEN COALESCE(e.draft_version_id, e.published_version_id) ELSE e.published_version_id END
                 LEFT JOIN users author ON author.id = e.created_by
-                WHERE (sqlc.arg(search)::text = '' OR e.name ILIKE '%' || sqlc.arg(search)::text || '%'
-                    OR e.description ILIKE '%' || sqlc.arg(search)::text || '%')
-                  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR e.tags && sqlc.arg(tags)::text[])
-                  AND (coalesce(cardinality(sqlc.arg(tags_all)::text[]), 0) = 0 OR e.tags @> sqlc.arg(tags_all)::text[])
-                  AND (coalesce(cardinality(sqlc.arg(tags_none)::text[]), 0) = 0 OR NOT e.tags && sqlc.arg(tags_none)::text[])
+                WHERE (sqlc.arg(search)::text = '' OR COALESCE(version.name, e.name) ILIKE '%' || sqlc.arg(search)::text || '%'
+                    OR COALESCE(version.description, e.description) ILIKE '%' || sqlc.arg(search)::text || '%')
+                  AND (coalesce(cardinality(sqlc.arg(tags)::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) && sqlc.arg(tags)::text[])
+                  AND (coalesce(cardinality(sqlc.arg(tags_all)::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) @> sqlc.arg(tags_all)::text[])
+                  AND (coalesce(cardinality(sqlc.arg(tags_none)::text[]), 0) = 0 OR NOT COALESCE(version.tags, e.tags) && sqlc.arg(tags_none)::text[])
                   AND (coalesce(cardinality(sqlc.arg(author_ids)::uuid[]), 0) = 0 OR e.created_by = ANY (sqlc.arg(author_ids)::uuid[]))
                   AND (CASE sqlc.arg(archived)::text
                            WHEN 'only' THEN e.archived_at IS NOT NULL
@@ -206,7 +223,7 @@ WITH listed AS (SELECT e.id,
                                                 FROM unnest(sqlc.arg(event_ids)::uuid[]) AS selected(event_id)
                                                 WHERE exercise_available_to_event(e.id, selected.event_id))))
                   AND (sqlc.arg(infrastructure)::text = ''
-                    OR exercise_has_infrastructure(e.id) = (sqlc.arg(infrastructure)::text = 'yes'))
+                    OR COALESCE(exercise_variants_have_infrastructure(version.variants), false) = (sqlc.arg(infrastructure)::text = 'yes'))
                   -- The level shown is the rounded average; a task without one never passes a range.
                   AND (sqlc.arg(difficulty_min)::int = 0 OR round(version.avg_difficulty) >= sqlc.arg(difficulty_min)::int)
                   AND (sqlc.arg(difficulty_max)::int = 0 OR round(version.avg_difficulty) <= sqlc.arg(difficulty_max)::int)
@@ -238,7 +255,9 @@ LIMIT sqlc.arg(limit_val);
 -- case-insensitive. viewer_id set = count only exercises the viewer may read.
 SELECT tag::text AS tag, count(DISTINCT e.id)::bigint AS exercise_count
 FROM exercises AS e
-CROSS JOIN LATERAL unnest(e.tags) AS tag
+LEFT JOIN exercise_versions version ON version.id = CASE WHEN sqlc.narg(viewer_id)::uuid IS NULL OR e.scope = 1
+    THEN COALESCE(e.draft_version_id, e.published_version_id) ELSE e.published_version_id END
+CROSS JOIN LATERAL unnest(COALESCE(version.tags, e.tags)) AS tag
 WHERE (sqlc.arg(prefix)::text = ''
     OR left(tag, char_length(sqlc.arg(prefix)::text)) = lower(sqlc.arg(prefix)::text))
   AND (sqlc.narg(viewer_id)::uuid IS NULL OR exercise_readable_by(e.id, sqlc.narg(viewer_id)::uuid))
@@ -252,7 +271,8 @@ LIMIT sqlc.arg(limit_val);
 -- equal. Zero rows when either pointer is NULL: those cases are decided by
 -- the domain (Exercise.HasUnpublishedChanges) without asking.
 -- label is deliberately not compared: it names snapshots, never content.
-SELECT (d.variants <> p.variants OR d.admin_note <> p.admin_note)::boolean AS differs
+SELECT (d.variants <> p.variants OR d.admin_note <> p.admin_note
+    OR d.name <> p.name OR d.description <> p.description OR d.tags <> p.tags)::boolean AS differs
 FROM exercises e
 JOIN exercise_versions d ON d.id = e.draft_version_id
 JOIN exercise_versions p ON p.id = e.published_version_id
@@ -322,12 +342,13 @@ SELECT exercise_has_infrastructure(sqlc.arg(exercise_id))::boolean;
 -- fork source name, infrastructure and a pending proposal.
 SELECT e.id,
        COALESCE(NULLIF(owner.internal_name, ''), owner.name, '')::text AS owner_event_name,
-       COALESCE(source.name, '')::text AS forked_from_name,
+       COALESCE(source_version.name, source.name, '')::text AS forked_from_name,
        exercise_has_infrastructure(e.id)::boolean AS infrastructure,
        proposal.id AS pending_proposal_id
 FROM exercises e
 LEFT JOIN events owner ON owner.id = e.owner_event_id
 LEFT JOIN exercises source ON source.id = e.forked_from_exercise_id
+LEFT JOIN exercise_versions source_version ON source_version.id = e.forked_from_version_id
 LEFT JOIN exercise_proposals proposal ON proposal.exercise_id = e.id AND proposal.status = 0
 WHERE e.id = ANY (sqlc.arg(ids)::uuid[]);
 

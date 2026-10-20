@@ -99,6 +99,17 @@ type Exercise struct {
 	UpdatedBy uuid.NullUUID
 }
 
+// WithVersionMetadata projects the authored fields of a selected snapshot while
+// preserving identity, ACL, ownership and lifecycle mechanics. An absent name is
+// only the legacy/bootstrap fallback (old archives or manually built entities).
+// Migrated and newly persisted version snapshots always carry their own name.
+func (e Exercise) WithVersionMetadata(v ExerciseVersion) Exercise {
+	if v.Name != "" {
+		e.Name, e.Description, e.Tags = v.Name, v.Description, v.Tags
+	}
+	return e
+}
+
 // NewExercise builds a catalog entry with domain-owned defaults (UUIDv7 id,
 // timestamps from the caller's clock).
 func NewExercise(name, description string, tags []string, createdBy uuid.UUID, now time.Time) (Exercise, error) {

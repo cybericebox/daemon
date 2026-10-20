@@ -331,6 +331,7 @@ func parseArchiveRead(read archiveRead) ([]ParsedExerciseArchive, error) {
 		if parseErr != nil {
 			return nil, parseErr
 		}
+		parsed.ItemKey = importItemKey(folder.Prefix)
 		tasks = append(tasks, parsed)
 	}
 	return tasks, nil

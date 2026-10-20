@@ -36,7 +36,7 @@ func TestListExercisesFor_AdminGetsStatusAndAccessEvents(t *testing.T) {
 	q.EXPECT().CountExercisesPage(gomock.Any(), gomock.Any()).Return(int64(3), nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return([]postgres.ListExerciseCardExtrasRow{{ID: owned.ID, OwnerEventName: "Event A"}}, nil)
 	q.EXPECT().ListUserEventMemberships(gomock.Any(), gomock.Any()).Return(nil, nil)
-	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
+	q.EXPECT().ListVisibleVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().ListExercisesEventAccess(gomock.Any(), []uuid.UUID{selected.ID}).Return([]postgres.ListExercisesEventAccessRow{
 		{ExerciseID: selected.ID, EventID: eventA, EventName: "Event A"}, {ExerciseID: selected.ID, EventID: eventB, EventName: "Event B"},
 	}, nil)
@@ -79,7 +79,7 @@ func TestListExercisesFor_ManagerSeesNoCatalogWorkingCopy(t *testing.T) {
 		})
 	q.EXPECT().CountExercisesPage(gomock.Any(), gomock.Any()).Return(int64(2), nil)
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil)
-	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
+	q.EXPECT().ListVisibleVariantDevices(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().ListUserEventMemberships(gomock.Any(), managerID).Return([]postgres.ListUserEventMembershipsRow{{EventID: eventID, Role: 1}}, nil)
 
 	res, err := uc.ListExercisesFor(context.Background(), exercise.Actor{UserID: managerID, Role: rbac.RoleUser}, exercise.ExercisesFilter{Page: 1})
@@ -157,7 +157,7 @@ func TestListExercisesFor_ItemsCarryTheTotalResourcesOfThePublishedVersion(t *te
 	q.EXPECT().ListExerciseCardExtras(gomock.Any(), gomock.Any()).Return(nil, nil)
 	q.EXPECT().ListUserEventMemberships(gomock.Any(), gomock.Any()).Return(nil, nil)
 	small, large := uuid.Must(uuid.NewV7()).String(), uuid.Must(uuid.NewV7()).String()
-	q.EXPECT().ListPublishedVariantDevices(gomock.Any(), gomock.Any()).Return([]postgres.ListPublishedVariantDevicesRow{{
+	q.EXPECT().ListVisibleVariantDevices(gomock.Any(), gomock.Any()).Return([]postgres.ListVisibleVariantDevicesRow{{
 		ExerciseID: with.ID,
 		Variants: []byte(`[{"id":"` + small + `","topology":{"devices":[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"web","type":"container","resource_preset":null,"resources":null}]}},
 			{"id":"` + large + `","topology":{"devices":[{"id":"` + uuid.Must(uuid.NewV7()).String() + `","name":"web","type":"container","resource_preset":"large"},

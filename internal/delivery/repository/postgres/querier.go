@@ -324,7 +324,7 @@ type Querier interface {
 	DiscardEventLandingDraft(ctx context.Context, eventID uuid.UUID) (int64, error)
 	DiscardEventPageDraft(ctx context.Context, arg DiscardEventPageDraftParams) (int64, error)
 	// exercises.draft_version_id clears itself via ON DELETE SET NULL.
-	DiscardExerciseDraft(ctx context.Context, exerciseID uuid.UUID) (uuid.UUID, error)
+	DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error)
 	DismissInAppBanner(ctx context.Context, arg DismissInAppBannerParams) (int64, error)
 	// Whether an Event's email templates may use/serve the file: it must already
 	// be referenced by a platform template (scope NULL), a block preset, or one of
@@ -1456,6 +1456,10 @@ type Querier interface {
 	// of event_filter ('' = no Event site). user_id is NULL for an anonymous
 	// viewer; a participant is an approved participant or a manager of the Event.
 	ListVisibleSiteBanners(ctx context.Context, arg ListVisibleSiteBannersParams) ([]SiteBanner, error)
+	// Selected metadata and resource totals use the same actor-visible snapshot.
+	// What the resource totals of a page of exercises need from their selected versions: per variant its id and
+	// the container-device fields that decide a device's size (never the image, env vars or secrets).
+	ListVisibleVariantDevices(ctx context.Context, arg ListVisibleVariantDevicesParams) ([]ListVisibleVariantDevicesRow, error)
 	// Lab groups are retained through finish, then become eligible for final teardown
 	// only once the event is withdrawn. A destroyed binding never re-enters this
 	// queue; a failed agent call leaves it eligible for River's next retry.
@@ -1713,6 +1717,10 @@ type Querier interface {
 	// Saves the editor's draft. A page that was never published also mirrors the
 	// draft into its columns, so its slug stays reserved by the unique index.
 	SaveEventPageDraft(ctx context.Context, arg SaveEventPageDraftParams) (EventPage, error)
+	// The legacy PATCH edits metadata in the draft. A lazy draft inherits the
+	// published content and file references; a following content PUT preserves
+	// the edited metadata, including across a concurrent first-draft insert.
+	SaveExerciseDraftIdentity(ctx context.Context, arg SaveExerciseDraftIdentityParams) (SaveExerciseDraftIdentityRow, error)
 	ScheduleEventLabGroupRetry(ctx context.Context, arg ScheduleEventLabGroupRetryParams) error
 	// Narrow retry write; never copies physical state over a concurrent observation.
 	ScheduleEventTeamLabLifecycleRetry(ctx context.Context, arg ScheduleEventTeamLabLifecycleRetryParams) (int64, error)
@@ -1842,9 +1850,9 @@ type Querier interface {
 	// recreate cannot be overwritten and a failure transition fires only once.
 	// A removed stand is terminal.
 	UpdateEventTeamStand(ctx context.Context, arg UpdateEventTeamStandParams) (int64, error)
-	// Whole-identity write. Deliberately excludes draft_version_id /
-	// published_version_id (owned by the lifecycle CTEs — including them here
-	// would race a concurrent publish) and created_at/created_by (immutable).
+	// Policy/audit write. Authored metadata and version pointers belong to the
+	// lifecycle CTEs; writing a loaded copy here could revert a concurrent publish.
+	// created_at/created_by are immutable.
 	UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error)
 	// The whole job aggregate (state, stored file, error) in one write.
 	UpdateExerciseExportJob(ctx context.Context, arg UpdateExerciseExportJobParams) (int64, error)
@@ -1898,12 +1906,9 @@ type Querier interface {
 	UpsertEventSignalNotificationSubscription(ctx context.Context, arg UpsertEventSignalNotificationSubscriptionParams) (UpsertEventSignalNotificationSubscriptionRow, error)
 	UpsertEventTeamFieldConfig(ctx context.Context, arg UpsertEventTeamFieldConfigParams) (EventTeamFieldConfig, error)
 	UpsertEventVPNSession(ctx context.Context, arg UpsertEventVPNSessionParams) error
-	// Draft save is an upsert against the partial-unique draft slot: update the
-	// existing draft's content or insert a fresh draft row, then point
-	// exercises.draft_version_id at it. Anchored on the exercises row: a missing
-	// exercise yields zero rows (caller maps to 404). Identity columns
-	// (updated_at & co) are deliberately untouched — the identity optimistic lock
-	// must not be disturbed by content saves.
+	// Serialize family writers on the identity first, then use PostgreSQL's
+	// partial-unique conflict target. ON CONFLICT sees a concurrent first draft
+	// even when it committed after this statement's read snapshot was taken.
 	UpsertExerciseDraft(ctx context.Context, arg UpsertExerciseDraftParams) (UpsertExerciseDraftRow, error)
 	// The whole push state of one blob in one statement (queued, failed).
 	UpsertImageBlobPush(ctx context.Context, arg UpsertImageBlobPushParams) error

@@ -42,6 +42,11 @@ type exportedFile struct {
 	ContentType string `json:"content_type"`
 }
 type ParsedExerciseArchive struct {
+	// SourceExerciseID is only a re-import suggestion. New imports still allocate
+	// their own identity; legacy archives may omit it or use an unrelated id format.
+	SourceExerciseID uuid.UUID
+	// ItemKey identifies the task folder, independently of optional/repeated source ids.
+	ItemKey  string
 	Exercise exerciseModel.Exercise
 	Versions []exerciseModel.ExerciseVersion
 	// Files are the task folder's entries, paths relative to it.
@@ -101,7 +106,11 @@ func parseTaskFiles(all map[string][]byte) (ParsedExerciseArchive, error) {
 	if len(folders) != 1 {
 		return ParsedExerciseArchive{}, archiveInvalid("the archive holds several task folders: import it as a bundle")
 	}
-	return parseTaskFolder(folders[0].Files, nil)
+	parsed, err := parseTaskFolder(folders[0].Files, nil)
+	if err == nil {
+		parsed.ItemKey = importItemKey(folders[0].Prefix)
+	}
+	return parsed, err
 }
 
 // parseTaskFolder parses one task folder; images are its device image files (paths relative to it), nil where
@@ -197,6 +206,17 @@ func (u *ExerciseUseCase) prepareImport(ctx context.Context, parsed *ParsedExerc
 	if err := validateImportedVersions(parsed.Versions); err != nil {
 		return err
 	}
+	// Every authored snapshot is validated, including history that an update
+	// would not select. Never create a first task before discovering invalid
+	// metadata in a later snapshot or archive item.
+	for i := range parsed.Versions {
+		v := &parsed.Versions[i]
+		metadata := exerciseModel.Exercise{}
+		if err := metadata.UpdateIdentity(v.Name, v.Description, v.Tags, uuid.Nil, time.Time{}); err != nil {
+			return withImportedPath(err, i, v.Variants)
+		}
+		v.Name, v.Description, v.Tags = metadata.Name, metadata.Description, metadata.Tags
+	}
 	// Only an archive that really was protected may carry secret values: a typed password proves nothing.
 	if secretPath := firstSecretValue(parsed.Versions); !protected && secretPath != "" {
 		return archiveInvalid(secretPath + ": a secret value needs a password-protected archive")
@@ -221,9 +241,33 @@ func (u *ExerciseUseCase) storeImport(ctx context.Context, parsed *ParsedExercis
 	if err := u.copyImportedAttachments(ctx, parsed, createdBy); err != nil {
 		return ExerciseView{}, err
 	}
-	created, err := u.createImportedIdentity(ctx, parsed.Exercise, createdBy, ownerEventID)
+	// A new copy's public/bootstrap identity comes from its published snapshot,
+	// otherwise its working snapshot. Root metadata is the legacy fallback.
+	source := parsed.Exercise
+	selected := workingImportVersion(parsed.Versions)
+	for i := range parsed.Versions {
+		if parsed.Versions[i].Status.IsPublished() {
+			selected = i
+			break
+		}
+	}
+	if selected >= 0 {
+		source = source.WithVersionMetadata(parsed.Versions[selected])
+	}
+	created, err := u.createImportedIdentity(ctx, source, createdBy, ownerEventID)
 	if err != nil {
 		return ExerciseView{}, err
+	}
+	// The existing new-copy rule may allocate "import N". Keep that name in
+	// the current slots so finalizing the pointers cannot undo the allocation;
+	// distinct pending renames and historical snapshot names remain untouched.
+	if created.Name != source.Name {
+		for i := range parsed.Versions {
+			v := &parsed.Versions[i]
+			if (v.Status.IsDraft() || v.Status.IsPublished()) && v.Name == source.Name {
+				v.Name = created.Name
+			}
+		}
 	}
 	// Database writes happen only after archive validation, secret encryption
 	// and all media uploads succeeded. On a later database/ref failure, remove
@@ -469,6 +513,8 @@ func (u *ExerciseUseCase) persistImportedVersions(ctx context.Context, exerciseI
 	draft, published := uuid.NullUUID{}, uuid.NullUUID{}
 	for index := range versions {
 		version := versions[index]
+		// New archives carry every snapshot's metadata; legacy archives were
+		// expanded to their known root baseline by the parser.
 		version.ID = uuid.Must(uuid.NewV7())
 		version.ExerciseID = exerciseID
 		version.CreatedAt = now.Add(time.Duration(index) * time.Nanosecond)

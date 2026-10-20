@@ -18,7 +18,7 @@ import (
 
 var archiveLoadedAt = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-func TestArchiveExercise_WritesArchivedAtInWholeRow(t *testing.T) {
+func TestArchiveExercise_WritesArchivedAtAndAudit(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	q := postgresMocks.NewMockQuerier(ctrl)
 	expectUserNames(q)
@@ -29,7 +29,7 @@ func TestArchiveExercise_WritesArchivedAtInWholeRow(t *testing.T) {
 	}, nil)
 	q.EXPECT().UpdateExercise(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, arg postgres.UpdateExerciseParams) (int64, error) {
-			if !arg.ArchivedAt.Valid || arg.Name != "Keep me" || !arg.ExpectedUpdatedAt.Equal(archiveLoadedAt) ||
+			if !arg.ArchivedAt.Valid || !arg.ExpectedUpdatedAt.Equal(archiveLoadedAt) ||
 				!arg.UpdatedBy.Valid || arg.UpdatedBy.UUID != adminID {
 				t.Fatalf("unexpected archive write: %+v", arg)
 			}

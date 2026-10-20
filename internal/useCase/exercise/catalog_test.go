@@ -140,7 +140,7 @@ func TestUpdateExerciseIdentity_ConflictDiscrimination(t *testing.T) {
 
 	// Row exists, write hits 0 rows, re-read finds it → 409.
 	q.EXPECT().GetExerciseByID(gomock.Any(), id).Return(row, nil)
-	q.EXPECT().UpdateExercise(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	q.EXPECT().SaveExerciseDraftIdentity(gomock.Any(), gomock.Any()).Return(postgres.SaveExerciseDraftIdentityRow{}, pgx.ErrNoRows)
 	q.EXPECT().GetExerciseByID(gomock.Any(), id).Return(row, nil)
 
 	_, err := uc.UpdateExerciseIdentity(context.Background(), exercise.UpdateExerciseInput{
@@ -152,7 +152,7 @@ func TestUpdateExerciseIdentity_ConflictDiscrimination(t *testing.T) {
 
 	// Row vanished between read and write → 404.
 	q.EXPECT().GetExerciseByID(gomock.Any(), id).Return(row, nil)
-	q.EXPECT().UpdateExercise(gomock.Any(), gomock.Any()).Return(int64(0), nil)
+	q.EXPECT().SaveExerciseDraftIdentity(gomock.Any(), gomock.Any()).Return(postgres.SaveExerciseDraftIdentityRow{}, pgx.ErrNoRows)
 	q.EXPECT().GetExerciseByID(gomock.Any(), id).Return(postgres.Exercise{}, pgx.ErrNoRows)
 
 	_, err = uc.UpdateExerciseIdentity(context.Background(), exercise.UpdateExerciseInput{

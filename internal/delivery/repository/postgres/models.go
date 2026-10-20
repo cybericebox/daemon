@@ -800,6 +800,9 @@ type ExerciseVersion struct {
 	PublishedAt   pgtype.Timestamptz `json:"published_at"`
 	Label         string             `json:"label"`
 	AvgDifficulty pgtype.Numeric     `json:"avg_difficulty"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Tags          []string           `json:"tags"`
 }
 
 type File struct {

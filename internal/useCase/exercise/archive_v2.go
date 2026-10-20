@@ -31,7 +31,7 @@ type (
 		Versions []archiveVersionV2 `json:"versions"`
 	}
 
-	// archiveExerciseV2: id is accepted and ignored, a new exercise gets its own.
+	// archiveExerciseV2: id suggests a re-import target; a new exercise gets its own.
 	archiveExerciseV2 struct {
 		ID          string   `json:"id,omitempty"`
 		Name        string   `json:"name"`
@@ -41,11 +41,14 @@ type (
 
 	// archiveVersionV2: id is accepted and ignored.
 	archiveVersionV2 struct {
-		ID        string                      `json:"id,omitempty"`
-		Status    exerciseModel.VersionStatus `json:"status,omitempty"`
-		AdminNote string                      `json:"admin_note,omitempty"`
-		Label     string                      `json:"label,omitempty"`
-		Variants  []archiveVariantV2          `json:"variants"`
+		ID     string                      `json:"id,omitempty"`
+		Status exerciseModel.VersionStatus `json:"status,omitempty"`
+		// Older archives keep metadata only at the root. New archives preserve
+		// the authored metadata of each snapshot, including historical names.
+		Exercise  *archiveExerciseV2 `json:"exercise,omitempty"`
+		AdminNote string             `json:"admin_note,omitempty"`
+		Label     string             `json:"label,omitempty"`
+		Variants  []archiveVariantV2 `json:"variants"`
 	}
 
 	archiveVariantV2 struct {
@@ -469,8 +472,9 @@ func (d archiveDocV2) toParsed(files map[string][]byte) (ParsedExerciseArchive, 
 // image's platform reference. nil images: an image file is refused (archiveImageFileUnsupported).
 func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[string]*archiveImageFile) (ParsedExerciseArchive, error) {
 	parsed := ParsedExerciseArchive{
-		Exercise: exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
-		Files:    files,
+		SourceExerciseID: uuid.FromStringOrNil(d.Exercise.ID),
+		Exercise:         exerciseModel.Exercise{Name: d.Exercise.Name, Description: d.Exercise.Description, Tags: d.Exercise.Tags},
+		Files:            files,
 	}
 	links := newArchiveLinks(files, &parsed)
 	links.images = images
@@ -482,7 +486,12 @@ func (d archiveDocV2) toParsedWithImages(files map[string][]byte, images map[str
 		if !version.Status.Valid() {
 			return ParsedExerciseArchive{}, unknownEnum(statusPath, string(version.Status))
 		}
-		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label}
+		metadata := d.Exercise
+		if version.Exercise != nil {
+			metadata = *version.Exercise
+		}
+		mapped := exerciseModel.ExerciseVersion{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label,
+			Name: metadata.Name, Description: metadata.Description, Tags: metadata.Tags}
 		// Ids first: a linked variant names its base by position, possibly a later one.
 		// A repeated id would make the link name two variants at once.
 		ids := make([]uuid.UUID, len(version.Variants))
@@ -704,9 +713,11 @@ func buildV2Document(e exerciseModel.Exercise, versions []exerciseModel.Exercise
 // buildV2DocumentWithImages is buildV2Document for an export «з образами»: a device whose platform image has a path in
 // imagePaths (by the image's digest) names that file, `image: {file: …}`.
 func buildV2DocumentWithImages(e exerciseModel.Exercise, versions []exerciseModel.ExerciseVersion, paths map[uuid.UUID]string, imagePaths map[string]string) ([]byte, error) {
-	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{Name: e.Name, Description: e.Description, Tags: e.Tags}}
+	doc := archiveDocV2{Schema: archiveSchema, Exercise: archiveExerciseV2{ID: e.ID.String(), Name: e.Name, Description: e.Description, Tags: e.Tags}}
 	for _, version := range versions {
-		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{}}
+		metadata := e.WithVersionMetadata(version)
+		out := archiveVersionV2{Status: version.Status, AdminNote: version.AdminNote, Label: version.Label, Variants: []archiveVariantV2{},
+			Exercise: &archiveExerciseV2{Name: metadata.Name, Description: metadata.Description, Tags: metadata.Tags}}
 		for _, variant := range version.Variants {
 			if linked, ok := exportLinkedVariantV2(variant, version.Variants, paths); ok {
 				out.Variants = append(out.Variants, linked)

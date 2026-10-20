@@ -10,6 +10,7 @@ import (
 
 	"github.com/cybericebox/daemon/internal/model"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
+	"github.com/cybericebox/daemon/internal/model/rbac"
 	resourcesModel "github.com/cybericebox/daemon/internal/model/resources"
 )
 
@@ -217,24 +218,29 @@ func describeOutside(devices []DeviceOutside) string {
 	return strings.Join(parts, ", ")
 }
 
-// publishedResource is the resources of one exercise's published version: the range over the variants, and
+// visibleResource is the resources of one exercise's selected snapshot: the range over the variants, and
 // whether an approved elevation holds a device above the frame (resource-heavy).
-type publishedResource struct {
-	Range ResourceRange
-	Heavy bool
+type visibleResource struct {
+	Range          ResourceRange
+	Heavy          bool
+	Infrastructure bool
 }
 
-// publishedResources reads it for a page of exercises; exercises without a published version are absent.
-func (u *ExerciseUseCase) publishedResources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]publishedResource, error) {
-	variants, err := u.exercises.PublishedVariants(ctx, ids)
+// visibleResources reads the same working/public snapshot as the catalog metadata and statistics.
+func (u *ExerciseUseCase) visibleResources(ctx context.Context, actor Actor, ids []uuid.UUID) (map[uuid.UUID]visibleResource, error) {
+	viewer := uuid.NullUUID{}
+	if !actor.has(rbac.PermExercisesRead) {
+		viewer = uuid.NullUUID{UUID: actor.UserID, Valid: true}
+	}
+	variants, err := u.exercises.VisibleVariants(ctx, ids, viewer)
 	if err != nil {
 		return nil, model.ErrPlatform.WithError(err).WithMessage("Failed to read the exercise resources").Err()
 	}
 	policy := u.Policy()
-	out := make(map[uuid.UUID]publishedResource, len(variants))
+	out := make(map[uuid.UUID]visibleResource, len(variants))
 	var needApprovals []uuid.UUID
 	for id, vs := range variants {
-		out[id] = publishedResource{Range: rangeOf(policy.VariantRange(vs))}
+		out[id] = visibleResource{Range: rangeOf(policy.VariantRange(vs)), Infrastructure: exerciseModel.HasInfrastructure(vs)}
 		if len(policy.OutsideFrame(vs)) > 0 {
 			needApprovals = append(needApprovals, id)
 		}

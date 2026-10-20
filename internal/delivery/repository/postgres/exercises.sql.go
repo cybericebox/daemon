@@ -35,40 +35,44 @@ func (q *Queries) ArchiveEventExercises(ctx context.Context, arg ArchiveEventExe
 const countExercises = `-- name: CountExercises :one
 SELECT count(*)
 FROM exercises
-WHERE ($1::text = '' OR name ILIKE '%' || $1::text || '%'
-    OR description ILIKE '%' || $1::text || '%')
-  AND (coalesce(cardinality($2::text[]), 0) = 0 OR tags && $2::text[])
-  AND (CASE WHEN $3::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
-  AND ($4::text = '' OR ($4::text = 'catalog' AND scope = 0)
-    OR ($4::text = 'event' AND scope = 1))
-  AND (COALESCE(cardinality($5::uuid[]), 0) = 0 OR owner_event_id = ANY ($5::uuid[])
+LEFT JOIN exercise_versions visible ON visible.id = CASE
+    WHEN $1::uuid IS NULL OR exercises.scope = 1
+        THEN COALESCE(exercises.draft_version_id, exercises.published_version_id)
+    ELSE exercises.published_version_id END
+WHERE ($2::text = '' OR COALESCE(visible.name, exercises.name) ILIKE '%' || $2::text || '%'
+    OR COALESCE(visible.description, exercises.description) ILIKE '%' || $2::text || '%')
+  AND (coalesce(cardinality($3::text[]), 0) = 0 OR COALESCE(visible.tags, exercises.tags) && $3::text[])
+  AND (CASE WHEN $4::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
+  AND ($5::text = '' OR ($5::text = 'catalog' AND scope = 0)
+    OR ($5::text = 'event' AND scope = 1))
+  AND (COALESCE(cardinality($6::uuid[]), 0) = 0 OR owner_event_id = ANY ($6::uuid[])
     OR (scope = 0 AND EXISTS (SELECT 1
-                              FROM unnest($5::uuid[]) AS selected(event_id)
+                              FROM unnest($6::uuid[]) AS selected(event_id)
                               WHERE exercise_available_to_event(exercises.id, selected.event_id))))
-  AND ($6::text = ''
-    OR exercise_has_infrastructure(id) = ($6::text = 'yes'))
-  AND ($7::uuid IS NULL OR exercise_readable_by(id, $7::uuid))
+  AND ($7::text = ''
+    OR COALESCE(exercise_variants_have_infrastructure(visible.variants), false) = ($7::text = 'yes'))
+  AND ($1::uuid IS NULL OR exercise_readable_by(exercises.id, $1::uuid))
 `
 
 type CountExercisesParams struct {
+	ViewerID       uuid.NullUUID `json:"viewer_id"`
 	Search         string        `json:"search"`
 	Tags           []string      `json:"tags"`
 	Archived       string        `json:"archived"`
 	Scope          string        `json:"scope"`
 	EventIds       []uuid.UUID   `json:"event_ids"`
 	Infrastructure string        `json:"infrastructure"`
-	ViewerID       uuid.NullUUID `json:"viewer_id"`
 }
 
 func (q *Queries) CountExercises(ctx context.Context, arg CountExercisesParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countExercises,
+		arg.ViewerID,
 		arg.Search,
 		arg.Tags,
 		arg.Archived,
 		arg.Scope,
 		arg.EventIds,
 		arg.Infrastructure,
-		arg.ViewerID,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -77,6 +81,9 @@ func (q *Queries) CountExercises(ctx context.Context, arg CountExercisesParams) 
 
 const countExercisesPage = `-- name: CountExercisesPage :one
 WITH listed AS (SELECT e.id,
+                       COALESCE(version.name, e.name)::text AS visible_name,
+                       COALESCE(version.description, e.description)::text AS visible_description,
+                       COALESCE(version.tags, e.tags)::text[] AS visible_tags,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        $2::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
@@ -97,14 +104,15 @@ WITH listed AS (SELECT e.id,
                                       ORDER BY task.position), '{}')::text[] AS task_names,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
-                -- The content the catalog describes: the published version, else the working copy (as infrastructure).
-                LEFT JOIN exercise_versions version ON version.id = COALESCE(e.published_version_id, e.draft_version_id)
+                -- The whole actor-visible snapshot: working for full readers, published for public readers.
+                LEFT JOIN exercise_versions version ON version.id = CASE WHEN $2::uuid IS NULL OR e.scope = 1
+                    THEN COALESCE(e.draft_version_id, e.published_version_id) ELSE e.published_version_id END
                 LEFT JOIN users author ON author.id = e.created_by
-                WHERE ($3::text = '' OR e.name ILIKE '%' || $3::text || '%'
-                    OR e.description ILIKE '%' || $3::text || '%')
-                  AND (coalesce(cardinality($4::text[]), 0) = 0 OR e.tags && $4::text[])
-                  AND (coalesce(cardinality($5::text[]), 0) = 0 OR e.tags @> $5::text[])
-                  AND (coalesce(cardinality($6::text[]), 0) = 0 OR NOT e.tags && $6::text[])
+                WHERE ($3::text = '' OR COALESCE(version.name, e.name) ILIKE '%' || $3::text || '%'
+                    OR COALESCE(version.description, e.description) ILIKE '%' || $3::text || '%')
+                  AND (coalesce(cardinality($4::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) && $4::text[])
+                  AND (coalesce(cardinality($5::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) @> $5::text[])
+                  AND (coalesce(cardinality($6::text[]), 0) = 0 OR NOT COALESCE(version.tags, e.tags) && $6::text[])
                   AND (coalesce(cardinality($7::uuid[]), 0) = 0 OR e.created_by = ANY ($7::uuid[]))
                   AND (CASE $8::text
                            WHEN 'only' THEN e.archived_at IS NOT NULL
@@ -117,7 +125,7 @@ WITH listed AS (SELECT e.id,
                                                 FROM unnest($10::uuid[]) AS selected(event_id)
                                                 WHERE exercise_available_to_event(e.id, selected.event_id))))
                   AND ($11::text = ''
-                    OR exercise_has_infrastructure(e.id) = ($11::text = 'yes'))
+                    OR COALESCE(exercise_variants_have_infrastructure(version.variants), false) = ($11::text = 'yes'))
                   -- The level shown is the rounded average; a task without one never passes a range.
                   AND ($12::int = 0 OR round(version.avg_difficulty) >= $12::int)
                   AND ($13::int = 0 OR round(version.avg_difficulty) <= $13::int)
@@ -333,7 +341,8 @@ func (q *Queries) DeleteExerciseEventAccess(ctx context.Context, exerciseID uuid
 }
 
 const exerciseDraftDiffersFromPublished = `-- name: ExerciseDraftDiffersFromPublished :one
-SELECT (d.variants <> p.variants OR d.admin_note <> p.admin_note)::boolean AS differs
+SELECT (d.variants <> p.variants OR d.admin_note <> p.admin_note
+    OR d.name <> p.name OR d.description <> p.description OR d.tags <> p.tags)::boolean AS differs
 FROM exercises e
 JOIN exercise_versions d ON d.id = e.draft_version_id
 JOIN exercise_versions p ON p.id = e.published_version_id
@@ -539,12 +548,13 @@ func (q *Queries) ListExerciseAuthors(ctx context.Context, arg ListExerciseAutho
 const listExerciseCardExtras = `-- name: ListExerciseCardExtras :many
 SELECT e.id,
        COALESCE(NULLIF(owner.internal_name, ''), owner.name, '')::text AS owner_event_name,
-       COALESCE(source.name, '')::text AS forked_from_name,
+       COALESCE(source_version.name, source.name, '')::text AS forked_from_name,
        exercise_has_infrastructure(e.id)::boolean AS infrastructure,
        proposal.id AS pending_proposal_id
 FROM exercises e
 LEFT JOIN events owner ON owner.id = e.owner_event_id
 LEFT JOIN exercises source ON source.id = e.forked_from_exercise_id
+LEFT JOIN exercise_versions source_version ON source_version.id = e.forked_from_version_id
 LEFT JOIN exercise_proposals proposal ON proposal.exercise_id = e.id AND proposal.status = 0
 WHERE e.id = ANY ($1::uuid[])
 `
@@ -654,18 +664,20 @@ func (q *Queries) ListExerciseProposals(ctx context.Context, status pgtype.Int2)
 const listExerciseTags = `-- name: ListExerciseTags :many
 SELECT tag::text AS tag, count(DISTINCT e.id)::bigint AS exercise_count
 FROM exercises AS e
-CROSS JOIN LATERAL unnest(e.tags) AS tag
-WHERE ($1::text = ''
-    OR left(tag, char_length($1::text)) = lower($1::text))
-  AND ($2::uuid IS NULL OR exercise_readable_by(e.id, $2::uuid))
+LEFT JOIN exercise_versions version ON version.id = CASE WHEN $1::uuid IS NULL OR e.scope = 1
+    THEN COALESCE(e.draft_version_id, e.published_version_id) ELSE e.published_version_id END
+CROSS JOIN LATERAL unnest(COALESCE(version.tags, e.tags)) AS tag
+WHERE ($2::text = ''
+    OR left(tag, char_length($2::text)) = lower($2::text))
+  AND ($1::uuid IS NULL OR exercise_readable_by(e.id, $1::uuid))
 GROUP BY tag
 ORDER BY exercise_count DESC, tag ASC
 LIMIT $3
 `
 
 type ListExerciseTagsParams struct {
-	Prefix   string        `json:"prefix"`
 	ViewerID uuid.NullUUID `json:"viewer_id"`
+	Prefix   string        `json:"prefix"`
 	LimitVal int32         `json:"limit_val"`
 }
 
@@ -678,7 +690,7 @@ type ListExerciseTagsRow struct {
 // Prefix matching is literal (%, _ are not LIKE wildcards) and
 // case-insensitive. viewer_id set = count only exercises the viewer may read.
 func (q *Queries) ListExerciseTags(ctx context.Context, arg ListExerciseTagsParams) ([]ListExerciseTagsRow, error) {
-	rows, err := q.db.Query(ctx, listExerciseTags, arg.Prefix, arg.ViewerID, arg.LimitVal)
+	rows, err := q.db.Query(ctx, listExerciseTags, arg.ViewerID, arg.Prefix, arg.LimitVal)
 	if err != nil {
 		return nil, err
 	}
@@ -747,12 +759,19 @@ func (q *Queries) ListExerciseUsageEvents(ctx context.Context, arg ListExerciseU
 const listExercisesCursor = `-- name: ListExercisesCursor :many
 
 SELECT exercises.id, exercises.name, exercises.description, exercises.tags, exercises.created_at, exercises.created_by, exercises.updated_at, exercises.updated_by, exercises.draft_version_id, exercises.published_version_id, exercises.archived_at, exercises.scope, exercises.owner_event_id, exercises.access_level, exercises.origin_event_id, exercises.forked_from_exercise_id, exercises.forked_from_version_id,
+       COALESCE(visible.name, exercises.name)::text AS visible_name,
+       COALESCE(visible.description, exercises.description)::text AS visible_description,
+       COALESCE(visible.tags, exercises.tags)::text[] AS visible_tags,
        exercise_status(draft_version_id, published_version_id, archived_at IS NOT NULL,
                        $1::uuid IS NULL OR scope = 1)::text AS status
 FROM exercises
-WHERE ($2::text = '' OR name ILIKE '%' || $2::text || '%'
-    OR description ILIKE '%' || $2::text || '%')
-  AND (coalesce(cardinality($3::text[]), 0) = 0 OR tags && $3::text[])
+LEFT JOIN exercise_versions visible ON visible.id = CASE
+    WHEN $1::uuid IS NULL OR exercises.scope = 1
+        THEN COALESCE(exercises.draft_version_id, exercises.published_version_id)
+    ELSE exercises.published_version_id END
+WHERE ($2::text = '' OR COALESCE(visible.name, exercises.name) ILIKE '%' || $2::text || '%'
+    OR COALESCE(visible.description, exercises.description) ILIKE '%' || $2::text || '%')
+  AND (coalesce(cardinality($3::text[]), 0) = 0 OR COALESCE(visible.tags, exercises.tags) && $3::text[])
   AND (CASE WHEN $4::text = 'only' THEN archived_at IS NOT NULL ELSE archived_at IS NULL END)
   AND ($5::text = '' OR ($5::text = 'catalog' AND scope = 0)
     OR ($5::text = 'event' AND scope = 1))
@@ -761,10 +780,10 @@ WHERE ($2::text = '' OR name ILIKE '%' || $2::text || '%'
                               FROM unnest($6::uuid[]) AS selected(event_id)
                               WHERE exercise_available_to_event(exercises.id, selected.event_id))))
   AND ($7::text = ''
-    OR exercise_has_infrastructure(id) = ($7::text = 'yes'))
-  AND ($1::uuid IS NULL OR exercise_readable_by(id, $1::uuid))
-  AND (created_at, id) < ($8::timestamptz, $9::uuid)
-ORDER BY created_at DESC, id DESC
+    OR COALESCE(exercise_variants_have_infrastructure(visible.variants), false) = ($7::text = 'yes'))
+  AND ($1::uuid IS NULL OR exercise_readable_by(exercises.id, $1::uuid))
+  AND (exercises.created_at, exercises.id) < ($8::timestamptz, $9::uuid)
+ORDER BY exercises.created_at DESC, exercises.id DESC
 LIMIT $10
 `
 
@@ -782,8 +801,11 @@ type ListExercisesCursorParams struct {
 }
 
 type ListExercisesCursorRow struct {
-	Exercise Exercise `json:"exercise"`
-	Status   string   `json:"status"`
+	Exercise           Exercise `json:"exercise"`
+	VisibleName        string   `json:"visible_name"`
+	VisibleDescription string   `json:"visible_description"`
+	VisibleTags        []string `json:"visible_tags"`
+	Status             string   `json:"status"`
 }
 
 // Shared list filters (keep the four list/count queries in sync):
@@ -829,6 +851,9 @@ func (q *Queries) ListExercisesCursor(ctx context.Context, arg ListExercisesCurs
 			&i.Exercise.OriginEventID,
 			&i.Exercise.ForkedFromExerciseID,
 			&i.Exercise.ForkedFromVersionID,
+			&i.VisibleName,
+			&i.VisibleDescription,
+			&i.VisibleTags,
 			&i.Status,
 		); err != nil {
 			return nil, err
@@ -881,6 +906,9 @@ func (q *Queries) ListExercisesEventAccess(ctx context.Context, exerciseIds []uu
 
 const listExercisesPage = `-- name: ListExercisesPage :many
 WITH listed AS (SELECT e.id,
+                       COALESCE(version.name, e.name)::text AS visible_name,
+                       COALESCE(version.description, e.description)::text AS visible_description,
+                       COALESCE(version.tags, e.tags)::text[] AS visible_tags,
                        exercise_status(e.draft_version_id, e.published_version_id, e.archived_at IS NOT NULL,
                                        $6::uuid IS NULL OR e.scope = 1)::text AS status,
                        version.avg_difficulty,
@@ -901,14 +929,15 @@ WITH listed AS (SELECT e.id,
                                       ORDER BY task.position), '{}')::text[] AS task_names,
                        COALESCE(btrim(concat_ws(' ', author.first_name, author.last_name)), '')::text AS author_name
                 FROM exercises e
-                -- The content the catalog describes: the published version, else the working copy (as infrastructure).
-                LEFT JOIN exercise_versions version ON version.id = COALESCE(e.published_version_id, e.draft_version_id)
+                -- The whole actor-visible snapshot: working for full readers, published for public readers.
+                LEFT JOIN exercise_versions version ON version.id = CASE WHEN $6::uuid IS NULL OR e.scope = 1
+                    THEN COALESCE(e.draft_version_id, e.published_version_id) ELSE e.published_version_id END
                 LEFT JOIN users author ON author.id = e.created_by
-                WHERE ($7::text = '' OR e.name ILIKE '%' || $7::text || '%'
-                    OR e.description ILIKE '%' || $7::text || '%')
-                  AND (coalesce(cardinality($8::text[]), 0) = 0 OR e.tags && $8::text[])
-                  AND (coalesce(cardinality($9::text[]), 0) = 0 OR e.tags @> $9::text[])
-                  AND (coalesce(cardinality($10::text[]), 0) = 0 OR NOT e.tags && $10::text[])
+                WHERE ($7::text = '' OR COALESCE(version.name, e.name) ILIKE '%' || $7::text || '%'
+                    OR COALESCE(version.description, e.description) ILIKE '%' || $7::text || '%')
+                  AND (coalesce(cardinality($8::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) && $8::text[])
+                  AND (coalesce(cardinality($9::text[]), 0) = 0 OR COALESCE(version.tags, e.tags) @> $9::text[])
+                  AND (coalesce(cardinality($10::text[]), 0) = 0 OR NOT COALESCE(version.tags, e.tags) && $10::text[])
                   AND (coalesce(cardinality($11::uuid[]), 0) = 0 OR e.created_by = ANY ($11::uuid[]))
                   AND (CASE $12::text
                            WHEN 'only' THEN e.archived_at IS NOT NULL
@@ -921,12 +950,13 @@ WITH listed AS (SELECT e.id,
                                                 FROM unnest($14::uuid[]) AS selected(event_id)
                                                 WHERE exercise_available_to_event(e.id, selected.event_id))))
                   AND ($15::text = ''
-                    OR exercise_has_infrastructure(e.id) = ($15::text = 'yes'))
+                    OR COALESCE(exercise_variants_have_infrastructure(version.variants), false) = ($15::text = 'yes'))
                   -- The level shown is the rounded average; a task without one never passes a range.
                   AND ($16::int = 0 OR round(version.avg_difficulty) >= $16::int)
                   AND ($17::int = 0 OR round(version.avg_difficulty) <= $17::int)
                   AND ($6::uuid IS NULL OR exercise_readable_by(e.id, $6::uuid)))
 SELECT exercises.id, exercises.name, exercises.description, exercises.tags, exercises.created_at, exercises.created_by, exercises.updated_at, exercises.updated_by, exercises.draft_version_id, exercises.published_version_id, exercises.archived_at, exercises.scope, exercises.owner_event_id, exercises.access_level, exercises.origin_event_id, exercises.forked_from_exercise_id, exercises.forked_from_version_id, listed.status, listed.author_name,
+       listed.visible_name, listed.visible_description, listed.visible_tags,
        -- NULL scans badly into float64: the flag says whether there is one.
        (listed.avg_difficulty IS NOT NULL)::boolean AS has_avg_difficulty,
        COALESCE(listed.avg_difficulty, 0)::float8    AS avg_difficulty,
@@ -937,10 +967,10 @@ FROM listed
 JOIN exercises USING (id)
 WHERE (coalesce(cardinality($1::text[]), 0) = 0 OR listed.status = ANY ($1::text[]))
 ORDER BY
-  CASE WHEN $2::text = 'name' AND $3::text = 'asc' THEN lower(name) END ASC,
-  CASE WHEN $2::text = 'name' AND $3::text = 'desc' THEN lower(name) END DESC,
-  CASE WHEN $2::text = 'tags' AND $3::text = 'asc' THEN lower(array_to_string(tags, ',')) END ASC,
-  CASE WHEN $2::text = 'tags' AND $3::text = 'desc' THEN lower(array_to_string(tags, ',')) END DESC,
+  CASE WHEN $2::text = 'name' AND $3::text = 'asc' THEN lower(listed.visible_name) END ASC,
+  CASE WHEN $2::text = 'name' AND $3::text = 'desc' THEN lower(listed.visible_name) END DESC,
+  CASE WHEN $2::text = 'tags' AND $3::text = 'asc' THEN lower(array_to_string(listed.visible_tags, ',')) END ASC,
+  CASE WHEN $2::text = 'tags' AND $3::text = 'desc' THEN lower(array_to_string(listed.visible_tags, ',')) END DESC,
   -- Status rank: none < draft_only < changed < published < archived.
   CASE WHEN $2::text = 'status' AND $3::text = 'asc' THEN
     array_position(ARRAY ['none', 'draft_only', 'changed', 'published', 'archived'], listed.status) END ASC,
@@ -981,14 +1011,17 @@ type ListExercisesPageParams struct {
 }
 
 type ListExercisesPageRow struct {
-	Exercise         Exercise `json:"exercise"`
-	Status           string   `json:"status"`
-	AuthorName       string   `json:"author_name"`
-	HasAvgDifficulty bool     `json:"has_avg_difficulty"`
-	AvgDifficulty    float64  `json:"avg_difficulty"`
-	HasTaskCount     bool     `json:"has_task_count"`
-	TaskCount        int32    `json:"task_count"`
-	TaskNames        []string `json:"task_names"`
+	Exercise           Exercise `json:"exercise"`
+	Status             string   `json:"status"`
+	AuthorName         string   `json:"author_name"`
+	VisibleName        string   `json:"visible_name"`
+	VisibleDescription string   `json:"visible_description"`
+	VisibleTags        []string `json:"visible_tags"`
+	HasAvgDifficulty   bool     `json:"has_avg_difficulty"`
+	AvgDifficulty      float64  `json:"avg_difficulty"`
+	HasTaskCount       bool     `json:"has_task_count"`
+	TaskCount          int32    `json:"task_count"`
+	TaskNames          []string `json:"task_names"`
 }
 
 // status is the single derived catalog status (exercise_status); the working
@@ -1044,6 +1077,9 @@ func (q *Queries) ListExercisesPage(ctx context.Context, arg ListExercisesPagePa
 			&i.Exercise.ForkedFromVersionID,
 			&i.Status,
 			&i.AuthorName,
+			&i.VisibleName,
+			&i.VisibleDescription,
+			&i.VisibleTags,
 			&i.HasAvgDifficulty,
 			&i.AvgDifficulty,
 			&i.HasTaskCount,
@@ -1259,22 +1295,16 @@ func (q *Queries) ListUserNames(ctx context.Context, ids []uuid.UUID) ([]ListUse
 
 const updateExercise = `-- name: UpdateExercise :execrows
 UPDATE exercises
-SET name        = $1,
-    description = $2,
-    tags        = $3,
-    archived_at = $4,
-    access_level = $5,
-    updated_at  = $6,
-    updated_by  = $7
-WHERE id = $8
+SET archived_at = $1,
+    access_level = $2,
+    updated_at  = $3,
+    updated_by  = $4
+WHERE id = $5
   -- Optimistic lock: 0 rows means "modified since read" (or gone).
-  AND updated_at IS NOT DISTINCT FROM $9
+  AND updated_at IS NOT DISTINCT FROM $6
 `
 
 type UpdateExerciseParams struct {
-	Name              string             `json:"name"`
-	Description       string             `json:"description"`
-	Tags              []string           `json:"tags"`
 	ArchivedAt        pgtype.Timestamptz `json:"archived_at"`
 	AccessLevel       int16              `json:"access_level"`
 	UpdatedAt         time.Time          `json:"updated_at"`
@@ -1283,14 +1313,11 @@ type UpdateExerciseParams struct {
 	ExpectedUpdatedAt time.Time          `json:"expected_updated_at"`
 }
 
-// Whole-identity write. Deliberately excludes draft_version_id /
-// published_version_id (owned by the lifecycle CTEs — including them here
-// would race a concurrent publish) and created_at/created_by (immutable).
+// Policy/audit write. Authored metadata and version pointers belong to the
+// lifecycle CTEs; writing a loaded copy here could revert a concurrent publish.
+// created_at/created_by are immutable.
 func (q *Queries) UpdateExercise(ctx context.Context, arg UpdateExerciseParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateExercise,
-		arg.Name,
-		arg.Description,
-		arg.Tags,
 		arg.ArchivedAt,
 		arg.AccessLevel,
 		arg.UpdatedAt,

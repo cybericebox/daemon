@@ -185,7 +185,7 @@ func NewExerciseUseCase(deps Dependencies) *ExerciseUseCase {
 	}
 }
 
-// mutateExercise: fetch → domain mutation → whole-identity write under the
+// mutateExercise: fetch → domain mutation → policy/audit write under the
 // optimistic lock; zero rows re-reads to tell 404 from 409 (mutateUser twin).
 func (u *ExerciseUseCase) mutateExercise(ctx context.Context, id uuid.UUID, mutate func(*exerciseModel.Exercise) error) (exerciseModel.Exercise, error) {
 	e, err := u.exercises.GetByID(ctx, id)
@@ -261,7 +261,7 @@ func (u *ExerciseUseCase) exerciseView(ctx context.Context, e exerciseModel.Exer
 // for BOTH create and rename.
 func classifyExerciseWriteError(err error, action string) error {
 	if creator, ok := repositoryTools.UniqueViolationError(err, exerciseModel.ErrExerciseExists); ok {
-		return creator.Err()
+		return creator.WithPublicContext("field", "Name").Err()
 	}
 	return model.ErrPlatform.WithError(err).WithMessage("Failed to " + action + " exercise").Err()
 }

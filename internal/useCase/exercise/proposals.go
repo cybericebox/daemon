@@ -127,7 +127,7 @@ func (u *ExerciseUseCase) ApproveProposal(ctx context.Context, actor Actor, prop
 	}
 	now := time.Now()
 	eventIDs := uniqueIDs(in.EventIDs)
-	copyEntity, err := exerciseModel.NewCatalogCopy(source, in.Name, in.AccessLevel, len(eventIDs) > 0, actor.UserID, now)
+	copyEntity, err := exerciseModel.NewCatalogCopy(source.WithVersionMetadata(published), in.Name, in.AccessLevel, len(eventIDs) > 0, actor.UserID, now)
 	if err != nil {
 		return ProposalView{}, err
 	}
@@ -148,6 +148,7 @@ func (u *ExerciseUseCase) ApproveProposal(ctx context.Context, actor Actor, prop
 	}
 	version := exerciseModel.ExerciseVersion{
 		ID: uuid.Must(uuid.NewV7()), ExerciseID: created.ID, Status: exerciseModel.VersionStatusPublished,
+		Name: created.Name, Description: created.Description, Tags: created.Tags,
 		AdminNote: published.AdminNote, Variants: published.Variants, CreatedAt: now,
 		CreatedBy: uuid.NullUUID{UUID: actor.UserID, Valid: actor.UserID != uuid.Nil}, PublishedAt: &now,
 	}

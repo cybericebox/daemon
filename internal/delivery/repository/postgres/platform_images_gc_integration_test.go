@@ -32,7 +32,7 @@ func TestListUnreferencedPlatformImages(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := uuid.Must(uuid.FromString("01900000-0000-7000-8000-0000000000d" + string(rune('0'+n))))
-		if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at) VALUES ($1, $2, $3, $4::jsonb, $5)`,
+		if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at, name, description, tags) SELECT $1, e.id, $3, $4::jsonb, $5, e.name, e.description, e.tags FROM exercises e WHERE e.id = $2`,
 			id, ex, status, variants, t0); err != nil {
 			t.Fatal(err)
 		}
@@ -129,7 +129,7 @@ func TestPlatformImageRecheckAndConditionalDelete(t *testing.T) {
 	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercises (id, name, created_at, updated_at) VALUES ($1, 'gc-re', $2, $2)`, ex, t0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at) VALUES ($1, $2, 'draft', $3::jsonb, $4)`,
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at, name, description, tags) SELECT $1, e.id, 'draft', $3::jsonb, $4, e.name, e.description, e.tags FROM exercises e WHERE e.id = $2`,
 		uuid.Must(uuid.FromString("01900000-0000-7000-8000-0000000000e9")), ex, `[{"topology":{"devices":[{"image":"platform:new@`+gcDigest("a")+`"}]}}]`, t0); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestPlatformImageSharedTagIsNeverCollected(t *testing.T) {
 		t.Fatal(err)
 	}
 	// a is referenced; b is not, and its row maps the same tag string as a's (the tag now serves one of them).
-	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at) VALUES ($1, $2, 'published', $3::jsonb, $4)`,
+	if _, err := db.Pool.Exec(ctx, `INSERT INTO exercise_versions (id, exercise_id, status, variants, created_at, name, description, tags) SELECT $1, e.id, 'published', $3::jsonb, $4, e.name, e.description, e.tags FROM exercises e WHERE e.id = $2`,
 		uuid.Must(uuid.FromString("01900000-0000-7000-8000-0000000000ea")), ex, `[{"topology":{"devices":[{"image":"platform:web@`+gcDigest("a")+`"}]}}]`, t0); err != nil {
 		t.Fatal(err)
 	}

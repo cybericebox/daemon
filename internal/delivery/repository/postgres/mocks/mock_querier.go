@@ -2916,18 +2916,18 @@ func (mr *MockQuerierMockRecorder) DiscardEventPageDraft(ctx, arg any) *gomock.C
 }
 
 // DiscardExerciseDraft mocks base method.
-func (m *MockQuerier) DiscardExerciseDraft(ctx context.Context, exerciseID uuid.UUID) (uuid.UUID, error) {
+func (m *MockQuerier) DiscardExerciseDraft(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DiscardExerciseDraft", ctx, exerciseID)
+	ret := m.ctrl.Call(m, "DiscardExerciseDraft", ctx, id)
 	ret0, _ := ret[0].(uuid.UUID)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // DiscardExerciseDraft indicates an expected call of DiscardExerciseDraft.
-func (mr *MockQuerierMockRecorder) DiscardExerciseDraft(ctx, exerciseID any) *gomock.Call {
+func (mr *MockQuerierMockRecorder) DiscardExerciseDraft(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).DiscardExerciseDraft), ctx, exerciseID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DiscardExerciseDraft", reflect.TypeOf((*MockQuerier)(nil).DiscardExerciseDraft), ctx, id)
 }
 
 // DismissInAppBanner mocks base method.
@@ -10107,6 +10107,21 @@ func (mr *MockQuerierMockRecorder) ListVisibleSiteBanners(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVisibleSiteBanners", reflect.TypeOf((*MockQuerier)(nil).ListVisibleSiteBanners), ctx, arg)
 }
 
+// ListVisibleVariantDevices mocks base method.
+func (m *MockQuerier) ListVisibleVariantDevices(ctx context.Context, arg postgres.ListVisibleVariantDevicesParams) ([]postgres.ListVisibleVariantDevicesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVisibleVariantDevices", ctx, arg)
+	ret0, _ := ret[0].([]postgres.ListVisibleVariantDevicesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListVisibleVariantDevices indicates an expected call of ListVisibleVariantDevices.
+func (mr *MockQuerierMockRecorder) ListVisibleVariantDevices(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVisibleVariantDevices", reflect.TypeOf((*MockQuerier)(nil).ListVisibleVariantDevices), ctx, arg)
+}
+
 // ListWithdrawnLabBindings mocks base method.
 func (m *MockQuerier) ListWithdrawnLabBindings(ctx context.Context, now pgtype.Timestamptz) ([]postgres.LabBinding, error) {
 	m.ctrl.T.Helper()
@@ -11889,6 +11904,21 @@ func (m *MockQuerier) SaveEventPageDraft(ctx context.Context, arg postgres.SaveE
 func (mr *MockQuerierMockRecorder) SaveEventPageDraft(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveEventPageDraft", reflect.TypeOf((*MockQuerier)(nil).SaveEventPageDraft), ctx, arg)
+}
+
+// SaveExerciseDraftIdentity mocks base method.
+func (m *MockQuerier) SaveExerciseDraftIdentity(ctx context.Context, arg postgres.SaveExerciseDraftIdentityParams) (postgres.SaveExerciseDraftIdentityRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SaveExerciseDraftIdentity", ctx, arg)
+	ret0, _ := ret[0].(postgres.SaveExerciseDraftIdentityRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SaveExerciseDraftIdentity indicates an expected call of SaveExerciseDraftIdentity.
+func (mr *MockQuerierMockRecorder) SaveExerciseDraftIdentity(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveExerciseDraftIdentity", reflect.TypeOf((*MockQuerier)(nil).SaveExerciseDraftIdentity), ctx, arg)
 }
 
 // ScheduleEventLabGroupRetry mocks base method.

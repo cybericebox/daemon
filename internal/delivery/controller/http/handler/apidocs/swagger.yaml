@@ -7568,6 +7568,8 @@ definitions:
         type: string
       CreatedBy:
         type: string
+      Description:
+        type: string
       Elevation:
         allOf:
         - $ref: '#/definitions/exercise.elevationResponse'
@@ -7580,6 +7582,8 @@ definitions:
         type: string
       Label:
         type: string
+      Name:
+        type: string
       PublishedAt:
         type: string
       Resources:
@@ -7590,6 +7594,10 @@ definitions:
           the platform frame and whether the task is resource-heavy.
       Status:
         type: string
+      Tags:
+        items:
+          type: string
+        type: array
       Variants:
         items:
           $ref: '#/definitions/exercise.variantDTO'

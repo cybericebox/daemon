@@ -36640,6 +36640,9 @@ const docTemplate = `{
                 "CreatedBy": {
                     "type": "string"
                 },
+                "Description": {
+                    "type": "string"
+                },
                 "Elevation": {
                     "description": "Elevation is the exercise's open resource elevation request, else its latest decided one; null when it\nnever had one.",
                     "allOf": [
@@ -36657,6 +36660,9 @@ const docTemplate = `{
                 "Label": {
                     "type": "string"
                 },
+                "Name": {
+                    "type": "string"
+                },
                 "PublishedAt": {
                     "type": "string"
                 },
@@ -36670,6 +36676,12 @@ const docTemplate = `{
                 },
                 "Status": {
                     "type": "string"
+                },
+                "Tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "Variants": {
                     "type": "array",

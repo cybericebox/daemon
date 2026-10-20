@@ -264,11 +264,14 @@ func uuidPtr(n uuid.NullUUID) *uuid.UUID {
 // VersionView is one exercise version's content, secrets masked. Consumed by
 // the SaveDraft/PublishDraft/RollbackToVersion/GetVersion handlers (Task 11).
 type VersionView struct {
-	ID         uuid.UUID
-	ExerciseID uuid.UUID
-	Status     string
-	AdminNote  string
-	Label      string
+	ID          uuid.UUID
+	ExerciseID  uuid.UUID
+	Status      string
+	Name        string
+	Description string
+	Tags        []string
+	AdminNote   string
+	Label       string
 
 	Variants []exerciseModel.Variant // secrets masked
 
@@ -305,6 +308,9 @@ func toVersionView(v exerciseModel.ExerciseVersion) VersionView {
 		ID:           v.ID,
 		ExerciseID:   v.ExerciseID,
 		Status:       string(v.Status),
+		Name:         v.Name,
+		Description:  v.Description,
+		Tags:         v.Tags,
 		AdminNote:    v.AdminNote,
 		Label:        v.Label,
 		Variants:     maskSecrets(v.Variants),

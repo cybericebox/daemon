@@ -160,7 +160,7 @@ func (u *ExerciseUseCase) PublishDraft(ctx context.Context, exerciseID uuid.UUID
 			// Draft vanished between read and promote — concurrent discard.
 			return VersionView{}, exerciseModel.ErrNoDraft.WithMessage("Draft was removed concurrently").Err()
 		}
-		return VersionView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to publish draft").Err()
+		return VersionView{}, classifyExerciseWriteError(err, "publish")
 	}
 	// The published version passed the gate and is now the working copy: a pending request is moot.
 	u.withdrawMootElevation(ctx, exerciseID, u.pendingElevations(ctx, exerciseID), published.Variants)
@@ -362,12 +362,15 @@ func (u *ExerciseUseCase) GetWorkingCopy(ctx context.Context, exerciseID uuid.UU
 		// Stale pointer (concurrent change): fall through to the empty copy.
 	}
 	return VersionView{
-		ExerciseID: e.ID,
-		Status:     string(exerciseModel.VersionStatusDraft),
-		Variants:   []exerciseModel.Variant{},
-		CreatedAt:  e.CreatedAt,
-		CreatedBy:  uuidPtr(e.CreatedBy),
-		AuthorName: u.authorNames(ctx, e.CreatedBy)[e.CreatedBy.UUID],
+		ExerciseID:  e.ID,
+		Status:      string(exerciseModel.VersionStatusDraft),
+		Name:        e.Name,
+		Description: e.Description,
+		Tags:        e.Tags,
+		Variants:    []exerciseModel.Variant{},
+		CreatedAt:   e.CreatedAt,
+		CreatedBy:   uuidPtr(e.CreatedBy),
+		AuthorName:  u.authorNames(ctx, e.CreatedBy)[e.CreatedBy.UUID],
 	}, nil
 }
 

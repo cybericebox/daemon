@@ -46,3 +46,13 @@ The same rule applies to GitHub release pages and published images, in every rep
 - Older minors keep only their latest patch. The other patches of a minor are deleted when the next minor is released.
 - Besides the newest minor, the latest patches of the 10 previous minors are kept (release page and images). An older minor drops out when it is no longer among the last 10: its release page and images are deleted, the tag stays. There are no exceptions: production always runs a current version.
 - Pruning runs automatically in the release workflow. Manual cleanup is done only once, when the policy is introduced.
+
+## Catalog metadata migration (0194)
+
+Task metadata is versioned with the content. Existing historical versions receive the currently known name, description and tags as a baseline; past values that were never stored cannot be reconstructed.
+
+Both production repository pools automatically declare `cybericebox.catalog_metadata_writer=1` as a PostgreSQL startup parameter. This is a binary/schema compatibility marker, not an authorization boundary. After migration 0194, connections from older binaries receive SQLSTATE `40001` (`catalog_metadata_writer capability required`) when mutating authored catalog families, attachment claims/references or catalog access. During an ordinary rolling update, catalog saves routed to an old pod may temporarily fail and can be retried after the rollout. New pods write normally; unrelated event runtime writes remain available. No deployment flag or manual activation is required.
+
+The migration locks the protected tables through backfill and guard installation. Even capable version INSERTs must explicitly supply a nonempty Name and nonnull Description/Tags; empty Description/Tags are valid. Deliberate administrator repairs must use a transaction with `SET LOCAL cybericebox.catalog_metadata_writer = '1'` and preserve the same snapshot/family invariants. A binary-only rollback leaves old catalog writers fenced. Removing the schema guard requires an explicit schema rollback, which cannot losslessly retain metadata introduced per version; do not describe that downgrade as lossless.
+
+An old image-import worker already running during rollout may finish uploading unreferenced immutable bytes before its first protected database mutation fails. Existing authored state and file claims/references remain protected; existing media/registry garbage collection handles unused uploads. The fence does not claim to undo external bytes.

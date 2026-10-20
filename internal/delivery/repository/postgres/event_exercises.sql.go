@@ -259,7 +259,7 @@ func (q *Queries) GetEventExerciseByID(ctx context.Context, arg GetEventExercise
 }
 
 const listEventCatalog = `-- name: ListEventCatalog :many
-SELECT ex.id, ex.name, ex.description, ex.tags, ex.scope, ex.published_version_id::uuid AS published_version_id,
+SELECT ex.id, published.name, published.description, published.tags, ex.scope, ex.published_version_id::uuid AS published_version_id,
        exercise_has_infrastructure(ex.id)::boolean AS infrastructure,
        -- The published version's first variant, as the catalog table shows it: the average difficulty (NULL scans
        -- badly, hence the flag), the subtask count (NULL without a variant) and the subtask names in order.
@@ -291,11 +291,11 @@ JOIN exercise_versions published ON published.id = ex.published_version_id
 WHERE ex.published_version_id IS NOT NULL
   AND ex.archived_at IS NULL
   AND exercise_available_to_event(ex.id, $1)
-  AND ($2::text = '' OR ex.name ILIKE '%' || $2::text || '%'
-    OR ex.description ILIKE '%' || $2::text || '%')
+  AND ($2::text = '' OR published.name ILIKE '%' || $2::text || '%'
+    OR published.description ILIKE '%' || $2::text || '%')
   AND ($3::text = ''
     OR exercise_has_infrastructure(ex.id) = ($3::text = 'yes'))
-  AND (coalesce(cardinality($4::text[]), 0) = 0 OR ex.tags && $4::text[])
+  AND (coalesce(cardinality($4::text[]), 0) = 0 OR published.tags && $4::text[])
   -- difficulties: the rounded average level 1..6 (as the catalog filter rounds it), 0 for a set without one; any of
   -- them (union); empty means no difficulty filter.
   AND (coalesce(cardinality($5::int[]), 0) = 0
@@ -309,7 +309,7 @@ WHERE ex.published_version_id IS NOT NULL
                  AND ee.status = 0
                  AND (attached.id = ex.id OR attached.forked_from_exercise_id = ex.id
                    OR ex.forked_from_exercise_id = attached.id)) = ($6::text = 'yes'))
-ORDER BY ex.scope DESC, lower(ex.name), ex.id
+ORDER BY ex.scope DESC, lower(published.name), ex.id
 LIMIT 100
 `
 
@@ -386,7 +386,8 @@ func (q *Queries) ListEventCatalog(ctx context.Context, arg ListEventCatalogPara
 const listEventCatalogTags = `-- name: ListEventCatalogTags :many
 SELECT tag::text AS tag, count(DISTINCT ex.id)::bigint AS exercise_count
 FROM exercises AS ex
-CROSS JOIN LATERAL unnest(ex.tags) AS tag
+JOIN exercise_versions published ON published.id = ex.published_version_id
+CROSS JOIN LATERAL unnest(published.tags) AS tag
 WHERE ex.published_version_id IS NOT NULL
   AND ex.archived_at IS NULL
   AND exercise_available_to_event(ex.id, $1)
@@ -435,10 +436,10 @@ func (q *Queries) ListEventCatalogTags(ctx context.Context, arg ListEventCatalog
 const listEventExerciseDetails = `-- name: ListEventExerciseDetails :many
 SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mode, ee.fixed_variant_index,
        ee.revision, ee.status, ee.replaces_event_exercise_id, ee.superseded_at, ee.detached_at, ee.created_at, ee.stage_id,
-       ex.name::text AS exercise_name,
+       pinned.name::text AS exercise_name,
        ex.scope,
-       -- The exercise's categories (catalog tags), for the event's task statistics.
-       COALESCE(ex.tags, '{}')::text[] AS exercise_tags,
+       -- The pinned version's categories (catalog tags), for the event's task statistics.
+       COALESCE(pinned.tags, '{}')::text[] AS exercise_tags,
        ex.published_version_id AS latest_version_id,
        ex.forked_from_exercise_id,
        ex.forked_from_version_id,
@@ -447,7 +448,7 @@ SELECT ee.id, ee.event_id, ee.exercise_id, ee.exercise_version_id, ee.variant_mo
           AND v.published_at <= COALESCE(pinned.published_at, 'infinity'::timestamptz))::integer AS version_number,
        (SELECT count(*) FROM exercise_versions v
         WHERE v.exercise_id = ee.exercise_id AND v.published_at IS NOT NULL)::integer AS latest_version_number,
-       COALESCE(source.name, '')::text AS source_name,
+       COALESCE(source_pinned.name, source.name, '')::text AS source_name,
        source.published_version_id AS source_latest_version_id,
        (SELECT count(*) FROM exercise_versions v
         WHERE v.exercise_id = ex.forked_from_exercise_id AND v.published_at IS NOT NULL

@@ -100,10 +100,10 @@ func scopeToResponse(v exerciseUseCase.ExerciseScopeView) exerciseScopeResponse 
 }
 
 type accessSummaryResponse struct {
-	IsAdmin          bool                  `json:"IsAdmin"`
-	CanCreateCatalog bool                  `json:"CanCreateCatalog"`
-	CanPublish       bool                  `json:"CanPublish"`
-	CanDelete        bool                  `json:"CanDelete"`
+	IsAdmin          bool `json:"IsAdmin"`
+	CanCreateCatalog bool `json:"CanCreateCatalog"`
+	CanPublish       bool `json:"CanPublish"`
+	CanDelete        bool `json:"CanDelete"`
 	// CanExport: the caller may export some tasks (exercises.export: any; an event moderator: their events' tasks,
 	// per task Permissions.CanExport).
 	CanExport bool `json:"CanExport"`
@@ -669,6 +669,9 @@ type versionResponse struct {
 	ID          uuid.UUID    `json:"ID"`
 	ExerciseID  uuid.UUID    `json:"ExerciseID"`
 	Status      string       `json:"Status"`
+	Name        string       `json:"Name"`
+	Description string       `json:"Description"`
+	Tags        []string     `json:"Tags"`
 	AdminNote   string       `json:"AdminNote"`
 	Label       string       `json:"Label"`
 	Variants    []variantDTO `json:"Variants"`
@@ -967,6 +970,7 @@ func elevationPtr(e *exerciseUseCase.ElevationView) *elevationResponse {
 func versionToResponse(v exerciseUseCase.VersionView) versionResponse {
 	return versionResponse{
 		ID: v.ID, ExerciseID: v.ExerciseID, Status: v.Status, AdminNote: v.AdminNote, Label: v.Label,
+		Name: v.Name, Description: v.Description, Tags: taskNames(v.Tags),
 		Variants:  variantsToDTO(v.Variants),
 		CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, AuthorName: v.AuthorName, PublishedAt: v.PublishedAt,
 		Resources: versionResourcesToResponse(v.Resources), Elevation: elevationPtr(v.Elevation),
