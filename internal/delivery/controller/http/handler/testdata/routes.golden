@@ -418,6 +418,7 @@ GET    /api/exercises/files/:fileID/meta | gate: self | layers: -
 GET    /api/exercises/flag-policy | gate: self | layers: -
 POST   /api/exercises/import | gate: self | layers: download.LongOperation.func
 GET    /api/exercises/import/example | gate: self | layers: -
+GET    /api/exercises/import/example/document | gate: self | layers: -
 GET    /api/exercises/import/jobs | gate: self | layers: -
 GET    /api/exercises/import/jobs/:jobID | gate: self | layers: -
 POST   /api/exercises/import/upload | gate: self | layers: download.LongOperation.func

@@ -202,6 +202,7 @@ func (h *Handler) Init(router *gin.RouterGroup) {
 		ex.GET("import/jobs/:jobID", self, h.importJob)
 		// the built-in example archive: for whoever may import somewhere
 		ex.GET("import/example", self, h.importExample)
+		ex.GET("import/example/document", self, h.importExampleDocument)
 		// every task of the selection is authorized in the handler (AuthorizeExport)
 		ex.POST("export", self, h.export)
 		// the background export's state, for the user who started it only (the use case scopes it to them)
