@@ -1,8 +1,13 @@
 package ociregistry
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
+	"unicode"
 )
 
 // Sentinel errors of the client. They are wrapped with %w; no message ever carries a credential.
@@ -39,4 +44,72 @@ func classifyStatus(code int) error {
 		return ErrUnreachable
 	}
 	return nil
+}
+
+const (
+	// maxErrorBody bounds how much of a failing response is read for the registry's own error.
+	maxErrorBody = 2 << 10
+	// maxErrorDetail bounds the registry text carried in an error.
+	maxErrorDetail = 200
+)
+
+// statusFailure builds the error of a failed registry response: the sentinel of its status plus, when the body is
+// an OCI error document ({"errors":[{"code","message"}]}), the registry's code and message. The body is read up
+// to 2 KiB and cleaned (no control characters, bounded), so a hostile registry cannot flood a log. The caller
+// still drains and closes the response.
+func statusFailure(op string, resp *http.Response) error {
+	sentinel := classifyStatus(resp.StatusCode)
+	if sentinel == nil {
+		sentinel = ErrUnreachable
+	}
+	if detail := registryDetail(resp.Body); detail != "" {
+		return fmt.Errorf("%s: %w (status %d: %s)", op, sentinel, resp.StatusCode, detail)
+	}
+	return fmt.Errorf("%s: %w (status %d)", op, sentinel, resp.StatusCode)
+}
+
+// registryDetail is "CODE: message" of the first usable entry of an OCI error document, "" otherwise.
+func registryDetail(body io.Reader) string {
+	raw, err := io.ReadAll(io.LimitReader(body, maxErrorBody))
+	if err != nil && len(raw) == 0 {
+		return ""
+	}
+	var doc struct {
+		Errors []struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return ""
+	}
+	for _, e := range doc.Errors {
+		code, msg := cleanText(e.Code), cleanText(e.Message)
+		switch {
+		case code != "" && msg != "":
+			return clip(code + ": " + msg)
+		case code != "":
+			return clip(code)
+		case msg != "":
+			return clip(msg)
+		}
+	}
+	return ""
+}
+
+func cleanText(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+func clip(s string) string {
+	if r := []rune(s); len(r) > maxErrorDetail {
+		return string(r[:maxErrorDetail]) + "…"
+	}
+	return s
 }

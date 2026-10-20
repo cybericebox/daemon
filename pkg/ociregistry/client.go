@@ -197,14 +197,11 @@ func (c *Client) Ping(ctx context.Context) error {
 		return err
 	}
 	loc := resp.Header.Get("Location")
-	status := resp.StatusCode
-	drain(resp)
-	if status != http.StatusAccepted {
-		if s := classifyStatus(status); s != nil {
-			return fmt.Errorf("ping: %w (status %d)", s, status)
-		}
-		return fmt.Errorf("ping: %w (status %d)", ErrUnreachable, status)
+	if resp.StatusCode != http.StatusAccepted {
+		defer drain(resp)
+		return statusFailure("ping", resp)
 	}
+	drain(resp)
 	// best effort: do not leave the session open
 	if base, perr := url.Parse(startURL); perr == nil && loc != "" {
 		if u, perr := base.Parse(loc); perr == nil {
@@ -243,10 +240,7 @@ func (c *Client) PingPull(ctx context.Context) error {
 	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound {
 		return nil
 	}
-	if s := classifyStatus(resp.StatusCode); s != nil {
-		return fmt.Errorf("ping: %w (status %d)", s, resp.StatusCode)
-	}
-	return fmt.Errorf("ping: %w (status %d)", ErrUnreachable, resp.StatusCode)
+	return statusFailure("ping", resp)
 }
 
 // PingCredentials proves the registry accepts the account without naming a repository (an organizer secret may
@@ -290,10 +284,7 @@ func (c *Client) PingCredentials(ctx context.Context) error {
 	if resp.StatusCode == http.StatusOK {
 		return nil
 	}
-	if s := classifyStatus(resp.StatusCode); s != nil {
-		return fmt.Errorf("ping: %w (status %d)", s, resp.StatusCode)
-	}
-	return fmt.Errorf("ping: %w (status %d)", ErrUnreachable, resp.StatusCode)
+	return statusFailure("ping", resp)
 }
 
 func (c *Client) head(ctx context.Context, url, accept, scope, op string) (bool, error) {
@@ -329,10 +320,7 @@ func (c *Client) headSize(ctx context.Context, url, accept, scope, op string) (b
 	if resp.StatusCode == http.StatusNotFound {
 		return false, 0, nil
 	}
-	if s := classifyStatus(resp.StatusCode); s != nil {
-		return false, 0, fmt.Errorf("%s: %w (status %d)", op, s, resp.StatusCode)
-	}
-	return false, 0, fmt.Errorf("%s: %w (status %d)", op, ErrUnreachable, resp.StatusCode)
+	return false, 0, statusFailure(op, resp)
 }
 
 // BlobSize reports whether the repository has the blob and its size as the registry states it (HEAD
@@ -366,10 +354,7 @@ func (c *Client) GetBlob(ctx context.Context, digest string, max int64) ([]byte,
 	}
 	defer drain(resp)
 	if resp.StatusCode != http.StatusOK {
-		if s := classifyStatus(resp.StatusCode); s != nil {
-			return nil, fmt.Errorf("get blob: %w (status %d)", s, resp.StatusCode)
-		}
-		return nil, fmt.Errorf("get blob: %w (status %d)", ErrUnreachable, resp.StatusCode)
+		return nil, statusFailure("get blob", resp)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
 	if err != nil {
@@ -423,14 +408,11 @@ func (c *Client) PushBlob(ctx context.Context, digest string, size int64, r io.R
 		return err
 	}
 	loc := resp.Header.Get("Location")
-	status := resp.StatusCode
-	drain(resp)
-	if status != http.StatusAccepted {
-		if s := classifyStatus(status); s != nil {
-			return fmt.Errorf("push blob: %w (status %d)", s, status)
-		}
-		return fmt.Errorf("push blob: %w (status %d)", ErrUnreachable, status)
+	if resp.StatusCode != http.StatusAccepted {
+		defer drain(resp)
+		return statusFailure("push blob", resp)
 	}
+	drain(resp)
 	base, _ := url.Parse(startURL)
 	u, err := base.Parse(loc)
 	if err != nil || loc == "" {
@@ -454,10 +436,7 @@ func (c *Client) PushBlob(ctx context.Context, digest string, size int64, r io.R
 	if resp.StatusCode == http.StatusCreated || resp.StatusCode == http.StatusOK {
 		return nil
 	}
-	if s := classifyStatus(resp.StatusCode); s != nil {
-		return fmt.Errorf("push blob: %w (status %d)", s, resp.StatusCode)
-	}
-	return fmt.Errorf("push blob: %w (status %d)", ErrUnreachable, resp.StatusCode)
+	return statusFailure("push blob", resp)
 }
 
 // PutManifest uploads a manifest under a tag and returns its sha256 digest.
@@ -481,10 +460,7 @@ func (c *Client) PutManifest(ctx context.Context, tag, mediaType string, body []
 	}
 	defer drain(resp)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		if s := classifyStatus(resp.StatusCode); s != nil {
-			return "", fmt.Errorf("put manifest: %w (status %d)", s, resp.StatusCode)
-		}
-		return "", fmt.Errorf("put manifest: %w (status %d)", ErrUnreachable, resp.StatusCode)
+		return "", statusFailure("put manifest", resp)
 	}
 	sum := sha256.Sum256(body)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
