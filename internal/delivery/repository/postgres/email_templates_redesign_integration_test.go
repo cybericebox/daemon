@@ -134,6 +134,11 @@ func TestInAppTemplatesRedesignMigration(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Pool.Exec(ctx, up)
 	require.NoError(t, err)
+	// Re-running 0128 empties the links again; the later migrations that fill links run again too.
+	for _, later := range []string{"0188_manager_assigned_link.up.sql"} {
+		_, err = db.Pool.Exec(ctx, readMigration(t, later))
+		require.NoError(t, err)
+	}
 	oldTitle, _, _, _ := load("flag_accepted")
 	require.Equal(t, "Прапор зараховано", oldTitle)
 	_, body, _, _ = load("flag_accepted")
