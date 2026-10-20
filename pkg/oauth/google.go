@@ -62,11 +62,16 @@ func newGoogleClientConfig(cfg ClientConfig, redirectTemplate string) *oauth2.Co
 
 // GetGoogleLoginURL generates a signed state token — embedding redirect so it
 // survives the round-trip to Google without a cookie — and returns the Google
-// consent URL.
-func (c *Client) GetGoogleLoginURL(redirect string) (loginURL string, state string, err error) {
-	state, err = c.newStateToken(redirect)
+// consent URL. A non-empty loginHint (an email address) goes out as Google's
+// login_hint, so the account chooser preselects that account.
+func (c *Client) GetGoogleLoginURL(redirect, loginHint string) (string, string, error) {
+	state, err := c.newStateToken(redirect)
 	if err != nil {
 		return "", "", fmt.Errorf("oauth: generate state: %w", err)
+	}
+	if loginHint != "" {
+		hint := oauth2.SetAuthURLParam("login_hint", loginHint)
+		return c.googleCfg.AuthCodeURL(state, hint), state, nil
 	}
 	return c.googleCfg.AuthCodeURL(state), state, nil
 }

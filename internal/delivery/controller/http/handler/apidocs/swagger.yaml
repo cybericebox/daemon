@@ -12382,6 +12382,10 @@ paths:
         in: query
         name: return_to
         type: string
+      - description: email address the Google account chooser preselects
+        in: query
+        name: login_hint
+        type: string
       responses:
         "307":
           description: Temporary Redirect
@@ -12491,6 +12495,10 @@ paths:
       - description: post-registration landing URL (kept on /setup)
         in: query
         name: return_to
+        type: string
+      - description: email address the Google account chooser preselects
+        in: query
+        name: login_hint
         type: string
       responses:
         "307":

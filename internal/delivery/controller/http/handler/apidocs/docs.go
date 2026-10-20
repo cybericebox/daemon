@@ -1414,6 +1414,12 @@ const docTemplate = `{
                         "description": "post-auth landing URL",
                         "name": "return_to",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "email address the Google account chooser preselects",
+                        "name": "login_hint",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1583,6 +1589,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "post-registration landing URL (kept on /setup)",
                         "name": "return_to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "email address the Google account chooser preselects",
+                        "name": "login_hint",
                         "in": "query"
                     }
                 ],
