@@ -1,0 +1,70 @@
+# One-off Job that runs `loadtest-users delete` (or a dry run) inside the platform namespace.
+# NOT APPLIED by anyone: the owner applies it by hand during cleanup (tools/loadtest/RUNBOOK.md, "Cleanup").
+# Do not use it for `create`: the credentials would land in the pod log. Create with `kubectl exec` and
+# redirect stdout to the private file (RUNBOOK, step "Create the accounts").
+#
+# Fill in the four values marked <...> (all from the running backend):
+#   <NS>      platform namespace            make aws kube ARGS='get ns'
+#   <IMAGE>   the backend image, exactly    make aws kube ARGS='-n <NS> get deploy backend -o jsonpath={.spec.template.spec.containers[0].image}'
+#   <PG>      CNPG cluster name (secret <PG>-app / <PG>-ca)   make aws kube ARGS='-n <NS> get cluster.postgresql.cnpg.io'
+#   <RUN>     the run id used by `create`
+#
+#   sed -e 's|<NS>|...|' -e 's|<IMAGE>|...|' -e 's|<PG>|...|' -e 's|<RUN>|...|' loadtest-users-job.yaml | kubectl apply -f -
+#   kubectl -n <NS> logs job/loadtest-users-delete-<RUN>
+#   kubectl -n <NS> delete job loadtest-users-delete-<RUN>      (ttl below removes it in an hour anyway)
+#
+# The pod copies what the backend Deployment gives its container (infrastructure/cloud/ansible/roles/platform/templates/apps.yaml.j2):
+# backend-env and backend-secret, the database role from the CNPG secret, the database CA, the same non-root user, and the
+# cybericebox.io/data-access label that the NetworkPolicy needs to reach Postgres. If the Deployment changes, copy the change.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loadtest-users-delete-<RUN>
+  namespace: <NS>
+  labels:
+    app: loadtest-users
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: loadtest-users
+        cybericebox.io/data-access: "true"
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: loadtest-users
+          image: <IMAGE>
+          command: ["/app/loadtest-users"]
+          # `--dry-run` first: it lists the count only. Remove the flag for the real delete.
+          args: ["delete", "--run", "<RUN>", "--dry-run"]
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}
+          envFrom:
+            - configMapRef: {name: backend-env}
+            - secretRef: {name: backend-secret}
+          env:
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: <PG>-app, key: username}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: <PG>-app, key: password}}
+            - name: POSTGRES_DB
+              valueFrom: {secretKeyRef: {name: <PG>-app, key: dbname}}
+            # Present when the database uses TLS (the default); harmless otherwise only if the mount below is kept too.
+            - {name: PGSSLROOTCERT, value: /pg-ca/ca.crt}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: pg-ca, mountPath: /pg-ca, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+        - name: pg-ca
+          secret:
+            secretName: <PG>-ca
+            items: [{key: ca.crt, path: ca.crt}]
