@@ -43,21 +43,19 @@ func ParsePlatformRef(s string) (PlatformRef, bool) {
 
 func (r PlatformRef) String() string { return platformPrefix + r.Name + "@" + r.Digest }
 
-// maxTagNameLen keeps a tag within the OCI limit of 128 characters: name, "-", 64 hex.
-const maxTagNameLen = 128 - 1 - 64
+// tagPrefix opens every platform tag: sha256-<64 hex> (a tag cannot hold the ":" of a digest).
+const tagPrefix = "sha256-"
 
-// Tag is the registry tag pushed for the reference: <name>-<the whole digest hex>, the name cut to 63 characters
-// (separators left at the cut are trimmed). The tag carries the full digest: with a prefix, an author could craft an
-// image whose digest shares it and re-point another image's tag. "" for an invalid reference.
+// Tag is the registry tag pushed for the reference: sha256-<the whole digest hex>, the same for every name. The
+// same content is the same tag, so a second upload reuses it, and the tag carries the full digest: with a prefix, an
+// author could craft an image whose digest shares it and re-point another image's tag. "" for an invalid digest.
+// Tags pushed before this form (<name>-<hex>) stay in platform_images and the registry; the tag collector works
+// from the stored row, so both forms are collected alike.
 func (r PlatformRef) Tag() string {
-	if !digestRe.MatchString(r.Digest) || !platformNameRe.MatchString(r.Name) {
+	if !digestRe.MatchString(r.Digest) {
 		return ""
 	}
-	name := r.Name
-	if len(name) > maxTagNameLen {
-		name = strings.TrimRight(name[:maxTagNameLen], "._-")
-	}
-	return name + "-" + strings.TrimPrefix(r.Digest, "sha256:")
+	return tagPrefix + strings.TrimPrefix(r.Digest, "sha256:")
 }
 
 // SanitizeName turns arbitrary text into a valid platform image name.

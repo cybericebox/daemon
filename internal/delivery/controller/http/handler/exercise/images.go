@@ -216,7 +216,7 @@ func (h *Handler) imageBlobStatus(ctx *gin.Context) {
 
 // createImage godoc
 // @Summary  Create a platform image from blobs already in the registry
-// @Description  Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag <name>-<the whole digest hex> and returns the platform reference for the device.
+// @Description  Same access as saving the draft. Builds the manifest (Docker schema 2 when every type is Docker's, otherwise OCI), pushes it under the tag sha256-<the whole digest hex> (the digest alone: the same content is the same tag whatever its name) and returns the platform reference for the device.
 // @Tags     exercises
 // @Accept   json
 // @Produce  json

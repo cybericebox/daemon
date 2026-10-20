@@ -249,3 +249,22 @@ func TestCollectNeverRemovesATagAnotherDigestMapsTo(t *testing.T) {
 		t.Fatalf("calls %+v", a.calls)
 	}
 }
+
+// Tags pushed before the digest-only form (<name>-<hex>) are collected from their stored rows beside the new ones.
+func TestCollectRemovesLegacyNamedTagsBesideDigestOnlyOnes(t *testing.T) {
+	f, a := gcFixture(t)
+	f.expectSweep()
+	f.unreferenced(img("sha256:aa", "web-aa"), img("sha256:aa", "sha256-aa"))
+	f.expectCollectable("sha256:aa", true)
+	f.expectRowDeleted("sha256:aa", "web-aa")
+	f.expectRowDeleted("sha256:aa", "sha256-aa")
+
+	n, err := f.uc.CollectUnusedTags(context.Background(), t0)
+	if err != nil || n != 2 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	want := []deleteCall{{"acme", pushToken, "acme/platform", []string{"web-aa", "sha256-aa"}}}
+	if fmt.Sprint(a.calls) != fmt.Sprint(want) {
+		t.Fatalf("calls %v want %v", a.calls, want)
+	}
+}

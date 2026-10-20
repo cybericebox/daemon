@@ -712,3 +712,43 @@ func TestPushImageBlobTimeoutMidChunkIsUnreachable(t *testing.T) {
 		t.Fatal("the upload must stay for a retry")
 	}
 }
+
+// The tag is the digest alone: the same content uploaded under another name is the same tag, a no-op re-push that
+// only refreshes the row, and the tag never carries the name.
+func TestCreateImageUsesTheDigestOnlyTagWhateverTheName(t *testing.T) {
+	f := newUploadFixture(t, true)
+	f.preload(t, configBytes, layerBytes)
+	in := testImage()
+	m, err := imageRegistryModel.BuildManifest(in.Config, in.Layers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTag := "sha256-" + strings.TrimPrefix(m.Digest, "sha256:")
+	f.q.EXPECT().PlatformImageTagTakenByOtherDigest(gomock.Any(), postgres.PlatformImageTagTakenByOtherDigestParams{Tag: wantTag, Digest: m.Digest}).
+		Return(false, nil).Times(2)
+	var written []postgres.UpsertPlatformImageParams
+	f.q.EXPECT().UpsertPlatformImage(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p postgres.UpsertPlatformImageParams) error {
+			written = append(written, p)
+			return nil
+		}).Times(2)
+
+	first, err := f.uc.CreateImage(as(uploader), exerciseID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Name = "Another Name"
+	second, err := f.uc.CreateImage(as(uploader), exerciseID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Reference == second.Reference {
+		t.Fatalf("the reference keeps the name: %q", first.Reference)
+	}
+	if len(written) != 2 || written[0].Tag != wantTag || written[1].Tag != wantTag {
+		t.Fatalf("tags %+v, want %q twice", written, wantTag)
+	}
+	if ok, err := f.registry().ManifestExists(context.Background(), wantTag); err != nil || !ok {
+		t.Fatalf("tag %s pushed=%v err=%v", wantTag, ok, err)
+	}
+}

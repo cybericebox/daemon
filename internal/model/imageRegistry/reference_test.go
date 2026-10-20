@@ -20,7 +20,7 @@ func TestPlatformRefRoundTrip(t *testing.T) {
 	if ref.String() != s {
 		t.Fatalf("String = %q", ref.String())
 	}
-	if ref.Tag() != "web-"+hexA {
+	if ref.Tag() != "sha256-"+hexA {
 		t.Fatalf("Tag = %q", ref.Tag())
 	}
 }
@@ -128,25 +128,24 @@ func TestParseImageRefInvalid(t *testing.T) {
 // cut to 63 characters, separators left at the cut are trimmed, and the tag stays a valid OCI tag of at most 128.
 func TestPlatformRefTagCarriesTheFullDigest(t *testing.T) {
 	ociTag := regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
-	cases := []struct{ name, wantName string }{
-		{"web", "web"},
-		{strings.Repeat("a", 63), strings.Repeat("a", 63)},
-		{strings.Repeat("a", 64), strings.Repeat("a", 63)},
-		{strings.Repeat("a", 62) + "-b", strings.Repeat("a", 62)},
-		{strings.Repeat("a", 61) + "b.c", strings.Repeat("a", 61) + "b"},
-	}
-	for _, c := range cases {
-		ref, err := NewPlatformRef(c.name, "sha256:"+hexA)
+	for _, name := range []string{"web", strings.Repeat("a", 63), strings.Repeat("a", 64), strings.Repeat("a", 62) + "-b"} {
+		ref, err := NewPlatformRef(name, "sha256:"+hexA)
 		if err != nil {
-			t.Fatalf("%q: %v", c.name, err)
+			t.Fatalf("%q: %v", name, err)
 		}
 		tag := ref.Tag()
-		if tag != c.wantName+"-"+hexA {
-			t.Errorf("%q: Tag = %q", c.name, tag)
+		if tag != "sha256-"+hexA {
+			t.Errorf("%q: Tag = %q, the name must not be part of it", name, tag)
 		}
 		if len(tag) > 128 || !ociTag.MatchString(tag) {
-			t.Errorf("%q: Tag %q (%d) is not a valid OCI tag", c.name, tag, len(tag))
+			t.Errorf("%q: Tag %q (%d) is not a valid OCI tag", name, tag, len(tag))
 		}
+	}
+	// The same content under two names is one tag.
+	x, _ := NewPlatformRef("web", "sha256:"+hexA)
+	y, _ := NewPlatformRef("db", "sha256:"+hexA)
+	if x.Tag() != y.Tag() {
+		t.Errorf("same digest, different tags: %q %q", x.Tag(), y.Tag())
 	}
 	// Two digests sharing their first 12 hex characters get different tags.
 	a, _ := NewPlatformRef("web", "sha256:"+strings.Repeat("a", 12)+strings.Repeat("b", 52))
@@ -157,9 +156,20 @@ func TestPlatformRefTagCarriesTheFullDigest(t *testing.T) {
 }
 
 func TestPlatformRefTagZeroValue(t *testing.T) {
-	for _, r := range []PlatformRef{{}, {Name: "web"}, {Name: "web", Digest: "sha256:abc"}, {Digest: "sha256:" + hexA}} {
+	for _, r := range []PlatformRef{{}, {Name: "web"}, {Name: "web", Digest: "sha256:abc"}} {
 		if got := r.Tag(); got != "" {
 			t.Errorf("%+v: Tag = %q, want empty", r, got)
+		}
+	}
+}
+
+// References stored before the digest-only tags still parse: the tag form is separate from the reference.
+func TestParsePlatformRefKeepsTheNameOfStoredReferences(t *testing.T) {
+	for _, name := range []string{"web", "my-web-server", "a.b_c"} {
+		s := "platform:" + name + "@sha256:" + hexA
+		ref, ok := ParsePlatformRef(s)
+		if !ok || ref.Name != name || ref.String() != s || ref.Tag() != "sha256-"+hexA {
+			t.Errorf("%q: %+v ok=%v tag=%q", s, ref, ok, ref.Tag())
 		}
 	}
 }
