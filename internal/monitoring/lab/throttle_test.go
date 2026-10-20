@@ -5,13 +5,25 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/assert"
 
 	labpb "github.com/cybericebox/laboratory/pkg/agent/protobuf"
+
+	labBindingModel "github.com/cybericebox/daemon/internal/model/labBinding"
 )
 
+// eventGroup is the lab group of an event team; the test deploys use other names (tu-<user>).
+var eventGroup = func() string {
+	name, err := labBindingModel.GroupName(uuid.FromStringOrNil("01a12a96-cb5c-748f-aebd-ab97d42cf174"), uuid.FromStringOrNil("01a1466c-bfed-7eff-97c3-07e549a387c8"))
+	if err != nil {
+		panic(err)
+	}
+	return name
+}()
+
 func throttledLab(uid string, devices map[string]int32) *labpb.Lab {
-	lab := &labpb.Lab{Namespace: "ns", Name: "lab-" + uid, Uid: uid, LabGroupName: "group", Status: &labpb.LabStatus{}}
+	lab := &labpb.Lab{Namespace: "ns", Name: "lab-" + uid, Uid: uid, LabGroupName: eventGroup, Status: &labpb.LabStatus{}}
 	for name, percent := range devices {
 		lab.Status.Devices = append(lab.Status.Devices, &labpb.LabDeviceStatus{Name: name, CpuThrottledPercent: percent, CpuThrottleWindowSeconds: 300})
 	}
@@ -37,7 +49,7 @@ func TestThrottleWatcherAlertsAboveFiftyPercentOncePerDevicePerLabRun(t *testing
 	ctx := context.Background()
 
 	w.Observe(ctx, &labpb.MonitoringUpdate{Labs: []*labpb.Lab{throttledLab("u1", map[string]int32{"web": 50, "db": 60, "idle": 0})}})
-	assert.Equal(t, []ThrottleAlert{{AgentID: "agent-1", Namespace: "ns", LabName: "lab-u1", LabGroupName: "group", Run: "u1", Device: "db", Percent: 60, WindowSeconds: 300}}, a.got, "50 is not above 50; 0 is no data")
+	assert.Equal(t, []ThrottleAlert{{AgentID: "agent-1", Namespace: "ns", LabName: "lab-u1", LabGroupName: eventGroup, Run: "u1", Device: "db", Percent: 60, WindowSeconds: 300}}, a.got, "50 is not above 50; 0 is no data")
 
 	w.Observe(ctx, &labpb.MonitoringUpdate{Labs: []*labpb.Lab{throttledLab("u1", map[string]int32{"db": 90, "web": 70})}})
 	assert.Len(t, a.got, 2, "db is not alerted again, web is new")
@@ -81,4 +93,23 @@ func TestThrottleWatcherToleratesLabsWithoutStatusAndNilNotifier(t *testing.T) {
 	w.Observe(context.Background(), &labpb.MonitoringUpdate{Labs: []*labpb.Lab{{Name: "bare"}}})
 	assert.Empty(t, a.got)
 	NewThrottleWatcher("agent-1", nil).Observe(context.Background(), &labpb.MonitoringUpdate{Labs: []*labpb.Lab{throttledLab("u1", map[string]int32{"db": 80})}})
+}
+
+func TestThrottleWatcherIgnoresLabsThatAreNotAnEventTeams(t *testing.T) {
+	a := &alerts{}
+	w := NewThrottleWatcher("agent-1", a.notify)
+	ctx := context.Background()
+	hot := map[string]int32{"db": 90}
+
+	// A catalog test deploy or an event preview runs in a tu-<user> group, with a small CPU on purpose.
+	test := throttledLab("u1", hot)
+	test.LabGroupName = "tu-01a12a96-cb5c-748f-aebd-ab97d42cf174"
+	empty := throttledLab("u2", hot)
+	empty.LabGroupName = ""
+	w.Observe(ctx, &labpb.MonitoringUpdate{Labs: []*labpb.Lab{test, empty}})
+	assert.Empty(t, a.got, "no alert for a lab outside an event team")
+
+	w.Observe(ctx, &labpb.MonitoringUpdate{Labs: []*labpb.Lab{test, throttledLab("u3", hot)}})
+	assert.Len(t, a.got, 1, "an event team's lab is alerted")
+	assert.Equal(t, "u3", a.got[0].Run)
 }

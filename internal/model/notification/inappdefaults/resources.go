@@ -12,7 +12,7 @@ func init() {
 		Template{"resources.change.rejected", "Запит на ресурси відхилено", "Запит на зміну резерву ресурсів заходу «{{.event_name}}» відхилено.", ""},
 		Template{"resources.alarm.raised", "Резерв ресурсів не забезпечено", "Захід «{{.event_name}}»: резерв ресурсів не забезпечено ({{.alarm_kind}}, команд: {{.units}}). Перегляньте розклад ресурсів.", "{{.admin_url}}resources/"},
 		Template{"resources.labs.withdrawn", "Лабораторіям бракує вузлів", "Агент «{{.agent_name}}»: групу лабораторій {{.group}} відкликано вже {{.attempt}} рази поспіль — не всі її поди отримали вузол вчасно. Перевірте місткість кластера.", "{{.admin_url}}resources/"},
-		Template{"resources.cpu.throttled", "Пристрій впирається в ліміт CPU", "Пристрій «{{.device_name}}» лабораторії «{{.lab_name}}» був уповільнений лімітом CPU у {{.percent}}% періодів за останні {{.window_minutes}} хв. Перегляньте ресурси.", "{{.admin_url}}resources/"},
+		Template{"resources.cpu.throttled", "Пристрій впирається в ліміт CPU", "Пристрій «{{.device_name}}» лабораторії «{{.lab_name}}» був уповільнений лімітом CPU у {{.percent}}% періодів за останні {{.window_minutes}} хв.", ""},
 	)
 	en = append(en,
 		Template{"resources.change.requested", "Resource change requested", "{{.requester_name}} asks to change the resource reservation of «{{.event_name}}»: {{.summary}}. Reason: {{.reason}}.", "{{.admin_url}}resources/"},
@@ -20,7 +20,7 @@ func init() {
 		Template{"resources.change.rejected", "Resource request declined", "The request to change the resource reservation of «{{.event_name}}» was declined.", ""},
 		Template{"resources.alarm.raised", "Resource reservation not covered", "Event «{{.event_name}}»: the resource reservation cannot be served ({{.alarm_kind}}, teams: {{.units}}). Check the resource calendar.", "{{.admin_url}}resources/"},
 		Template{"resources.labs.withdrawn", "Labs are short of nodes", "Agent «{{.agent_name}}»: the lab group {{.group}} was withdrawn {{.attempt}} times in a row — not every pod got a node in time. Check the cluster capacity.", "{{.admin_url}}resources/"},
-		Template{"resources.cpu.throttled", "A device hits its CPU limit", "Device «{{.device_name}}» of lab «{{.lab_name}}» was slowed by its CPU limit in {{.percent}}% of periods over the last {{.window_minutes}} min. Check the resources.", "{{.admin_url}}resources/"},
+		Template{"resources.cpu.throttled", "A device hits its CPU limit", "Device «{{.device_name}}» of lab «{{.lab_name}}» was slowed by its CPU limit in {{.percent}}% of periods over the last {{.window_minutes}} min.", ""},
 	)
 }
 

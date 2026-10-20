@@ -53,9 +53,18 @@ type CPUThrottle struct {
 	RaisedAt      time.Time
 }
 
-// CPUThrottled tells every platform admin that a lab device is throttled above the threshold. The caller raises
-// it once per device per lab run.
+// CPUThrottled tells every platform admin that a lab device is throttled above the threshold, once per device per
+// lab run: a request already delivered for it (open or closed by an admin) is not sent again, even after a restart
+// of the daemon that forgot the alert.
 func (r *RequestRouter) CPUThrottled(ctx context.Context, t CPUThrottle) error {
+	ref := inboxModel.CPUThrottleRef(t.LabRun, t.Device)
+	sent, err := r.inbox.SubjectExists(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("inbox requests: check the CPU throttling alert: %w", err)
+	}
+	if sent {
+		return nil
+	}
 	admins, err := r.queries.ListPlatformAdminUserIDs(ctx)
 	if err != nil {
 		return fmt.Errorf("inbox requests: list platform admins: %w", err)
@@ -64,7 +73,7 @@ func (r *RequestRouter) CPUThrottled(ctx context.Context, t CPUThrottle) error {
 		"lab_name": t.LabName, "lab_group_name": t.LabGroupName, "device_name": t.Device, "agent_id": t.AgentID,
 		"percent": strconv.Itoa(t.Percent), "window_minutes": strconv.Itoa((t.WindowSeconds + 59) / 60), "admin_url": r.adminURL,
 	}
-	meta := inboxModel.NewMeta(inboxModel.TypeResourceCPUThrottled, inboxModel.RoleAdmin, inboxModel.CPUThrottleRef(t.LabRun, t.Device)).Raised(t.RaisedAt)
+	meta := inboxModel.NewMeta(inboxModel.TypeResourceCPUThrottled, inboxModel.RoleAdmin, ref).Raised(t.RaisedAt)
 	return r.fanOut(ctx, admins, inboxModel.TypeResourceCPUThrottled, vars, meta)
 }
 
