@@ -616,6 +616,27 @@ func TestProcess_DeferredEmail_RecordsDeferredAndSnoozes(t *testing.T) {
 	require.Equal(t, 10*time.Minute, got.RetryAfter)
 }
 
+func TestProcess_SkippedEmail_IsDoneWithReasonAndNotRetried(t *testing.T) {
+	ctrl, repo, handler, uc := setupFull(t)
+	defer ctrl.Finish()
+
+	id, uid := tools.NewUUIDv7(), tools.NewUUIDv7()
+	repo.EXPECT().SetDispatchStatus(gomock.Any(), postgres.SetDispatchStatusParams{ID: id, Status: "started"}).Return(nil)
+	repo.EXPECT().GetUserByID(gomock.Any(), uid).Return(postgres.User{ID: uid, Email: "lt-x-001@loadtest.invalid"}, nil)
+	repo.EXPECT().GetActiveChannels(gomock.Any(), gomock.Any()).Return([]string{string(notificationTypes.NotificationChannelInApp)}, nil)
+	// One call only: a skipped message is not retried.
+	handler.EXPECT().Handle(gomock.Any(), gomock.Any(), notificationTypes.NotificationTypeFlagAccepted, gomock.Any(), nil).
+		Return(&dispatchModel.SkippedError{Message: dispatchModel.SkippedMessageReserved}).Times(1)
+	repo.EXPECT().UpsertDispatchTarget(gomock.Any(), postgres.UpsertDispatchTargetParams{
+		DispatchID: id, Channel: string(notificationTypes.NotificationChannelInApp), Status: "done", Error: dispatchModel.SkippedMessageReserved,
+	}).Return(nil).Times(1)
+	repo.EXPECT().SetDispatchStatus(gomock.Any(), postgres.SetDispatchStatusParams{ID: id, Status: "done"}).Return(nil)
+
+	require.NoError(t, uc.ProcessNotification(context.Background(), dispatchModel.ProcessInput{
+		DispatchID: id, UserID: uid, Type: string(notificationTypes.NotificationTypeFlagAccepted),
+	}))
+}
+
 func TestProcess_FailedDeliveryRemainsRetryable(t *testing.T) {
 	_, repo, handler, uc := setupFull(t)
 	id, uid := tools.NewUUIDv7(), tools.NewUUIDv7()

@@ -30,7 +30,7 @@ func TestDeliver_MIMEBodiesKeepContentAndFooter(t *testing.T) {
 			repo.EXPECT().ListPlatformSMTPProviders(gomock.Any()).Return([]postgres.MailSmtpConfig{platformRow}, nil)
 			expectPlatformIdentity(repo, &platformIdentityRow)
 			text := "Помилка & деталі\nStack: main.go:42"
-			require.NoError(t, uc.Deliver(context.Background(), nil, email.Message{To: "ops@example.test", Subject: "Помилка", Text: text, HTML: htmlBody}))
+			require.NoError(t, uc.Deliver(context.Background(), nil, email.Message{To: "ops@example.org", Subject: "Помилка", Text: text, HTML: htmlBody}))
 			require.Len(t, smtp.sends, 1)
 			sent := smtp.sends[0].msg
 			var raw bytes.Buffer
