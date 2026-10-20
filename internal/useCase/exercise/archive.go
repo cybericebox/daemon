@@ -1003,6 +1003,11 @@ func archiveChecksumMismatch(file string) error {
 }
 
 func safeArchivePath(n string) bool {
-	return n != "" && n != "." && n != ".." && n == path.Clean(n) && !strings.HasPrefix(n, "/") && !strings.HasPrefix(n, "../") && !strings.Contains(n, "\\") && n != "manifest.json"
+	return n != "" && n != "." && n != ".." && n == path.Clean(n) && !strings.HasPrefix(n, "/") && !strings.HasPrefix(n, "../") && !strings.Contains(n, "\\") && !hasDriveLetter(n) && n != "manifest.json"
+}
+
+// hasDriveLetter tells a Windows drive path ("C:/x"): it is absolute there, so an archive may not carry it.
+func hasDriveLetter(n string) bool {
+	return len(n) >= 2 && n[1] == ':' && (n[0] >= 'a' && n[0] <= 'z' || n[0] >= 'A' && n[0] <= 'Z')
 }
 func hashBytes(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
