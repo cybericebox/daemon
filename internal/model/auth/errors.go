@@ -102,8 +102,8 @@ var (
 	// this profile, so it cannot prove mailbox ownership.
 	ErrAuthGoogleEmailNotVerified = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 					WithMessage("Google email is not verified").WithDetailCode(24)
-	// ErrAuthGoogleEmailMismatch: a Google identity may complete a setup only
-	// when its verified email is the address of the account being set up.
+	// ErrAuthGoogleEmailMismatch: a Google identity may be linked (during setup
+	// or from the profile) only when its verified email is the account's address.
 	ErrAuthGoogleEmailMismatch = err.ErrInvalidData.WithObjectCode(model.AuthObjectCode).
 					WithMessage("Google email does not match the account").WithDetailCode(25)
 	// ErrAuthPasswordRequired: the action re-checks the account password, and

@@ -227,10 +227,13 @@ func (h *Handler) googleCallback(ctx *gin.Context) {
 			code,
 			state,
 		); err != nil {
-			response.TemporaryRedirect(
-				ctx,
-				h.hosts.IDURL("/profile/?error=link_failed"),
-			)
+			// A Google account with another address gets its own code: the
+			// connections section names the address to pick.
+			target := "/profile/?error=link_failed"
+			if errors.Is(err, authModel.ErrAuthGoogleEmailMismatch.Err()) {
+				target = "/profile/?tab=connections&error=email_mismatch"
+			}
+			response.TemporaryRedirect(ctx, h.hosts.IDURL(target))
 			return
 		}
 		response.TemporaryRedirect(

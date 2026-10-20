@@ -66,3 +66,21 @@ func TestGoogleSetupStart_UsesTheSetupToken(t *testing.T) {
 		)
 	}
 }
+
+// Linking from the profile with a Google account of another address lands on the connections section with its
+// own error, so the page can name the address to pick; other failures keep link_failed.
+func TestGoogleCallback_Link_EmailMismatchReturnsItsOwnError(t *testing.T) {
+	sid := &http.Cookie{Name: "__Host-cib_oauth_link_sid", Value: "sess"}
+	uc := &fakeUC{linkErr: authModel.ErrAuthGoogleEmailMismatch.Err()}
+	w := serve(t, uc, callbackReq("link", sid))
+	mismatch := "https://id.example.test/profile/?tab=connections&error=email_mismatch"
+	if loc := w.Header().Get("Location"); loc != mismatch {
+		t.Fatalf("got %q", loc)
+	}
+	other := &fakeUC{linkErr: authModel.ErrAuthGoogleEmailNotVerified.Err()}
+	w = serve(t, other, callbackReq("link", sid))
+	failed := "https://id.example.test/profile/?error=link_failed"
+	if loc := w.Header().Get("Location"); loc != failed {
+		t.Fatalf("other failure: got %q", loc)
+	}
+}

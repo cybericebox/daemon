@@ -260,8 +260,8 @@ func (u *AuthUseCase) linkGoogleToSetup(
 	if user.Status != userModel.UserStatusIncomplete {
 		return authModel.ErrSetupAlreadyComplete.Err()
 	}
-	if normalizeEmail(googleEmail) != normalizeEmail(user.Email) {
-		return authModel.ErrAuthGoogleEmailMismatch.WithError(errors.New("google-link-setup: google email differs from the account email")).Err()
+	if err = requireAccountGoogleEmail(user.Email, googleEmail); err != nil {
+		return err
 	}
 	if err = u.linkGoogleProvider(ctx, userID, googleProviderID); err != nil {
 		return err
@@ -303,7 +303,9 @@ func (u *AuthUseCase) LinkGoogleToSetupFromOAuth(ctx context.Context, setupToken
 
 // LinkGoogleToAccountFromOAuth links a Google identity to the signed-in user.
 // The OAuth callback runs outside the auth middleware, so identity comes from
-// the session cookie. Rejects if the Google account is already linked elsewhere.
+// the session cookie. An account links exactly the Google account of its own
+// address (its verified email must be the account email); rejects if the
+// Google account is already linked elsewhere.
 func (u *AuthUseCase) LinkGoogleToAccountFromOAuth(ctx context.Context, sessionCookieValue, code, state string) error {
 	res, err := u.ValidateSessionCookie(ctx, sessionCookieValue)
 	if err != nil {
@@ -313,7 +315,26 @@ func (u *AuthUseCase) LinkGoogleToAccountFromOAuth(ctx context.Context, sessionC
 	if err != nil {
 		return err
 	}
+	user, err := u.users.GetByID(ctx, res.Claims.UserID)
+	if err != nil {
+		return model.ErrPlatform.WithError(err).
+			WithMessage("Failed to get user for google link").Err()
+	}
+	if err = requireAccountGoogleEmail(user.Email, googleUser.Email); err != nil {
+		return err
+	}
 	return u.linkGoogleProvider(ctx, res.Claims.UserID, googleUser.GoogleID)
+}
+
+// requireAccountGoogleEmail is the one rule of every Google link (setup and profile): an account links exactly
+// the Google account of its own address, compared without case. Otherwise anyone could bind THEIR Google identity
+// (or, via a forced GET, a victim's) to an account that is not theirs.
+func requireAccountGoogleEmail(accountEmail, googleEmail string) error {
+	if normalizeEmail(googleEmail) != normalizeEmail(accountEmail) {
+		return authModel.ErrAuthGoogleEmailMismatch.
+			WithError(errors.New("google-link: google email differs from the account email")).Err()
+	}
+	return nil
 }
 
 // StartGoogleLink confirms the owner before a Google identity is bound to the signed-in account (the
