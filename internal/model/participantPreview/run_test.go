@@ -38,3 +38,16 @@ func TestRunHintsAreIdempotent(t *testing.T) {
 		t.Fatal("hint timestamp changed")
 	}
 }
+
+func TestRunCheckTrimsSurroundingWhitespace(t *testing.T) {
+	now := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
+	task := uuid.Must(uuid.NewV7())
+	run := NewRun(uuid.Nil, uuid.Nil, uuid.Nil, now)
+	run.Flags[task.String()] = "ICE{secret}"
+	if correct, _ := run.Check(task, " ICE{secret}\n", now); !correct {
+		t.Fatal("whitespace around a valid flag rejected")
+	}
+	if correct, _ := run.Check(task, "ice{secret}", now); correct {
+		t.Fatal("case mismatch accepted")
+	}
+}

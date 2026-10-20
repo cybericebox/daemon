@@ -828,7 +828,7 @@ func TestCheckTestFlag_ExactCaseSensitiveAuthorOnly(t *testing.T) {
 	q.EXPECT().MarkExerciseTestDeploySolved(gomock.Any(), gomock.Any()).Return(postgres.ExerciseTestDeployment{}, nil).AnyTimes()
 	uc := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q})
 
-	for flag, want := range map[string]bool{"ICE{Abc}": true, "ICE{abc}": false, "ICE{Abc} ": false, "": false} {
+	for flag, want := range map[string]bool{"ICE{Abc}": true, "ICE{abc}": false, " ICE{Abc}\n": true, "": false} {
 		got, err := uc.CheckTestFlag(context.Background(), owner, deployID, taskID, flag)
 		if err != nil || got != want {
 			t.Errorf("flag %q = %v, %v, want %v", flag, got, err, want)
