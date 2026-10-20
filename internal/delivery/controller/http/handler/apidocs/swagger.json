@@ -10412,6 +10412,36 @@
                 }
             }
         },
+        "/events/{id}/manage/participant-preview/labs/{deployID}": {
+            "delete": {
+                "description": "The cap error of a preview start names the running labs; this ends the chosen one. Only the caller's own labs.",
+                "tags": [
+                    "participant-preview"
+                ],
+                "summary": "End one of the caller's own test labs (studio or preview) to free a place at the test-lab cap",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Event ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "test lab (deploy) ID",
+                        "name": "deployID",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/events/{id}/manage/participant-preview/runs": {
             "delete": {
                 "tags": [

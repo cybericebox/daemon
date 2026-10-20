@@ -17748,6 +17748,28 @@ paths:
       summary: List published preview exercise variants
       tags:
       - participant-preview
+  /events/{id}/manage/participant-preview/labs/{deployID}:
+    delete:
+      description: The cap error of a preview start names the running labs; this ends
+        the chosen one. Only the caller's own labs.
+      parameters:
+      - description: Event ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: test lab (deploy) ID
+        in: path
+        name: deployID
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: End one of the caller's own test labs (studio or preview) to free a
+        place at the test-lab cap
+      tags:
+      - participant-preview
   /events/{id}/manage/participant-preview/runs:
     delete:
       parameters:

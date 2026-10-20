@@ -324,3 +324,50 @@ func TestEventPreviewLeaseEndRemovesTheLabAndReleasesTheRun(t *testing.T) {
 	require.Equal(t, []uuid.UUID{id}, gate.released)
 	require.Equal(t, uuid.Nil, gate.releaseEvent, "no event hold is touched")
 }
+
+// At the test-lab cap neither kind of lab replaces the other: a preview next to a running studio lab (and a studio
+// lab next to a running preview) is refused with an error that names the running lab, and nothing is removed.
+func TestTestLabCapNamesTheRunningLabAndRemovesNothing(t *testing.T) {
+	for _, previewRunning := range []bool{false, true} {
+		t.Run(fmt.Sprintf("preview running %v", previewRunning), func(t *testing.T) {
+			q := postgresMocks.NewMockQuerier(gomock.NewController(t))
+			owner, eventID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			variantID, versionID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			device := exerciseModel.Device{ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer, Image: "nginx"}
+			variants, _ := json.Marshal([]exerciseModel.Variant{{ID: variantID, Topology: exerciseModel.Topology{Devices: []exerciseModel.Device{device}}}})
+			q.EXPECT().GetExerciseVersionByID(gomock.Any(), versionID).Return(postgres.ExerciseVersion{ID: versionID, Variants: variants}, nil).AnyTimes()
+			runningVersion, runningExercise := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+			q.EXPECT().GetExerciseVersionByID(gomock.Any(), runningVersion).Return(postgres.ExerciseVersion{ID: runningVersion, ExerciseID: runningExercise}, nil).AnyTimes()
+			q.EXPECT().GetExerciseByID(gomock.Any(), runningExercise).Return(postgres.Exercise{ID: runningExercise, Name: "Running lab"}, nil).AnyTimes()
+			running := postgres.ExerciseTestDeployment{ID: uuid.Must(uuid.NewV7()), CreatedBy: owner, GroupName: "tu-" + owner.String(), LabName: "running", VersionID: runningVersion, ExpiresAt: time.Now().Add(time.Hour)}
+			if previewRunning {
+				running.EventID = uuid.NullUUID{UUID: eventID, Valid: true}
+			}
+			q.EXPECT().ListOwnedExerciseTestDeploys(gomock.Any(), owner).Return([]postgres.ExerciseTestDeployment{running}, nil).AnyTimes()
+			infra := &eventPreviewInfra{}
+			gate := &eventPreviewGate{}
+			u := exercise.NewExerciseUseCase(exercise.Dependencies{Repo: q, Infra: infra})
+			u.SetTestLabGate(gate)
+			var err error
+			if previewRunning {
+				_, err = u.DeployVariantTest(context.Background(), owner, versionID, variantID, 0)
+			} else {
+				_, err = u.DeployEventPreviewVariantTest(context.Background(), eventID, owner, versionID, variantID, 0)
+			}
+			require.ErrorIs(t, err, exerciseModel.ErrTestDeployActiveExists.Err())
+			var public interface{ PublicContext() map[string]any }
+			require.True(t, errors.As(err, &public))
+			labs, ok := public.PublicContext()["running"].([]map[string]any)
+			require.True(t, ok, "%+v", public.PublicContext())
+			require.Len(t, labs, 1)
+			require.Equal(t, running.ID.String(), labs[0]["ID"])
+			require.Equal(t, "Running lab", labs[0]["Name"])
+			_, hasEvent := labs[0]["EventID"]
+			require.Equal(t, previewRunning, hasEvent)
+			require.Zero(t, infra.deployCalls)
+			require.Empty(t, infra.destroyed)
+			require.Empty(t, infra.deletedLabs)
+			require.Empty(t, gate.released)
+		})
+	}
+}
