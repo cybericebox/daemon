@@ -388,6 +388,37 @@ func (c *Client) ManifestExists(ctx context.Context, reference string) (bool, er
 	return c.head(ctx, c.base(repo)+"/manifests/"+reference, manifestAccept, transport.PullScope, "manifest exists")
 }
 
+// ManifestDigest is the digest a registry states (Docker-Content-Digest) for the manifest under a tag, for a
+// registry whose tags cannot be updated: a tag that already serves the image needs no second PUT. found is false
+// for a 404. A found manifest whose registry sends no digest returns "" and the caller decides.
+func (c *Client) ManifestDigest(ctx context.Context, tag string) (digest string, found bool, err error) {
+	repo, err := c.repo()
+	if err != nil {
+		return "", false, err
+	}
+	hc, err := c.http(ctx, repo, transport.PushScope)
+	if err != nil {
+		return "", false, c.wrap("manifest digest", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.base(repo)+"/manifests/"+tag, nil)
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Accept", manifestAccept)
+	resp, err := c.do(hc, req, "manifest digest")
+	if err != nil {
+		return "", false, err
+	}
+	defer drain(resp)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return resp.Header.Get("Docker-Content-Digest"), true, nil
+	case http.StatusNotFound:
+		return "", false, nil
+	}
+	return "", false, statusFailure("manifest digest", resp)
+}
+
 // PushBlob uploads a blob of the given size with one streamed PUT after opening an upload session.
 func (c *Client) PushBlob(ctx context.Context, digest string, size int64, r io.Reader) error {
 	repo, err := c.repo()

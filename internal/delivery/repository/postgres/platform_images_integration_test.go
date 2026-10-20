@@ -51,7 +51,7 @@ func TestPlatformImageUpsertRefreshesTheUpload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tag != "web-"+strings.Repeat("a", 64) || name != "web" || by != second || !uploadedAt.Equal(t0.Add(time.Hour)) || exercise.Valid {
+	if tag != "sha256-"+strings.Repeat("a", 64) || name != "web" || by != second || !uploadedAt.Equal(t0.Add(time.Hour)) || exercise.Valid {
 		t.Fatalf("row tag=%s name=%s by=%s at=%s exercise=%v", tag, name, by, uploadedAt, exercise)
 	}
 }

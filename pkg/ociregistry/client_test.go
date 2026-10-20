@@ -357,3 +357,22 @@ func TestPingCredentialsPlainHTTPHostIsRefusedWithCredentials(t *testing.T) {
 	err := New(Options{Host: hostOf(srv), Username: "u", Password: fakePassword}).PingCredentials(context.Background())
 	require.ErrorIs(t, err, ErrInvalidReference)
 }
+
+func TestManifestDigestOfATag(t *testing.T) {
+	srv := httptest.NewServer(registry.New())
+	defer srv.Close()
+	c := newClient(srv, "", "")
+	ctx := context.Background()
+
+	_, found, err := c.ManifestDigest(ctx, "sha256-absent")
+	require.NoError(t, err)
+	require.False(t, found, "an absent tag is not found")
+
+	manifest := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:` + strings.Repeat("0", 64) + `","size":2},"layers":[]}`)
+	_, err = c.PutManifest(ctx, "sha256-present", "application/vnd.oci.image.manifest.v1+json", manifest)
+	require.NoError(t, err)
+	got, found, err := c.ManifestDigest(ctx, "sha256-present")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, digestOf(manifest), got)
+}
