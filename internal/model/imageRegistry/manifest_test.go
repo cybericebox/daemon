@@ -158,7 +158,7 @@ func TestNewPlatformImage(t *testing.T) {
 	ex, by := uuid.FromStringOrNil("01900000-0000-7000-8000-000000000001"), uuid.FromStringOrNil("01900000-0000-7000-8000-000000000002")
 	now := time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
 	img := NewPlatformImage(ref, ex, by, now)
-	if img.Digest != "sha256:"+hex1 || img.Tag != "web-"+hex1 || img.Name != "web" ||
+	if img.Digest != "sha256:"+hex1 || img.Tag != "sha256-"+hex1 || img.Name != "web" ||
 		img.ExerciseID != ex || img.UploadedBy != by || !img.UploadedAt.Equal(now) {
 		t.Fatalf("%+v", img)
 	}
