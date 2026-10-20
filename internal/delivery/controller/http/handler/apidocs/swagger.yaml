@@ -6331,6 +6331,9 @@ definitions:
         description: 'Resources is refused (400, 20974): a device size is a preset.
           It is never returned.'
       SecurityPreset:
+        description: |-
+          SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,
+          NET_ADMIN and /dev/net/tun). Any other value is refused.
         type: string
       Type:
         type: string

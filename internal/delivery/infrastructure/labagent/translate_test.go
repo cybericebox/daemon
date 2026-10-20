@@ -191,7 +191,7 @@ func TestBuildLabSpec_NoneOmitsAddrKey(t *testing.T) {
 func TestBuildLabSpec_ExposureAndPreset(t *testing.T) {
 	dev := exerciseModel.Device{
 		ID: uuid.Must(uuid.NewV7()), Name: "web", Type: exerciseModel.DeviceTypeContainer,
-		Image: "nginx", SecurityPreset: exerciseModel.SecurityPresetService,
+		Image: "nginx", SecurityPreset: exerciseModel.SecurityPresetStandard,
 		External: &exerciseModel.ExternalAccess{Port: 443, Protocol: "https"},
 	}
 	b, _, err := BuildLabSpec(exerciseModel.Topology{Devices: []exerciseModel.Device{dev}})
@@ -199,7 +199,7 @@ func TestBuildLabSpec_ExposureAndPreset(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := decode(t, b).Devices[0]
-	if d.SecurityPreset != "service" || d.Image != "nginx" {
+	if d.SecurityPreset != "standard" || d.Image != "nginx" {
 		t.Errorf("device meta wrong: %+v", d)
 	}
 	if d.Exposure == nil || d.Exposure.Web == nil || d.Exposure.Web.Port != 443 || d.Exposure.Web.Protocol != "https" {

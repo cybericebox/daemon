@@ -273,7 +273,7 @@ func catalog() []exerciseSpec {
 			Key: "web-basics", Name: NamePrefix + "Web Basics", Tags: []string{MarkerTag, "web"}, Group: "Web",
 			Description: "A single web server with a flag in its environment.",
 			Variants: []variantSpec{{
-				Devices: []deviceSpec{{Key: "web", Name: "web", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetService}},
+				Devices: []deviceSpec{{Key: "web", Name: "web", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard}},
 				Tasks: []taskSpec{{Key: "env", Name: "Server secrets", Difficulty: exerciseModel.DifficultyEasy, Flag: "ICE{seed_web_basics}", Device: "web", FlagVar: "FLAG",
 					Text:  []string{"Open the web server over the VPN. The flag sits in its environment."},
 					Hints: []hintSpec{hint(steps, "Find a way to list the server's environment.")}}},
@@ -285,7 +285,7 @@ func catalog() []exerciseSpec {
 			Variants: []variantSpec{{
 				Switch: true,
 				Devices: []deviceSpec{
-					{Key: "web", Name: "web", Image: imageWeb, Web: true, Persist: "5s", Host: 10, Preset: exerciseModel.SecurityPresetService},
+					{Key: "web", Name: "web", Image: imageWeb, Web: true, Persist: "5s", Host: 10, Preset: exerciseModel.SecurityPresetStandard},
 					{Key: "cache", Name: "cache", Image: imageStore, Host: 11},
 				},
 				Tasks: []taskSpec{
@@ -303,7 +303,7 @@ func catalog() []exerciseSpec {
 			Variants: []variantSpec{{
 				Switch: true, DHCP: true,
 				Devices: []deviceSpec{
-					{Key: "gw", Name: "gateway", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetService},
+					{Key: "gw", Name: "gateway", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard},
 					{Key: "echo", Name: "echo", Image: imageWhoami, Host: 11},
 					{Key: "client", Name: "client", Image: imageWeb2},
 				},
@@ -319,10 +319,10 @@ func catalog() []exerciseSpec {
 			Key: "variant-roulette", Name: NamePrefix + "Variant Roulette", Tags: []string{MarkerTag, "web", "crypto"}, Group: "Web",
 			Description: "Every team gets its own variant: another server, another flag.",
 			Variants: []variantSpec{
-				{Note: "nginx", Devices: []deviceSpec{{Key: "web", Name: "web", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetService}},
+				{Note: "nginx", Devices: []deviceSpec{{Key: "web", Name: "web", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard}},
 					Tasks: []taskSpec{{Key: "roll", Name: "Roll the dice", Difficulty: exerciseModel.DifficultyMedium, Flag: "ICE{seed_variant_nginx}", Device: "web", FlagVar: "FLAG",
 						Text: []string{"Your team has its own server."}, Hints: []hintSpec{hint(nudge, "Check the Server header.")}}}},
-				{Note: "httpd", Devices: []deviceSpec{{Key: "web", Name: "web", Image: imageWeb2, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetService}},
+				{Note: "httpd", Devices: []deviceSpec{{Key: "web", Name: "web", Image: imageWeb2, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard}},
 					Tasks: []taskSpec{{Key: "roll", Name: "Roll the dice", Difficulty: exerciseModel.DifficultyMedium, Flag: "ICE{seed_variant_httpd}", Device: "web", FlagVar: "FLAG",
 						Text: []string{"Your team has its own server."}, Hints: []hintSpec{hint(nudge, "Check the Server header.")}}}},
 			},
@@ -333,7 +333,7 @@ func catalog() []exerciseSpec {
 			Variants: []variantSpec{{
 				Switch: true,
 				Devices: []deviceSpec{
-					{Key: "box", Name: "box", Image: imageWeb, Web: true, Persist: "3s", Host: 10, Preset: exerciseModel.SecurityPresetService},
+					{Key: "box", Name: "box", Image: imageWeb, Web: true, Persist: "3s", Host: 10, Preset: exerciseModel.SecurityPresetStandard},
 					{Key: "store", Name: "store", Image: imageStore, Persist: "default", Host: 11},
 				},
 				Tasks: []taskSpec{
@@ -353,8 +353,8 @@ func catalog() []exerciseSpec {
 			Variants: []variantSpec{{
 				Switch: true,
 				Devices: []deviceSpec{
-					{Key: "a", Name: "alpha", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetService},
-					{Key: "b", Name: "bravo", Image: imageWeb2, Web: true, Host: 11, Preset: exerciseModel.SecurityPresetService},
+					{Key: "a", Name: "alpha", Image: imageWeb, Web: true, Host: 10, Preset: exerciseModel.SecurityPresetStandard},
+					{Key: "b", Name: "bravo", Image: imageWeb2, Web: true, Host: 11, Preset: exerciseModel.SecurityPresetStandard},
 					{Key: "c", Name: "charlie", Image: imageWhoami, Host: 12},
 				},
 				Tasks: []taskSpec{
