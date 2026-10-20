@@ -31,9 +31,6 @@ func (u *EventUseCase) UpdateEventScoringProfile(ctx context.Context, id uuid.UU
 		return EventScoringProfileView{}, model.ErrPlatform.WithError(err).WithMessage("Failed to get event").Err()
 	}
 	in.Profile = in.Profile.Normalized()
-	if err = in.Profile.ValidateFor(e.Lifecycle); err != nil {
-		return EventScoringProfileView{}, err
-	}
 	expected, now := e.UpdatedAt, time.Now()
 	if err = e.UpdateScoringProfile(in.Profile, in.ForceEventScoring, in.StaticPoints, by, now); err != nil {
 		return EventScoringProfileView{}, err

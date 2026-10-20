@@ -49,7 +49,7 @@ var (
 	ErrEventScoringProfileInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
 					WithMessage("Event scoring profile is invalid").WithDetailCode(9)
 	ErrEventStaticPointsInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
-					WithMessage("Static scoring needs positive points per task").WithDetailCode(33)
+					WithMessage("Static scoring needs points per task from 1 to 999").WithDetailCode(33)
 	// multi-site: platform and public names must both be nonempty.
 	ErrEventNameInvalid = err.ErrInvalidData.WithObjectCode(model.EventObjectCode).
 				WithMessage("Event name is required").WithDetailCode(14)

@@ -14,6 +14,10 @@ const (
 	ScoringTimeDecay
 )
 
+// MaxTaskPoints bounds newly authored per-task scores, never event totals or
+// the scoring of historical records loaded from the repository.
+const MaxTaskPoints int32 = 999
+
 // ScoringProfile describes one complete dynamic scoring configuration.
 // FloorAtPercent is the share of the fixed population at which the score
 // reaches MinPoints.
@@ -60,7 +64,7 @@ func (p ScoringProfile) ValidateFor(lifecycle Lifecycle) error {
 		return nil
 	}
 	if p.Mode < ScoringPopularityCurve || p.Mode > ScoringTimeDecay || p.MinPoints < 0 ||
-		p.MaxPoints <= p.MinPoints || p.FloorAtPercent < 1 || p.FloorAtPercent > 100 {
+		p.MaxPoints <= p.MinPoints || p.MaxPoints > MaxTaskPoints || p.FloorAtPercent < 1 || p.FloorAtPercent > 100 {
 		return ErrEventScoringProfileInvalid.Err()
 	}
 	if (p.Mode == ScoringPopularityCurve || p.Mode == ScoringFirstSolvesLadder) && lifecycle.JoinPolicy != JoinPolicyLockedAtStart {
