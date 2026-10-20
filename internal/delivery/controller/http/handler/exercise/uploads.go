@@ -148,6 +148,7 @@ func (h *Handler) uploadStatus(ctx *gin.Context) {
 // @Param    index     path  int     true  "chunk index, the next one in order"
 // @Success  200  {object}  response.Response{data=uploadResponse}
 // @Failure  409  {object}  response.Response
+// @Failure  503  {object}  response.Response  "the chunk broke off on the way; send it again"
 // @Router   /exercises/uploads/{uploadID}/chunks/{index} [put]
 func (h *Handler) putUploadChunk(ctx *gin.Context) {
 	id, ok := parseUploadID(ctx)
@@ -165,6 +166,8 @@ func (h *Handler) putUploadChunk(ctx *gin.Context) {
 	}
 	// A chunk is the one body that may be as large as the chunk limit; one byte over it is refused at the boundary.
 	middleware.LimitBody(ctx, h.useCase.UploadChunkBytes()+1)
+	// The server read timeout is sized for ordinary requests; a chunk of a slow link needs the time its size calls for.
+	middleware.ExtendUploadDeadlines(ctx, h.useCase.UploadChunkBytes())
 	upload, err := h.useCase.PutChunk(ctx, id, actor.UserID, index, ctx.Request.Body)
 	if err != nil {
 		var tooLarge *http.MaxBytesError

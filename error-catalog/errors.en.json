@@ -390,6 +390,7 @@
   "71007": "Chunk out of order",
   "71009": "Upload is not complete",
   "71012": "This upload is an image layer, not a file",
+  "71013": "The chunk did not arrive in full, send it again",
   "71103": "Event was modified concurrently",
   "71108": "Event runtime is not active",
   "71123": "Infrastructure challenges need a connected laboratory",
