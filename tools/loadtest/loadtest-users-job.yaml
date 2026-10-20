@@ -15,7 +15,7 @@
 #
 # The pod copies what the backend Deployment gives its container (infrastructure/cloud/ansible/roles/platform/templates/apps.yaml.j2):
 # backend-env and backend-secret, the database role from the CNPG secret, the database CA, the same non-root user, and the
-# cybericebox.io/data-access label that the NetworkPolicy needs to reach Postgres. If the Deployment changes, copy the change.
+# cybericebox.com/data-access label that the NetworkPolicy needs to reach Postgres. If the Deployment changes, copy the change.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -31,7 +31,7 @@ spec:
     metadata:
       labels:
         app: loadtest-users
-        cybericebox.io/data-access: "true"
+        cybericebox.com/data-access: "true"
     spec:
       restartPolicy: Never
       automountServiceAccountToken: false
