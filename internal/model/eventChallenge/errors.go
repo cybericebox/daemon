@@ -10,7 +10,7 @@ var (
 	ErrEventChallengeIdentityInvalid = err.ErrInvalidData.WithObjectCode(model.EventChallengeObjectCode).
 						WithMessage("Event exercise and task identifiers are required").WithDetailCode(1)
 	ErrEventChallengePointsInvalid = err.ErrInvalidData.WithObjectCode(model.EventChallengeObjectCode).
-					WithMessage("Event challenge points must be positive").WithDetailCode(2)
+					WithMessage("Event challenge points must be from 1 to 999").WithDetailCode(2)
 	ErrEventChallengeNotFound = err.ErrObjectNotFound.WithObjectCode(model.EventChallengeObjectCode).
 					WithMessage("Event challenge not found").WithDetailCode(3)
 	ErrEventChallengeOrderInvalid = err.ErrInvalidData.WithObjectCode(model.EventChallengeObjectCode).

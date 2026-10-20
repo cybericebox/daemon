@@ -2,6 +2,7 @@ package eventChallengeModel_test
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,20 @@ import (
 	eventChallengeModel "github.com/cybericebox/daemon/internal/model/eventChallenge"
 	exerciseModel "github.com/cybericebox/daemon/internal/model/exercise"
 )
+
+func TestSetPointsRange(t *testing.T) {
+	for _, points := range []int32{-1, 0, 1, 999, 1000, 2147483647} {
+		challenge := eventChallengeModel.EventChallenge{Points: 250}
+		err := challenge.SetPoints(points)
+		if points < 1 || points > 999 {
+			if !errors.Is(err, eventChallengeModel.ErrEventChallengePointsInvalid.Err()) || challenge.Points != 250 {
+				t.Errorf("points %d must be rejected without mutation: points=%d err=%v", points, challenge.Points, err)
+			}
+		} else if err != nil || challenge.Points != points {
+			t.Errorf("points %d must be accepted: points=%d err=%v", points, challenge.Points, err)
+		}
+	}
+}
 
 func TestNew_CopiesPublicTaskWithoutFlag(t *testing.T) {
 	challenge, err := eventChallengeModel.New(uuid.Must(uuid.NewV7()), exerciseModel.Task{ID: uuid.Must(uuid.NewV7()), Name: "Task", Difficulty: exerciseModel.DifficultyEasy, Flag: []string{"ICE{secret}"}}, 0, time.Now())
