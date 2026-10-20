@@ -2,9 +2,10 @@
 package participantPreviewModel
 
 import (
-	"crypto/subtle"
-	"github.com/gofrs/uuid"
 	"time"
+
+	"github.com/cybericebox/daemon/internal/model/challengeAttempt"
+	"github.com/gofrs/uuid"
 )
 
 const SettingKey = "participant_preview_exercises"
@@ -30,7 +31,7 @@ func NewRun(event, user, selection uuid.UUID, now time.Time) Run {
 }
 func (r *Run) Check(task uuid.UUID, flag string, now time.Time) (bool, bool) {
 	expected, ok := r.Flags[task.String()]
-	if !ok || !r.ExpiresAt.After(now) || subtle.ConstantTimeCompare([]byte(expected), []byte(flag)) != 1 {
+	if !ok || !r.ExpiresAt.After(now) || !challengeAttempt.FlagMatches(expected, flag) {
 		return false, false
 	}
 	return true, r.MarkSolved(task, now)
