@@ -416,11 +416,13 @@ type persistenceDTO struct {
 }
 
 type deviceDTO struct {
-	ID             *uuid.UUID `json:"ID,omitempty"`
-	Name           string     `json:"Name"`
-	Type           string     `json:"Type"`
-	Image          string     `json:"Image,omitempty"`
-	SecurityPreset string     `json:"SecurityPreset,omitempty"`
+	ID    *uuid.UUID `json:"ID,omitempty"`
+	Name  string     `json:"Name"`
+	Type  string     `json:"Type"`
+	Image string     `json:"Image,omitempty"`
+	// SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,
+	// NET_ADMIN and /dev/net/tun). Any other value is refused.
+	SecurityPreset string `json:"SecurityPreset,omitempty"`
 	// ResourcePreset is a platform preset id (a whole number of blocks, see the capabilities Resources); when empty
 	// the device gets the default preset. There is no custom size.
 	ResourcePreset string `json:"ResourcePreset,omitempty"`

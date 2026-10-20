@@ -31,7 +31,7 @@ func mustDecodeV2(t *testing.T, payload string) archiveDocV2 {
 }
 
 func TestDecodeArchiveV2_MapsEveryEnumByName(t *testing.T) {
-	doc := mustDecodeV2(t, v2Header+`"exercise":{"name":"Sample"},"versions":[{"status":"published","variants":[{"tasks":[{"name":"t","difficulty":"hard","hints":[{"text":"h","level":"steps"}]}],"topology":{"devices":[{"name":"web","type":"container","security_preset":"net","interfaces":[{"name":"eth0","ip":{"type":"static","addresses":["10.0.0.2/24"]}}]}],"connections":[{"endpoints":[{"kind":"vpn"},{"kind":"device","device":"web","interface":"eth0"}]}]}}]}]}`)
+	doc := mustDecodeV2(t, v2Header+`"exercise":{"name":"Sample"},"versions":[{"status":"published","variants":[{"tasks":[{"name":"t","difficulty":"hard","hints":[{"text":"h","level":"steps"}]}],"topology":{"devices":[{"name":"web","type":"container","security_preset":"extended","interfaces":[{"name":"eth0","ip":{"type":"static","addresses":["10.0.0.2/24"]}}]}],"connections":[{"endpoints":[{"kind":"vpn"},{"kind":"device","device":"web","interface":"eth0"}]}]}}]}]}`)
 	parsed, err := doc.toParsed(nil)
 	if err != nil {
 		t.Fatalf("toParsed: %v", err)
@@ -47,7 +47,7 @@ func TestDecodeArchiveV2_MapsEveryEnumByName(t *testing.T) {
 		{"difficulty", string(variant.Tasks[0].Difficulty), string(exerciseModel.DifficultyHard)},
 		{"hint level", string(variant.Tasks[0].Hints[0].Level), string(exerciseModel.HintLevelSteps)},
 		{"device type", string(device.Type), string(exerciseModel.DeviceTypeContainer)},
-		{"security preset", string(device.SecurityPreset), string(exerciseModel.SecurityPresetNet)},
+		{"security preset", string(device.SecurityPreset), string(exerciseModel.SecurityPresetExtended)},
 		{"ip type", string(device.Interfaces[0].IP.Type), string(exerciseModel.IPConfigTypeStatic)},
 		{"endpoint kind", string(variant.Topology.Connections[0].Endpoints[0].Kind), string(exerciseModel.EndpointVPN)},
 	}
@@ -359,6 +359,20 @@ func TestToParsed_UnknownEnumNamesRejected(t *testing.T) {
 		}
 		if reason := publicContext(t, err)["reason"].(string); !strings.Contains(reason, field) || !strings.Contains(reason, "bogus") && field != "status" {
 			t.Errorf("%s: reason %q does not name the field", field, reason)
+		}
+	}
+}
+
+// The retired preset names are no longer accepted by an import.
+func TestToParsed_RetiredSecurityPresetsRejected(t *testing.T) {
+	for _, old := range []string{"basic", "service", "net", "debug"} {
+		doc := `"versions":[{"status":"draft","variants":[{"topology":{"devices":[{"name":"d","type":"container","security_preset":"` + old + `"}]}}]}]`
+		parsed, err := decodeArchiveV2([]byte(v2Header + `"exercise":{"name":"x"},` + doc + `}`))
+		if err == nil {
+			_, err = parsed.toParsed(nil)
+		}
+		if !errors.Is(err, exerciseModel.ErrArchiveInvalid.Err()) {
+			t.Errorf("%s: err = %v, want ErrArchiveInvalid", old, err)
 		}
 	}
 }

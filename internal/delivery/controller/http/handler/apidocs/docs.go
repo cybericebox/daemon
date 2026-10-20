@@ -34013,6 +34013,7 @@ const docTemplate = `{
                     ]
                 },
                 "SecurityPreset": {
+                    "description": "SecurityPreset is the device security profile: standard (the default when empty) or extended (raw sockets,\nNET_ADMIN and /dev/net/tun). Any other value is refused.",
                     "type": "string"
                 },
                 "Type": {

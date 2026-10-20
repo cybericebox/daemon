@@ -314,7 +314,7 @@ func TestExampleArchive_ListsAllEnumValues(t *testing.T) {
 		"versions.variants.tasks.placeholders.kind":                            {"vpn.subnet", "internet.subnet", "ip", "external.link"},
 		"versions.variants.tasks.placeholders.ip_reference":                    {"vpn", "internet", "static"},
 		"versions.variants.topology.devices.type":                              {"container", "unmanaged-switch", "hub"},
-		"versions.variants.topology.devices.security_preset":                   {"basic", "service", "net", "debug"},
+		"versions.variants.topology.devices.security_preset":                   {"standard", "extended"},
 		"versions.variants.topology.devices.interfaces.ip.type":                {"static", "dhcp", "dhcp-preset", "none"},
 		"versions.variants.topology.devices.interfaces.ip.address_ref.network": {"vpn", "internet"},
 		"versions.variants.topology.connections.endpoints.kind":                {"device", "vpn", "internet"},

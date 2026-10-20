@@ -65,15 +65,13 @@ func (t IPConfigType) Valid() bool {
 type SecurityPreset string
 
 const (
-	SecurityPresetBasic   SecurityPreset = "basic"   // no extra caps (a plain service)
-	SecurityPresetService SecurityPreset = "service" // bind privileged ports
-	SecurityPresetNet     SecurityPreset = "net"     // networking/testing tools
-	SecurityPresetDebug   SecurityPreset = "debug"   // net + broad debugging
+	SecurityPresetStandard SecurityPreset = "standard" // web, API, databases, SSH, cracking, forensics, gdb and strace
+	SecurityPresetExtended SecurityPreset = "extended" // standard plus raw sockets, NET_ADMIN and /dev/net/tun
 )
 
 func (p SecurityPreset) Valid() bool {
 	switch p {
-	case SecurityPresetBasic, SecurityPresetService, SecurityPresetNet, SecurityPresetDebug:
+	case SecurityPresetStandard, SecurityPresetExtended:
 		return true
 	}
 	return false
@@ -119,7 +117,7 @@ type (
 		Name           string         `json:"name"` // logical lab name; DNS label
 		Type           DeviceType     `json:"type"`
 		Image          string         `json:"image,omitempty"`
-		SecurityPreset SecurityPreset `json:"security_preset,omitempty"` // empty = basic
+		SecurityPreset SecurityPreset `json:"security_preset,omitempty"` // empty = standard
 		// ResourcePreset is a platform preset id (micro, small, medium, large); when empty the device
 		// carries its own custom Resources, and with neither it gets the default preset. Requests always
 		// equal limits at the agent.
