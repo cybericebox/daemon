@@ -20,3 +20,14 @@ func TestResourceRequestsLinkToTheAdminResourcesPage(t *testing.T) {
 		}
 	}
 }
+
+// A granted role opens the event's staff pages; the other grant notices have no staff page to open.
+func TestManagerAssignedLinksToTheStaffPages(t *testing.T) {
+	for _, lang := range []Lang{UK, EN} {
+		for _, tpl := range All(lang) {
+			if tpl.Type == "event.manager.assigned" && tpl.Link != "{{.event_url}}manage/" {
+				t.Errorf("%s: link %q", lang, tpl.Link)
+			}
+		}
+	}
+}

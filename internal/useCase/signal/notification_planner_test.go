@@ -123,7 +123,7 @@ func TestNotificationPlanner_FillsRecipientProfileIntoReadyPayload(t *testing.T)
 
 func TestNotificationPlannerSendsManagerAssignmentToAssignee(t *testing.T) {
 	eventID, assigneeID := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
-	raw, err := json.Marshal(signalModel.EventManagerPayload{ScopeEventID: eventID, SubjectUserID: assigneeID, EventName: "Spring CTF", ManagerRole: "observer", RoleName: "спостерігачем"})
+	raw, err := json.Marshal(signalModel.EventManagerPayload{ScopeEventID: eventID, SubjectUserID: assigneeID, EventTag: "spring", EventName: "Spring CTF", ManagerRole: "observer", RoleName: "спостерігачем"})
 	require.NoError(t, err)
 	dispatch := &plannerDispatch{}
 	planner := NewNotificationPlanner(plannerQueries{
@@ -136,6 +136,13 @@ func TestNotificationPlannerSendsManagerAssignmentToAssignee(t *testing.T) {
 	vars, err := dispatch.payload.Marshal()
 	require.NoError(t, err)
 	require.Contains(t, string(vars), `"role_name":"спостерігачем"`)
+	// The in-app link {{.event_url}}manage/ needs the event site root of the assignment.
+	SetEventSiteDomain("events.example.test")
+	t.Cleanup(func() { SetEventSiteDomain("") })
+	require.NoError(t, planner.Handle(context.Background(), signalModel.Signal{Type: signalModel.TypeEventManagerAssigned, Payload: raw}))
+	vars, err = dispatch.payload.Marshal()
+	require.NoError(t, err)
+	require.Contains(t, string(vars), `"event_url":"https://spring.events.example.test/"`)
 }
 
 // The inheritance itself (Event override over platform default) is resolved in
