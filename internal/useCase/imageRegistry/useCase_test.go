@@ -43,10 +43,15 @@ type fakeRegistry struct {
 	allow map[string]bool
 	// gone answers 404 for a request path ending in one of these (a blob lost from the registry).
 	gone map[string]bool
+	// immutable refuses a manifest PUT under a tag that already exists with 403 DENIED, as a Docker Hub repository
+	// with immutable tags does; puts counts the manifest PUTs and tags remembers the tags that exist.
+	immutable bool
+	puts      int
+	tags      map[string]bool
 }
 
 func newFakeRegistry(t *testing.T) *fakeRegistry {
-	f := &fakeRegistry{allow: map[string]bool{pushToken: true, pullToken: true}, gone: map[string]bool{}}
+	f := &fakeRegistry{allow: map[string]bool{pushToken: true, pullToken: true}, gone: map[string]bool{}, tags: map[string]bool{}}
 	inner := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
@@ -61,6 +66,16 @@ func newFakeRegistry(t *testing.T) *fakeRegistry {
 			return
 		}
 		f.mu.Lock()
+		if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/manifests/") {
+			f.puts++
+			if f.immutable && f.tags[r.URL.Path] {
+				f.mu.Unlock()
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"errors":[{"code":"DENIED","message":"The tag cannot be updated due to immutability settings"}]}`))
+				return
+			}
+			f.tags[r.URL.Path] = true
+		}
 		gone := false
 		for suffix := range f.gone {
 			gone = gone || strings.HasSuffix(r.URL.Path, suffix)
@@ -74,6 +89,12 @@ func newFakeRegistry(t *testing.T) *fakeRegistry {
 	}))
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+func (f *fakeRegistry) putCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.puts
 }
 
 func (f *fakeRegistry) passwords() []string {
