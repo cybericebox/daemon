@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
 	"testing"
 	"time"
 
@@ -353,5 +354,44 @@ func TestCompleteUpload_PromoteSurvivesACancelledClient(t *testing.T) {
 	}
 	if string(st.objects[mediaModel.BlobKey(hexSum)]) != string(payload) {
 		t.Fatal("the blob must be promoted")
+	}
+}
+
+// brokenBody is a request body whose connection fails after some bytes (the server read timeout, a dropped link).
+type brokenBody struct {
+	data []byte
+	err  error
+}
+
+func (b *brokenBody) Read(p []byte) (int, error) {
+	if len(b.data) == 0 {
+		return 0, b.err
+	}
+	n := copy(p, b.data)
+	b.data = b.data[n:]
+	return n, nil
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+func TestPutChunk_ABodyThatBreaksIsRetryableNotAWrongSize(t *testing.T) {
+	for name, cause := range map[string]error{"read timeout": timeoutError{}, "dropped connection": io.ErrUnexpectedEOF} {
+		uc, q, st := uploadUC(t)
+		id, owner := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+		q.EXPECT().GetMediaUpload(gomock.Any(), id).Return(row(id, owner, 10, 1), nil)
+		_, err := uc.PutChunk(context.Background(), id, owner, 1, &brokenBody{data: []byte("ab"), err: cause})
+		if !errors.Is(err, mediaModel.ErrUploadChunkInterrupted.Err()) {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if mediaModel.ErrUploadChunkInterrupted.Err().StatusCode().HTTPCode() != http.StatusServiceUnavailable {
+			t.Fatalf("%s: the client retries only 429 and 5xx", name)
+		}
+		if len(st.objects) != 0 {
+			t.Fatalf("%s: a broken chunk must not stay stored: %d objects", name, len(st.objects))
+		}
 	}
 }

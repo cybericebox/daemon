@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -23,6 +24,22 @@ import (
 const maxUploadNameBytes = 255
 
 // StartUpload opens a resumable chunked upload of a file of the given size. The chunks go to PutChunk in order;
+// failureReader remembers how its source failed: a read error other than the end of the body, or a body that is
+// larger than the limit set at the HTTP boundary (that one is reported as a wrong size, not as a broken link).
+type failureReader struct {
+	r   io.Reader
+	err error
+}
+
+func (f *failureReader) Read(p []byte) (int, error) {
+	n, err := f.r.Read(p)
+	var tooLarge *http.MaxBytesError
+	if err != nil && !errors.Is(err, io.EOF) && !errors.As(err, &tooLarge) && f.err == nil {
+		f.err = err
+	}
+	return n, err
+}
+
 // CompleteUpload assembles them. The purpose sets the size limit: the media file limit for a file, an image
 // archive's (imageRegistryModel.MaxImageArchiveBytes) for an image blob, the archive limit in force plus one image
 // archive for a task archive.
@@ -90,9 +107,15 @@ func (u *MediaUseCase) PutChunk(ctx context.Context, id, owner uuid.UUID, index 
 	}
 	want := upload.ChunkSize(index)
 	key := mediaModel.ChunkKey(id, index)
-	counter := &countingReader{r: io.LimitReader(r, want)}
+	body := &failureReader{r: r}
+	counter := &countingReader{r: io.LimitReader(body, want)}
 	if err = u.storage.Put(ctx, key, counter, want, "application/octet-stream"); err != nil || counter.n != want {
 		_ = u.storage.Remove(ctx, key)
+		// A body that broke off (read timeout, dropped link) is retried by the client; only a body that ended
+		// cleanly at another size is a wrong size.
+		if body.err != nil {
+			return mediaModel.Upload{}, mediaModel.ErrUploadChunkInterrupted.WithDetail("cause", body.err.Error()).Err()
+		}
 		if err == nil || errors.Is(err, io.ErrUnexpectedEOF) || counter.n != want {
 			return mediaModel.Upload{}, mediaModel.ErrUploadChunkSize.Err()
 		}

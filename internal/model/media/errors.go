@@ -1,12 +1,14 @@
 package mediaModel
 
 import (
+	"net/http"
+
 	"github.com/cybericebox/daemon/pkg/err"
 
 	"github.com/cybericebox/daemon/internal/model"
 )
 
-// MediaObjectCode — next free detail code: 13
+// MediaObjectCode — next free detail code: 14
 var (
 	// multi-site (category A): the media use case (no such file row) and the
 	// email template image route (a file that is not a template image) — the
@@ -53,4 +55,10 @@ var (
 	// ErrUploadNotAFile: an image-blob upload is pushed to the image registry, never completed into a media file.
 	ErrUploadNotAFile = err.ErrConflict.WithObjectCode(model.MediaObjectCode).
 				WithMessage("This upload is an image layer, not a file").WithDetailCode(12)
+	// ErrUploadChunkInterrupted: the chunk's body broke off on the way (the server read timeout, a dropped or slow
+	// link), HTTP 503 so the client sends the same chunk again; it is not a wrong size.
+	//nolint:gochecknoglobals,mnd // the error registry: one var per code, parsed by tools/errorcatalog
+	ErrUploadChunkInterrupted = err.ErrConflict.WithObjectCode(model.MediaObjectCode).
+					WithMessage("The chunk did not arrive in full, send it again").WithDetailCode(13).
+					WithHTTPCode(http.StatusServiceUnavailable)
 )
