@@ -996,6 +996,41 @@ func (u *EventUseCase) EndPreviewRuns(ctx context.Context, event, user uuid.UUID
 	return tx.Save()
 }
 
+// StopOwnTestLab ends one of the caller's own test labs (a studio test lab or a preview lab) from the event site, so
+// a user at the test-lab cap can free a place deliberately; the preview runs of this event that used it are dropped.
+func (u *EventUseCase) StopOwnTestLab(ctx context.Context, event, user, deployID uuid.UUID) error {
+	if err := u.RequireManageEvent(ctx, event, user); err != nil {
+		return err
+	}
+	txCtx, repo, tx, err := u.uow.UnitOfWork(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Restore()
+	store := participantPreviewRepo.New(repo)
+	if err = store.Lock(txCtx, event, user); err != nil {
+		return previewFailure(err)
+	}
+	if u.previewLabs == nil {
+		return infraUnavailable()
+	}
+	if err = u.previewLabs.DestroyDeployTest(txCtx, user, deployID); err != nil {
+		return err
+	}
+	runs, err := store.List(txCtx, event, user)
+	if err != nil {
+		return previewFailure(err)
+	}
+	for _, run := range runs {
+		if run.DeployID.Valid && run.DeployID.UUID == deployID {
+			if err = store.Delete(txCtx, event, user, run.SelectionID); err != nil {
+				return previewFailure(err)
+			}
+		}
+	}
+	return tx.Save()
+}
+
 func previewVariantPosition(version exerciseModel.ExerciseVersion, id uuid.UUID) int {
 	for i, variant := range version.Variants {
 		if variant.ID == id {

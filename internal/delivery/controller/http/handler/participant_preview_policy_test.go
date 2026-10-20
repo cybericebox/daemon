@@ -33,7 +33,7 @@ func TestParticipantPreviewRoutesKeepEventAndPlatformPermissionsSeparate(t *test
 	if global != 3 {
 		t.Fatalf("global routes %d want 3", global)
 	}
-	if count != 14 {
-		t.Fatalf("preview event routes %d want 14", count)
+	if count != 15 {
+		t.Fatalf("preview event routes %d want 15", count)
 	}
 }

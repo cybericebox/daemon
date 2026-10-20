@@ -234,6 +234,7 @@ PUT    /api/events/:id/manage/participant-form | gate: self | layers: event.requ
 GET    /api/events/:id/manage/participant-form/answers | gate: self | layers: event.requireRead
 GET    /api/events/:id/manage/participant-preview/board | gate: self | layers: event.requireManage
 GET    /api/events/:id/manage/participant-preview/catalog | gate: self | layers: event.requireManage
+DELETE /api/events/:id/manage/participant-preview/labs/:deployID | gate: self | layers: event.requireManage
 DELETE /api/events/:id/manage/participant-preview/runs | gate: self | layers: event.requirePreviewCleanup
 GET    /api/events/:id/manage/participant-preview/selections/:selectionID/lab | gate: self | layers: event.requireManage
 POST   /api/events/:id/manage/participant-preview/selections/:selectionID/proxy | gate: self | layers: event.requireManage

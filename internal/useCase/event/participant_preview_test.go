@@ -699,3 +699,18 @@ func TestPreviewRunFollowsTheTestLeaseMovedLater(t *testing.T) {
 		t.Fatalf("a running lab must not end at the row's earlier end: %v, ends %d", err, f.labs.ends)
 	}
 }
+
+// From the cap error the user stops one of their own labs on purpose: the lab ends and the preview runs of this
+// event that used it are dropped.
+func TestStopOwnTestLabEndsItAndDropsItsPreviewRuns(t *testing.T) {
+	f := newPreviewFixture(t, true)
+	ctx := context.Background()
+	if _, err := f.uc.StartPreviewRun(ctx, f.event, f.user, f.selection, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.q.EXPECT().ListEventPreviewRuns(gomock.Any(), postgres.ListEventPreviewRunsParams{EventID: f.event, UserID: f.user}).Return([]postgres.EventPreviewRun{*f.row}, nil)
+	f.q.EXPECT().DeleteEventPreviewRun(gomock.Any(), postgres.DeleteEventPreviewRunParams{EventID: f.event, UserID: f.user, SelectionID: f.selection}).Return(nil)
+	if err := f.uc.StopOwnTestLab(ctx, f.event, f.user, f.labs.deploy); err != nil || f.labs.ends != 1 {
+		t.Fatalf("stop %v, ends %d", err, f.labs.ends)
+	}
+}

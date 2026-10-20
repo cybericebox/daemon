@@ -267,8 +267,8 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 	if err != nil {
 		return exerciseModel.DeployHandle{}, err
 	}
-	if u.activeCount(listed, u.timeNow()) >= u.MaxActiveTestDeploys() {
-		return exerciseModel.DeployHandle{}, exerciseModel.ErrTestDeployActiveExists.Err()
+	if running := u.activeLabs(listed, u.timeNow()); len(running) >= u.MaxActiveTestDeploys() {
+		return exerciseModel.DeployHandle{}, u.labLimitError(ctx, running)
 	}
 
 	if err := variant.ValidateTopologyForDeploy(); err != nil {
@@ -326,7 +326,7 @@ func (u *ExerciseUseCase) deployVariantTest(ctx context.Context, eventID *uuid.U
 		// sweep drop it, never this request (asking the agent per row made the request slow).
 		allActive := u.activeLabs(existing, now)
 		if len(allActive) >= u.MaxActiveTestDeploys() {
-			return false, exerciseModel.ErrTestDeployActiveExists.Err()
+			return false, u.labLimitError(ctx, allActive)
 		}
 		existing = sameTestGroup(existing, deploy.GroupName)
 		active := u.activeLabs(existing, now)
@@ -413,8 +413,8 @@ func (u *ExerciseUseCase) deployStaticTest(ctx context.Context, ownerID, version
 		if err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
 		}
-		if u.activeCount(existing, now) >= u.MaxActiveTestDeploys() {
-			return false, exerciseModel.ErrTestDeployActiveExists.Err()
+		if running := u.activeLabs(existing, now); len(running) >= u.MaxActiveTestDeploys() {
+			return false, u.labLimitError(ctx, running)
 		}
 		if _, err = repo.Create(ctx, deploy); err != nil {
 			return false, model.ErrPlatform.WithError(err).WithMessage("Failed to reserve test deploy").Err()
@@ -473,15 +473,21 @@ func testLabMeta(deploy exerciseModel.TestDeploy) infraModel.LabMeta {
 	return meta
 }
 
-// activeCount is how many of the author's test labs still have a running lease.
-func (u *ExerciseUseCase) activeCount(items []exerciseModel.TestDeploy, now time.Time) int {
-	n := 0
-	for _, item := range items {
-		if !testDeployExpired(item, now) {
-			n++
+// labLimitError refuses a new test lab at the user's cap and names the labs that hold it (studio test labs and
+// participant-mode previews alike), so the user can stop one: nothing running is ever replaced or removed for it.
+func (u *ExerciseUseCase) labLimitError(ctx context.Context, running []exerciseModel.TestDeploy) error {
+	labs := make([]map[string]any, 0, len(running))
+	for _, deploy := range running {
+		lab := map[string]any{"ID": deploy.ID.String(), "Name": "", "ExpiresAt": deploy.ExpiresAt}
+		if deploy.VersionID != uuid.Nil {
+			lab["Name"] = u.deployExerciseName(ctx, deploy)
 		}
+		if deploy.EventID != nil {
+			lab["EventID"] = deploy.EventID.String()
+		}
+		labs = append(labs, lab)
 	}
-	return n
+	return exerciseModel.ErrTestDeployActiveExists.WithPublicContext("running", labs).Err()
 }
 
 // testDeployExpired says the lease is over (a deploy without an expiry never is).
