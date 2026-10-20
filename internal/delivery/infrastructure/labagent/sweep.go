@@ -17,6 +17,7 @@ import (
 // a kind it owns. Groups without the instance label (another platform on the same cluster, or made by
 // hand) never match. The agent adds the tenant of the client certificate on its own side, so a
 // listing never reaches another tenant's groups whatever the selector says.
+// Groups created under the former cybericebox.io keys are not listed (the labs are restarted at the switch).
 func (c *Client) sweepSelector() string {
 	return fmt.Sprintf("%s=%s,%s in (%s,%s)", infraModel.LabelInstance, c.instance,
 		infraModel.LabelKind, infraModel.KindStand, infraModel.KindTest)

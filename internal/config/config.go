@@ -129,7 +129,7 @@ type (
 		// trusted certificate). Needed for self-signed development stands only.
 		CAFile string `env:"CA_FILE"`
 		// InstanceID is the immutable platform-instance label put on every object this daemon
-		// creates in the infrastructure (cybericebox.io/instance); its Monitoring subscription
+		// creates in the infrastructure (platform/instance); its Monitoring subscription
 		// selects by it, so two platform instances can share one cluster. Never change it for a
 		// running deployment.
 		InstanceID string `env:"INSTANCE_ID" envDefault:"cybericebox"`
