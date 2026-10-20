@@ -41,21 +41,37 @@ func archiveFileMissing(file string) error {
 	return exerciseModel.ErrArchiveFileMissing.WithPublicContext("file", file).Err()
 }
 
-// isArchiveLitter is what macOS adds to a zip on its own: resource forks under __MACOSX/ and .DS_Store.
+// archiveLitterFiles are the files the operating systems add to a folder on their own: .DS_Store (macOS), Thumbs.db and
+// desktop.ini (Windows). They are ignored in any folder, whatever the case of the name.
+var archiveLitterFiles = []string{".DS_Store", "Thumbs.db", "desktop.ini"}
+
+// isArchiveLitter is what an operating system adds to a zip on its own: resource forks under __MACOSX/ (macOS)
+// and the service files of archiveLitterFiles.
 func isArchiveLitter(name string) bool {
 	first, _, _ := strings.Cut(name, "/")
-	return first == "__MACOSX" || path.Base(name) == ".DS_Store"
+	if first == "__MACOSX" {
+		return true
+	}
+	base := path.Base(name)
+	for _, litter := range archiveLitterFiles {
+		if strings.EqualFold(base, litter) {
+			return true
+		}
+	}
+	return false
 }
 
 // checkArchiveEntry decides on one zip entry before it is read: a symlink or an unsafe path is refused, a
 // directory entry is skipped (only files are kept). The root manifest.json is the one name safeArchivePath
 // refuses that an archive may hold. The name is returned in NFC (macOS writes NFD): two entries that are the
-// same name once normalized are refused, as is any repeated entry.
+// same name once normalized are refused, as is any repeated entry. A backslash in an entry name is a separator
+// (some Windows tools write it that way): the name is read with it as a slash, and every path check, the
+// drive letter and the duplicate check included, runs on that form.
 func checkArchiveEntry(raw string, mode fs.FileMode, seen map[string][]byte) (name string, skip bool, err error) {
 	if mode&fs.ModeSymlink != 0 {
 		return "", false, archivePathInvalid(raw, "symlink")
 	}
-	name = norm.NFC.String(raw)
+	name = norm.NFC.String(strings.ReplaceAll(raw, "\\", "/"))
 	if dir, ok := strings.CutSuffix(name, "/"); ok && mode.IsDir() && safeArchivePath(dir) {
 		return "", true, nil
 	}
